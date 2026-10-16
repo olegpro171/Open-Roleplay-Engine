@@ -4,11 +4,15 @@ import staticFiles from '@fastify/static';
 import { z, ZodError } from 'zod';
 import { existsSync } from 'node:fs';
 import type { ServerOptions } from 'node:https';
+import { importCharacter, importPersonas, exportCharacter, exportPersona } from '../core/cards.js';
+import { defaultPrompt, libraryCommandSchema, selectionsSchema, replaceHistorySchema } from '../shared/library.js';
+import { readCardFile } from './card-import.js';
 import { AppError } from '../core/errors.js';
 import { assembleRequest } from '../core/prompt.js';
 import { Store } from '../persistence/store.js';
-import { OpenAICompatibleProvider, type Provider } from '../provider/openai.js';
-import { editSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema } from '../shared/contracts.js';
+import { fetchModels, OpenAICompatibleProvider, type Provider } from '../provider/openai.js';
+import { connectionSchema, editSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema } from '../shared/contracts.js';
+import { trimBoundaryNewlines } from '../shared/text.js';
 import { Auth, sessionSeconds } from './auth.js';
 import { GenerationCoordinator } from './coordinator.js';
 
@@ -71,52 +75,110 @@ export async function createApp(options: {
     return { ok: true };
   });
 
-  app.get('/api/chat', async () => store.snapshot());
-  app.put('/api/settings', async (request) => {
-    const input = saveSettingsSchema.parse(request.body);
-    store.saveSettings(input.revision, input.connection, input.settings, input.apiKey);
-    coordinator.changed();
-    return store.snapshot();
+  const identity = z.string().min(1).max(100);
+  const chatId = (params: unknown) => z.object({ chatId: identity.optional() }).parse(params ?? {}).chatId ?? 'main';
+  app.post('/api/models', async request => {
+    const input = z.object({ endpoint: connectionSchema.shape.endpoint, connectionId: identity.optional(), apiKey: saveSettingsSchema.shape.apiKey }).strict().parse(request.body);
+    const savedKey = input.connectionId ? store.connectionApiKey(input.connectionId) : '';
+    return { models: await fetchModels(input.endpoint, input.apiKey ?? savedKey) };
   });
-  app.post('/api/preview', async (request) => {
-    const input = z.object({ revision: revisionSchema, text: z.string().max(100_000).optional() }).strict().parse(request.body);
-    const snapshot = store.snapshot();
-    if (snapshot.revision !== input.revision) throw new AppError(409, 'revision_conflict', 'The chat changed. Refresh the preview.');
-    if (!snapshot.connection) throw new AppError(422, 'connection_required', 'Save a Connection first.');
-    const turns = [...snapshot.turns];
-    if (input.text !== undefined && input.text !== '') {
-      if (turns.at(-1)?.complete === false) throw new AppError(409, 'pending_turn', 'Resolve the pending turn before previewing a new one.');
-      turns.push({ id: 'draft', position: (turns.at(-1)?.position ?? 0) + 1, complete: false, user: { id: 'draft-user', revision: 0, text: input.text }, assistant: { id: 'draft-assistant', revision: 0, text: '' } });
-    }
-    return assembleRequest(snapshot.connection, snapshot.settings, turns);
+  app.get('/api/library', async () => store.libraries());
+  app.post('/api/library', { bodyLimit: 3_000_000 }, async request => {
+    const input = libraryCommandSchema.parse(request.body);
+    const id = store.saveLibrary(input.revision, input.kind, input.data, undefined, input.kind === 'connections' ? input.apiKey : undefined);
+    coordinator.changed(); return { id };
   });
-  app.post('/api/turns', async (request, reply) => {
-    const input = submissionSchema.parse(request.body);
-    return reply.code(202).send(coordinator.start(input.revision, input.requestId, input.text));
+  app.put('/api/library/:id', { bodyLimit: 3_000_000 }, async request => {
+    const { id } = z.object({ id: identity }).parse(request.params);
+    const input = libraryCommandSchema.parse(request.body);
+    store.saveLibrary(input.revision, input.kind, input.data, id, input.kind === 'connections' ? input.apiKey : undefined);
+    coordinator.changed(); return { id };
   });
-  app.post('/api/retry', async (request, reply) => {
-    const input = retrySchema.parse(request.body);
-    return reply.code(202).send(coordinator.start(input.revision, input.requestId));
+  app.delete('/api/library/:id', async request => {
+    const { id } = z.object({ id: identity }).parse(request.params);
+    const input = z.object({ revision: revisionSchema, kind: z.enum(['personas', 'characters', 'prompts', 'connections']) }).strict().parse(request.body);
+    store.deleteLibrary(input.revision, input.kind, id); coordinator.changed(); return { ok: true };
   });
-  app.post('/api/generations/:id/cancel', async (request) => {
+  app.post('/api/library/default/restore', async request => {
+    const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
+    store.saveLibrary(revision, 'prompts', defaultPrompt, 'default'); coordinator.changed(); return { ok: true };
+  });
+  app.post('/api/library/import', { bodyLimit: 3_000_000 }, async request => {
+    const input = z.object({ revision: revisionSchema, kind: z.enum(['personas', 'characters']), base64: z.string().max(2_700_000) }).strict().parse(request.body);
+    const value = readCardFile(input.base64);
+    let items;
+    try { items = input.kind === 'characters' ? [importCharacter(value)] : importPersonas(value); }
+    catch (error) { if (error instanceof ZodError) throw error; throw new AppError(400, 'invalid_card', error instanceof Error ? error.message : 'Invalid card.'); }
+    const ids = store.importLibrary(input.revision, input.kind, items); coordinator.changed(); return { ids };
+  });
+  app.get('/api/library/:kind/:id/export', async request => {
+    const { kind, id } = z.object({ kind: z.enum(['personas', 'characters', 'prompts']), id: identity }).parse(request.params);
+    const item = store.libraries()[kind].find(item => item.id === id);
+    if (!item) throw new AppError(404, 'item_not_found', 'Library item not found.');
+    const { id: _id, revision: _revision, ...data } = item;
+    if (kind === 'characters') return exportCharacter(data as Parameters<typeof exportCharacter>[0]);
+    if (kind === 'personas') return exportPersona(data as Parameters<typeof exportPersona>[0]);
+    return data;
+  });
+  app.post('/api/chats', async request => {
+    const input = selectionsSchema.parse(request.body);
+    const id = store.createChat(input); coordinator.changed(); return { id };
+  });
+  app.put('/api/chats/:chatId/selections', async request => {
+    const input = z.object({ revision: revisionSchema, settings: selectionsSchema }).strict().parse(request.body);
+    store.updateChat(input.revision, chatId(request.params), input.settings); coordinator.changed(); return store.snapshot(chatId(request.params));
+  });
+  app.delete('/api/chats/:chatId', async request => {
+    const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
+    store.deleteChat(revision, chatId(request.params)); coordinator.changed(); return { ok: true };
+  });
+  app.put('/api/chats/:chatId/history', { bodyLimit: 25_000_000 }, async request => {
+    const input = replaceHistorySchema.parse(request.body);
+    store.replaceHistory(input.revision, chatId(request.params), input.turns); coordinator.changed(); return { ok: true };
+  });
+  for (const prefix of ['/api', '/api/chats/:chatId']) {
+    app.get(prefix + (prefix === '/api' ? '/chat' : ''), async request => store.snapshot(chatId(request.params)));
+    app.put(prefix + '/settings', async request => {
+      const input = saveSettingsSchema.parse(request.body);
+      store.saveSettings(input.revision, input.connection, input.settings, input.apiKey, chatId(request.params));
+      coordinator.changed(); return store.snapshot(chatId(request.params));
+    });
+    app.post(prefix + '/preview', async request => {
+      const input = z.object({ revision: revisionSchema, text: z.string().max(100_000).optional() }).strict().parse(request.body);
+      if (input.text !== undefined) input.text = trimBoundaryNewlines(input.text);
+      const snapshot = store.snapshot(chatId(request.params));
+      if (snapshot.revision !== input.revision) throw new AppError(409, 'revision_conflict', 'The chat changed. Refresh the preview.');
+      if (!snapshot.connection) throw new AppError(422, 'connection_required', 'Save a Connection first.');
+      const turns = [...snapshot.turns];
+      if (input.text !== undefined && input.text !== '') {
+        if (turns.at(-1)?.complete === false) throw new AppError(409, 'pending_turn', 'Resolve the pending turn before previewing a new one.');
+        turns.push({ id: 'draft', position: (turns.at(-1)?.position ?? 0) + 1, complete: false, user: { id: 'draft-user', revision: 0, text: input.text }, assistant: { id: 'draft-assistant', revision: 0, text: '' } });
+      }
+      return assembleRequest(snapshot.connection, snapshot.settings, turns, snapshot.sources);
+    });
+    app.post(prefix + '/turns', async (request, reply) => {
+      const input = submissionSchema.parse(request.body);
+      return reply.code(202).send(coordinator.start(input.revision, input.requestId, input.text, chatId(request.params)));
+    });
+    app.post(prefix + '/retry', async (request, reply) => {
+      const input = retrySchema.parse(request.body);
+      return reply.code(202).send(coordinator.start(input.revision, input.requestId, undefined, chatId(request.params)));
+    });
+    app.patch(prefix + '/turns/:id/:part', async request => {
+      const { id, part } = z.object({ id: z.string().uuid(), part: z.enum(['user', 'assistant']) }).parse(request.params);
+      const input = editSchema.parse(request.body);
+      store.editPart(input.revision, id, part, input.text, chatId(request.params)); coordinator.changed(); return store.snapshot(chatId(request.params));
+    });
+    app.delete(prefix + '/turns/:id', async request => {
+      const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+      const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
+      store.deleteTurn(revision, id, chatId(request.params)); coordinator.changed(); return store.snapshot(chatId(request.params));
+    });
+  }
+  app.post('/api/generations/:id/cancel', async request => {
     z.object({}).strict().parse(request.body);
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    coordinator.cancel(id);
-    return store.snapshot();
-  });
-  app.patch('/api/turns/:id/:part', async (request) => {
-    const { id, part } = z.object({ id: z.string().uuid(), part: z.enum(['user', 'assistant']) }).parse(request.params);
-    const input = editSchema.parse(request.body);
-    store.editPart(input.revision, id, part, input.text);
-    coordinator.changed();
-    return store.snapshot();
-  });
-  app.delete('/api/turns/:id', async (request) => {
-    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-    store.deleteTurn(revision, id);
-    coordinator.changed();
-    return store.snapshot();
+    coordinator.cancel(id); return { ok: true };
   });
   app.get('/api/events', (request, reply) => {
     reply.hijack();

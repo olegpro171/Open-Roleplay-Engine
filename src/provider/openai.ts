@@ -5,6 +5,41 @@ export interface Provider {
   stream(request: RequestPreview, apiKey: string, signal: AbortSignal, onText: (text: string) => void): Promise<void>;
 }
 
+export async function fetchModels(endpoint: string, apiKey: string): Promise<string[]> {
+  try {
+    const response = await fetch(`${endpoint.replace(/\/+$/, '')}/models`, {
+      redirect: 'error', signal: AbortSignal.timeout(20_000),
+      headers: { Accept: 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new AppError(502, 'model_list_unavailable', `Model discovery returned HTTP ${response.status}. You can still enter a model identifier manually.`);
+    }
+    if (!response.body) throw new Error('Missing model list.');
+    const reader = response.body.getReader();
+    let size = 0, body = '';
+    const decoder = new TextDecoder();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > 2_000_000) throw new Error('Model list too large.');
+        body += decoder.decode(value, { stream: true });
+      }
+      body += decoder.decode();
+    } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+    const result: unknown = JSON.parse(body);
+    if (!result || typeof result !== 'object' || !('data' in result) || !Array.isArray(result.data)) throw new Error('Invalid model list.');
+    const models = result.data.map((model: unknown) => model && typeof model === 'object' && 'id' in model ? model.id : null);
+    if (models.some(id => typeof id !== 'string' || !id.trim() || id.length > 200) || models.length > 10_000) throw new Error('Invalid model identifiers.');
+    return [...new Set(models as string[])].sort();
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError(502, 'model_list_unavailable', 'Could not fetch this endpoint’s model list. Check the URL and API key, or enter a model identifier manually.');
+  }
+}
+
 export class OpenAICompatibleProvider implements Provider {
   async stream(request: RequestPreview, apiKey: string, signal: AbortSignal, onText: (text: string) => void) {
     const response = await fetch(request.endpoint, {

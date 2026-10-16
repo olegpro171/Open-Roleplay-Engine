@@ -2,7 +2,7 @@
 
 ## Project context
 
-This is a new, independent roleplay application with a first persistent-chat milestone implemented for local testing and a standalone synthetic compaction visualizer. “Roleplay Engine” is a working name. The accepted application stack is TypeScript, React + Vite, Node.js + Fastify, SQLite with better-sqlite3 + Drizzle, Zod, HTTP + SSE, Vitest, and Playwright. The Mac hosts the server and data; actual phone use awaits HTTPS certificate setup and verification. Application installation, build, launch, and test commands are documented in `README.md`. Layered context compaction and the broader editors are not implemented. The Python/Tkinter visualizer is an isolated experiment; its launch and model-test commands remain documented in `docs/VISUALIZER.md`.
+This is a new, independent roleplay application with persistent-chat and roleplay-library milestones implemented for local testing and a standalone synthetic compaction visualizer. “Roleplay Engine” is a working name. The accepted application stack is TypeScript, React + Vite, Node.js + Fastify, SQLite with better-sqlite3 + Drizzle, Zod, HTTP + SSE, Vitest, and Playwright. The Mac hosts the server and data; actual phone use awaits HTTPS certificate setup and verification. Application installation, build, launch, and test commands are documented in `README.md`. Character/persona/Connection libraries, the block-and-marker Prompt editor, chat selections and JSONL history replacement are implemented. Durable layered compaction follows as the third milestone and is not implemented. The Python/Tkinter visualizer is an isolated experiment; its launch and model-test commands remain documented in `docs/VISUALIZER.md`.
 
 Read `CONCEPTS.md` before discussing architecture, proposing features, changing documentation, or implementing anything. It is the current product concept reference and explicitly distinguishes user requirements from proposed refinements and open decisions.
 
@@ -26,11 +26,12 @@ The user's goal is a focused personal tool for model connections, prompt composi
 - **Context management system:** compacts older conversation and controls the verbatim cutoff. The initial desired method is Summaryception-style layered summarization. Additional strategies remain a future possibility.
 - **Chat:** persistent conversation with selections for connection, prompt preset, context system, character, persona, and optional agents.
 - **Turn:** primary stored conversation unit with user-input and assistant-response parts. Historical turns are complete; only the latest may await a response, blocking another turn while unresolved. Only whole turns can be deleted. Either part may be edited to an empty string without reopening a completed turn or merging content with neighbors. Completion and text length are separate concepts.
+- **Character greeting:** accepted as a completed opening turn with an empty user part and a copied greeting in the assistant part; initialization is implemented for newly created chats. The first user action starts the next turn. Later reusable-greeting edits do not rewrite saved chats. Ordinary editing, deletion, summary coverage, and completed-turn counting apply; omit the empty user bubble and outgoing user entry. See `CONCEPTS.md` for the full rule.
 - **Agent (product feature):** a task with its own instructions and selected connection, read access to conversation data, manual or automatic execution, and output available through a marker. Example: tracking fictional date and time.
 
 “Agent” in product discussions refers to this application feature unless the user explicitly means coding assistants. Product-agent requirements do not authorize spawning coding subagents.
 
-Stable turn and part identities/revisions and a Generation record showing resolved model input without credentials are accepted implementation directions. Separate Character and Persona records remain a proposed refinement. Detailed schemas are not finalized. “Message” may still refer to an outgoing protocol entry, rather than the stored conversation unit.
+Stable turn and part identities/revisions and a Generation record showing resolved model input without credentials are accepted implementation directions. Separate reusable Character and Persona records are now implemented. Detailed schemas are not finalized. “Message” may still refer to an outgoing protocol entry, rather than the stored conversation unit.
 
 ## Design direction to preserve
 
@@ -49,7 +50,7 @@ Evaluate new ideas against these goals and explain any proposed change to them. 
 
 ## Scope
 
-Initial priorities are a simple Connection manager, a block-and-marker Prompt editor, and one layered summary system with a verbatim cutoff, supported by enough chat/character/persona functionality to use them.
+The user moved roleplay libraries/editors and chat-history replacement ahead of context management. Those form the implemented second milestone; durable layered compaction with a verbatim cutoff follows as the third. See IMPLEMENTATION.md and README.md for current scope and limitations.
 
 Agents are part of the concept model, but their inclusion in the first release is undecided. Broad provider-specific adaptation, semantic retrieval, scene detection, character-specific memory permissions, multimedia, multiplayer, and a plugin ecosystem are proposed deferrals, not permanent prohibitions.
 

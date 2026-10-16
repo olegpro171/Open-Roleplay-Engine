@@ -2,9 +2,9 @@
 
 Date: 2026-10-16
 
-Status: product concept reference; the first application milestone is implemented for local testing, and a standalone synthetic compaction visualizer is available. “Roleplay Engine” is a working name.
+Status: product concept reference; the persistent-chat milestone and the roleplay-library milestone are implemented for local testing, and a standalone synthetic compaction visualizer is available. “Roleplay Engine” is a working name.
 
-This document records the product intent and concepts discussed so far. User-defined requirements are distinguished from proposed refinements, which remain open for revision. The user approved the technology and architecture baseline on 2026-10-16: TypeScript, React + Vite, Node.js + Fastify, and SQLite with better-sqlite3 + Drizzle, using Zod, HTTP + SSE, Vitest, and Playwright. Follow [IMPLEMENTATION.md](IMPLEMENTATION.md) for the accepted implementation guide and [README.md](README.md) for the working application. One persistent chat with streaming and request inspection is implemented. HTTPS certificate setup, actual phone verification, layered context management, and the broader editors remain unfinished. There is no delivery schedule.
+This document records the product intent and concepts discussed so far. User-defined requirements are distinguished from proposed refinements, which remain open for revision. The user approved the technology and architecture baseline on 2026-10-16: TypeScript, React + Vite, Node.js + Fastify, and SQLite with better-sqlite3 + Drizzle, using Zod, HTTP + SSE, Vitest, and Playwright. Follow [IMPLEMENTATION.md](IMPLEMENTATION.md) for the accepted implementation guide and [README.md](README.md) for the working application. Persistent chats with streaming and request inspection, reusable character/persona/Connection libraries, a block-and-marker Prompt editor, and reviewed chat-history replacement are implemented. HTTPS certificate setup, actual phone verification, and layered context management remain unfinished. There is no delivery schedule.
 
 The stack approval also establishes an independent core engine, transactional persistence, server-owned generation, revision checks, credential-free request inspection, and recovery from interruption. Earlier proposals below remain proposals unless accepted explicitly here or in the implementation guide; approval does not settle experimental promotion rules, repair policies, or agent scope.
 
@@ -51,7 +51,7 @@ Proposed refinements:
 - Blocks and markers can be enabled or disabled.
 - The preset defines message roles, such as system, user, and assistant, as well as order.
 - Markers have stable identifiers and optional configuration. For example, a character marker can select specific card fields, and an agent marker can identify a particular agent.
-- Resolved marker content is inserted as literal content rather than automatically interpreted as another template.
+- Resolved marker content is not recursively interpreted as another template. The accepted second-milestone name preprocessing replaces `{{user}}` and `{{char}}` once in prompt text and card/persona fields; stored conversation text remains literal. Other macros are not implemented.
 - A preview shows the fully resolved outgoing messages.
 
 ### Context management system
@@ -96,15 +96,31 @@ The primary stored conversation unit is a **turn**, containing a user-input part
 - Historical turns are complete. Only the newest turn may be incomplete while its response is pending, including after a generation error or cancellation. Another turn cannot be submitted while that incomplete turn remains unresolved.
 - Only a whole turn can be deleted. Either part can be edited independently, including in archived history. Deleting a turn does not merge or move content between neighboring turns.
 - Editing either part to an empty string is allowed and does not make a completed turn incomplete. This also permits both parts to be blank; the turn remains present until explicitly deleted.
+- User decision on 2026-10-17: trim extra boundary newlines from new user input, successful AI responses and subsequent part edits, retaining internal paragraph breaks and indentation. Apply the same cleanup when copying a greeting. Preserve existing/imported transcript text until explicitly edited. Whitespace-only generated output remains a failed response rather than a completed blank turn.
 - Completion is distinct from text length. An existing response deliberately cleared by the user is different from a response that has not been completed. Clearing text must not automatically complete a pending turn or reopen a completed one.
 - A completed turn still counts as one turn after either or both parts are cleared. Summary boundaries preserve turn membership, but do not guarantee nonempty actions and reactions or narrative coherence after edits.
 - User decision on 2026-10-16: omit deliberately blank parts from outgoing requests while retaining their completed turns and source coverage in the saved chat. This does not authorize accepting a blank generated response or partial output as complete.
 
 Accepted implementation direction: give turns stable identities and track revisions of their independently identifiable parts so summaries can detect source changes. The detailed storage representation, regeneration and branching behavior remain open. “Message” may still describe role-bearing entries in outgoing model requests; it is not the primary stored conversation unit.
 
+#### Character greeting as an opening turn
+
+Accepted user decision on 2026-10-16; greeting initialization is implemented in the roleplay-library milestone:
+
+- Represent a chosen character greeting as a completed opening turn with an empty user-input part and the greeting in its assistant-response part. It is ordinary chat history, not a separate prologue outside the turn model.
+- Copy the chosen greeting into the chat when it starts. The character's reusable greeting supplies the initial text; later edits to that reusable greeting do not rewrite the saved chat.
+- The first user action starts the next turn, paired with its own assistant response. It is not inserted into the greeting's empty user part.
+- Display the greeting without an empty user bubble. While represented verbatim, send it as an assistant message and omit its blank user part under the existing outgoing-request rule.
+- Apply ordinary turn identity, revision, editing, whole-turn deletion, and summary-coverage rules. The greeting can eventually be summarized; editing it afterward marks dependent summaries and their higher-layer dependents out of date.
+- Count the opening turn as one completed turn for both first-layer batch size `B` and minimum verbatim tail `L`. Clearing its text preserves its completion and turn membership, just as for any other completed turn.
+
+For example, the opening turn contains only “The innkeeper looks up. ‘You're late.’” in its assistant part. The next turn pairs the user's “I put the sealed letter on the counter” with the assistant's response. No pending generation is needed to make the copied greeting complete. This does not change the unresolved policy for accepting empty or partial generated responses.
+
 ### Chat
 
 A persistent conversation that accepts user input and obtains model responses. Many chats can exist, with different characters, personas, and settings.
+
+User interface decision on 2026-10-17: select chats through Libraries. Any idle chat, including the original or final chat, may be deleted; deleting the current chat keeps the Chats library open for further cleanup. Story and Setup sit together in the shared header.
 
 Each chat selects:
 
@@ -142,7 +158,7 @@ Separate reusable records:
 - **Character:** describes the identity played by the model.
 - **Persona:** describes the identity played by the user.
 
-Their data can be inserted through prompt markers. Supported card formats and whether the initial release supports multiple active characters remain open.
+Separate reusable Character and Persona records and their libraries are accepted in the second milestone. Their data can be inserted through prompt markers. Initial compatibility covers basic SillyTavern character text fields and persona names/descriptions; full Character Card V2 behavior, including lorebooks, is deferred. One character and one persona are selected per chat; multiple active characters remain open.
 
 ### Generation record
 
@@ -199,10 +215,18 @@ These rules prevent structural duplication and omission. They do not guarantee t
 
 ### Initial priorities established by the user
 
-1. A simple Connection manager.
-2. A block-and-marker Prompt preset editor.
-3. One Summaryception-style system for summaries and verbatim cutoff.
-4. Enough chat, character, and persona functionality to use those systems for roleplay.
+The user revised the implementation order on 2026-10-16: establish a usable roleplay workflow before implementing context management. The second milestone consists of:
+
+1. A library of SillyTavern-compatible personas, with import, creation and editing.
+2. A library of SillyTavern-compatible characters, with import, creation and editing of basic text fields. Full V2 support, including lorebooks, may follow later.
+3. Name preprocessing for tags such as `{{user}}` and `{{char}}`, using the selected persona and character names.
+4. A Prompt preset library and editor with ordered text blocks and markers, rearrangement, saving, and an editable built-in default that can be restored to its original state. Its initial wording is deliberately simple; the eventual default remains undecided.
+5. A chat library, with each chat selecting its own Connection, prompt, persona, character and input target.
+6. Importing a file by replacing all messages in the selected chat, without requiring branching. The supplied example is a large SillyTavern-style JSONL export.
+
+Accepted import conversion decision: preserve consecutive same-speaker messages as separate turns with the opposite part empty, without merging their text. Ordinary user/assistant pairs remain paired. An assistant-only opening is a completed turn; a final unpaired user message remains pending. Historical user-only turns are complete with an empty assistant part. This import rule does not authorize treating empty model output as a successful generation.
+
+Durable layered compaction follows as the third milestone. Until then, all active history must fit the existing input target and Connection limits; adding libraries does not remove that limit. Summary markers can be arranged now but have no summary content until the context system exists. Product agents and branching remain deferred decisions.
 
 ### Proposed scope limits
 
@@ -216,32 +240,32 @@ On 2026-10-16 the user approved allowing generation with a clearly labeled conse
 
 - Project name and location-independent identity.
 - Later database schemas and distribution packaging. Exact package versions, the initial chat/turn/generation schema, owner sessions, and a local launcher now exist; see [README.md](README.md). HTTPS certificate provisioning/trust and stronger credential storage protection remain open. These implementation choices do not settle future context schemas or product policies.
-- Initial card and chat import/export formats.
+- Additional card and chat import/export formats. The implemented subset is character V1/V2 JSON or embedded-card PNG, persona-backup JSON (plus name/description JSON), application prompt JSON, and SillyTavern-style JSONL chat replacement; see [README.md](README.md).
 - Detailed representation of turn and part revisions, regeneration, and branching behavior. Whole-turn deletion, independent part editing, and intentionally blank parts are accepted; archived turns remain editable.
 - Numeric defaults for user-configured batch sizes, higher-layer grouping, the promotion decision function, summary output targets, and operational headroom within the target input context size. First-layer batches must have the configured fixed size; adaptive layer allowances and minimum retained summary counts remain proposals.
-- Failure when required verbatim and non-summary input cannot fit the target is settled; the error presentation and explicit user recovery controls remain open. Changing settings on existing chats also remains open. Imported irregular histories must respect the accepted turn rules; their conversion policy is undecided.
+- Failure when required verbatim and non-summary input cannot fit the target is settled; the error presentation and explicit user recovery controls remain open. Changing settings on existing chats also remains open. Imported consecutive same-speaker messages use the accepted separate-turn rule above. System-message and group-chat conversion remain outside the implemented import subset.
 - Whether partial or empty generated output can be explicitly accepted as completing a pending turn. Blank saved parts are now omitted from outgoing requests by user decision; this does not settle generated-output acceptance.
 - Whether new generations wait for pending compaction or stale-memory repair, and what explicit continuation options exist when preparation fails.
 - Manual-summary authority, repair review, diff-based revision versus full rebuilding, and the coverage of manually written summaries; see [the editing proposal](docs/CONTEXT_EDITING.md).
 - Whether summarization uses the chat Connection or a separately selected Connection.
 - Behavior when changing a strategy or its settings after summaries exist.
-- Whether edits to shared Connections, Prompt presets, Characters, and Personas immediately affect existing chats.
+- Future shared-record version pinning or per-chat copies. In the implemented library milestone, saved edits apply to subsequent requests in chats selecting that record; copied greetings and saved generation requests retain their historical text. Shared edits are blocked while any response is running.
 - Whether agents ship in the first version and which triggers they support.
 - Missing-marker and missing-agent-output behavior.
 - Backup policy and generation-record retention.
 
 ## 8. Suggested first proof
 
-The accepted implementation sequence is one persistent chat with one Connection, streaming, and request inspection, followed by durable layered compaction before expanding the full editors. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for milestone acceptance checks. The experiment below remains the context-quality and reliability proof; it does not imply that every unresolved editing or branching policy is already selected.
+The accepted implementation sequence is persistent chat, then the roleplay libraries/editors and history replacement, then durable layered compaction. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for milestone acceptance checks. The experiment below remains the context-quality and reliability proof; it does not imply that every unresolved editing or branching policy is already selected.
 
-Before building the full interface, validate the context system against a copied long-running chat, such as the approximately 400-message conversation discussed:
+After establishing the roleplay workflow, validate the context system against a copied long-running chat before claiming dependable long-context behavior:
 
 - Inspect summary quality against known story facts.
 - Check that outgoing source coverage has no unintended overlaps or gaps.
 - Interrupt processing and resume it.
 - Simulate a failed summarization request and retry it.
 - Edit an early message and verify dependency rebuilding.
-- Branch midway through the conversation and verify that later events do not leak backward.
+- When branching is implemented, branch midway through the conversation and verify that later events do not leak backward.
 - Inspect the final outgoing request and its token budget.
 
 Passing this experiment would support the project's main promise: understandable, dependable context handling for long-running roleplay.

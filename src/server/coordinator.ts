@@ -14,24 +14,24 @@ export class GenerationCoordinator {
   }
   changed() { this.events.emit('changed'); }
 
-  start(revision: number, requestId: string, text?: string) {
-    const result = this.store.begin(revision, requestId, text);
+  start(revision: number, requestId: string, text?: string, chatId = 'main') {
+    const result = this.store.begin(revision, requestId, text, chatId);
     if (result.fresh) {
       const operation = { controller: new AbortController(), task: Promise.resolve(), text: '' };
       this.active.set(result.id, operation);
-      operation.task = this.run(result.id, operation).finally(() => this.active.delete(result.id));
+      operation.task = this.run(result.id, operation, chatId).finally(() => this.active.delete(result.id));
       this.changed();
     }
     return { generationId: result.id };
   }
-  private async run(id: string, operation: { controller: AbortController; text: string }) {
+  private async run(id: string, operation: { controller: AbortController; text: string }, chatId: string) {
     try {
-      const snapshot = this.store.snapshot();
-      const request = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns);
+      const snapshot = this.store.snapshot(chatId);
+      const request = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources);
       this.store.saveRequest(id, request);
       this.changed();
       let lastCheckpoint = 0;
-      await this.provider.stream(request, this.store.apiKey(), operation.controller.signal, (delta) => {
+      await this.provider.stream(request, this.store.apiKey(chatId), operation.controller.signal, (delta) => {
         if (operation.controller.signal.aborted) return;
         operation.text += delta;
         if (Date.now() - lastCheckpoint >= 250) {

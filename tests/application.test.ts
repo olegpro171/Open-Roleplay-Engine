@@ -109,6 +109,46 @@ describe('persistent chat and generation', () => {
     expect(request.coverage).toHaveLength(2);
   });
 
+  it('trims boundary newlines from submissions, previews, completed responses and both edited parts', async () => {
+    mock.setMode('padded');
+    const text = '\r\n \n  I enter.\n\nI look around.\r\n\r\n ';
+    const preview = await command('/api/preview', { revision: (await state()).revision, text });
+    await submit(text); let snapshot = await waitForIdle();
+    expect(snapshot.turns[0].user.text).toBe('  I enter.\n\nI look around.');
+    expect(snapshot.turns[0].assistant.text).toBe('The lantern\n\nflickers. 🕯');
+    expect(snapshot.generations[0].partialText).toBe(snapshot.turns[0].assistant.text);
+    expect(preview.json().body).toEqual(mock.requests[0].body);
+    for (const part of ['user', 'assistant']) {
+      const result = await command(`/api/turns/${snapshot.turns[0].id}/${part}`, { revision: snapshot.revision, text: '\n\n  Edited\n\nparagraph\n \n' }, 'PATCH');
+      expect(result.statusCode).toBe(200); snapshot = result.json();
+    }
+    expect(snapshot.turns[0].user.text).toBe('  Edited\n\nparagraph');
+    expect(snapshot.turns[0].assistant.text).toBe('  Edited\n\nparagraph');
+    expect((await submit('\n \n')).statusCode).toBe(400);
+    expect((await state()).turns).toHaveLength(1);
+  });
+
+  it('discovers models with saved or entered keys without exposing keys or upstream errors', async () => {
+    const saved = await command('/api/models', { endpoint: mock.url, connectionId: 'main' });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toEqual({ models: ['another-model', 'synthetic-roleplay'] });
+    expect(mock.modelRequests.at(-1)?.authorization).toBe('Bearer synthetic-api-secret');
+    await command('/api/models', { endpoint: mock.url, connectionId: 'main', apiKey: 'new-key' });
+    expect(mock.modelRequests.at(-1)?.authorization).toBe('Bearer new-key');
+    await command('/api/models', { endpoint: mock.url, connectionId: 'main', apiKey: '' });
+    expect(mock.modelRequests.at(-1)?.authorization).toBeUndefined();
+    for (const mode of ['error', 'invalid', 'redirect'] as const) {
+      mock.setModelMode(mode);
+      const response = await command('/api/models', { endpoint: mock.url, connectionId: 'main' });
+      expect(response.statusCode).toBe(502);
+      expect(response.body).not.toContain('upstream-secret');
+      expect(response.body).not.toContain('synthetic-api-secret');
+      expect(response.json().message).toContain('model identifier manually');
+    }
+    expect((await command('/api/models', { endpoint: mock.url + '?key=secret' })).statusCode).toBe(400);
+    expect((await instance.app.inject({ method: 'POST', url: '/api/models', headers: { host: 'localhost', origin: 'http://localhost' }, payload: { endpoint: mock.url } })).statusCode).toBe(401);
+  });
+
   it('continues generation after an observer disconnects and reconciles both clients', async () => {
     mock.setMode('hold');
     const address = await instance.app.listen({ host: '127.0.0.1', port: 0 });
@@ -161,7 +201,7 @@ describe('persistent chat and generation', () => {
     snapshot = await waitForIdle(); expect(snapshot.turns[0].complete).toBe(true);
   });
 
-  it.each(['broken', 'empty', 'error'] as const)('leaves %s responses pending and saves only safe errors', async (mode) => {
+  it.each(['broken', 'empty', 'error', 'whitespace'] as const)('leaves %s responses pending and saves only safe errors', async (mode) => {
     mock.setMode(mode); await submit(); const snapshot = await waitForIdle();
     expect(snapshot.turns[0].complete).toBe(false);
     expect(snapshot.generations[0].status).toBe('failed');

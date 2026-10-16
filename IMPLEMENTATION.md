@@ -2,7 +2,7 @@
 
 Date: 2026-10-16
 
-Status: accepted technology and architecture baseline; the first milestone is implemented, and the user confirmed a first response through OpenRouter on 2026-10-16. The user approved the stack proposal and its recommendations on this date. “Roleplay Engine” remains a working name. Actual phone use and broader provider compatibility remain to be verified.
+Status: accepted technology and architecture baseline; the persistent-chat and roleplay-library milestones are implemented for local testing, and the user confirmed a first response through OpenRouter on 2026-10-16. The user approved the stack proposal and its recommendations on this date. “Roleplay Engine” remains a working name. Actual phone use and broader provider compatibility remain to be verified.
 
 ## 1. How to use this document
 
@@ -80,6 +80,8 @@ Persist enough information to recover the actual committed state, including:
 - Operation identity and progress needed to distinguish a retry from new work.
 
 These are persistence responsibilities, not a finalized table schema. Revision retention, branching representation, and record retention limits remain open.
+
+Accepted greeting behavior (implemented in the library milestone): initialize a chosen character greeting as a completed opening turn with an empty user part and a copied assistant part, using ordinary stable identities and revisions. Later changes to the reusable greeting must not rewrite existing chats. The first user action creates the next turn. Render no empty user bubble and omit the blank user part from outgoing input. Apply ordinary editing, whole-turn deletion, summary dependencies, and completed-turn counting for `B` and `L`; see [Character greeting as an opening turn](CONCEPTS.md#character-greeting-as-an-opening-turn). A copied greeting is saved history and does not require a model generation to become complete.
 
 For a compaction replacement:
 
@@ -163,9 +165,30 @@ Validate that:
 
 Implementation status on 2026-10-16: these flows are implemented with one Connection, one persistent chat, owner login, a minimal fixed prompt order, full verbatim history, and request inspection. Vitest checks core limits and validation, persistence, concurrent commands, blank edits, cancellation, disconnected observers, explicit retry, graceful interruption, a real process crash, and single-server database ownership. Playwright exercises separate desktop and phone-sized sessions, including shared state, streaming, reconnecting, cancellation/retry, blank edits, and exact request-body inspection. Tests use a synthetic local endpoint and temporary databases. The user subsequently confirmed a first response through OpenRouter on 2026-10-16. HTTPS certificate provisioning, a real phone browser/keyboard/suspension check, and broader provider compatibility remain unverified; see [README.md](README.md).
 
-### Second milestone: durable layered compaction
+### Second milestone: usable roleplay libraries and imports
 
-Port and validate the stateful core, then connect real summarization and transactional persistence before expanding the editors.
+The user explicitly moved this work ahead of context management on 2026-10-16 and requested implementation. Provide persona and character libraries with import/create/edit, a block-and-marker Prompt library/editor, name preprocessing, multiple persistent chats with independent selections, and file-based replacement of all messages in one chat. Full V2 behavior/lorebooks and branching are deferred.
+
+Implementation behavior:
+
+- Reuse the accepted stack and module boundaries. Core modules resolve prompts and normalize external formats; persistence owns library revisions, chat selections and transactional history replacement; generation remains server-owned.
+- Character import reads V1/V2 JSON and PNG-embedded text metadata. Edit the six basic fields: name, description, personality, scenario, greeting (`first_mes`) and example dialogue (`mes_example`). Retain unsupported imported fields for export but do not execute lorebooks, extensions or prompt overrides. Persona import reads SillyTavern backup JSON and basic name/description JSON. Export cards/personas as compatible JSON; exporting an avatar PNG is outside this subset.
+- Prompt blocks carry stable identities, enabled state, roles, and either text or a marker. Support whole character, persona, individual character fields, Messages and Summary sources. Exactly one enabled Messages marker owns full verbatim history; Summary is explicitly empty until compaction exists. Preserve stored message roles rather than using the marker's role. A later context component will own both source selections and their cutoff; independent markers must not make independent coverage choices.
+- Replace case-insensitive `{{user}}` and `{{char}}` once in text blocks and character/persona fields. Names are inserted literally; unknown macros remain literal. Preserve stored conversation text. Resolve a greeting once when creating a chat, then save it as ordinary completed history under the accepted greeting rules. Compatibility is implemented independently from the documented behavior; no SillyTavern engine source is copied.
+- Keep a simple editable built-in default with a restore action, alongside user-created/duplicated presets. The eventual default wording remains open.
+- The interface uses shared styled dropdowns and checkboxes. Prompt blocks collapse independently and show an insertion line during reordering. Numeric fields allow an empty editing draft and validate positive integer limits when saved. Model discovery optionally reads the OpenAI-compatible `/models` endpoint through the server, using an entered or saved credential without returning it to the browser; model identifiers remain editable.
+- Trim boundary blank lines from submissions, successful responses, copied greetings and part edits while preserving internal formatting. Do not rewrite existing/imported history. Reject blank submissions and keep whitespace-only generated responses pending.
+- Any idle chat may be deleted, including the original/final chat. Do not recreate deleted starter chats on restart. Keep the Chats library open after deletion and support creating a new chat when the library is empty.
+- Each chat selects reusable records by identity and owns its input target, turns, revision and generation records. Saved shared edits affect future requests in selecting chats and advance their revisions. Block shared edits while a response is running; do not rewrite saved requests or greetings. Pending turns and active-generation uniqueness are enforced per chat.
+- Upgrade the version-1 database transactionally, preserving existing turn/part identities, revisions, credentials and generation records, and migrating existing inline text to reusable records. Acquire database-process ownership before upgrading an existing database.
+- Stream-read chat files in the browser and extract active `mes` values in order, avoiding upload/storage of foreign memory snapshots, alternate swipes or summary metadata. Preserve all active messages even if foreign `hiddenFromAI` flags reflect old compaction. Pair ordinary user/assistant messages; keep consecutive same-speaker entries as separate turns with empty opposite parts, as accepted by the user. Only a final unmatched user entry remains pending. Reject unsupported system entries and malformed input without changing the chat.
+- Show replacement counts before the user invokes Replace all messages. Validate normalized turns again on the server, check the selected chat revision and running state, then replace its turns and associated generation records atomically. Keep chat selections; do not prepend another greeting. The original import file is read-only. See README for bounded file/transcript sizes.
+
+Validation covers card preservation and PNG parsing, name substitution and prompt roles/order, protected history markers, greeting copy semantics, separate same-speaker turns, failed/stale replacement, database migration, credential exclusion, independent concurrent chat generations, and browser workflows on desktop/phone-sized screens. The supplied approximately 61 MB example was read-only normalized to 498 messages / 253 turns; no original conversation was used for destructive testing. Actual phone use and full provider/card ecosystem compatibility remain unverified.
+
+### Third milestone: durable layered compaction
+
+Port and validate the stateful core, then connect real summarization and transactional persistence using the established roleplay workflow and request inspector.
 
 Use Vitest for core and persistence tests covering fixed batches, protected tails, residual turns, limit separation, coverage, selection stability, and checkpoint continuation. Add failure and interruption tests around the save-and-select transaction, safe retries, edits during generation, and stale-result rejection.
 
@@ -173,7 +196,7 @@ Use synthetic or copied conversations to inspect summary quality against known s
 
 ### Subsequent interface work
 
-Expand the Connection manager, block-and-marker Prompt editor, summary inspection/editing, context visualization, and character/persona management around the verified flow. Use Playwright for meaningful end-to-end workflows and responsive layouts, with actual phone checks for platform-specific behavior.
+Expand summary inspection/editing and context visualization around the verified compaction flow; extend the existing libraries only as needed for accepted product requirements. Use Playwright for meaningful end-to-end workflows and responsive layouts, with actual phone checks for platform-specific behavior.
 
 These are implementation priorities, not a delivery schedule. The application build and its core/server/browser tests now exist and pass; commands are documented in [README.md](README.md). Existing simulator validation commands remain in [VISUALIZER.md](docs/VISUALIZER.md), and that isolated experiment is unchanged.
 
@@ -181,11 +204,11 @@ These are implementation priorities, not a delivery schedule. The application bu
 
 The product questions in [CONCEPTS.md](CONCEPTS.md) remain authoritative. Stack approval specifically leaves these areas open:
 
-- Detailed schemas, revision retention, regeneration, branching, and imported-history conversion.
+- Future summary schemas, revision retention, regeneration, branching, and additional imported-history formats. Consecutive same-speaker conversion is now settled for the initial JSONL importer.
 - Promotion ranking, higher-layer grouping, numerical defaults, summary output targets, and any operational headroom.
 - Restoration after deletion or settings changes; stale-memory continuation; manual-summary authority and repair review.
 - Entirely blank summary batches and acceptance of partial or empty generated responses. The user decided that blank saved parts are omitted from outgoing requests while their completed turns remain stored.
-- The Connection used for summarization and the effect of editing shared presets or other reusable records.
+- The Connection used for summarization and future shared-record pinning/copy behavior. The library milestone uses shared records for subsequent requests while preserving saved requests and greetings.
 - Product agents in the first release, their triggers, and missing marker/output behavior.
 - Verified tokenizer coverage and additional provider dialects/custom parameters. The first-milestone estimate policy is user-approved; its initial Chat Completions subset and protected request fields are documented in [README.md](README.md).
 - HTTPS certificate provisioning/trust, stronger credential storage protection, distribution packaging, and optional automatic startup. A local launcher and owner sessions are implemented; routine actual-phone use awaits HTTPS setup and verification.
@@ -195,6 +218,9 @@ Do not treat these as reasons to delay independent implementation work. Resolve 
 
 ## 11. Technical references
 
+- [SillyTavern personas and backup behavior](https://docs.sillytavern.app/usage/core-concepts/personas/)
+- [SillyTavern name macro syntax](https://docs.sillytavern.app/usage/core-concepts/macros/)
+- [Character Card V2 field specification](https://github.com/malfoyslastname/character-card-spec-v2)
 - [React: building an application with a build tool](https://react.dev/learn/build-a-react-app-from-scratch)
 - [Vite: building for production](https://vite.dev/guide/build)
 - [Fastify: TypeScript](https://fastify.dev/docs/latest/Reference/TypeScript/)

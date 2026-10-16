@@ -1,0 +1,164 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { createReadStream, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import Database from 'better-sqlite3';
+import { Store } from '../src/persistence/store.js';
+import { assembleRequest, replaceNameMacros } from '../src/core/prompt.js';
+import { importChat } from '../src/core/chat-import.js';
+import { importCharacter, exportCharacter, importPersonas, exportPersona } from '../src/core/cards.js';
+import { readCardFile } from '../src/server/card-import.js';
+import { defaultPrompt, promptSchema, type Character } from '../src/shared/library.js';
+import { createApp } from '../src/server/app.js';
+import { randomUUID } from 'node:crypto';
+import { startMockProvider } from './support/mock-provider.js';
+
+const folders: string[] = [];
+afterEach(() => { for (const path of folders.splice(0)) rmSync(path, { recursive: true, force: true }); });
+function folder() { const path = mkdtempSync(join(tmpdir(), 'roleplay-library-')); folders.push(path); return path; }
+async function* chunks(text: string) { for (let i = 0; i < text.length; i += 37) yield text.slice(i, i + 37); }
+const card: Character = { name: 'Keeper', description: '{{char}} greets {{user}}.', personality: 'Patient', scenario: 'A tower', first_mes: 'Welcome, {{user}}.', mes_example: '' };
+const connection = { name: 'Synthetic', endpoint: 'http://localhost:1234/v1', model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 100, customParameters: {} };
+
+describe('cards, macros and prompt arrangement', () => {
+  it('round trips basic fields and preserves inactive V2 metadata without using it in prompts', () => {
+    const source = { spec: 'chara_card_v2', spec_version: '2.0', data: { ...card, character_book: { entries: [{ content: 'INACTIVE LORE' }] }, extensions: { custom: 'kept' }, creator_notes: 'NOT PROMPT', system_prompt: 'NOT AUTOMATIC' } };
+    const imported = importCharacter(source);
+    const result = exportCharacter({ ...imported, description: 'Edited' });
+    expect(result.data).toMatchObject({ description: 'Edited', character_book: source.data.character_book, extensions: { custom: 'kept' } });
+    expect(importPersonas(exportPersona({ name: 'Traveller', description: 'A visitor' }))).toEqual([{ name: 'Traveller', description: 'A visitor' }]);
+    expect(importCharacter({ name: 'Legacy' }).first_mes).toBe('');
+    expect(() => importCharacter({ ...source, spec: 'unknown' })).toThrow('Only legacy');
+  });
+  it('decodes a PNG card chunk and rejects malformed imports', () => {
+    const payload = Buffer.from('chara\0' + Buffer.from(JSON.stringify({ ...card })).toString('base64'));
+    const chunk = Buffer.alloc(payload.length + 12); chunk.writeUInt32BE(payload.length); chunk.write('tEXt', 4); payload.copy(chunk, 8);
+    const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk]);
+    expect(importCharacter(readCardFile(png.toString('base64'))).name).toBe('Keeper');
+    expect(() => readCardFile(png.subarray(0, 14).toString('base64'))).toThrow();
+    expect(() => readCardFile(Buffer.from('invalid JSON').toString('base64'))).toThrow('valid card JSON');
+  });
+  it('resolves name tags once, arranges roles, preserves transcript text, and measures the resolved request', () => {
+    expect(replaceNameMacros('{{User}} {{ CHAR }} {{unknown}}', '$&{{char}}', 'Keeper')).toBe('$&{{char}} Keeper {{unknown}}');
+    const store = new Store(':memory:');
+    try {
+      const personaId = store.saveLibrary(store.libraries().revision, 'personas', { name: 'Traveller', description: '{{user}} visits {{char}}.' });
+      const characterId = store.saveLibrary(store.libraries().revision, 'characters', card);
+      const connectionId = store.saveLibrary(store.libraries().revision, 'connections', connection, undefined, 'secret');
+      const prompt = { name: 'Ordered', blocks: [
+        { id: 'persona', name: 'Persona', enabled: true, kind: 'marker' as const, role: 'user' as const, marker: 'persona' as const },
+        { id: 'char', name: 'Character', enabled: true, kind: 'marker' as const, role: 'system' as const, marker: 'character' as const },
+        defaultPrompt.blocks[3],
+        { id: 'after', name: 'After', enabled: true, kind: 'text' as const, role: 'system' as const, text: '{{char}} replies to {{user}}.' },
+      ] };
+      const promptId = store.saveLibrary(store.libraries().revision, 'prompts', prompt);
+      const id = store.createChat({ title: 'Tower', targetInputTokens: 32_000, connectionId, promptId, characterId, personaId });
+      const snapshot = store.snapshot(id);
+      expect(snapshot.turns[0]).toMatchObject({ complete: true, user: { text: '' }, assistant: { text: 'Welcome, Traveller.' } });
+      const request = assembleRequest(snapshot.connection!, snapshot.settings, [...snapshot.turns, { ...snapshot.turns[0], complete: false, user: { ...snapshot.turns[0].user, text: 'Literal {{char}}' } }], snapshot.sources);
+      expect(request.body.messages[0]).toEqual({ role: 'user', content: 'Traveller visits Keeper.' });
+      expect(request.body.messages[1].content).toContain('Keeper greets Traveller.');
+      expect(request.body.messages.slice(-2)).toEqual([{ role: 'user', content: 'Literal {{char}}' }, { role: 'system', content: 'Keeper replies to Traveller.' }]);
+      expect(JSON.stringify(store.libraries())).not.toContain('secret');
+      store.saveLibrary(store.libraries().revision, 'characters', { ...card, first_mes: 'Different greeting' }, characterId);
+      expect(store.snapshot(id).turns[0].assistant.text).toBe('Welcome, Traveller.');
+      expect(() => promptSchema.parse({ name: 'Missing history', blocks: [defaultPrompt.blocks[0]] })).toThrow('Messages marker');
+      expect(() => promptSchema.parse({ ...defaultPrompt, blocks: [...defaultPrompt.blocks, { ...defaultPrompt.blocks[3], id: 'duplicate' }] })).toThrow('Messages marker');
+    } finally { store.close(); }
+  });
+});
+
+describe('history replacement', () => {
+  it('allows deletion of the original and final chat without recreating it on restart', () => {
+    const path = join(folder(), 'deleted.sqlite'); let store = new Store(path);
+    try {
+      store.replaceHistory(0, 'main', [{ user: 'Synthetic', assistant: 'History', complete: true }]);
+      expect(() => store.deleteChat(0, 'main')).toThrow('changed on another device');
+      store.deleteChat(store.snapshot().revision, 'main');
+      expect(store.libraries().chats).toEqual([]);
+      store.close(); store = new Store(path);
+      expect(store.libraries().chats).toEqual([]);
+      const characterId = store.saveLibrary(store.libraries().revision, 'characters', { ...card, first_mes: '\n\nWelcome.\r\n \n' });
+      const id = store.createChat({ title: 'Next story', targetInputTokens: 32_000, connectionId: null, promptId: 'default', characterId, personaId: null });
+      expect(store.snapshot(id).turns[0].assistant.text).toBe('Welcome.');
+      expect(store.sqlite.pragma('foreign_key_check')).toEqual([]);
+    } finally { store.close(); }
+  });
+  it('preserves order, separate same-speaker messages, blank parts and a final pending user turn', async () => {
+    const entries = [ { user_name: 'Visitor', character_name: 'Keeper', chat_metadata: { summary: 'DO NOT IMPORT' } },
+      { is_user: false, mes: 'Greeting', extra: { hiddenFromAI: true, advancedMemorySnapshot: 'DO NOT IMPORT' }, swipes: ['Unused'] },
+      { is_user: false, mes: 'Another assistant' }, { is_user: true, mes: 'User one' }, { is_user: true, mes: '' }, { is_user: false, mes: '' }, { is_user: true, mes: 'Pending' },
+    ];
+    const result = await importChat(chunks('\uFEFF' + entries.map(e => JSON.stringify(e)).join('\r\n')));
+    expect(result.turns).toEqual([
+      { user: '', assistant: 'Greeting', complete: true }, { user: '', assistant: 'Another assistant', complete: true },
+      { user: 'User one', assistant: '', complete: true }, { user: '', assistant: '', complete: true }, { user: 'Pending', assistant: '', complete: false },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('DO NOT IMPORT');
+    await expect(importChat(chunks('{"is_user":false,"mes":"ok"}\ninvalid'))).rejects.toThrow('Line 2');
+    await expect(importChat(chunks('{"is_user":false,"is_system":true,"mes":"system"}'))).rejects.toThrow('system messages');
+  });
+  it('replaces only the selected chat, rejects stale writes, and persists the replacement after restart', () => {
+    const path = join(folder(), 'test.sqlite'); let store = new Store(path);
+    try {
+      const id = store.createChat({ title: 'Second', targetInputTokens: 32_000, connectionId: null, promptId: 'default', characterId: null, personaId: null });
+      store.replaceHistory(0, 'main', [{ user: 'Original', assistant: 'Saved', complete: true }]);
+      store.replaceHistory(0, id, [{ user: '', assistant: 'Imported greeting', complete: true }]);
+      expect(store.snapshot('main').turns[0].user.text).toBe('Original');
+      expect(() => store.replaceHistory(0, id, [{ user: 'Stale', assistant: '', complete: false }])).toThrow('changed on another device');
+      const beforeFailure = store.snapshot(id);
+      expect(() => store.replaceHistory(beforeFailure.revision, id, [{ user: 'Pending one', assistant: '', complete: false }, { user: 'Pending two', assistant: '', complete: false }])).toThrow();
+      expect(store.snapshot(id)).toEqual(beforeFailure);
+      const savedId = store.snapshot(id).turns[0].id;
+      store.close(); store = new Store(path);
+      expect(store.snapshot(id).turns[0].id).toBe(savedId);
+      expect(store.snapshot('main').turns[0].user.text).toBe('Original');
+    } finally { store.close(); }
+  });
+  it('migrates version 1 without losing identities, revision state, credentials or generation records', () => {
+    const path = join(folder(), 'old.sqlite'); const db = new Database(path);
+    db.exec(readFileSync('migrations/0001_initial.sql', 'utf8')); db.pragma('user_version = 1');
+    db.prepare('INSERT INTO chats VALUES (?, ?, ?)').run('main', 4, JSON.stringify({ title: 'Old story', instructions: 'Old instructions', character: 'Old character', persona: 'Old persona', targetInputTokens: 32_000 }));
+    db.prepare('INSERT INTO connections VALUES (?, ?)').run('main', JSON.stringify(connection));
+    db.prepare('INSERT INTO credentials VALUES (?, ?)').run('main', 'old-secret');
+    db.prepare('INSERT INTO turns VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('old-turn', 1, 1, 'old-user', 2, 'Saved input', 'old-assistant', 3, 'Saved response');
+    db.prepare('INSERT INTO generations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run('old-generation', 'old-request', '{}', 'old-turn', 'succeeded', 3, null, 'Saved response', null, '2026-10-16', '2026-10-16');
+    db.close();
+    const store = new Store(path);
+    try {
+      expect(store.snapshot()).toMatchObject({ revision: 4, turns: [{ id: 'old-turn', user: { id: 'old-user', revision: 2 }, assistant: { id: 'old-assistant', revision: 3 } }], generations: [{ id: 'old-generation' }] });
+      expect(store.snapshot().sources.character?.description).toBe('Old character'); expect(store.apiKey()).toBe('old-secret');
+      expect(store.sqlite.pragma('foreign_key_check')).toEqual([]);
+      store.updateChat(4, 'main', { title: 'Old story', targetInputTokens: 32_000, connectionId: 'main', promptId: 'default', characterId: null, personaId: null });
+      const cleared = store.snapshot();
+      expect(assembleRequest(cleared.connection!, cleared.settings, cleared.turns, cleared.sources).body.messages).not.toContainEqual({ role: 'system', content: 'Old character' });
+      expect(cleared.settings.character).toBe(''); expect(cleared.settings.persona).toBe('');
+    } finally { store.close(); }
+  });
+});
+
+it('keeps simultaneous chat generations and secrets isolated, blocks shared edits, and atomically clears old request records on replacement', async () => {
+  const mock = await startMockProvider();
+  const { app, store } = await createApp({ database: join(folder(), 'api.sqlite') });
+  let cookie = '';
+  async function cmd(url: string, data: unknown, method: 'POST' | 'PUT' | 'DELETE' = 'POST') { return app.inject({ method, url: '/api' + url, headers: { host: 'localhost', origin: 'http://localhost', 'content-type': 'application/json', cookie }, payload: JSON.stringify(data) }); }
+  try {
+    cookie = (await cmd('/setup', { password: 'synthetic-library-password' })).headers['set-cookie']!.toString().split(';')[0];
+    const first = await cmd('/library', { kind: 'connections', revision: store.libraries().revision, data: { ...connection, endpoint: mock.url }, apiKey: 'isolated-one' }); expect(first.statusCode).toBe(200);
+    const second = await cmd('/library', { kind: 'connections', revision: store.libraries().revision, data: { ...connection, endpoint: mock.url, model: 'second-model' }, apiKey: 'isolated-two' });
+    const ids: string[] = [];
+    for (const connectionId of [first.json().id, second.json().id]) ids.push((await cmd('/chats', { title: 'Isolated', targetInputTokens: 32_000, connectionId, promptId: 'default', characterId: null, personaId: null })).json().id);
+    mock.setMode('hold');
+    for (const id of ids) expect((await cmd(`/chats/${id}/turns`, { revision: 0, requestId: randomUUID(), text: id })).statusCode).toBe(202);
+    await expect.poll(() => mock.requests.length).toBe(2);
+    expect(new Set(mock.requests.map(r => r.authorization))).toEqual(new Set(['Bearer isolated-one', 'Bearer isolated-two']));
+    expect((await cmd('/library', { kind: 'personas', revision: store.libraries().revision, data: { name: 'Blocked', description: '' } })).statusCode).toBe(409);
+    expect((await cmd(`/chats/${ids[0]}/history`, { revision: store.snapshot(ids[0]).revision, turns: [{ user: '', assistant: 'Replacement', complete: true }] }, 'PUT')).statusCode).toBe(409);
+    mock.finishAll(); await expect.poll(() => ids.every(id => store.snapshot(id).turns[0].complete)).toBe(true);
+    expect((await cmd(`/chats/${ids[0]}/history`, { revision: store.snapshot(ids[0]).revision, turns: [{ user: '', assistant: 'Replacement', complete: true }] }, 'PUT')).statusCode).toBe(200);
+    expect(store.snapshot(ids[0]).generations).toHaveLength(0); expect(store.snapshot(ids[1]).generations).toHaveLength(1);
+    const before = store.snapshot(ids[0]);
+    expect((await cmd(`/chats/${ids[0]}/history`, { revision: before.revision, turns: [{ user: 'Bad', assistant: '', complete: false }, { user: '', assistant: 'Bad', complete: true }] }, 'PUT')).statusCode).toBe(400);
+    expect(store.snapshot(ids[0])).toEqual(before);
+  } finally { await app.close(); await mock.close(); }
+});

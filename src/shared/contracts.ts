@@ -32,6 +32,8 @@ export const chatSettingsSchema = z.object({
   character: z.string().max(100_000),
   persona: z.string().max(100_000),
   targetInputTokens: z.number().int().positive().max(10_000_000),
+  connectionId: z.string().nullable().optional(), promptId: z.string().optional(),
+  characterId: z.string().nullable().optional(), personaId: z.string().nullable().optional(),
 }).strict();
 
 export type Connection = z.infer<typeof connectionSchema>;
@@ -43,6 +45,7 @@ export type RequestBody = {
   model: string; messages: Message[]; stream: true; max_tokens: number;
 } & z.infer<typeof customParametersSchema>;
 export type RequestPreview = {
+  warnings?: string[];
   endpoint: string;
   body: RequestBody;
   coverage: { turnId: string; userRevision: number; assistantRevision: number; complete: boolean }[];
@@ -58,6 +61,7 @@ export type Generation = {
   createdAt: string; updatedAt: string;
 };
 export type ChatSnapshot = {
+  id: string; sources: import('./library.js').PromptSources;
   revision: number; settings: ChatSettings; connection: Connection | null; hasApiKey: boolean;
   turns: Turn[]; generations: Generation[];
 };
