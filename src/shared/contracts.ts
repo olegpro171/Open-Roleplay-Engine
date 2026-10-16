@@ -1,0 +1,75 @@
+import { z } from 'zod';
+
+export const customParametersSchema = z.object({
+  temperature: z.number().min(0).max(2).optional(),
+  top_p: z.number().min(0).max(1).optional(),
+  presence_penalty: z.number().min(-2).max(2).optional(),
+  frequency_penalty: z.number().min(-2).max(2).optional(),
+  seed: z.number().int().optional(),
+  stop: z.union([z.string().max(200), z.array(z.string().max(200)).max(4)]).optional(),
+  reasoning_effort: z.enum(['none', 'minimal', 'low', 'medium', 'high']).optional(),
+}).strict();
+
+export const connectionSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  endpoint: z.string().url().max(2000).refine((value) => {
+    try {
+      const url = new URL(value);
+      return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
+    } catch { return false; }
+  }, 'Use an HTTP(S) API base URL without credentials, query parameters, or a fragment.'),
+  model: z.string().trim().min(1).max(200),
+  contextWindow: z.number().int().positive().max(10_000_000),
+  maxOutputTokens: z.number().int().positive().max(1_000_000),
+  customParameters: customParametersSchema,
+}).strict().refine((value) => value.maxOutputTokens < value.contextWindow, {
+  message: 'Reserved output must be smaller than the context window.', path: ['maxOutputTokens'],
+});
+
+export const chatSettingsSchema = z.object({
+  title: z.string().trim().min(1).max(100),
+  instructions: z.string().max(100_000),
+  character: z.string().max(100_000),
+  persona: z.string().max(100_000),
+  targetInputTokens: z.number().int().positive().max(10_000_000),
+}).strict();
+
+export type Connection = z.infer<typeof connectionSchema>;
+export type ChatSettings = z.infer<typeof chatSettingsSchema>;
+export type Message = { role: 'system' | 'user' | 'assistant'; content: string };
+export type TurnPart = { id: string; revision: number; text: string };
+export type Turn = { id: string; position: number; complete: boolean; user: TurnPart; assistant: TurnPart };
+export type RequestBody = {
+  model: string; messages: Message[]; stream: true; max_tokens: number;
+} & z.infer<typeof customParametersSchema>;
+export type RequestPreview = {
+  endpoint: string;
+  body: RequestBody;
+  coverage: { turnId: string; userRevision: number; assistantRevision: number; complete: boolean }[];
+  budget: {
+    inputTokens: number; targetInputTokens: number; reservedOutputTokens: number;
+    contextWindow: number; method: string; verified: false;
+  };
+};
+export type GenerationStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
+export type Generation = {
+  id: string; turnId: string; status: GenerationStatus; sourceRevision: number;
+  request: RequestPreview | null; partialText: string; error: string | null;
+  createdAt: string; updatedAt: string;
+};
+export type ChatSnapshot = {
+  revision: number; settings: ChatSettings; connection: Connection | null; hasApiKey: boolean;
+  turns: Turn[]; generations: Generation[];
+};
+
+export const revisionSchema = z.number().int().nonnegative();
+export const saveSettingsSchema = z.object({
+  revision: revisionSchema, connection: connectionSchema, settings: chatSettingsSchema,
+  apiKey: z.string().max(10_000).refine((value) => !/[\r\n]/.test(value), 'API keys cannot contain line breaks.').optional(),
+}).strict();
+export const submissionSchema = z.object({
+  revision: revisionSchema, requestId: z.string().uuid(), text: z.string().min(1).max(100_000),
+}).strict();
+export const retrySchema = z.object({ revision: revisionSchema, requestId: z.string().uuid() }).strict();
+export const editSchema = z.object({ revision: revisionSchema, text: z.string().max(100_000) }).strict();
+export const passwordSchema = z.object({ password: z.string().min(12).max(256) }).strict();
