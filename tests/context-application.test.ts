@@ -90,6 +90,56 @@ describe('durable imported-session preparation', () => {
     expect(saved.turns.at(-1)?.assistant.text).toBe('Leon pockets the brass key.');
   });
 
+  it.each(['absent', 'disabled'] as const)('uses recent history with Summary %s, keeps saved memory, then prepares after re-enabling', async mode => {
+    const f = fixture();
+    await f.idle(f.start());
+    const saved = structuredClone(f.state().context);
+    const { defaultPrompt } = await import('../src/shared/library.js');
+    const { assembleRequest } = await import('../src/core/prompt.js');
+    const blocks = mode === 'absent' ? defaultPrompt.blocks.filter(block => block.id !== 'summary') : defaultPrompt.blocks.map(block => ({ ...block, enabled: block.id !== 'summary' }));
+    f.store.saveLibrary(f.store.libraries().revision, 'prompts', { ...defaultPrompt, blocks }, 'default');
+    expect(contextPlan(f.state())).toMatchObject({ ready: true, next: null, stale: [] });
+    expect(() => f.start()).toThrow('Summaries are disabled');
+    expect(f.state().context.jobs).toEqual(saved.jobs);
+    const current = f.state();
+    const text = 'Leon puts the brass key in his pocket.';
+    const preview = assembleRequest(current.connection!, current.settings, [...current.turns, { id: 'draft', position: 49, complete: false, user: { id: 'draft-u', revision: 0, text }, assistant: { id: 'draft-a', revision: 0, text: '' } }], current.sources, current.context);
+    const calls = f.calls.length;
+    f.coordinator.start(current.revision, randomUUID(), text, f.chatId);
+    await expect.poll(() => f.state().generations[0].status).toBe('succeeded');
+    expect(f.calls.slice(calls).map(call => call.request.body.model)).toEqual(['story-model']);
+    const sent = f.calls.at(-1)!.request;
+    expect(sent.body).toEqual(preview.body);
+    expect(sent.history?.mode).toBe('recent');
+    expect(sent.budget.inputTokens).toBeLessThanOrEqual(current.settings.targetInputTokens);
+    expect(sent.body.messages.some(message => message.content.includes('[Memory L'))).toBe(false);
+    expect(f.state().context).toEqual(saved);
+    f.store.saveLibrary(f.store.libraries().revision, 'prompts', defaultPrompt, 'default');
+    expect((await f.idle(f.start())).status).toBe('succeeded');
+    expect(contextPlan(f.state()).ready).toBe(true);
+    expect(f.state().context.summaries).toEqual(expect.arrayContaining(saved.summaries));
+    const preparedCalls = f.calls.length;
+    expect((await f.idle(f.start())).status).toBe('succeeded');
+    expect(f.calls).toHaveLength(preparedCalls);
+  });
+
+  it('allows continuation with unused stale memory while summaries are disabled, and requires repair when enabled', async () => {
+    const f = fixture(); await f.idle(f.start());
+    const { defaultPrompt } = await import('../src/shared/library.js');
+    f.store.editPart(f.state().revision, f.state().turns[0].id, 'user', 'The key was never given away.', f.chatId);
+    expect(contextPlan(f.state()).stale.length).toBeGreaterThan(0);
+    f.store.saveLibrary(f.store.libraries().revision, 'prompts', { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.id !== 'summary') }, 'default');
+    const memory = structuredClone(f.state().context), calls = f.calls.length;
+    expect(contextPlan(f.state())).toMatchObject({ ready: true, stale: [] });
+    f.coordinator.start(f.state().revision, randomUUID(), 'Leon waits.', f.chatId);
+    await expect.poll(() => f.state().generations[0].status).toBe('succeeded');
+    expect(f.calls).toHaveLength(calls + 1);
+    expect(f.state().context).toEqual(memory);
+    f.store.saveLibrary(f.store.libraries().revision, 'prompts', defaultPrompt, 'default');
+    expect(contextPlan(f.state()).blocked).toContain('out of date');
+    expect(() => f.start()).toThrow('out of date');
+  });
+
   it.each(['placeholder', 'refusal', 'length', 'huge'] as const)('keeps sources selected after %s output and retries only explicitly', async mode => {
     const f = fixture(); f.setMode(mode);
     const failed = await f.idle(f.start());

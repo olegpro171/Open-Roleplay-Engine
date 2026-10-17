@@ -9,6 +9,7 @@ import { assembleRequest } from '../core/prompt.js';
 import { validateSummary } from '../core/summary-validation.js';
 import { emptyContextState, refKey, type ContextJob, type ContextOperation, type ContextSnapshot, type ContextState, type ContextStep, type SummaryNode, type SummaryRef } from '../shared/context.js';
 import type { RequestPreview } from '../shared/contracts.js';
+import { hasPromptMarker } from '../shared/library.js';
 
 type JsonRow = { data: string };
 export class ContextStore {
@@ -93,6 +94,7 @@ export class ContextStore {
         if (!generation || generation.chatId !== chatId || generation.status !== 'running' || this.running(chatId)) throw new AppError(409, 'context_running', 'Another operation is already running for this chat.');
       } else this.store.ensureIdle(chatId);
       const snapshot = this.store.snapshot(chatId), preset = snapshot.context.preset;
+      if (!hasPromptMarker(snapshot.sources.prompt, 'summary')) throw new AppError(422, 'summaries_disabled', 'Summaries are disabled. Enable a Summary marker in the prompt before preparing memory.');
       if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) throw new AppError(409, 'repair_awaits_review', 'Approve or discard the existing repair candidate before preparing more memory.');
       if (!preset) throw new AppError(422, 'context_required', 'Select a context preset first.');
       // Only an explicit Prepare click may restore detail. Automatic preparation

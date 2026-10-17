@@ -1,6 +1,6 @@
 import type { ChatSettings, Connection, Message, PromptEntry, RequestPreview, Turn } from '../shared/contracts.js';
 import { AppError } from './errors.js';
-import { promptSchema, type PromptSources } from '../shared/library.js';
+import { defaultPrompt, hasPromptMarker, promptSchema, promptWarnings, type PromptSources } from '../shared/library.js';
 import type { ContextState, SummaryNode } from '../shared/context.js';
 import { selectedContext } from './context.js';
 import { countInput } from './tokens.js';
@@ -19,50 +19,68 @@ export function summaryText(node: SummaryNode, turns: Turn[]): string {
 }
 
 export function assembleRequest(connection: Connection, settings: ChatSettings, turns: Turn[], sources?: PromptSources, context?: ContextState, options: { validateLimits?: boolean; allowStale?: boolean } = {}): RequestPreview {
-  const messages: Message[] = [];
-  const positions = new Map(turns.map((turn, index) => [turn.id, index + 1]));
-  const warnings: string[] = [];
-  const layout: PromptEntry[] = [];
-  const push = (message: Message, kind: PromptEntry['kind'], label: string) => {
-    layout.push({ messageIndex: messages.length, kind, label, tokens: 0 });
-    messages.push(message);
+  // The default template also supports the legacy inline-settings API. An
+  // explicitly supplied preset, including an empty one, is always authoritative.
+  const preset = sources?.prompt ? promptSchema.parse({ name: sources.prompt.name, blocks: sources.prompt.blocks }) : {
+    ...defaultPrompt, blocks: defaultPrompt.blocks.map(block => block.kind === 'text' ? { ...block, text: settings.instructions } : block),
   };
-  const resolved = context ? selectedContext(turns, context, options.allowStale) : { summaries: [], verbatim: turns };
+  const summariesEnabled = hasPromptMarker(preset, 'summary');
+  const resolved = summariesEnabled && context ? selectedContext(turns, context, options.allowStale) : { summaries: [], verbatim: turns };
   const summary = resolved.summaries.map(node => summaryText(node, turns)).join('\n\n');
-  const separateSummary = sources?.prompt?.blocks.some(block => block.enabled && block.kind === 'marker' && block.marker === 'summary');
-  const history = () => {
-    if (summary && !separateSummary) push({ role: 'system', content: summary }, 'memory', 'Selected memory');
-    for (const turn of resolved.verbatim) {
-      if (turn.user.text !== '') push({ role: 'user', content: turn.user.text }, turn.id === 'draft' ? 'draft' : 'history', turn.id === 'draft' ? 'Unsent input' : `Turn ${positions.get(turn.id)} · input`);
-      if (turn.complete && turn.assistant.text !== '') push({ role: 'assistant', content: turn.assistant.text }, 'history', `Turn ${positions.get(turn.id)} · response`);
-    }
-  };
+  const positions = new Map(turns.map((turn, index) => [turn.id, index + 1]));
+  type Entry = { message: Message; kind: PromptEntry['kind']; label: string };
+  let entries: Entry[] = [];
+  const warnings = promptWarnings(preset);
+  let historyIndex: number | null = null;
   const card = sources?.character;
   const resolve = (text: string) => replaceNameMacros(text, sources?.persona?.name ?? 'You', card?.name ?? 'Character');
-  if (sources?.prompt) {
-    const preset = promptSchema.parse({ name: sources.prompt.name, blocks: sources.prompt.blocks });
-    for (const block of preset.blocks) {
-      if (!block.enabled) continue;
-      if (block.kind === 'marker' && block.marker === 'messages') { history(); continue; }
-      if (block.kind === 'marker' && block.marker === 'summary') { if (summary) push({ role: block.role, content: summary }, 'memory', block.name || 'Selected memory'); else warnings.push('The Summary marker is empty: no summaries have been selected.'); continue; }
-      let content = '';
-      if (block.kind === 'text') content = block.text;
-      else switch (block.marker) {
-        case 'character': content = card ? [card.name, card.description, card.personality, card.scenario, card.mes_example].filter(Boolean).join('\n\n') : settings.character; break;
-        case 'persona': content = sources.persona?.description ?? settings.persona; break;
-        case 'description': content = card?.description ?? ''; break;
-        case 'personality': content = card?.personality ?? ''; break;
-        case 'scenario': content = card?.scenario ?? ''; break;
-        case 'examples': content = card?.mes_example ?? ''; break;
-      }
-      if (content !== '') push({ role: block.role, content: resolve(content) }, block.kind === 'text' ? 'prompt' : block.marker === 'persona' ? 'persona' : 'character', block.name || (block.kind === 'text' ? 'Prompt text' : block.marker));
+  for (const block of preset.blocks) {
+    if (!block.enabled) continue;
+    if (block.kind === 'marker' && block.marker === 'messages') { historyIndex = entries.length; continue; }
+    if (block.kind === 'marker' && block.marker === 'summary') {
+      if (summary) entries.push({ message: { role: block.role, content: summary }, kind: 'memory', label: block.name });
+      continue;
     }
-  } else {
-    for (const [index, content] of [settings.instructions, settings.character, settings.persona].entries()) {
-      if (content !== '') push({ role: 'system', content: resolve(content) }, (['prompt', 'character', 'persona'] as const)[index], ['Instructions', 'Character', 'Persona'][index]);
+    let content = '';
+    if (block.kind === 'text') content = block.text;
+    else switch (block.marker) {
+      case 'character': content = card ? [card.name, card.description, card.personality, card.scenario, card.mes_example].filter(Boolean).join('\n\n') : settings.character; break;
+      case 'persona': content = sources?.persona?.description ?? settings.persona; break;
+      case 'description': content = card?.description ?? ''; break;
+      case 'personality': content = card?.personality ?? ''; break;
+      case 'scenario': content = card?.scenario ?? ''; break;
+      case 'examples': content = card?.mes_example ?? ''; break;
     }
-    history();
+    if (content !== '') entries.push({ message: { role: block.role, content: resolve(content) }, kind: block.kind === 'text' ? 'prompt' : block.marker === 'persona' ? 'persona' : 'character', label: block.name });
   }
+  const turnEntries = (turn: Turn): Entry[] => {
+    const result: Entry[] = [];
+    if (turn.user.text !== '') result.push({ message: { role: 'user', content: turn.user.text }, kind: turn.id === 'draft' ? 'draft' : 'history', label: turn.id === 'draft' ? 'Unsent input' : `Turn ${positions.get(turn.id)} · input` });
+    if (turn.complete && turn.assistant.text !== '') result.push({ message: { role: 'assistant', content: turn.assistant.text }, kind: 'history', label: `Turn ${positions.get(turn.id)} · response` });
+    return result;
+  };
+  let verbatim: Turn[] = [];
+  if (historyIndex !== null) {
+    if (summariesEnabled) verbatim = resolved.verbatim;
+    else {
+      const limit = Math.min(settings.targetInputTokens, connection.contextWindow - connection.maxOutputTokens);
+      let used = countInput(entries.map(entry => entry.message)).inputTokens;
+      let start = turns.length;
+      // A pending input is required when Messages is enabled. Completed turns
+      // form a contiguous newest suffix; neither parts nor text are truncated.
+      for (let index = turns.length - 1; index >= 0; index--) {
+        const turn = turns[index];
+        const cost = countInput(turnEntries(turn).map(entry => entry.message)).inputTokens - countInput([]).inputTokens;
+        if (turn.complete && used + cost > limit) break;
+        used += cost; start = index;
+      }
+      verbatim = turns.slice(start);
+    }
+    entries = entries.slice(0, historyIndex).concat(verbatim.flatMap(turnEntries), entries.slice(historyIndex));
+  }
+  const messages = entries.map(entry => entry.message);
+  const layout: PromptEntry[] = entries.map((entry, messageIndex) => ({ messageIndex, kind: entry.kind, label: entry.label, tokens: 0 }));
+  if (options.validateLimits !== false && !messages.length) throw new AppError(422, 'empty_prompt', 'The resolved prompt is empty. Enable a block or marker before sending.');
   const { contentTokens, ...measurement } = countInput(messages);
   const { inputTokens } = measurement;
   layout.forEach((part, index) => { part.tokens = contentTokens[index]; });
@@ -83,7 +101,8 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     coverage: turns.map((turn) => ({
       turnId: turn.id, userRevision: turn.user.revision, assistantRevision: turn.assistant.revision, complete: turn.complete,
     })),
-    ...(context ? { context: { selected: context.selected, archivedTurnIds: context.archivedTurnIds } } : {}),
+    ...(context ? { context: { selected: summariesEnabled ? context.selected : [], archivedTurnIds: summariesEnabled ? context.archivedTurnIds : [] } } : {}),
+    history: { mode: summariesEnabled ? 'managed' : 'recent', verbatimTurnIds: verbatim.map(turn => turn.id) },
     budget: {
       ...measurement, targetInputTokens: settings.targetInputTokens,
       reservedOutputTokens: connection.maxOutputTokens, contextWindow: connection.contextWindow,

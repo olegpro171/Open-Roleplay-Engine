@@ -7,7 +7,7 @@ import { dirname, resolve } from 'node:path';
 import { AppError } from '../core/errors.js';
 import { replaceNameMacros } from '../core/prompt.js';
 import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStatus, RequestPreview, TokenUsage, Turn } from '../shared/contracts.js';
-import { defaultPrompt, selectionsSchema, type Character, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved } from '../shared/library.js';
+import { defaultPrompt, promptSchema, selectionsSchema, type Character, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved } from '../shared/library.js';
 import * as schema from './schema.js';
 import { trimBoundaryNewlines } from '../shared/text.js';
 import { defaultContextPreset, type ContextPreset } from '../shared/context.js';
@@ -91,7 +91,22 @@ export class Store {
           this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0004_token_usage.sql'), 'utf8'));
           this.sqlite.pragma('user_version = 4');
         })();
-      } else if (version !== 4) throw new Error('Unsupported database schema version.');
+        version = 4;
+      }
+      if (version === 4) {
+        this.sqlite.transaction(() => {
+          const builtIn = this.db.select().from(schema.library).where(and(eq(schema.library.id, 'default'), eq(schema.library.kind, 'prompts'))).get();
+          const previousDefault = { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.id !== 'summary') };
+          // Upgrade only the exact old factory preset. Edited defaults and all
+          // user presets keep their deliberate marker choices.
+          if (builtIn && JSON.stringify(promptSchema.parse(builtIn.data)) === JSON.stringify(promptSchema.parse(previousDefault))) {
+            this.db.update(schema.library).set({ data: defaultPrompt, revision: builtIn.revision + 1 }).where(eq(schema.library.id, 'default')).run();
+            for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.promptId === 'default') this.bumpRevision(chat.id);
+            this.sqlite.prepare('UPDATE library_state SET revision = revision + 1 WHERE id = 1').run();
+          }
+          this.sqlite.pragma('user_version = 5');
+        })();
+      } else if (version !== 5) throw new Error('Unsupported database schema version.');
       this.contexts = new ContextStore(this);
       if (newDatabase) this.db.insert(schema.chats).values({ id: 'main', revision: 0, settings: initialSettings }).onConflictDoNothing().run();
     } catch (error) {

@@ -62,6 +62,7 @@ export type RequestPreview = {
   body: RequestBody;
   coverage: { turnId: string; userRevision: number; assistantRevision: number; complete: boolean }[];
   context?: { selected: import('./context.js').SummaryRef[]; archivedTurnIds: string[] };
+  history?: { mode: 'managed' | 'recent'; verbatimTurnIds: string[] };
   budget: {
     inputTokens: number; targetInputTokens: number; reservedOutputTokens: number;
     contextWindow: number; method: string; verified: false;

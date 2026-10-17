@@ -5,6 +5,7 @@ import { generateSummary } from './summarizer.js';
 import type { Store } from '../persistence/store.js';
 import type { Provider } from '../provider/openai.js';
 import type { ContextJob } from '../shared/context.js';
+import { hasPromptMarker } from '../shared/library.js';
 
 export class ContextCoordinator {
   private active = new Map<string, { controller: AbortController; task: Promise<void>; generationId: string | null }>();
@@ -24,7 +25,7 @@ export class ContextCoordinator {
   }
   async prepareForGeneration(chatId: string, generationId: string, signal: AbortSignal) {
     const snapshot = this.store.snapshot(chatId);
-    if (!snapshot.context.preset) return;
+    if (!hasPromptMarker(snapshot.sources.prompt, 'summary') || !snapshot.context.preset) return;
     const plan = contextPlan(snapshot);
     if (plan.blocked) throw new AppError(422, 'context_blocked', plan.blocked);
     if (plan.ready) return;

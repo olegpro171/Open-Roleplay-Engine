@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ChatSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError } from './api';
-import type { LibrarySnapshot } from '../shared/library';
+import { hasPromptMarker, type LibrarySnapshot } from '../shared/library';
 import { ChatSetup, Libraries } from './Libraries';
 import { Dropdown } from './Controls';
 import { trimBoundaryNewlines } from '../shared/text';
@@ -87,7 +87,8 @@ export function App() {
   const preparing = snapshot?.context.jobs.find(job => job.status === 'running');
   const working = Boolean(active || preparing);
   const outdated = snapshot ? staleSummaries(snapshot.turns, snapshot.context) : new Set<string>();
-  const memoryStale = snapshot?.context.selected.some(ref => outdated.has(refKey(ref))) ?? false;
+  const summariesEnabled = hasPromptMarker(snapshot?.sources.prompt, 'summary');
+  const memoryStale = summariesEnabled && (snapshot?.context.selected.some(ref => outdated.has(refKey(ref))) ?? false);
   const pending = snapshot?.turns.at(-1)?.complete === false;
   const latest = snapshot?.generations[0];
   const shownGeneration = snapshot?.generations.find((generation) => generation.id === generationId);
@@ -106,7 +107,7 @@ export function App() {
   const inspectionError = inspection.key === inspectionKey ? inspection.error : currentRequest ? '' : snapshot?.connection ? 'Counting current input…' : '';
   const shownRequest = generationId ? shownGeneration?.request : currentRequest;
   const archivedIds = new Set(snapshot?.context.archivedTurnIds);
-  const activeTurns = snapshot?.turns.filter(turn => !archivedIds.has(turn.id)).length ?? 0;
+  const activeTurns = currentRequest?.history?.verbatimTurnIds.filter(id => id !== 'draft').length ?? (snapshot?.turns.filter(turn => !archivedIds.has(turn.id)).length ?? 0);
   const inputLimit = currentRequest ? Math.min(currentRequest.budget.targetInputTokens, currentRequest.budget.contextWindow - currentRequest.budget.reservedOutputTokens) : 0;
   const turnUsage = new Map(snapshot?.generations.filter(generation => generation.status === 'succeeded').slice().reverse().map(generation => [generation.turnId, generation.usage]));
   const partial = active?.partialText ?? (pending ? latest?.partialText : '');
@@ -164,7 +165,7 @@ export function App() {
         <p className="eyebrow">CURRENT CHAT</p><h1>{snapshot.settings.title}</h1>
         <p>{snapshot.connection ? `${snapshot.connection.name} · ${snapshot.connection.model}` : 'Set up a Connection to begin.'}</p>
         <dl><div><dt>Total turns</dt><dd>{snapshot.turns.length}</dd></div><div title="Saved turns kept verbatim in the current input, including a pending turn"><dt>Active turns</dt><dd>{activeTurns}</dd></div><div><dt>Input target</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString()}</dd></div><div><dt>Estimated input</dt><dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>{currentRequest?.budget.inputTokens.toLocaleString() ?? '—'}</dd></div></dl>
-        <details className="context-dropdown"><summary>Context <span>{snapshot.context.selected.length ? `${snapshot.context.selected.length} summaries` : 'Full history'}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></> : <p className="small muted">{inspectionError || 'Select a Connection to inspect input.'}</p>}</details>
+        <details className="context-dropdown"><summary>Context <span>{!summariesEnabled ? 'Summaries are disabled' : snapshot.context.selected.length ? `${snapshot.context.selected.length} summaries` : 'Full history'}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></> : <p className="small muted">{inspectionError || 'Select a Connection to inspect input.'}</p>}</details>
         <button className="secondary" onClick={() => setTab('settings')}>Edit setup</button>
         <button className="quiet" onClick={() => setTab('memory')}>Inspect memory</button>
       </aside>
@@ -173,7 +174,7 @@ export function App() {
         <div className="transcript-frame"><div className="transcript" ref={transcript}>
           {snapshot.turns.length === 0 && <div className="empty-state"><h2>Set up your story</h2><button className="secondary" onClick={() => setTab('settings')}>Setup</button></div>}
           {snapshot.turns.map((turn, index) => <article className="turn" key={turn.id} data-turn-id={turn.id} aria-label={`Turn ${index + 1}`}>
-            <div className="turn-heading"><span>TURN {index + 1} {turn.complete ? snapshot.context.archivedTurnIds.includes(turn.id) ? '· ARCHIVED' : '' : '· PENDING'}</span>{turn.complete && turnUsage.has(turn.id) && <span className="turn-usage" title="Provider-reported counts for the saved response, before any later edits. Output may include reasoning tokens.">{turnUsage.get(turn.id) ? `${turnUsage.get(turn.id)!.inputTokens.toLocaleString()} in · ${turnUsage.get(turn.id)!.outputTokens.toLocaleString()} out` : 'Usage unavailable'}</span>}<button className="quiet" disabled={working || busy} onClick={() => {
+            <div className="turn-heading"><span>TURN {index + 1} {turn.complete ? summariesEnabled && snapshot.context.archivedTurnIds.includes(turn.id) ? '· ARCHIVED' : '' : '· PENDING'}</span>{turn.complete && turnUsage.has(turn.id) && <span className="turn-usage" title="Provider-reported counts for the saved response, before any later edits. Output may include reasoning tokens.">{turnUsage.get(turn.id) ? `${turnUsage.get(turn.id)!.inputTokens.toLocaleString()} in · ${turnUsage.get(turn.id)!.outputTokens.toLocaleString()} out` : 'Usage unavailable'}</span>}<button className="quiet" disabled={working || busy} onClick={() => {
               if (confirm('Delete this entire turn, including its saved request records?')) void command(() => api(`/chats/${chatId}/turns/${turn.id}`, 'DELETE', { revision: snapshot.revision }));
             }}>Delete turn</button></div>
             {(['user', 'assistant'] as const).filter(part => !(part === 'user' && turn.complete && turn.user.text === '' && turn.user.revision === 0 && !(edit?.turnId === turn.id && edit.part === 'user'))).map((part) => <div className={`part ${part}`} key={part}>

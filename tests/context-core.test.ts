@@ -81,7 +81,7 @@ describe('stateful layered context', () => {
     const state: ContextState = { revision: 1, summaries: [summary], archivedTurnIds: ['t1', 't2'], selected: [summary] };
     const connection = { name: 'Test', endpoint: 'http://localhost/v1', model: 'synthetic', contextWindow: 10_000, maxOutputTokens: 100, customParameters: {} };
     const settings = { title: 'Test', targetInputTokens: 5_000, instructions: '', character: '', persona: '' };
-    const sources = { prompt: { ...defaultPrompt, id: 'prompt', revision: 0, blocks: [{ id: 's', name: 'Summary', enabled: true, kind: 'marker' as const, marker: 'summary' as const, role: 'system' as const }, defaultPrompt.blocks[3]] }, character: null, persona: null };
+    const sources = { prompt: { ...defaultPrompt, id: 'prompt', revision: 0, blocks: [{ id: 's', name: 'Summary', enabled: true, kind: 'marker' as const, marker: 'summary' as const, role: 'system' as const }, defaultPrompt.blocks.find(block => block.id === 'messages')!] }, character: null, persona: null };
     const request = assembleRequest(connection, settings, turns, sources, state);
     expect(request.body.messages).toHaveLength(2);
     expect(request.body.messages[0].content).toContain(summary.text);

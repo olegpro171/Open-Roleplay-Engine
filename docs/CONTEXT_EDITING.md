@@ -4,6 +4,8 @@ Date: 2026-10-16
 
 Status: context-engine rules and editing discussion; durable compaction and targeted repair with review are implemented for local testing. A [standalone synthetic visualizer](VISUALIZER.md) remains the budgeting reference and does not itself implement editing or repair. This document extends [CONCEPTS.md](../CONCEPTS.md). Accepted rules and implemented policies are distinguished from future proposals. Worked examples do not establish optimal numerical defaults.
 
+The later accepted prompt-control decision on 2026-10-17 scopes the managed-history rules below: they apply when an enabled Summary marker is present. Summaries are never injected implicitly. Without Summary, Messages uses recent whole original turns within the complete input limit, independently of the saved summary cutoff; old turns can be omitted without summarization. No summary work runs, saved memory remains intact, and unused stale memory does not block roleplay. Missing Messages sends no turns. See [the current prompt rules](../CONCEPTS.md#prompt-preset).
+
 ## Accepted turn editing and deletion rules
 
 A turn contains a user-input part and an assistant-response part. Historical turns must be complete; only the latest turn may await a completed response. A pending turn blocks submission of another turn while it remains unresolved. Only a whole turn can be deleted; either part can be edited independently. No deletion merges surviving content into neighboring turns.

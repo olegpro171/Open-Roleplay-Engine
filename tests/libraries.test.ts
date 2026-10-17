@@ -69,7 +69,7 @@ describe('cards, macros and prompt arrangement', () => {
       const prompt = { name: 'Ordered', blocks: [
         { id: 'persona', name: 'Persona', enabled: true, kind: 'marker' as const, role: 'user' as const, marker: 'persona' as const },
         { id: 'char', name: 'Character', enabled: true, kind: 'marker' as const, role: 'system' as const, marker: 'character' as const },
-        defaultPrompt.blocks[3],
+        defaultPrompt.blocks.find(block => block.id === 'messages')!,
         { id: 'after', name: 'After', enabled: true, kind: 'text' as const, role: 'system' as const, text: '{{char}} replies to {{user}}.' },
       ] };
       const promptId = store.saveLibrary(store.libraries().revision, 'prompts', prompt);
@@ -83,8 +83,34 @@ describe('cards, macros and prompt arrangement', () => {
       expect(JSON.stringify(store.libraries())).not.toContain('secret');
       store.saveLibrary(store.libraries().revision, 'characters', { ...card, first_mes: 'Different greeting' }, characterId);
       expect(store.snapshot(id).turns[0].assistant.text).toBe('Welcome, Traveller.');
-      expect(() => promptSchema.parse({ name: 'Missing history', blocks: [defaultPrompt.blocks[0]] })).toThrow('Messages marker');
-      expect(() => promptSchema.parse({ ...defaultPrompt, blocks: [...defaultPrompt.blocks, { ...defaultPrompt.blocks[3], id: 'duplicate' }] })).toThrow('Messages marker');
+      expect(promptSchema.parse({ name: 'Missing history', blocks: [defaultPrompt.blocks[0]] }).blocks).toHaveLength(1);
+      expect(promptSchema.parse({ name: 'Empty', blocks: [] }).blocks).toEqual([]);
+      expect(() => promptSchema.parse({ ...defaultPrompt, blocks: [...defaultPrompt.blocks, { ...defaultPrompt.blocks.find(block => block.id === 'messages')!, id: 'duplicate' }] })).toThrow('Messages marker');
+    } finally { store.close(); }
+  });
+});
+
+describe('prompt template upgrade', () => {
+  it.each([false, true])('upgrades only an untouched old default (customized: %s), retaining saved records', customized => {
+    const path = join(folder(), 'template.sqlite');
+    let store = new Store(path);
+    const legacy = { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.id !== 'summary') };
+    const data = customized ? { ...legacy, name: 'My default' } : legacy;
+    store.saveLibrary(store.libraries().revision, 'prompts', data, 'default');
+    const customId = store.saveLibrary(store.libraries().revision, 'prompts', { ...legacy, name: 'Custom legacy prompt' });
+    const before = store.snapshot(), library = store.libraries();
+    store.sqlite.pragma('user_version = 4');
+    store.close(); store = new Store(path);
+    try {
+      const builtIn = store.libraries().prompts.find(prompt => prompt.id === 'default')!;
+      expect(builtIn.blocks).toEqual(customized ? data.blocks : defaultPrompt.blocks);
+      expect(builtIn.name).toBe(data.name);
+      expect(builtIn.revision).toBe(library.prompts.find(prompt => prompt.id === 'default')!.revision + Number(!customized));
+      expect(store.snapshot().revision).toBe(before.revision + Number(!customized));
+      expect(store.snapshot().turns).toEqual(before.turns);
+      expect(store.snapshot().generations).toEqual(before.generations);
+      expect(store.libraries().prompts.find(prompt => prompt.id === customId)!.blocks).toEqual(legacy.blocks);
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(5);
     } finally { store.close(); }
   });
 });

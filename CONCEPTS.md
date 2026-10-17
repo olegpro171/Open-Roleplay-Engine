@@ -54,6 +54,14 @@ Proposed refinements:
 - Resolved marker content is not recursively interpreted as another template. The accepted second-milestone name preprocessing replaces `{{user}}` and `{{char}}` once in prompt text and card/persona fields; stored conversation text remains literal. Other macros are not implemented.
 - A preview shows the fully resolved outgoing messages.
 
+Accepted prompt-control decision on 2026-10-17 (implemented after the initial compaction milestone): the preset is authoritative. Only enabled text blocks and markers contribute content. Missing or disabled Summary, Messages, Persona or character sources produce generic advisory warnings in the reusable editor; no chat-specific counts or selections are assumed. Empty presets and missing history markers may be saved. At most one enabled Messages and one enabled Summary marker are supported; an empty resolved request fails clearly before a model call.
+
+The factory default and new-prompt template are Instructions → Character → Persona → Summary → Messages. New prompts are independent copies of the factory template. Restore original uses that template. An exact untouched older factory default is upgraded to include Summary; edited defaults and other saved presets keep their marker choices. Historical requests remain immutable.
+
+With Summary enabled, Summary inserts selected memory at its configured position and role, while Messages inserts the managed verbatim tail with its original roles. There is no automatic summary insertion. With Summary absent or disabled, summaries and their saved cutoff do not affect request assembly: Messages inserts the newest contiguous suffix of whole original turns that fits the complete input estimate, including all fixed blocks and pending input. Previously archived turns are eligible again. Stop at the first older turn that cannot fit; do not split parts, truncate text, skip a larger recent turn to fit older ones, or pad spare capacity. Pending input is required only when Messages is enabled. If the fixed content plus that pending input cannot fit, fail clearly. Physical capacity and output reservation still apply. Missing Messages means no conversation turns, including pending input, are inserted.
+
+Summary-off mode displays “Summaries are disabled” and performs no summary preparation, promotion or repair generation, including automatic preparation before a response. Stored summaries, selections, dependencies, candidates and preparation history remain intact, and unused stale memory does not block roleplay. Enable Summary again and use Prepare to reuse fresh saved memory and generate needed replacements; stale selected memory still requires reviewed repair. The recent-turn selection is request-local and never changes the saved compaction selection. Compaction batch sizes, retained floors and minimum-tail guarantees below govern Summary-enabled managed history, not recent-history mode.
+
 ### Context management system
 
 A system that compacts older messages during long-running conversations and supplies the resulting historical context at a prompt marker. It also manages which messages remain verbatim in the outgoing request.
@@ -66,7 +74,7 @@ Proposed refinements:
 
 - Separate the reusable **strategy and configuration** from each chat's **saved context state**: summaries, dependencies, source coverage, and processing progress.
 - Use one active strategy per chat initially.
-- Use one managed context marker to emit both historical summaries and recent verbatim messages. One component owns the cutoff and prevents overlapping history injection.
+- Summary and Messages are separate explicit markers sharing one context selection in managed mode. No source is inserted without its marker; Summary-off mode uses the bounded recent-history rule above.
 - Keep all original messages stored and readable. Compaction affects model input, not transcript retention.
 - Treat summaries as lossy, inspectable, and correctable. Recursive compaction is not a guarantee of perfect recall.
 
@@ -281,7 +289,7 @@ The normal interface keeps existing estimate wording without additional tokenize
 - Future strategy migration and automatic partial detail restoration. Current setting changes preserve selections and apply to subsequent work; an incompatible protected tail requires manual preparation when saved representations permit, explicit adjustment, or clearing memory.
 - Future shared-record version pinning or per-chat copies. In the implemented library milestone, saved edits apply to subsequent requests in chats selecting that record; copied greetings and saved generation requests retain their historical text. Shared edits are blocked while any response is running.
 - Whether agents ship in the first version and which triggers they support.
-- Missing-marker and missing-agent-output behavior.
+- Missing product-agent-output behavior. Missing ordinary prompt markers are settled as advisory omissions with no implicit insertion.
 - Backup policy and generation-record retention.
 
 ## 8. Suggested first proof

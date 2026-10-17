@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createApp } from '../src/server/app.js';
-import type { ChatSnapshot } from '../src/shared/contracts.js';
+import type { ChatSnapshot, RequestPreview } from '../src/shared/contracts.js';
+import { defaultPrompt } from '../src/shared/library.js';
 import { startMockProvider } from './support/mock-provider.js';
 
 let directory: string;
@@ -49,6 +50,42 @@ afterEach(async () => {
 });
 
 describe('persistent chat and generation', () => {
+  it('previews and sends the same bounded recent history without creating summary jobs', async () => {
+    instance.store.saveLibrary(instance.store.libraries().revision, 'prompts', { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.id !== 'summary') }, 'default');
+    instance.store.replaceHistory((await state()).revision, 'main', Array.from({ length: 12 }, (_, i) => ({ user: `Input ${i}. ` + 'A brass key. '.repeat(20), assistant: `Response ${i}. ` + 'The cellar is locked. '.repeat(20), complete: true })));
+    const preset = instance.store.libraries().contexts[0];
+    instance.store.updateChat((await state()).revision, 'main', { title: 'Recent mode', targetInputTokens: 300, connectionId: 'main', promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id });
+    const current = await state(), text = 'I return the key.';
+    const response = await command('/api/preview', { revision: current.revision, text, inspection: true });
+    expect(response.statusCode).toBe(200);
+    const preview = response.json<RequestPreview>();
+    expect(preview.budget.inputTokens).toBeLessThanOrEqual(300);
+    expect(preview.history?.verbatimTurnIds.length).toBeLessThan(current.turns.length);
+    const prepare = await command('/api/chats/main/context/prepare', { revision: current.revision, requestId: randomUUID(), mode: 'prepare' });
+    expect(prepare.statusCode).toBe(422); expect(prepare.json().code).toBe('summaries_disabled');
+    expect((await state()).revision).toBe(current.revision);
+    expect((await submit(text)).statusCode).toBe(202);
+    const saved = await waitForIdle();
+    expect(saved.generations[0].status).toBe('succeeded');
+    expect(mock.requests).toHaveLength(1);
+    expect(mock.requests[0].body).toEqual(preview.body);
+    expect(saved.generations[0].request?.body).toEqual(preview.body);
+    expect(saved.context.jobs).toEqual([]);
+  });
+
+  it('saves an empty preset with advisory warnings and fails sending before a provider request', async () => {
+    const result = await command('/api/library/default', { revision: instance.store.libraries().revision, kind: 'prompts', data: { name: 'Empty', blocks: [] } }, 'PUT');
+    expect(result.statusCode).toBe(200);
+    const preview = await command('/api/preview', { revision: (await state()).revision, inspection: true, text: 'Unsent input' });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json().body.messages).toEqual([]);
+    expect(preview.json().warnings).toHaveLength(4);
+    await submit(); const saved = await waitForIdle();
+    expect(saved.generations[0].status).toBe('failed');
+    expect(saved.generations[0].error).toContain('prompt is empty');
+    expect(mock.requests).toEqual([]);
+  });
+
   it('prepares locally without a summary Connection, validates commands and retries without another job', async () => {
     const snapshot = await state(), preset = instance.store.libraries().contexts[0];
     instance.store.updateChat(snapshot.revision, 'main', { title: snapshot.settings.title, targetInputTokens: 10_000, connectionId: 'main', promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id });

@@ -3,6 +3,8 @@ import type { ChatSnapshot, Turn } from '../src/shared/contracts.js';
 import { defaultContextPreset, refKey, type SummaryNode } from '../src/shared/context.js';
 import { selectedContext, sourceOf } from '../src/core/context.js';
 import { refreshContext } from '../src/core/context-refresh.js';
+import { defaultPrompt } from '../src/shared/library.js';
+import { contextPlan } from '../src/core/context-plan.js';
 import { assembleRequest } from '../src/core/prompt.js';
 
 function fixture(): ChatSnapshot {
@@ -37,6 +39,21 @@ const measure = (snapshot: ChatSnapshot) => assembleRequest(snapshot.connection!
 const apply = (snapshot: ChatSnapshot, state: ReturnType<typeof refreshContext>['state']): ChatSnapshot => ({ ...snapshot, context: { ...snapshot.context, ...state } });
 
 describe('manual memory refresh using the saved tree', () => {
+  it('preserves summary-only selections during Prepare without restoring turns or extracting unused history', () => {
+    const snapshot = fixture();
+    snapshot.sources.prompt = { ...defaultPrompt, id: 'summary-only', revision: 0, blocks: defaultPrompt.blocks.filter(block => block.id !== 'messages') };
+    const original = structuredClone(snapshot.context);
+    const result = refreshContext(snapshot);
+    expect(result.state.selected).toEqual(original.selected);
+    expect(result.report).toMatchObject({ changed: false, verbatimBefore: 0, verbatimAfter: 0 });
+    expect(contextPlan(snapshot)).toMatchObject({ ready: true, next: null, verbatimTurnIds: [] });
+    snapshot.settings.targetInputTokens = measure(snapshot) - 1;
+    const plan = contextPlan(snapshot);
+    expect(plan.next?.level).not.toBe(1);
+    expect(plan.next || plan.blocked).toBeTruthy();
+    expect(snapshot.context).toEqual(original);
+  });
+
   it('restores recent verbatim history, retains every summary and is repeatable across checkpoints', () => {
     const snapshot = fixture(), original = structuredClone(snapshot);
     const { state, report } = refreshContext(snapshot);

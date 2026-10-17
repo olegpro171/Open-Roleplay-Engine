@@ -1,7 +1,8 @@
 import type { ChatSnapshot, Message, RequestPreview } from '../shared/contracts.js';
 import { emptyContextState, refKey, type ContextOperation, type ContextPlan, type SummaryRef } from '../shared/context.js';
 import { AppError } from './errors.js';
-import { nextCompaction, nodeFor, sourceOf, staleSummaries } from './context.js';
+import { nextCompaction, nodeFor, rankedPromotions, sourceOf, staleSummaries } from './context.js';
+import { hasPromptMarker } from '../shared/library.js';
 import { assembleRequest, estimateInputTokens, summaryText } from './prompt.js';
 import { countInput, countText } from './tokens.js';
 import { savedReplacement } from './context-reuse.js';
@@ -10,9 +11,14 @@ export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
   if (!snapshot.connection) throw new AppError(422, 'connection_required', 'Select a roleplay Connection to measure the complete input.');
   const state = snapshot.context;
   const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, state, { validateLimits: false, allowStale: true });
+  const effectiveLimit = Math.min(snapshot.settings.targetInputTokens, snapshot.connection.contextWindow - snapshot.connection.maxOutputTokens);
+  if (!hasPromptMarker(snapshot.sources.prompt, 'summary')) {
+    const blocked = request.budget.inputTokens > effectiveLimit ? 'The prompt and pending input exceed the input limit. Shorten them or increase the limit.' : null;
+    return { inputTokens: request.budget.inputTokens, method: request.budget.method, counting: request.budget.counting, targetInputTokens: snapshot.settings.targetInputTokens, effectiveLimit,
+      verbatimTurnIds: request.history!.verbatimTurnIds, next: null, ready: !blocked, blocked, stale: [] };
+  }
   const staleKeys = staleSummaries(snapshot.turns, state);
   const stale = state.selected.filter(ref => staleKeys.has(refKey(ref)));
-  const effectiveLimit = Math.min(snapshot.settings.targetInputTokens, snapshot.connection.contextWindow - snapshot.connection.maxOutputTokens);
   const archived = new Set(state.archivedTurnIds);
   const verbatim = snapshot.turns.filter(turn => !archived.has(turn.id));
   const required = assembleRequest(snapshot.connection, snapshot.settings, verbatim, snapshot.sources, emptyContextState(), { validateLimits: false }).budget.inputTokens;
@@ -22,10 +28,16 @@ export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
   const changedMembership = JSON.stringify(snapshot.turns.slice(0, archived.size).map(turn => turn.id)) !== JSON.stringify(state.archivedTurnIds);
   let next: ContextOperation | null = null, blocked: string | null = null;
   if (stale.length || changedMembership) blocked = 'Selected memory is out of date. Generate a targeted repair and review its replacements before continuing.';
+  else if (state.preset && !hasPromptMarker(snapshot.sources.prompt, 'messages')) {
+    if (request.budget.inputTokens > effectiveLimit) {
+      next = required <= effectiveLimit ? rankedPromotions(state.selected.map(ref => nodeFor(state, ref)!), state.preset, sizes)[0] ?? null : null;
+      if (!next) blocked = 'The selected summaries and prompt cannot fit the input limit with the current promotion settings.';
+    }
+  }
   else if (state.preset) ({ next, blocked } = nextCompaction(snapshot.turns, state, state.preset, request.budget.inputTokens, effectiveLimit, required, sizes));
   else if (request.budget.inputTokens > effectiveLimit) blocked = 'Full history exceeds the input limit. Select a context preset to prepare it.';
   const reusable = next ? savedReplacement(snapshot, next)?.node : null;
-  return { inputTokens: request.budget.inputTokens, method: request.budget.method, counting: request.budget.counting, targetInputTokens: snapshot.settings.targetInputTokens, effectiveLimit, verbatimTurnIds: verbatim.map(turn => turn.id), next, ready: !blocked && !next, blocked, stale, ...(reusable ? { reusable: { id: reusable.id, revision: reusable.revision } } : {}) };
+  return { inputTokens: request.budget.inputTokens, method: request.budget.method, counting: request.budget.counting, targetInputTokens: snapshot.settings.targetInputTokens, effectiveLimit, verbatimTurnIds: request.history!.verbatimTurnIds, next, ready: !blocked && !next, blocked, stale, ...(reusable ? { reusable: { id: reusable.id, revision: reusable.revision } } : {}) };
 }
 
 export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperation, connection: NonNullable<ChatSnapshot['connection']>, replacements = new Map<string, SummaryRef | null>(), previousRequest: RequestPreview | null = null): { request: RequestPreview; prior: SummaryRef[] } {

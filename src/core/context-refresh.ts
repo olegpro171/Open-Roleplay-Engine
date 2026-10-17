@@ -5,13 +5,24 @@ import { nodeFor, rankedPromotions, selectedContext } from './context.js';
 import { operationKey, savedSummaries } from './context-reuse.js';
 import { assembleRequest, summaryText } from './prompt.js';
 import { countText } from './tokens.js';
+import { hasPromptMarker } from '../shared/library.js';
 
 /** Explicit re-selection only: never generates, deletes or edits a summary. */
 export function refreshContext(snapshot: ChatSnapshot, options: { allowOverflowFallback?: boolean } = {}): { state: ContextState; report: ContextRefresh } {
   const { turns, context: original, connection, settings, sources } = snapshot;
-  if (!connection) throw new AppError(422, 'connection_required', 'Select a roleplay Connection before refreshing memory.');
+  if (!hasPromptMarker(sources.prompt, 'summary')) throw new AppError(422, 'summaries_disabled', 'Summaries are disabled. Enable a Summary marker in the prompt before preparing memory.');
   const config = original.preset;
   if (!config) throw new AppError(422, 'context_required', 'Select a context preset before refreshing memory.');
+  // With no Messages marker, restoring turns cannot add input detail. Keep the
+  // committed memory; summary-only overflow is handled by saved/new promotions.
+  if (!hasPromptMarker(sources.prompt, 'messages')) {
+    selectedContext(turns, original);
+    if (!connection) throw new AppError(422, 'connection_required', 'Select a roleplay Connection before preparing memory.');
+    const input = assembleRequest(connection, settings, turns, sources, original, { validateLimits: false }).budget.inputTokens;
+    const selection = { selected: original.selected, archivedTurnIds: original.archivedTurnIds };
+    return { state: original, report: { before: selection, after: selection, inputBefore: input, inputAfter: input, verbatimBefore: 0, verbatimAfter: 0, changed: false, protectedSummaries: 0, limited: false } };
+  }
+  if (!connection) throw new AppError(422, 'connection_required', 'Select a roleplay Connection before refreshing memory.');
   const current = selectedContext(turns, original); // Repair comes before restoration.
   const limit = Math.min(settings.targetInputTokens, connection.contextWindow - connection.maxOutputTokens);
   const measure = (state: ContextState) => assembleRequest(connection, settings, turns, sources, state, { validateLimits: false }).budget.inputTokens;

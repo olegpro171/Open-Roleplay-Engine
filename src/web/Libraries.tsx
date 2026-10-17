@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ChatSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
-import { defaultPrompt, markers, type Character, type LibraryKind, type LibrarySnapshot, type Persona, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
+import { defaultPrompt, markers, promptWarnings, type Character, type LibraryKind, type LibrarySnapshot, type Persona, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { importChat } from '../core/chat-import';
 import { api } from './api';
 import { Dropdown, NumberInput } from './Controls';
@@ -31,7 +31,7 @@ export function ChatSetup({ snapshot, library, busy, run, saved }: { snapshot: C
   const [revision] = useState(snapshot.revision);
   return <main className="document-panel"><p className="eyebrow">CHAT SETUP</p><h1>Choose this story’s ingredients.</h1><p className="muted">Each chat keeps its own selections. Edit reusable cards, prompts and Connections in Libraries; saved changes apply to chats using them.</p>
     <form onSubmit={async e => { e.preventDefault(); if (await run(() => api(`/chats/${snapshot.id}/selections`, 'PUT', { revision, settings: value }))) saved(); }}><fieldset disabled={busy}><legend>Selections</legend><SelectionFields value={value} change={setValue} library={library} /></fieldset>
-      <p className="small muted">Memory prepares older history when a context preset is selected. The Messages and Summary markers share one saved coverage selection. Changing a character does not rewrite the greeting or saved turns.</p>
+      <p className="small muted">With Summary enabled, a context preset prepares older history. Without Summary, Messages uses recent whole turns that fit the input limit. Missing markers send no content. Changing a character does not rewrite the greeting or saved turns.</p>
       {revision !== snapshot.revision && <p role="status">This chat changed. Reopen Setup to load its current settings.</p>}
       <button disabled={busy || revision !== snapshot.revision}>Save setup</button>
     </form><HistoryImport snapshot={snapshot} busy={busy} run={run} />
@@ -139,7 +139,7 @@ function LibraryEditor({ initial, connections, currentRevision, busy, run, close
       <label>Model context window<NumberInput required value={(data as Connection).contextWindow} onChange={contextWindow => setData({ ...data as Connection, contextWindow })} /></label><label>Reserved output tokens<NumberInput required max={1_000_000} value={(data as Connection).maxOutputTokens} onChange={maxOutputTokens => setData({ ...data as Connection, maxOutputTokens })} /></label><label className="checkbox full"><input type="checkbox" checked={(data as Connection).requestUsage !== false} onChange={e => setData({ ...data as Connection, requestUsage: e.target.checked })} />Request token usage from the endpoint</label><p className="small muted full">Turn statistics use counts supplied by the endpoint. Disable this if your endpoint rejects streaming usage requests.</p><label className="full">Custom request parameters<textarea className="code-input" value={parameters} onChange={e => setParameters(e.target.value)} /><small>temperature, top_p, presence_penalty, frequency_penalty, seed, stop and reasoning_effort.</small></label>
       <ConnectionTools connection={data as Connection} parameters={parameters} connectionId={initial.id} apiKey={removeKey ? '' : key || undefined} />
     </>}
-    {initial.kind === 'prompts' && <div className="full"><p className="small muted">Text blocks and card fields support {'{{user}}'} and {'{{char}}'}. Messages keep stored roles. Include exactly one enabled Messages marker. Summary inserts the selected memory; when absent, memory appears just before Messages. Both share the same cutoff.</p><PromptEditor value={data as PromptPreset} change={setData} /></div>}
+    {initial.kind === 'prompts' && <div className="full"><p className="small muted">Only enabled blocks and markers reach the model. Text blocks and card fields support {'{{user}}'} and {'{{char}}'}. Messages keep stored roles. Without Summary, Messages uses recent whole turns that fit the input limit. New prompts start from the default template.</p><PromptEditor value={data as PromptPreset} change={setData} /></div>}
   </div></fieldset>{error && <p role="alert">{error}</p>}{stale && <p role="status">The library changed. Close this editor and reopen it before saving.</p>}<div className="actions"><button disabled={busy || stale}>Save {initial.kind === 'connections' ? 'Connection' : initial.kind.slice(0, -1)}</button><button type="button" className="quiet" onClick={close}>Close editor</button></div></form>;
 }
 function ConnectionTools({ connection, parameters, connectionId, apiKey }: { connection: Connection; parameters: string; connectionId?: string; apiKey?: string }) {
@@ -187,7 +187,7 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
     return index < 0 ? value.blocks.length : index;
   }
   function endDrag() { setDragged(null); setDropPosition(null); }
-  return <><div className="prompt-blocks" onDragOver={event => {
+  return <>{promptWarnings(value).map(warning => <p className="small" role="status" key={warning}>{warning}</p>)}<div className="prompt-blocks" onDragOver={event => {
     if (dragged === null || event.currentTarget.closest('fieldset')?.disabled) return;
     event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDropPosition(boundary(event.currentTarget, event.clientY));
   }} onDrop={event => {
@@ -208,7 +208,7 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
         <div className="block-actions"><button type="button" className="quiet" aria-label={`Move block ${index + 1} up`} disabled={index === 0} onClick={() => move(index, index - 1)}>↑</button><button type="button" className="quiet" aria-label={`Move block ${index + 1} down`} disabled={index === value.blocks.length - 1} onClick={() => move(index, index + 1)}>↓</button><button type="button" className="quiet" aria-label={`Remove block ${index + 1}`} onClick={() => change({ ...value, blocks: value.blocks.filter((_, i) => i !== index) })}>Remove</button><button type="button" className="quiet block-toggle" aria-expanded={expanded} aria-controls={`block-content-${block.id}`} aria-label={`${expanded ? 'Collapse' : 'Expand'} block ${index + 1}`} onClick={() => setExpandedBlocks(old => { const next = new Set(old); if (expanded) next.delete(block.id); else next.add(block.id); return next; })}>{expanded ? '⌃' : '⌄'}</button></div>
       </div>
       {expanded && <div className="block-content" id={`block-content-${block.id}`}>
-        {block.kind === 'text' ? <label>Block text<textarea value={block.text} onChange={event => update(index, { ...block, text: event.target.value })} /></label> : <label>Marker source<Dropdown aria-label={`Marker source for block ${index + 1}`} value={block.marker} onChange={marker => update(index, { ...block, marker: marker as typeof block.marker })} options={markers.map(marker => ({ value: marker, label: marker === 'summary' ? 'Summary (future compaction)' : marker[0].toUpperCase() + marker.slice(1) }))} /></label>}
+        {block.kind === 'text' ? <label>Block text<textarea value={block.text} onChange={event => update(index, { ...block, text: event.target.value })} /></label> : <label>Marker source<Dropdown aria-label={`Marker source for block ${index + 1}`} value={block.marker} onChange={marker => update(index, { ...block, marker: marker as typeof block.marker })} options={markers.map(marker => ({ value: marker, label: marker[0].toUpperCase() + marker.slice(1) }))} /></label>}
       </div>}
     </section>;
   })}</div><div className="actions"><button type="button" className="secondary" disabled={value.blocks.length >= 100} onClick={() => change({ ...value, blocks: [...value.blocks, { id: crypto.randomUUID(), name: 'Text', enabled: true, kind: 'text', role: 'system', text: '' }] })}>Add text block</button><button type="button" className="secondary" disabled={value.blocks.length >= 100} onClick={() => change({ ...value, blocks: [...value.blocks, { id: crypto.randomUUID(), name: 'Marker', enabled: true, kind: 'marker', role: 'system', marker: 'description' }] })}>Add marker</button></div></>;
