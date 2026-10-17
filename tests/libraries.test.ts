@@ -13,6 +13,7 @@ import { createApp } from '../src/server/app.js';
 import { randomUUID } from 'node:crypto';
 import { startMockProvider } from './support/mock-provider.js';
 import { deflateSync } from 'node:zlib';
+import { contextPresetSchema, defaultContextPreset } from '../src/shared/context.js';
 
 const folders: string[] = [];
 afterEach(() => { for (const path of folders.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -20,6 +21,23 @@ function folder() { const path = mkdtempSync(join(tmpdir(), 'roleplay-library-')
 async function* chunks(text: string) { for (let i = 0; i < text.length; i += 37) yield text.slice(i, i + 37); }
 const card: Character = { name: 'Keeper', description: '{{char}} greets {{user}}.', personality: 'Patient', scenario: 'A tower', first_mes: 'Welcome, {{user}}.', mes_example: '' };
 const connection = { name: 'Synthetic', endpoint: 'http://localhost:1234/v1', model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 100, customParameters: {} };
+
+it('supplies the repair prompt for older saved and imported presets without rewriting stored versions', () => {
+  const store = new Store(join(folder(), 'old-context.sqlite'));
+  try {
+    const id = store.saveLibrary(store.libraries().revision, 'contexts', { ...defaultContextPreset, name: 'Older context' });
+    store.sqlite.prepare("UPDATE library SET data = json_remove(data, '$.repairPrompt') WHERE id = ?").run(id);
+    const row = store.sqlite.prepare('SELECT data, revision FROM library WHERE id = ?').get(id);
+    const revision = store.libraries().revision;
+    expect(store.contextPreset(id)?.repairPrompt).toBe(defaultContextPreset.repairPrompt);
+    expect(store.libraries().contexts.find(preset => preset.id === id)?.repairPrompt).toBe(defaultContextPreset.repairPrompt);
+    expect(store.sqlite.prepare('SELECT data, revision FROM library WHERE id = ?').get(id)).toEqual(row);
+    expect(store.libraries().revision).toBe(revision);
+    const { repairPrompt: _, ...oldImport } = defaultContextPreset;
+    expect(contextPresetSchema.parse(oldImport).repairPrompt).toBe(defaultContextPreset.repairPrompt);
+    expect(() => contextPresetSchema.parse({ ...defaultContextPreset, repairPrompt: '   ' })).toThrow();
+  } finally { store.close(); }
+});
 
 describe('cards, macros and prompt arrangement', () => {
   it('round trips basic fields and preserves inactive V2 metadata without using it in prompts', () => {

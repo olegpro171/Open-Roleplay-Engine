@@ -174,7 +174,9 @@ function ContextPresetFields({ value, change, connections }: { value: ContextPre
     <p className="small muted full">The input target belongs to each chat. Summary size is a prompt target; the Connection reserves output separately. Preparation stops when input fits. Promotion uses actual layer sizes and protects the newest summaries at each level.</p>
     <label className="full">First-layer extraction prompt<textarea required value={value.extractionPrompt} maxLength={100_000} onChange={e => change({ ...value, extractionPrompt: e.target.value })} /></label>
     <label className="full">Higher-layer compression prompt<textarea required value={value.promotionPrompt} maxLength={100_000} onChange={e => change({ ...value, promotionPrompt: e.target.value })} /></label>
-    <p className="small muted full">Available variables: {'{{target_tokens}}'}, {'{{level}}'}, {'{{user}}'}, {'{{char}}'}. Source text is attached separately. Up to three earlier selected summaries are included only when they fit the summarizer’s window. Saved summaries keep their original prompts; edits apply to future work.</p>
+    <label className="full">Repair prompt<textarea required value={value.repairPrompt} maxLength={100_000} onChange={e => change({ ...value, repairPrompt: e.target.value })} /></label>
+    <p className="small muted full">Repair receives the existing summary and before/after versions of changed inputs. Exactly unchanged results are saved automatically when coverage is unchanged; changed text awaits review. Downstream memory is reused without a model only when all of its consumed content is unchanged.</p>
+    <p className="small muted full">Available variables: {'{{target_tokens}}'}, {'{{level}}'}, {'{{user}}'}, {'{{char}}'}. Source text is attached separately. Extraction and compression include up to three earlier selected summaries when they fit. Repair keeps the original dependencies and includes every changed input, or stops if they cannot fit. Saved requests keep their original prompts; edits apply to future work.</p>
   </>;
 }
 function PromptEditor({ value, change }: { value: PromptPreset; change: (value: PromptPreset) => void }) {

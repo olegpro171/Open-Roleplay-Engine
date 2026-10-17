@@ -19,14 +19,16 @@ function fixture(count = 48, target = 500) {
   const filename = join(directory, 'chat.sqlite');
   let store = new Store(filename);
   const calls: { request: RequestPreview; apiKey: string }[] = [];
-  let mode: 'normal' | 'placeholder' | 'refusal' | 'length' | 'huge' = 'normal';
+  let mode: 'normal' | 'unchanged' | 'near' | 'placeholder' | 'refusal' | 'length' | 'huge' = 'normal';
   let holdAt = -1, release: (() => void) | null = null;
   const provider: Provider = { async stream(request, apiKey, _signal, onText) {
     calls.push({ request, apiKey });
     const summary = request.body.model === 'summary-model';
     const outcome = mode;
+    let old: string | undefined;
+    try { old = JSON.parse(request.body.messages.at(-1)!.content).previous_summary; } catch { /* Roleplay input is plain text. */ }
     if (summary && calls.length === holdAt) await new Promise<void>(resolve => { release = resolve; });
-    onText(!summary ? 'Leon pockets the brass key.' : outcome === 'placeholder' ? 'placeholder' : outcome === 'refusal' ? 'I cannot summarize this content.' : outcome === 'huge' ? Array.from({ length: 2_000 }, (_, i) => `detail${i}`).join(' ') : `Mira entrusted Leon with her brass key; he promised to avoid the cellar.${calls.length % 3 === 0 ? ' She still distrusts him.' : ''}`);
+    onText(!summary ? 'Leon pockets the brass key.' : outcome === 'placeholder' ? 'placeholder' : outcome === 'refusal' ? 'I cannot summarize this content.' : outcome === 'huge' ? Array.from({ length: 2_000 }, (_, i) => `detail${i}`).join(' ') : old !== undefined && (outcome === 'unchanged' || outcome === 'near') ? old + (outcome === 'near' ? '!' : '') : `Mira entrusted Leon with her brass key; he promised to avoid the cellar.${calls.length % 3 === 0 ? ' She still distrusts him.' : ''}${old !== undefined ? ` Repaired candidate ${calls.length}.` : ''}`);
     return { finishReason: outcome === 'length' && summary ? 'length' : 'stop' };
   } };
   const connection = { name: 'Story', endpoint: 'http://localhost:1234/v1', model: 'story-model', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} };
@@ -490,6 +492,134 @@ describe('durable imported-session preparation', () => {
 });
 
 describe('targeted repair with review', () => {
+  it('checks every direct consumer of changed A even when another consumer returns unchanged, and reuses only unchanged input paths', async () => {
+    const f = fixture(48); await f.idle(f.start());
+    const before = f.state();
+    const a = before.context.summaries.find(node => node.level === 1)!;
+    f.store.contexts.editSummary(f.chatId, before.revision, a, a.text + ' An incidental word.');
+    const queued = repairQueue(f.state().turns, f.state().context);
+    const consumers = queued.filter(operation => {
+      const node = f.state().context.summaries.find(node => refKey(node) === refKey(operation.repair!))!;
+      return [...node.children, ...node.prior].some(ref => ref.id === a.id);
+    }).map(operation => operation.repair!.id);
+    expect(consumers.length).toBeGreaterThan(1);
+    expect(queued.length).toBeGreaterThan(consumers.length);
+    f.setMode('unchanged');
+    const calls = f.calls.length, id = f.start('repair');
+    expect((await f.idle(id)).status).toBe('succeeded');
+    const steps = f.store.contexts.steps(id);
+    expect(steps.filter(step => step.request).map(step => step.operation.repair!.id).sort()).toEqual(consumers.sort());
+    expect(f.calls.length - calls).toBe(consumers.length);
+    expect(steps.filter(step => step.repairOutcome === 'model_unchanged')).toHaveLength(consumers.length);
+    expect(steps.filter(step => step.repairOutcome === 'inputs_unchanged')).toHaveLength(queued.length - consumers.length);
+    expect(f.store.contexts.job(id)).toMatchObject({ unchangedCount: consumers.length, revalidatedCount: queued.length - consumers.length });
+    expect(f.store.contexts.job(id).reviewedCount ?? 0).toBe(0);
+    expect(f.state().context.summaries.some(node => !node.approved)).toBe(false);
+    expect(contextPlan(f.state()).stale).toEqual([]);
+    expect(f.state().context.archivedTurnIds).toEqual(before.context.archivedTurnIds);
+    expect(f.state().context.selected.map(ref => ref.id)).toEqual(before.context.selected.map(ref => ref.id));
+    await f.resume();
+    expect(contextPlan(f.state()).stale).toEqual([]);
+    expect(f.store.contexts.steps(id)).toEqual(steps);
+  });
+
+  it('uses the separate repair prompt, includes only actual accumulated changes, and keeps a new baseline for later repairs', async () => {
+    const f = fixture(8); await f.idle(f.start('step'));
+    const initial = f.state(), source = initial.turns[0];
+    const { id: presetId, revision: _, ...preset } = initial.context.preset!;
+    f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...preset, repairPrompt: 'Only repair the changed detail at level {{level}}. Keep every other word exactly.' }, presetId);
+    f.store.editPart(f.state().revision, source.id, 'user', 'First change.', f.chatId);
+    f.store.editPart(f.state().revision, source.id, 'user', 'Mira quietly kept the key.', f.chatId);
+    f.setMode('near');
+    const id = f.start('repair');
+    expect((await f.idle(id)).status).toBe('awaiting_review');
+    const request = f.store.contexts.steps(id)[0].request!;
+    expect(request.body.messages).toHaveLength(2);
+    expect(request.body.messages[0].content).toBe('Only repair the changed detail at level 1. Keep every other word exactly.');
+    const payload = JSON.parse(request.body.messages[1].content);
+    expect(payload.changes).toEqual([expect.objectContaining({ kind: 'user', id: source.id, before: source.user.text, after: 'Mira quietly kept the key.', beforeRevision: 0, afterRevision: 2 })]);
+    expect(payload.sources).toBeUndefined();
+    expect(payload.previous_summary).toBe(initial.context.summaries[0].text);
+    expect(request.summarySources?.[0]).toMatchObject({ turnId: source.id, user: 'Mira quietly kept the key.' });
+    expect(JSON.stringify(request.body)).not.toContain('summarySources');
+    f.store.contexts.review(id, f.state().revision, true);
+    f.store.editPart(f.state().revision, source.id, 'user', 'Mira quietly kept the silver key.', f.chatId);
+    f.setMode('unchanged');
+    const next = f.start('repair');
+    expect((await f.idle(next)).status).toBe('succeeded');
+    const change = JSON.parse(f.store.contexts.steps(next)[0].request!.body.messages[1].content).changes[0];
+    expect(change).toMatchObject({ before: 'Mira quietly kept the key.', after: 'Mira quietly kept the silver key.', beforeRevision: 2, afterRevision: 3 });
+    expect(f.store.contexts.job(next).unchangedCount).toBe(1);
+    expect(f.state().context.summaries.filter(node => node.approved).at(-1)!.text).toBe(initial.context.summaries[0].text + '!');
+  });
+
+  it('revalidates reverted source text without a model or summarization Connection', async () => {
+    const f = fixture(8); await f.idle(f.start('step'));
+    const source = f.state().turns[0], before = f.state().context.summaries[0];
+    f.store.editPart(f.state().revision, source.id, 'user', source.user.text + ' Temporary word.', f.chatId);
+    f.store.editPart(f.state().revision, source.id, 'user', source.user.text, f.chatId);
+    const { id, revision: _, ...preset } = f.state().context.preset!;
+    f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...preset, connectionId: null }, id);
+    const calls = f.calls.length, job = f.start('repair');
+    expect((await f.idle(job)).status).toBe('succeeded');
+    expect(f.calls).toHaveLength(calls);
+    expect(f.store.contexts.job(job).revalidatedCount).toBe(1);
+    const step = f.store.contexts.steps(job)[0];
+    expect(step).toMatchObject({ request: null, repairOutcome: 'inputs_unchanged', status: 'saved' });
+    const node = f.state().context.summaries.find(node => refKey(node) === refKey(step.result!))!;
+    expect(node.text).toBe(before.text); expect(node.turns[0].userRevision).toBe(2);
+    expect(f.store.contexts.sourceRequest(f.chatId, node)?.body).toEqual(f.store.contexts.sourceRequest(f.chatId, before)?.body);
+    expect(contextPlan(f.state()).stale).toEqual([]);
+  });
+
+  it('does not auto-accept identical text when source coverage changed or the old text baseline is unavailable', async () => {
+    const f = fixture(8); await f.idle(f.start('step'));
+    f.store.deleteTurn(f.state().revision, f.state().turns[0].id, f.chatId);
+    f.setMode('unchanged');
+    let job = f.start('repair');
+    expect((await f.idle(job)).status).toBe('awaiting_review');
+    expect(f.store.contexts.steps(job)[0].repairOutcome).toBeUndefined();
+    f.store.contexts.review(job, f.state().revision, true);
+    f.store.editPart(f.state().revision, f.state().turns[0].id, 'user', 'Another correction.', f.chatId);
+    // An older database may lack usable saved source text. This must require review.
+    f.store.sqlite.prepare("UPDATE context_steps SET data = json_set(data, '$.request', null)").run();
+    job = f.start('repair');
+    expect((await f.idle(job)).status).toBe('awaiting_review');
+    expect(f.store.contexts.steps(job)[0].repairOutcome).toBeUndefined();
+    expect(f.store.contexts.job(job).unchangedCount ?? 0).toBe(0);
+  });
+
+  it.each(['model', 'local'] as const)('rolls back automatic %s repair on a persistence failure without retrying', async route => {
+    const f = fixture(8); await f.idle(f.start('step'));
+    const source = f.state().turns[0];
+    f.store.editPart(f.state().revision, source.id, 'user', source.user.text + ' An irrelevant word.', f.chatId);
+    if (route === 'local') f.store.editPart(f.state().revision, source.id, 'user', source.user.text, f.chatId);
+    const before = f.state(), calls = f.calls.length;
+    f.setMode('unchanged');
+    f.store.sqlite.exec("CREATE TRIGGER reject_auto_repair BEFORE UPDATE ON context_states BEGIN SELECT RAISE(ABORT, 'synthetic repair persistence failure'); END;");
+    const id = f.start('repair');
+    expect((await f.idle(id)).status).toBe('failed');
+    expect(f.state().context.selected).toEqual(before.context.selected);
+    expect(f.state().context.summaries).toEqual(before.context.summaries);
+    expect(contextPlan(f.state()).stale.length).toBeGreaterThan(0);
+    expect(f.calls.length - calls).toBe(route === 'model' ? 1 : 0);
+    f.store.sqlite.exec('DROP TRIGGER reject_auto_repair');
+    expect((await f.idle(f.start('repair'))).status).toBe('succeeded');
+  });
+
+  it('fails an oversized complete repair change bundle without omitting inputs or calling the model', async () => {
+    const f = fixture(8); await f.idle(f.start('step'));
+    const summaryId = f.state().context.preset!.connectionId!;
+    const { id, revision: _, hasApiKey: __, ...connection } = f.store.libraries().connections.find(connection => connection.id === summaryId)!;
+    f.store.saveLibrary(f.store.libraries().revision, 'connections', { ...connection, contextWindow: 1_100 }, id);
+    f.store.editPart(f.state().revision, f.state().turns[0].id, 'user', 'Mira kept the key.', f.chatId);
+    const before = f.state(), calls = f.calls.length, job = f.start('repair');
+    expect((await f.idle(job)).error).toContain('complete input changes');
+    expect(f.calls).toHaveLength(calls);
+    expect(f.state().context.summaries).toEqual(before.context.summaries);
+    expect(f.store.contexts.steps(job)).toEqual([]);
+  });
+
   it('approves and continues one durable queue, using corrected children and idempotent commands', async () => {
     const f = fixture(24); await f.idle(f.start());
     const child = f.state().context.summaries.find(node => node.level === 1)!;

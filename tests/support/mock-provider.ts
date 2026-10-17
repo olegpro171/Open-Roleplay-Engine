@@ -5,7 +5,7 @@ export async function startMockProvider() {
   const modelRequests: { authorization?: string }[] = [];
   let modelMode: 'normal' | 'error' | 'invalid' | 'redirect' = 'normal';
   const waiting: (() => void)[] = [];
-  let mode: 'normal' | 'hold' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' | 'placeholder' | 'no-usage' | 'bad-usage' = 'normal';
+  let mode: 'normal' | 'repair-unchanged' | 'hold' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' | 'placeholder' | 'no-usage' | 'bad-usage' = 'normal';
   const send = (response: ServerResponse, value: unknown) => response.write(`data: ${JSON.stringify(value)}\n\n`);
   const server = createServer(async (request, response) => {
     if (request.url === '/v1/models') {
@@ -19,13 +19,18 @@ export async function startMockProvider() {
     for await (const chunk of request) body += chunk;
     requests.push({ body: JSON.parse(body), authorization: request.headers.authorization });
     const currentMode = mode;
+    let repairText: string | null = null;
+    try {
+      const payload = JSON.parse(JSON.parse(body).messages.at(-1).content);
+      if (typeof payload.previous_summary === 'string') repairText = currentMode === 'repair-unchanged' ? payload.previous_summary : `${payload.previous_summary}\nRepaired candidate ${requests.length}.`;
+    } catch { /* Ordinary roleplay requests contain plain source text. */ }
     if (currentMode === 'error') { response.writeHead(401).end('upstream-secret-do-not-save'); return; }
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-    if (currentMode !== 'empty') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'placeholder' ? 'placeholder' : currentMode === 'padded' ? '\r\n \nThe lantern\n\n' : currentMode === 'whitespace' ? '\n\t\n' : 'The lantern ' }, finish_reason: null }] });
+    if (currentMode !== 'empty') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'placeholder' ? 'placeholder' : currentMode === 'padded' ? '\r\n \nThe lantern\n\n' : currentMode === 'whitespace' ? '\n\t\n' : repairText ?? 'The lantern ' }, finish_reason: null }] });
     const finish = () => {
       if (response.destroyed) return;
       if (currentMode === 'broken') { response.end(); return; }
-      if (currentMode !== 'empty' && currentMode !== 'whitespace' && currentMode !== 'placeholder') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'padded' ? 'flickers. 🕯\r\n\r\n ' : 'flickers. 🕯' }, finish_reason: null }] });
+      if (!repairText && currentMode !== 'empty' && currentMode !== 'whitespace' && currentMode !== 'placeholder') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'padded' ? 'flickers. 🕯\r\n\r\n ' : 'flickers. 🕯' }, finish_reason: null }] });
       send(response, { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] });
       if (currentMode !== 'no-usage') send(response, { choices: [], usage: currentMode === 'bad-usage' ? { prompt_tokens: -1, completion_tokens: 'wrong', total_tokens: 19 } : { prompt_tokens: 321, completion_tokens: 17, total_tokens: 338 } });
       response.end('data: [DONE]\n\n');

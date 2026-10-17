@@ -50,6 +50,7 @@ export class ContextCoordinator {
         const operation = job.mode === 'repair' ? nextRepair(snapshot.turns, snapshot.context, replacements) : plan.next;
         if (job.mode !== 'repair' && plan.blocked) throw new AppError(422, 'context_blocked', plan.blocked);
         if (!operation) { this.store.contexts.finish(id, 'succeeded'); this.changed(); return; }
+        if (job.mode === 'repair' && this.store.contexts.revalidateRepair(id)) { this.changed(); await new Promise<void>(resolve => setImmediate(resolve)); continue; }
         if (job.mode !== 'repair' && this.store.contexts.reuseNext(id)) {
           this.changed();
           if (job.mode === 'step') { this.store.contexts.finish(id, 'succeeded'); this.changed(); return; }
@@ -62,9 +63,12 @@ export class ContextCoordinator {
         this.changed();
         const text = prepared.request ? await generateSummary(this.provider, prepared.request, this.store.connectionApiKey(job.config.connectionId!), signal) : '';
         if (signal.aborted || this.stopping) break;
-        this.store.contexts.completeStep(step, text, prepared.prior);
+        const saved = this.store.contexts.completeStep(step, text, prepared.prior);
         this.changed();
-        if (job.mode === 'repair') { this.store.contexts.finish(id, 'awaiting_review'); this.changed(); return; }
+        if (job.mode === 'repair') {
+          if (saved.approved) { await new Promise<void>(resolve => setImmediate(resolve)); continue; }
+          this.store.contexts.finish(id, 'awaiting_review'); this.changed(); return;
+        }
         if (job.mode === 'step') { this.store.contexts.finish(id, 'succeeded'); this.changed(); return; }
       }
       if (!this.stopping) this.store.contexts.finish(id, 'cancelled', 'Preparation stopped. Previously saved replacements remain selected. Resume explicitly.');

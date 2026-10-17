@@ -63,6 +63,8 @@ export type RequestPreview = {
   coverage: { turnId: string; userRevision: number; assistantRevision: number; complete: boolean }[];
   context?: { selected: import('./context.js').SummaryRef[]; archivedTurnIds: string[] };
   history?: { mode: 'managed' | 'recent'; verbatimTurnIds: string[] };
+  // Repair baseline for later edits; stored locally, never added to the provider body.
+  summarySources?: { turnId: string; user: string; assistant: string }[];
   budget: {
     inputTokens: number; targetInputTokens: number; reservedOutputTokens: number;
     contextWindow: number; method: string; verified: false;

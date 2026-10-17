@@ -121,6 +121,23 @@ test('reviews a repair queue with matching panes, source diffs, regenerate, disc
   expect((await state()).context.jobs[0].status).toBe('cancelled');
   const details = await page.request.get(`/api/context/jobs/${(await state()).context.jobs[0].id}`).then(response => response.json() as Promise<ContextJobDetails>);
   expect(details.steps.some(step => step.status === 'candidate')).toBe(false);
+  // Unchanged model results finish without review; history distinguishes local reuse.
+  const beforeAutomatic = await state();
+  await request.post('/__test/mode', { data: { mode: 'repair-unchanged' } });
+  await page.getByRole('button', { name: 'Repair summaries', exact: true }).click();
+  await expect(page.getByTestId('memory-repair-result')).toContainText('0 approved;');
+  await expect(page.getByTestId('memory-repair-result')).toContainText('unchanged after model check');
+  await expect(dialog).toHaveCount(0);
+  const automatic = await state();
+  expect(automatic.context.jobs[0].unchangedCount).toBeGreaterThan(0);
+  const latestText = (snapshot: ChatSnapshot) => Object.fromEntries(snapshot.context.summaries.filter(node => node.approved).sort((a, b) => a.revision - b.revision).map(node => [node.id, node.text]));
+  expect(latestText(automatic)).toEqual(latestText(beforeAutomatic));
+  const autoDetails = await page.request.get(`/api/context/jobs/${automatic.context.jobs[0].id}`).then(response => response.json() as Promise<ContextJobDetails>);
+  expect(autoDetails.steps.every(step => step.status === 'saved' && step.repairOutcome)).toBe(true);
+  await page.getByRole('combobox', { name: 'Saved preparation', exact: true }).click();
+  await page.getByRole('option', { name: /repair · succeeded/ }).first().click();
+  await page.getByText('Summary requests and step outcomes', { exact: true }).click();
+  await expect(page.getByText(/model checked · unchanged/).first()).toBeVisible();
   await request.post('/__test/mode', { data: { mode: 'normal' } });
   expect(securityErrors).toEqual([]);
 });

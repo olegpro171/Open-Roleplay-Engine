@@ -4,11 +4,12 @@ import { AppError } from '../core/errors.js';
 import { contextPlan } from '../core/context-plan.js';
 import { refreshContext } from '../core/context-refresh.js';
 import { savedReplacement } from '../core/context-reuse.js';
-import { nodeFor, repairQueue, replaceSelection, selectedContext, sourceOf } from '../core/context.js';
+import { nextRepair, nodeFor, repairQueue, replaceSelection, selectedContext, sourceOf } from '../core/context.js';
+import { repairInputs } from '../core/context-repair.js';
 import { assembleRequest } from '../core/prompt.js';
 import { validateSummary } from '../core/summary-validation.js';
-import { emptyContextState, refKey, type ContextJob, type ContextJobDetails, type ContextOperation, type ContextSnapshot, type ContextState, type ContextStep, type SummaryNode, type SummaryRef, type RepairAction } from '../shared/context.js';
-import type { RequestPreview } from '../shared/contracts.js';
+import { emptyContextState, refKey, type ContextJob, type ContextJobDetails, type ContextOperation, type ContextSnapshot, type ContextState, type ContextStep, type SummaryNode, type SummaryRef, type RepairAction, type RepairChange } from '../shared/context.js';
+import type { ChatSnapshot, RequestPreview } from '../shared/contracts.js';
 import { hasPromptMarker } from '../shared/library.js';
 
 type JsonRow = { data: string };
@@ -39,7 +40,7 @@ export class ContextStore {
     const snapshot = this.store.snapshot(job.chatId);
     const step = [...steps].reverse().find(step => step.status === 'candidate') ?? steps.at(-1);
     const previous = step?.operation.repair ? this.sourceRequest(job.chatId, step.operation.repair) : null;
-    const payload = (request: RequestPreview | null | undefined): { sources?: unknown; previous_sources?: unknown } => {
+    const payload = (request: RequestPreview | null | undefined): { sources?: unknown; previous_sources?: unknown; changes?: RepairChange[] } => {
       try { return JSON.parse(request?.body.messages.at(-1)?.content ?? '{}'); } catch { return {}; }
     };
     const current = payload(step?.request), old = payload(previous);
@@ -49,6 +50,11 @@ export class ContextStore {
         source.level !== undefined ? `Level ${source.level} summary\n${source.text ?? ''}` : `Turn ${source.turn}\nUser: ${source.user ?? ''}\nAssistant: ${source.assistant ?? ''}`).join('\n\n');
     };
     const prior = (request: RequestPreview | null | undefined) => request?.body.messages.slice(1, -1).map(message => message.content).join('\n\n') ?? '';
+    if (Array.isArray(current.changes)) {
+      const text = (prior: boolean, side: 'before' | 'after') => current.changes!.filter(change => (change.kind === 'prior') === prior).map(change => `${change.label}\n${change[side] ?? (side === 'before' ? '[Previous input unavailable]' : '[Input removed]')}`).join('\n\n');
+      return { job, steps, repair: { remaining: repairQueue(snapshot.turns, snapshot.context).length,
+        previousSources: text(false, 'before'), currentSources: text(false, 'after'), previousPrior: text(true, 'before'), currentPrior: text(true, 'after') } };
+    }
     return { job, steps, repair: { remaining: repairQueue(snapshot.turns, snapshot.context).length,
       previousSources: format(current.previous_sources ?? old.sources), currentSources: format(current.sources) ?? '',
       previousPrior: prior(previous), currentPrior: prior(step?.request) } };
@@ -73,6 +79,12 @@ export class ContextStore {
     this.sqlite.prepare('INSERT INTO context_states (chat_id, revision, data) VALUES (?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET revision=excluded.revision, data=excluded.data').run(chatId, state.revision, JSON.stringify({ selected: state.selected, archivedTurnIds: state.archivedTurnIds }));
   }
   private saveNode(chatId: string, node: SummaryNode) { this.sqlite.prepare('INSERT INTO summaries (id, revision, chat_id, data) VALUES (?, ?, ?, ?)').run(node.id, node.revision, chatId, JSON.stringify(node)); }
+  private repairedState(snapshot: ChatSnapshot, node: SummaryNode): ContextState {
+    return { ...snapshot.context, revision: snapshot.context.revision + 1,
+      archivedTurnIds: snapshot.context.archivedTurnIds.filter(id => snapshot.turns.some(turn => turn.id === id)),
+      selected: snapshot.context.selected.flatMap(ref => ref.id === node.id ? node.turns.length ? [{ id: node.id, revision: node.revision }] : [] : [ref]),
+    };
+  }
   private bump(job: ContextJob): ContextJob {
     const revision = this.store.bumpRevision(job.chatId);
     if (job.generationId) this.sqlite.prepare("UPDATE generations SET source_revision = ? WHERE id = ? AND chat_id = ? AND status = 'running'").run(revision, job.generationId, job.chatId);
@@ -153,6 +165,30 @@ export class ContextStore {
       return true;
     })();
   }
+  revalidateRepair(jobId: string): boolean {
+    return this.sqlite.transaction(() => {
+      const job = this.job(jobId), snapshot = this.current(job);
+      if (job.mode !== 'repair') return false;
+      const operation = nextRepair(snapshot.turns, snapshot.context, new Map());
+      if (!operation?.repair) return false;
+      const inputs = repairInputs(snapshot, operation, this.sourceRequest(job.chatId, operation.repair));
+      if (!inputs.reusable) return false;
+      const node: SummaryNode = { ...inputs.old,
+        revision: Math.max(...snapshot.context.summaries.filter(node => node.id === inputs.old.id).map(node => node.revision)) + 1,
+        turns: snapshot.turns.filter(turn => operation.turnIds.includes(turn.id)).map(sourceOf), children: operation.children, prior: inputs.prior,
+        approved: true, createdAt: new Date().toISOString(), basedOn: operation.repair,
+      };
+      const state = this.repairedState(snapshot, node);
+      const step: ContextStep = { id: randomUUID(), jobId, operation, request: null, status: 'saved', result: { id: node.id, revision: node.revision }, error: null,
+        before: { selected: snapshot.context.selected, archivedTurnIds: snapshot.context.archivedTurnIds }, after: { selected: state.selected, archivedTurnIds: state.archivedTurnIds },
+        inputBefore: contextPlan(snapshot).inputTokens, inputAfter: null, createdAt: node.createdAt, repairOutcome: 'inputs_unchanged' };
+      this.discardCandidates(jobId);
+      this.saveNode(job.chatId, node); this.saveState(job.chatId, state);
+      this.sqlite.prepare('INSERT INTO context_steps (id, job_id, data) VALUES (?, ?, ?)').run(step.id, jobId, JSON.stringify(step));
+      this.saveJob(this.bump({ ...job, stepCount: job.stepCount + 1, revalidatedCount: (job.revalidatedCount ?? 0) + 1 }));
+      return true;
+    })();
+  }
   beginStep(jobId: string, operation: ContextOperation, request: RequestPreview | null, inputBefore: number): ContextStep {
     return this.sqlite.transaction(() => {
       const job = this.job(jobId), snapshot = this.current(job);
@@ -170,6 +206,7 @@ export class ContextStore {
       if (!savedStep || savedStep.status !== 'running') throw new AppError(409, 'duplicate_context_result', 'This summary step has already been resolved.');
       if (JSON.stringify(step.before) !== JSON.stringify({ selected: snapshot.context.selected, archivedTurnIds: snapshot.context.archivedTurnIds })) throw new AppError(409, 'stale_selection', 'The selected memory changed before the summary was saved.');
       const repair = step.operation.repair;
+      const inputs = repair ? repairInputs(snapshot, step.operation, this.sourceRequest(job.chatId, repair)) : null;
       if (!repair && JSON.stringify(contextPlan(snapshot).next) !== JSON.stringify(step.operation)) throw new AppError(409, 'stale_context_result', 'This batch is no longer the next eligible replacement.');
       if (step.operation.turnIds.length && !validateSummary(text, 'stop').accepted) throw new AppError(502, 'invalid_summary', 'The candidate summary failed validation.');
       const sourceIds = new Set(step.operation.turnIds);
@@ -177,9 +214,10 @@ export class ContextStore {
       if (sourceTurns.length !== sourceIds.size || sourceTurns.some(turn => !turn.complete)) throw new AppError(409, 'stale_sources', 'The summary sources changed.');
       if (savedStep.request && JSON.stringify(savedStep.request.coverage) !== JSON.stringify(sourceTurns.map(sourceOf))) throw new AppError(409, 'stale_sources', 'The source revisions changed while the model was summarizing.');
       const identity = repair?.id ?? randomUUID();
+      const unchanged = Boolean(inputs?.known && inputs.structureUnchanged && text === inputs.old.text && step.operation.turnIds.length);
       const node: SummaryNode = { id: identity, revision: repair ? Math.max(...snapshot.context.summaries.filter(node => node.id === identity).map(node => node.revision)) + 1 : 0,
         level: step.operation.level, text, turns: sourceTurns.map(sourceOf), children: step.operation.children, prior,
-        approved: !repair, createdAt: new Date().toISOString(), manual: false };
+        approved: !repair || unchanged, createdAt: new Date().toISOString(), manual: inputs?.old.manual ?? false, ...(repair ? { basedOn: repair } : {}) };
       let after: ContextState | null = null, inputAfter: number | null = null;
       if (!repair) {
         after = replaceSelection(snapshot.context, step.operation, node);
@@ -187,12 +225,13 @@ export class ContextStore {
         inputAfter = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, after, { validateLimits: false }).budget.inputTokens;
         if (inputAfter >= step.inputBefore) throw new AppError(422, 'summary_no_savings', 'The summary did not reduce the assembled input. Sources remain selected; revise the summary prompt or output target and retry.');
       }
+      else if (unchanged) after = this.repairedState(snapshot, node);
       // Keep an existing candidate usable until regeneration succeeds.
       if (repair) this.discardCandidates(job.id);
       this.saveNode(job.chatId, node);
       if (after) this.saveState(job.chatId, after);
-      this.saveStep({ ...savedStep, status: repair ? 'candidate' : 'saved', result: { id: node.id, revision: node.revision }, after: after ? { selected: after.selected, archivedTurnIds: after.archivedTurnIds } : null, inputAfter });
-      this.saveJob(this.bump({ ...job, generatedCount: (job.generatedCount ?? 0) + Number(Boolean(savedStep.request)) }));
+      this.saveStep({ ...savedStep, status: repair && !unchanged ? 'candidate' : 'saved', result: { id: node.id, revision: node.revision }, after: after ? { selected: after.selected, archivedTurnIds: after.archivedTurnIds } : null, inputAfter, ...(unchanged ? { repairOutcome: 'model_unchanged' } : {}) });
+      this.saveJob(this.bump({ ...job, generatedCount: (job.generatedCount ?? 0) + Number(Boolean(savedStep.request)), unchangedCount: (job.unchangedCount ?? 0) + Number(unchanged) }));
       return node;
     })();
   }

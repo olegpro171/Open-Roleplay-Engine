@@ -102,7 +102,7 @@ export function repairQueue(turns: Turn[], state: ContextState, replacements = n
   const stale = staleSummaries(turns, state), existing = new Set(turns.map(turn => turn.id));
   const latest = new Map<string, SummaryNode>();
   for (const node of state.summaries) if (node.approved && node.revision > (latest.get(node.id)?.revision ?? -1)) latest.set(node.id, node);
-  const currentRef = (ref: SummaryRef): SummaryRef => latest.get(ref.id) ?? ref;
+  const currentRef = (ref: SummaryRef): SummaryRef => { const node = latest.get(ref.id) ?? ref; return { id: node.id, revision: node.revision }; };
   const visited = new Set<string>();
   const queue: ContextOperation[] = [];
   const visit = (ref: SummaryRef): void => {

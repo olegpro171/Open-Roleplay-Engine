@@ -6,6 +6,7 @@ import { hasPromptMarker } from '../shared/library.js';
 import { assembleRequest, estimateInputTokens, summaryText } from './prompt.js';
 import { countInput, countText } from './tokens.js';
 import { savedReplacement } from './context-reuse.js';
+import { repairInputs } from './context-repair.js';
 
 export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
   if (!snapshot.connection) throw new AppError(422, 'connection_required', 'Select a roleplay Connection to measure the complete input.');
@@ -44,26 +45,40 @@ export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperati
   const config = snapshot.context.preset;
   if (!config) throw new AppError(422, 'context_required', 'Select a context preset first.');
   const ids = new Set(operation.turnIds), turns = snapshot.turns.filter(turn => ids.has(turn.id));
-  const template = operation.level === 1 ? config.extractionPrompt : config.promotionPrompt;
+  const template = operation.repair ? config.repairPrompt : operation.level === 1 ? config.extractionPrompt : config.promotionPrompt;
   const values: Record<string, string> = { target_tokens: String(config.summaryTokens), level: String(operation.level), user: snapshot.sources.persona?.name ?? 'You', char: snapshot.sources.character?.name ?? 'Character' };
   const instructions = template.replace(/{{\s*(target_tokens|level|user|char)\s*}}/gi, (match, name: string) => values[name.toLowerCase()] ?? match);
-  const old = operation.repair ? nodeFor(snapshot.context, operation.repair) : null;
+  if (operation.repair) {
+    const inputs = repairInputs(snapshot, operation, previousRequest);
+    const messages: Message[] = [{ role: 'system', content: instructions }, { role: 'user', content: JSON.stringify({
+      task: 'Apply only the necessary factual corrections from these input changes to the existing summary. Return the complete summary with all unaffected text preserved exactly. If no correction belongs in this memory, return the existing summary exactly.',
+      previous_summary: inputs.old.text, previously_manually_corrected: inputs.old.manual,
+      coverage_unchanged: inputs.structureUnchanged, previous_inputs_available: inputs.known,
+      changes: inputs.changes,
+    }) }];
+    const physicalInput = connection.contextWindow - connection.maxOutputTokens;
+    const { contentTokens: _, ...measurement } = countInput(messages);
+    if (measurement.inputTokens > physicalInput) throw new AppError(422, 'summary_window_exceeded', 'The existing summary, repair instructions and complete input changes do not fit the summarization Connection. Use a larger window or shorter repair prompt. No changed inputs were omitted.');
+    return { prior: inputs.prior, request: {
+      endpoint: `${connection.endpoint.replace(/\/+$/, '')}/chat/completions`,
+      body: { ...connection.customParameters, model: connection.model, messages, stream: true, max_tokens: connection.maxOutputTokens, ...(connection.requestUsage !== false ? { stream_options: { include_usage: true as const } } : {}) },
+      coverage: turns.map(sourceOf), ...(operation.level === 1 ? { summarySources: inputs.currentSources } : {}),
+      budget: { ...measurement, targetInputTokens: physicalInput, reservedOutputTokens: connection.maxOutputTokens, contextWindow: connection.contextWindow },
+    } };
+  }
   const source = operation.level === 1 ? turns.map(turn => ({ turn: snapshot.turns.indexOf(turn) + 1, user: turn.user.text, assistant: turn.assistant.text })) : operation.children.map(ref => {
     const node = nodeFor(snapshot.context, ref);
     if (!node) throw new AppError(422, 'invalid_context', 'A source summary is missing.');
     return { level: node.level, text: node.text };
   });
-  const previousSourceText = previousRequest?.body.messages.at(-1)?.content;
-  let previousSources: unknown = undefined;
-  if (previousSourceText) { try { previousSources = (JSON.parse(previousSourceText) as { sources?: unknown }).sources; } catch { /* Older request formats may not have structured source text. */ } }
-  const sourceMessage: Message = { role: 'user', content: JSON.stringify({ task: old ? 'Repair this existing summary using the previous and current sources. Remove facts whose source was deleted, cleared or changed; do not retain them solely because the old summary contains them. Current sources supersede old source facts. Preserve unrelated manual additions and leave conflicting author corrections explicit for human review.' : 'Summarize only the supplied sources.', ...(old ? { previous_summary: old.text, previously_manually_corrected: old.manual, previous_sources: previousSources } : {}), sources: source }) };
+  const sourceMessage: Message = { role: 'user', content: JSON.stringify({ task: 'Summarize only the supplied sources.', sources: source }) };
   const messages: Message[] = [{ role: 'system', content: instructions }, sourceMessage];
   const physicalInput = connection.contextWindow - connection.maxOutputTokens;
   if (estimateInputTokens(messages) > physicalInput) throw new AppError(422, 'summary_window_exceeded', 'This fixed source batch and summary instructions do not fit the summarization Connection. Use a larger window, shorter prompts or explicitly change the batch setting.');
   const first = snapshot.turns.findIndex(turn => turn.id === operation.turnIds[0]);
   const prior: SummaryRef[] = [];
   const currentRef = (ref: SummaryRef) => replacements.has(refKey(ref)) ? replacements.get(refKey(ref)) : snapshot.context.summaries.filter(node => node.id === ref.id && node.approved).sort((a, b) => b.revision - a.revision)[0] ?? ref;
-  const earlier = [...(old?.prior ?? []), ...snapshot.context.selected].map(currentRef).filter((ref): ref is SummaryRef => Boolean(ref)).flatMap(ref => {
+  const earlier = snapshot.context.selected.map(currentRef).filter((ref): ref is SummaryRef => Boolean(ref)).flatMap(ref => {
     const node = nodeFor(snapshot.context, ref);
     return node?.turns.length && snapshot.turns.findIndex(turn => turn.id === node.turns.at(-1)?.turnId) < first ? [node] : [];
   });

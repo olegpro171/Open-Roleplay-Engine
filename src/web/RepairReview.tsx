@@ -47,7 +47,7 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
     pending.current = false;
   }
   return <dialog ref={dialog} className="repair-dialog" aria-labelledby="repair-title" onCancel={e => { e.preventDefault(); if (!busy) void act('close'); }}>
-    <div className="repair-heading"><div><p className="eyebrow">REPAIR REVIEW</p><h2 id="repair-title">Review the proposed replacement</h2><p className="small muted" role="status">{job.reviewedCount ?? 0} approved{remaining !== undefined ? ` · ${remaining} remaining` : ''}{running ? ' · Generating next candidate…' : ''}</p></div></div>
+    <div className="repair-heading"><div><p className="eyebrow">REPAIR REVIEW</p><h2 id="repair-title">Review the proposed replacement</h2><p className="small muted" role="status">{job.reviewedCount ?? 0} approved · {job.unchangedCount ?? 0} unchanged after model check · {job.revalidatedCount ?? 0} reused without a request{remaining !== undefined ? ` · ${remaining} remaining` : ''}{running ? ' · Checking affected memory…' : ''}</p></div></div>
     <div className="repair-body">
       {candidate && previous && <><p className="small muted">Level {candidate.level} · {positions.length ? `Turns ${Math.min(...positions)}–${Math.max(...positions)}` : 'All covered turns deleted'}{previous.manual ? ' · Previous summary includes manual corrections' : ''}. Approve this replacement before its dependents are repaired.</p>
         {!candidate.turns.length && <p>All source turns were deleted. Approval removes this summary’s coverage.</p>}

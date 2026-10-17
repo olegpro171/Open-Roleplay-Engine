@@ -173,7 +173,7 @@ export class Store {
     const list = <T>(kind: string) => rows.filter(r => r.kind === kind).map(r => ({ ...r.data, id: r.id, revision: r.revision })) as unknown as Saved<T>[];
     return {
       revision: this.libraryRevision(), personas: list<Persona>('personas'), characters: list<Character>('characters'), prompts: list<PromptPreset>('prompts'),
-      contexts: list<ContextPreset>('contexts'),
+      contexts: list<ContextPreset>('contexts').map(preset => ({ ...preset, repairPrompt: preset.repairPrompt ?? defaultContextPreset.repairPrompt })),
       connections: this.db.select().from(schema.connections).all().map(r => ({ ...r.settings, id: r.id, revision: r.revision, hasApiKey: Boolean(this.db.select().from(schema.credentials).where(eq(schema.credentials.id, r.id)).get()?.apiKey) })),
       chats: this.db.select().from(schema.chats).all().map(c => ({ id: c.id, title: c.settings.title, revision: c.revision,
         turnCount: (this.sqlite.prepare('SELECT count(*) AS n FROM turns WHERE chat_id = ?').get(c.id) as { n: number }).n,
@@ -317,7 +317,10 @@ export class Store {
     if (!row) throw new AppError(422, 'missing_connection', 'The summarization Connection is missing.');
     return row.settings;
   }
-  contextPreset(id: string | null | undefined) { return this.selected<ContextPreset>(id, 'contexts'); }
+  contextPreset(id: string | null | undefined) {
+    const preset = this.selected<ContextPreset>(id, 'contexts');
+    return preset ? { ...preset, repairPrompt: preset.repairPrompt ?? defaultContextPreset.repairPrompt } : null;
+  }
   saveRequest(id: string, request: RequestPreview) {
     this.sqlite.transaction(() => {
       const generation = this.generation(id);
