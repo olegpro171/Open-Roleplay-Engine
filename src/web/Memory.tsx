@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import type { ChatSnapshot } from '../shared/contracts';
 import { hasPromptMarker, type LibrarySnapshot } from '../shared/library';
 import { refKey, type ContextJob, type ContextPlan, type ContextStep, type SummaryNode } from '../shared/context';
@@ -7,6 +7,7 @@ import { api } from './api';
 import { Dropdown, NumberInput } from './Controls';
 import { InputMeter } from './PromptPeek';
 import { MemoryTimeline } from './MemoryTimeline';
+const RepairReview = lazy(() => import('./RepairReview').then(module => ({ default: module.RepairReview })));
 
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 type JobDetails = { job: ContextJob; steps: ContextStep[] };
@@ -26,7 +27,7 @@ export function Memory({ snapshot, library, busy, run }: { snapshot: ChatSnapsho
   const calculationError = calculation.key === planKey ? calculation.error : plan ? '' : 'Counting current input…';
   const [presetId, setPresetId] = useState(snapshot.settings.contextPresetId ?? ''), [target, setTarget] = useState(snapshot.settings.targetInputTokens);
   const [historyId, setHistoryId] = useState(''), [details, setDetails] = useState<JobDetails | null>(null), [frame, setFrame] = useState(0);
-  const [review, setReview] = useState<JobDetails | null>(null), [candidateText, setCandidateText] = useState('');
+  const [repairSession, setRepairSession] = useState('');
   const [zoom, setZoom] = useState(false), [inspected, setInspected] = useState<SummaryNode | null>(null);
   const [summaryEdit, setSummaryEdit] = useState<{ text: string; revision: number } | null>(null);
   const summariesEnabled = hasPromptMarker(snapshot.sources.prompt, 'summary');
@@ -40,14 +41,6 @@ export function Memory({ snapshot, library, busy, run }: { snapshot: ChatSnapsho
     api<JobDetails>(`/context/jobs/${historyId}`).then(value => { if (current) { setDetails(value); setFrame(value.steps.length + Number(Boolean(value.job.refresh)) + Number(Boolean(value.job.finalRefresh))); } }).catch(error => { if (current) setPlanError(error.message); });
     return () => { current = false; };
   }, [historyId, snapshot.revision]);
-  useEffect(() => {
-    let current = true;
-    if (!awaiting) { setReview(null); return; }
-    api<JobDetails>(`/context/jobs/${awaiting.id}`).then(value => {
-      if (current) { setReview(value); const ref = value.steps.at(-1)?.result; setCandidateText(snapshot.context.summaries.find(node => ref && refKey(node) === refKey(ref))?.text ?? ''); }
-    }).catch(error => { if (current) setPlanError(error.message); });
-    return () => { current = false; };
-  }, [awaiting?.id, snapshot.revision]);
   const refreshFrame = details?.job.refresh;
   const finalRefresh = details?.job.finalRefresh;
   const historyFrames = details ? [
@@ -68,11 +61,11 @@ export function Memory({ snapshot, library, busy, run }: { snapshot: ChatSnapsho
   const nodes = [...latest.values()];
   const operation = !historyId ? plan?.next : frame === 0 || !selectedFrame?.after ? selectedFrame?.operation : null;
   const levels = Math.max(2, ...nodes.map(node => node.level), operation?.level ?? 0);
-  const repairStep = review?.steps.at(-1), repairCandidate = snapshot.context.summaries.find(node => repairStep?.result && refKey(node) === refKey(repairStep.result));
-  const oldSummary = snapshot.context.summaries.find(node => repairStep?.operation.repair && refKey(node) === refKey(repairStep.operation.repair));
+  const repairJob = snapshot.context.jobs.find(job => job.mode === 'repair' && (job.status === 'running' || job.status === 'awaiting_review' || job.id === repairSession && ['failed', 'interrupted'].includes(job.status)));
   const latestJob = snapshot.context.jobs[0];
   const start = (mode: Exclude<ContextJob['mode'], 'refresh'>) => run(async () => {
-    await api(`/chats/${snapshot.id}/context/prepare`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID(), mode });
+    const result = await api<{ jobId: string }>(`/chats/${snapshot.id}/context/prepare`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID(), mode });
+    if (mode === 'repair') setRepairSession(result.jobId);
     setHistoryId(''); setDetails(null); setInspected(null); setSummaryEdit(null); setPlanError('');
   });
   const prepared = latestJob?.sourceRevision === snapshot.revision && latestJob.status === 'succeeded' && latestJob.outcome ? latestJob : null;
@@ -89,12 +82,12 @@ export function Memory({ snapshot, library, busy, run }: { snapshot: ChatSnapsho
     <div className="actions memory-actions">
       <button disabled={!summariesEnabled || locked || !planCurrent || !snapshot.context.preset || !plan || Boolean(plan.stale.length) || Boolean(awaiting) || unsavedSettings} onClick={() => void start('prepare')}>Prepare chat</button>
       <button className="secondary" disabled={!summariesEnabled || locked || !planCurrent || !plan?.next || Boolean(plan.blocked) || Boolean(awaiting) || unsavedSettings} onClick={() => void start('step')}>Save next summary</button>
-      <button className="secondary" disabled={!summariesEnabled || locked || !planCurrent || !plan?.stale.length || Boolean(awaiting)} onClick={() => void start('repair')}>Repair next affected summary</button>
+      <button className="secondary" disabled={!summariesEnabled || locked || !planCurrent || !plan?.stale.length || Boolean(awaiting)} onClick={() => void start('repair')}>Repair summaries</button>
       {active && <button className="secondary" disabled={busy} onClick={() => void run(() => active.generationId ? api(`/generations/${active.generationId}/cancel`, 'POST', {}) : api(`/context/jobs/${active.id}/cancel`, 'POST', {}))}>Stop preparation</button>}
     </div>
     {summariesEnabled && <p className="small muted">Prepare chat reconsiders memory for the saved budget, reuses valid summaries first, and generates missing summaries only if needed. Manually corrected memory stays protected during reselection. Save settings and review any affected memory first.</p>}
     {summariesEnabled && prepared && <p role="status" data-testid="memory-prepare-result">{prepared.mode === 'step' ? 'Summary step saved.' : 'Memory prepared.'} {prepared.reusedCount ?? 0} saved summaries reused; {prepared.generatedCount ?? 0} new summaries generated.{prepared.refresh ? <> Verbatim turns: {prepared.refresh.verbatimBefore} → {prepared.outcome!.verbatimTurns}. Estimated input: {prepared.refresh.inputBefore.toLocaleString()} → {prepared.outcome!.inputTokens.toLocaleString()}.{prepared.refresh.protectedSummaries ? ` ${prepared.refresh.protectedSummaries} selected summaries containing manual corrections were protected during reselection.` : ''}{prepared.refresh.limited && !prepared.stepCount ? ' No different fitting selection was available in saved memory.' : ''}</> : null}</p>}
-    {review && repairCandidate && <section className="repair-review"><p className="eyebrow">REPAIR REVIEW</p><h2>Review the proposed replacement</h2><p className="small muted">Repair proceeds from changed children upward. Approve each candidate before its parent is repaired. Saved generations and earlier summary versions remain unchanged.</p><div className="repair-comparison"><div><h3>Previous summary</h3><div className="prose">{oldSummary?.text}</div></div><div><label>Proposed summary<textarea aria-label="Proposed summary" disabled={locked || !repairCandidate.turns.length} value={candidateText} onChange={e => setCandidateText(e.target.value)} maxLength={1_000_000} /></label>{!repairCandidate.turns.length && <p>All source turns were deleted. Approval removes this summary’s coverage.</p>}</div></div><div className="actions"><button disabled={locked || Boolean(repairCandidate.turns.length && !candidateText.trim())} onClick={() => void run(() => api(`/context/jobs/${review.job.id}/review`, 'POST', { revision: snapshot.revision, accept: true, ...(candidateText !== repairCandidate.text ? { text: candidateText } : {}) }))}>Approve replacement</button><button className="secondary" disabled={locked} onClick={() => void run(() => api(`/context/jobs/${review.job.id}/review`, 'POST', { revision: snapshot.revision, accept: false }))}>Discard candidate</button></div></section>}
+    {repairJob && <Suspense fallback={<p role="status">Opening repair review…</p>}><RepairReview key={repairJob.id} snapshot={snapshot} job={repairJob} busy={busy} run={run} dismissed={() => setRepairSession('')} /></Suspense>}
     <section className="memory-chart"><div className="memory-chart-heading"><div><h2>Summary layers</h2><p className="small muted">Select a summary to inspect its coverage.</p></div><label className="checkbox"><input type="checkbox" checked={zoom} onChange={e => setZoom(e.target.checked)} />Zoom timeline</label></div>
       <label>Inspect saved preparation<Dropdown aria-label="Saved preparation" value={historyId} onChange={id => { setHistoryId(id); setInspected(null); }} options={[{ value: '', label: 'Current committed selection' }, ...snapshot.context.jobs.map(job => ({ value: job.id, label: `${new Date(job.createdAt).toLocaleString()} · ${job.mode} · ${job.status}` }))]} /></label>
       {details && <label className="snapshot-slider">Saved step {frame} / {frameCount}<input type="range" aria-label="Saved preparation step" min={0} max={frameCount} value={frame} onChange={e => { setFrame(Number(e.target.value)); setInspected(null); }} /><small>History inspection only. Current chat memory is unchanged.</small></label>}

@@ -4,7 +4,7 @@ import { nextRepair } from '../core/context.js';
 import { generateSummary } from './summarizer.js';
 import type { Store } from '../persistence/store.js';
 import type { Provider } from '../provider/openai.js';
-import type { ContextJob } from '../shared/context.js';
+import type { ContextJob, RepairAction } from '../shared/context.js';
 import { hasPromptMarker } from '../shared/library.js';
 
 export class ContextCoordinator {
@@ -16,10 +16,17 @@ export class ContextCoordinator {
     if (fresh) this.dispatch(job.id);
     return { jobId: job.id };
   }
+  repairAction(id: string, revision: number, requestId: string, action: RepairAction, text?: string) {
+    const result = this.store.contexts.repairAction(id, revision, requestId, action, text);
+    if (result.fresh && action === 'close') this.active.get(id)?.controller.abort();
+    if (result.fresh && result.job.status === 'running') void this.dispatch(id);
+    this.changed();
+    return { jobId: id };
+  }
   private dispatch(id: string, parentSignal?: AbortSignal): Promise<void> {
     const controller = new AbortController();
     const signal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal;
-    const task = this.run(id, signal).finally(() => this.active.delete(id));
+    const task = this.run(id, signal).finally(() => { if (this.active.get(id)?.controller === controller) this.active.delete(id); });
     this.active.set(id, { controller, task, generationId: this.store.contexts.job(id).generationId }); this.changed();
     return task;
   }

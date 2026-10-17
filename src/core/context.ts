@@ -97,30 +97,37 @@ export function replaceSelection(state: ContextState, operation: ContextOperatio
   return { revision: state.revision + 1, archivedTurnIds, selected, summaries };
 }
 
-export function nextRepair(turns: Turn[], state: ContextState, replacements: Map<string, SummaryRef | null>): ContextOperation | null {
+/** Only the current dependencies of selected memory belong in the repair queue. */
+export function repairQueue(turns: Turn[], state: ContextState, replacements = new Map<string, SummaryRef | null>()): ContextOperation[] {
   const stale = staleSummaries(turns, state), existing = new Set(turns.map(turn => turn.id));
-  const currentRef = (ref: SummaryRef): SummaryRef => state.summaries.filter(node => node.id === ref.id && node.approved).sort((a, b) => b.revision - a.revision)[0] ?? ref;
+  const latest = new Map<string, SummaryNode>();
+  for (const node of state.summaries) if (node.approved && node.revision > (latest.get(node.id)?.revision ?? -1)) latest.set(node.id, node);
+  const currentRef = (ref: SummaryRef): SummaryRef => latest.get(ref.id) ?? ref;
   const visited = new Set<string>();
-  const visit = (ref: SummaryRef): ContextOperation | null => {
+  const queue: ContextOperation[] = [];
+  const visit = (ref: SummaryRef): void => {
     const key = refKey(ref);
     const current = currentRef(ref);
     if (refKey(current) !== key) {
       replacements.set(key, nodeFor(state, current)?.turns.length ? current : null);
       return visit(current);
     }
-    if (visited.has(key) || replacements.has(key) || !stale.has(key)) return null;
+    if (visited.has(key) || replacements.has(key) || !stale.has(key)) return;
     visited.add(key);
     const node = nodeFor(state, ref);
     if (!node) throw new AppError(422, 'invalid_context', 'A summary dependency is missing. Clear memory to rebuild it from the original turns.');
     for (const dependency of [...node.children, ...node.prior]) {
-      const operation = visit(dependency);
-      if (operation) return operation;
+      visit(dependency);
     }
-    return { level: node.level, turnIds: node.turns.map(source => source.turnId).filter(id => existing.has(id)), children: node.children.flatMap(child => {
+    queue.push({ level: node.level, turnIds: node.turns.map(source => source.turnId).filter(id => existing.has(id)), children: node.children.flatMap(child => {
       const replacement = replacements.has(refKey(child)) ? replacements.get(refKey(child)) : currentRef(child);
       return replacement ? [replacement] : [];
-    }), repair: ref };
+    }), repair: ref });
   };
-  for (const ref of state.selected) { const operation = visit(ref); if (operation) return operation; }
-  return null;
+  for (const ref of state.selected) visit(ref);
+  return queue;
+}
+
+export function nextRepair(turns: Turn[], state: ContextState, replacements: Map<string, SummaryRef | null>): ContextOperation | null {
+  return repairQueue(turns, state, replacements)[0] ?? null;
 }

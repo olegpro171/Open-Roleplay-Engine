@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -27,6 +27,29 @@ async function waitForIdle() {
   await expect.poll(async () => (await state()).generations.some((generation) => generation.status === 'running'), { timeout: 5000 }).toBe(false);
   return state();
 }
+
+it('allows editor styles with a fresh per-document nonce while keeping scripts restricted', async () => {
+  const staticDirectory = join(directory, 'client'); mkdirSync(staticDirectory);
+  writeFileSync(join(staticDirectory, 'index.html'), '<!doctype html><html><head><title>ORE</title></head><body></body></html>');
+  writeFileSync(join(staticDirectory, 'app.css'), 'body { color: white; }');
+  const staticApp = await createApp({ database: join(directory, 'static.sqlite'), staticDirectory });
+  try {
+    const first = await staticApp.app.inject({ method: 'GET', url: '/' });
+    expect(first.statusCode).toBe(200);
+    const nonce = first.body.match(/name="csp-nonce" content="([^"]+)"/)![1];
+    expect(first.headers['content-security-policy']).toContain(`style-src 'self' 'nonce-${nonce}'`);
+    expect(first.headers['content-security-policy']).toContain("script-src 'self';");
+    expect(first.headers['content-security-policy']).not.toContain('unsafe-inline');
+    expect(first.headers['cache-control']).toBe('no-store');
+    const next = await staticApp.app.inject({ method: 'GET', url: '/index.html' });
+    expect(next.body).not.toContain(nonce);
+    const fallback = await staticApp.app.inject({ method: 'GET', url: '/memory' });
+    expect(fallback.body).toContain('name="csp-nonce"');
+    const css = await staticApp.app.inject({ method: 'GET', url: '/app.css' });
+    expect(css.body).toContain('color: white');
+    expect(css.headers['content-security-policy']).toContain("style-src 'self';");
+  } finally { await staticApp.app.close(); }
+});
 async function submit(text = 'I open the tower door.', requestId = randomUUID()) {
   return command('/api/turns', { revision: (await state()).revision, requestId, text });
 }

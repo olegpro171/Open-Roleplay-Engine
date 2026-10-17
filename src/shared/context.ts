@@ -33,6 +33,8 @@ export type ContextJob = {
   refresh?: ContextRefresh;
   finalRefresh?: ContextRefresh;
   reusedCount?: number; generatedCount?: number;
+  reviewedCount?: number;
+  repairCommands?: Record<string, string>;
   outcome?: { inputTokens: number; verbatimTurns: number };
 };
 export type ContextRefresh = {
@@ -43,12 +45,17 @@ export type ContextRefresh = {
 };
 export type ContextStep = {
   id: string; jobId: string; operation: ContextOperation; request: RequestPreview | null;
-  status: 'running' | 'saved' | 'candidate' | 'failed' | 'interrupted'; result: SummaryRef | null;
+  status: 'running' | 'saved' | 'candidate' | 'discarded' | 'failed' | 'interrupted'; result: SummaryRef | null;
   error: string | null; before: { archivedTurnIds: string[]; selected: SummaryRef[] }; after: { archivedTurnIds: string[]; selected: SummaryRef[] } | null;
   inputBefore: number; inputAfter: number | null; createdAt: string;
   reused?: boolean;
 };
 export type ContextSnapshot = ContextState & { preset: (ContextPreset & SummaryRef) | null; jobs: ContextJob[] };
+export type RepairAction = 'approve' | 'regenerate' | 'close';
+export type ContextJobDetails = {
+  job: ContextJob; steps: ContextStep[];
+  repair?: { remaining: number; previousSources: string | null; currentSources: string; previousPrior: string; currentPrior: string };
+};
 export type ContextPlan = {
   method?: string; counting?: import('./contracts.js').TokenCounting;
   inputTokens: number; targetInputTokens: number; effectiveLimit: number; verbatimTurnIds: string[];

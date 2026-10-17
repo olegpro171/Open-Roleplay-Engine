@@ -129,12 +129,12 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   expect(edit.ok(), await edit.text()).toBe(true);
   await expect(phone.getByTestId('memory-status')).toContainText('out of date');
   await expect(phone.getByRole('button', { name: 'Prepare chat', exact: true })).toBeDisabled();
-  await phone.getByRole('button', { name: 'Repair next affected summary', exact: true }).click();
+  await phone.getByRole('button', { name: 'Repair summaries', exact: true }).click();
   await expect(phone.getByRole('heading', { name: 'Review the proposed replacement' })).toBeVisible();
   const beforeReview = (await state()).context.selected;
   await phone.getByLabel('Proposed summary').fill('Mira kept the brass key; Leon never received it.');
   expect((await state()).context.selected).toEqual(beforeReview);
-  await phone.getByRole('button', { name: 'Approve replacement', exact: true }).click();
+  await phone.getByRole('button', { name: 'Approve & Finish', exact: true }).click();
   await expect(phone.getByRole('heading', { name: 'Review the proposed replacement' })).toHaveCount(0);
   expect((await state()).context.selected).not.toEqual(beforeReview);
   // A reviewed correction can be longer than the original and require more compaction.

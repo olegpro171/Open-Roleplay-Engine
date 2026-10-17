@@ -1,8 +1,10 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyReply } from 'fastify';
 import cookie from '@fastify/cookie';
 import staticFiles from '@fastify/static';
 import { z, ZodError } from 'zod';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import type { ServerOptions } from 'node:https';
 import { importCharacter, importPersonas, exportCharacter, exportPersona } from '../core/cards.js';
 import { defaultPrompt, libraryCommandSchema, selectionsSchema, replaceHistorySchema } from '../shared/library.js';
@@ -16,6 +18,8 @@ import { trimBoundaryNewlines } from '../shared/text.js';
 import { Auth, sessionSeconds } from './auth.js';
 import { GenerationCoordinator } from './coordinator.js';
 import { contextPlan } from '../core/context-plan.js';
+
+const contentSecurityPolicy = (styleNonce?: string) => `default-src 'self'; script-src 'self'; style-src 'self'${styleNonce ? ` 'nonce-${styleNonce}'` : ''}; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`;
 
 export async function createApp(options: {
   database: string; staticDirectory?: string; migrationsDirectory?: string;
@@ -32,7 +36,7 @@ export async function createApp(options: {
   app.addHook('onRequest', async (request, reply) => {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'no-referrer');
-    reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    reply.header('Content-Security-Policy', contentSecurityPolicy());
     const hostname = request.hostname;
     if (!secure && !['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname)) {
       throw new AppError(403, 'https_required', 'LAN access requires HTTPS. Open the local address on the server computer.');
@@ -181,7 +185,7 @@ export async function createApp(options: {
   });
   app.get('/api/context/jobs/:id', async request => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    return { job: store.contexts.job(id), steps: store.contexts.steps(id) };
+    return store.contexts.details(id);
   });
   app.post('/api/context/jobs/:id/cancel', async request => {
     z.object({}).strict().parse(request.body);
@@ -192,6 +196,11 @@ export async function createApp(options: {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = z.object({ revision: revisionSchema, accept: z.boolean(), text: z.string().max(1_000_000).optional() }).strict().parse(request.body);
     store.contexts.review(id, input.revision, input.accept, input.text); coordinator.changed(); return { ok: true };
+  });
+  app.post('/api/context/jobs/:id/repair', { bodyLimit: 1_100_000 }, async request => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const input = z.object({ revision: revisionSchema, requestId: z.string().uuid(), action: z.enum(['approve', 'regenerate', 'close']), text: z.string().max(1_000_000).optional() }).strict().parse(request.body);
+    return coordinator.context.repairAction(id, input.revision, input.requestId, input.action, input.text);
   });
   for (const prefix of ['/api', '/api/chats/:chatId']) {
     app.get(prefix + (prefix === '/api' ? '/chat' : ''), async request => store.snapshot(chatId(request.params)));
@@ -256,8 +265,17 @@ export async function createApp(options: {
     changed();
   });
   if (options.staticDirectory && existsSync(options.staticDirectory)) {
+    const index = readFileSync(join(options.staticDirectory, 'index.html'), 'utf8');
+    const sendIndex = (reply: FastifyReply) => {
+      const nonce = randomBytes(24).toString('base64');
+      reply.header('Content-Security-Policy', contentSecurityPolicy(nonce));
+      reply.header('Cache-Control', 'no-store');
+      return reply.type('text/html').send(index.replace('<head>', `<head><meta name="csp-nonce" content="${nonce}">`));
+    };
     await app.register(staticFiles, { root: options.staticDirectory });
-    app.setNotFoundHandler((request, reply) => request.url.startsWith('/api/') ? reply.code(404).send({ message: 'Not found.' }) : reply.sendFile('index.html'));
+    app.get('/', async (_request, reply) => sendIndex(reply));
+    app.get('/index.html', async (_request, reply) => sendIndex(reply));
+    app.setNotFoundHandler((request, reply) => request.url.startsWith('/api/') ? reply.code(404).send({ message: 'Not found.' }) : sendIndex(reply));
   }
   app.addHook('preClose', async () => coordinator.shutdown());
   app.addHook('onClose', async () => store.close());

@@ -54,6 +54,8 @@ The user moved roleplay libraries/editors and chat-history replacement ahead of 
 
 Agents are part of the concept model, but their inclusion in the first release is undecided. Broad provider-specific adaptation, semantic retrieval, scene detection, character-specific memory permissions, multimedia, multiplayer, and a plugin ecosystem are proposed deferrals, not permanent prohibitions.
 
+The accepted repair review refinement uses a continuous **Repair summaries** dialog with matching prose panes, expandable source comparison, **Approve & Next**, **Regenerate** and **Close**. Approval saves before generating dependents. Close stops in-flight repair and discards the unapproved candidate and edits; reopening generates fresh work while retaining approved repairs. Draft persistence is explicitly excluded. Keep the queue scoped to current dependencies required by selected memory, including earlier-context dependencies; textual comparison does not establish semantic quality.
+
 ## Repository and implementation boundaries
 
 - This folder is separate from Marinara Engine. Marinara motivated the project; its architecture, dependencies, branch rules, and contributor workflow are not automatically this project's choices.

@@ -10,7 +10,7 @@ import type { Provider } from '../src/provider/openai.js';
 import type { RequestPreview } from '../src/shared/contracts.js';
 import { defaultContextPreset, refKey, type ContextJob } from '../src/shared/context.js';
 import { contextPlan } from '../src/core/context-plan.js';
-import { selectedContext } from '../src/core/context.js';
+import { repairQueue, selectedContext } from '../src/core/context.js';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const dispose of cleanup.splice(0)) await dispose(); });
@@ -490,6 +490,132 @@ describe('durable imported-session preparation', () => {
 });
 
 describe('targeted repair with review', () => {
+  it('approves and continues one durable queue, using corrected children and idempotent commands', async () => {
+    const f = fixture(24); await f.idle(f.start());
+    const child = f.state().context.summaries.find(node => node.level === 1)!;
+    f.store.contexts.editSummary(f.chatId, f.state().revision, child, 'Mira retained her key. Her sister holds a duplicate.');
+    const queue = repairQueue(f.state().turns, f.state().context);
+    expect(queue.length).toBeGreaterThan(1);
+    expect(new Set(queue.map(operation => refKey(operation.repair!))).size).toBe(queue.length);
+    const id = f.start('repair'); await f.idle(id);
+    let count = 0;
+    while (f.store.contexts.job(id).status === 'awaiting_review' && count < 100) {
+      const details = f.store.contexts.details(id);
+      expect(details.repair!.remaining).toBeGreaterThan(0);
+      expect(details.repair!.previousSources).not.toBeNull();
+      const revision = f.state().revision, requestId = randomUUID();
+      const text = count === 0 ? 'Mira kept the key. Her sister has a duplicate. Reviewed continuity detail.' : undefined;
+      f.coordinator.context.repairAction(id, revision, requestId, 'approve', text);
+      const calls = f.calls.length;
+      f.coordinator.context.repairAction(id, revision, requestId, 'approve', text);
+      expect(f.calls.length).toBe(calls);
+      expect(() => f.coordinator.context.repairAction(id, revision, requestId, 'regenerate')).toThrow('another repair command');
+      await f.idle(id); count++;
+    }
+    expect(count).toBe(queue.length);
+    expect(f.store.contexts.job(id)).toMatchObject({ status: 'succeeded', reviewedCount: count });
+    expect(contextPlan(f.state()).stale).toEqual([]);
+    expect(f.calls.some(call => JSON.stringify(call.request.body.messages).includes('Reviewed continuity detail'))).toBe(true);
+    expect(f.state().context.summaries.filter(node => !node.approved)).toEqual([]);
+  });
+
+  it('keeps a candidate after failed regeneration, replaces it only on success, and discards it on Close', async () => {
+    const f = fixture(8); await f.idle(f.start('step'));
+    f.store.editPart(f.state().revision, f.state().turns[0].id, 'user', 'Mira kept her key.', f.chatId);
+    const id = f.start('repair'); await f.idle(id);
+    const candidate = f.state().context.summaries.find(node => !node.approved)!;
+    const selection = f.state().context.selected;
+    f.setMode('placeholder');
+    f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'regenerate'); await f.idle(id);
+    expect(f.store.contexts.job(id)).toMatchObject({ status: 'awaiting_review' });
+    expect(f.store.contexts.job(id).error).toBeTruthy();
+    expect(f.state().context.summaries.find(node => refKey(node) === refKey(candidate))).toEqual(candidate);
+    await f.resume();
+    expect(f.store.contexts.job(id).status).toBe('awaiting_review');
+    f.setMode('normal');
+    f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'regenerate'); await f.idle(id);
+    expect(f.store.contexts.steps(id).filter(step => step.status === 'candidate')).toHaveLength(1);
+    expect(f.store.contexts.steps(id).filter(step => step.status === 'discarded')).toHaveLength(1);
+    expect(f.state().context.summaries.filter(node => !node.approved)).toHaveLength(1);
+    f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'close');
+    expect(f.store.contexts.job(id).status).toBe('cancelled');
+    expect(f.state().context.summaries.filter(node => !node.approved)).toEqual([]);
+    expect(f.state().context.selected).toEqual(selection);
+    const calls = f.calls.length;
+    const reopened = f.start('repair'); await f.idle(reopened);
+    expect(f.calls.length).toBe(calls + 1);
+    expect(f.store.contexts.steps(reopened)[0].operation.repair).toEqual({ id: candidate.id, revision: candidate.revision - 1 });
+  });
+
+  it('retains an approval when the next generation fails, and closing prevents a late result from saving', async () => {
+    const f = fixture(24); await f.idle(f.start());
+    f.store.editPart(f.state().revision, f.state().turns[0].id, 'user', 'Mira kept her key.', f.chatId);
+    const id = f.start('repair'); await f.idle(id);
+    f.setMode('placeholder');
+    f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'approve', 'Approved and saved correction.'); await f.idle(id);
+    expect(f.store.contexts.job(id)).toMatchObject({ status: 'failed', reviewedCount: 1 });
+    expect(f.state().context.summaries.some(node => node.approved && node.text === 'Approved and saved correction.')).toBe(true);
+    f.setMode('normal'); f.holdNext();
+    f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'regenerate');
+    expect(f.store.contexts.job(id).status).toBe('running');
+    const saved = f.state().context.summaries;
+    const requestId = randomUUID(), revision = f.state().revision;
+    f.coordinator.context.repairAction(id, revision, requestId, 'close');
+    f.coordinator.context.repairAction(id, revision, requestId, 'close');
+    f.release(); await new Promise(resolve => setTimeout(resolve, 20));
+    expect(f.store.contexts.job(id)).toMatchObject({ status: 'cancelled', reviewedCount: 1 });
+    expect(f.state().context.summaries).toEqual(saved);
+    expect(f.state().context.jobs.some(job => job.status === 'running')).toBe(false);
+  });
+
+  it('cannot approve an old candidate after source changes and a failed regeneration', async () => {
+    const f = fixture(8); await f.idle(f.start('step'));
+    f.store.editPart(f.state().revision, f.state().turns[0].id, 'user', 'First correction.', f.chatId);
+    const id = f.start('repair'); await f.idle(id);
+    f.store.editPart(f.state().revision, f.state().turns[0].id, 'user', 'Second correction.', f.chatId);
+    expect(() => f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'approve')).toThrow('changed');
+    f.setMode('placeholder');
+    f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'regenerate'); await f.idle(id);
+    expect(f.store.contexts.job(id).status).toBe('failed');
+    expect(f.state().context.summaries.filter(node => !node.approved)).toEqual([]);
+    expect(() => f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'approve')).toThrow('no longer awaits review');
+  });
+
+  it('does not disturb another review when closing or restarting an older failed repair', async () => {
+    const f = fixture(8); await f.idle(f.start('step'));
+    f.store.editPart(f.state().revision, f.state().turns[0].id, 'user', 'Mira kept her key.', f.chatId);
+    f.setMode('placeholder');
+    const older = f.start('repair'); await f.idle(older);
+    f.setMode('normal');
+    const current = f.start('repair'); await f.idle(current);
+    expect(() => f.coordinator.context.repairAction(older, f.state().revision, randomUUID(), 'regenerate')).toThrow('Another repair');
+    const saved = f.state();
+    f.coordinator.context.repairAction(older, 0, randomUUID(), 'close');
+    expect(f.state().revision).toBe(saved.revision);
+    expect(f.state().context.summaries).toEqual(saved.context.summaries);
+    expect(f.store.contexts.job(current).status).toBe('awaiting_review');
+    f.coordinator.context.repairAction(current, f.state().revision, randomUUID(), 'approve'); await f.idle(current);
+    expect(f.store.contexts.job(current).status).toBe('succeeded');
+  });
+
+  it('recovers a candidate after interrupted regeneration without orphaning it', async () => {
+    const f = fixture(8); await f.idle(f.start('step'));
+    f.store.editPart(f.state().revision, f.state().turns[0].id, 'user', 'Mira kept her key.', f.chatId);
+    const id = f.start('repair'); await f.idle(id);
+    const candidate = f.state().context.summaries.find(node => !node.approved)!;
+    f.holdNext();
+    f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'regenerate');
+    // Persist the same interruption transition used on restart before releasing the late stream.
+    f.store.contexts.finish(id, 'interrupted', 'Synthetic server interruption.');
+    f.release(); await new Promise(resolve => setTimeout(resolve, 20));
+    await f.resume();
+    expect(f.store.contexts.job(id).status).toBe('awaiting_review');
+    expect(f.state().context.summaries.find(node => refKey(node) === refKey(candidate))).toEqual(candidate);
+    expect(() => f.start('repair')).toThrow('existing repair candidate');
+    f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'close');
+    expect(f.state().context.summaries.filter(node => !node.approved)).toEqual([]);
+  });
+
   it('repairs changed children before parents, preserves manual corrections, and pauses continuation until review', async () => {
     const f = fixture(24); await f.idle(f.start());
     const original = f.state().context.selected;

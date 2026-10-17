@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import reference from './fixtures/compaction-reference.json';
 import { defaultContextPreset, emptyContextState, refKey, type ContextState, type SummaryNode } from '../src/shared/context.js';
 import type { Turn } from '../src/shared/contracts.js';
-import { nextCompaction, replaceSelection, selectedContext, sourceOf, staleSummaries } from '../src/core/context.js';
+import { nextCompaction, repairQueue, replaceSelection, selectedContext, sourceOf, staleSummaries } from '../src/core/context.js';
 import { assembleRequest } from '../src/core/prompt.js';
 import { defaultPrompt } from '../src/shared/library.js';
 
@@ -10,6 +10,14 @@ const turn = (position: number): Turn => ({ id: `t${position}`, position, comple
 const node = (id: string, level: number, turns: Turn[]): SummaryNode => ({ id, revision: 0, level, turns: turns.map(sourceOf), children: [], prior: [], text: `Saved facts from ${id}`, createdAt: '', approved: true, manual: false });
 
 describe('stateful layered context', () => {
+  it('orders over a hundred affected dependencies once, excluding unrelated retained versions', () => {
+    const turns = Array.from({ length: 151 }, (_, i) => turn(i + 1));
+    const summaries = turns.slice(0, 150).map((turn, i) => ({ ...node(`s${i}`, 1, [turn]), prior: i ? [{ id: `s${i - 1}`, revision: 0 }] : [] }));
+    const unrelated = node('unrelated-retained', 1, [turns[150]]);
+    const state: ContextState = { revision: 0, summaries: [...summaries, unrelated], selected: summaries, archivedTurnIds: turns.slice(0, 150).map(turn => turn.id) };
+    turns[0].user.revision++; turns[150].user.revision++;
+    expect(repairQueue(turns, state).map(operation => operation.repair!.id)).toEqual(summaries.map(node => node.id));
+  });
   for (const golden of reference) it(`matches the Python model across 1,000 requests: batch ${golden.settings.batch}`, () => {
     const settings = { ...defaultContextPreset, minTail: golden.settings.tail, batchSize: golden.settings.batch, promotionGroup: golden.settings.group, retainedPerLevel: golden.settings.retained };
     let state = emptyContextState();

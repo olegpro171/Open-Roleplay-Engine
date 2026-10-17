@@ -41,7 +41,7 @@ test('edits explicit markers, uses recent history, and enables preparation again
   await expect(page.getByTestId('memory-status')).toContainText('Summaries are disabled');
   await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Save next summary', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Repair next affected summary', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Repair summaries', exact: true })).toBeDisabled();
   const requests = () => page.request.get('/__test/requests').then(response => response.json() as Promise<{ body: object }[]>);
   const calls = (await requests()).length;
   await page.getByRole('button', { name: 'Story', exact: true }).click();
