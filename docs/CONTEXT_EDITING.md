@@ -2,7 +2,7 @@
 
 Date: 2026-10-16
 
-Status: context-engine design discussion; the first chat milestone exists, but layered compaction and repair are not implemented. A [standalone synthetic visualizer](VISUALIZER.md) explores budgeting and the candidate promotion policy; it does not implement editing or repair. This document extends [CONCEPTS.md](../CONCEPTS.md). Accepted turn rules and user-defined context constraints are identified separately from proposed mechanisms and unresolved policies. Numerical values are worked examples, not defaults.
+Status: context-engine rules and editing discussion; durable compaction and targeted repair with review are implemented for local testing. A [standalone synthetic visualizer](VISUALIZER.md) remains the budgeting reference and does not itself implement editing or repair. This document extends [CONCEPTS.md](../CONCEPTS.md). Accepted rules and implemented policies are distinguished from future proposals. Worked examples do not establish optimal numerical defaults.
 
 ## Accepted turn editing and deletion rules
 
@@ -18,11 +18,11 @@ A **turn** follows the accepted rules above. The user selects a **target input c
 
 Keep the entire conversation verbatim while it fits the target. When the next request would exceed it, summarize the oldest eligible complete batch, retaining more than `L` turns whenever possible. A batch must contain exactly `B` completed turns and leave at least `L` verbatim. Smaller boundary batches are explicitly rejected. If the minimum tail, or the longer residual tail imposed by fixed batching, cannot fit together with required non-summary input, generation fails. Do not silently change `L`, change `B`, or use the model's spare capacity beyond the working target.
 
-When no complete first-layer batch is eligible and the request still does not fit, promotion of existing summaries may free space, provided the required non-summary input and remaining verbatim tail can fit. A decision function must choose which summary level to promote so recent summaries retain finer detail instead of all level-1 summaries eventually being consumed. The function remains under discussion. Fixed summary-age thresholds are rejected. The former automatic `L + B` compaction trigger and its turn countdown are superseded: `L + B` is now an eligibility boundary, while exceeding the working target triggers compaction.
+When no complete first-layer batch is eligible and the request still does not fit, promotion of existing summaries may free space, provided the required non-summary input and remaining verbatim tail can fit. The accepted initial decision function below chooses which summary level to promote so recent summaries retain finer detail instead of all level-1 summaries eventually being consumed. Its real-world quality remains to be validated. Fixed summary-age thresholds are rejected. The former automatic `L + B` compaction trigger and its turn countdown are superseded: `L + B` is now an eligibility boundary, while exceeding the working target triggers compaction.
 
 Successfully summarized messages are marked **archived**. They remain stored, readable, and editable, but are represented through summaries rather than sent verbatim to the roleplay model. An edit to archived material marks summaries derived from it as out of date, then propagates to higher summaries derived from those summaries. The user can regenerate the affected memory.
 
-For repair, the proposed alternative to starting over is to give the model the existing summary and a diff of its changed sources, asking for a targeted revision. At the first layer those sources are turns; at higher layers they are lower-layer summaries. The intended benefit is to preserve useful wording and manual work while incorporating a rewritten history. Whether this sufficiently preserves manual intent remains an open question.
+On 2026-10-17 the user selected targeted repair with review. The first implementation gives the model the existing summary and previous/current source text, asking for a targeted revision. At the first layer sources are turns; at higher layers they are lower-layer summaries. It repairs one affected dependency at a time from the bottom upward and waits for approval before its replacement becomes authoritative. Review can correct the candidate's text. Preservation of manual intent remains a semantic question; a smaller diff-only request remains a possible refinement.
 
 ## Budget allocation and cutoff: proposed mechanism
 
@@ -34,12 +34,12 @@ Count completed turns in the currently selected continuation. Protect the newest
 2. Account for all non-history request content, including resolved prompt blocks and markers, pending user input, and message-format overhead. Content described as constant can still change between requests, so recalculate when its inputs change. The remainder is the shared history budget; the proposed soft layer allowances below guide selection without reserving otherwise unused space.
 3. Load the last committed selection of summaries and verbatim cutoff, append new input, and measure that representation. Do not rebuild a summary tree from the current transcript length. If it fits, keep the exact existing selection even if capacity remains unused; on a fresh chat this means all history remains verbatim.
 4. If it does not fit and at least `B` completed verbatim turns lie outside the minimum tail, summarize exactly the oldest `B`. Save and validate its replacement, then remeasure. Repeat only as needed, stopping as soon as the request fits.
-5. If no complete first-layer batch remains, include all residual verbatim turns when calculating the space available to summaries. If this verbatim tail plus required non-summary input already exceeds the target, fail generation. Otherwise select a summary-promotion candidate using the still-proposed decision function below. Retain its children, select only one representation of their coverage, and remeasure. Repeat only as needed.
+5. If no complete first-layer batch remains, include all residual verbatim turns when calculating the space available to summaries. If this verbatim tail plus required non-summary input already exceeds the target, fail generation. Otherwise select a summary-promotion candidate using the accepted initial decision function below. Retain its children, select only one representation of their coverage, and remeasure. Repeat only as needed.
 6. Validate the fully assembled request against both the working target and physical limits before generation. If available compaction cannot reduce the request sufficiently, fail with an explanation; do not silently change batching, violate the minimum tail, exceed the target, or drop history.
 
 For illustration, a planned request of 32,800 tokens exceeds a 32,000-token input ceiling. Replacing an eligible oldest batch occupying 2,000 tokens with a summary occupying 350 tokens reduces the request to approximately 31,150 tokens. Stop there even if far more than `L` turns remain verbatim. These figures illustrate net savings, not fixed batch or summary sizes; final request measurement includes formatting overhead.
 
-Summary size consumes the same history budget as verbatim turns. A proposed replacement must provide useful net token savings before it can solve an overflow; requesting a short summary does not guarantee that it will be short enough. Output targets, minimum useful summary detail, and behavior when a batch cannot be usefully reduced remain open.
+Summary size consumes the same history budget as verbatim turns. A proposed replacement must provide useful net token savings before it can solve an overflow; requesting a short summary does not guarantee that it will be short enough. On 2026-10-17 the user requested retaining the visualizer's summary-size control as a real output target. Its enforcement, minimum useful summary detail, and behavior when a batch cannot be usefully reduced remain open.
 
 `B` is fixed. With `L = 100`, `B = 3`, and 102 completed verbatim turns, none can be summarized in a new first-layer batch. If these 102 turns plus required non-summary input exceed the target, generation fails. If that input fits but the addition of summaries causes overflow, summary promotion can still help. The summary budget must be calculated after the actual 102-turn tail, not an imagined 100-turn tail. With 103 verbatim turns, the oldest three are eligible when token pressure requires compaction.
 
@@ -50,8 +50,8 @@ Any preview should identify candidate source turns by stable identity. A reliabl
 The user requires successive requests to retain a similar historical representation,
 without summaries moving back and forth between levels as the verbatim tail grows
 and is compacted. Unused target capacity is preferable to that oscillation. This is
-an accepted direction; it does not settle promotion weights, retained counts, or
-an additional headroom threshold.
+an accepted direction. Promotion weights were subsequently accepted on 2026-10-17;
+numerical retained-count defaults and an additional headroom threshold remain open.
 
 The cause demonstrated in the original simulator was independent preparation of each
 transcript prefix. A slightly different tail left a different summary budget, so the
@@ -124,18 +124,18 @@ their detailed policies remain open. Moving backward in the visualizer inspects 
 earlier snapshot. It does not demote the current state of a live chat. Changing visualizer
 settings restarts the experiment; this is not a live-chat settings migration policy.
 
-## Choosing a summary level: recommended candidate policy
+## Choosing a summary level: accepted initial policy
 
-The user has requested a decision function, not accepted a specific ranking formula. The following is a candidate to discuss and validate, applied only to the committed selection described above. Its token shares and retained counts are recommendations, not existing requirements.
+On 2026-10-17 the user accepted the visualizer's geometric-pressure ranking as the initial application policy, alongside its configurable promotion group and retained-summary floor. Apply it only to the committed selection described above, using actual active-summary token totals. Numerical defaults remain open and real-world summarization quality remains unverified.
 
 Separate the **trigger** from **selection**: exceeding the total working target triggers compaction; the relative token occupancy of summary levels chooses which eligible batch to promote. A level exceeding its suggested share does not trigger work while the complete request fits.
 
-Let `S` be the tokens available to all active summaries after required non-summary input and the actual remaining verbatim tail. Let `U_k` be the tokens currently occupied by active level-`k` summaries, excluding saved inactive children. If `S <= 0` and older history still requires input space, report insufficient capacity instead of evaluating allocation ratios. For positive `S`, one possible preference assigns half the pool to level 1, one quarter to level 2, one eighth to level 3, and so on: `A_k = S / 2^k`. These are soft allowances: unused capacity is shared, and no layer is padded or compacted merely to match its allowance. The geometric weighting is illustrative, not an accepted default.
+Let `S` be the tokens available to all active summaries after required non-summary input and the actual remaining verbatim tail. Let `U_k` be the tokens currently occupied by active level-`k` summaries, excluding saved inactive children. If `S <= 0` and older history still requires input space, report insufficient capacity instead of evaluating allocation ratios. For positive `S`, assign half the pool to level 1, one quarter to level 2, one eighth to level 3, and so on: `A_k = S / 2^k`. These are soft allowances: unused capacity is shared, and no layer is padded or compacted merely to match its allowance. This geometric weighting is the accepted initial heuristic.
 
 At each promotion step:
 
-1. For each level, consider its oldest complete contiguous batch of active summaries, using that level's configured promotion batch size. Exact settings for these group sizes remain open; do not silently vary a configured size.
-2. Apply any explicit retained-detail floor before ranking candidates. Recommended for discussion: keep a minimum number `R_k` of the newest active summaries at each level, so a candidate needs at least its full batch plus `R_k` summaries. A possible floor is one complete promotion batch; the value and whether this guarantee applies to every level remain open. Soft shares alone do not guarantee that a recent layer remains populated.
+1. For each level, consider its oldest complete contiguous batch of active summaries, using the configured promotion group size carried over from the visualizer. Numerical defaults and any future per-level overrides remain open; do not silently vary a configured size.
+2. Apply the configured retained-detail floor before ranking candidates: keep the newest active summaries at each source level, so a candidate needs at least its full group plus that retained count. The visualizer uses one configurable count across levels, including zero for no floor. Numerical application defaults remain open. Soft shares alone do not guarantee that a recent layer remains populated.
 3. Among eligible levels, choose the greatest `U_k / A_k`; on a tie, prefer the higher level, which represents older history under the chronological ordering. Always select that level's oldest batch, never its newest summaries.
 4. Reuse a valid saved parent if available; otherwise generate a replacement. Activate it only after verifying current dependencies and useful net token savings. Retain the children. Recompute occupancy and total request size after replacement, stopping as soon as the request fits. A non-shrinking result does not solve overflow; bounded retry or alternative-candidate behavior remains to be defined.
 
@@ -148,7 +148,9 @@ For `S = 6,000`, the illustrative soft allowances are 3,000 tokens for level 1, 
 
 This rule lets level 2 be promoted while level 1 still exists, instead of exhausting each lower layer first. Counts determine whether a full batch is eligible; actual tokens determine its layer's pressure. A deeper candidate can be ineligible despite high pressure if it lacks a full batch or would consume protected recent summaries.
 
-The tradeoff is explicit: protecting recent summary detail can make a request impossible under the chosen target even when further compression would technically fit. If a retained-detail floor is accepted, no eligible candidate means generation must fail rather than silently break that floor. Whether to impose such a hard floor or use soft preference alone is unresolved. Occupancy is a predictable allocation heuristic, not a measurement or guarantee of semantic summary quality. Changing summary lengths can change which level is selected; each successful replacement must be remeasured.
+Unequal summary lengths are supported by summing actual selected output sizes for `U_k`. A large recent summary can raise its level's pressure while remaining protected; ranking still promotes only the oldest eligible group. For a given step `S` is common to every level, so ranking is equivalent to comparing `U_k * 2^k`; changing the pool alone does not change the relative ordering. A chosen group's eventual savings are unknown until its replacement is generated and measured. Reject unusable output before selection, validate net savings, then recompute the complete input after every commit. Real model tests must evaluate factual/detail retention separately from arithmetic correctness.
+
+The tradeoff is explicit: protecting recent summary detail can make a request impossible under the chosen target even when further compression would technically fit. No eligible candidate means generation must fail rather than silently break the configured floor; zero permits no hard floor. Occupancy is a predictable allocation heuristic, not a measurement or guarantee of semantic summary quality. Changing summary lengths can change which level is selected; each successful replacement must be remeasured.
 
 ## Failure and budget behavior: recommendations
 
@@ -159,6 +161,8 @@ If the next request cannot fit without compaction, preparation must finish or an
 A turn count is not a token budget. The protected minimum tail, pending input, and fixed prompt content may exceed the working target even without older memory; fixed batching can require retaining additional verbatim turns. Failure in these cases is an accepted rule. The error should show the required input and target so the user can explicitly adjust settings or content. The precise recovery controls remain open.
 
 ## Deletion and restoring detail: under discussion
+
+The initial application offers an explicit full restore to verbatim input while retaining summaries and saved steps. Deleting archived sources instead uses targeted repair with review. These implemented controls do not settle automatic partial restoration or selection reuse after broader strategy changes.
 
 The user proposed restoring archived turns after deletion and retaining lower summaries after promotion so recent context can regain detail. The subsequent budget-driven direction supersedes both an automatic restoration target of `L + B - 1` and fixed age thresholds for each summary level. How to spend newly freed capacity on restored representations remains open; it should be reconciled with the preference for recent verbatim history and the minimum tail.
 
@@ -185,7 +189,7 @@ When repairing, verify both source revisions and the existing summary revision b
 
 To keep repair local, prefer a summary derived only from its declared source batch. If it also reads earlier summaries or recent turns for interpretation, those inputs are real dependencies and must be tracked. For example, editing a recent turn would no longer be independent of memory if a summary had already consulted it. This would weaken the proposed freely editable tail and should be an explicit design choice.
 
-Recommended default for discussion: pause new roleplay generation when active memory is out of date, and offer repair first. An explicit option to continue with stale memory is an alternative, with a visible indication in the request preview. Neither policy is accepted yet; stale memory must not silently appear current.
+The implemented initial policy pauses new roleplay generation when selected memory is out of date and offers repair with review. There is no stale-memory continuation override. Edits are blocked while a model operation runs; edits while a candidate awaits review invalidate approval through the captured chat revision.
 
 ## Manual summaries and diff-based repair
 
@@ -204,7 +208,7 @@ A diff alone can miss relevant context. If a batch is too large for this repair 
 
 Recommended user controls are **Revise existing summary** and **Rebuild from current sources**. The former aims to retain editorial work; the latter can recover from a poor or repeatedly patched summary but may discard manual additions. Preserve previous summary versions and make the proposed textual changes inspectable and reversible.
 
-For manually edited or entirely handwritten summaries, recommend reviewing the candidate before replacement. Automatically applying repairs to untouched model-generated summaries could remain a separate policy.
+All repair candidates require review in the initial implementation, including repairs of untouched model-generated summaries. Direct manual summary edits preserve old versions and invalidate dependents; they retain their source revisions rather than silently declaring changed sources current. Creating entirely handwritten summaries with new coverage remains outside this implementation.
 
 An entirely handwritten replacement summary still needs a declared source range or set of child summaries. Otherwise the system cannot know which message edits affect it or which history it replaces. A freestanding author note without source coverage is additional prompt material, not automatically a replacement for conversation history.
 
@@ -220,7 +224,7 @@ Likewise, a higher-layer repair can only use details retained in its sources. Di
 
 ## Remaining decisions and suggested checks
 
-Open decisions include conversion of irregular imported history into the accepted turn model, accepting partial or empty generated responses, outgoing representation of intentionally blank parts, entirely blank summary batches, budget-based warnings, numeric batch defaults, summary output targets, higher-layer grouping and promotion selection, soft layer weights versus hard retained-detail floors, operational headroom, detail restoration after deletion, proactive background preparation, generation with stale memory, manual-summary authority and review, revision retention, and changing settings after summaries exist. First-layer batches are fixed at the user-selected size and smaller boundary batches are rejected. Target/physical limit separation and generation failure when required input cannot fit are settled. Insertions, whole-turn deletions, and branches need detailed rules for changed membership and coverage, beyond ordinary text-edit diffs; deletion granularity itself is settled.
+Open decisions include additional imported-history formats, accepting partial/empty generated responses, a more specific representation for entirely blank but present batches, budget warnings/headroom, quality tuning of numerical values and prompts, automatic partial detail restoration, proactive background preparation, any future stale-memory override, semantic authority for conflicting manual additions, and revision pruning. The initial implementation retains blank source membership, blocks unusable/non-shrinking results, uses a soft summary target, tracks bounded prior-context dependencies, requires repair review, retains versions and preserves selections when settings change. Fixed first-layer batches, promotion grouping/floors and geometric-pressure ranking are accepted. Target/physical limit separation and failure when required input cannot fit are settled. Archived deletion is repaired through changed membership; insertions and branches still require future rules.
 
 Before implementation is considered dependable, use synthetic or copied chats to check:
 
@@ -239,7 +243,8 @@ Before implementation is considered dependable, use synthetic or copied chats to
 - A protected-tail budget conflict, the explicit `L = 100`, `B = 3`, 102-turn failure case, a summary yielding insufficient savings, and a history/settings change that immediately requires compaction.
 - Deletion of recent turns exposing valid retained lower layers, plus deletion through a summary's sources invalidating all affected dependencies.
 
-These remain proposed end-to-end experiments for the application. The standalone
-simulator's tests validate synthetic budgeting, structural coverage, and forward
-selection stability; they do not validate actual model summaries, editing/repair,
-durable transactions, or semantic quality.
+The application now tests fixed batching/tails, unequal sizes, Python-reference parity,
+selection stability, save-and-select rollback, interruption, stale-result rejection,
+and targeted repair with review on synthetic sources. The standalone simulator still
+tests only synthetic arithmetic and forward selection. Neither suite establishes
+real-model semantic quality or preservation of every narrative detail.

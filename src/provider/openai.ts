@@ -1,8 +1,12 @@
 import { AppError } from '../core/errors.js';
 import type { RequestPreview } from '../shared/contracts.js';
 
+export interface ProviderCompletion {
+  finishReason: 'stop' | 'length';
+}
+
 export interface Provider {
-  stream(request: RequestPreview, apiKey: string, signal: AbortSignal, onText: (text: string) => void): Promise<void>;
+  stream(request: RequestPreview, apiKey: string, signal: AbortSignal, onText: (text: string) => void): Promise<ProviderCompletion | void>;
 }
 
 export async function fetchModels(endpoint: string, apiKey: string): Promise<string[]> {
@@ -56,7 +60,7 @@ export class OpenAICompatibleProvider implements Provider {
       throw new AppError(502, 'invalid_stream', 'The endpoint did not return a Chat Completions event stream.');
     }
     let buffer = '';
-    let finished = false;
+    let finishReason: ProviderCompletion['finishReason'] | undefined;
     let done = false;
     let outputLength = 0;
     const consume = (event: string) => {
@@ -69,9 +73,12 @@ export class OpenAICompatibleProvider implements Provider {
       if (!Array.isArray(choices) || choices.length === 0) return;
       const choice = choices.find((item) => item?.index === 0);
       if (!choice) return;
+      if (choice.delta?.refusal || choice.finish_reason === 'content_filter') {
+        throw new AppError(502, 'provider_refusal', 'The model refused or filtered the request. No completed response was accepted.');
+      }
       if (choice.finish_reason != null) {
         if (!['stop', 'length'].includes(choice.finish_reason)) throw new Error('Unsupported completion outcome.');
-        finished = true;
+        finishReason = choice.finish_reason;
       }
       const content = choice.delta?.content;
       if (content != null && typeof content !== 'string') throw new Error('Unsupported response content.');
@@ -98,8 +105,9 @@ export class OpenAICompatibleProvider implements Provider {
           if (done) break;
         }
       }
-      if (!done || !finished) throw new AppError(502, 'incomplete_stream', 'The model stream ended without a completed response. The turn remains pending.');
+      if (!done || !finishReason) throw new AppError(502, 'incomplete_stream', 'The model stream ended without a completed response. The turn remains pending.');
       if (outputLength === 0) throw new AppError(502, 'empty_response', 'The model returned no text. The turn remains pending; retry or delete it.');
+      return { finishReason };
     } finally {
       await reader.cancel().catch(() => {});
       reader.releaseLock();

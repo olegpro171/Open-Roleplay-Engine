@@ -34,6 +34,7 @@ export const chatSettingsSchema = z.object({
   targetInputTokens: z.number().int().positive().max(10_000_000),
   connectionId: z.string().nullable().optional(), promptId: z.string().optional(),
   characterId: z.string().nullable().optional(), personaId: z.string().nullable().optional(),
+  contextPresetId: z.string().nullable().optional(),
 }).strict();
 
 export type Connection = z.infer<typeof connectionSchema>;
@@ -49,6 +50,7 @@ export type RequestPreview = {
   endpoint: string;
   body: RequestBody;
   coverage: { turnId: string; userRevision: number; assistantRevision: number; complete: boolean }[];
+  context?: { selected: import('./context.js').SummaryRef[]; archivedTurnIds: string[] };
   budget: {
     inputTokens: number; targetInputTokens: number; reservedOutputTokens: number;
     contextWindow: number; method: string; verified: false;
@@ -64,6 +66,7 @@ export type ChatSnapshot = {
   id: string; sources: import('./library.js').PromptSources;
   revision: number; settings: ChatSettings; connection: Connection | null; hasApiKey: boolean;
   turns: Turn[]; generations: Generation[];
+  context: import('./context.js').ContextSnapshot;
 };
 
 export const revisionSchema = z.number().int().nonnegative();

@@ -2,7 +2,7 @@
 
 ## Project context
 
-This is a new, independent roleplay application with persistent-chat and roleplay-library milestones implemented for local testing and a standalone synthetic compaction visualizer. “Roleplay Engine” is a working name. The accepted application stack is TypeScript, React + Vite, Node.js + Fastify, SQLite with better-sqlite3 + Drizzle, Zod, HTTP + SSE, Vitest, and Playwright. The Mac hosts the server and data; actual phone use awaits HTTPS certificate setup and verification. Application installation, build, launch, and test commands are documented in `README.md`. Character/persona/Connection libraries, the block-and-marker Prompt editor, chat selections and JSONL history replacement are implemented. Durable layered compaction follows as the third milestone and is not implemented. The Python/Tkinter visualizer is an isolated experiment; its launch and model-test commands remain documented in `docs/VISUALIZER.md`.
+This is a new, independent roleplay application with persistent chats, roleplay libraries and durable layered compaction implemented for local testing. “Roleplay Engine” is a working name. The accepted application stack is TypeScript, React + Vite, Node.js + Fastify, SQLite with better-sqlite3 + Drizzle, Zod, HTTP + SSE, Vitest, and Playwright. The Mac hosts the server and data; actual phone use awaits HTTPS certificate setup and verification. Application installation, build, launch, and test commands are documented in `README.md`. The third milestone includes reusable context presets with separate summarization Connections/prompts, imported-session preparation, transactional selections, a layered viewer, summary edits and targeted repair with review. Real-model summary quality remains unverified. The Python/Tkinter visualizer is an isolated synthetic reference; its commands remain documented in `docs/VISUALIZER.md`.
 
 Read `CONCEPTS.md` before discussing architecture, proposing features, changing documentation, or implementing anything. It is the current product concept reference and explicitly distinguishes user requirements from proposed refinements and open decisions.
 
@@ -50,7 +50,7 @@ Evaluate new ideas against these goals and explain any proposed change to them. 
 
 ## Scope
 
-The user moved roleplay libraries/editors and chat-history replacement ahead of context management. Those form the implemented second milestone; durable layered compaction with a verbatim cutoff follows as the third. See IMPLEMENTATION.md and README.md for current scope and limitations.
+The user moved roleplay libraries/editors and chat-history replacement ahead of context management. Those form the implemented second milestone; durable layered compaction with a verbatim cutoff is now implemented as the third. The user accepted the visualizer's geometric-pressure promotion rule and targeted repair with review on 2026-10-17. Preserve committed selections, explicit source dependencies, stop/resume without automatic retries, and review before repaired memory becomes active. See IMPLEMENTATION.md and README.md for scope and limitations.
 
 Agents are part of the concept model, but their inclusion in the first release is undecided. Broad provider-specific adaptation, semantic retrieval, scene detection, character-specific memory permissions, multimedia, multiplayer, and a plugin ecosystem are proposed deferrals, not permanent prohibitions.
 

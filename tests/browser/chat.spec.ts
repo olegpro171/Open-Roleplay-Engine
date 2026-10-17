@@ -198,7 +198,7 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByLabel('Current chat', { exact: true })).toHaveCount(0);
-  await expect(page.locator('.topbar .tabs button')).toHaveText(['Story', 'Setup', 'Libraries', 'Request inspector']);
+  await expect(page.locator('.topbar .tabs button')).toHaveText(['Story', 'Setup', 'Memory', 'Libraries', 'Request inspector']);
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Connections', exact: true }).click();
   await page.getByRole('button', { name: 'Edit', exact: true }).click();

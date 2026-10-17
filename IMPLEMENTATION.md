@@ -2,13 +2,13 @@
 
 Date: 2026-10-16
 
-Status: accepted technology and architecture baseline; the persistent-chat and roleplay-library milestones are implemented for local testing, and the user confirmed a first response through OpenRouter on 2026-10-16. The user approved the stack proposal and its recommendations on this date. “Roleplay Engine” remains a working name. Actual phone use and broader provider compatibility remain to be verified.
+Status: accepted technology and architecture baseline; persistent chat, roleplay libraries and durable layered compaction are implemented for local testing. The user confirmed a first roleplay response through OpenRouter on 2026-10-16. “Roleplay Engine” remains a working name. Actual phone use, real-model compaction quality and broader provider compatibility remain to be verified.
 
 ## 1. How to use this document
 
 Read [CONCEPTS.md](CONCEPTS.md) first for product intent and accepted behavior. Follow this guide for the application's technology choices, responsibility boundaries, deployment model, and implementation sequence. Read [CONTEXT_EDITING.md](docs/CONTEXT_EDITING.md) when working on context preparation, revisions, or summary repair.
 
-The stack approval does not accept every earlier proposal in those documents. In particular, promotion ranking, numerical defaults, restoration rules, manual-summary authority, and agent inclusion remain open. This guide records the approved architecture; detailed schemas, endpoint names, package versions, and unresolved user-facing policies must be established during implementation without silently changing product requirements.
+The stack approval does not accept every earlier proposal in those documents. Numerical defaults, restoration rules, manual-summary authority, and agent inclusion remain open. Promotion ranking was separately accepted on 2026-10-17 as described below. This guide records the approved architecture; detailed schemas, endpoint names, package versions, and unresolved user-facing policies must be established during implementation without silently changing product requirements.
 
 The existing [Python visualizer](docs/VISUALIZER.md) is a standalone experiment, not the application. Do not describe planned capabilities in this guide as already implemented.
 
@@ -132,7 +132,11 @@ Follow the accepted rules in [CONCEPTS.md](CONCEPTS.md) and the stateful contrac
 - Emit coverage in conversation order, without overlapping parent/child representations or unexplained gaps.
 - Track source revisions so archived edits invalidate affected summaries and their dependents. Structural freshness does not guarantee narrative consistency.
 
-Port accepted state-transition behavior from `experiments/compaction/compaction_model.py` into the TypeScript core. Compare the same synthetic scenarios across the reference model and the port, including checkpoint continuation and the 301-to-302 stability regression. The visualizer's numerical defaults and promotion formula remain experimental; keep the promotion decision replaceable without building a general plugin system.
+Port accepted state-transition behavior from `experiments/compaction/compaction_model.py` into the TypeScript core. Compare the same synthetic scenarios across the reference model and the port, including checkpoint continuation and the 301-to-302 stability regression. The visualizer's promotion formula is accepted as the initial application policy on 2026-10-17; numerical defaults remain illustrative. Rank with actual active-summary token totals, respect fixed groups and retained floors, validate net savings before commit, and remeasure after each replacement. Keep the decision replaceable without building a general plugin system; unequal sizes do not establish semantic quality or guarantee that every candidate shrinks.
+
+On 2026-10-17 the user requested carrying over the non-simulation settings: target input, minimum tail, fixed turn batch, requested summary size, promotion group and retained summaries per source level. The implementation measures resolved non-history input and actual summary output rather than retaining the lab's fixed token assumptions. Summarization has a separately selected reusable Connection and separate editable first-layer/promotion prompts that request independently understandable narrative summaries. Starting values match the lab; they are adjustable, not validated quality defaults. Summary size is a soft instruction target, and the Connection's `max_tokens` remains the actual output reservation. Up to three preceding selected summaries are supplied when they fit and are recorded as explicit dependencies. Sources are never silently shortened to fit.
+
+A summary-output validator and model-call gate are implemented in `src/core/summary-validation.ts` and `src/server/summarizer.ts` and used by the context coordinator. The provider adapter exposes completion reasons and rejects explicit refusal/filter metadata. The gate rejects obvious refusals, placeholders, empty/non-text output, repetition loops, length-limited or incomplete output and cancelled results, returning safe errors without silent retries. Persistence additionally verifies captured part revisions, chat/configuration revisions, coverage and complete-request savings before the save-and-select transaction. Ordinary roleplay responses do not use summary-text heuristics; their existing acceptance of a `length` finish reason is unchanged.
 
 Actual text lengths, model errors, persistence, revision conflicts, and summary quality require additional validation. Synthetic arithmetic does not establish semantic recall or faithful summarization.
 
@@ -190,13 +194,25 @@ Validation covers card preservation and PNG parsing, name substitution and promp
 
 Port and validate the stateful core, then connect real summarization and transactional persistence using the established roleplay workflow and request inspector.
 
+The user clarified the milestone's priority on 2026-10-17, accepted the design recommendations, then requested implementation. It prepares ongoing imported sessions directly from their transcript with separate summarization Connection/prompt selections, the lab's non-simulation controls and promotion ranking, budget/batch previews, saved progress with stop/resume, and a layered viewer. Preparation is not a replay of historical provider requests.
+
+Implementation behavior:
+
+- Version 3 migrates existing databases under process ownership, adding durable selections, versioned summaries, context jobs and request/step snapshots. Existing chats remain verbatim until a context preset is selected. Replacing history clears dependent memory and jobs in the same transaction as replacing turns.
+- The core validates ordered, non-overlapping selected coverage and dependency freshness. Persist only the active selection/cutoff separately from retained lower representations. A new summary must reduce the fully assembled roleplay input; failed writes roll back both the summary and the selection.
+- Explicit preparation and automatic preparation before a response share the server-owned coordinator. Only one workflow per chat can mutate context; other chats remain independent. Shared library edits are blocked during running work. Cancellation retains committed steps, restart marks unfinished work interrupted, and retries require an explicit command with idempotent identities.
+- Summary and Messages markers resolve from one managed selection. When no Summary marker is enabled, summaries precede Messages automatically. Roleplay generation records capture selected summary identities/revisions and archived-turn membership as well as original turn revisions; request bodies remain immutable and credential-free.
+- The user chose targeted repair with review. Repair works bottom-up, uses previous/current source text and the old summary, and saves one unselected candidate at a time. The user may correct, approve or discard it. Approval checks captured revisions; fresh approved children are used by later parent repairs. All selected stale memory blocks continuation.
+- Direct manual summary edits create new approved versions, retain old ones and invalidate dependents. They do not update source revision links. Entirely deleted coverage proposes a reviewed tombstone without a model call. Still-present blank batches are retained; unusable or non-shrinking model output fails rather than omitting them.
+- The Memory page shows active, retained, preparing and stale spans, source inspection, budget/status and the latest 20 jobs with request snapshots. Historical views retain their original turn membership and do not mutate current selections. Explicit restoration returns all turns to verbatim and keeps summaries/requests. Changed settings preserve selections; a protected-tail conflict requires explicit adjustment or restore. Automatic partial restoration is deferred.
+
 Use Vitest for core and persistence tests covering fixed batches, protected tails, residual turns, limit separation, coverage, selection stability, and checkpoint continuation. Add failure and interruption tests around the save-and-select transaction, safe retries, edits during generation, and stale-result rejection.
 
 Use synthetic or copied conversations to inspect summary quality against known story facts. Report structural correctness separately from semantic quality. Resolve relevant repair and restoration policies before implementing their user-facing behavior.
 
 ### Subsequent interface work
 
-Expand summary inspection/editing and context visualization around the verified compaction flow; extend the existing libraries only as needed for accepted product requirements. Use Playwright for meaningful end-to-end workflows and responsive layouts, with actual phone checks for platform-specific behavior.
+Expand summary inspection/editing around the verified compaction flow and its initial layered visualization; extend the existing libraries only as needed for accepted product requirements. Use Playwright for meaningful end-to-end workflows and responsive layouts, with actual phone checks for platform-specific behavior.
 
 These are implementation priorities, not a delivery schedule. The application build and its core/server/browser tests now exist and pass; commands are documented in [README.md](README.md). Existing simulator validation commands remain in [VISUALIZER.md](docs/VISUALIZER.md), and that isolated experiment is unchanged.
 
@@ -205,10 +221,10 @@ These are implementation priorities, not a delivery schedule. The application bu
 The product questions in [CONCEPTS.md](CONCEPTS.md) remain authoritative. Stack approval specifically leaves these areas open:
 
 - Future summary schemas, revision retention, regeneration, branching, and additional imported-history formats. Consecutive same-speaker conversion is now settled for the initial JSONL importer.
-- Promotion ranking, higher-layer grouping, numerical defaults, summary output targets, and any operational headroom.
-- Restoration after deletion or settings changes; stale-memory continuation; manual-summary authority and repair review.
+- Quality tuning of numerical starting values, prompts, prior-context policies and any operational headroom. The implemented output-size control is a soft target with physical output reservation owned by the summarization Connection.
+- Automatic partial restoration after deletion or settings changes; any future stale-memory override; semantic authority for conflicting manual additions and creating entirely handwritten coverage. Targeted repair review, direct corrections and explicit full restoration are implemented.
 - Entirely blank summary batches and acceptance of partial or empty generated responses. The user decided that blank saved parts are omitted from outgoing requests while their completed turns remain stored.
-- The Connection used for summarization and future shared-record pinning/copy behavior. The library milestone uses shared records for subsequent requests while preserving saved requests and greetings.
+- Future shared-record pinning/copy behavior. Summarization now requires a separately selected reusable Connection. The library milestone uses shared records for subsequent requests while preserving saved requests and greetings.
 - Product agents in the first release, their triggers, and missing marker/output behavior.
 - Verified tokenizer coverage and additional provider dialects/custom parameters. The first-milestone estimate policy is user-approved; its initial Chat Completions subset and protected request fields are documented in [README.md](README.md).
 - HTTPS certificate provisioning/trust, stronger credential storage protection, distribution packaging, and optional automatic startup. A local launcher and owner sessions are implemented; routine actual-phone use awaits HTTPS setup and verification.

@@ -15,6 +15,7 @@ import { connectionSchema, editSchema, passwordSchema, retrySchema, revisionSche
 import { trimBoundaryNewlines } from '../shared/text.js';
 import { Auth, sessionSeconds } from './auth.js';
 import { GenerationCoordinator } from './coordinator.js';
+import { contextPlan } from '../core/context-plan.js';
 
 export async function createApp(options: {
   database: string; staticDirectory?: string; migrationsDirectory?: string;
@@ -96,7 +97,7 @@ export async function createApp(options: {
   });
   app.delete('/api/library/:id', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
-    const input = z.object({ revision: revisionSchema, kind: z.enum(['personas', 'characters', 'prompts', 'connections']) }).strict().parse(request.body);
+    const input = z.object({ revision: revisionSchema, kind: z.enum(['personas', 'characters', 'prompts', 'connections', 'contexts']) }).strict().parse(request.body);
     store.deleteLibrary(input.revision, input.kind, id); coordinator.changed(); return { ok: true };
   });
   app.post('/api/library/default/restore', async request => {
@@ -112,7 +113,7 @@ export async function createApp(options: {
     const ids = store.importLibrary(input.revision, input.kind, items); coordinator.changed(); return { ids };
   });
   app.get('/api/library/:kind/:id/export', async request => {
-    const { kind, id } = z.object({ kind: z.enum(['personas', 'characters', 'prompts']), id: identity }).parse(request.params);
+    const { kind, id } = z.object({ kind: z.enum(['personas', 'characters', 'prompts', 'contexts']), id: identity }).parse(request.params);
     const item = store.libraries()[kind].find(item => item.id === id);
     if (!item) throw new AppError(404, 'item_not_found', 'Library item not found.');
     const { id: _id, revision: _revision, ...data } = item;
@@ -136,6 +137,35 @@ export async function createApp(options: {
     const input = replaceHistorySchema.parse(request.body);
     store.replaceHistory(input.revision, chatId(request.params), input.turns); coordinator.changed(); return { ok: true };
   });
+  app.get('/api/chats/:chatId/context/plan', async request => contextPlan(store.snapshot(chatId(request.params))));
+  app.post('/api/chats/:chatId/context/prepare', async (request, reply) => {
+    const input = z.object({ revision: revisionSchema, requestId: z.string().uuid(), mode: z.enum(['prepare', 'step', 'repair']) }).strict().parse(request.body);
+    return reply.code(202).send(coordinator.context.start(chatId(request.params), input.revision, input.requestId, input.mode));
+  });
+  app.post('/api/chats/:chatId/context/restore', async request => {
+    const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
+    store.contexts.restore(chatId(request.params), revision); coordinator.changed(); return { ok: true };
+  });
+  app.patch('/api/chats/:chatId/context/summaries/:id', { bodyLimit: 1_100_000 }, async request => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const input = z.object({ revision: revisionSchema, summaryRevision: revisionSchema, text: z.string().max(1_000_000) }).strict().parse(request.body);
+    const ref = store.contexts.editSummary(chatId(request.params), input.revision, { id, revision: input.summaryRevision }, input.text);
+    coordinator.changed(); return ref;
+  });
+  app.get('/api/context/jobs/:id', async request => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    return { job: store.contexts.job(id), steps: store.contexts.steps(id) };
+  });
+  app.post('/api/context/jobs/:id/cancel', async request => {
+    z.object({}).strict().parse(request.body);
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    coordinator.context.cancel(id); return { ok: true };
+  });
+  app.post('/api/context/jobs/:id/review', async request => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const input = z.object({ revision: revisionSchema, accept: z.boolean(), text: z.string().max(1_000_000).optional() }).strict().parse(request.body);
+    store.contexts.review(id, input.revision, input.accept, input.text); coordinator.changed(); return { ok: true };
+  });
   for (const prefix of ['/api', '/api/chats/:chatId']) {
     app.get(prefix + (prefix === '/api' ? '/chat' : ''), async request => store.snapshot(chatId(request.params)));
     app.put(prefix + '/settings', async request => {
@@ -154,7 +184,7 @@ export async function createApp(options: {
         if (turns.at(-1)?.complete === false) throw new AppError(409, 'pending_turn', 'Resolve the pending turn before previewing a new one.');
         turns.push({ id: 'draft', position: (turns.at(-1)?.position ?? 0) + 1, complete: false, user: { id: 'draft-user', revision: 0, text: input.text }, assistant: { id: 'draft-assistant', revision: 0, text: '' } });
       }
-      return assembleRequest(snapshot.connection, snapshot.settings, turns, snapshot.sources);
+      return assembleRequest(snapshot.connection, snapshot.settings, turns, snapshot.sources, snapshot.context);
     });
     app.post(prefix + '/turns', async (request, reply) => {
       const input = submissionSchema.parse(request.body);

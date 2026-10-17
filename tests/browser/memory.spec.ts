@@ -1,0 +1,112 @@
+import { test, expect, devices, type Page } from '@playwright/test';
+import type { ChatSnapshot } from '../../src/shared/contracts';
+import type { LibrarySnapshot } from '../../src/shared/library';
+
+async function choose(page: Page, label: string, option: string) {
+  await page.getByRole('combobox', { name: label, exact: true }).click();
+  await page.getByRole('option', { name: option, exact: true }).click();
+}
+
+test('prepares an imported chat, rejects a placeholder, inspects layers and reviews a targeted repair on desktop and phone', async ({ page, browser, request }) => {
+  const password = 'browser-synthetic-password';
+  const session = await request.get('/api/session').then(response => response.json());
+  const { endpoint } = await request.get('/__test/endpoint').then(response => response.json());
+  await page.goto('/'); await page.getByLabel('Owner password').fill(password);
+  await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
+  const libraries = () => page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
+  const post = async (url: string, data: unknown) => {
+    const response = await page.request.post(url, { headers: { Origin: 'http://127.0.0.1:4173' }, data });
+    expect(response.ok(), await response.text()).toBe(true); return response.json();
+  };
+  const connection = { name: 'Memory story model', endpoint, model: 'synthetic-roleplay', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} };
+  const roleplay = await post('/api/library', { revision: (await libraries()).revision, kind: 'connections', data: connection, apiKey: 'memory-story-secret' });
+  const summary = await post('/api/library', { revision: (await libraries()).revision, kind: 'connections', data: { ...connection, name: 'Memory summaries', model: 'synthetic-summary' }, apiKey: 'memory-summary-secret' });
+  await page.reload();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await page.getByRole('button', { name: 'Context presets', exact: true }).click();
+  await page.getByRole('button', { name: 'New context preset', exact: true }).click();
+  await page.getByLabel('Name', { exact: true }).fill('Imported story memory');
+  await choose(page, 'Summarization Connection', 'Memory summaries · synthetic-summary');
+  await page.getByLabel('Minimum verbatim turns').fill('2'); await page.getByLabel('Turns per batch').fill('2');
+  await page.getByLabel('Summaries per promotion').fill('2'); await page.getByLabel('Retain summaries per level').fill('1');
+  await expect(page.getByLabel('First-layer extraction prompt')).not.toBeEmpty();
+  await page.getByRole('button', { name: 'Save context', exact: true }).click();
+  const contextId = (await libraries()).contexts.find(preset => preset.name === 'Imported story memory')!.id;
+  const chat = await post('/api/chats', { title: 'Imported compaction proof', targetInputTokens: 2_200, connectionId: roleplay.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId });
+  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported compaction proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Setup', exact: true }).click();
+  const messages = Array.from({ length: 48 }, (_, i) => [
+    { is_user: true, mes: `Mira offers Leon her brass key. Turn ${i + 1}. ${'The room is quiet. '.repeat(10)}` },
+    { is_user: false, mes: `Leon promises not to enter the cellar. ${'The lantern casts long shadows. '.repeat(7)}` },
+  ]).flat();
+  await page.getByLabel('Chat JSONL file').setInputFiles({ name: 'synthetic-roleplay.jsonl', mimeType: 'application/jsonl', buffer: Buffer.from(messages.map(message => JSON.stringify(message)).join('\n')) });
+  await expect(page.getByText(/96 messages → 48 turns/)).toBeVisible();
+  await page.getByRole('button', { name: 'Replace all messages', exact: true }).click();
+  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save next summary', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Save next summary', exact: true }).click();
+  await expect(page.getByText(/2 archived turns/)).toBeVisible();
+  await request.post('/__test/mode', { data: { mode: 'placeholder' } });
+  await page.getByRole('button', { name: 'Prepare chat', exact: true }).click();
+  await expect(page.locator('.memory-failure')).toContainText('placeholder');
+  await expect(page.getByText(/2 archived turns/)).toBeVisible();
+  await request.post('/__test/mode', { data: { mode: 'normal' } });
+  await page.getByRole('button', { name: 'Prepare chat', exact: true }).click();
+  await expect(page.getByTestId('memory-status')).toContainText('Ready:', { timeout: 15_000 });
+  await expect(page.locator('.summary-span.active').first()).toBeVisible();
+  await expect(page.locator('.summary-span.retained').first()).toBeVisible();
+  await page.locator('.summary-span.active').first().click();
+  await expect(page.getByRole('heading', { name: /Level \d+ summary · revision/ })).toBeVisible();
+  const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
+  const saved = await state();
+  expect(saved.context.summaries.some(node => node.level > 1)).toBe(true);
+  expect(saved.turns).toHaveLength(48);
+  expect(await page.locator('body').textContent()).not.toContain('memory-summary-secret');
+  await page.locator('.memory-chart').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/desktop-memory.png', fullPage: true });
+  await page.getByRole('combobox', { name: 'Saved preparation', exact: true }).click();
+  await page.getByRole('option', { name: /prepare · succeeded/ }).first().click();
+  await page.getByLabel('Saved preparation step', { exact: true }).focus();
+  await page.getByLabel('Saved preparation step', { exact: true }).press('Home');
+  await expect(page.getByText('History inspection only. Current chat memory is unchanged.')).toBeVisible();
+  expect((await state()).context.selected).toEqual(saved.context.selected);
+  await page.screenshot({ path: 'test-results/desktop-memory-history.png', fullPage: true });
+
+  const phoneContext = await browser.newContext({ ...devices['iPhone 13'] });
+  const phone = await phoneContext.newPage(); await phone.goto('/');
+  await phone.getByLabel('Owner password').fill(password); await phone.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await phone.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await phone.getByRole('article').filter({ has: phone.getByRole('heading', { name: 'Imported compaction proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await phone.getByRole('button', { name: 'Memory', exact: true }).click();
+  await expect(phone.getByTestId('memory-status')).toContainText('Ready:');
+  expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await phone.locator('.memory-chart').scrollIntoViewIfNeeded();
+  await phone.screenshot({ path: 'test-results/phone-memory.png', fullPage: true });
+  const editedId = saved.context.archivedTurnIds.at(-1)!;
+  const edit = await page.request.patch(`/api/chats/${chat.id}/turns/${editedId}/user`, { headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: saved.revision, text: 'Mira kept her key after all.' } });
+  expect(edit.ok(), await edit.text()).toBe(true);
+  await expect(phone.getByTestId('memory-status')).toContainText('out of date');
+  await phone.getByRole('button', { name: 'Repair next affected summary', exact: true }).click();
+  await expect(phone.getByRole('heading', { name: 'Review the proposed replacement' })).toBeVisible();
+  const beforeReview = (await state()).context.selected;
+  await phone.getByLabel('Proposed summary').fill('Mira kept the brass key; Leon never received it.');
+  expect((await state()).context.selected).toEqual(beforeReview);
+  await phone.getByRole('button', { name: 'Approve replacement', exact: true }).click();
+  await expect(phone.getByRole('heading', { name: 'Review the proposed replacement' })).toHaveCount(0);
+  expect((await state()).context.selected).not.toEqual(beforeReview);
+  // A reviewed correction can be longer than the original and require more compaction.
+  if (!(await phone.getByTestId('memory-status').textContent())?.includes('Ready:')) await phone.getByRole('button', { name: 'Prepare chat', exact: true }).click();
+  await expect(phone.getByTestId('memory-status')).toContainText('Ready:');
+  expect((await state()).context.summaries.some(node => node.approved && node.manual && node.text.includes('never received'))).toBe(true);
+  await phone.locator('.summary-span.active').last().click();
+  await phone.getByRole('button', { name: 'Edit summary', exact: true }).click();
+  await phone.getByLabel('Summary text', { exact: true }).fill('Manual note: Mira kept the brass key.');
+  await phone.getByRole('button', { name: 'Save summary edit', exact: true }).click();
+  await expect(phone.getByRole('heading', { name: /Level \d+ summary · revision/ })).toHaveCount(0);
+  expect((await state()).context.summaries.some(node => node.approved && node.manual && node.text === 'Manual note: Mira kept the brass key.')).toBe(true);
+  expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await phoneContext.close();
+  expect(summary.id).toBeTruthy();
+});

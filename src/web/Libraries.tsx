@@ -4,22 +4,24 @@ import { defaultPrompt, markers, type Character, type LibraryKind, type LibraryS
 import { importChat } from '../core/chat-import';
 import { api } from './api';
 import { Dropdown, NumberInput } from './Controls';
+import { defaultContextPreset, type ContextPreset } from '../shared/context';
 
 export const defaultConnection: Connection = { name: 'My Connection', endpoint: 'https://api.openai.com/v1', model: '', contextWindow: 128_000, maxOutputTokens: 2048, customParameters: {} };
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
-type Selection = { title: string; targetInputTokens: number; connectionId: string | null; promptId: string; characterId: string | null; personaId: string | null };
+type Selection = { title: string; targetInputTokens: number; connectionId: string | null; promptId: string; characterId: string | null; personaId: string | null; contextPresetId: string | null };
+type LibraryRecord = Character | Persona | PromptPreset | Connection | ContextPreset;
 function selection(snapshot?: ChatSnapshot, library?: LibrarySnapshot): Selection {
   return { title: snapshot?.settings.title ?? 'A new story', targetInputTokens: snapshot?.settings.targetInputTokens ?? 32_000,
     connectionId: snapshot ? snapshot.settings.connectionId ?? null : library?.connections[0]?.id ?? null, promptId: snapshot?.settings.promptId ?? 'default',
-    characterId: snapshot?.settings.characterId ?? null, personaId: snapshot?.settings.personaId ?? null };
+    characterId: snapshot?.settings.characterId ?? null, personaId: snapshot?.settings.personaId ?? null, contextPresetId: snapshot?.settings.contextPresetId ?? null };
 }
 function SelectionFields({ value, change, library }: { value: Selection; change: (value: Selection) => void; library: LibrarySnapshot }) {
   return <div className="form-grid">
     <label>Chat title<input required maxLength={100} value={value.title} onChange={e => change({ ...value, title: e.target.value })} /></label>
     <label>Target input tokens<NumberInput required value={value.targetInputTokens} onChange={targetInputTokens => change({ ...value, targetInputTokens })} /></label>
-    {(['connectionId', 'promptId', 'characterId', 'personaId'] as const).map((key, i) => {
-      const names = ['Connection', 'Prompt preset', 'Character', 'Persona'];
-      const lists = [library.connections, library.prompts, library.characters, library.personas];
+    {(['connectionId', 'promptId', 'characterId', 'personaId', 'contextPresetId'] as const).map((key, i) => {
+      const names = ['Connection', 'Prompt preset', 'Character', 'Persona', 'Context preset'];
+      const lists = [library.connections, library.prompts, library.characters, library.personas, library.contexts];
       return <label key={key}>{names[i]}<Dropdown aria-label={names[i]} value={value[key] ?? ''} onChange={selected => change({ ...value, [key]: selected || null })} options={[...(key !== 'promptId' ? [{ value: '', label: 'None selected' }] : []), ...lists[i].map(item => ({ value: item.id, label: item.name }))]} /></label>;
     })}
   </div>;
@@ -29,7 +31,7 @@ export function ChatSetup({ snapshot, library, busy, run, saved }: { snapshot: C
   const [revision] = useState(snapshot.revision);
   return <main className="document-panel"><p className="eyebrow">CHAT SETUP</p><h1>Choose this story’s ingredients.</h1><p className="muted">Each chat keeps its own selections. Edit reusable cards, prompts and Connections in Libraries; saved changes apply to chats using them.</p>
     <form onSubmit={async e => { e.preventDefault(); if (await run(() => api(`/chats/${snapshot.id}/selections`, 'PUT', { revision, settings: value }))) saved(); }}><fieldset disabled={busy}><legend>Selections</legend><SelectionFields value={value} change={setValue} library={library} /></fieldset>
-      <p className="small muted">Full history is included. Summary markers stay empty until layered compaction is available. Changing a character does not rewrite the greeting or saved turns.</p>
+      <p className="small muted">Memory prepares older history when a context preset is selected. The Messages and Summary markers share one saved coverage selection. Changing a character does not rewrite the greeting or saved turns.</p>
       {revision !== snapshot.revision && <p role="status">This chat changed. Reopen Setup to load its current settings.</p>}
       <button disabled={busy || revision !== snapshot.revision}>Save setup</button>
     </form><HistoryImport snapshot={snapshot} busy={busy} run={run} />
@@ -43,7 +45,7 @@ async function* fileChunks(file: File) {
 function HistoryImport({ snapshot, busy, run }: { snapshot: ChatSnapshot; busy: boolean; run: Run }) {
   const [imported, setImported] = useState<Awaited<ReturnType<typeof importChat>> | null>(null);
   const [revision, setRevision] = useState(snapshot.revision), [error, setError] = useState(''), [reading, setReading] = useState(false), [filename, setFilename] = useState('');
-  return <section className="import-panel"><h2>Replace chat messages from a file</h2><p className="muted small">Choose a SillyTavern JSONL export. The file is read locally; only active message text is uploaded. Existing messages and their request records are replaced together after review. Chat selections stay as they are.</p>
+  return <section className="import-panel"><h2>Replace chat messages from a file</h2><p className="muted small">Choose a SillyTavern JSONL export. The file is read locally; only active message text is uploaded. Existing messages, saved memory and request records are replaced together after review. Chat selections stay as they are.</p>
     <label>Chat JSONL file<input type="file" accept=".jsonl" disabled={busy || reading} onChange={async e => {
       const file = e.target.files?.[0]; setImported(null); setError(''); if (!file) return;
       setReading(true); setFilename(file.name); setRevision(snapshot.revision);
@@ -60,23 +62,23 @@ function download(value: unknown, name: string) {
 }
 export function Libraries({ library, currentChatId, busy, run, openChat }: { library: LibrarySnapshot; currentChatId: string | null; busy: boolean; run: Run; openChat: (id: string) => void }) {
   const [section, setSection] = useState<LibraryKind | 'chats'>('chats');
-  const [editing, setEditing] = useState<{ kind: LibraryKind; id?: string; revision: number; data: Character | Persona | PromptPreset | Connection; hasApiKey?: boolean } | null>(null);
+  const [editing, setEditing] = useState<{ kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean } | null>(null);
   const [creatingChat, setCreatingChat] = useState(false), [chat, setChat] = useState(() => selection(undefined, library));
   const [notice, setNotice] = useState('');
   function create() {
     const kind = section as LibraryKind;
-    const data = kind === 'connections' ? defaultConnection : kind === 'prompts' ? { ...structuredClone(defaultPrompt), name: 'New prompt' } : kind === 'personas' ? { name: '', description: '' } : { name: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '' };
+    const data = kind === 'connections' ? defaultConnection : kind === 'contexts' ? structuredClone(defaultContextPreset) : kind === 'prompts' ? { ...structuredClone(defaultPrompt), name: 'New prompt' } : kind === 'personas' ? { name: '', description: '' } : { name: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '' };
     setEditing({ kind, revision: library.revision, data });
   }
   return <main className="document-panel library-panel"><p className="eyebrow">YOUR LIBRARIES</p><h1>Build a place to return to.</h1>
-    <div className="library-tabs" role="group" aria-label="Libraries">{(['chats', 'personas', 'characters', 'prompts', 'connections'] as const).map(kind => <button className="secondary" aria-pressed={section === kind} key={kind} onClick={() => { setSection(kind); setEditing(null); setCreatingChat(false); setNotice(''); }}>{kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>
+    <div className="library-tabs" role="group" aria-label="Libraries">{(['chats', 'personas', 'characters', 'prompts', 'connections', 'contexts'] as const).map(kind => <button className="secondary" aria-pressed={section === kind} key={kind} onClick={() => { setSection(kind); setEditing(null); setCreatingChat(false); setNotice(''); }}>{kind === 'contexts' ? 'Context presets' : kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>
     {notice && <p role="status">{notice}</p>}
     {section === 'chats' ? <>
       <button disabled={busy} onClick={() => { setCreatingChat(true); setChat(selection(undefined, library)); }}>New chat</button>
       {creatingChat && <form onSubmit={async e => { e.preventDefault(); let id = ''; if (await run(async () => { id = (await api<{ id: string }>('/chats', 'POST', chat)).id; })) { setCreatingChat(false); openChat(id); } }}><fieldset disabled={busy}><legend>New story</legend><SelectionFields value={chat} change={setChat} library={library} /><div className="actions"><button>Create chat</button><button type="button" className="quiet" onClick={() => setCreatingChat(false)}>Cancel</button></div></fieldset></form>}
       <div className="library-list">{library.chats.map(item => <article key={item.id}><div><h2>{item.title}</h2><p>{item.turnCount} turns{item.running ? ' · Response running' : ''}{currentChatId === item.id ? ' · Current chat' : ''}</p></div><div className="actions"><button className="secondary" onClick={() => openChat(item.id)}>Open chat</button><button className="quiet" disabled={busy || item.running} onClick={() => { if (confirm(`Delete “${item.title}” and all its turns and requests?`)) void run(() => api(`/chats/${item.id}`, 'DELETE', { revision: item.revision })); }}>Delete chat</button></div></article>)}{library.chats.length === 0 && <p className="muted">Create a chat to start your next story.</p>}</div>
     </> : <>
-      {!editing && <div className="actions"><button disabled={busy} onClick={create}>New {section === 'personas' ? 'persona' : section === 'characters' ? 'character' : section === 'prompts' ? 'prompt' : 'Connection'}</button>
+      {!editing && <div className="actions"><button disabled={busy} onClick={create}>New {section === 'personas' ? 'persona' : section === 'characters' ? 'character' : section === 'prompts' ? 'prompt' : section === 'contexts' ? 'context preset' : 'Connection'}</button>
         {(section === 'characters' || section === 'personas') && <label className="file-button">Import {section === 'characters' ? 'character' : 'personas'}<input type="file" accept={section === 'characters' ? '.json,.png' : '.json'} disabled={busy} onChange={async e => {
           const file = e.target.files?.[0]; e.target.value = ''; if (!file) return;
           await run(async () => {
@@ -86,9 +88,9 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
             setNotice(`Imported ${result.ids.length} ${section === 'characters' ? 'character' : 'persona(s)'}.`);
           });
         }} /></label>}
-        {section === 'prompts' && <label className="file-button">Import prompt<input type="file" accept=".json" disabled={busy} onChange={async e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) await run(async () => { if (file.size > 1_000_000) throw new Error('Prompt file is too large.'); await api('/library', 'POST', { kind: 'prompts', revision: library.revision, data: JSON.parse(await file.text()) }); }); }} /></label>}
+        {(section === 'prompts' || section === 'contexts') && <label className="file-button">Import {section === 'contexts' ? 'context preset' : 'prompt'}<input type="file" accept=".json" disabled={busy} onChange={async e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) await run(async () => { if (file.size > 1_000_000) throw new Error('Preset file is too large.'); await api('/library', 'POST', { kind: section, revision: library.revision, data: JSON.parse(await file.text()) }); }); }} /></label>}
       </div>}
-      {editing ? <LibraryEditor key={editing.id ?? editing.kind} initial={editing} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <div className="library-list">{library[section].map(item => <article key={item.id}><div><h2>{item.name}{item.id === 'default' ? ' · Built in' : ''}</h2><p>{section === 'connections' ? (item as Saved<Connection>).model : section === 'prompts' ? `${(item as Saved<PromptPreset>).blocks.length} blocks` : 'description' in item ? item.description.slice(0, 140) : ''}</p></div><div className="actions">
+      {editing ? <LibraryEditor key={editing.id ?? editing.kind} initial={editing} connections={library.connections} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <div className="library-list">{library[section].map(item => <article key={item.id}><div><h2>{item.name}{item.id === 'default' ? ' · Built in' : ''}</h2><p>{section === 'connections' ? (item as Saved<Connection>).model : section === 'prompts' ? `${(item as Saved<PromptPreset>).blocks.length} blocks` : section === 'contexts' ? `Minimum tail ${(item as Saved<ContextPreset>).minTail} · Batch ${(item as Saved<ContextPreset>).batchSize}` : 'description' in item ? item.description.slice(0, 140) : ''}</p></div><div className="actions">
         <button className="secondary" disabled={busy} onClick={() => { const { id, revision: _revision, ...record } = item; const { hasApiKey, ...data } = record as typeof record & { hasApiKey?: boolean }; setEditing({ kind: section, id, revision: library.revision, data, hasApiKey }); }}>Edit</button>
         <button className="quiet" disabled={busy} onClick={() => void run(async () => { const { id: _id, revision: _revision, ...record } = item; const { hasApiKey: _key, ...data } = record as typeof record & { hasApiKey?: boolean }; await api('/library', 'POST', { kind: section, revision: library.revision, data: { ...data, name: `${item.name.slice(0, 90)} copy` } }); setNotice(section === 'connections' ? 'Connection copied. Add its API key in the new Connection.' : 'Copy saved.'); })}>Duplicate</button>
         {section !== 'connections' && <button className="quiet" onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}>Export</button>}
@@ -98,7 +100,7 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
     </>}
   </main>;
 }
-function LibraryEditor({ initial, currentRevision, busy, run, close }: { initial: { kind: LibraryKind; id?: string; revision: number; data: Character | Persona | PromptPreset | Connection; hasApiKey?: boolean }; currentRevision: number; busy: boolean; run: Run; close: () => void }) {
+function LibraryEditor({ initial, connections, currentRevision, busy, run, close }: { initial: { kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean }; connections: Saved<Connection>[]; currentRevision: number; busy: boolean; run: Run; close: () => void }) {
   const [data, setData] = useState(initial.data), [key, setKey] = useState(''), [removeKey, setRemoveKey] = useState(false);
   const [parameters, setParameters] = useState(JSON.stringify((initial.data as Connection).customParameters ?? {}, null, 2));
   const [error, setError] = useState('');
@@ -129,14 +131,25 @@ function LibraryEditor({ initial, currentRevision, busy, run, close }: { initial
   return <form onSubmit={e => void save(e)}><fieldset disabled={busy || stale}><legend>{initial.id ? 'Edit' : 'Create'} {initial.kind === 'connections' ? 'Connection' : initial.kind.slice(0, -1)}</legend><div className="form-grid">{textField('name', 'Name', false)}
     {initial.kind === 'personas' && textField('description', 'Persona description')}
     {initial.kind === 'characters' && <>{[['description', 'Character description'], ['personality', 'Personality'], ['scenario', 'Scenario'], ['first_mes', 'Greeting'], ['mes_example', 'Example dialogue']].map(([field, label]) => textField(field, label))}<p className="small muted full">Supports basic V1/V2 text fields. Lorebooks, alternate greetings and other imported V2 fields are preserved for export but are not used by generation. Use {'{{user}}'} and {'{{char}}'} for names.</p></>}
+    {initial.kind === 'contexts' && <ContextPresetFields value={data as ContextPreset} change={setData} connections={connections} />}
     {initial.kind === 'connections' && <>
       <div className="full model-field"><label>Model identifier<Dropdown editable required aria-label="Model identifier" value={(data as Connection).model} onChange={model => setData({ ...data as Connection, model })} options={models.map(model => ({ value: model, label: model }))} /></label><button className="secondary" type="button" disabled={fetchingModels || !(data as Connection).endpoint} onClick={() => void loadModels()}>{fetchingModels ? 'Fetching…' : 'Fetch model list'}</button>{modelNotice && <p className="small muted" role="status">{modelNotice}</p>}</div>
       <label className="full">API base URL<input type="url" required value={(data as Connection).endpoint} onChange={e => { setData({ ...data as Connection, endpoint: e.target.value }); resetModels(); }} /></label>
       <div className="full api-key-row"><label>API key<input type="password" autoComplete="new-password" disabled={removeKey} placeholder={initial.hasApiKey ? 'Saved · leave blank to keep it' : 'Optional for endpoints without authentication'} value={key} onChange={e => { setKey(e.target.value); resetModels(); }} /></label>{initial.hasApiKey && <label className="checkbox"><input type="checkbox" checked={removeKey} onChange={e => { setRemoveKey(e.target.checked); resetModels(); }} />Remove the saved API key</label>}</div>
       <label>Model context window<NumberInput required value={(data as Connection).contextWindow} onChange={contextWindow => setData({ ...data as Connection, contextWindow })} /></label><label>Reserved output tokens<NumberInput required max={1_000_000} value={(data as Connection).maxOutputTokens} onChange={maxOutputTokens => setData({ ...data as Connection, maxOutputTokens })} /></label><label className="full">Custom request parameters<textarea className="code-input" value={parameters} onChange={e => setParameters(e.target.value)} /><small>temperature, top_p, presence_penalty, frequency_penalty, seed, stop and reasoning_effort.</small></label>
     </>}
-    {initial.kind === 'prompts' && <div className="full"><p className="small muted">Text blocks and card fields support {'{{user}}'} and {'{{char}}'}. Messages keep their stored roles and text. Include exactly one enabled Messages marker. Summary stays empty until compaction is available.</p><PromptEditor value={data as PromptPreset} change={setData} /></div>}
+    {initial.kind === 'prompts' && <div className="full"><p className="small muted">Text blocks and card fields support {'{{user}}'} and {'{{char}}'}. Messages keep stored roles. Include exactly one enabled Messages marker. Summary inserts the selected memory; when absent, memory appears just before Messages. Both share the same cutoff.</p><PromptEditor value={data as PromptPreset} change={setData} /></div>}
   </div></fieldset>{error && <p role="alert">{error}</p>}{stale && <p role="status">The library changed. Close this editor and reopen it before saving.</p>}<div className="actions"><button disabled={busy || stale}>Save {initial.kind === 'connections' ? 'Connection' : initial.kind.slice(0, -1)}</button><button type="button" className="quiet" onClick={close}>Close editor</button></div></form>;
+}
+function ContextPresetFields({ value, change, connections }: { value: ContextPreset; change: (value: ContextPreset) => void; connections: Saved<Connection>[] }) {
+  const fields = [['minTail', 'Minimum verbatim turns', 0], ['batchSize', 'Turns per batch', 1], ['summaryTokens', 'Requested summary tokens', 1], ['promotionGroup', 'Summaries per promotion', 2], ['retainedPerLevel', 'Retain summaries per level', 0]] as const;
+  return <><label className="full">Summarization Connection<Dropdown aria-label="Summarization Connection" value={value.connectionId ?? ''} onChange={connectionId => change({ ...value, connectionId: connectionId || null })} options={[{ value: '', label: 'Select a Connection' }, ...connections.map(connection => ({ value: connection.id, label: `${connection.name} · ${connection.model}` }))]} /></label>
+    {fields.map(([field, label, min]) => <label key={field}>{label}<NumberInput required min={min} max={field === 'summaryTokens' ? 1_000_000 : 50_000} value={value[field]} onChange={number => change({ ...value, [field]: number })} /></label>)}
+    <p className="small muted full">The input target belongs to each chat. Summary size is a prompt target; the Connection reserves output separately. Preparation stops when input fits. Promotion uses actual layer sizes and protects the newest summaries at each level.</p>
+    <label className="full">First-layer extraction prompt<textarea required value={value.extractionPrompt} maxLength={100_000} onChange={e => change({ ...value, extractionPrompt: e.target.value })} /></label>
+    <label className="full">Higher-layer compression prompt<textarea required value={value.promotionPrompt} maxLength={100_000} onChange={e => change({ ...value, promotionPrompt: e.target.value })} /></label>
+    <p className="small muted full">Available variables: {'{{target_tokens}}'}, {'{{level}}'}, {'{{user}}'}, {'{{char}}'}. Source text is attached separately. Up to three earlier selected summaries are included only when they fit the summarizer’s window. Saved summaries keep their original prompts; edits apply to future work.</p>
+  </>;
 }
 function PromptEditor({ value, change }: { value: PromptPreset; change: (value: PromptPreset) => void }) {
   const [dragged, setDragged] = useState<number | null>(null), [dropPosition, setDropPosition] = useState<number | null>(null);

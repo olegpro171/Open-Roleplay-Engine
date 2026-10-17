@@ -10,16 +10,20 @@ import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStat
 import { defaultPrompt, selectionsSchema, type Character, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved } from '../shared/library.js';
 import * as schema from './schema.js';
 import { trimBoundaryNewlines } from '../shared/text.js';
+import { defaultContextPreset, type ContextPreset } from '../shared/context.js';
+import { ContextStore } from './context-store.js';
 
 const initialSettings: ChatSettings = {
   title: 'A new story', instructions: defaultPrompt.blocks[0].kind === 'text' ? defaultPrompt.blocks[0].text : '',
   character: '', persona: '', targetInputTokens: 32_000,
   connectionId: null, promptId: 'default', characterId: null, personaId: null,
+  contextPresetId: null,
 };
 
 export class Store {
   readonly sqlite: Database.Database;
   readonly db;
+  readonly contexts: ContextStore;
   private readonly ownerToken = randomUUID();
 
   constructor(filename: string, migrationsDirectory = resolve('migrations')) {
@@ -71,7 +75,17 @@ export class Store {
           }
           this.sqlite.pragma('user_version = 2');
         })();
-      } else if (version !== 2) throw new Error('Unsupported database schema version.');
+        version = 2;
+      }
+      if (version === 2) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0003_context.sql'), 'utf8'));
+          this.db.insert(schema.library).values({ id: 'default-context', kind: 'contexts', revision: 0, data: defaultContextPreset }).run();
+          this.sqlite.prepare('UPDATE library_state SET revision = revision + 1 WHERE id = 1').run();
+          this.sqlite.pragma('user_version = 3');
+        })();
+      } else if (version !== 3) throw new Error('Unsupported database schema version.');
+      this.contexts = new ContextStore(this);
       if (newDatabase) this.db.insert(schema.chats).values({ id: 'main', revision: 0, settings: initialSettings }).onConflictDoNothing().run();
     } catch (error) {
       this.sqlite.prepare('DELETE FROM runtime_owner WHERE token = ?').run(this.ownerToken);
@@ -104,19 +118,20 @@ export class Store {
       id: row.id, turnId: row.turnId, status: row.status, sourceRevision: row.sourceRevision,
       request: row.request, partialText: row.partialText, error: row.error, createdAt: row.createdAt, updatedAt: row.updatedAt,
     }));
-    return { id: chatId, revision: chat.revision, settings: chat.settings, connection, hasApiKey, turns, generations, sources: {
+    return { id: chatId, revision: chat.revision, settings: chat.settings, connection, hasApiKey, turns, generations, context: this.contexts.snapshot(chatId, chat.settings.contextPresetId ?? null), sources: {
       prompt: this.selected<PromptPreset>(chat.settings.promptId, 'prompts'),
       character: this.selected<Character>(chat.settings.characterId, 'characters'), persona: this.selected<Persona>(chat.settings.personaId, 'personas'),
     } };
   }
-  private checkRevision(expected: number, chatId = 'main') {
+  checkRevision(expected: number, chatId = 'main') {
     if (this.chat(chatId).revision !== expected) throw new AppError(409, 'revision_conflict', 'The chat changed on another device. Review the latest state and try again.');
   }
-  private ensureIdle(chatId?: string) {
+  ensureIdle(chatId?: string) {
     const condition = chatId ? and(eq(schema.generations.status, 'running'), eq(schema.generations.chatId, chatId)) : eq(schema.generations.status, 'running');
     if (this.db.select().from(schema.generations).where(condition).get()) throw new AppError(409, 'generation_running', 'Cancel or wait for the current response before editing shared items or this chat.');
+    if (this.contexts.running(chatId)) throw new AppError(409, 'context_running', 'Stop or wait for memory preparation before editing shared items or this chat.');
   }
-  private bumpRevision(chatId = 'main') {
+  bumpRevision(chatId = 'main') {
     const revision = this.chat(chatId).revision + 1;
     this.db.update(schema.chats).set({ revision }).where(eq(schema.chats.id, chatId)).run();
     return revision;
@@ -128,25 +143,27 @@ export class Store {
   }
   private bumpLibrary() { this.sqlite.prepare('UPDATE library_state SET revision = revision + 1 WHERE id = 1').run(); }
   private bumpAffected(kind: LibraryKind, id: string) {
-    const key = kind === 'personas' ? 'personaId' : kind === 'characters' ? 'characterId' : kind === 'prompts' ? 'promptId' : 'connectionId';
-    for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings[key] === id || (kind === 'connections' && id === 'main' && chat.settings.connectionId === undefined)) this.bumpRevision(chat.id);
+    const key = kind === 'personas' ? 'personaId' : kind === 'characters' ? 'characterId' : kind === 'prompts' ? 'promptId' : kind === 'contexts' ? 'contextPresetId' : 'connectionId';
+    for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings[key] === id || (kind === 'connections' && (id === 'main' && chat.settings.connectionId === undefined || this.contextPreset(chat.settings.contextPresetId)?.connectionId === id))) this.bumpRevision(chat.id);
   }
   libraries(): LibrarySnapshot {
     const rows = this.db.select().from(schema.library).all();
     const list = <T>(kind: string) => rows.filter(r => r.kind === kind).map(r => ({ ...r.data, id: r.id, revision: r.revision })) as unknown as Saved<T>[];
     return {
       revision: this.libraryRevision(), personas: list<Persona>('personas'), characters: list<Character>('characters'), prompts: list<PromptPreset>('prompts'),
+      contexts: list<ContextPreset>('contexts'),
       connections: this.db.select().from(schema.connections).all().map(r => ({ ...r.settings, id: r.id, revision: r.revision, hasApiKey: Boolean(this.db.select().from(schema.credentials).where(eq(schema.credentials.id, r.id)).get()?.apiKey) })),
       chats: this.db.select().from(schema.chats).all().map(c => ({ id: c.id, title: c.settings.title, revision: c.revision,
         turnCount: (this.sqlite.prepare('SELECT count(*) AS n FROM turns WHERE chat_id = ?').get(c.id) as { n: number }).n,
-        running: Boolean(this.db.select().from(schema.generations).where(and(eq(schema.generations.chatId, c.id), eq(schema.generations.status, 'running'))).get()),
+        running: Boolean(this.db.select().from(schema.generations).where(and(eq(schema.generations.chatId, c.id), eq(schema.generations.status, 'running'))).get()) || this.contexts.running(c.id),
       })),
     };
   }
-  saveLibrary(expected: number, kind: LibraryKind, data: Character | Persona | PromptPreset | Connection, id?: string, apiKey?: string) {
+  saveLibrary(expected: number, kind: LibraryKind, data: Character | Persona | PromptPreset | ContextPreset | Connection, id?: string, apiKey?: string) {
     return this.sqlite.transaction(() => {
       this.checkLibrary(expected);
       const identity = id ?? randomUUID();
+      if (kind === 'contexts' && (data as ContextPreset).connectionId) this.connection((data as ContextPreset).connectionId!);
       if (kind === 'connections') {
         const old = this.db.select().from(schema.connections).where(eq(schema.connections.id, identity)).get();
         if (id && !old) throw new AppError(404, 'item_not_found', 'Connection not found.');
@@ -155,7 +172,7 @@ export class Store {
       } else {
         const old = this.db.select().from(schema.library).where(and(eq(schema.library.id, identity), eq(schema.library.kind, kind))).get();
         if (id && !old) throw new AppError(404, 'item_not_found', 'Library item not found.');
-        this.db.insert(schema.library).values({ id: identity, kind, revision: (old?.revision ?? -1) + 1, data: data as Character | Persona | PromptPreset }).onConflictDoUpdate({ target: schema.library.id, set: { data: data as Character | Persona | PromptPreset, revision: (old?.revision ?? -1) + 1 } }).run();
+        this.db.insert(schema.library).values({ id: identity, kind, revision: (old?.revision ?? -1) + 1, data: data as Character | Persona | PromptPreset | ContextPreset }).onConflictDoUpdate({ target: schema.library.id, set: { data: data as Character | Persona | PromptPreset | ContextPreset, revision: (old?.revision ?? -1) + 1 } }).run();
       }
       this.bumpLibrary(); this.bumpAffected(kind, identity); return identity;
     })();
@@ -170,9 +187,10 @@ export class Store {
     this.sqlite.transaction(() => {
       this.checkLibrary(expected);
       if (kind === 'prompts' && id === 'default') throw new AppError(409, 'default_prompt', 'The default prompt can be edited or restored, but cannot be deleted.');
-      const key = kind === 'personas' ? 'personaId' : kind === 'characters' ? 'characterId' : kind === 'prompts' ? 'promptId' : 'connectionId';
+      const key = kind === 'personas' ? 'personaId' : kind === 'characters' ? 'characterId' : kind === 'prompts' ? 'promptId' : kind === 'contexts' ? 'contextPresetId' : 'connectionId';
       if (this.db.select().from(schema.chats).all().some(c => c.settings[key] === id || (kind === 'connections' && id === 'main' && c.settings.connectionId === undefined))) throw new AppError(409, 'item_in_use', 'Select a different item in the chats using this one before deleting it.');
       if (kind === 'connections') {
+        if (this.libraries().contexts.some(preset => preset.connectionId === id)) throw new AppError(409, 'item_in_use', 'A context preset uses this summarization Connection. Change that preset first.');
         this.db.delete(schema.credentials).where(eq(schema.credentials.id, id)).run();
         if (!this.db.delete(schema.connections).where(eq(schema.connections.id, id)).run().changes) throw new AppError(404, 'item_not_found', 'Connection not found.');
       } else if (!this.db.delete(schema.library).where(and(eq(schema.library.id, id), eq(schema.library.kind, kind))).run().changes) throw new AppError(404, 'item_not_found', 'Library item not found.');
@@ -182,6 +200,7 @@ export class Store {
   private validateSelections(settings: ReturnType<typeof selectionsSchema.parse>) {
     if (settings.connectionId && !this.db.select().from(schema.connections).where(eq(schema.connections.id, settings.connectionId)).get()) throw new AppError(422, 'missing_connection', 'Selected Connection not found.');
     this.selected(settings.promptId, 'prompts'); this.selected(settings.characterId, 'characters'); this.selected(settings.personaId, 'personas');
+    this.contextPreset(settings.contextPresetId);
   }
   createChat(input: ReturnType<typeof selectionsSchema.parse>) {
     return this.sqlite.transaction(() => {
@@ -198,6 +217,7 @@ export class Store {
   updateChat(expected: number, chatId: string, input: ReturnType<typeof selectionsSchema.parse>) {
     this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId); this.ensureIdle(chatId); this.validateSelections(input);
+      if (input.contextPresetId === null && this.contexts.snapshot(chatId, null).archivedTurnIds.length) throw new AppError(409, 'restore_context_first', 'Restore verbatim history in Memory before disabling the context preset.');
       this.db.update(schema.chats).set({ settings: { ...this.chat(chatId).settings, ...input, instructions: '', character: '', persona: '' } }).where(eq(schema.chats.id, chatId)).run();
       this.bumpRevision(chatId);
     })();
@@ -215,6 +235,7 @@ export class Store {
   replaceHistory(expected: number, chatId: string, turns: ImportedTurn[]) {
     this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId); this.ensureIdle(chatId);
+      this.contexts.clear(chatId);
       this.db.delete(schema.turns).where(eq(schema.turns.chatId, chatId)).run();
       turns.forEach((turn, i) => this.insertTurn(chatId, i + 1, turn));
       this.bumpRevision(chatId);
@@ -224,11 +245,13 @@ export class Store {
     this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId); this.ensureIdle();
       this.selected(settings.promptId, 'prompts'); this.selected(settings.characterId, 'characters'); this.selected(settings.personaId, 'personas');
+      this.contextPreset(settings.contextPresetId);
+      if (settings.contextPresetId === null && this.contexts.snapshot(chatId, null).archivedTurnIds.length) throw new AppError(409, 'restore_context_first', 'Restore verbatim history in Memory before disabling the context preset.');
       const connectionId = settings.connectionId ?? 'main';
       const old = this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get();
       this.db.insert(schema.connections).values({ id: connectionId, settings: connection, revision: (old?.revision ?? -1) + 1 }).onConflictDoUpdate({ target: schema.connections.id, set: { settings: connection, revision: (old?.revision ?? -1) + 1 } }).run();
       if (apiKey !== undefined) this.db.insert(schema.credentials).values({ id: connectionId, apiKey }).onConflictDoUpdate({ target: schema.credentials.id, set: { apiKey } }).run();
-      this.db.update(schema.chats).set({ settings: { ...settings, connectionId } }).where(eq(schema.chats.id, chatId)).run();
+      this.db.update(schema.chats).set({ settings: { ...settings, connectionId, contextPresetId: settings.contextPresetId === undefined ? this.chat(chatId).settings.contextPresetId ?? null : settings.contextPresetId } }).where(eq(schema.chats.id, chatId)).run();
       this.bumpAffected('connections', connectionId); this.bumpLibrary();
     })();
   }
@@ -267,6 +290,12 @@ export class Store {
     if (!this.db.select().from(schema.connections).where(eq(schema.connections.id, id)).get()) throw new AppError(404, 'connection_not_found', 'Connection not found.');
     return this.db.select().from(schema.credentials).where(eq(schema.credentials.id, id)).get()?.apiKey ?? '';
   }
+  connection(id: string): Connection {
+    const row = this.db.select().from(schema.connections).where(eq(schema.connections.id, id)).get();
+    if (!row) throw new AppError(422, 'missing_connection', 'The summarization Connection is missing.');
+    return row.settings;
+  }
+  contextPreset(id: string | null | undefined) { return this.selected<ContextPreset>(id, 'contexts'); }
   saveRequest(id: string, request: RequestPreview) {
     this.sqlite.transaction(() => {
       const generation = this.generation(id);
@@ -300,6 +329,7 @@ export class Store {
       const running = this.db.select().from(schema.generations).where(eq(schema.generations.status, 'running')).all();
       this.db.update(schema.generations).set({ status: 'interrupted', error: 'The server stopped during this response. Retry explicitly to start a new model request.', updatedAt: new Date().toISOString() }).where(eq(schema.generations.status, 'running')).run();
       for (const id of new Set(running.map(g => g.chatId))) this.bumpRevision(id);
+      this.contexts.recover();
     })();
   }
   editPart(expected: number, turnId: string, part: 'user' | 'assistant', text: string, chatId = 'main') {

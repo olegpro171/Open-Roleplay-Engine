@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { startMockProvider } from './support/mock-provider.js';
 import type { ChatSnapshot } from '../src/shared/contracts.js';
+import { defaultContextPreset } from '../src/shared/context.js';
 
 it('recovers a real server crash with checkpointed text and no automatic provider retry', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'roleplay-crash-'));
@@ -56,4 +57,56 @@ it('recovers a real server crash with checkpointed text and no automatic provide
   } finally {
     await stop(); await mock.close(); rmSync(directory, { recursive: true, force: true });
   }
+}, 15_000);
+
+it('keeps committed summaries after a real process crash and resumes only on an explicit command', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'roleplay-context-crash-'));
+  const mock = await startMockProvider();
+  let child: ChildProcess | undefined, address = '', cookie = '';
+  const start = async () => {
+    child = fork(resolve('tests/support/server-process.ts'), [], { execArgv: ['--import', 'tsx'], env: { ...process.env, ROLEPLAY_TEST_DATABASE: join(directory, 'chat.sqlite') }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+    address = await new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Server child did not start.')), 5_000);
+      child!.once('message', message => { clearTimeout(timer); resolve((message as { address: string }).address); });
+      child!.once('exit', code => { clearTimeout(timer); reject(new Error(`Child exited: ${code}`)); });
+      child!.once('error', reject);
+    });
+  };
+  const stop = async () => {
+    if (!child || child.exitCode !== null || child.signalCode !== null) return;
+    const stopped = new Promise<void>(resolve => child!.once('exit', () => resolve())); child.kill('SIGKILL'); await stopped;
+  };
+  const post = async (path: string, data: unknown) => {
+    const response = await fetch(address + path, { method: 'POST', headers: { cookie, Origin: address, 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    expect(response.ok).toBe(true); return response.json();
+  };
+  const library = async () => fetch(address + '/api/library', { headers: { cookie } }).then(response => response.json() as Promise<{ revision: number }>);
+  let chatId = '';
+  const state = () => fetch(`${address}/api/chats/${chatId}`, { headers: { cookie } }).then(response => response.json() as Promise<ChatSnapshot>);
+  try {
+    await start();
+    const setup = await fetch(address + '/api/setup', { method: 'POST', headers: { Origin: address, 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'crash-synthetic-password' }) });
+    cookie = setup.headers.get('set-cookie')!.split(';')[0];
+    const connection = await post('/api/library', { revision: (await library()).revision, kind: 'connections', data: { name: 'Synthetic', endpoint: mock.url, model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
+    const context = await post('/api/library', { revision: (await library()).revision, kind: 'contexts', data: { ...defaultContextPreset, connectionId: connection.id, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 } });
+    chatId = (await post('/api/chats', { title: 'Crash proof', targetInputTokens: 2_200, connectionId: connection.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: context.id })).id;
+    const imported = Array.from({ length: 24 }, (_, i) => ({ user: `Turn ${i}. ${'Mira offers the brass key. '.repeat(10)}`, assistant: 'Leon promises to avoid the cellar. '.repeat(8), complete: true }));
+    const replace = await fetch(`${address}/api/chats/${chatId}/history`, { method: 'PUT', headers: { cookie, Origin: address, 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: (await state()).revision, turns: imported }) });
+    expect(replace.ok).toBe(true);
+    await post(`/api/chats/${chatId}/context/prepare`, { revision: (await state()).revision, requestId: randomUUID(), mode: 'step' });
+    await expect.poll(async () => (await state()).context.jobs[0].status).toBe('succeeded');
+    const committed = (await state()).context.selected;
+    mock.setMode('hold');
+    await post(`/api/chats/${chatId}/context/prepare`, { revision: (await state()).revision, requestId: randomUUID(), mode: 'prepare' });
+    await expect.poll(() => mock.requests.length).toBe(2);
+    await stop(); await start();
+    const recovered = await state();
+    expect(recovered.context.jobs[0].status).toBe('interrupted');
+    expect(recovered.context.selected).toEqual(committed); expect(mock.requests).toHaveLength(2);
+    mock.setMode('normal');
+    await post(`/api/chats/${chatId}/context/prepare`, { revision: recovered.revision, requestId: randomUUID(), mode: 'prepare' });
+    await expect.poll(async () => (await state()).context.jobs[0].status, { timeout: 5_000 }).toBe('succeeded');
+    expect((await state()).turns).toHaveLength(24);
+    expect((await state()).context.summaries.some(node => node.id === committed[0].id)).toBe(true);
+  } finally { await stop(); await mock.close(); rmSync(directory, { recursive: true, force: true }); }
 }, 15_000);

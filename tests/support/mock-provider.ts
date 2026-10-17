@@ -5,7 +5,7 @@ export async function startMockProvider() {
   const modelRequests: { authorization?: string }[] = [];
   let modelMode: 'normal' | 'error' | 'invalid' | 'redirect' = 'normal';
   const waiting: (() => void)[] = [];
-  let mode: 'normal' | 'hold' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' = 'normal';
+  let mode: 'normal' | 'hold' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' | 'placeholder' = 'normal';
   const send = (response: ServerResponse, value: unknown) => response.write(`data: ${JSON.stringify(value)}\n\n`);
   const server = createServer(async (request, response) => {
     if (request.url === '/v1/models') {
@@ -21,11 +21,11 @@ export async function startMockProvider() {
     const currentMode = mode;
     if (currentMode === 'error') { response.writeHead(401).end('upstream-secret-do-not-save'); return; }
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-    if (currentMode !== 'empty') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'padded' ? '\r\n \nThe lantern\n\n' : currentMode === 'whitespace' ? '\n\t\n' : 'The lantern ' }, finish_reason: null }] });
+    if (currentMode !== 'empty') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'placeholder' ? 'placeholder' : currentMode === 'padded' ? '\r\n \nThe lantern\n\n' : currentMode === 'whitespace' ? '\n\t\n' : 'The lantern ' }, finish_reason: null }] });
     const finish = () => {
       if (response.destroyed) return;
       if (currentMode === 'broken') { response.end(); return; }
-      if (currentMode !== 'empty' && currentMode !== 'whitespace') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'padded' ? 'flickers. 🕯\r\n\r\n ' : 'flickers. 🕯' }, finish_reason: null }] });
+      if (currentMode !== 'empty' && currentMode !== 'whitespace' && currentMode !== 'placeholder') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'padded' ? 'flickers. 🕯\r\n\r\n ' : 'flickers. 🕯' }, finish_reason: null }] });
       send(response, { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] });
       response.end('data: [DONE]\n\n');
     };

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { connectionSchema, revisionSchema, type Connection } from './contracts.js';
+import { contextPresetSchema, type ContextPreset } from './context.js';
 
 const name = z.string().trim().min(1).max(100);
 const text = z.string().max(100_000);
@@ -23,13 +24,14 @@ export type Persona = z.infer<typeof personaSchema>;
 export type Character = z.infer<typeof characterSchema>;
 export type PromptPreset = z.infer<typeof promptSchema>;
 export type PromptBlock = z.infer<typeof promptBlockSchema>;
-export type LibraryKind = 'personas' | 'characters' | 'prompts' | 'connections';
+export type LibraryKind = 'personas' | 'characters' | 'prompts' | 'connections' | 'contexts';
 export type Saved<T> = T & { id: string; revision: number };
 export type PromptSources = { prompt: Saved<PromptPreset> | null; character: Saved<Character> | null; persona: Saved<Persona> | null };
 export type ChatSummary = { id: string; title: string; revision: number; turnCount: number; running: boolean };
 export type LibrarySnapshot = {
   revision: number; personas: Saved<Persona>[]; characters: Saved<Character>[]; prompts: Saved<PromptPreset>[];
   connections: (Saved<Connection> & { hasApiKey: boolean })[]; chats: ChatSummary[];
+  contexts: Saved<ContextPreset>[];
 };
 export const defaultPrompt: PromptPreset = {
   name: 'Default roleplay', blocks: [
@@ -43,11 +45,13 @@ export const selectionsSchema = z.object({
   title: name, targetInputTokens: z.number().int().positive().max(10_000_000),
   connectionId: z.string().min(1).max(100).nullable(), promptId: z.string().min(1).max(100),
   characterId: z.string().min(1).max(100).nullable(), personaId: z.string().min(1).max(100).nullable(),
+  contextPresetId: z.string().min(1).max(100).nullable().optional(),
 }).strict();
 export const libraryCommandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('personas'), revision: revisionSchema, data: personaSchema }).strict(),
   z.object({ kind: z.literal('characters'), revision: revisionSchema, data: characterSchema }).strict(),
   z.object({ kind: z.literal('prompts'), revision: revisionSchema, data: promptSchema }).strict(),
+  z.object({ kind: z.literal('contexts'), revision: revisionSchema, data: contextPresetSchema }).strict(),
   z.object({ kind: z.literal('connections'), revision: revisionSchema, data: connectionSchema, apiKey: z.string().max(10_000).refine(v => !/[\r\n]/.test(v)).optional() }).strict(),
 ]);
 export const importedTurnSchema = z.object({ user: text, assistant: text, complete: z.boolean() }).strict();

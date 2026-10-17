@@ -3,13 +3,16 @@ import { AppError } from '../core/errors.js';
 import { assembleRequest } from '../core/prompt.js';
 import type { Store } from '../persistence/store.js';
 import type { Provider } from '../provider/openai.js';
+import { ContextCoordinator } from './context-coordinator.js';
 
 export class GenerationCoordinator {
   readonly events = new EventEmitter();
   private active = new Map<string, { controller: AbortController; task: Promise<void>; text: string }>();
   private stopping = false;
+  readonly context: ContextCoordinator;
   constructor(private store: Store, private provider: Provider) {
     store.recoverInterrupted();
+    this.context = new ContextCoordinator(store, provider, () => this.changed());
     this.events.setMaxListeners(100);
   }
   changed() { this.events.emit('changed'); }
@@ -26,8 +29,10 @@ export class GenerationCoordinator {
   }
   private async run(id: string, operation: { controller: AbortController; text: string }, chatId: string) {
     try {
+      await this.context.prepareForGeneration(chatId, id, operation.controller.signal);
+      if (this.stopping || operation.controller.signal.aborted) return;
       const snapshot = this.store.snapshot(chatId);
-      const request = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources);
+      const request = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context);
       this.store.saveRequest(id, request);
       this.changed();
       let lastCheckpoint = 0;
@@ -57,6 +62,7 @@ export class GenerationCoordinator {
     if (!operation || this.store.generation(id)?.status !== 'running') throw new AppError(409, 'inactive_generation', 'This response is no longer active.');
     this.store.finish(id, 'cancelled', operation.text, 'Response cancelled. Retry explicitly to send a new model request.');
     operation.controller.abort();
+    this.context.cancelForGeneration(id);
     this.changed();
   }
   async shutdown() {
@@ -65,6 +71,7 @@ export class GenerationCoordinator {
       this.store.checkpoint(id, operation.text);
       operation.controller.abort();
     }
+    await this.context.shutdown();
     await Promise.allSettled([...this.active.values()].map((operation) => operation.task));
     this.events.emit('shutdown');
   }
