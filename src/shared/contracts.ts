@@ -49,6 +49,12 @@ export type RequestBody = {
 } & z.infer<typeof customParametersSchema>;
 export type PromptEntry = { messageIndex: number; kind: 'prompt' | 'character' | 'persona' | 'memory' | 'history' | 'draft'; label: string; tokens: number };
 export type TokenUsage = { inputTokens: number; outputTokens: number; totalTokens: number };
+export type ConnectionDiagnostic = { message: string; request?: RequestPreview; usage?: TokenUsage | null; response?: string };
+export type TokenCounting = {
+  kind: 'reference' | 'model' | 'fallback'; tokenizer: string | null;
+  implementation?: string; tokenizerRevision?: string;
+  framing: 'estimated-recipe' | 'fallback'; fallbackReason: string | null; limitations: string;
+};
 export type RequestPreview = {
   layout?: PromptEntry[];
   warnings?: string[];
@@ -59,6 +65,7 @@ export type RequestPreview = {
   budget: {
     inputTokens: number; targetInputTokens: number; reservedOutputTokens: number;
     contextWindow: number; method: string; verified: false;
+    counting?: TokenCounting; // Absent on immutable requests saved before model-aware counting.
   };
 };
 export type GenerationStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';

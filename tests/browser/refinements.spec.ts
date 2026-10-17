@@ -54,7 +54,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   expect(originalRequest?.budget.targetInputTokens).toBe(35_000);
 
   await page.getByRole('button', { name: 'Memory', exact: true }).click();
-  await page.getByLabel('Input target', { exact: true }).fill('2200');
+  await page.getByLabel('Input target', { exact: true }).fill('700');
   await page.getByRole('button', { name: 'Save memory settings', exact: true }).click();
   await expect(page.getByRole('meter', { name: 'Input budget' })).toHaveClass(/overflow/);
   await expect(page.locator('.budget')).toHaveCSS('background-color', 'rgb(27, 33, 42)');
@@ -84,7 +84,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await expect(page.locator('.memory-failure')).toHaveCount(0);
   await expect(page.getByRole('meter', { name: 'Input budget' })).toHaveClass(/fits/);
   await command(`/api/library/${contextId}`, { revision: (await libraries()).revision, kind: 'contexts', data: preset }, 'PUT');
-  await page.getByLabel('Input target', { exact: true }).fill('2200');
+  await page.getByLabel('Input target', { exact: true }).fill('700');
   await page.getByRole('button', { name: 'Save memory settings', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Save next summary', exact: true })).toBeEnabled();

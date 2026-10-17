@@ -1,5 +1,5 @@
-import { useRef, useState, type FormEvent } from 'react';
-import type { ChatSnapshot, Connection } from '../shared/contracts';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import type { ChatSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
 import { defaultPrompt, markers, type Character, type LibraryKind, type LibrarySnapshot, type Persona, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { importChat } from '../core/chat-import';
 import { api } from './api';
@@ -137,9 +137,35 @@ function LibraryEditor({ initial, connections, currentRevision, busy, run, close
       <label className="full">API base URL<input type="url" required value={(data as Connection).endpoint} onChange={e => { setData({ ...data as Connection, endpoint: e.target.value }); resetModels(); }} /></label>
       <div className="full api-key-row"><label>API key<input type="password" autoComplete="new-password" disabled={removeKey} placeholder={initial.hasApiKey ? 'Saved · leave blank to keep it' : 'Optional for endpoints without authentication'} value={key} onChange={e => { setKey(e.target.value); resetModels(); }} /></label>{initial.hasApiKey && <label className="checkbox"><input type="checkbox" checked={removeKey} onChange={e => { setRemoveKey(e.target.checked); resetModels(); }} />Remove the saved API key</label>}</div>
       <label>Model context window<NumberInput required value={(data as Connection).contextWindow} onChange={contextWindow => setData({ ...data as Connection, contextWindow })} /></label><label>Reserved output tokens<NumberInput required max={1_000_000} value={(data as Connection).maxOutputTokens} onChange={maxOutputTokens => setData({ ...data as Connection, maxOutputTokens })} /></label><label className="checkbox full"><input type="checkbox" checked={(data as Connection).requestUsage !== false} onChange={e => setData({ ...data as Connection, requestUsage: e.target.checked })} />Request token usage from the endpoint</label><p className="small muted full">Turn statistics use counts supplied by the endpoint. Disable this if your endpoint rejects streaming usage requests.</p><label className="full">Custom request parameters<textarea className="code-input" value={parameters} onChange={e => setParameters(e.target.value)} /><small>temperature, top_p, presence_penalty, frequency_penalty, seed, stop and reasoning_effort.</small></label>
+      <ConnectionTools connection={data as Connection} parameters={parameters} connectionId={initial.id} apiKey={removeKey ? '' : key || undefined} />
     </>}
     {initial.kind === 'prompts' && <div className="full"><p className="small muted">Text blocks and card fields support {'{{user}}'} and {'{{char}}'}. Messages keep stored roles. Include exactly one enabled Messages marker. Summary inserts the selected memory; when absent, memory appears just before Messages. Both share the same cutoff.</p><PromptEditor value={data as PromptPreset} change={setData} /></div>}
   </div></fieldset>{error && <p role="alert">{error}</p>}{stale && <p role="status">The library changed. Close this editor and reopen it before saving.</p>}<div className="actions"><button disabled={busy || stale}>Save {initial.kind === 'connections' ? 'Connection' : initial.kind.slice(0, -1)}</button><button type="button" className="quiet" onClick={close}>Close editor</button></div></form>;
+}
+function ConnectionTools({ connection, parameters, connectionId, apiKey }: { connection: Connection; parameters: string; connectionId?: string; apiKey?: string }) {
+  const [result, setResult] = useState<ConnectionDiagnostic | null>(null), [error, setError] = useState('');
+  const [testing, setTesting] = useState(false);
+  const attempt = useRef(0);
+  const signature = JSON.stringify([connection, parameters, connectionId, apiKey]);
+  useEffect(() => {
+    attempt.current++; setResult(null); setError(''); setTesting(false);
+  }, [signature]);
+  useEffect(() => () => { attempt.current++; }, []);
+  async function diagnose(action: 'check' | 'test') {
+    const id = ++attempt.current; setTesting(true); setResult(null); setError('');
+    try {
+      const value = await api<ConnectionDiagnostic>('/connections/diagnose', 'POST', { action, connection: { ...connection, customParameters: JSON.parse(parameters) }, connectionId, apiKey });
+      if (attempt.current === id) setResult(value);
+    } catch (error) { if (attempt.current === id) setError(error instanceof Error ? error.message : 'Connection test failed.'); }
+    finally { if (attempt.current === id) setTesting(false); }
+  }
+  return <div className="full connection-tools">
+    <div className="actions"><button type="button" className="secondary" disabled={testing} onClick={() => void diagnose('check')}>Check connection</button><button type="button" className="secondary" disabled={testing} onClick={() => void diagnose('test')}>Send test message</button></div>
+    <p className="small muted">Check requests the model list. Send test message immediately sends “Hi” with these settings and up to 64 output tokens; endpoint charges may apply. Tests do not save a chat or these settings.</p>
+    {testing && <p className="small" role="status">Testing connection…</p>}
+    {error && <p role="alert">{error}</p>}
+    {result && <div className="connection-test-result" role="status"><p className="small">{result.message}</p>{result.request && <><p className="small">Estimated input: {result.request.budget.inputTokens.toLocaleString()} tokens. {result.usage ? `Endpoint reported: ${result.usage.inputTokens.toLocaleString()} input / ${result.usage.outputTokens.toLocaleString()} output tokens.` : 'Endpoint usage unavailable.'}</p><details><summary>Exact test request and response</summary><pre>{JSON.stringify({ request: result.request, response: result.response, usage: result.usage }, null, 2)}</pre></details></>}</div>}
+  </div>;
 }
 function ContextPresetFields({ value, change, connections }: { value: ContextPreset; change: (value: ContextPreset) => void; connections: Saved<Connection>[] }) {
   const fields = [['minTail', 'Minimum verbatim turns', 0], ['batchSize', 'Turns per batch', 1], ['summaryTokens', 'Requested summary tokens', 1], ['promotionGroup', 'Summaries per promotion', 2], ['retainedPerLevel', 'Retain summaries per level', 0]] as const;

@@ -49,6 +49,60 @@ afterEach(async () => {
 });
 
 describe('persistent chat and generation', () => {
+  it('checks and tests unsaved Connection settings without changing chat history or calibrating the counter', async () => {
+    const before = await state();
+    const input = { connection: before.connection, connectionId: before.settings.connectionId };
+    expect(mock.requests).toHaveLength(0);
+    const check = await command('/api/connections/diagnose', { ...input, action: 'check' });
+    expect(check.statusCode).toBe(200);
+    expect(check.json().message).toContain('generation access is unverified');
+    expect(mock.modelRequests.at(-1)?.authorization).toBe('Bearer synthetic-api-secret');
+    const test = await command('/api/connections/diagnose', { ...input, action: 'test' });
+    expect(test.statusCode).toBe(200);
+    const result = test.json();
+    expect(result.request.body).toEqual(mock.requests[0].body);
+    expect(result.request.body.messages).toEqual([{ role: 'user', content: 'Hi' }]);
+    expect(result.request.body.max_tokens).toBe(64);
+    expect(result.usage).toEqual({ inputTokens: 321, outputTokens: 17, totalTokens: 338 });
+    expect(result.request.budget.inputTokens).not.toBe(result.usage.inputTokens);
+    expect(JSON.stringify(result)).not.toContain('synthetic-api-secret');
+    expect(await state()).toEqual(before);
+    mock.setMode('no-usage');
+    const noUsage = await command('/api/connections/diagnose', { ...input, action: 'test', connection: { ...before.connection, model: 'gpt-4o', maxOutputTokens: 12 }, apiKey: 'entered-test-key' });
+    expect(noUsage.json().usage).toBeNull();
+    expect(noUsage.json().request.budget.counting.tokenizer).toBe('cl100k_base');
+    expect(mock.requests[1].body.max_tokens).toBe(12);
+    expect(mock.requests[1].authorization).toBe('Bearer entered-test-key');
+    expect(await state()).toEqual(before);
+    const changedEndpoint = await command('/api/connections/diagnose', { ...input, action: 'test', connection: { ...before.connection, endpoint: 'http://localhost:9/v1' } });
+    expect(changedEndpoint.statusCode).toBe(422);
+    expect(changedEndpoint.json().code).toBe('saved_key_endpoint_changed');
+    mock.setModelMode('error');
+    const failedCheck = await command('/api/connections/diagnose', { ...input, action: 'check' });
+    expect(failedCheck.statusCode).toBe(502);
+    expect(failedCheck.body).not.toContain('upstream-secret');
+    const keylessId = instance.store.saveLibrary(instance.store.libraries().revision, 'connections', { ...before.connection!, endpoint: 'http://localhost:9/v1' });
+    mock.setModelMode('normal');
+    expect((await command('/api/connections/diagnose', { connection: before.connection, connectionId: keylessId, action: 'check' })).statusCode).toBe(200);
+    expect(mock.modelRequests.at(-1)?.authorization).toBeUndefined();
+  });
+
+  it('uses server counting for over-budget inspection and keeps saved estimates unchanged after a model switch', async () => {
+    await submit();
+    const before = await waitForIdle();
+    const savedRequest = before.generations[0].request;
+    const save = await command('/api/settings', { revision: before.revision, connection: { ...before.connection, model: 'gpt-4o' }, settings: { ...before.settings, targetInputTokens: 1 } }, 'PUT');
+    expect(save.statusCode).toBe(200);
+    const after = await state();
+    const preview = await command('/api/preview', { revision: after.revision, inspection: true, text: 'Another turn.' });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json().budget.counting.tokenizer).toBe('cl100k_base');
+    expect(preview.json().budget.inputTokens).toBeGreaterThan(1);
+    expect((await command('/api/preview', { revision: after.revision })).statusCode).toBe(422);
+    expect((await state()).generations[0].request).toEqual(savedRequest);
+    expect((await state()).generations[0].usage).toEqual(before.generations[0].usage);
+  });
+
   it('persists provider usage from the final empty-choice chunk across reload and later edits', async () => {
     await submit();
     const saved = await waitForIdle();

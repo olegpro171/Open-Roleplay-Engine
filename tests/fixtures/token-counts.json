@@ -1,0 +1,49 @@
+{
+  "reference": "Python tiktoken 0.12.0, cl100k_base; special-looking strings encoded as literal text",
+  "vectors": [
+    {
+      "text": "Hello world!",
+      "cl100k_base": 3
+    },
+    {
+      "text": "Mira gives Leon the brass key. He promises to avoid the cellar.",
+      "cl100k_base": 15
+    },
+    {
+      "text": "Привет, мир! Мира хранит ключ.",
+      "cl100k_base": 15
+    },
+    {
+      "text": "お誕生日おめでとう。こんにちは世界！",
+      "cl100k_base": 15
+    },
+    {
+      "text": "مرحبا بالعالم. أين المفتاح؟",
+      "cl100k_base": 21
+    },
+    {
+      "text": "🕯️ 👨‍👩‍👧‍👦 😊",
+      "cl100k_base": 23
+    },
+    {
+      "text": "A \"key\"\\path\n\n\tNext paragraph.\r\n",
+      "cl100k_base": 10
+    },
+    {
+      "text": "  leading and trailing  ",
+      "cl100k_base": 5
+    },
+    {
+      "text": "<|endoftext|> <start_of_turn>model\n",
+      "cl100k_base": 14
+    },
+    {
+      "text": "",
+      "cl100k_base": 0
+    },
+    {
+      "text": "é café naïve 2 + 2 = 4",
+      "cl100k_base": 13
+    }
+  ]
+}

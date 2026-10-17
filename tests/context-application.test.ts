@@ -14,7 +14,7 @@ import { selectedContext } from '../src/core/context.js';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const dispose of cleanup.splice(0)) await dispose(); });
-function fixture(count = 48, target = 2_200) {
+function fixture(count = 48, target = 500) {
   const directory = mkdtempSync(join(tmpdir(), 'roleplay-context-'));
   const filename = join(directory, 'chat.sqlite');
   let store = new Store(filename);
@@ -171,7 +171,7 @@ describe('durable imported-session preparation', () => {
 
   it('fails before a model call when the fixed batch cannot fit the summary Connection', async () => {
     const f = fixture(), connectionId = f.state().context.preset!.connectionId!;
-    f.store.saveLibrary(f.store.libraries().revision, 'connections', { ...f.store.connection(connectionId), contextWindow: 1_200, maxOutputTokens: 100 }, connectionId);
+    f.store.saveLibrary(f.store.libraries().revision, 'connections', { ...f.store.connection(connectionId), contextWindow: 350, maxOutputTokens: 100 }, connectionId);
     const job = await f.idle(f.start());
     expect(job.status).toBe('failed'); expect(job.error).toContain('fixed source batch'); expect(f.calls).toHaveLength(0);
     expect(f.state().context.archivedTurnIds).toEqual([]);
@@ -315,7 +315,9 @@ describe('targeted repair with review', () => {
 
   it('lets a manual child correction invalidate parents and uses that corrected version in repair', async () => {
     const f = fixture(24); await f.idle(f.start());
-    const child = f.state().context.summaries.find(node => node.level === 1)!;
+    const selected = new Set(f.state().context.selected.map(refKey));
+    const child = f.state().context.summaries.find(node => node.level === 1 && !selected.has(refKey(node)))!;
+    expect(child).toBeDefined();
     const original = f.state().context.selected;
     const ref = f.store.contexts.editSummary(f.chatId, f.state().revision, child, 'Mira retained her key. Author note: her sister holds a duplicate.');
     expect(f.state().context.selected).toEqual(original);

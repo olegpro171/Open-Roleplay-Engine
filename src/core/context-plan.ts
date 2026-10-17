@@ -3,6 +3,7 @@ import { emptyContextState, refKey, type ContextOperation, type ContextPlan, typ
 import { AppError } from './errors.js';
 import { nextCompaction, nodeFor, sourceOf, staleSummaries } from './context.js';
 import { assembleRequest, estimateInputTokens, summaryText } from './prompt.js';
+import { countInput, countText } from './tokens.js';
 
 export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
   if (!snapshot.connection) throw new AppError(422, 'connection_required', 'Select a roleplay Connection to measure the complete input.');
@@ -14,15 +15,15 @@ export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
   const archived = new Set(state.archivedTurnIds);
   const verbatim = snapshot.turns.filter(turn => !archived.has(turn.id));
   const required = assembleRequest(snapshot.connection, snapshot.settings, verbatim, snapshot.sources, emptyContextState(), { validateLimits: false }).budget.inputTokens;
-  // Count the actual escaped summary content, including its two-newline separator.
-  // The complete request still owns framing and the final strict estimate check.
-  const sizes = new Map(state.summaries.map(node => [refKey(node), new TextEncoder().encode(JSON.stringify(summaryText(node, snapshot.turns))).length - 2 + 4]));
+  // Rank with the shared reference tokenizer, including labels and separator.
+  // Only the complete assembled request determines whether the limit is met.
+  const sizes = new Map(state.summaries.map(node => [refKey(node), countText(`${summaryText(node, snapshot.turns)}\n\n`)]));
   const changedMembership = JSON.stringify(snapshot.turns.slice(0, archived.size).map(turn => turn.id)) !== JSON.stringify(state.archivedTurnIds);
   let next: ContextOperation | null = null, blocked: string | null = null;
   if (stale.length || changedMembership) blocked = 'Selected memory is out of date. Generate a targeted repair and review its replacements before continuing.';
   else if (state.preset) ({ next, blocked } = nextCompaction(snapshot.turns, state, state.preset, request.budget.inputTokens, effectiveLimit, required, sizes));
   else if (request.budget.inputTokens > effectiveLimit) blocked = 'Full history exceeds the input limit. Select a context preset to prepare it.';
-  return { inputTokens: request.budget.inputTokens, targetInputTokens: snapshot.settings.targetInputTokens, effectiveLimit, verbatimTurnIds: verbatim.map(turn => turn.id), next, ready: !blocked && !next, blocked, stale };
+  return { inputTokens: request.budget.inputTokens, method: request.budget.method, counting: request.budget.counting, targetInputTokens: snapshot.settings.targetInputTokens, effectiveLimit, verbatimTurnIds: verbatim.map(turn => turn.id), next, ready: !blocked && !next, blocked, stale };
 }
 
 export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperation, connection: NonNullable<ChatSnapshot['connection']>, replacements = new Map<string, SummaryRef | null>(), previousRequest: RequestPreview | null = null): { request: RequestPreview; prior: SummaryRef[] } {
@@ -65,9 +66,10 @@ export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperati
     const proposed = [...messages.slice(0, insert), candidate, ...messages.slice(insert)];
     if (estimateInputTokens(proposed) <= physicalInput) { messages.splice(insert, 0, candidate); prior.unshift({ id: node.id, revision: node.revision }); }
   }
+  const { contentTokens: _, ...measurement } = countInput(messages);
   return { prior, request: {
     endpoint: `${connection.endpoint.replace(/\/+$/, '')}/chat/completions`,
     body: { ...connection.customParameters, model: connection.model, messages, stream: true, max_tokens: connection.maxOutputTokens, ...(connection.requestUsage !== false ? { stream_options: { include_usage: true as const } } : {}) },
-    coverage: turns.map(sourceOf), budget: { inputTokens: estimateInputTokens(messages), targetInputTokens: physicalInput, reservedOutputTokens: connection.maxOutputTokens, contextWindow: connection.contextWindow, method: 'UTF-8 bytes + 128 framing + 16 per message (conservative estimate)', verified: false },
+    coverage: turns.map(sourceOf), budget: { ...measurement, targetInputTokens: physicalInput, reservedOutputTokens: connection.maxOutputTokens, contextWindow: connection.contextWindow },
   } };
 }

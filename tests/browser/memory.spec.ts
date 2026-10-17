@@ -33,7 +33,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await expect(page.getByLabel('First-layer extraction prompt')).not.toBeEmpty();
   await page.getByRole('button', { name: 'Save context', exact: true }).click();
   const contextId = (await libraries()).contexts.find(preset => preset.name === 'Imported story memory')!.id;
-  const chat = await post('/api/chats', { title: 'Imported compaction proof', targetInputTokens: 2_200, connectionId: roleplay.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId });
+  const chat = await post('/api/chats', { title: 'Imported compaction proof', targetInputTokens: 700, connectionId: roleplay.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId });
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported compaction proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
   await page.getByRole('button', { name: 'Setup', exact: true }).click();

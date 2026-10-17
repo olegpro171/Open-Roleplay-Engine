@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ChatSnapshot } from '../shared/contracts';
 import type { LibrarySnapshot } from '../shared/library';
 import { refKey, type ContextJob, type ContextPlan, type ContextStep, type SummaryNode } from '../shared/context';
 import { staleSummaries } from '../core/context';
 import { api } from './api';
 import { Dropdown, NumberInput } from './Controls';
-import { contextPlan } from '../core/context-plan';
 import { InputMeter } from './PromptPeek';
 import { MemoryTimeline } from './MemoryTimeline';
 
@@ -13,10 +12,17 @@ type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 type JobDetails = { job: ContextJob; steps: ContextStep[] };
 export function Memory({ snapshot, library, busy, run }: { snapshot: ChatSnapshot; library: LibrarySnapshot; busy: boolean; run: Run }) {
   const [planError, setPlanError] = useState('');
-  const { plan, calculationError } = useMemo((): { plan: ContextPlan | null; calculationError: string } => {
-    try { return { plan: contextPlan(snapshot), calculationError: '' }; }
-    catch (error) { return { plan: null, calculationError: error instanceof Error ? error.message : 'Could not measure current input.' }; }
-  }, [snapshot]);
+  const [calculation, setCalculation] = useState<{ key: string; plan: ContextPlan | null; error: string }>({ key: '', plan: null, error: '' });
+  const planKey = `${snapshot.id}:${snapshot.revision}:${snapshot.context.revision}`;
+  useEffect(() => {
+    let current = true;
+    api<ContextPlan>(`/chats/${snapshot.id}/context/plan`)
+      .then(plan => { if (current) setCalculation({ key: planKey, plan, error: '' }); })
+      .catch(error => { if (current) setCalculation({ key: planKey, plan: null, error: error.message }); });
+    return () => { current = false; };
+  }, [planKey]);
+  const plan = calculation.key === planKey ? calculation.plan : null;
+  const calculationError = calculation.key === planKey ? calculation.error : 'Counting current input…';
   const [presetId, setPresetId] = useState(snapshot.settings.contextPresetId ?? ''), [target, setTarget] = useState(snapshot.settings.targetInputTokens);
   const [historyId, setHistoryId] = useState(''), [details, setDetails] = useState<JobDetails | null>(null), [frame, setFrame] = useState(0);
   const [review, setReview] = useState<JobDetails | null>(null), [candidateText, setCandidateText] = useState('');
@@ -60,7 +66,7 @@ export function Memory({ snapshot, library, busy, run }: { snapshot: ChatSnapsho
       <fieldset disabled={locked}><legend>Preparation settings</legend><div className="form-grid"><label>Context preset<Dropdown aria-label="Memory context preset" value={presetId} onChange={setPresetId} options={[{ value: '', label: 'Full verbatim history' }, ...library.contexts.map(item => ({ value: item.id, label: item.name }))]} /></label><label>Input target<NumberInput required value={target} onChange={setTarget} /></label></div><p className="small muted">Edit the summarization Connection, batch sizes and prompts in Libraries → Context presets.</p><button className="secondary" disabled={presetId === (snapshot.settings.contextPresetId ?? '') && target === snapshot.settings.targetInputTokens}>Save memory settings</button></fieldset>
     </form>
     {snapshot.context.preset && <p className="small muted">Minimum tail {snapshot.context.preset.minTail} · Turn batch {snapshot.context.preset.batchSize} · Summary target {snapshot.context.preset.summaryTokens} · Promotion group {snapshot.context.preset.promotionGroup} · Retain per level {snapshot.context.preset.retainedPerLevel}</p>}
-    {plan && <div className="budget"><strong>Estimated input: {plan.inputTokens.toLocaleString()} / {plan.effectiveLimit.toLocaleString()}</strong><InputMeter input={plan.inputTokens} limit={plan.effectiveLimit} /><span>{snapshot.context.archivedTurnIds.length} archived turns · {plan.verbatimTurnIds.length} verbatim turns · {snapshot.context.selected.length} active summaries</span><small>Current input, including the resolved prompt and pending text. Counts are conservative estimates, not verified provider tokens. The effective limit respects both your target and the roleplay Connection’s output reservation.</small><p role="status" data-testid="memory-status">{active ? `Preparing memory · ${active.stepCount} steps started. Preparation continues if this browser disconnects.` : plan.blocked ?? (plan.ready ? 'Ready: the current assembled input fits. The next submitted turn will be checked again.' : `Next: ${plan.next?.repair ? 'repair' : plan.next?.level === 1 ? 'summarize oldest turns' : `promote to level ${plan.next?.level}`}.`)}</p></div>}
+    {plan && <div className="budget"><strong>Estimated input: {plan.inputTokens.toLocaleString()} / {plan.effectiveLimit.toLocaleString()}</strong><InputMeter input={plan.inputTokens} limit={plan.effectiveLimit} /><span>{snapshot.context.archivedTurnIds.length} archived turns · {plan.verbatimTurnIds.length} verbatim turns · {snapshot.context.selected.length} active summaries</span><small>Current input includes the resolved prompt and saved pending text. The effective limit respects both your target and the roleplay Connection’s output reservation.</small><p role="status" data-testid="memory-status">{active ? `Preparing memory · ${active.stepCount} steps started. Preparation continues if this browser disconnects.` : plan.blocked ?? (plan.ready ? 'Ready: the current assembled input fits. The next submitted turn will be checked again.' : `Next: ${plan.next?.repair ? 'repair' : plan.next?.level === 1 ? 'summarize oldest turns' : `promote to level ${plan.next?.level}`}.`)}</p></div>}
     {(planError || calculationError) && <p role="status">{planError || calculationError}</p>}
     {latestJob?.error && latestJob.sourceRevision === snapshot.revision && !plan?.ready && <p className="memory-failure" role="status">Last preparation stopped: {latestJob.error}</p>}
     <div className="actions memory-actions"><button disabled={locked || !snapshot.context.preset || !plan || plan.ready || Boolean(plan.blocked)} onClick={() => void start('prepare')}>Prepare chat</button><button className="secondary" disabled={locked || !plan?.next || Boolean(plan.blocked)} onClick={() => void start('step')}>Save next summary</button><button className="secondary" disabled={locked || !plan?.stale.length || Boolean(awaiting)} onClick={() => void start('repair')}>Repair next affected summary</button>{active && <button className="secondary" disabled={busy} onClick={() => void run(() => active.generationId ? api(`/generations/${active.generationId}/cancel`, 'POST', {}) : api(`/context/jobs/${active.id}/cancel`, 'POST', {}))}>Stop preparation</button>}</div>

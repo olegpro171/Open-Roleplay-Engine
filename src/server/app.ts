@@ -22,7 +22,8 @@ export async function createApp(options: {
   provider?: Provider; https?: ServerOptions;
 }) {
   const store = new Store(options.database, options.migrationsDirectory);
-  const coordinator = new GenerationCoordinator(store, options.provider ?? new OpenAICompatibleProvider());
+  const provider = options.provider ?? new OpenAICompatibleProvider();
+  const coordinator = new GenerationCoordinator(store, provider);
   const auth = new Auth(store);
   const secure = Boolean(options.https);
   const app = Fastify({ logger: false, bodyLimit: 1_000_000, ...(options.https ? { https: options.https } : {}) });
@@ -78,10 +79,31 @@ export async function createApp(options: {
 
   const identity = z.string().min(1).max(100);
   const chatId = (params: unknown) => z.object({ chatId: identity.optional() }).parse(params ?? {}).chatId ?? 'main';
+  const connectionKey = (input: { endpoint: string; connectionId?: string; apiKey?: string }) => {
+    if (input.apiKey !== undefined) return input.apiKey;
+    if (!input.connectionId) return '';
+    const savedKey = store.connectionApiKey(input.connectionId);
+    if (!savedKey) return '';
+    const saved = store.libraries().connections.find(connection => connection.id === input.connectionId);
+    if (!saved || saved.endpoint.replace(/\/+$/, '') !== input.endpoint.replace(/\/+$/, '')) throw new AppError(422, 'saved_key_endpoint_changed', 'Enter an API key for the changed endpoint. The saved key is only used with its saved API base URL.');
+    return savedKey;
+  };
   app.post('/api/models', async request => {
     const input = z.object({ endpoint: connectionSchema.shape.endpoint, connectionId: identity.optional(), apiKey: saveSettingsSchema.shape.apiKey }).strict().parse(request.body);
-    const savedKey = input.connectionId ? store.connectionApiKey(input.connectionId) : '';
-    return { models: await fetchModels(input.endpoint, input.apiKey ?? savedKey) };
+    return { models: await fetchModels(input.endpoint, connectionKey(input)) };
+  });
+  app.post('/api/connections/diagnose', async request => {
+    const input = z.object({ action: z.enum(['check', 'test']), connection: connectionSchema, connectionId: identity.optional(), apiKey: saveSettingsSchema.shape.apiKey }).strict().parse(request.body);
+    const apiKey = connectionKey({ ...input, endpoint: input.connection.endpoint });
+    if (input.action === 'check') {
+      const models = await fetchModels(input.connection.endpoint, apiKey);
+      return { message: `The endpoint accepted the connection check${apiKey ? '' : ' without an API key'}. ${models.includes(input.connection.model) ? 'The selected model is listed.' : 'The selected model was not listed; generation access is unverified.'}` };
+    }
+    const connection = { ...input.connection, maxOutputTokens: Math.min(64, input.connection.maxOutputTokens) };
+    const preview = assembleRequest(connection, { title: 'Connection test', instructions: '', character: '', persona: '', targetInputTokens: connection.contextWindow - connection.maxOutputTokens }, [{ id: 'test', position: 1, complete: false, user: { id: 'test-user', revision: 0, text: 'Hi' }, assistant: { id: 'test-assistant', revision: 0, text: '' } }]);
+    let response = '';
+    const completion = await provider.stream(preview, apiKey, AbortSignal.timeout(30_000), text => { response += text; });
+    return { message: 'Test completed.', request: preview, response, usage: completion?.usage ?? null };
   });
   app.get('/api/library', async () => store.libraries());
   app.post('/api/library', { bodyLimit: 3_000_000 }, async request => {
@@ -174,7 +196,7 @@ export async function createApp(options: {
       coordinator.changed(); return store.snapshot(chatId(request.params));
     });
     app.post(prefix + '/preview', async request => {
-      const input = z.object({ revision: revisionSchema, text: z.string().max(100_000).optional() }).strict().parse(request.body);
+      const input = z.object({ revision: revisionSchema, text: z.string().max(100_000).optional(), inspection: z.boolean().optional() }).strict().parse(request.body);
       if (input.text !== undefined) input.text = trimBoundaryNewlines(input.text);
       const snapshot = store.snapshot(chatId(request.params));
       if (snapshot.revision !== input.revision) throw new AppError(409, 'revision_conflict', 'The chat changed. Refresh the preview.');
@@ -184,7 +206,7 @@ export async function createApp(options: {
         if (turns.at(-1)?.complete === false) throw new AppError(409, 'pending_turn', 'Resolve the pending turn before previewing a new one.');
         turns.push({ id: 'draft', position: (turns.at(-1)?.position ?? 0) + 1, complete: false, user: { id: 'draft-user', revision: 0, text: input.text }, assistant: { id: 'draft-assistant', revision: 0, text: '' } });
       }
-      return assembleRequest(snapshot.connection, snapshot.settings, turns, snapshot.sources, snapshot.context);
+      return assembleRequest(snapshot.connection, snapshot.settings, turns, snapshot.sources, snapshot.context, input.inspection ? { validateLimits: false, allowStale: true } : {});
     });
     app.post(prefix + '/turns', async (request, reply) => {
       const input = submissionSchema.parse(request.body);

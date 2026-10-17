@@ -3,14 +3,14 @@ import { AppError } from './errors.js';
 import { promptSchema, type PromptSources } from '../shared/library.js';
 import type { ContextState, SummaryNode } from '../shared/context.js';
 import { selectedContext } from './context.js';
+import { countInput } from './tokens.js';
 
 export function replaceNameMacros(text: string, user: string, character: string): string {
   return text.replace(/{{\s*(user|char)\s*}}/gi, (_match, key: string) => key.toLowerCase() === 'user' ? user : character);
 }
 
-// This measures bytes with generous framing, not a model-specific tokenizer.
 export function estimateInputTokens(messages: Message[]): number {
-  return new TextEncoder().encode(JSON.stringify(messages)).length + 128 + messages.length * 16;
+  return countInput(messages).inputTokens;
 }
 
 export function summaryText(node: SummaryNode, turns: Turn[]): string {
@@ -24,7 +24,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   const warnings: string[] = [];
   const layout: PromptEntry[] = [];
   const push = (message: Message, kind: PromptEntry['kind'], label: string) => {
-    layout.push({ messageIndex: messages.length, kind, label, tokens: new TextEncoder().encode(JSON.stringify(message.content)).length - 2 });
+    layout.push({ messageIndex: messages.length, kind, label, tokens: 0 });
     messages.push(message);
   };
   const resolved = context ? selectedContext(turns, context, options.allowStale) : { summaries: [], verbatim: turns };
@@ -63,7 +63,9 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     }
     history();
   }
-  const inputTokens = estimateInputTokens(messages);
+  const { contentTokens, ...measurement } = countInput(messages);
+  const { inputTokens } = measurement;
+  layout.forEach((part, index) => { part.tokens = contentTokens[index]; });
   if (options.validateLimits !== false && inputTokens > settings.targetInputTokens) {
     throw new AppError(422, 'input_budget_exceeded', 'The estimated input exceeds your target. Prepare context, shorten the prompt, or raise the target.');
   }
@@ -83,9 +85,8 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     })),
     ...(context ? { context: { selected: context.selected, archivedTurnIds: context.archivedTurnIds } } : {}),
     budget: {
-      inputTokens, targetInputTokens: settings.targetInputTokens,
+      ...measurement, targetInputTokens: settings.targetInputTokens,
       reservedOutputTokens: connection.maxOutputTokens, contextWindow: connection.contextWindow,
-      method: 'UTF-8 bytes + 128 framing + 16 per message (conservative estimate)', verified: false,
     },
   };
 }

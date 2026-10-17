@@ -39,6 +39,7 @@ export type ContextStep = {
 };
 export type ContextSnapshot = ContextState & { preset: (ContextPreset & SummaryRef) | null; jobs: ContextJob[] };
 export type ContextPlan = {
+  method?: string; counting?: import('./contracts.js').TokenCounting;
   inputTokens: number; targetInputTokens: number; effectiveLimit: number; verbatimTurnIds: string[];
   next: ContextOperation | null; ready: boolean; blocked: string | null; stale: SummaryRef[];
 };

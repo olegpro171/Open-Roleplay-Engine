@@ -30,8 +30,8 @@ describe('request assembly', () => {
   it('attributes resolved content without changing its order or budget, including escaped multibyte text', () => {
     const request = assembleRequest(connection, settings, [{ ...turn, user: { ...turn.user, text: 'A "key"\\\\\n🕯' }, assistant: { ...turn.assistant, text: 'Лампа.' } }]);
     expect(request.layout?.map(part => part.messageIndex)).toEqual(request.body.messages.map((_, i) => i));
-    expect(request.layout?.map(part => [part.kind, part.tokens])).toEqual([['prompt', 12], ['character', 11], ['persona', 7], ['history', 19], ['history', 11]]);
-    expect(request.budget.inputTokens).toBe(425);
+    expect(request.layout?.map(part => [part.kind, part.tokens])).toEqual([['prompt', 1], ['character', 3], ['persona', 1], ['history', 9], ['history', 5]]);
+    expect(request.budget.inputTokens).toBe(42);
     expect(request.body.stream_options).toEqual({ include_usage: true });
     expect(assembleRequest({ ...connection, requestUsage: false }, settings, []).body).not.toHaveProperty('stream_options');
   });

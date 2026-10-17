@@ -17,7 +17,9 @@ The saved input estimate is 29,174 serialized-message UTF-8 bytes + 128 framing 
 
 The evidence explains the discrepancy as an excessively conservative estimate for this text/model, with a smaller difference from comparing current input against a historical attempt. It does not indicate omitted selected context. Structural coverage does not verify summary fidelity or the provider's internal handling of the request.
 
-The existing approved budgeting policy remains unchanged. A model-specific counting method should be a separate change, applied consistently to request planning, summary savings and the interface. Dividing every model's input by this observed ratio would not establish dependable counts across languages or endpoints.
+An intermediate model-aware implementation counted 5,867 text tokens plus 272 fallback framing units, for 6,139 estimated input. The user subsequently accepted one shared reference tokenizer to avoid per-model support and maintenance. The final `cl100k_base` counter counts **5,727 text tokens** plus **39 shared framing units**, for **5,766 estimated input**, 146 (2.47%) below the original endpoint report of 5,912. This was recalculated against the same saved request read-only, without another provider call. The saved 29,446 estimate and endpoint usage remain untouched.
+
+The working target is enforced against the reference estimate; modest differences in actual provider tokens are accepted. Physical capacity and reserved output remain separate constraints. The same counter drives planning, summary savings and allocations for every model. Committed selections remain unchanged. No character divisor or observed ratio is used. This comparison does not establish accuracy for every language, text or future provider route, or verify the endpoint’s internal formatting. See [token counting](TOKEN_COUNTING.md) for details.
 
 ## Character-card imports
 

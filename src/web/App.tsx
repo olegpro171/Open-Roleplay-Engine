@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import type { ChatSnapshot } from '../shared/contracts';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import type { ChatSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError } from './api';
 import type { LibrarySnapshot } from '../shared/library';
 import { ChatSetup, Libraries } from './Libraries';
@@ -8,7 +8,6 @@ import { trimBoundaryNewlines } from '../shared/text';
 import { Memory } from './Memory';
 import { staleSummaries } from '../core/context';
 import { refKey } from '../shared/context';
-import { assembleRequest } from '../core/prompt';
 import { BudgetBreakdown, InputMeter, PromptPeek } from './PromptPeek';
 import { useTranscriptScroll } from './useTranscriptScroll';
 
@@ -76,13 +75,20 @@ export function App() {
   const pending = snapshot?.turns.at(-1)?.complete === false;
   const latest = snapshot?.generations[0];
   const shownGeneration = snapshot?.generations.find((generation) => generation.id === generationId);
-  const { currentRequest, inspectionError } = useMemo(() => {
-    if (!snapshot?.connection) return { currentRequest: null, inspectionError: '' };
-    const text = trimBoundaryNewlines(draft);
-    const turns = !pending && text !== '' ? [...snapshot.turns, { id: 'draft', position: (snapshot.turns.at(-1)?.position ?? 0) + 1, complete: false, user: { id: 'draft-user', revision: 0, text }, assistant: { id: 'draft-assistant', revision: 0, text: '' } }] : snapshot.turns;
-    try { return { currentRequest: assembleRequest(snapshot.connection, snapshot.settings, turns, snapshot.sources, snapshot.context, { validateLimits: false, allowStale: true }), inspectionError: '' }; }
-    catch (error) { return { currentRequest: null, inspectionError: error instanceof Error ? error.message : 'Could not inspect current input.' }; }
-  }, [snapshot, draft, pending]);
+  const [inspection, setInspection] = useState<{ key: string; request: RequestPreview | null; error: string }>({ key: '', request: null, error: '' });
+  const inspectionKey = JSON.stringify([snapshot?.id, snapshot?.revision, snapshot?.context.revision, snapshot?.connection, draft, pending]);
+  useEffect(() => {
+    if (!snapshot?.connection) return;
+    let current = true;
+    const timer = setTimeout(() => {
+      api<RequestPreview>(`/chats/${snapshot.id}/preview`, 'POST', { revision: snapshot.revision, inspection: true, ...(!pending ? { text: draft } : {}) })
+        .then(request => { if (current) setInspection({ key: inspectionKey, request, error: '' }); })
+        .catch(error => { if (current) setInspection({ key: inspectionKey, request: null, error: error.message }); });
+    }, 150);
+    return () => { current = false; clearTimeout(timer); };
+  }, [inspectionKey]);
+  const currentRequest = inspection.key === inspectionKey ? inspection.request : null;
+  const inspectionError = inspection.key === inspectionKey ? inspection.error : snapshot?.connection ? 'Counting current input…' : '';
   const shownRequest = generationId ? shownGeneration?.request : currentRequest;
   const archivedIds = new Set(snapshot?.context.archivedTurnIds);
   const activeTurns = snapshot?.turns.filter(turn => !archivedIds.has(turn.id)).length ?? 0;
@@ -177,7 +183,7 @@ export function App() {
       {!generationId && memoryStale && <p role="status">Memory is out of date. This inspection includes stale summaries; repair and review them before sending.</p>}
       {!generationId && inspectionError && <p role="status">{inspectionError}</p>}
       {shownGeneration?.usage && <p className="small">Provider reported: {shownGeneration.usage.inputTokens.toLocaleString()} input · {shownGeneration.usage.outputTokens.toLocaleString()} output tokens.</p>}
-      {shownRequest && <>{shownRequest.warnings?.map(warning => <p role="status" key={warning}>{warning}</p>)}<div className="budget"><strong>Estimated input: {shownRequest.budget.inputTokens.toLocaleString()} / {shownRequest.budget.targetInputTokens.toLocaleString()}</strong><InputMeter input={shownRequest.budget.inputTokens} limit={Math.min(shownRequest.budget.targetInputTokens, shownRequest.budget.contextWindow - shownRequest.budget.reservedOutputTokens)} /><span>Reserved output: {shownRequest.budget.reservedOutputTokens.toLocaleString()} · Model window: {shownRequest.budget.contextWindow.toLocaleString()}</span><small>{shownRequest.budget.method}. This is not a verified provider token count.</small></div>{shownRequest.layout && <BudgetBreakdown request={shownRequest} />}<details className="request-details"><summary>Endpoint and request body</summary><h2>Endpoint</h2><pre>{shownRequest.endpoint}</pre><h2>Request body</h2><pre data-testid="request-body">{JSON.stringify(shownRequest.body, null, 2)}</pre></details><details><summary>Turn identities and source revisions</summary><pre>{JSON.stringify(shownRequest.coverage, null, 2)}</pre></details></>}
+      {shownRequest && <>{shownRequest.warnings?.map(warning => <p role="status" key={warning}>{warning}</p>)}<div className="budget"><strong>Estimated input: {shownRequest.budget.inputTokens.toLocaleString()} / {shownRequest.budget.targetInputTokens.toLocaleString()}</strong><InputMeter input={shownRequest.budget.inputTokens} limit={Math.min(shownRequest.budget.targetInputTokens, shownRequest.budget.contextWindow - shownRequest.budget.reservedOutputTokens)} /><span>Reserved output: {shownRequest.budget.reservedOutputTokens.toLocaleString()} · Model window: {shownRequest.budget.contextWindow.toLocaleString()}</span></div>{shownRequest.layout && <BudgetBreakdown request={shownRequest} />}<details className="request-details"><summary>Endpoint and request body</summary><h2>Endpoint</h2><pre>{shownRequest.endpoint}</pre><h2>Request body</h2><pre data-testid="request-body">{JSON.stringify(shownRequest.body, null, 2)}</pre></details><details><summary>Turn identities and source revisions</summary><pre>{JSON.stringify(shownRequest.coverage, null, 2)}</pre></details></>}
     </main>}
     {peek && currentRequest && <PromptPeek stale={memoryStale} request={currentRequest} close={() => setPeek(false)} />}
 
