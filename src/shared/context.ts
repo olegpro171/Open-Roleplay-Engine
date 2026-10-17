@@ -47,6 +47,7 @@ export type ContextRefresh = {
   after: Pick<ContextState, 'selected' | 'archivedTurnIds'>;
   inputBefore: number; inputAfter: number; verbatimBefore: number; verbatimAfter: number;
   changed: boolean; protectedSummaries: number; limited: boolean;
+  limitation?: string;
 };
 export type ContextStep = {
   id: string; jobId: string; operation: ContextOperation; request: RequestPreview | null;

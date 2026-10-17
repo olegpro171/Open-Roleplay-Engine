@@ -296,6 +296,43 @@ describe('durable imported-session preparation', () => {
     await f.resume(); expect(f.state().context.selected).toEqual(small.context.selected);
   });
 
+  it('recovers the tail after a manual correction, retains all versions, and commits reselection atomically', async () => {
+    const f = fixture(24);
+    await f.idle(f.start());
+    const child = f.state().context.summaries.find(node => node.level === 1 && node.turns[0].turnId === f.state().turns[4].id)!;
+    const corrected = f.store.contexts.editSummary(f.chatId, f.state().revision, child, `${child.text} Author correction: her sister owns a duplicate key.`);
+    f.setMode('unchanged');
+    expect((await f.idle(f.start('repair'))).status).toBe('succeeded');
+    expect(contextPlan(f.state()).stale).toEqual([]);
+    const { id: presetId, revision: _, ...preset } = f.state().context.preset!;
+    f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...preset, minTail: 6, connectionId: null }, presetId);
+    const current = f.state();
+    f.store.updateChat(current.revision, f.chatId, { title: current.settings.title, targetInputTokens: 50_000, connectionId: current.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId });
+    expect(contextPlan(f.state()).blocked).toContain('minimum tail');
+    const before = f.state(), calls = f.calls.length;
+    f.store.sqlite.exec("CREATE TRIGGER reject_corrected_prepare BEFORE INSERT ON context_jobs WHEN json_extract(NEW.data, '$.mode') = 'prepare' BEGIN SELECT RAISE(ABORT, 'synthetic reselection failure'); END;");
+    expect(() => f.start()).toThrow('synthetic reselection failure');
+    expect(f.state()).toEqual(before);
+    f.store.sqlite.exec('DROP TRIGGER reject_corrected_prepare');
+    const requestId = randomUUID();
+    const id = f.coordinator.context.start(f.chatId, before.revision, requestId, 'prepare').jobId;
+    expect((await f.idle(id)).status).toBe('succeeded');
+    const after = f.state();
+    expect(contextPlan(after)).toMatchObject({ ready: true, blocked: null });
+    expect(after.context.selected).toContainEqual(corrected);
+    expect(after.context.archivedTurnIds).toEqual(after.turns.slice(0, 6).map(turn => turn.id));
+    expect(after.context.summaries).toEqual(before.context.summaries);
+    expect(after.turns).toEqual(before.turns);
+    expect(after.context.jobs[0]).toMatchObject({ stepCount: 0, generatedCount: 0, refresh: { protectedSummaries: 1, changed: true } });
+    expect(f.calls).toHaveLength(calls);
+    expect(f.coordinator.context.start(f.chatId, before.revision, requestId, 'prepare').jobId).toBe(id);
+    await f.resume();
+    expect(f.state().context.selected).toEqual(after.context.selected);
+    expect((await f.idle(f.start())).status).toBe('succeeded');
+    expect(f.state().context.selected).toEqual(after.context.selected);
+    expect(f.calls).toHaveLength(calls);
+  });
+
   it('reuses saved summaries in automatic preparation without expanding a fitting selection', async () => {
     const f = fixture(); await f.idle(f.start());
     const original = f.state();

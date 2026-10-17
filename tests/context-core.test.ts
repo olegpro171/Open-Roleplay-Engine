@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import reference from './fixtures/compaction-reference.json';
 import { defaultContextPreset, emptyContextState, refKey, type ContextState, type SummaryNode } from '../src/shared/context.js';
 import type { Turn } from '../src/shared/contracts.js';
-import { nextCompaction, repairQueue, replaceSelection, selectedContext, sourceOf, staleSummaries } from '../src/core/context.js';
+import { nextCompaction, rankedPromotions, repairQueue, replaceSelection, selectedContext, sourceOf, staleSummaries } from '../src/core/context.js';
 import { assembleRequest } from '../src/core/prompt.js';
 import { defaultPrompt } from '../src/shared/library.js';
 
@@ -10,6 +10,16 @@ const turn = (position: number): Turn => ({ id: `t${position}`, position, comple
 const node = (id: string, level: number, turns: Turn[]): SummaryNode => ({ id, revision: 0, level, turns: turns.map(sourceOf), children: [], prior: [], text: `Saved facts from ${id}`, createdAt: '', approved: true, manual: false });
 
 describe('stateful layered context', () => {
+  it('rejects promotions that would deepen an existing chronological hole', () => {
+    const turns = Array.from({ length: 20 }, (_, i) => turn(i + 1));
+    const manual = { ...node('corrected', 2, turns.slice(0, 4)), manual: true };
+    const recent = Array.from({ length: 7 }, (_, i) => node(`recent-${i}`, 2, turns.slice(4 + i * 2, 6 + i * 2)));
+    const summaries = [node('older', 1, turns.slice(0, 2)), { ...manual, turns: turns.slice(2, 4).map(sourceOf) }, ...recent];
+    const sizes = new Map(summaries.map(node => [refKey(node), 500]));
+    // Legacy selections can contain this hole. A deeper promotion would cement
+    // it; manual Prepare must restore chronological detail first.
+    expect(rankedPromotions(summaries, { ...defaultContextPreset, promotionGroup: 2, retainedPerLevel: 1 }, sizes)).toEqual([]);
+  });
   it('orders over a hundred affected dependencies once, excluding unrelated retained versions', () => {
     const turns = Array.from({ length: 151 }, (_, i) => turn(i + 1));
     const summaries = turns.slice(0, 150).map((turn, i) => ({ ...node(`s${i}`, 1, [turn]), prior: i ? [{ id: `s${i - 1}`, revision: 0 }] : [] }));

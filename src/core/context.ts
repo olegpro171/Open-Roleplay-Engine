@@ -78,12 +78,19 @@ export function rankedPromotions(summaries: SummaryNode[], config: ContextPreset
     const children = layer.slice(0, config.promotionGroup);
     const first = summaries.indexOf(children[0]);
     if (!children.every((node, index) => summaries[first + index] === node)) continue;
+    // Promoting a middle range must not make it coarser than older memory.
+    // This also keeps continuation safe after a manual detail restoration.
+    if (first > 0 && summaries[first - 1].level < level + 1) continue;
     const used = layer.reduce((total, node) => total + (summarySizes.get(refKey(node)) ?? 0), 0);
     // Logarithms preserve U_k * 2^k ordering without overflow in deep trees.
     candidates.push({ score: Math.log2(Math.max(used, Number.MIN_VALUE)) + level, level, children });
   }
   candidates.sort((a, b) => b.score - a.score || b.level - a.level);
   return candidates.map(candidate => ({ level: candidate.level + 1, turnIds: candidate.children.flatMap(node => node.turns.map(source => source.turnId)), children: candidate.children.map(({ id, revision }) => ({ id, revision })) }));
+}
+
+export function hasChronologicalLevels(summaries: SummaryNode[]): boolean {
+  return summaries.every((node, index) => index === 0 || summaries[index - 1].level >= node.level);
 }
 
 export function replaceSelection(state: ContextState, operation: ContextOperation, node: SummaryNode): ContextState {

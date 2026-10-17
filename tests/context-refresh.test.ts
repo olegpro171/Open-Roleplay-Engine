@@ -39,6 +39,75 @@ const measure = (snapshot: ChatSnapshot) => assembleRequest(snapshot.connection!
 const apply = (snapshot: ChatSnapshot, state: ReturnType<typeof refreshContext>['state']): ChatSnapshot => ({ ...snapshot, context: { ...snapshot.context, ...state } });
 
 describe('manual memory refresh using the saved tree', () => {
+  it('restores the completed tail through prior dependencies while keeping the actual correction active', () => {
+    const snapshot = fixture();
+    snapshot.settings.targetInputTokens = 90_000;
+    snapshot.context.preset!.minTail = 8;
+    const leaves = snapshot.context.summaries.filter(node => node.level === 1);
+    const corrected = leaves[5];
+    corrected.manual = true;
+    corrected.text += ' Author correction: her sister owns a duplicate.';
+    for (let i = 6; i < leaves.length; i++) leaves[i].prior = [leaves[i - 1]];
+    snapshot.turns.at(-1)!.complete = false;
+    const result = refreshContext(snapshot, { allowOverflowFallback: true });
+    expect(result.state.selected).toContainEqual({ id: corrected.id, revision: corrected.revision });
+    expect(result.state.archivedTurnIds).toEqual(snapshot.turns.slice(0, 12).map(turn => turn.id));
+    expect(result.report.protectedSummaries).toBe(1);
+    expect(contextPlan(apply(snapshot, result.state))).toMatchObject({ ready: true, blocked: null });
+    expect(refreshContext(apply(snapshot, result.state)).state.selected).toEqual(result.state.selected);
+  });
+
+  it('keeps older memory at least as compact as a later directly edited summary', () => {
+    const snapshot = fixture();
+    snapshot.settings.targetInputTokens = 90_000;
+    const corrected = snapshot.context.summaries.find(node => refKey(node) === refKey(snapshot.context.selected.at(-2)!))!;
+    expect(corrected.level).toBe(2);
+    corrected.manual = true;
+    const result = refreshContext(snapshot);
+    const active = selectedContext(snapshot.turns, result.state).summaries;
+    expect(active).toContainEqual(corrected);
+    expect(active.every((node, i) => i === 0 || active[i - 1].level >= node.level)).toBe(true);
+    expect(result.state.archivedTurnIds).toHaveLength(60);
+    expect(refreshContext(apply(snapshot, result.state)).state.selected).toEqual(result.state.selected);
+  });
+
+  it('identifies a direct correction that conflicts with the completed-tail minimum without falling back', () => {
+    const snapshot = fixture();
+    snapshot.settings.targetInputTokens = 90_000;
+    snapshot.context.preset!.minTail = 8;
+    const corrected = snapshot.context.summaries.find(node => refKey(node) === refKey(snapshot.context.selected.at(-1)!))!;
+    corrected.manual = true;
+    const original = structuredClone(snapshot.context);
+    expect(() => refreshContext(snapshot, { allowOverflowFallback: true })).toThrow(/manually edited summary.*61.*62.*minimum.*8/i);
+    expect(snapshot.context).toEqual(original);
+  });
+
+  it('repairs a legacy middle-level hole while restoring newer history after a corrected child', () => {
+    const snapshot = fixture();
+    snapshot.settings.targetInputTokens = 90_000;
+    const parent = snapshot.context.summaries.find(node => node.id === 'parent-2-28')!;
+    const corrected = snapshot.context.summaries.find(node => refKey(node) === refKey(parent.children[0]))!;
+    corrected.manual = true;
+    const earlier = snapshot.context.summaries.find(node => node.id === 'parent-3-12')!;
+    snapshot.context.selected = snapshot.context.selected.flatMap(ref => refKey(ref) === refKey(earlier) ? earlier.children : [ref]);
+    const result = refreshContext(snapshot);
+    const active = selectedContext(snapshot.turns, result.state).summaries;
+    expect(active.every((node, i) => i === 0 || active[i - 1].level >= node.level)).toBe(true);
+    expect(active).toContainEqual(corrected);
+    expect(result.state.archivedTurnIds).toHaveLength(58);
+  });
+
+  it('restores an incompatible cutoff before generating missing compression instead of falling back to it', () => {
+    const snapshot = fixture();
+    snapshot.context.preset!.minTail = 8;
+    snapshot.context.preset!.batchSize = 3; // No saved batches match these new settings.
+    snapshot.settings.targetInputTokens = 2_000;
+    const result = refreshContext(snapshot, { allowOverflowFallback: true });
+    expect(result.state.archivedTurnIds).toEqual([]);
+    expect(contextPlan(apply(snapshot, result.state))).toMatchObject({ blocked: null, next: { level: 1, turnIds: ['t0', 't1', 't2'] } });
+    expect(result.report.inputAfter).toBeGreaterThan(snapshot.settings.targetInputTokens);
+  });
+
   it('preserves summary-only selections during Prepare without restoring turns or extracting unused history', () => {
     const snapshot = fixture();
     snapshot.sources.prompt = { ...defaultPrompt, id: 'summary-only', revision: 0, blocks: defaultPrompt.blocks.filter(block => block.id !== 'messages') };
@@ -108,7 +177,7 @@ describe('manual memory refresh using the saved tree', () => {
     expect(restored.report.limited).toBe(false);
   });
 
-  it('keeps selected manual corrections and parents carrying manual dependency content', () => {
+  it('keeps direct corrections and allows their generated parents to expand into the corrected children', () => {
     for (const hiddenChild of [false, true]) {
       const snapshot = fixture(); snapshot.settings.targetInputTokens = 90_000;
       const root = snapshot.context.summaries.find(node => refKey(node) === refKey(snapshot.context.selected[0]))!;
@@ -116,7 +185,8 @@ describe('manual memory refresh using the saved tree', () => {
       corrected.manual = true; corrected.text += ' Author correction: her sister owns a duplicate.';
       const result = refreshContext(snapshot);
       expect(result.report.protectedSummaries).toBe(1);
-      expect(result.state.selected).toContainEqual({ id: root.id, revision: root.revision });
+      expect(result.state.selected).toContainEqual({ id: corrected.id, revision: corrected.revision });
+      if (hiddenChild) expect(result.state.selected).not.toContainEqual({ id: root.id, revision: root.revision });
       expect(refreshContext(apply(snapshot, result.state)).state.selected).toEqual(result.state.selected);
     }
   });

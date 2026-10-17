@@ -46,9 +46,9 @@ export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, oper
         const range = sourceSpan(node.turns.map(source => source.turnId));
         if (!range) return null;
         const status = stale.has(refKey(node)) ? 'stale' : selected.has(refKey(node)) ? 'active' : 'retained';
-        const label = `${range.start + 1}–${range.end + 1}`, text = `L${node.level} · turns ${label} · ${status}`;
+        const label = `${range.start + 1}–${range.end + 1}`, text = `L${node.level} · turns ${label} · ${status}${node.manual ? ' · Manually edited' : ''}`;
         const fits = (range.end - range.start + 1) / count * plotWidth >= label.length * 6 + 14;
-        return <button key={refKey(node)} className={`summary-span ${status}`} style={{ ...span(range.start, range.end), bottom: node.level * 56 + 24 }} aria-label={`Level ${node.level} summary, turns ${range.start + 1} to ${range.end + 1}, ${status}`} aria-describedby={hint?.text === text ? tooltipId : undefined} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)} onFocus={e => showHint(e.currentTarget, text)} onBlur={() => setHint(null)} onClick={() => { setHint(null); inspect(node); }}>{fits ? label : ''}</button>;
+        return <button key={refKey(node)} className={`summary-span ${status}${node.manual ? ' manual' : ''}`} style={{ ...span(range.start, range.end), bottom: node.level * 56 + 24 }} aria-label={`Level ${node.level} summary, turns ${range.start + 1} to ${range.end + 1}, ${status}${node.manual ? ', manually edited' : ''}`} aria-describedby={hint?.text === text ? tooltipId : undefined} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)} onFocus={e => showHint(e.currentTarget, text)} onBlur={() => setHint(null)} onClick={() => { setHint(null); inspect(node); }}>{fits ? label : ''}</button>;
       })}
       {operation && (() => { const range = sourceSpan(operation.turnIds); return range && <div className="summary-span preparing" style={{ ...span(range.start, range.end), bottom: operation.level * 56 + 24 }} aria-label="Next source batch; no replacement is active">{(range.end - range.start + 1) / count * plotWidth >= 40 ? 'next' : ''}</div>; })()}
       {compact ? bands.map(band => {
