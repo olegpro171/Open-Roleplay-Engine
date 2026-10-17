@@ -14,6 +14,9 @@ test('connection diagnostics stay concise, use explicit test calls and distingui
   const initialCount = (await requests()).length;
   await page.getByLabel('API base URL').fill(endpoint);
   await page.getByLabel('Model identifier').fill('google/gemma-3-4b-it');
+  await page.getByLabel('Reserved output tokens', { exact: true }).fill('4096');
+  const savedState = await page.request.get('/api/chat').then(response => response.json());
+  const savedLibrary = await page.request.get('/api/library').then(response => response.json());
   const tools = page.locator('.connection-tools');
   await expect(tools.locator('.counting-note')).toHaveCount(0);
   await expect(tools).not.toContainText('cl100k_base');
@@ -31,6 +34,7 @@ test('connection diagnostics stay concise, use explicit test calls and distingui
   expect((await requests()).length).toBe(initialCount + 1);
   await tools.getByText('Test request and response', { exact: true }).click();
   await expect(tools.locator('pre')).toContainText('"content": "Hi"');
+  expect((await requests()).at(-1)?.body).toMatchObject({ max_tokens: 4096 });
   await page.screenshot({ path: 'test-results/connection-token-diagnostics.png', fullPage: true });
   await page.getByLabel('Model identifier').fill('unrecognized-model');
   await expect(tools).not.toContainText('No supported local tokenizer');
@@ -43,4 +47,17 @@ test('connection diagnostics stay concise, use explicit test calls and distingui
   await tools.scrollIntoViewIfNeeded();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/connection-test-phone.png', fullPage: true });
+  await page.request.post('/__test/mode', { data: { mode: 'empty' } });
+  await page.getByRole('button', { name: 'Send test message', exact: true }).click();
+  await expect(tools.getByRole('alert')).toContainText('Nothing was saved. Click “Send test message” to try again.');
+  await expect(tools.getByRole('alert')).not.toContainText('pending');
+  await expect(tools.locator('.connection-test-result')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send test message', exact: true })).toBeEnabled();
+  await page.request.post('/__test/mode', { data: { mode: 'normal' } });
+  await page.getByRole('button', { name: 'Send test message', exact: true }).click();
+  await expect(tools.getByRole('alert')).toHaveCount(0);
+  await expect(tools.locator('.connection-success')).toHaveText('Test completed.');
+  expect((await requests()).length).toBe(initialCount + 4);
+  expect(await page.request.get('/api/chat').then(response => response.json())).toEqual(savedState);
+  expect(await page.request.get('/api/library').then(response => response.json())).toEqual(savedLibrary);
 });

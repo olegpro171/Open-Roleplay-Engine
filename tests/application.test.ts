@@ -143,7 +143,7 @@ describe('persistent chat and generation', () => {
 
   it('checks and tests unsaved Connection settings without changing chat history or calibrating the counter', async () => {
     const before = await state();
-    const input = { connection: before.connection, connectionId: before.settings.connectionId };
+    const input = { connection: { ...before.connection, maxOutputTokens: 4096, customParameters: { reasoning_effort: 'high' } }, connectionId: before.settings.connectionId };
     expect(mock.requests).toHaveLength(0);
     const check = await command('/api/connections/diagnose', { ...input, action: 'check' });
     expect(check.statusCode).toBe(200);
@@ -154,7 +154,9 @@ describe('persistent chat and generation', () => {
     const result = test.json();
     expect(result.request.body).toEqual(mock.requests[0].body);
     expect(result.request.body.messages).toEqual([{ role: 'user', content: 'Hi' }]);
-    expect(result.request.body.max_tokens).toBe(64);
+    expect(result.request.body.max_tokens).toBe(4096);
+    expect(result.request.body.reasoning_effort).toBe('high');
+    expect(result.request.budget.reservedOutputTokens).toBe(4096);
     expect(result.usage).toEqual({ inputTokens: 321, outputTokens: 17, totalTokens: 338 });
     expect(result.request.budget.inputTokens).not.toBe(result.usage.inputTokens);
     expect(JSON.stringify(result)).not.toContain('synthetic-api-secret');
@@ -177,6 +179,29 @@ describe('persistent chat and generation', () => {
     mock.setModelMode('normal');
     expect((await command('/api/connections/diagnose', { connection: before.connection, connectionId: keylessId, action: 'check' })).statusCode).toBe(200);
     expect(mock.modelRequests.at(-1)?.authorization).toBeUndefined();
+  });
+
+  it.each(['empty', 'whitespace', 'broken'] as const)('reports a %s test response without leaving saved work and allows an explicit retry', async mode => {
+    const before = await state();
+    const libraryBefore = instance.store.libraries();
+    const input = { action: 'test', connection: before.connection, connectionId: before.settings.connectionId };
+    mock.setMode(mode);
+    const failed = await command('/api/connections/diagnose', input);
+    expect(failed.statusCode).toBe(502);
+    expect(failed.json().code).toBe(mode === 'broken' ? 'incomplete_stream' : 'empty_response');
+    expect(failed.json().message).toContain('Send test message');
+    expect(failed.json().message).toContain('Nothing was saved');
+    expect(failed.json().message).not.toMatch(/\bturn\b|pending|delete/i);
+    expect(await state()).toEqual(before);
+    expect(instance.store.libraries()).toEqual(libraryBefore);
+
+    mock.setMode('normal');
+    const retry = await command('/api/connections/diagnose', input);
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json().response).toBe('The lantern flickers. 🕯');
+    expect(mock.requests).toHaveLength(2);
+    expect(await state()).toEqual(before);
+    expect(instance.store.libraries()).toEqual(libraryBefore);
   });
 
   it('uses server counting for over-budget inspection and keeps saved estimates unchanged after a model switch', async () => {

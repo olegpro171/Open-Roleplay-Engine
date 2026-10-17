@@ -161,7 +161,7 @@ function ConnectionTools({ connection, parameters, connectionId, apiKey }: { con
   }
   return <div className="full connection-tools">
     <div className="actions"><button type="button" className="secondary" disabled={testing} onClick={() => void diagnose('check')}>Check connection</button><button type="button" className="secondary" disabled={testing} onClick={() => void diagnose('test')}>Send test message</button></div>
-    <p className="small muted connection-help">“Check connection” requests the model list. “Send test message” sends “Hi” with up to 64 output tokens; endpoint charges apply.</p>
+    <p className="small muted connection-help">“Check connection” requests the model list. “Send test message” sends “Hi” using your Reserved output tokens setting; provider charges may apply. These actions use your current entries without saving settings or chat history.</p>
     {testing && <p className="small" role="status">Testing connection…</p>}
     {error && <p role="alert">{error}</p>}
     {result && <div className="connection-test-result" role="status"><p className="small connection-success">{result.message}</p>{result.request && <><p className="small">{result.usage ? `Token usage: ${result.usage.inputTokens.toLocaleString()} input / ${result.usage.outputTokens.toLocaleString()} output.` : 'Token usage unavailable.'}</p><details><summary>Test request and response</summary><pre>{JSON.stringify({ request: result.request, response: result.response, usage: result.usage }, null, 2)}</pre></details></>}</div>}

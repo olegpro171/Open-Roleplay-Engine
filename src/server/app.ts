@@ -103,11 +103,21 @@ export async function createApp(options: {
       await fetchModels(input.connection.endpoint, apiKey);
       return { message: 'The endpoint accepted the connection check' };
     }
-    const connection = { ...input.connection, maxOutputTokens: Math.min(64, input.connection.maxOutputTokens) };
+    const connection = input.connection;
     const preview = assembleRequest(connection, { title: 'Connection test', instructions: '', character: '', persona: '', targetInputTokens: connection.contextWindow - connection.maxOutputTokens }, [{ id: 'test', position: 1, complete: false, user: { id: 'test-user', revision: 0, text: 'Hi' }, assistant: { id: 'test-assistant', revision: 0, text: '' } }]);
     let response = '';
-    const completion = await provider.stream(preview, apiKey, AbortSignal.timeout(30_000), text => { response += text; });
-    return { message: 'Test completed.', request: preview, response, usage: completion?.usage ?? null };
+    try {
+      const completion = await provider.stream(preview, apiKey, AbortSignal.timeout(30_000), text => { response += text; });
+      if (!response.trim()) throw new AppError(502, 'empty_response', 'The model returned no text.');
+      return { message: 'Test completed.', request: preview, response, usage: completion?.usage ?? null };
+    } catch (error) {
+      // Diagnostics have no saved turn to retry or delete.
+      if (error instanceof AppError && ['empty_response', 'incomplete_stream'].includes(error.code)) {
+        const reason = error.code === 'empty_response' ? 'The model returned no text for the test message.' : 'The test response stream ended before completion.';
+        throw new AppError(502, error.code, `${reason} Nothing was saved. Click “Send test message” to try again.`);
+      }
+      throw error;
+    }
   });
   app.get('/api/library', async () => store.libraries());
   app.post('/api/library', { bodyLimit: 3_000_000 }, async request => {
