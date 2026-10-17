@@ -1,78 +1,134 @@
 # AGENTS.md
 
-## Project context
+## Purpose and working agreement
 
-This is a new, independent roleplay application with persistent chats, roleplay libraries and durable layered compaction implemented for local testing. The in-app name is “ORE”; the repository remains “Roleplay Engine”. The accepted application stack is TypeScript, React + Vite, Node.js + Fastify, SQLite with better-sqlite3 + Drizzle, Zod, HTTP + SSE, Vitest, and Playwright. The Mac hosts the server and data; actual phone use awaits HTTPS certificate setup and verification. Application installation, build, launch, and test commands are documented in `README.md`. The third milestone includes reusable context presets with separate summarization Connections/prompts, imported-session preparation, transactional selections, a layered viewer, summary edits and targeted repair with review. Real-model summary quality remains unverified. The Python/Tkinter visualizer is an isolated synthetic reference; its commands remain documented in `docs/VISUALIZER.md`.
+**ORE** (repository: Roleplay Engine) is a personal roleplay application for model Connections, prompt composition, persistent chats, and dependable context management. Predictable behavior, inspectable model input, and control over summaries take priority over feature breadth.
 
-Read `CONCEPTS.md` before discussing architecture, proposing features, changing documentation, or implementing anything. It is the current product concept reference and explicitly distinguishes user requirements from proposed refinements and open decisions.
+The user directs product decisions and manually tests features; they do not routinely review the code. **The implementing agent owns code quality, regression prevention, data safety, and technical verification.** Manual acceptance testing complements those responsibilities; it does not replace them. Deliver maintainable, complete changes and report verification honestly.
 
-Read and follow `IMPLEMENTATION.md` when planning or implementing the application. It records the user-approved stack, module boundaries, deployment model, persistence and generation rules, and implementation sequence. Stack approval does not settle the open product policies in `CONCEPTS.md` or turn the simulator's experimental promotion policy into a requirement.
+The accepted stack is TypeScript, React + Vite, Node.js + Fastify, SQLite with better-sqlite3 + Drizzle, Zod, HTTP + SSE, Vitest, and Playwright. The Mac hosts the server and data. Persistent chat, roleplay libraries, and durable layered compaction are implemented for local testing. Actual phone use awaits HTTPS setup and verification; real-model summary quality remains unverified.
 
-The user's goal is a focused personal tool for model connections, prompt composition, and dependable context management in long-running roleplay. Predictable behavior, inspectable model input, and control over summaries matter more than feature breadth.
+## Sources of truth and scope
 
-## Working with ideas and decisions
+- Read [CONCEPTS.md](CONCEPTS.md) before architecture discussion, feature proposals, documentation changes, or implementation. It distinguishes accepted requirements from recommendations and open questions.
+- Read [IMPLEMENTATION.md](IMPLEMENTATION.md) before planning or implementing application changes. Follow its module boundaries, persistence rules, deployment model, and accepted behavior.
+- Use [README.md](README.md) and [package.json](package.json) for actual commands, supported runtime, provider subset, and verification limits. Check the implementation when claiming what currently works.
+- Read [docs/CONTEXT_EDITING.md](docs/CONTEXT_EDITING.md) for preparation, revisions, selection, or repair work; [docs/TOKEN_COUNTING.md](docs/TOKEN_COUNTING.md) for budgeting; [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md) for Connection diagnostics.
+- The Python visualizer is an isolated synthetic reference. Its workflow lives in [docs/VISUALIZER.md](docs/VISUALIZER.md); application commands and assumptions must not be substituted for it.
 
-- Treat requests for discussion, feasibility, comparison, or feedback as design conversations. Do not turn an exploratory idea into implementation unless the user requests implementation.
-- Distinguish established requirements, newly accepted decisions, recommendations, and unresolved questions. An assistant's suggestion is not an accepted requirement merely because it appears in an earlier document.
-- Follow the user's latest explicit decisions. Update relevant parts of `CONCEPTS.md` when asked to document an idea or when a decision clearly changes the established concept. Preserve unresolved alternatives as open questions rather than silently choosing one.
-- Explain tradeoffs using concrete roleplay examples. Keep language clear and avoid unnecessary implementation detail during product discussion.
-- Ask for clarification when a missing decision materially changes the requested outcome; otherwise proceed with reasonable, explicitly stated assumptions.
-- Do not introduce a stack, framework, dependency, delivery schedule, or larger feature scope as an established choice without user agreement.
+Follow the user's latest explicit decisions. If documents disagree in a way that affects the task, resolve the discrepancy from those decisions or ask a focused question; do not silently invent policy. Existing code demonstrates behavior, not necessarily intended behavior. An earlier assistant suggestion is not an accepted requirement.
 
-## Core vocabulary
+Discussion, feasibility, comparison, and feedback requests stay design conversations until implementation is requested. During implementation, resolve routine technical details autonomously within the accepted design. Ask when a missing product decision materially changes behavior, data loss, compatibility, or scope. Explain tradeoffs using concrete roleplay examples. Do not introduce a new stack, framework, dependency, service, or larger feature scope without user agreement; existing authorization need not be requested again.
 
-- **Connection:** reusable endpoint, protocol, API key, model, token limits, and custom JSON request parameters. OpenAI-compatible is the initial priority; Anthropic-compatible may come later.
-- **Prompt preset:** ordered text blocks and markers defining model input. Text blocks contain user-authored constants; markers obtain content from another source.
-- **Context management system:** compacts older conversation and controls the verbatim cutoff. The initial desired method is Summaryception-style layered summarization. Additional strategies remain a future possibility.
-- **Chat:** persistent conversation with selections for connection, prompt preset, context system, character, persona, and optional agents.
-- **Turn:** primary stored conversation unit with user-input and assistant-response parts. Historical turns are complete; only the latest may await a response, blocking another turn while unresolved. Only whole turns can be deleted. Either part may be edited to an empty string without reopening a completed turn or merging content with neighbors. Completion and text length are separate concepts.
-- **Character greeting:** accepted as a completed opening turn with an empty user part and a copied greeting in the assistant part; initialization is implemented for newly created chats. The first user action starts the next turn. Later reusable-greeting edits do not rewrite saved chats. Ordinary editing, deletion, summary coverage, and completed-turn counting apply; omit the empty user bubble and outgoing user entry. See `CONCEPTS.md` for the full rule.
-- **Agent (product feature):** a task with its own instructions and selected connection, read access to conversation data, manual or automatic execution, and output available through a marker. Example: tracking fictional date and time.
+This repository is independent of Marinara Engine. Do not modify that project or import its code, data, or credentials without a request; inspect the relevant license before proposing code reuse. Branching, product agents, broad provider adaptation, retrieval, scene detection, character-specific memory permissions, multimedia, multiplayer, and plugins remain future/open decisions as described in CONCEPTS.md, not implied implementation tasks or permanent prohibitions.
 
-“Agent” in product discussions refers to this application feature unless the user explicitly means coding assistants. Product-agent requirements do not authorize spawning coding subagents.
+## Before editing
 
-Stable turn and part identities/revisions and a Generation record showing resolved model input without credentials are accepted implementation directions. Separate reusable Character and Persona records are now implemented. Detailed schemas are not finalized. “Message” may still refer to an outgoing protocol entry, rather than the stored conversation unit.
+1. Inspect the working tree and applicable instructions. Preserve pre-existing changes, including uncommitted work in files you need to edit. Never reset, clean, or overwrite unrelated work to obtain a convenient baseline.
+2. Trace the affected workflow through its callers, shared contracts, persistence, and tests. Read surrounding code; do not patch only the first matching line or assume a similar function has identical semantics.
+3. For a nontrivial change, state a short plan covering the expected user-visible outcome, owning modules, risks, and how success will be checked. Include failure/recovery behavior for saved state or asynchronous work. Keep planning proportional to the task.
+4. For a bug, establish the failing scenario and identify the broken invariant before fixing it. Prefer a regression test that reproduces the failure; if reproduction is blocked, distinguish confirmed evidence from hypotheses.
+5. Identify existing helpers and tests to extend. Make the smallest coherent change that solves the underlying problem across affected paths, even if that requires more than a one-line patch.
 
-## Design direction to preserve
+## Module ownership
 
-The following directions are documented in `CONCEPTS.md`. `IMPLEMENTATION.md` establishes accepted core/persistence boundaries, transactional selection changes, revision checks, server-owned generation, and request inspection. Other refinements and detailed policies remain proposals unless explicitly accepted:
+| Location | Responsibility | Boundary to preserve |
+| --- | --- | --- |
+| `src/core/` | Turn rules, prompt resolution, budgeting, context selection, coverage, repair decisions | Explicit inputs and outputs; no React, Fastify, database, or provider I/O dependencies. |
+| `src/shared/` | Browser-safe contracts, runtime schemas, shared definitions | No credentials, server-only imports, or accidental exposure of persistence records. |
+| `src/persistence/` and `migrations/` | Durable state, revisions, schema upgrades, atomic mutations | Enforce commit-time invariants; callers must not bypass transaction/revision safeguards. |
+| `src/server/` | Authentication, HTTP/SSE, generation and preparation coordination | Handlers validate and delegate; coordinators own operation lifecycles, not duplicated context algorithms. |
+| `src/provider/` | Request encoding, stream decoding, transport errors and cancellation | Does not select history, advance cutoffs, or decide summary coverage. |
+| `src/web/` | Editing, inspection, progress and recovery controls | Displays authoritative server state; UI disabling is not a concurrency or integrity guarantee. |
+| `tests/` | Core, database, server, crash and browser verification | Synthetic/copy fixtures, temporary databases, controlled provider behavior. |
+| `experiments/compaction/` | Standalone Python model and visualizer | Preserve accepted state-transition parity without importing simulation assumptions into production. |
 
-- Keep connection settings, prompt arrangement, history representation, agent output, and generation coordination separate.
-- Separate reusable context strategy/configuration from each chat's summaries and processing state.
-- Use one active context strategy per chat. Only enabled prompt markers insert sources. Summary and Messages share managed coverage when Summary is enabled; without Summary, Messages uses recent whole turns within the complete input limit, with no summary work or saved-cutoff restriction.
-- Preserve original messages; compaction changes model input rather than deleting the transcript.
-- In Summary-enabled mode, save successful summaries before excluding their source turns, prevent duplicate coverage, and expose unexplained gaps. Summary-off mode explicitly permits omission of older turns under the recent-history budget rule.
-- Make retries and interrupted work safe. Account for edits, regenerations, branches, and stale background results.
-- Treat recursive summaries as lossy and correctable. Do not promise perfect recall or lossless compression.
-- Make outgoing context and effective parameters inspectable, with credentials excluded.
+Keep Connection settings, prompt arrangement, context configuration, per-chat state, and generation coordination separate. Reuse the authoritative request assembly and token measurement paths for generation, previews, and Memory planning; do not create parallel approximations in the UI.
 
-Evaluate new ideas against these goals and explain any proposed change to them. Keep the distinction between structural coverage and semantic summary quality explicit.
+## Maintainable implementation
 
-## Scope
+- Prefer explicit, readable control flow and names that describe domain meaning. Break apart dense functions when distinct responsibilities obscure validation, state transitions, or failure handling. Avoid packing several mutations or branches onto one line; existing compressed code is not a style requirement.
+- Extract a helper/module when it isolates a meaningful responsibility or removes duplicated policy. Avoid speculative frameworks, generic repositories, plugin scaffolding, and arbitrary file-size targets. A large file is a reason to inspect cohesion, not permission for an unrelated rewrite.
+- Fix defects where the rule is owned. Do not hide a server bug with UI-only filtering, special-case a fixture, or copy a workaround into several callers. Check sibling paths such as automatic, manual, single-step, and repair workflows when they share the affected rule.
+- Keep TypeScript strict. Use explicit states and narrowed unions where states differ; avoid bundles of booleans that permit impossible combinations. Validate external input with Zod or the established boundary parser. Do not use `any`, unchecked casts, non-null assertions, or compiler suppressions to conceal uncertainty; narrow or validate it. Any necessary exception must be local and explained.
+- Preserve one authoritative definition of contracts and domain rules. Reuse shared schemas/types where appropriate; update consumers together when a contract changes. Browser code must not import database or secret-bearing server types for convenience.
+- Handle expected failure states explicitly. Do not swallow exceptions, report success after a failed write, return empty data for an unexpected error, or silently apply an undocumented fallback. Preserve useful diagnostic causes while showing safe, actionable errors to the user.
+- Comments should explain a non-obvious invariant, compatibility constraint, or reason for an ordering decision. Remove misleading comments and obsolete paths made unnecessary by the change. Do not leave placeholder implementations, test-only branches, or unresolved TODOs in a required feature path.
+- Keep refactoring and behavior changes distinguishable. Preserve existing behavior unless the task changes it, and avoid unrelated formatting churn or opportunistic dependency upgrades. Use existing dependencies first; update the lockfile with any authorized dependency change.
+- Keep work bounded for long conversations: avoid repeated full-history scans, unbounded caches, and large synchronous transformations in request or render loops when a bounded approach is available. Validate performance-sensitive changes with representative synthetic data before claiming improvement; do not optimize by dropping history or skipping integrity checks.
 
-The user moved roleplay libraries/editors and chat-history replacement ahead of context management. Those form the implemented second milestone; durable layered compaction with a verbatim cutoff is now implemented as the third. The user accepted the visualizer's geometric-pressure promotion rule and targeted repair with review on 2026-10-17. Preserve committed selections during ordinary continuation, explicit source dependencies, stop/resume without automatic retries, and review before repaired memory becomes active. Manual Prepare chat includes saved-memory reselection using the existing pressure policy, protects selected memory carrying manual corrections during reselection, keeps all saved content and persists before/after history. Reuse exact fresh saved summaries before generating missing replacements. A fitting saved selection makes no model requests; automatic and single-step preparation reuse saved replacements without expanding history. The separate Refresh button is superseded, while its saved history remains inspectable. Automatic restoration in managed mode remains deferred. The later prompt-control decision disables summary work when Summary is absent/disabled, keeps saved memory intact, and uses a request-local recent-turn window at Messages. Generic marker warnings are advisory; empty/missing-marker presets are allowed. Default/new templates include Summary. See IMPLEMENTATION.md and README.md for scope and limitations.
+## Persistence, asynchronous work, and recovery
 
-Agents are part of the concept model, but their inclusion in the first release is undecided. Broad provider-specific adaptation, semantic retrieval, scene detection, character-specific memory permissions, multimedia, multiplayer, and a plugin ecosystem are proposed deferrals, not permanent prohibitions.
+- Treat saved chats, summary corrections, and request history as user data. Never make a migration or test pass by deleting the database, resetting memory, rewriting history, or silently discarding records.
+- Add versioned migrations for schema/data upgrades; do not rewrite already-applied migrations. Keep schema definitions, migration registration, and reads/writes consistent. Exercise both fresh creation and upgrade from an affected older populated database. Preserve identities, revisions, text, selections, and historical requests unless an explicitly accepted migration changes them.
+- Keep SQLite writes transactional and short. Perform provider/network calls outside transactions; recheck captured operation, source, configuration, and selection revisions inside the committing transaction. A successful earlier check does not authorize a later stale write.
+- Commit coupled changes together: for example, save a summary and switch its selection/cutoff atomically. A failed write must retain the last valid committed state. Preserve completed steps when a later step fails.
+- Enforce per-chat operation ownership, pending-turn limits, shared-record edit restrictions, and revision checks on the server. Account for simultaneous tabs/devices, repeated commands, and delayed responses. Preserve independence between unrelated chats.
+- Treat cancellation, browser disconnection, provider failure, and server interruption as different events. Generation belongs to the server; disconnecting an SSE observer does not cancel it. Reject late results after cancellation or supersession, reconcile current saved state on reconnect, and release listeners/timers/resources on every exit path.
+- Retries must be explicit and safe against duplicate commands, duplicate coverage, and repeated progress. Restart loads committed state and exposes interrupted work; it must not silently repeat paid requests or claim a provider stream can resume.
+- Keep historical request bodies, estimates, source revisions, and endpoint usage immutable while retained. New edits affect future work and create the required versions; they do not rewrite what an earlier request received. Respect documented whole-turn deletion, history replacement, and Clear memory semantics.
+- Never use the user's active database or original transcript for destructive testing. Use temporary databases and synthetic/copied fixtures. A live SQLite WAL database requires a consistent backup method; copying only its main file is not a dependable backup. Do not claim restore safety without testing it.
 
-The accepted repair review refinement uses a continuous **Repair summaries** dialog with matching prose panes, expandable source comparison, **Approve & Next**, **Regenerate** and **Close**. Approval saves before generating dependents. Close stops in-flight repair and discards the unapproved candidate and edits; reopening generates fresh work while retaining approved repairs. Draft persistence is explicitly excluded. Keep the queue scoped to current dependencies required by selected memory, including earlier-context dependencies; textual comparison does not establish semantic quality.
+## Product invariants to protect
 
-## Repository and implementation boundaries
+These are review reminders; consult CONCEPTS.md and IMPLEMENTATION.md for the full policies and later accepted changes.
 
-- This folder is separate from Marinara Engine. Marinara motivated the project; its architecture, dependencies, branch rules, and contributor workflow are not automatically this project's choices.
-- Do not modify Marinara Engine or import its code, user data, or credentials unless the user requests that work. Inspect any relevant license before proposing code reuse.
-- Preserve existing work and keep changes proportional to the request. Avoid speculative abstractions and scaffolding.
-- Do not invent installation, build, or test commands. Once implementation establishes them, document the actual workflow here or in a dedicated contributor guide.
-- For implemented behavior, validate the relevant user-facing claim and report what was tested and what remains unverified. Documentation-only changes need an accuracy and consistency review, not a fabricated test run.
-- Use copied or synthetic chats for context experiments. Never destructively test against the user's original conversations.
+- **Vocabulary:** a Connection owns endpoint/protocol/credentials/model/limits/custom parameters; a Prompt preset arranges text blocks and source markers; a context preset is reusable configuration, distinct from each chat's saved memory. Character and Persona are separate reusable records. “Agent” in product discussion means an auxiliary application task with instructions, a Connection, conversation access, execution triggers, and marker output; it does not authorize coding subagents.
+- **Turns:** only the latest turn may be pending; another submission is blocked until it is resolved. Completion is independent of text length. Either part of a completed turn can be intentionally empty; only whole turns are deleted. Omit blank outgoing parts without losing turn membership or coverage. Blank/failed/cancelled generated output does not become a completed response. A copied character greeting is a completed opening turn, and later reusable edits do not rewrite it.
+- **Prompt authority:** only enabled blocks/markers insert sources. Empty/missing-marker presets may be saved; warnings are advisory. Default/new templates include Summary. With Summary enabled, Summary and Messages share managed coverage. Without Summary, Messages uses a request-local newest contiguous suffix of whole turns that fits; no summary work or saved-cutoff restriction applies, and saved memory stays intact. Missing Messages inserts no turns. Empty resolved requests fail before a provider call.
+- **Coverage and selection:** compaction preserves the transcript, saves a replacement before excluding its sources, and prevents overlaps/unexplained gaps in managed coverage. Ordinary continuation preserves committed selections; spare capacity does not reactivate children. Manual Prepare may reselect fresh saved memory under the accepted pressure policy, protecting manual corrections and recording before/after state. Reuse exact fresh replacements before generating missing ones; a fitting saved selection makes no model calls. Automatic and single-step preparation reuse without expanding history. The old Refresh button is superseded, but its history remains inspectable.
+- **Budgets:** use the shared `cl100k_base` reference counter for complete resolved input, allocations, savings, and summarization checks. Separate the input target from physical capacity/output reservation. Preserve fixed batches, protected tails, residual turns, and the accepted geometric-pressure promotion rule. Fail when required input cannot fit; never silently truncate sources, lower guarantees, or exceed the target. Endpoint usage is a separate observation, not a calibration rule or exact-limit guarantee.
+- **Repair and provenance:** archived edits invalidate affected summaries and their dependents, including higher layers and earlier-context consumers. Scope repair to current dependencies required by selected memory. Changed repairs require review before becoming active; approval saves before generating dependents. Close cancels work and discards the unapproved candidate/local edits, while retaining approved progress; reopening generates fresh work. Do not add draft persistence. Use the separate repair prompt, complete before/after incorporated inputs, and original prior dependencies. Unknown historical baselines, changed coverage, or changed text require review. Exact unchanged model results may save automatically only with known inputs and unchanged structure; entirely unchanged consumed inputs may be revalidated locally. Distinguish those outcomes, preserve manual corrections/versions, and never clear downstream staleness indiscriminately.
+- **Limits of validation:** structural coverage, exact text equality, and refusal heuristics do not establish semantic summary quality or perfect recall. Preserve that distinction in tests, UI, documentation, and completion reports.
 
-## Current entry points
+## Security and user interface
 
-- `CONCEPTS.md`: purpose, definitions, proposed responsibility boundaries, reliability requirements, scope, open decisions, and a suggested first context-management experiment.
-- `IMPLEMENTATION.md`: accepted stack and implementation guide; read before application work.
-- `README.md`: actual application commands, first-milestone behavior, protocol subset, storage/security details, and verification limits.
-- `start-app.command`: local application launcher, separate from the visualizer's `experiments/compaction/start.sh`.
-- `src/`, `migrations/`, `tests/`: application modules, versioned SQLite schema, and synthetic core/server/browser checks.
-- `AGENTS.md`: orientation and collaboration guidance for assistants working in this folder.
-- `docs/VISUALIZER.md`: standalone simulator instructions, assumptions, and validation commands.
-- `experiments/compaction/compaction_visualizer.py`: interactive layered timeline using saved per-request snapshots.
-- `experiments/compaction/compaction_model.py`: UI-independent stateful synthetic budget model; preserve committed selections during forward continuation, never expand children merely to fill spare capacity.
+- Keep saved credentials on the server. Exclude them from ordinary API responses, previews, logs, errors, fixtures, and exports. Deliberately map public response fields instead of serializing database rows. Use synthetic secrets to test exclusion.
+- Preserve authentication, origin checks, credential forwarding restrictions, and TLS requirements. Do not weaken them to make development or browser tests easier. Validate IDs, revisions, numeric limits, imported data, custom parameters, and provider responses at their actual trust boundaries.
+- Treat imported cards, transcripts, model output, and remote errors as untrusted data. Do not execute embedded instructions/HTML or enable unsupported card features during import. Preserve supported round-trip metadata without making it active.
+- Routine automated tests use the local mock provider. Do not substitute saved credentials or send private conversations to a real endpoint merely to verify a change. Real-provider checks must be within the user's authorized scope; report their limited coverage.
+- Make loading, empty, failed, cancelled, stale, and completed states understandable for affected flows. Show committed success only after the server confirms it. Preserve recoverable user input on failed saves, except where the accepted workflow explicitly discards drafts.
+- Guard UI requests/subscriptions against stale responses after chat or selection changes. Clean up effects and prevent duplicate submissions without relying on that prevention for server integrity. Keep authoritative state distinct from unsaved editing drafts.
+- Reuse established controls and styling. Preserve labels, keyboard access, focus behavior, readable errors, and desktop/phone layouts. Keep implementation details out of ordinary product flows unless they help the user make a decision.
+
+## Verification requirements
+
+Choose checks by the behavior at risk. A successful build alone does not establish correctness, and asking the user to click through a feature is not a substitute for automated checks the agent can run.
+
+| Change | Expected evidence |
+| --- | --- |
+| Core policy or bug fix | Focused Vitest checks of observable behavior, boundaries, and the regression. Check invariants across a sequence when state carries forward. |
+| Persistence, migration, or operation lifecycle | Tests using real temporary SQLite databases/coordinators: successful commit plus relevant rollback, stale revision, duplicate command, cancellation, or reopen/restart cases. |
+| Provider or request assembly | Controlled mock-provider tests of exact outgoing input/parameters, credential exclusion, and affected malformed/failed/incomplete stream cases. |
+| User workflow or interaction | Relevant Playwright workflow with meaningful state assertions; inspect desktop and phone-sized rendering when layout changes. |
+| Pure styling/copy or documentation | Proportionate visual or accuracy/consistency review; do not invent tests that merely assert wording, class names, or implementation details. |
+
+- For a reproducible defect, add a regression test and establish that it fails for the original reason before the fix when feasible. Derive expectations from the requirement, not by copying the implementation's calculation into the test.
+- Test important failures and boundaries alongside the happy path. For example, editing an archived turn must leave all its direct memory consumers stale even when another repaired consumer returns unchanged. Assert saved state and model-call counts when no-call/reuse behavior is part of the promise.
+- Use real core/persistence paths for integration tests and mock external transport at the boundary. Avoid mocking away the invariant under test. Keep fixtures deterministic, isolated, and representative; wait for observable conditions instead of arbitrary sleeps, and clean up test processes/databases.
+- Never delete, skip, weaken, or rewrite a failing expectation solely to obtain a green run. An accepted behavior change may require updating a test; explain why its old expectation no longer applies and retain meaningful coverage. Do not loosen types, validation, security, or error handling to satisfy a test.
+- Investigate relevant failures and fix those introduced by the change. Distinguish demonstrably pre-existing failures and environment blockers from regressions; a rerun that happens to pass is not evidence that a flaky failure is resolved.
+
+### Commands
+
+Use the supported Node/npm environment from README.md; better-sqlite3 is native, so changing Node major versions can require reinstalling dependencies. Run commands from the repository root.
+
+| Command | Purpose |
+| --- | --- |
+| `npm ci` | Install the locked dependencies when needed. |
+| `npm run typecheck` | Strict client/server TypeScript checks. |
+| `npm test` | All Vitest core/server/persistence tests. |
+| `npm test -- tests/context-core.test.ts` | Example of a focused existing Vitest suite; select the suite relevant to the change. |
+| `npm run build` | Typecheck and build the interface/server. |
+| `npm run test:e2e` | Browser workflows against the built interface and an isolated test server. |
+| `npm run check` | Build, Vitest, and browser suites together. |
+
+Use focused checks while iterating. Before handing off application code, run `npm run check`; running its constituent commands successfully against the final changes is equivalent. Build before browser tests because they serve `dist/client`. If an environment restriction prevents a required check, report the exact missing verification and reason rather than claiming completion of validation. Pure documentation changes require consistency/link/command review, not an application test run. Chromium installation and local-server requirements are documented in README.md. There is no separate lint script; do not claim to have run one.
+
+## Final review and handoff
+
+Before declaring completion, read the final diff as a reviewer. Trace the changed behavior through affected callers and error paths, not just new lines. Check for violated product invariants, data loss, stale writes, credential exposure, missing migration/compatibility handling, duplicated policy, dead code, and tests that would pass even if the feature were broken. Fix findings within scope and rerun affected checks. Do not treat passing tests or a review tool's approval as proof that no defects remain.
+
+Update documentation when the change affects accepted behavior, architecture, operation, or verification claims. Put product decisions in CONCEPTS.md, implementation contracts in IMPLEMENTATION.md, commands/current limitations in README.md, and detailed subsystem explanations in `docs/`. Keep this file focused on durable working rules; do not append a feature diary or duplicate full specifications. This guidance does not authorize unrelated cleanup or retroactive application of every style preference.
+
+The final report should state the outcome, relevant checks actually run and their results, and any remaining limitations or unresolved risks. Provide a short manual acceptance path when it helps the user assess the feature. Clearly distinguish implemented, automatically tested, manually observed, and unverified behavior. Do not claim real-provider quality from mock responses, actual phone support from emulation, or a clean test run when required checks were blocked.
