@@ -6,7 +6,7 @@ import { chmodSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { AppError } from '../core/errors.js';
 import { replaceNameMacros } from '../core/prompt.js';
-import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStatus, RequestPreview, Turn } from '../shared/contracts.js';
+import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStatus, RequestPreview, TokenUsage, Turn } from '../shared/contracts.js';
 import { defaultPrompt, selectionsSchema, type Character, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved } from '../shared/library.js';
 import * as schema from './schema.js';
 import { trimBoundaryNewlines } from '../shared/text.js';
@@ -84,7 +84,14 @@ export class Store {
           this.sqlite.prepare('UPDATE library_state SET revision = revision + 1 WHERE id = 1').run();
           this.sqlite.pragma('user_version = 3');
         })();
-      } else if (version !== 3) throw new Error('Unsupported database schema version.');
+        version = 3;
+      }
+      if (version === 3) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0004_token_usage.sql'), 'utf8'));
+          this.sqlite.pragma('user_version = 4');
+        })();
+      } else if (version !== 4) throw new Error('Unsupported database schema version.');
       this.contexts = new ContextStore(this);
       if (newDatabase) this.db.insert(schema.chats).values({ id: 'main', revision: 0, settings: initialSettings }).onConflictDoNothing().run();
     } catch (error) {
@@ -116,7 +123,7 @@ export class Store {
     }));
     const generations: Generation[] = this.db.select().from(schema.generations).where(eq(schema.generations.chatId, chatId)).orderBy(desc(sql`rowid`)).all().map(row => ({
       id: row.id, turnId: row.turnId, status: row.status, sourceRevision: row.sourceRevision,
-      request: row.request, partialText: row.partialText, error: row.error, createdAt: row.createdAt, updatedAt: row.updatedAt,
+      request: row.request, usage: row.usage, partialText: row.partialText, error: row.error, createdAt: row.createdAt, updatedAt: row.updatedAt,
     }));
     return { id: chatId, revision: chat.revision, settings: chat.settings, connection, hasApiKey, turns, generations, context: this.contexts.snapshot(chatId, chat.settings.contextPresetId ?? null), sources: {
       prompt: this.selected<PromptPreset>(chat.settings.promptId, 'prompts'),
@@ -217,7 +224,7 @@ export class Store {
   updateChat(expected: number, chatId: string, input: ReturnType<typeof selectionsSchema.parse>) {
     this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId); this.ensureIdle(chatId); this.validateSelections(input);
-      if (input.contextPresetId === null && this.contexts.snapshot(chatId, null).archivedTurnIds.length) throw new AppError(409, 'restore_context_first', 'Restore verbatim history in Memory before disabling the context preset.');
+      if (input.contextPresetId === null && this.contexts.snapshot(chatId, null).archivedTurnIds.length) throw new AppError(409, 'restore_context_first', 'Clear memory in Memory before disabling the context preset.');
       this.db.update(schema.chats).set({ settings: { ...this.chat(chatId).settings, ...input, instructions: '', character: '', persona: '' } }).where(eq(schema.chats.id, chatId)).run();
       this.bumpRevision(chatId);
     })();
@@ -246,7 +253,7 @@ export class Store {
       this.checkRevision(expected, chatId); this.ensureIdle();
       this.selected(settings.promptId, 'prompts'); this.selected(settings.characterId, 'characters'); this.selected(settings.personaId, 'personas');
       this.contextPreset(settings.contextPresetId);
-      if (settings.contextPresetId === null && this.contexts.snapshot(chatId, null).archivedTurnIds.length) throw new AppError(409, 'restore_context_first', 'Restore verbatim history in Memory before disabling the context preset.');
+      if (settings.contextPresetId === null && this.contexts.snapshot(chatId, null).archivedTurnIds.length) throw new AppError(409, 'restore_context_first', 'Clear memory in Memory before disabling the context preset.');
       const connectionId = settings.connectionId ?? 'main';
       const old = this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get();
       this.db.insert(schema.connections).values({ id: connectionId, settings: connection, revision: (old?.revision ?? -1) + 1 }).onConflictDoUpdate({ target: schema.connections.id, set: { settings: connection, revision: (old?.revision ?? -1) + 1 } }).run();
@@ -308,7 +315,7 @@ export class Store {
     if (this.generation(id)?.status !== 'running') return false;
     this.db.update(schema.generations).set({ partialText, updatedAt: new Date().toISOString() }).where(eq(schema.generations.id, id)).run(); return true;
   }
-  finish(id: string, status: Exclude<GenerationStatus, 'running' | 'interrupted'>, text: string, error: string | null = null) {
+  finish(id: string, status: Exclude<GenerationStatus, 'running' | 'interrupted'>, text: string, error: string | null = null, usage: TokenUsage | null = null) {
     return this.sqlite.transaction(() => {
       const generation = this.generation(id);
       if (!generation || generation.status !== 'running') return false;
@@ -320,7 +327,7 @@ export class Store {
         if (!turn || turn.complete) throw new AppError(409, 'stale_result', 'The turn is no longer awaiting this response.');
         this.db.update(schema.turns).set({ assistantText: text, assistantRevision: turn.assistantRevision + 1, complete: true }).where(eq(schema.turns.id, turn.id)).run();
       }
-      this.db.update(schema.generations).set({ status, partialText: text, error, updatedAt: new Date().toISOString() }).where(eq(schema.generations.id, id)).run();
+      this.db.update(schema.generations).set({ status, partialText: text, error, usage, updatedAt: new Date().toISOString() }).where(eq(schema.generations.id, id)).run();
       this.bumpRevision(generation.chatId); return true;
     })();
   }

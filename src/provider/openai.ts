@@ -1,8 +1,9 @@
 import { AppError } from '../core/errors.js';
-import type { RequestPreview } from '../shared/contracts.js';
+import type { RequestPreview, TokenUsage } from '../shared/contracts.js';
 
 export interface ProviderCompletion {
   finishReason: 'stop' | 'length';
+  usage?: TokenUsage;
 }
 
 export interface Provider {
@@ -61,6 +62,7 @@ export class OpenAICompatibleProvider implements Provider {
     }
     let buffer = '';
     let finishReason: ProviderCompletion['finishReason'] | undefined;
+    let usage: TokenUsage | undefined;
     let done = false;
     let outputLength = 0;
     const consume = (event: string) => {
@@ -69,6 +71,10 @@ export class OpenAICompatibleProvider implements Provider {
       if (data === '[DONE]') { done = true; return; }
       const chunk: unknown = JSON.parse(data);
       if (!chunk || typeof chunk !== 'object' || 'error' in chunk) throw new Error('Invalid provider event.');
+      const reported = (chunk as { usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown } }).usage;
+      if (reported && [reported.prompt_tokens, reported.completion_tokens, reported.total_tokens].every(value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) {
+        usage = { inputTokens: reported.prompt_tokens as number, outputTokens: reported.completion_tokens as number, totalTokens: reported.total_tokens as number };
+      }
       const choices = (chunk as { choices?: unknown }).choices;
       if (!Array.isArray(choices) || choices.length === 0) return;
       const choice = choices.find((item) => item?.index === 0);
@@ -107,7 +113,7 @@ export class OpenAICompatibleProvider implements Provider {
       }
       if (!done || !finishReason) throw new AppError(502, 'incomplete_stream', 'The model stream ended without a completed response. The turn remains pending.');
       if (outputLength === 0) throw new AppError(502, 'empty_response', 'The model returned no text. The turn remains pending; retry or delete it.');
-      return { finishReason };
+      return { finishReason, ...(usage ? { usage } : {}) };
     } finally {
       await reader.cancel().catch(() => {});
       reader.releaseLock();

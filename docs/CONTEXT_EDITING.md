@@ -162,7 +162,7 @@ A turn count is not a token budget. The protected minimum tail, pending input, a
 
 ## Deletion and restoring detail: under discussion
 
-The initial application offers an explicit full restore to verbatim input while retaining summaries and saved steps. Deleting archived sources instead uses targeted repair with review. These implemented controls do not settle automatic partial restoration or selection reuse after broader strategy changes.
+The user refined the initial restore action into **Clear memory** on 2026-10-17: delete every layer, summary version, review candidate and preparation record for this chat, returning all original turns to verbatim. Original turns, the context preset selection and saved roleplay requests remain unchanged. This supersedes the initial restore-only behavior that retained saved summaries. Deleting archived sources instead uses targeted repair with review. These implemented controls do not settle automatic partial restoration or selection reuse after broader strategy changes.
 
 The user proposed restoring archived turns after deletion and retaining lower summaries after promotion so recent context can regain detail. The subsequent budget-driven direction supersedes both an automatic restoration target of `L + B - 1` and fixed age thresholds for each summary level. How to spend newly freed capacity on restored representations remains open; it should be reconciled with the preference for recent verbatim history and the minimum tail.
 

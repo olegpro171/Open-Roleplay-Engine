@@ -126,7 +126,7 @@ describe('history replacement', () => {
     db.close();
     const store = new Store(path);
     try {
-      expect(store.snapshot()).toMatchObject({ revision: 4, turns: [{ id: 'old-turn', user: { id: 'old-user', revision: 2 }, assistant: { id: 'old-assistant', revision: 3 } }], generations: [{ id: 'old-generation' }] });
+      expect(store.snapshot()).toMatchObject({ revision: 4, turns: [{ id: 'old-turn', user: { id: 'old-user', revision: 2 }, assistant: { id: 'old-assistant', revision: 3 } }], generations: [{ id: 'old-generation', usage: null }] });
       expect(store.snapshot().sources.character?.description).toBe('Old character'); expect(store.apiKey()).toBe('old-secret');
       expect(store.sqlite.pragma('foreign_key_check')).toEqual([]);
       store.updateChat(4, 'main', { title: 'Old story', targetInputTokens: 32_000, connectionId: 'main', promptId: 'default', characterId: null, personaId: null });

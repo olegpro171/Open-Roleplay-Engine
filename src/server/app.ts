@@ -142,9 +142,9 @@ export async function createApp(options: {
     const input = z.object({ revision: revisionSchema, requestId: z.string().uuid(), mode: z.enum(['prepare', 'step', 'repair']) }).strict().parse(request.body);
     return reply.code(202).send(coordinator.context.start(chatId(request.params), input.revision, input.requestId, input.mode));
   });
-  app.post('/api/chats/:chatId/context/restore', async request => {
+  app.post('/api/chats/:chatId/context/clear', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-    store.contexts.restore(chatId(request.params), revision); coordinator.changed(); return { ok: true };
+    store.contexts.clearMemory(chatId(request.params), revision); coordinator.changed(); return { ok: true };
   });
   app.patch('/api/chats/:chatId/context/summaries/:id', { bodyLimit: 1_100_000 }, async request => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);

@@ -1,3 +1,4 @@
+import { assembleRequest } from '../src/core/prompt.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -206,12 +207,54 @@ describe('durable imported-session preparation', () => {
     const settings = { title: saved.settings.title, targetInputTokens: 100_000, connectionId: saved.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId };
     f.store.updateChat(saved.revision, f.chatId, settings); await f.idle(f.start());
     expect(f.calls).toHaveLength(calls); expect(f.state().context.selected).toEqual(selected);
-    expect(() => f.store.updateChat(f.state().revision, f.chatId, { ...settings, contextPresetId: null })).toThrow('Restore verbatim');
-    f.store.contexts.restore(f.chatId, f.state().revision);
+    expect(() => f.store.updateChat(f.state().revision, f.chatId, { ...settings, contextPresetId: null })).toThrow('Clear memory');
+    f.store.contexts.clearMemory(f.chatId, f.state().revision);
     expect(f.state().context.selected).toEqual([]); expect(f.state().context.archivedTurnIds).toEqual([]);
-    expect(f.state().context.summaries).toEqual(saved.context.summaries);
+    expect(f.state().context.summaries).toEqual([]); expect(f.state().context.jobs).toEqual([]);
+    expect(f.state().turns).toEqual(saved.turns);
     f.store.updateChat(f.state().revision, f.chatId, { ...settings, contextPresetId: null });
     expect(f.state().settings.contextPresetId).toBeNull();
+  });
+
+  it('remeasures a retained-floor block after raising the target and can prepare again under changed settings', async () => {
+    const f = fixture(8); await f.idle(f.start('step'));
+    const saved = f.state();
+    const { id: _presetId, revision: _presetRevision, ...preset } = saved.context.preset!;
+    f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...defaultContextPreset, ...preset, minTail: 6 }, f.contextId);
+    const current = f.state();
+    const selection = { title: current.settings.title, connectionId: current.settings.connectionId ?? null, promptId: current.settings.promptId ?? 'default', characterId: current.settings.characterId ?? null, personaId: current.settings.personaId ?? null, contextPresetId: f.contextId };
+    const tail = current.turns.filter(turn => !current.context.archivedTurnIds.includes(turn.id));
+    const required = assembleRequest(current.connection!, current.settings, tail, current.sources, undefined, { validateLimits: false }).budget.inputTokens;
+    f.store.updateChat(current.revision, f.chatId, { ...selection, targetInputTokens: required + 1 });
+    expect(contextPlan(f.state()).blocked).toContain('retained-summary floor');
+    expect((await f.idle(f.start())).error).toContain('retained-summary floor');
+    const blocked = f.state(), calls = f.calls.length;
+    f.store.updateChat(blocked.revision, f.chatId, { ...selection, targetInputTokens: contextPlan(blocked).inputTokens + 100 });
+    expect(contextPlan(f.state()).ready).toBe(true);
+    expect((await f.idle(f.start())).status).toBe('succeeded'); expect(f.calls).toHaveLength(calls);
+    f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...defaultContextPreset, ...preset, minTail: 2 }, f.contextId);
+    f.store.updateChat(f.state().revision, f.chatId, { ...selection, targetInputTokens: required + 1 });
+    expect(contextPlan(f.state()).next?.level).toBe(1);
+    expect((await f.idle(f.start('step'))).status).toBe('succeeded');
+  });
+
+  it('clears all layers and review candidates while retaining turns, selected preset and immutable roleplay requests', async () => {
+    const f = fixture();
+    f.coordinator.start(f.state().revision, randomUUID(), 'Leon waits.', f.chatId);
+    await expect.poll(() => f.state().generations[0].status).toBe('succeeded');
+    f.store.editPart(f.state().revision, f.state().turns[0].id, 'user', 'Mira kept the key.', f.chatId);
+    const id = f.start('repair'); await f.idle(id);
+    const saved = f.state();
+    expect(saved.context.summaries.some(node => node.level > 1)).toBe(true);
+    expect(saved.context.summaries.some(node => !node.approved)).toBe(true);
+    f.store.contexts.clearMemory(f.chatId, saved.revision);
+    const cleared = f.state();
+    expect(cleared.context.selected).toEqual([]); expect(cleared.context.archivedTurnIds).toEqual([]);
+    expect(cleared.context.summaries).toEqual([]); expect(cleared.context.jobs).toEqual([]);
+    expect(f.store.sqlite.prepare('SELECT COUNT(*) as count FROM context_steps').get()).toEqual({ count: 0 });
+    expect(cleared.turns).toEqual(saved.turns); expect(cleared.generations).toEqual(saved.generations);
+    expect(cleared.settings.contextPresetId).toBe(f.contextId);
+    await f.resume(); expect(f.state().context.summaries).toEqual([]);
   });
 
   it('rejects duplicate command identities used for a different operation', async () => {

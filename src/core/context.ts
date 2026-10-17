@@ -56,7 +56,7 @@ export function selectedContext(turns: Turn[], state: ContextState, allowStale =
 export function nextCompaction(turns: Turn[], state: ContextState, config: ContextPreset, input: number, limit: number, required: number, summarySizes: Map<string, number>): { next: ContextOperation | null; blocked: string | null } {
   const { summaries, verbatim } = selectedContext(turns, state);
   const completed = verbatim.filter(turn => turn.complete);
-  if (state.archivedTurnIds.length && completed.length < config.minTail) return { next: null, blocked: 'The saved cutoff no longer leaves the configured minimum tail. Restore verbatim history or lower the minimum tail explicitly.' };
+  if (state.archivedTurnIds.length && completed.length < config.minTail) return { next: null, blocked: 'The saved cutoff no longer leaves the configured minimum tail. Clear memory or lower the minimum tail explicitly.' };
   if (input <= limit) return { next: null, blocked: null };
   if (completed.length >= config.minTail + config.batchSize) {
     return { next: { level: 1, turnIds: completed.slice(0, config.batchSize).map(turn => turn.id), children: [] }, blocked: null };
@@ -106,7 +106,7 @@ export function nextRepair(turns: Turn[], state: ContextState, replacements: Map
     if (visited.has(key) || replacements.has(key) || !stale.has(key)) return null;
     visited.add(key);
     const node = nodeFor(state, ref);
-    if (!node) throw new AppError(422, 'invalid_context', 'A summary dependency is missing. Restore verbatim history to rebuild it.');
+    if (!node) throw new AppError(422, 'invalid_context', 'A summary dependency is missing. Clear memory to rebuild it from the original turns.');
     for (const dependency of [...node.children, ...node.prior]) {
       const operation = visit(dependency);
       if (operation) return operation;

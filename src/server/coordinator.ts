@@ -36,7 +36,7 @@ export class GenerationCoordinator {
       this.store.saveRequest(id, request);
       this.changed();
       let lastCheckpoint = 0;
-      await this.provider.stream(request, this.store.apiKey(chatId), operation.controller.signal, (delta) => {
+      const completion = await this.provider.stream(request, this.store.apiKey(chatId), operation.controller.signal, (delta) => {
         if (operation.controller.signal.aborted) return;
         operation.text += delta;
         if (Date.now() - lastCheckpoint >= 250) {
@@ -46,7 +46,7 @@ export class GenerationCoordinator {
         }
       });
       if (!this.stopping && !operation.controller.signal.aborted) {
-        this.store.finish(id, 'succeeded', operation.text);
+        this.store.finish(id, 'succeeded', operation.text, null, completion?.usage ?? null);
         this.changed();
       }
     } catch (error) {

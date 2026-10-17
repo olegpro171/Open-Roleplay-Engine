@@ -27,6 +27,14 @@ describe('request assembly', () => {
     expect(() => assembleRequest({ ...connection, contextWindow: input + 99 }, settings, [])).toThrow('plus reserved output');
     expect(() => assembleRequest({ ...connection, contextWindow: input + 100 }, settings, [])).not.toThrow();
   });
+  it('attributes resolved content without changing its order or budget, including escaped multibyte text', () => {
+    const request = assembleRequest(connection, settings, [{ ...turn, user: { ...turn.user, text: 'A "key"\\\\\n🕯' }, assistant: { ...turn.assistant, text: 'Лампа.' } }]);
+    expect(request.layout?.map(part => part.messageIndex)).toEqual(request.body.messages.map((_, i) => i));
+    expect(request.layout?.map(part => [part.kind, part.tokens])).toEqual([['prompt', 12], ['character', 11], ['persona', 7], ['history', 19], ['history', 11]]);
+    expect(request.budget.inputTokens).toBe(425);
+    expect(request.body.stream_options).toEqual({ include_usage: true });
+    expect(assembleRequest({ ...connection, requestUsage: false }, settings, []).body).not.toHaveProperty('stream_options');
+  });
   it('rejects request replacement and credential-bearing endpoint URLs', () => {
     expect(connectionSchema.safeParse({ ...connection, customParameters: { messages: [] } }).success).toBe(false);
     expect(connectionSchema.safeParse({ ...connection, customParameters: { api_key: 'secret' } }).success).toBe(false);

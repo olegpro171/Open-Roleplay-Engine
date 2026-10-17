@@ -156,13 +156,10 @@ export class ContextStore {
       this.saveJob(this.bump({ ...job, status: accept ? 'succeeded' : 'cancelled', error: accept ? null : 'Repair candidate discarded. Original memory remains selected.' }));
     })();
   }
-  restore(chatId: string, revision: number) {
+  clearMemory(chatId: string, revision: number) {
     this.sqlite.transaction(() => {
       this.store.checkRevision(revision, chatId); this.store.ensureIdle(chatId);
-      const context = this.store.snapshot(chatId).context;
-      this.saveState(chatId, { ...emptyContextState(), revision: context.revision + 1 });
-      const pending = (this.sqlite.prepare("SELECT data FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").all(chatId) as JsonRow[]).map(row => JSON.parse(row.data) as ContextJob);
-      for (const job of pending) this.saveJob({ ...job, status: 'cancelled', error: 'Verbatim history was explicitly restored; this unapproved candidate is retained for inspection.' });
+      this.clear(chatId);
       this.store.bumpRevision(chatId);
     })();
   }

@@ -5,7 +5,7 @@ export async function startMockProvider() {
   const modelRequests: { authorization?: string }[] = [];
   let modelMode: 'normal' | 'error' | 'invalid' | 'redirect' = 'normal';
   const waiting: (() => void)[] = [];
-  let mode: 'normal' | 'hold' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' | 'placeholder' = 'normal';
+  let mode: 'normal' | 'hold' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' | 'placeholder' | 'no-usage' | 'bad-usage' = 'normal';
   const send = (response: ServerResponse, value: unknown) => response.write(`data: ${JSON.stringify(value)}\n\n`);
   const server = createServer(async (request, response) => {
     if (request.url === '/v1/models') {
@@ -27,6 +27,7 @@ export async function startMockProvider() {
       if (currentMode === 'broken') { response.end(); return; }
       if (currentMode !== 'empty' && currentMode !== 'whitespace' && currentMode !== 'placeholder') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'padded' ? 'flickers. 🕯\r\n\r\n ' : 'flickers. 🕯' }, finish_reason: null }] });
       send(response, { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] });
+      if (currentMode !== 'no-usage') send(response, { choices: [], usage: currentMode === 'bad-usage' ? { prompt_tokens: -1, completion_tokens: 'wrong', total_tokens: 19 } : { prompt_tokens: 321, completion_tokens: 17, total_tokens: 338 } });
       response.end('data: [DONE]\n\n');
     };
     if (currentMode === 'hold') waiting.push(finish);

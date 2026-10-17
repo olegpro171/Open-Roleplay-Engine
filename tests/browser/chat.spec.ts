@@ -65,7 +65,11 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
 
   await phone.getByRole('button', { name: 'Request inspector' }).click();
   await expect(phone.getByTestId('request-body')).toContainText('I enter the tower.');
+  await phone.getByRole('combobox', { name: 'Inspect request', exact: true }).click();
+  await phone.getByRole('option').filter({ hasText: 'succeeded' }).first().click();
   const saved = JSON.parse((await phone.getByTestId('request-body').textContent())!);
+  await page.getByRole('article').first().locator('.turn-usage').waitFor();
+  await expect(page.locator('.turn-usage').first()).toHaveText('321 in · 17 out');
   const captured = await request.get('/__test/requests').then((response) => response.json());
   expect(saved).toEqual(preview);
   expect(saved).toEqual(captured[0].body);

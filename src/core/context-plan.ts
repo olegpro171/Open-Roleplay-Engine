@@ -67,7 +67,7 @@ export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperati
   }
   return { prior, request: {
     endpoint: `${connection.endpoint.replace(/\/+$/, '')}/chat/completions`,
-    body: { ...connection.customParameters, model: connection.model, messages, stream: true, max_tokens: connection.maxOutputTokens },
+    body: { ...connection.customParameters, model: connection.model, messages, stream: true, max_tokens: connection.maxOutputTokens, ...(connection.requestUsage !== false ? { stream_options: { include_usage: true as const } } : {}) },
     coverage: turns.map(sourceOf), budget: { inputTokens: estimateInputTokens(messages), targetInputTokens: physicalInput, reservedOutputTokens: connection.maxOutputTokens, contextWindow: connection.contextWindow, method: 'UTF-8 bytes + 128 framing + 16 per message (conservative estimate)', verified: false },
   } };
 }

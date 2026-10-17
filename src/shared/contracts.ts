@@ -22,6 +22,7 @@ export const connectionSchema = z.object({
   contextWindow: z.number().int().positive().max(10_000_000),
   maxOutputTokens: z.number().int().positive().max(1_000_000),
   customParameters: customParametersSchema,
+  requestUsage: z.boolean().optional(),
 }).strict().refine((value) => value.maxOutputTokens < value.contextWindow, {
   message: 'Reserved output must be smaller than the context window.', path: ['maxOutputTokens'],
 });
@@ -44,8 +45,12 @@ export type TurnPart = { id: string; revision: number; text: string };
 export type Turn = { id: string; position: number; complete: boolean; user: TurnPart; assistant: TurnPart };
 export type RequestBody = {
   model: string; messages: Message[]; stream: true; max_tokens: number;
+  stream_options?: { include_usage: true };
 } & z.infer<typeof customParametersSchema>;
+export type PromptEntry = { messageIndex: number; kind: 'prompt' | 'character' | 'persona' | 'memory' | 'history' | 'draft'; label: string; tokens: number };
+export type TokenUsage = { inputTokens: number; outputTokens: number; totalTokens: number };
 export type RequestPreview = {
+  layout?: PromptEntry[];
   warnings?: string[];
   endpoint: string;
   body: RequestBody;
@@ -59,7 +64,7 @@ export type RequestPreview = {
 export type GenerationStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export type Generation = {
   id: string; turnId: string; status: GenerationStatus; sourceRevision: number;
-  request: RequestPreview | null; partialText: string; error: string | null;
+  request: RequestPreview | null; partialText: string; error: string | null; usage: TokenUsage | null;
   createdAt: string; updatedAt: string;
 };
 export type ChatSnapshot = {

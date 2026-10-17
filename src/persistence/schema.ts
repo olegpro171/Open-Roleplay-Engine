@@ -1,5 +1,5 @@
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-import type { ChatSettings, Connection, GenerationStatus, RequestPreview } from '../shared/contracts.js';
+import type { ChatSettings, Connection, GenerationStatus, RequestPreview, TokenUsage } from '../shared/contracts.js';
 import type { Character, Persona, PromptPreset } from '../shared/library.js';
 import type { ContextPreset } from '../shared/context.js';
 
@@ -34,6 +34,7 @@ export const generations = sqliteTable('generations', {
   turnId: text('turn_id').notNull(), status: text('status').$type<GenerationStatus>().notNull(),
   sourceRevision: integer('source_revision').notNull(),
   request: text('request', { mode: 'json' }).$type<RequestPreview | null>(),
+  usage: text('usage', { mode: 'json' }).$type<TokenUsage | null>(),
   partialText: text('partial_text').notNull(), error: text('error'),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 });

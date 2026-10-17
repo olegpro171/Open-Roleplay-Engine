@@ -49,6 +49,25 @@ afterEach(async () => {
 });
 
 describe('persistent chat and generation', () => {
+  it('persists provider usage from the final empty-choice chunk across reload and later edits', async () => {
+    await submit();
+    const saved = await waitForIdle();
+    expect(saved.generations[0].usage).toEqual({ inputTokens: 321, outputTokens: 17, totalTokens: 338 });
+    expect(mock.requests[0].body.stream_options).toEqual({ include_usage: true });
+    await command(`/api/turns/${saved.turns[0].id}/user`, { revision: saved.revision, text: 'A later edit.' }, 'PATCH');
+    expect((await state()).generations[0].usage).toEqual(saved.generations[0].usage);
+    await instance.app.close();
+    instance = await createApp({ database: join(directory, 'chat.sqlite') });
+    expect((await state()).generations[0].usage).toEqual(saved.generations[0].usage);
+  });
+
+  it.each(['no-usage', 'bad-usage'] as const)('accepts a valid response with %s without inventing token counts', async mode => {
+    mock.setMode(mode); await submit();
+    const saved = await waitForIdle();
+    expect(saved.generations[0].status).toBe('succeeded');
+    expect(saved.generations[0].usage).toBeNull();
+  });
+
   it('rejects a second server before it can invalidate the first server operation', async () => {
     mock.setMode('hold'); await submit();
     await expect.poll(() => mock.requests.length).toBe(1);
