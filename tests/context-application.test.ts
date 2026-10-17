@@ -1,3 +1,4 @@
+import legacyContextPrompts from './fixtures/legacy-context-prompts.json';
 import { assembleRequest } from '../src/core/prompt.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -193,6 +194,24 @@ describe('retained editorial authority', () => {
 });
 
 describe('durable imported-session preparation', () => {
+  it('upgrades legacy prompts without rewriting saved summaries, selections or preparation requests', async () => {
+    const f = fixture(24);
+    await f.idle(f.start());
+    const node = f.state().context.summaries.find(node => node.level === 1)!;
+    f.store.contexts.editSummary(f.chatId, f.state().revision, node, node.text + ' Author correction: Mira kept a duplicate.');
+    const { id: _, revision: presetRevision, ...preset } = f.store.contextPreset(f.contextId)!;
+    f.store.sqlite.prepare('UPDATE library SET data = ? WHERE id = ?').run(JSON.stringify({ ...preset, ...legacyContextPrompts }), f.contextId);
+    f.store.sqlite.pragma('user_version = 5');
+    const before = f.state();
+    const records = () => ['summaries', 'context_states', 'context_jobs', 'context_steps', 'generations', 'credentials'].map(table => f.store.sqlite.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all());
+    const saved = records(), calls = f.calls.length;
+    await f.resume();
+    expect(records()).toEqual(saved);
+    expect(f.calls).toHaveLength(calls);
+    expect(f.state().turns).toEqual(before.turns);
+    expect(f.state().revision).toBe(before.revision + 1);
+    expect(f.state().context.preset).toMatchObject({ extractionPrompt: defaultContextPreset.extractionPrompt, promotionPrompt: defaultContextPreset.promotionPrompt, revision: presetRevision + 1 });
+  });
   it('treats a normalized identical summary save as a no-op while validating conflicts', async () => {
     const f = fixture(24); await f.idle(f.start());
     const node = f.state().context.summaries.find(node => node.level === 1)!;

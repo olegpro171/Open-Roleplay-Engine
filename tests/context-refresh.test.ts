@@ -40,6 +40,39 @@ function fixture(): ChatSnapshot {
 const measure = (snapshot: ChatSnapshot) => assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context, { validateLimits: false }).budget.inputTokens;
 const apply = (snapshot: ChatSnapshot, state: ReturnType<typeof refreshContext>['state']): ChatSnapshot => ({ ...snapshot, context: { ...snapshot.context, ...state } });
 
+describe('separate continuity summary requests', () => {
+  it.each([1, 2, 3])('uses the level %i template with exact sources and reference-only earlier memory', level => {
+    const snapshot = fixture();
+    const leaves = snapshot.context.summaries.filter(node => node.level === 1);
+    snapshot.context.selected = leaves.slice(0, 4).map(({ id, revision }) => ({ id, revision }));
+    snapshot.context.preset = { ...defaultContextPreset, id: 'preset', revision: 0, summaryTokens: 321 };
+    const sourceNodes = leaves.slice(2, 4).map(node => ({ ...node, level: level - 1 }));
+    if (level > 1) snapshot.context.summaries = [...snapshot.context.summaries.filter(node => !sourceNodes.some(source => source.id === node.id)), ...sourceNodes];
+    const turns = snapshot.turns.slice(4, level === 1 ? 6 : 8);
+    const operation = { level, turnIds: turns.map(turn => turn.id), children: level === 1 ? [] : sourceNodes.map(({ id, revision }) => ({ id, revision })) };
+    const { request, prior } = summaryRequest(snapshot, operation, snapshot.connection!);
+    const template = level === 1 ? defaultContextPreset.extractionPrompt : defaultContextPreset.promotionPrompt;
+    expect(request.body.messages[0]).toEqual({ role: 'system', content: template.replaceAll('{{target_tokens}}', '321').replaceAll('{{level}}', String(level)) });
+    expect(prior).toEqual(leaves.slice(0, 2).map(({ id, revision }) => ({ id, revision })));
+    expect(request.body.messages.slice(1, -1)).toEqual(leaves.slice(0, 2).map(node => ({ role: 'system', content: `Earlier memory for reference only; do not repeat or extend its coverage:\n${node.text}` })));
+    expect(JSON.parse(request.body.messages.at(-1)!.content)).toEqual({ task: 'Summarize only the supplied sources.', sources: level === 1
+      ? turns.map(turn => ({ turn: turn.position + 1, user: turn.user.text, assistant: turn.assistant.text }))
+      : sourceNodes.map(node => ({ level: node.level, text: node.text })) });
+    expect(request.coverage).toEqual(turns.map(sourceOf));
+    expect(request.body.max_tokens).toBe(snapshot.connection!.maxOutputTokens);
+  });
+
+  it('fits the complete default instructions and fixed sources exactly, or fails without truncation', () => {
+    const snapshot = fixture();
+    const operation = { level: 1, turnIds: snapshot.turns.slice(0, 2).map(turn => turn.id), children: [] };
+    const connection = snapshot.connection!;
+    const initial = summaryRequest(snapshot, operation, connection).request;
+    const exact = { ...connection, contextWindow: initial.budget.inputTokens + connection.maxOutputTokens };
+    expect(summaryRequest(snapshot, operation, exact).request.body).toEqual(initial.body);
+    expect(() => summaryRequest(snapshot, operation, { ...exact, contextWindow: exact.contextWindow - 1 })).toThrow('fixed source batch and summary instructions do not fit');
+  });
+});
+
 describe('manual memory refresh using the saved tree', () => {
   it('reconciles crossing alternatives through a saved container instead of choosing one correction', () => {
     const snapshot = fixture();

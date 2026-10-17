@@ -10,7 +10,8 @@ import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStat
 import { defaultPrompt, promptSchema, selectionsSchema, type Character, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved } from '../shared/library.js';
 import * as schema from './schema.js';
 import { trimBoundaryNewlines } from '../shared/text.js';
-import { defaultContextPreset, type ContextPreset } from '../shared/context.js';
+import { contextPresetSchema, defaultContextPreset, type ContextPreset } from '../shared/context.js';
+import { upgradedContextPrompts } from './context-prompt-upgrade.js';
 import { ContextStore } from './context-store.js';
 
 const initialSettings: ChatSettings = {
@@ -106,7 +107,26 @@ export class Store {
           }
           this.sqlite.pragma('user_version = 5');
         })();
-      } else if (version !== 5) throw new Error('Unsupported database schema version.');
+        version = 5;
+      }
+      if (version === 5) {
+        this.sqlite.transaction(() => {
+          const changedIds = new Set<string>();
+          for (const preset of this.db.select().from(schema.library).where(eq(schema.library.kind, 'contexts')).all()) {
+            const changes = upgradedContextPrompts(contextPresetSchema.parse(preset.data));
+            if (!Object.keys(changes).length) continue;
+            this.db.update(schema.library).set({ data: { ...preset.data, ...changes }, revision: preset.revision + 1 }).where(eq(schema.library.id, preset.id)).run();
+            changedIds.add(preset.id);
+          }
+          if (changedIds.size) {
+            for (const chat of this.db.select().from(schema.chats).all()) {
+              if (chat.settings.contextPresetId && changedIds.has(chat.settings.contextPresetId)) this.bumpRevision(chat.id);
+            }
+            this.sqlite.prepare('UPDATE library_state SET revision = revision + 1 WHERE id = 1').run();
+          }
+          this.sqlite.pragma('user_version = 6');
+        })();
+      } else if (version !== 6) throw new Error('Unsupported database schema version.');
       this.contexts = new ContextStore(this);
       if (newDatabase) this.db.insert(schema.chats).values({ id: 'main', revision: 0, settings: initialSettings }).onConflictDoNothing().run();
     } catch (error) {

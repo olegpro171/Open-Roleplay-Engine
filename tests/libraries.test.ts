@@ -13,6 +13,7 @@ import { createApp } from '../src/server/app.js';
 import { randomUUID } from 'node:crypto';
 import { startMockProvider } from './support/mock-provider.js';
 import { deflateSync } from 'node:zlib';
+import legacyContextPrompts from './fixtures/legacy-context-prompts.json';
 import { contextPresetSchema, defaultContextPreset } from '../src/shared/context.js';
 
 const folders: string[] = [];
@@ -83,7 +84,7 @@ describe('cards, macros and prompt arrangement', () => {
     try {
       const personaId = store.saveLibrary(store.libraries().revision, 'personas', { name: 'Traveller', description: '{{user}} visits {{char}}.' });
       const characterId = store.saveLibrary(store.libraries().revision, 'characters', card);
-      const connectionId = store.saveLibrary(store.libraries().revision, 'connections', connection, undefined, 'secret');
+      const connectionId = store.saveLibrary(store.libraries().revision, 'connections', connection, undefined, 'synthetic-library-api-key-7319');
       const prompt = { name: 'Ordered', blocks: [
         { id: 'persona', name: 'Persona', enabled: true, kind: 'marker' as const, role: 'user' as const, marker: 'persona' as const },
         { id: 'char', name: 'Character', enabled: true, kind: 'marker' as const, role: 'system' as const, marker: 'character' as const },
@@ -98,7 +99,7 @@ describe('cards, macros and prompt arrangement', () => {
       expect(request.body.messages[0]).toEqual({ role: 'user', content: 'Traveller visits Keeper.' });
       expect(request.body.messages[1].content).toContain('Keeper greets Traveller.');
       expect(request.body.messages.slice(-2)).toEqual([{ role: 'user', content: 'Literal {{char}}' }, { role: 'system', content: 'Keeper replies to Traveller.' }]);
-      expect(JSON.stringify(store.libraries())).not.toContain('secret');
+      expect(JSON.stringify(store.libraries())).not.toContain('synthetic-library-api-key-7319');
       store.saveLibrary(store.libraries().revision, 'characters', { ...card, first_mes: 'Different greeting' }, characterId);
       expect(store.snapshot(id).turns[0].assistant.text).toBe('Welcome, Traveller.');
       expect(promptSchema.parse({ name: 'Missing history', blocks: [defaultPrompt.blocks[0]] }).blocks).toHaveLength(1);
@@ -128,8 +129,64 @@ describe('prompt template upgrade', () => {
       expect(store.snapshot().turns).toEqual(before.turns);
       expect(store.snapshot().generations).toEqual(before.generations);
       expect(store.libraries().prompts.find(prompt => prompt.id === customId)!.blocks).toEqual(legacy.blocks);
-      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(5);
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(6);
     } finally { store.close(); }
+  });
+});
+
+describe('continuity prompt upgrade', () => {
+  it.each(['neither', 'extraction', 'promotion', 'both'] as const)('preserves customized fields (%s) and upgrades old factory fields once', customized => {
+    const path = join(folder(), 'context-upgrade.sqlite');
+    let store = new Store(path);
+    const extractionPrompt = customized === 'extraction' || customized === 'both' ? 'My extraction rules.' : legacyContextPrompts.extractionPrompt;
+    const promotionPrompt = customized === 'promotion' || customized === 'both' ? 'My promotion rules.' : legacyContextPrompts.promotionPrompt;
+    const preset = { ...defaultContextPreset, name: 'My settings', minTail: 13, summaryTokens: 321, extractionPrompt, promotionPrompt, repairPrompt: 'My repair rules.' };
+    const id = store.saveLibrary(store.libraries().revision, 'contexts', preset, 'default-context');
+    const chatId = store.createChat({ title: 'Preserved', targetInputTokens: 32_000, connectionId: null, promptId: 'default', characterId: null, personaId: null, contextPresetId: id });
+    store.replaceHistory(store.snapshot(chatId).revision, chatId, [{ user: 'Mira kept the key.', assistant: 'Leon promised to return.', complete: true }]);
+    const before = store.snapshot(chatId), unrelated = store.snapshot(), library = store.libraries();
+    const changed = customized !== 'both';
+    store.sqlite.pragma('user_version = 5');
+    store.close(); store = new Store(path);
+    try {
+      expect(store.contextPreset(id)).toEqual({ ...preset, id,
+        revision: library.contexts.find(item => item.id === id)!.revision + Number(changed),
+        extractionPrompt: extractionPrompt === legacyContextPrompts.extractionPrompt ? defaultContextPreset.extractionPrompt : extractionPrompt,
+        promotionPrompt: promotionPrompt === legacyContextPrompts.promotionPrompt ? defaultContextPreset.promotionPrompt : promotionPrompt,
+      });
+      expect(store.snapshot(chatId)).toEqual({ ...before, revision: before.revision + Number(changed), context: { ...before.context, preset: store.contextPreset(id) } });
+      expect(store.snapshot()).toEqual(unrelated);
+      expect(store.libraries().revision).toBe(library.revision + Number(changed));
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(6);
+      if (changed) expect(() => store.checkRevision(before.revision, chatId)).toThrow('changed on another device');
+      const upgraded = store.snapshot(chatId), upgradedLibrary = store.libraries();
+      store.close(); store = new Store(path);
+      expect(store.snapshot(chatId)).toEqual(upgraded);
+      expect(store.libraries()).toEqual(upgradedLibrary);
+    } finally { store.close(); }
+  });
+
+  it('rolls back prompt and revision updates together if an upgrade write fails', () => {
+    const path = join(folder(), 'context-rollback.sqlite');
+    const store = new Store(path);
+    store.saveLibrary(store.libraries().revision, 'contexts', { ...defaultContextPreset, ...legacyContextPrompts }, 'default-context');
+    const before = store.sqlite.prepare('SELECT * FROM library ORDER BY id').all();
+    const libraryRevision = store.libraries().revision;
+    store.sqlite.exec("CREATE TRIGGER reject_prompt_upgrade BEFORE UPDATE ON library_state BEGIN SELECT RAISE(ABORT, 'synthetic upgrade failure'); END");
+    store.sqlite.pragma('user_version = 5');
+    store.close();
+    expect(() => new Store(path)).toThrow('synthetic upgrade failure');
+    const db = new Database(path);
+    try {
+      expect(db.pragma('user_version', { simple: true })).toBe(5);
+      expect(db.prepare('SELECT * FROM library ORDER BY id').all()).toEqual(before);
+      expect(db.prepare('SELECT revision FROM library_state WHERE id = 1').get()).toEqual({ revision: libraryRevision });
+      expect(db.prepare('SELECT * FROM runtime_owner').all()).toEqual([]);
+      db.exec('DROP TRIGGER reject_prompt_upgrade');
+    } finally { db.close(); }
+    const recovered = new Store(path);
+    try { expect(recovered.contextPreset('default-context')?.extractionPrompt).toBe(defaultContextPreset.extractionPrompt); }
+    finally { recovered.close(); }
   });
 });
 
