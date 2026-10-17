@@ -327,7 +327,7 @@ describe('persistent chat and generation', () => {
     expect(mock.modelRequests.at(-1)?.authorization).toBe('Bearer new-key');
     await command('/api/models', { endpoint: mock.url, connectionId: 'main', apiKey: '' });
     expect(mock.modelRequests.at(-1)?.authorization).toBeUndefined();
-    for (const mode of ['error', 'invalid', 'redirect'] as const) {
+    for (const mode of ['invalid', 'redirect'] as const) {
       mock.setModelMode(mode);
       const response = await command('/api/models', { endpoint: mock.url, connectionId: 'main' });
       expect(response.statusCode).toBe(502);
@@ -337,6 +337,38 @@ describe('persistent chat and generation', () => {
     }
     expect((await command('/api/models', { endpoint: mock.url + '?key=secret' })).statusCode).toBe(400);
     expect((await instance.app.inject({ method: 'POST', url: '/api/models', headers: { host: 'localhost', origin: 'http://localhost' }, payload: { endpoint: mock.url } })).statusCode).toBe(401);
+  });
+
+  it.each(['models', 'check', 'test'] as const)('explains missing and rejected API keys for %s without saving editor settings', async action => {
+    const before = await state();
+    mock.setModelMode('error');
+    mock.setMode('error');
+    const input = action === 'models' ? { endpoint: mock.url } : { action, connection: before.connection };
+    for (const apiKey of ['', 'entered-test-secret']) {
+      const response = await command(action === 'models' ? '/api/models' : '/api/connections/diagnose', { ...input, apiKey });
+      expect(response.statusCode).toBe(502);
+      expect(response.json().message).toContain(apiKey ? 'rejected the API key' : 'Enter your provider’s API key');
+      expect(response.json().message).toContain('401');
+      expect(response.body).not.toContain('entered-test-secret');
+      expect(response.body).not.toContain('upstream-secret');
+      expect(await state()).toEqual(before);
+    }
+  });
+
+  it.each([
+    [403, 'permission'],
+    [404, 'API base URL'],
+    [429, 'limits and balance'],
+    [503, 'Try again later'],
+  ] as const)('provides recovery guidance for model-list HTTP %s without exposing the provider response', async (status, guidance) => {
+    mock.setModelMode(status);
+    const response = await command('/api/models', { endpoint: mock.url, connectionId: 'main' });
+    expect(response.statusCode).toBe(502);
+    expect(response.json().code).toBe('model_list_unavailable');
+    expect(response.json().message).toContain(`HTTP ${status}`);
+    expect(response.json().message).toContain(guidance);
+    expect(response.body).not.toContain('upstream-secret');
+    expect(response.body).not.toContain('synthetic-api-secret');
   });
 
   it('continues generation after an observer disconnects and reconciles both clients', async () => {

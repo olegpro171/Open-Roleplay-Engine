@@ -10,6 +10,28 @@ export interface Provider {
   stream(request: RequestPreview, apiKey: string, signal: AbortSignal, onText: (text: string) => void): Promise<ProviderCompletion | void>;
 }
 
+function httpFailureMessage(status: number, apiKey: string, action: 'models' | 'generation'): string {
+  const retry = action === 'models' ? 'fetch the model list again' : 'retry the request';
+  if (status === 401) {
+    return apiKey
+      ? `The provider rejected the API key (HTTP 401). Check or replace it in this Connection, then ${retry}.`
+      : `The provider requires authentication (HTTP 401). Enter your provider’s API key in this Connection, then ${retry}.`;
+  }
+  if (status === 403) {
+    return `The provider denied access (HTTP 403). Check that your API key and provider account have permission to ${action === 'models' ? 'list models' : 'use this model'}, then try again.`;
+  }
+  if (status === 429) {
+    return 'The provider’s request or usage limit was reached (HTTP 429). Check your account’s limits and balance, then try again when requests are available.';
+  }
+  if (status >= 500 && status <= 599) {
+    return `The provider could not complete the request (HTTP ${status}). Try again later. If this continues, check the provider’s service status.`;
+  }
+  if (action === 'models') {
+    return `Could not fetch the model list (HTTP ${status}). Check the API base URL. If your provider does not support fetching models, enter its model identifier manually.`;
+  }
+  return `The provider could not accept the request (HTTP ${status}). Check the API base URL, model identifier and request parameters in this Connection, then try again.`;
+}
+
 export async function fetchModels(endpoint: string, apiKey: string): Promise<string[]> {
   try {
     const response = await fetch(`${endpoint.replace(/\/+$/, '')}/models`, {
@@ -18,7 +40,7 @@ export async function fetchModels(endpoint: string, apiKey: string): Promise<str
     });
     if (!response.ok) {
       await response.body?.cancel();
-      throw new AppError(502, 'model_list_unavailable', `Model discovery returned HTTP ${response.status}. You can still enter a model identifier manually.`);
+      throw new AppError(502, 'model_list_unavailable', httpFailureMessage(response.status, apiKey, 'models'));
     }
     if (!response.body) throw new Error('Missing model list.');
     const reader = response.body.getReader();
@@ -41,7 +63,7 @@ export async function fetchModels(endpoint: string, apiKey: string): Promise<str
     return [...new Set(models as string[])].sort();
   } catch (error) {
     if (error instanceof AppError) throw error;
-    throw new AppError(502, 'model_list_unavailable', 'Could not fetch this endpoint’s model list. Check the URL and API key, or enter a model identifier manually.');
+    throw new AppError(502, 'model_list_unavailable', 'Could not read the provider’s model list. Check the API base URL and your network connection, then try again. If your provider does not support fetching models, enter its model identifier manually.');
   }
 }
 
@@ -54,7 +76,7 @@ export class OpenAICompatibleProvider implements Provider {
     });
     if (!response.ok) {
       await response.body?.cancel();
-      throw new AppError(502, 'provider_error', `The model endpoint returned HTTP ${response.status}. Check the Connection and retry.`);
+      throw new AppError(502, 'provider_error', httpFailureMessage(response.status, apiKey, 'generation'));
     }
     if (!response.body || !response.headers.get('content-type')?.includes('text/event-stream')) {
       await response.body?.cancel();

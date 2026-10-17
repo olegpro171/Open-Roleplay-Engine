@@ -3,13 +3,14 @@ import { createServer, type ServerResponse } from 'node:http';
 export async function startMockProvider() {
   const requests: { body: Record<string, unknown>; authorization?: string }[] = [];
   const modelRequests: { authorization?: string }[] = [];
-  let modelMode: 'normal' | 'error' | 'invalid' | 'redirect' = 'normal';
+  let modelMode: 'normal' | 'error' | 'invalid' | 'redirect' | number = 'normal';
   const waiting: (() => void)[] = [];
   let mode: 'normal' | 'repair-unchanged' | 'hold' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' | 'placeholder' | 'no-usage' | 'bad-usage' = 'normal';
   const send = (response: ServerResponse, value: unknown) => response.write(`data: ${JSON.stringify(value)}\n\n`);
   const server = createServer(async (request, response) => {
     if (request.url === '/v1/models') {
       modelRequests.push({ authorization: request.headers.authorization });
+      if (typeof modelMode === 'number') { response.writeHead(modelMode).end('upstream-secret-do-not-save'); return; }
       if (modelMode === 'error') { response.writeHead(401).end('upstream-secret-do-not-save'); return; }
       if (modelMode === 'redirect') { response.writeHead(302, { Location: '/v1/redirected-models' }).end(); return; }
       response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(modelMode === 'invalid' ? { data: [{ name: 'Invalid' }] } : { data: [{ id: 'synthetic-roleplay' }, { id: 'another-model' }, { id: 'synthetic-roleplay' }] })); return;
