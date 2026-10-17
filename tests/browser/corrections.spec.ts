@@ -1,0 +1,76 @@
+import { test, expect } from '@playwright/test';
+import type { ChatSnapshot } from '../../src/shared/contracts';
+import type { LibrarySnapshot } from '../../src/shared/library';
+import { defaultContextPreset } from '../../src/shared/context';
+
+test('inspects alternate identities and old versions without timeline collisions on desktop and phone', async ({ page, request }) => {
+  const session = await request.get('/api/session').then(response => response.json());
+  const { endpoint } = await request.get('/__test/endpoint').then(response => response.json());
+  await request.post('/__test/mode', { data: { mode: 'normal' } });
+  await page.goto('/');
+  await page.getByLabel('Owner password').fill('browser-synthetic-password');
+  await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
+  const command = async (url: string, data: unknown, method = 'POST') => {
+    const response = await page.request.fetch(url, { method, headers: { Origin: 'http://127.0.0.1:4173' }, data });
+    expect(response.ok(), await response.text()).toBe(true);
+    return response.json();
+  };
+  const libraries = () => page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
+  const connection = await command('/api/library', { revision: (await libraries()).revision, kind: 'connections', data: { name: 'Alternative inspector', endpoint, model: 'synthetic-summary', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
+  const preset = await command('/api/library', { revision: (await libraries()).revision, kind: 'contexts', data: { ...defaultContextPreset, name: 'Alternative context', connectionId: connection.id, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 } });
+  const chat = await command('/api/chats', { title: 'Alternate memories', targetInputTokens: 500, connectionId: connection.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id });
+  const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
+  const prepare = async () => {
+    await command(`/api/chats/${chat.id}/context/prepare`, { revision: (await state()).revision, requestId: crypto.randomUUID(), mode: 'prepare' });
+    await expect.poll(async () => (await state()).context.jobs[0]?.status).toBe('succeeded');
+  };
+  const target = async (value: number) => command(`/api/chats/${chat.id}/selections`, { revision: (await state()).revision, settings: { title: 'Alternate memories', targetInputTokens: value, connectionId: connection.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id } }, 'PUT');
+  await command(`/api/chats/${chat.id}/history`, { revision: (await state()).revision, turns: Array.from({ length: 12 }, (_, i) => ({ user: `Turn ${i}. Mira gives Leon the key. ${'Rain on the roof. '.repeat(10)}`, assistant: 'Leon keeps the key. ' + 'The room is quiet. '.repeat(10), complete: true })) }, 'PUT');
+  await prepare();
+  const old = (await state()).context.summaries.find(node => node.level === 1)!;
+  await target(50_000); await prepare();
+  expect((await state()).context.selected).toEqual([]);
+  await command(`/api/chats/${chat.id}/turns/${(await state()).turns[0].id}/user`, { revision: (await state()).revision, text: 'Mira kept the key.' }, 'PATCH');
+  await target(500); await prepare();
+  const alternative = (await state()).context.summaries.find(node => node.id !== old.id && node.level === old.level && node.turns.map(source => source.turnId).join() === old.turns.map(source => source.turnId).join())!;
+  expect(alternative).toBeTruthy();
+  await page.reload();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Alternate memories', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  const oldBox = page.getByRole('button', { name: new RegExp(`identity ${old.id}, revision 0`) });
+  const newBox = page.getByRole('button', { name: new RegExp(`identity ${alternative.id}, revision 0`) });
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await oldBox.scrollIntoViewIfNeeded();
+    const before = await oldBox.boundingBox(), after = await newBox.boundingBox();
+    expect(before).not.toBeNull(); expect(after).not.toBeNull();
+    expect(Math.abs(before!.y - after!.y)).toBeGreaterThanOrEqual(before!.height);
+    await oldBox.focus(); await oldBox.press('Enter');
+    await expect(page.locator('.summary-inspection')).toContainText(old.id);
+    await expect(page.locator('.summary-inspection')).toContainText('Stale');
+    await newBox.click();
+    await expect(page.locator('.summary-inspection')).toContainText(alternative.id);
+    await expect(page.locator('.summary-inspection')).toContainText('Fresh');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.locator('.memory-chart').screenshot({ path: `test-results/alternatives-${width}.png` });
+  }
+  await oldBox.click();
+  await page.getByRole('button', { name: 'Edit summary', exact: true }).click();
+  await page.getByLabel('Summary text', { exact: true }).fill('Author correction: Mira has a duplicate key.');
+  await page.getByRole('button', { name: 'Save summary edit', exact: true }).click();
+  const editedBox = page.getByRole('button', { name: new RegExp(`identity ${old.id}, revision 1`) });
+  await editedBox.click();
+  await expect(page.getByTestId('summary-authority')).toContainText('awaiting reconciliation');
+  await expect(page.getByRole('button', { name: 'Repair summaries', exact: true })).toBeEnabled();
+  await page.getByRole('combobox', { name: 'Summary version', exact: true }).click();
+  await page.getByRole('option', { name: 'Revision 0 · historical', exact: true }).click();
+  await expect(page.locator('.summary-inspection .prose').first()).toHaveText(old.text);
+  await expect(page.getByRole('button', { name: 'Edit summary', exact: true })).toHaveCount(0);
+  await page.getByRole('combobox', { name: 'Summary version', exact: true }).click();
+  await page.getByRole('option', { name: 'Revision 1 · current approved · manually corrected', exact: true }).click();
+  await expect(page.locator('.summary-inspection .prose').first()).toHaveText('Author correction: Mira has a duplicate key.');
+  expect((await state()).context.summaries.find(node => node.id === old.id && node.revision === 1)?.turns).toEqual(old.turns);
+});

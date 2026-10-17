@@ -179,10 +179,10 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   await page.reload();
   await page.getByRole('button', { name: 'Memory', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Summary layers' })).toBeVisible();
-  const recent = page.getByRole('button', { name: 'Level 1 summary, turns 200 to 203, active', exact: true });
+  const recent = page.getByRole('button', { name: 'Level 1 summary, turns 200 to 203, active · fresh, identity recent-memory, revision 0', exact: true });
   await expect(recent).toHaveText('');
   await recent.hover();
-  await expect(page.getByRole('tooltip')).toHaveText('L1 · turns 200–203 · active', { timeout: 300 });
+  await expect(page.getByRole('tooltip')).toHaveText('L1 · turns 200–203 · active · fresh · recent-memory · revision 0', { timeout: 300 });
   await expect(page.locator('.turn-band')).toHaveCount(2);
   const widths = await page.locator('.turn-band').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().width));
   expect(widths[0] / widths[1]).toBeCloseTo(203 / 17, 1);

@@ -1,10 +1,11 @@
 import type { ChatSnapshot } from '../shared/contracts.js';
 import { refKey, type ContextOperation, type ContextRefresh, type ContextState, type SummaryNode } from '../shared/context.js';
 import { AppError } from './errors.js';
-import { hasChronologicalLevels, rankedPromotions, selectedContext } from './context.js';
+import { hasChronologicalLevels, rankedPromotions, selectedContext, staleSummaries } from './context.js';
 import { operationKey, savedSummaries } from './context-reuse.js';
 import { assembleRequest, summaryText } from './prompt.js';
 import { countText } from './tokens.js';
+import { assertCorrectionSelection, correctionMessage, correctionProtection } from './context-corrections.js';
 import { hasPromptMarker } from '../shared/library.js';
 
 /** Explicit re-selection only: never generates, deletes or edits a summary. */
@@ -14,18 +15,20 @@ export function refreshContext(snapshot: ChatSnapshot, options: { allowOverflowF
   const config = original.preset;
   if (!config) throw new AppError(422, 'context_required', 'Select a context preset before refreshing memory.');
   // With no Messages marker, restoring turns cannot add input detail. Keep the
-  // committed memory; summary-only overflow is handled by saved/new promotions.
-  if (!hasPromptMarker(sources.prompt, 'messages')) {
+  // committed memory unless a retained correction needs explicit reconciliation.
+  // Summary-only overflow is handled by saved/new promotions.
+  if (!hasPromptMarker(sources.prompt, 'messages') && !correctionProtection(turns, original).unresolved.length) {
     selectedContext(turns, original);
+    assertCorrectionSelection(turns, original);
     if (!connection) throw new AppError(422, 'connection_required', 'Select a roleplay Connection before preparing memory.');
-    const input = assembleRequest(connection, settings, turns, sources, original, { validateLimits: false }).budget.inputTokens;
+    const input = assembleRequest(connection, settings, turns, sources, original, { validateLimits: false, allowStale: true }).budget.inputTokens;
     const selection = { selected: original.selected, archivedTurnIds: original.archivedTurnIds };
     return { state: original, report: { before: selection, after: selection, inputBefore: input, inputAfter: input, verbatimBefore: 0, verbatimAfter: 0, changed: false, protectedSummaries: 0, limited: false } };
   }
   if (!connection) throw new AppError(422, 'connection_required', 'Select a roleplay Connection before refreshing memory.');
   const current = selectedContext(turns, original); // Repair comes before restoration.
   const limit = Math.min(settings.targetInputTokens, connection.contextWindow - connection.maxOutputTokens);
-  const measure = (state: ContextState) => assembleRequest(connection, settings, turns, sources, state, { validateLimits: false }).budget.inputTokens;
+  const measure = (state: ContextState) => assembleRequest(connection, settings, turns, sources, state, { validateLimits: false, allowStale: true }).budget.inputTokens;
   const inputBefore = measure(original);
   const positions = new Map(turns.map((turn, i) => [turn.id, i]));
   const nodes = new Map(original.summaries.map(node => [refKey(node), node]));
@@ -37,45 +40,13 @@ export function refreshContext(snapshot: ChatSnapshot, options: { allowOverflowF
   const start = (node: SummaryNode) => positions.get(node.turns[0]?.turnId) ?? -1;
   const end = (node: SummaryNode) => positions.get(node.turns.at(-1)?.turnId ?? '') ?? -1;
 
-  // Source children carry a correction's coverage. Earlier-context dependencies
-  // control freshness, but do not pin the representation of later history.
-  const corrections = new Map<string, SummaryNode>();
-  const visited = new Set<string>();
-  const collect = (node: SummaryNode): void => {
-    const key = refKey(node);
-    if (visited.has(key)) return;
-    visited.add(key);
-    if (node.manual) corrections.set(key, node);
-    else node.children.forEach(ref => collect(resolve(ref)));
-  };
-  current.summaries.forEach(collect);
-  const protectedTurns = new Map<string, string>();
-  for (const [key, node] of corrections) {
-    for (const source of node.turns) protectedTurns.set(source.turnId, key);
+  const protection = correctionProtection(turns, original);
+  const corrections = new Map(protection.corrections.map(node => [refKey(node), node]));
+  const stale = staleSummaries(turns, original);
+  if (protection.corrections.some(node => stale.has(refKey(node)))) {
+    throw new AppError(422, 'correction_reconciliation_required', correctionMessage);
   }
-  const representedMemo = new Map<string, Set<string>>();
-  const representedCorrections = (node: SummaryNode): Set<string> => {
-    const key = refKey(node);
-    const cached = representedMemo.get(key);
-    if (cached) return cached;
-    const represented = new Set<string>();
-    representedMemo.set(key, represented);
-    if (corrections.has(key)) represented.add(key);
-    else {
-      for (const child of node.children) {
-        for (const correction of representedCorrections(resolve(child))) represented.add(correction);
-      }
-    }
-    return represented;
-  };
-  const available = savedSummaries(turns, original).filter(node => {
-    if (node.manual && !corrections.has(refKey(node))) return false;
-    const represented = representedCorrections(node);
-    return node.turns.every(source => {
-      const correction = protectedTurns.get(source.turnId);
-      return correction === undefined || represented.has(correction);
-    });
-  });
+  const available = savedSummaries(turns, original).filter(node => !protection.missingFor(node).length);
   const byKey = new Map(available.map(node => [refKey(node), node]));
   const saved = new Map<string, SummaryNode[]>();
   for (const node of available) {
@@ -86,7 +57,7 @@ export function refreshContext(snapshot: ChatSnapshot, options: { allowOverflowF
     const ordered = [...selectedNodes].sort((a, b) => start(a) - start(b));
     return { revision: original.revision, summaries: original.summaries, selected: ordered.map(({ id, revision }) => ({ id, revision })), archivedTurnIds: ordered.flatMap(node => node.turns.map(source => source.turnId)) };
   };
-  const protectedNodes = [...corrections.values()].sort((a, b) => start(a) - start(b));
+  const protectedNodes = [...corrections.values()].sort((a, b) => end(a) - end(b) || start(a) - start(b));
   const lastCorrection = protectedNodes.at(-1);
   const protectedEnd = lastCorrection ? end(lastCorrection) : -1;
   const completed = turns.filter(turn => turn.complete).length;
@@ -123,7 +94,43 @@ export function refreshContext(snapshot: ChatSnapshot, options: { allowOverflowF
     detailed.push(group);
     floor = group[0]?.level ?? floor;
   }
-  const baseline = stateFor(detailed.reverse().flat());
+  let baseline = stateFor(detailed.reverse().flat());
+  if (protectedNodes.length) {
+    // Tile the protected prefix from newest to oldest. Every candidate must carry
+    // all editorial authority overlapping its coverage; alternatives cannot win
+    // just because they have the same level/range or happen to be newer.
+    const ending = new Map<number, SummaryNode[]>();
+    for (const node of available) ending.set(end(node), [...ending.get(end(node)) ?? [], node]);
+    for (const group of ending.values()) group.sort((a, b) => a.level - b.level || a.id.localeCompare(b.id));
+    let protectedPrefix: SummaryNode[] | null = null;
+    const endpoints = [...ending.keys()].filter(last => last >= protectedEnd && completed - last - 1 >= config.minTail).sort((a, b) => a - b);
+    const failed = new Set<string>();
+    for (const endpoint of endpoints) {
+      const stack: { last: number; floor: number; index: number; via: SummaryNode | null }[] = [{ last: endpoint, floor: 0, index: 0, via: null }];
+      while (stack.length) {
+        const frame = stack[stack.length - 1];
+        if (frame.last < 0) {
+          protectedPrefix = stack.flatMap(item => item.via ? [item.via] : []).reverse();
+          break;
+        }
+        const choices = ending.get(frame.last) ?? [];
+        const node = choices[frame.index++];
+        if (!node) {
+          failed.add(`${frame.last}:${frame.floor}`);
+          stack.pop();
+          continue;
+        }
+        const first = start(node);
+        if (node.level < frame.floor || first < 0 || failed.has(`${first - 1}:${node.level}`)) continue;
+        stack.push({ last: first - 1, floor: node.level, index: 0, via: node });
+      }
+      if (protectedPrefix) break;
+    }
+    if (protectedPrefix) baseline = stateFor(protectedPrefix);
+    else if (correctionProtection(turns, baseline).unresolved.length) {
+      throw new AppError(422, 'correction_reconciliation_required', correctionMessage);
+    }
+  }
   let state = baseline;
   const sizes = new Map(available.map(node => [refKey(node), countText(`${summaryText(node, turns)}\n\n`)]));
   let input = measure(state), limited = false;
@@ -150,7 +157,7 @@ export function refreshContext(snapshot: ChatSnapshot, options: { allowOverflowF
     state = replacement.state; input = replacement.input;
   }
   if (limited) {
-    if (tailFits(original) && hasChronologicalLevels(current.summaries) && (inputBefore <= limit || options.allowOverflowFallback)) {
+    if (!protection.unresolved.length && tailFits(original) && hasChronologicalLevels(current.summaries) && (inputBefore <= limit || options.allowOverflowFallback)) {
       state = original;
       input = inputBefore;
     } else if (options.allowOverflowFallback && tailFits(baseline) && ordered(baseline)) {
@@ -163,6 +170,7 @@ export function refreshContext(snapshot: ChatSnapshot, options: { allowOverflowF
     }
   }
   selectedContext(turns, state);
+  assertCorrectionSelection(turns, state);
   const before = { selected: original.selected, archivedTurnIds: original.archivedTurnIds };
   const after = { selected: state.selected, archivedTurnIds: state.archivedTurnIds };
   const changed = JSON.stringify(before) !== JSON.stringify(after);

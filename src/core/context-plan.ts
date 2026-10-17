@@ -1,11 +1,12 @@
 import type { ChatSnapshot, Message, RequestPreview } from '../shared/contracts.js';
 import { emptyContextState, refKey, type ContextOperation, type ContextPlan, type SummaryRef } from '../shared/context.js';
 import { AppError } from './errors.js';
-import { nextCompaction, nodeFor, rankedPromotions, sourceOf, staleSummaries } from './context.js';
+import { nextCompaction, nodeFor, rankedPromotions, repairQueue, sourceOf, staleSummaries } from './context.js';
 import { hasPromptMarker } from '../shared/library.js';
 import { assembleRequest, estimateInputTokens, summaryText } from './prompt.js';
 import { countInput, countText } from './tokens.js';
 import { savedReplacement } from './context-reuse.js';
+import { correctionProtection, correctionMessage } from './context-corrections.js';
 import { repairInputs } from './context-repair.js';
 
 export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
@@ -29,6 +30,7 @@ export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
   const changedMembership = JSON.stringify(snapshot.turns.slice(0, archived.size).map(turn => turn.id)) !== JSON.stringify(state.archivedTurnIds);
   let next: ContextOperation | null = null, blocked: string | null = null;
   if (stale.length || changedMembership) blocked = 'Selected memory is out of date. Generate a targeted repair and review its replacements before continuing.';
+  else if (correctionProtection(snapshot.turns, state).unresolved.length) blocked = correctionMessage;
   else if (state.preset && !hasPromptMarker(snapshot.sources.prompt, 'messages')) {
     if (request.budget.inputTokens > effectiveLimit) {
       next = required <= effectiveLimit ? rankedPromotions(state.selected.map(ref => nodeFor(state, ref)!), state.preset, sizes)[0] ?? null : null;
@@ -38,7 +40,7 @@ export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
   else if (state.preset) ({ next, blocked } = nextCompaction(snapshot.turns, state, state.preset, request.budget.inputTokens, effectiveLimit, required, sizes));
   else if (request.budget.inputTokens > effectiveLimit) blocked = 'Full history exceeds the input limit. Select a context preset to prepare it.';
   const reusable = next ? savedReplacement(snapshot, next)?.node : null;
-  return { inputTokens: request.budget.inputTokens, method: request.budget.method, counting: request.budget.counting, targetInputTokens: snapshot.settings.targetInputTokens, effectiveLimit, verbatimTurnIds: request.history!.verbatimTurnIds, next, ready: !blocked && !next, blocked, stale, ...(reusable ? { reusable: { id: reusable.id, revision: reusable.revision } } : {}) };
+  return { inputTokens: request.budget.inputTokens, method: request.budget.method, counting: request.budget.counting, targetInputTokens: snapshot.settings.targetInputTokens, effectiveLimit, verbatimTurnIds: request.history!.verbatimTurnIds, next, ready: !blocked && !next, blocked, stale, repairCount: repairQueue(snapshot.turns, state).length, ...(reusable ? { reusable: { id: reusable.id, revision: reusable.revision } } : {}) };
 }
 
 export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperation, connection: NonNullable<ChatSnapshot['connection']>, replacements = new Map<string, SummaryRef | null>(), previousRequest: RequestPreview | null = null): { request: RequestPreview; prior: SummaryRef[] } {
@@ -55,6 +57,7 @@ export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperati
       previous_summary: inputs.old.text, previously_manually_corrected: inputs.old.manual,
       coverage_unchanged: inputs.structureUnchanged, previous_inputs_available: inputs.known,
       changes: inputs.changes,
+      ...(operation.reconcile?.length ? { reconciliation: 'The supplied manual corrections overlap this memory. Reconcile them with the existing summary. Do not silently prefer one correction or discard editorial content. Make conflicts explicit for user review; this result requires approval.' } : {}),
     }) }];
     const physicalInput = connection.contextWindow - connection.maxOutputTokens;
     const { contentTokens: _, ...measurement } = countInput(messages);
@@ -66,6 +69,9 @@ export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperati
       budget: { ...measurement, targetInputTokens: physicalInput, reservedOutputTokens: connection.maxOutputTokens, contextWindow: connection.contextWindow },
     } };
   }
+  const protection = correctionProtection(snapshot.turns, snapshot.context);
+  const proposed = { id: 'proposed', revision: 0, level: operation.level, text: '', turns: turns.map(sourceOf), children: operation.children, prior: [], approved: false, manual: false, createdAt: '' };
+  if (protection.missingFor(proposed).length) throw new AppError(422, 'correction_reconciliation_required', correctionMessage);
   const source = operation.level === 1 ? turns.map(turn => ({ turn: snapshot.turns.indexOf(turn) + 1, user: turn.user.text, assistant: turn.assistant.text })) : operation.children.map(ref => {
     const node = nodeFor(snapshot.context, ref);
     if (!node) throw new AppError(422, 'invalid_context', 'A source summary is missing.');

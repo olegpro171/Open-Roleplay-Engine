@@ -25,10 +25,12 @@ export type SummaryNode = SummaryRef & {
   level: number; text: string; turns: TurnSource[]; children: SummaryRef[]; prior: SummaryRef[];
   approved: boolean; createdAt: string; manual: boolean;
   basedOn?: SummaryRef;
+  /** Explicitly reviewed editorial inputs, including overlapping alternate identities. */
+  corrections?: SummaryRef[];
 };
 export type ContextState = { revision: number; archivedTurnIds: string[]; selected: SummaryRef[]; summaries: SummaryNode[] };
 export const emptyContextState = (): ContextState => ({ revision: 0, archivedTurnIds: [], selected: [], summaries: [] });
-export type ContextOperation = { level: number; turnIds: string[]; children: SummaryRef[]; repair?: SummaryRef };
+export type ContextOperation = { level: number; turnIds: string[]; children: SummaryRef[]; repair?: SummaryRef; reconcile?: SummaryRef[] };
 export type ContextJobStatus = 'running' | 'awaiting_review' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export type ContextJob = {
   id: string; chatId: string; status: ContextJobStatus; mode: 'prepare' | 'step' | 'repair' | 'refresh'; generationId: string | null;
@@ -57,7 +59,7 @@ export type ContextStep = {
   reused?: boolean;
   repairOutcome?: 'model_unchanged' | 'inputs_unchanged';
 };
-export type RepairChange = { kind: 'user' | 'assistant' | 'child' | 'prior'; id: string; label: string; before: string | null; after: string | null; beforeRevision: number | null; afterRevision: number | null; coverageChanged?: boolean };
+export type RepairChange = { kind: 'user' | 'assistant' | 'child' | 'prior' | 'correction'; id: string; label: string; before: string | null; after: string | null; beforeRevision: number | null; afterRevision: number | null; coverageChanged?: boolean };
 export type ContextSnapshot = ContextState & { preset: (ContextPreset & SummaryRef) | null; jobs: ContextJob[] };
 export type RepairAction = 'approve' | 'regenerate' | 'close';
 export type ContextJobDetails = {
@@ -69,5 +71,6 @@ export type ContextPlan = {
   inputTokens: number; targetInputTokens: number; effectiveLimit: number; verbatimTurnIds: string[];
   next: ContextOperation | null; ready: boolean; blocked: string | null; stale: SummaryRef[];
   reusable?: SummaryRef;
+  repairCount?: number;
 };
 export const refKey = (ref: SummaryRef) => `${ref.id}:${ref.revision}`;

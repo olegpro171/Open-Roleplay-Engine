@@ -1,6 +1,7 @@
 import type { ChatSnapshot, Turn } from '../shared/contracts.js';
 import { refKey, type ContextOperation, type ContextState, type SummaryNode } from '../shared/context.js';
 import { replaceSelection, selectedContext, staleSummaries } from './context.js';
+import { correctionProtection } from './context-corrections.js';
 import { assembleRequest } from './prompt.js';
 
 export const operationKey = (operation: ContextOperation) => JSON.stringify([operation.level, operation.turnIds, operation.children.map(refKey)]);
@@ -20,10 +21,13 @@ export function savedSummaries(turns: Turn[], state: ContextState): SummaryNode[
 /** Reuse the exact eligible batch/parent only when it reduces the complete input. */
 export function savedReplacement(snapshot: ChatSnapshot, operation: ContextOperation): { node: SummaryNode; state: ContextState; inputAfter: number } | null {
   if (operation.repair || !snapshot.connection) return null;
+  const protection = correctionProtection(snapshot.turns, snapshot.context);
+  if (protection.unresolved.length) return null;
   selectedContext(snapshot.turns, snapshot.context);
   const measure = (state: ContextState) => assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, state, { validateLimits: false }).budget.inputTokens;
   const inputBefore = measure(snapshot.context), key = operationKey(operation);
   for (const node of savedSummaries(snapshot.turns, snapshot.context)) {
+    if (protection.missingFor(node).length) continue;
     if (operationKey({ level: node.level, turnIds: node.turns.map(source => source.turnId), children: node.children }) !== key) continue;
     const state = { ...replaceSelection(snapshot.context, operation, node), summaries: snapshot.context.summaries };
     selectedContext(snapshot.turns, state);

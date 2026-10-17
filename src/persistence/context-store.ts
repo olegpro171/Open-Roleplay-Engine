@@ -51,7 +51,7 @@ export class ContextStore {
     };
     const prior = (request: RequestPreview | null | undefined) => request?.body.messages.slice(1, -1).map(message => message.content).join('\n\n') ?? '';
     if (Array.isArray(current.changes)) {
-      const text = (prior: boolean, side: 'before' | 'after') => current.changes!.filter(change => (change.kind === 'prior') === prior).map(change => `${change.label}\n${change[side] ?? (side === 'before' ? '[Previous input unavailable]' : '[Input removed]')}`).join('\n\n');
+      const text = (prior: boolean, side: 'before' | 'after') => current.changes!.filter(change => (change.kind === 'prior') === prior).map(change => `${change.label}\n${change[side] ?? (side === 'before' ? change.beforeRevision === null ? '[Not previously incorporated]' : '[Previous input unavailable]' : '[Input removed]')}`).join('\n\n');
       return { job, steps, repair: { remaining: repairQueue(snapshot.turns, snapshot.context).length,
         previousSources: text(false, 'before'), currentSources: text(false, 'after'), previousPrior: text(true, 'before'), currentPrior: text(true, 'after') } };
     }
@@ -175,7 +175,7 @@ export class ContextStore {
       if (!inputs.reusable) return false;
       const node: SummaryNode = { ...inputs.old,
         revision: Math.max(...snapshot.context.summaries.filter(node => node.id === inputs.old.id).map(node => node.revision)) + 1,
-        turns: snapshot.turns.filter(turn => operation.turnIds.includes(turn.id)).map(sourceOf), children: operation.children, prior: inputs.prior,
+        turns: snapshot.turns.filter(turn => operation.turnIds.includes(turn.id)).map(sourceOf), children: operation.children, prior: inputs.prior, corrections: inputs.corrections,
         approved: true, createdAt: new Date().toISOString(), basedOn: operation.repair,
       };
       const state = this.repairedState(snapshot, node);
@@ -192,6 +192,8 @@ export class ContextStore {
   beginStep(jobId: string, operation: ContextOperation, request: RequestPreview | null, inputBefore: number): ContextStep {
     return this.sqlite.transaction(() => {
       const job = this.job(jobId), snapshot = this.current(job);
+      const expected = job.mode === 'repair' ? nextRepair(snapshot.turns, snapshot.context, new Map()) : contextPlan(snapshot).next;
+      if (JSON.stringify(expected) !== JSON.stringify(operation) || job.mode !== 'repair' && contextPlan(snapshot).blocked) throw new AppError(409, 'stale_context_result', 'This memory operation is no longer eligible.');
       const step: ContextStep = { id: randomUUID(), jobId, operation, request, status: 'running', result: null, error: null,
         before: { selected: snapshot.context.selected, archivedTurnIds: snapshot.context.archivedTurnIds }, after: null, inputBefore, inputAfter: null, createdAt: new Date().toISOString() };
       this.sqlite.prepare('INSERT INTO context_steps (id, job_id, data) VALUES (?, ?, ?)').run(step.id, jobId, JSON.stringify(step));
@@ -206,6 +208,7 @@ export class ContextStore {
       if (!savedStep || savedStep.status !== 'running') throw new AppError(409, 'duplicate_context_result', 'This summary step has already been resolved.');
       if (JSON.stringify(step.before) !== JSON.stringify({ selected: snapshot.context.selected, archivedTurnIds: snapshot.context.archivedTurnIds })) throw new AppError(409, 'stale_selection', 'The selected memory changed before the summary was saved.');
       const repair = step.operation.repair;
+      if (repair && JSON.stringify(nextRepair(snapshot.turns, snapshot.context, new Map())) !== JSON.stringify(step.operation)) throw new AppError(409, 'stale_context_result', 'The required correction or repair changed.');
       const inputs = repair ? repairInputs(snapshot, step.operation, this.sourceRequest(job.chatId, repair)) : null;
       if (!repair && JSON.stringify(contextPlan(snapshot).next) !== JSON.stringify(step.operation)) throw new AppError(409, 'stale_context_result', 'This batch is no longer the next eligible replacement.');
       if (step.operation.turnIds.length && !validateSummary(text, 'stop').accepted) throw new AppError(502, 'invalid_summary', 'The candidate summary failed validation.');
@@ -217,6 +220,7 @@ export class ContextStore {
       const unchanged = Boolean(inputs?.known && inputs.structureUnchanged && text === inputs.old.text && step.operation.turnIds.length);
       const node: SummaryNode = { id: identity, revision: repair ? Math.max(...snapshot.context.summaries.filter(node => node.id === identity).map(node => node.revision)) + 1 : 0,
         level: step.operation.level, text, turns: sourceTurns.map(sourceOf), children: step.operation.children, prior,
+        ...(inputs ? { corrections: inputs.corrections } : {}),
         approved: !repair || unchanged, createdAt: new Date().toISOString(), manual: inputs?.old.manual ?? false, ...(repair ? { basedOn: repair } : {}) };
       let after: ContextState | null = null, inputAfter: number | null = null;
       if (!repair) {
@@ -271,8 +275,12 @@ export class ContextStore {
         const candidate = nodeFor(snapshot.context, step.result);
         if (!candidate) throw new AppError(409, 'missing_candidate', 'The repair candidate is missing.');
         if (editedText !== undefined && candidate.turns.length && !editedText.trim()) throw new AppError(400, 'blank_summary', 'A summary covering saved turns cannot be empty.');
-        const changed = editedText !== undefined && editedText !== candidate.text;
-        const approved = { ...candidate, approved: true, ...(changed ? { text: editedText!.trim(), manual: true, revision: Math.max(...snapshot.context.summaries.filter(node => node.id === candidate.id).map(node => node.revision)) + 1 } : {}) };
+        const normalized = editedText?.trim();
+        const edited = normalized !== undefined && normalized !== candidate.text
+          ? { ...candidate, text: normalized, manual: true, revision: Math.max(...snapshot.context.summaries.filter(node => node.id === candidate.id).map(node => node.revision)) + 1 }
+          : candidate;
+        const changed = edited.revision !== candidate.revision;
+        const approved = { ...edited, approved: true };
         const state: ContextState = { ...snapshot.context, revision: snapshot.context.revision + 1,
           summaries: changed ? [...snapshot.context.summaries, approved] : snapshot.context.summaries.map(node => refKey(node) === refKey(approved) ? approved : node),
           archivedTurnIds: snapshot.context.archivedTurnIds.filter(id => snapshot.turns.some(turn => turn.id === id)),
@@ -338,7 +346,9 @@ export class ContextStore {
       const state = this.store.snapshot(chatId).context, old = nodeFor(state, ref);
       if (!old?.approved || state.summaries.some(node => node.id === ref.id && node.approved && node.revision > ref.revision)) throw new AppError(409, 'stale_summary', 'This is not the current approved summary revision. Reopen its current version before editing.');
       if (!text.trim() || !old.turns.length) throw new AppError(400, 'blank_summary', 'A saved summary must have nonempty text and source coverage.');
-      const node: SummaryNode = { ...old, revision: Math.max(...state.summaries.filter(node => node.id === ref.id).map(node => node.revision)) + 1, text: text.trim(), manual: true, createdAt: new Date().toISOString(), basedOn: ref };
+      const normalized = text.trim();
+      if (normalized === old.text) return { id: old.id, revision: old.revision };
+      const node: SummaryNode = { ...old, revision: Math.max(...state.summaries.filter(node => node.id === ref.id).map(node => node.revision)) + 1, text: normalized, manual: true, createdAt: new Date().toISOString(), basedOn: ref };
       this.saveNode(chatId, node);
       const replacement = { id: node.id, revision: node.revision };
       this.saveState(chatId, { ...state, revision: state.revision + 1, selected: state.selected.map(selected => refKey(selected) === refKey(ref) ? replacement : selected) });

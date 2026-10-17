@@ -12,6 +12,7 @@ export function repairInputs(snapshot: ChatSnapshot, operation: ContextOperation
   for (const node of snapshot.context.summaries) if (node.approved && node.revision > (latest.get(node.id)?.revision ?? -1)) latest.set(node.id, { id: node.id, revision: node.revision });
   const current = (ref: SummaryRef) => latest.get(ref.id) ?? ref;
   const prior = old.prior.map(current).filter(ref => Boolean(nodeFor(snapshot.context, ref)?.turns.length));
+  const corrections = [...new Map([...(old.corrections ?? []).map(current), ...(operation.reconcile ?? []).map(current)].map(ref => [ref.id, ref])).values()];
   const stale = staleSummaries(snapshot.turns, snapshot.context);
   const same = (a: string[], b: string[]) => JSON.stringify(a) === JSON.stringify(b);
   let structureUnchanged = same(old.turns.map(source => source.turnId), operation.turnIds)
@@ -39,9 +40,9 @@ export function repairInputs(snapshot: ChatSnapshot, operation: ContextOperation
         beforeRevision: kind === 'user' ? source.userRevision : source.assistantRevision, afterRevision: after?.[kind].revision ?? null });
     }
   }
-  for (const kind of ['child', 'prior'] as const) {
-    const beforeRefs = kind === 'child' ? old.children : old.prior;
-    const afterRefs = kind === 'child' ? operation.children : prior;
+  for (const kind of ['child', 'prior', 'correction'] as const) {
+    const beforeRefs = kind === 'child' ? old.children : kind === 'prior' ? old.prior : old.corrections ?? [];
+    const afterRefs = kind === 'child' ? operation.children : kind === 'prior' ? prior : corrections;
     if (!same(beforeRefs.map(ref => ref.id), afterRefs.map(ref => ref.id))) structureUnchanged = false;
     for (const id of new Set([...beforeRefs.map(ref => ref.id), ...afterRefs.map(ref => ref.id)])) {
       const beforeRef = beforeRefs.find(ref => ref.id === id), afterRef = afterRefs.find(ref => ref.id === id);
@@ -50,9 +51,9 @@ export function repairInputs(snapshot: ChatSnapshot, operation: ContextOperation
       if (afterRef && stale.has(refKey(afterRef))) throw new AppError(409, 'stale_dependency', 'Repair the changed input summary before repairing its dependents.');
       const coverageChanged = !same(before?.turns.map(source => source.turnId) ?? [], after?.turns.map(source => source.turnId) ?? []);
       if (coverageChanged) structureUnchanged = false;
-      add({ kind, id, label: `${kind === 'prior' ? 'Earlier memory' : 'Source summary'} · level ${(after ?? before)!.level} · ${id}${coverageChanged ? ' · coverage changed' : ''}`,
+      add({ kind, id, label: `${kind === 'prior' ? 'Earlier memory' : kind === 'correction' ? 'Manual correction requiring reconciliation' : 'Source summary'} · level ${(after ?? before)!.level} · ${id}${coverageChanged ? ' · coverage changed' : ''}`,
         before: before?.text ?? null, after: after?.text ?? null, beforeRevision: beforeRef?.revision ?? null, afterRevision: afterRef?.revision ?? null, ...(coverageChanged ? { coverageChanged: true } : {}) });
     }
   }
-  return { old, changes, prior, currentSources, known, structureUnchanged, reusable: known && structureUnchanged && changes.length === 0 };
+  return { old, changes, prior, corrections, currentSources, known, structureUnchanged, reusable: known && structureUnchanged && changes.length === 0 };
 }

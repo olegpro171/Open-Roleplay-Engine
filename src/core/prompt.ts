@@ -2,6 +2,7 @@ import type { ChatSettings, Connection, Message, PromptEntry, RequestPreview, Tu
 import { AppError } from './errors.js';
 import { defaultPrompt, hasPromptMarker, promptSchema, promptWarnings, type PromptSources } from '../shared/library.js';
 import type { ContextState, SummaryNode } from '../shared/context.js';
+import { assertCorrectionSelection } from './context-corrections.js';
 import { selectedContext } from './context.js';
 import { countInput } from './tokens.js';
 
@@ -25,6 +26,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     ...defaultPrompt, blocks: defaultPrompt.blocks.map(block => block.kind === 'text' ? { ...block, text: settings.instructions } : block),
   };
   const summariesEnabled = hasPromptMarker(preset, 'summary');
+  if (summariesEnabled && context && !options.allowStale) assertCorrectionSelection(turns, context);
   const resolved = summariesEnabled && context ? selectedContext(turns, context, options.allowStale) : { summaries: [], verbatim: turns };
   const summary = resolved.summaries.map(node => summaryText(node, turns)).join('\n\n');
   const positions = new Map(turns.map((turn, index) => [turn.id, index + 1]));

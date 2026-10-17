@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatSnapshot, Turn } from '../src/shared/contracts.js';
 import { defaultContextPreset, refKey, type SummaryNode } from '../src/shared/context.js';
-import { selectedContext, sourceOf } from '../src/core/context.js';
+import { repairQueue, selectedContext, sourceOf } from '../src/core/context.js';
 import { refreshContext } from '../src/core/context-refresh.js';
 import { defaultPrompt } from '../src/shared/library.js';
-import { contextPlan } from '../src/core/context-plan.js';
+import { contextPlan, summaryRequest } from '../src/core/context-plan.js';
+import { correctionProtection } from '../src/core/context-corrections.js';
+import { savedReplacement } from '../src/core/context-reuse.js';
 import { assembleRequest } from '../src/core/prompt.js';
 
 function fixture(): ChatSnapshot {
@@ -39,6 +41,56 @@ const measure = (snapshot: ChatSnapshot) => assembleRequest(snapshot.connection!
 const apply = (snapshot: ChatSnapshot, state: ReturnType<typeof refreshContext>['state']): ChatSnapshot => ({ ...snapshot, context: { ...snapshot.context, ...state } });
 
 describe('manual memory refresh using the saved tree', () => {
+  it('reconciles crossing alternatives through a saved container instead of choosing one correction', () => {
+    const snapshot = fixture();
+    const leaves = snapshot.context.summaries.filter(node => node.level === 1);
+    snapshot.context.selected = leaves.map(({ id, revision }) => ({ id, revision }));
+    const first = snapshot.context.summaries.find(node => node.id === 'parent-2-0')!;
+    const a = { ...first, id: 'correction-a', manual: true, text: 'Mira owns the key.' };
+    const children = leaves.slice(1, 3);
+    const b = { ...first, id: 'correction-b', manual: true, text: 'Leon owns the key.', turns: children.flatMap(node => node.turns), children: children.map(({ id, revision }) => ({ id, revision })) };
+    snapshot.context.summaries.push(a, b);
+    expect(() => refreshContext(snapshot)).toThrow(/reconciliation/i);
+    const operation = repairQueue(snapshot.turns, snapshot.context)[0];
+    expect(operation.reconcile?.map(ref => ref.id).sort()).toEqual([a.id, b.id]);
+    const request = summaryRequest(snapshot, operation, snapshot.connection!).request;
+    expect(JSON.stringify(request.body)).toContain(a.text);
+    expect(JSON.stringify(request.body)).toContain(b.text);
+    const baseline = snapshot.context.summaries.find(node => refKey(node) === refKey(operation.repair!))!;
+    // Simulate explicit approval: new editorial dependencies are not inferred.
+    snapshot.context.summaries.push({ ...baseline, revision: baseline.revision + 1, text: 'Reviewed ownership and borrowing.', corrections: operation.reconcile });
+    const result = refreshContext(snapshot);
+    expect(correctionProtection(snapshot.turns, result.state).unresolved).toEqual([]);
+    expect(result.state.selected).toContainEqual({ id: baseline.id, revision: baseline.revision + 1 });
+  });
+
+  it.each([90_000, 1_200])('represents a fresh retained alternative correction at budget %i', target => {
+    const snapshot = fixture();
+    const source = snapshot.context.summaries.find(node => node.id === 'parent-2-0')!;
+    const correction = { ...source, id: 'retained-correction', manual: true, text: 'Mira kept the key. Her sister owns a duplicate.' };
+    snapshot.context.summaries.push(correction);
+    snapshot.settings.targetInputTokens = target;
+    const before = structuredClone(snapshot);
+    const result = refreshContext(snapshot, { allowOverflowFallback: true });
+    const represented = (node: SummaryNode): boolean => node.id === correction.id || node.children.some(ref => represented(snapshot.context.summaries.find(child => refKey(child) === refKey(ref))!));
+    expect(selectedContext(snapshot.turns, result.state).summaries.some(represented)).toBe(true);
+    expect(snapshot).toEqual(before);
+    expect(refreshContext(apply(snapshot, result.state), { allowOverflowFallback: true }).state.selected).toEqual(result.state.selected);
+  });
+
+  it('blocks ordinary preparation of a stale retained L2 correction instead of generating a different identity', () => {
+    const snapshot = fixture();
+    const source = snapshot.context.summaries.find(node => node.id === 'parent-2-0')!;
+    snapshot.context.summaries.push({ ...source, id: 'retained-correction', manual: true, text: 'Mira kept the key.' });
+    snapshot.turns[0].user.revision++;
+    // The committed alternative uses current sources but never incorporated the correction.
+    snapshot.context.summaries = snapshot.context.summaries.map(node => node.id === 'retained-correction' ? node : { ...node, turns: node.turns.map(source => source.turnId === 't0' ? { ...source, userRevision: 1 } : source) });
+    expect(contextPlan(snapshot)).toMatchObject({ ready: false, next: null, blocked: expect.stringMatching(/correction.*repair|repair.*correction/i) });
+    const replacement = { level: source.level, turnIds: source.turns.map(turn => turn.turnId), children: source.children };
+    expect(savedReplacement(snapshot, replacement)).toBeNull();
+    expect(() => summaryRequest(snapshot, replacement, snapshot.connection!)).toThrow(/correction.*reconciliation/i);
+    expect(() => refreshContext(snapshot)).toThrow(/correction.*repair|repair.*correction/i);
+  });
   it('restores the completed tail through prior dependencies while keeping the actual correction active', () => {
     const snapshot = fixture();
     snapshot.settings.targetInputTokens = 90_000;
