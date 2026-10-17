@@ -27,20 +27,32 @@ export const emptyContextState = (): ContextState => ({ revision: 0, archivedTur
 export type ContextOperation = { level: number; turnIds: string[]; children: SummaryRef[]; repair?: SummaryRef };
 export type ContextJobStatus = 'running' | 'awaiting_review' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export type ContextJob = {
-  id: string; chatId: string; status: ContextJobStatus; mode: 'prepare' | 'step' | 'repair'; generationId: string | null;
+  id: string; chatId: string; status: ContextJobStatus; mode: 'prepare' | 'step' | 'repair' | 'refresh'; generationId: string | null;
   sourceRevision: number; config: ContextPreset & SummaryRef; stepCount: number; error: string | null; createdAt: string; updatedAt: string;
   historyTurnIds: string[];
+  refresh?: ContextRefresh;
+  finalRefresh?: ContextRefresh;
+  reusedCount?: number; generatedCount?: number;
+  outcome?: { inputTokens: number; verbatimTurns: number };
+};
+export type ContextRefresh = {
+  before: Pick<ContextState, 'selected' | 'archivedTurnIds'>;
+  after: Pick<ContextState, 'selected' | 'archivedTurnIds'>;
+  inputBefore: number; inputAfter: number; verbatimBefore: number; verbatimAfter: number;
+  changed: boolean; protectedSummaries: number; limited: boolean;
 };
 export type ContextStep = {
   id: string; jobId: string; operation: ContextOperation; request: RequestPreview | null;
   status: 'running' | 'saved' | 'candidate' | 'failed' | 'interrupted'; result: SummaryRef | null;
   error: string | null; before: { archivedTurnIds: string[]; selected: SummaryRef[] }; after: { archivedTurnIds: string[]; selected: SummaryRef[] } | null;
   inputBefore: number; inputAfter: number | null; createdAt: string;
+  reused?: boolean;
 };
 export type ContextSnapshot = ContextState & { preset: (ContextPreset & SummaryRef) | null; jobs: ContextJob[] };
 export type ContextPlan = {
   method?: string; counting?: import('./contracts.js').TokenCounting;
   inputTokens: number; targetInputTokens: number; effectiveLimit: number; verbatimTurnIds: string[];
   next: ContextOperation | null; ready: boolean; blocked: string | null; stale: SummaryRef[];
+  reusable?: SummaryRef;
 };
 export const refKey = (ref: SummaryRef) => `${ref.id}:${ref.revision}`;

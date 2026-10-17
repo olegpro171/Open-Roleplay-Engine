@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { Store } from './store.js';
 import { AppError } from '../core/errors.js';
 import { contextPlan } from '../core/context-plan.js';
+import { refreshContext } from '../core/context-refresh.js';
+import { savedReplacement } from '../core/context-reuse.js';
 import { nodeFor, replaceSelection, selectedContext, sourceOf } from '../core/context.js';
 import { assembleRequest } from '../core/prompt.js';
 import { validateSummary } from '../core/summary-validation.js';
@@ -31,7 +33,7 @@ export class ContextStore {
     return (this.sqlite.prepare('SELECT data FROM context_steps WHERE job_id = ? ORDER BY rowid').all(id) as JsonRow[]).map(row => JSON.parse(row.data) as ContextStep);
   }
   sourceRequest(chatId: string, ref: SummaryRef): RequestPreview | null {
-    const row = this.sqlite.prepare("SELECT context_steps.data FROM context_steps JOIN context_jobs ON context_jobs.id = context_steps.job_id WHERE context_jobs.chat_id = ? AND json_extract(context_steps.data, '$.result.id') = ? AND json_extract(context_steps.data, '$.result.revision') = ? ORDER BY context_steps.rowid DESC LIMIT 1").get(chatId, ref.id, ref.revision) as JsonRow | undefined;
+    const row = this.sqlite.prepare("SELECT context_steps.data FROM context_steps JOIN context_jobs ON context_jobs.id = context_steps.job_id WHERE context_jobs.chat_id = ? AND json_extract(context_steps.data, '$.result.id') = ? AND json_extract(context_steps.data, '$.result.revision') = ? AND json_type(context_steps.data, '$.request') = 'object' ORDER BY context_steps.rowid DESC LIMIT 1").get(chatId, ref.id, ref.revision) as JsonRow | undefined;
     if (row) return (JSON.parse(row.data) as ContextStep).request;
     const node = nodeFor(this.store.snapshot(chatId).context, ref);
     return node?.basedOn ? this.sourceRequest(chatId, node.basedOn) : null;
@@ -55,7 +57,29 @@ export class ContextStore {
     if (job.generationId && this.store.generation(job.generationId)?.status !== 'running') throw new AppError(409, 'inactive_generation', 'The response owning this preparation is no longer running.');
     return snapshot;
   }
-  begin(chatId: string, revision: number, requestId: string, mode: ContextJob['mode'], generationId: string | null = null): { job: ContextJob; fresh: boolean } {
+  refresh(chatId: string, revision: number, requestId: string): { jobId: string; report: NonNullable<ContextJob['refresh']> } {
+    return this.sqlite.transaction(() => {
+      const command = JSON.stringify({ mode: 'refresh', generationId: null });
+      const existing = this.sqlite.prepare('SELECT data, chat_id, command FROM context_jobs WHERE request_id = ?').get(requestId) as (JsonRow & { chat_id: string; command: string }) | undefined;
+      if (existing) {
+        if (existing.chat_id !== chatId || existing.command !== command) throw new AppError(409, 'request_id_conflict', 'This request identity was used for another memory command.');
+        const job = JSON.parse(existing.data) as ContextJob;
+        return { jobId: job.id, report: job.refresh! };
+      }
+      this.store.checkRevision(revision, chatId); this.store.ensureIdle(chatId);
+      if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) throw new AppError(409, 'repair_awaits_review', 'Approve or discard the repair candidate before refreshing memory.');
+      const snapshot = this.store.snapshot(chatId);
+      const { state, report } = refreshContext(snapshot);
+      const now = new Date().toISOString();
+      const job: ContextJob = this.bump({ id: randomUUID(), chatId, status: 'succeeded', mode: 'refresh', generationId: null,
+        config: snapshot.context.preset!, sourceRevision: revision, historyTurnIds: snapshot.turns.map(turn => turn.id), stepCount: 0,
+        error: null, createdAt: now, updatedAt: now, refresh: report });
+      if (report.changed) this.saveState(chatId, state);
+      this.sqlite.prepare('INSERT INTO context_jobs (id, chat_id, request_id, command, data) VALUES (?, ?, ?, ?, ?)').run(job.id, chatId, requestId, command, JSON.stringify(job));
+      return { jobId: job.id, report };
+    })();
+  }
+  begin(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>, generationId: string | null = null): { job: ContextJob; fresh: boolean } {
     return this.sqlite.transaction(() => {
       const command = JSON.stringify({ mode, generationId });
       const existing = this.sqlite.prepare('SELECT data, chat_id, command FROM context_jobs WHERE request_id = ?').get(requestId) as (JsonRow & { chat_id: string; command: string }) | undefined;
@@ -69,14 +93,34 @@ export class ContextStore {
         if (!generation || generation.chatId !== chatId || generation.status !== 'running' || this.running(chatId)) throw new AppError(409, 'context_running', 'Another operation is already running for this chat.');
       } else this.store.ensureIdle(chatId);
       const snapshot = this.store.snapshot(chatId), preset = snapshot.context.preset;
-      if (mode === 'repair' && this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) throw new AppError(409, 'repair_awaits_review', 'Approve or discard the existing repair candidate before generating another.');
+      if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) throw new AppError(409, 'repair_awaits_review', 'Approve or discard the existing repair candidate before preparing more memory.');
       if (!preset) throw new AppError(422, 'context_required', 'Select a context preset first.');
-      if (!preset.connectionId) throw new AppError(422, 'summary_connection_required', 'Select a summarization Connection in the context preset.');
-      this.store.connection(preset.connectionId);
+      // Only an explicit Prepare click may restore detail. Automatic preparation
+      // and single steps continue from the committed selection.
+      const reselection = mode === 'prepare' && !generationId ? refreshContext(snapshot, { allowOverflowFallback: true }) : null;
       const now = new Date().toISOString();
-      const job: ContextJob = this.bump({ id: randomUUID(), chatId, status: 'running', mode, generationId, config: preset, sourceRevision: revision, historyTurnIds: snapshot.turns.map(turn => turn.id), stepCount: 0, error: null, createdAt: now, updatedAt: now });
+      const before = new Set(snapshot.context.selected.map(refKey));
+      const job: ContextJob = this.bump({ id: randomUUID(), chatId, status: 'running', mode, generationId, config: preset, sourceRevision: revision, historyTurnIds: snapshot.turns.map(turn => turn.id), stepCount: 0, error: null, createdAt: now, updatedAt: now,
+        ...(reselection ? { refresh: reselection.report } : {}), reusedCount: reselection?.state.selected.filter(ref => !before.has(refKey(ref))).length ?? 0, generatedCount: 0 });
+      if (reselection?.report.changed) this.saveState(chatId, reselection.state);
       this.sqlite.prepare('INSERT INTO context_jobs (id, chat_id, request_id, command, data) VALUES (?, ?, ?, ?, ?)').run(job.id, chatId, requestId, command, JSON.stringify(job));
       return { job, fresh: true };
+    })();
+  }
+  reuseNext(jobId: string): boolean {
+    return this.sqlite.transaction(() => {
+      const job = this.job(jobId), snapshot = this.current(job), plan = contextPlan(snapshot);
+      if (job.mode === 'repair' || plan.blocked || !plan.next) return false;
+      const replacement = savedReplacement(snapshot, plan.next);
+      if (!replacement) return false;
+      const { node, state, inputAfter } = replacement;
+      const step: ContextStep = { id: randomUUID(), jobId, operation: plan.next, request: null, status: 'saved', result: { id: node.id, revision: node.revision }, error: null,
+        before: { selected: snapshot.context.selected, archivedTurnIds: snapshot.context.archivedTurnIds }, after: { selected: state.selected, archivedTurnIds: state.archivedTurnIds },
+        inputBefore: plan.inputTokens, inputAfter, createdAt: new Date().toISOString(), reused: true };
+      this.saveState(job.chatId, state);
+      this.sqlite.prepare('INSERT INTO context_steps (id, job_id, data) VALUES (?, ?, ?)').run(step.id, jobId, JSON.stringify(step));
+      this.saveJob(this.bump({ ...job, stepCount: job.stepCount + 1, reusedCount: (job.reusedCount ?? 0) + 1 }));
+      return true;
     })();
   }
   beginStep(jobId: string, operation: ContextOperation, request: RequestPreview | null, inputBefore: number): ContextStep {
@@ -116,7 +160,7 @@ export class ContextStore {
       this.saveNode(job.chatId, node);
       if (after) this.saveState(job.chatId, after);
       this.saveStep({ ...savedStep, status: repair ? 'candidate' : 'saved', result: { id: node.id, revision: node.revision }, after: after ? { selected: after.selected, archivedTurnIds: after.archivedTurnIds } : null, inputAfter });
-      this.saveJob(this.bump(job));
+      this.saveJob(this.bump({ ...job, generatedCount: (job.generatedCount ?? 0) + Number(Boolean(savedStep.request)) }));
       return node;
     })();
   }
@@ -127,7 +171,20 @@ export class ContextStore {
       const job = JSON.parse(row.data) as ContextJob;
       if (job.status !== 'running') return;
       for (const step of this.steps(id)) if (step.status === 'running') this.saveStep({ ...step, status: status === 'interrupted' ? 'interrupted' : 'failed', error });
-      this.saveJob(this.bump({ ...job, status, error }));
+      let completed = job;
+      if (status === 'succeeded' && job.mode === 'prepare' && !job.generationId && job.stepCount) {
+        // Newly available groups can make a finer saved-only plan possible.
+        // Finish the explicit action in that plan, rather than changing it again
+        // on a second identical click. Automatic continuation never does this.
+        const { state, report } = refreshContext(this.store.snapshot(job.chatId));
+        if (report.changed) {
+          this.saveState(job.chatId, state);
+          const before = new Set(report.before.selected.map(refKey));
+          completed = { ...job, finalRefresh: report, reusedCount: (job.reusedCount ?? 0) + state.selected.filter(ref => !before.has(refKey(ref))).length };
+        }
+      }
+      const plan = status === 'succeeded' && job.mode !== 'repair' ? contextPlan(this.store.snapshot(job.chatId)) : null;
+      this.saveJob(this.bump({ ...completed, status, error, ...(plan ? { outcome: { inputTokens: plan.inputTokens, verbatimTurns: plan.verbatimTurnIds.length } } : {}) }));
     })();
   }
   review(id: string, revision: number, accept: boolean, editedText?: string) {

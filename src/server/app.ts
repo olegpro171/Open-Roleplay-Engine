@@ -168,6 +168,11 @@ export async function createApp(options: {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
     store.contexts.clearMemory(chatId(request.params), revision); coordinator.changed(); return { ok: true };
   });
+  app.post('/api/chats/:chatId/context/refresh', async request => {
+    const input = z.object({ revision: revisionSchema, requestId: z.string().uuid() }).strict().parse(request.body);
+    const result = store.contexts.refresh(chatId(request.params), input.revision, input.requestId);
+    coordinator.changed(); return result;
+  });
   app.patch('/api/chats/:chatId/context/summaries/:id', { bodyLimit: 1_100_000 }, async request => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = z.object({ revision: revisionSchema, summaryRevision: revisionSchema, text: z.string().max(1_000_000) }).strict().parse(request.body);

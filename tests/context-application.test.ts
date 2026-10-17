@@ -38,7 +38,7 @@ function fixture(count = 48, target = 500) {
   store.replaceHistory(store.snapshot(chatId).revision, chatId, imported);
   let coordinator = new GenerationCoordinator(store, provider);
   const state = () => store.snapshot(chatId);
-  const start = (mode: ContextJob['mode'] = 'prepare') => coordinator.context.start(chatId, state().revision, randomUUID(), mode).jobId;
+  const start = (mode: Exclude<ContextJob['mode'], 'refresh'> = 'prepare') => coordinator.context.start(chatId, state().revision, randomUUID(), mode).jobId;
   const idle = async (id: string) => { await expect.poll(() => store.contexts.job(id).status, { timeout: 5_000 }).not.toBe('running'); return store.contexts.job(id); };
   const resume = async () => {
     release?.(); release = null; await coordinator.shutdown(); store.close();
@@ -201,19 +201,184 @@ describe('durable imported-session preparation', () => {
     f.coordinator.context.cancel(id); f.release();
   });
 
-  it('preserves selections when capacity grows and restores originals only on an explicit action', async () => {
+  it('preserves selections after a settings change, then restores detail on manual Prepare', async () => {
     const f = fixture(); await f.idle(f.start());
     const saved = f.state(), selected = saved.context.selected, calls = f.calls.length;
     const settings = { title: saved.settings.title, targetInputTokens: 100_000, connectionId: saved.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId };
-    f.store.updateChat(saved.revision, f.chatId, settings); await f.idle(f.start());
-    expect(f.calls).toHaveLength(calls); expect(f.state().context.selected).toEqual(selected);
+    f.store.updateChat(saved.revision, f.chatId, settings);
+    expect(f.state().context.selected).toEqual(selected);
     expect(() => f.store.updateChat(f.state().revision, f.chatId, { ...settings, contextPresetId: null })).toThrow('Clear memory');
+    await f.idle(f.start());
+    expect(f.calls).toHaveLength(calls); expect(f.state().context.selected).toEqual([]);
+    expect(f.state().context.summaries).toEqual(saved.context.summaries);
     f.store.contexts.clearMemory(f.chatId, f.state().revision);
     expect(f.state().context.selected).toEqual([]); expect(f.state().context.archivedTurnIds).toEqual([]);
     expect(f.state().context.summaries).toEqual([]); expect(f.state().context.jobs).toEqual([]);
     expect(f.state().turns).toEqual(saved.turns);
     f.store.updateChat(f.state().revision, f.chatId, { ...settings, contextPresetId: null });
     expect(f.state().settings.contextPresetId).toBeNull();
+  });
+
+  it('uses one Prepare action to expand and shrink the budget without regenerating saved summaries', async () => {
+    const f = fixture(); await f.idle(f.start());
+    const original = f.state(), calls = f.calls.length;
+    const settings = { title: original.settings.title, connectionId: original.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId };
+    f.store.updateChat(original.revision, f.chatId, { ...settings, targetInputTokens: 3_500 });
+    const enlargedId = f.start(); expect((await f.idle(enlargedId)).status).toBe('succeeded');
+    const enlarged = f.state();
+    expect(enlarged.context.archivedTurnIds.length).toBeLessThan(original.context.archivedTurnIds.length);
+    expect(enlarged.context.jobs[0]).toMatchObject({ mode: 'prepare', generatedCount: 0 });
+    expect(enlarged.context.jobs[0].refresh?.changed).toBe(true);
+    f.store.updateChat(enlarged.revision, f.chatId, { ...settings, targetInputTokens: 500 });
+    const requestId = randomUUID(), revision = f.state().revision;
+    const smallId = f.coordinator.context.start(f.chatId, revision, requestId, 'prepare').jobId;
+    expect((await f.idle(smallId)).status).toBe('succeeded');
+    const small = f.state();
+    expect(small.context.archivedTurnIds.length).toBeGreaterThan(enlarged.context.archivedTurnIds.length);
+    expect(small.context.selected.some(ref => small.context.summaries.find(node => refKey(ref) === refKey(node))!.level > 1)).toBe(true);
+    expect(small.context.summaries).toEqual(original.context.summaries);
+    expect(small.context.jobs[0]).toMatchObject({ generatedCount: 0, outcome: { inputTokens: contextPlan(small).inputTokens } });
+    expect(f.coordinator.context.start(f.chatId, revision, requestId, 'prepare').jobId).toBe(smallId);
+    await f.idle(f.start()); expect(f.state().context.selected).toEqual(small.context.selected);
+    expect(f.calls).toHaveLength(calls);
+    await f.resume(); expect(f.state().context.selected).toEqual(small.context.selected);
+  });
+
+  it('reuses saved summaries in automatic preparation without expanding a fitting selection', async () => {
+    const f = fixture(); await f.idle(f.start());
+    const original = f.state();
+    const settings = { title: original.settings.title, connectionId: original.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId };
+    f.store.updateChat(original.revision, f.chatId, { ...settings, targetInputTokens: 3_500 });
+    let calls = f.calls.length;
+    f.coordinator.start(f.state().revision, randomUUID(), 'Leon waits.', f.chatId);
+    await expect.poll(() => f.state().generations[0].status).toBe('succeeded');
+    expect(f.state().context.selected).toEqual(original.context.selected);
+    expect(f.calls.slice(calls).map(call => call.request.body.model)).toEqual(['story-model']);
+    await f.idle(f.start());
+    const enlarged = f.state(), summaries = enlarged.context.summaries;
+    f.store.updateChat(enlarged.revision, f.chatId, { ...settings, targetInputTokens: 600 });
+    calls = f.calls.length;
+    f.coordinator.start(f.state().revision, randomUUID(), 'Leon waits again.', f.chatId);
+    await expect.poll(() => f.state().generations[0].status).toBe('succeeded');
+    const prepared = f.state().context.jobs[0];
+    expect(prepared.generationId).toBe(f.state().generations[0].id);
+    expect(prepared.refresh).toBeUndefined(); expect(prepared.reusedCount).toBeGreaterThan(0);
+    expect(prepared.generatedCount).toBe(0);
+    expect(f.calls.slice(calls).map(call => call.request.body.model)).toEqual(['story-model']);
+    expect(f.state().context.summaries).toEqual(summaries);
+    expect(f.store.contexts.steps(prepared.id).every(step => step.reused && !step.request)).toBe(true);
+    expect(f.store.contexts.steps(prepared.id).some(step => step.operation.level > 1)).toBe(true);
+  });
+
+  it('reuses an existing batch and generates only missing groups when the saved tree cannot fit', async () => {
+    const f = fixture(); await f.idle(f.start('step'));
+    const saved = f.state(), cached = saved.context.summaries[0], calls = f.calls.length;
+    const settings = { title: saved.settings.title, connectionId: saved.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId };
+    f.store.updateChat(saved.revision, f.chatId, { ...settings, targetInputTokens: 50_000 });
+    await f.idle(f.start()); expect(f.state().context.selected).toEqual([]);
+    f.store.updateChat(f.state().revision, f.chatId, { ...settings, targetInputTokens: 500 });
+    const id = f.start(); expect((await f.idle(id)).status).toBe('succeeded');
+    const steps = f.store.contexts.steps(id), requests = f.calls.slice(calls);
+    expect(steps[0]).toMatchObject({ reused: true, result: { id: cached.id, revision: cached.revision }, request: null });
+    expect(requests.length).toBeGreaterThan(0);
+    expect(requests.every(call => JSON.stringify(call.request.coverage.map(source => source.turnId)) !== JSON.stringify(cached.turns.map(source => source.turnId)))).toBe(true);
+    expect(f.store.contexts.job(id).generatedCount).toBe(requests.length);
+    expect(f.store.contexts.job(id).reusedCount).toBeGreaterThanOrEqual(1);
+    expect(f.state().context.summaries.filter(node => node.id === cached.id)).toEqual([cached]);
+    expect(f.store.contexts.sourceRequest(f.chatId, cached)?.body).toEqual(f.calls[0].request.body);
+    expect(contextPlan(f.state()).ready).toBe(true);
+  });
+
+  it('finishes manual preparation in a repeatable selection after generating newly needed memory', async () => {
+    const f = fixture(); await f.idle(f.start());
+    for (let i = 0; i < 6; i++) {
+      const generation = f.store.begin(f.state().revision, randomUUID(), `New turn ${i}. ` + 'Mira explains a new story detail. '.repeat(30), f.chatId);
+      f.store.finish(generation.id, 'succeeded', 'Leon considers the new detail. '.repeat(40));
+    }
+    const current = f.state();
+    f.store.updateChat(current.revision, f.chatId, { title: current.settings.title, targetInputTokens: 1_600, connectionId: current.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId });
+    const calls = f.calls.length;
+    expect((await f.idle(f.start())).status).toBe('succeeded');
+    const prepared = f.state();
+    expect(f.calls.length).toBeGreaterThan(calls);
+    expect(prepared.context.jobs[0].finalRefresh?.changed).toBe(true);
+    const callsAfter = f.calls.length;
+    await f.idle(f.start());
+    expect(f.state().context.selected).toEqual(prepared.context.selected);
+    expect(f.state().context.archivedTurnIds).toEqual(prepared.context.archivedTurnIds);
+    expect(f.calls).toHaveLength(callsAfter);
+  });
+
+  it('prepares from saved memory without a summarization Connection and rolls back a failed job insert', async () => {
+    const f = fixture(); await f.idle(f.start());
+    const original = f.state(), { id, revision: _, ...config } = original.context.preset!;
+    f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...config, connectionId: null }, id);
+    const settings = { title: original.settings.title, targetInputTokens: 3_500, connectionId: original.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId };
+    f.store.updateChat(f.state().revision, f.chatId, settings);
+    const before = f.state(), calls = f.calls.length;
+    f.store.sqlite.exec("CREATE TRIGGER reject_prepare BEFORE INSERT ON context_jobs WHEN json_extract(NEW.data, '$.mode') = 'prepare' BEGIN SELECT RAISE(ABORT, 'synthetic preparation failure'); END;");
+    expect(() => f.start()).toThrow('synthetic preparation failure'); expect(f.state()).toEqual(before);
+    f.store.sqlite.exec('DROP TRIGGER reject_prepare');
+    expect((await f.idle(f.start())).status).toBe('succeeded');
+    expect(f.state().context.archivedTurnIds.length).toBeLessThan(before.context.archivedTurnIds.length);
+    expect(f.calls).toHaveLength(calls);
+  });
+
+  it('refreshes locally, retains immutable content, retries idempotently and survives a restart', async () => {
+    const f = fixture();
+    f.coordinator.start(f.state().revision, randomUUID(), 'Leon pockets the key.', f.chatId);
+    await expect.poll(() => f.state().generations[0].status).toBe('succeeded');
+    const saved = f.state();
+    f.store.updateChat(saved.revision, f.chatId, { title: saved.settings.title, targetInputTokens: 3_500, connectionId: saved.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId });
+    const before = f.state(), calls = f.calls.length, requestId = randomUUID();
+    const result = f.store.contexts.refresh(f.chatId, before.revision, requestId);
+    const after = f.state();
+    expect(result.report.changed).toBe(true);
+    expect(result.report.verbatimAfter).toBeGreaterThan(result.report.verbatimBefore);
+    expect(contextPlan(after).ready).toBe(true);
+    expect(after.context.summaries).toEqual(before.context.summaries);
+    expect(after.turns).toEqual(before.turns); expect(after.generations).toEqual(before.generations);
+    expect(after.context.jobs[0]).toMatchObject({ id: result.jobId, mode: 'refresh', status: 'succeeded', refresh: result.report, historyTurnIds: before.turns.map(turn => turn.id) });
+    expect(f.store.contexts.steps(result.jobId)).toEqual([]);
+    expect(f.store.contexts.refresh(f.chatId, before.revision, requestId)).toEqual(result);
+    expect(f.state()).toEqual(after);
+    expect(() => f.store.contexts.refresh('main', f.store.snapshot('main').revision, requestId)).toThrow('another memory command');
+    const again = f.store.contexts.refresh(f.chatId, after.revision, randomUUID());
+    expect(again.report.changed).toBe(false);
+    expect(f.state().context.revision).toBe(after.context.revision);
+    expect(f.calls).toHaveLength(calls);
+    await f.resume();
+    expect(f.state().context.selected).toEqual(after.context.selected);
+    expect(f.state().context.jobs.find(job => job.id === result.jobId)?.refresh).toEqual(result.report);
+    const previousCalls = f.calls.length; await f.idle(f.start());
+    expect(f.calls).toHaveLength(previousCalls);
+  });
+
+  it('rolls back the selection, revisions and refresh history together on a failed write', async () => {
+    const f = fixture(); await f.idle(f.start());
+    const saved = f.state();
+    f.store.updateChat(saved.revision, f.chatId, { title: saved.settings.title, targetInputTokens: 3_500, connectionId: saved.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId });
+    const before = f.state();
+    f.store.sqlite.exec("CREATE TRIGGER reject_refresh BEFORE INSERT ON context_jobs WHEN json_extract(NEW.data, '$.mode') = 'refresh' BEGIN SELECT RAISE(ABORT, 'synthetic refresh failure'); END;");
+    expect(() => f.store.contexts.refresh(f.chatId, before.revision, randomUUID())).toThrow('synthetic refresh failure');
+    expect(f.state()).toEqual(before);
+  });
+
+  it('blocks stale or competing refresh commands and does not need a summarization Connection', async () => {
+    const f = fixture(); f.holdNext();
+    const running = f.start();
+    expect(() => f.store.contexts.refresh(f.chatId, f.state().revision, randomUUID())).toThrow('preparation');
+    f.coordinator.context.cancel(running); f.release(); await f.idle(running);
+    await f.idle(f.start());
+    const before = f.state(), { id, revision: _, ...config } = before.context.preset!;
+    f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...config, connectionId: null }, id);
+    expect(() => f.store.contexts.refresh(f.chatId, before.revision, randomUUID())).toThrow('another device');
+    expect(f.store.contexts.refresh(f.chatId, f.state().revision, randomUUID()).jobId).toBeTruthy();
+    const current = f.state();
+    f.store.editPart(current.revision, current.context.archivedTurnIds[0], 'user', 'Mira kept the key.', f.chatId);
+    const edited = f.state();
+    expect(() => f.store.contexts.refresh(f.chatId, edited.revision, randomUUID())).toThrow('out of date');
+    expect(f.state()).toEqual(edited);
   });
 
   it('remeasures a retained-floor block after raising the target and can prepare again under changed settings', async () => {

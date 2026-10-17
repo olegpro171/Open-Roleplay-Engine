@@ -56,7 +56,7 @@ export function selectedContext(turns: Turn[], state: ContextState, allowStale =
 export function nextCompaction(turns: Turn[], state: ContextState, config: ContextPreset, input: number, limit: number, required: number, summarySizes: Map<string, number>): { next: ContextOperation | null; blocked: string | null } {
   const { summaries, verbatim } = selectedContext(turns, state);
   const completed = verbatim.filter(turn => turn.complete);
-  if (state.archivedTurnIds.length && completed.length < config.minTail) return { next: null, blocked: 'The saved cutoff no longer leaves the configured minimum tail. Clear memory or lower the minimum tail explicitly.' };
+  if (state.archivedTurnIds.length && completed.length < config.minTail) return { next: null, blocked: 'The saved cutoff no longer leaves the configured minimum tail. Use Prepare chat to reconsider saved memory, or adjust the minimum tail or clear memory.' };
   if (input <= limit) return { next: null, blocked: null };
   if (completed.length >= config.minTail + config.batchSize) {
     return { next: { level: 1, turnIds: completed.slice(0, config.batchSize).map(turn => turn.id), children: [] }, blocked: null };
@@ -64,6 +64,13 @@ export function nextCompaction(turns: Turn[], state: ContextState, config: Conte
   if (required > limit) return { next: null, blocked: 'The required verbatim tail, pending input and prompt exceed the input limit. Adjust the target, Connection limits or minimum tail; no complete turn batch is eligible.' };
   const pool = limit - required;
   if (pool <= 0) return { next: null, blocked: 'No input capacity remains for summaries covering archived history.' };
+  const best = rankedPromotions(summaries, config, summarySizes)[0];
+  if (!best) return { next: null, blocked: 'No complete promotion group satisfies the retained-summary floor. Adjust the settings explicitly.' };
+  return { next: best, blocked: null };
+}
+
+/** Shared pressure ordering; eligibility may be restricted to saved parents by Refresh. */
+export function rankedPromotions(summaries: SummaryNode[], config: ContextPreset, summarySizes: Map<string, number>): ContextOperation[] {
   const candidates: { score: number; level: number; children: SummaryNode[] }[] = [];
   for (const level of new Set(summaries.map(node => node.level))) {
     const layer = summaries.filter(node => node.level === level);
@@ -76,9 +83,7 @@ export function nextCompaction(turns: Turn[], state: ContextState, config: Conte
     candidates.push({ score: Math.log2(Math.max(used, Number.MIN_VALUE)) + level, level, children });
   }
   candidates.sort((a, b) => b.score - a.score || b.level - a.level);
-  const best = candidates[0];
-  if (!best) return { next: null, blocked: 'No complete promotion group satisfies the retained-summary floor. Adjust the settings explicitly.' };
-  return { next: { level: best.level + 1, turnIds: best.children.flatMap(node => node.turns.map(source => source.turnId)), children: best.children.map(({ id, revision }) => ({ id, revision })) }, blocked: null };
+  return candidates.map(candidate => ({ level: candidate.level + 1, turnIds: candidate.children.flatMap(node => node.turns.map(source => source.turnId)), children: candidate.children.map(({ id, revision }) => ({ id, revision })) }));
 }
 
 export function replaceSelection(state: ContextState, operation: ContextOperation, node: SummaryNode): ContextState {

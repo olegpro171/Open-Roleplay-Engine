@@ -4,6 +4,7 @@ import { AppError } from './errors.js';
 import { nextCompaction, nodeFor, sourceOf, staleSummaries } from './context.js';
 import { assembleRequest, estimateInputTokens, summaryText } from './prompt.js';
 import { countInput, countText } from './tokens.js';
+import { savedReplacement } from './context-reuse.js';
 
 export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
   if (!snapshot.connection) throw new AppError(422, 'connection_required', 'Select a roleplay Connection to measure the complete input.');
@@ -23,7 +24,8 @@ export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
   if (stale.length || changedMembership) blocked = 'Selected memory is out of date. Generate a targeted repair and review its replacements before continuing.';
   else if (state.preset) ({ next, blocked } = nextCompaction(snapshot.turns, state, state.preset, request.budget.inputTokens, effectiveLimit, required, sizes));
   else if (request.budget.inputTokens > effectiveLimit) blocked = 'Full history exceeds the input limit. Select a context preset to prepare it.';
-  return { inputTokens: request.budget.inputTokens, method: request.budget.method, counting: request.budget.counting, targetInputTokens: snapshot.settings.targetInputTokens, effectiveLimit, verbatimTurnIds: verbatim.map(turn => turn.id), next, ready: !blocked && !next, blocked, stale };
+  const reusable = next ? savedReplacement(snapshot, next)?.node : null;
+  return { inputTokens: request.budget.inputTokens, method: request.budget.method, counting: request.budget.counting, targetInputTokens: snapshot.settings.targetInputTokens, effectiveLimit, verbatimTurnIds: verbatim.map(turn => turn.id), next, ready: !blocked && !next, blocked, stale, ...(reusable ? { reusable: { id: reusable.id, revision: reusable.revision } } : {}) };
 }
 
 export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperation, connection: NonNullable<ChatSnapshot['connection']>, replacements = new Map<string, SummaryRef | null>(), previousRequest: RequestPreview | null = null): { request: RequestPreview; prior: SummaryRef[] } {

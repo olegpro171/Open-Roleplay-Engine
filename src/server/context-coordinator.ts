@@ -10,7 +10,7 @@ export class ContextCoordinator {
   private active = new Map<string, { controller: AbortController; task: Promise<void>; generationId: string | null }>();
   private stopping = false;
   constructor(private store: Store, private provider: Provider, private changed: () => void) {}
-  start(chatId: string, revision: number, requestId: string, mode: ContextJob['mode']) {
+  start(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>) {
     const { job, fresh } = this.store.contexts.begin(chatId, revision, requestId, mode);
     if (fresh) this.dispatch(job.id);
     return { jobId: job.id };
@@ -42,8 +42,14 @@ export class ContextCoordinator {
         const operation = job.mode === 'repair' ? nextRepair(snapshot.turns, snapshot.context, replacements) : plan.next;
         if (job.mode !== 'repair' && plan.blocked) throw new AppError(422, 'context_blocked', plan.blocked);
         if (!operation) { this.store.contexts.finish(id, 'succeeded'); this.changed(); return; }
-        const connection = this.store.connection(job.config.connectionId!);
-        const prepared = operation.turnIds.length ? summaryRequest(snapshot, operation, connection, replacements, operation.repair ? this.store.contexts.sourceRequest(job.chatId, operation.repair) : null) : { request: null, prior: [] };
+        if (job.mode !== 'repair' && this.store.contexts.reuseNext(id)) {
+          this.changed();
+          if (job.mode === 'step') { this.store.contexts.finish(id, 'succeeded'); this.changed(); return; }
+          continue;
+        }
+        if (operation.turnIds.length && !job.config.connectionId) throw new AppError(422, 'summary_connection_required', 'Select a summarization Connection in the context preset to generate missing summaries.');
+        const connection = operation.turnIds.length ? this.store.connection(job.config.connectionId!) : null;
+        const prepared = connection ? summaryRequest(snapshot, operation, connection, replacements, operation.repair ? this.store.contexts.sourceRequest(job.chatId, operation.repair) : null) : { request: null, prior: [] };
         const step = this.store.contexts.beginStep(id, operation, prepared.request, plan.inputTokens);
         this.changed();
         const text = prepared.request ? await generateSummary(this.provider, prepared.request, this.store.connectionApiKey(job.config.connectionId!), signal) : '';

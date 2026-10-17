@@ -49,6 +49,38 @@ afterEach(async () => {
 });
 
 describe('persistent chat and generation', () => {
+  it('prepares locally without a summary Connection, validates commands and retries without another job', async () => {
+    const snapshot = await state(), preset = instance.store.libraries().contexts[0];
+    instance.store.updateChat(snapshot.revision, 'main', { title: snapshot.settings.title, targetInputTokens: 10_000, connectionId: 'main', promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id });
+    const current = await state(), requestId = randomUUID();
+    const result = await command('/api/chats/main/context/prepare', { revision: current.revision, requestId, mode: 'prepare' });
+    expect(result.statusCode).toBe(202);
+    const job = instance.store.contexts.job(result.json().jobId);
+    expect(job).toMatchObject({ status: 'succeeded', mode: 'prepare', generatedCount: 0, refresh: { changed: false }, outcome: { verbatimTurns: 0 } });
+    const after = await state();
+    expect((await command('/api/chats/main/context/prepare', { revision: current.revision, requestId, mode: 'prepare' })).json()).toEqual(result.json());
+    expect(await state()).toEqual(after);
+    expect((await command('/api/chats/main/context/prepare', { revision: current.revision, requestId: randomUUID(), mode: 'prepare' })).statusCode).toBe(409);
+    expect((await command('/api/chats/main/context/prepare', { revision: after.revision, requestId: 'invalid', mode: 'prepare' })).statusCode).toBe(400);
+    const unauthorized = await instance.app.inject({ method: 'POST', url: '/api/chats/main/context/prepare', headers: { host: 'localhost', origin: 'http://localhost' }, payload: { revision: 0, requestId: randomUUID(), mode: 'prepare' } });
+    expect(unauthorized.statusCode).toBe(401); expect(mock.requests).toHaveLength(0);
+  });
+
+  it('validates and authenticates the local refresh endpoint without issuing a provider request', async () => {
+    const snapshot = await state();
+    const preset = instance.store.libraries().contexts[0];
+    instance.store.updateChat(snapshot.revision, 'main', { title: snapshot.settings.title, targetInputTokens: 10_000, connectionId: 'main', promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id });
+    const current = await state(), requestId = randomUUID();
+    const result = await command('/api/chats/main/context/refresh', { revision: current.revision, requestId });
+    expect(result.statusCode).toBe(200);
+    expect(result.json().report).toMatchObject({ changed: false, verbatimBefore: 0, verbatimAfter: 0 });
+    expect((await command('/api/chats/main/context/refresh', { revision: current.revision, requestId })).json()).toEqual(result.json());
+    expect((await command('/api/chats/main/context/refresh', { revision: current.revision, requestId: randomUUID() })).statusCode).toBe(409);
+    expect((await command('/api/chats/main/context/refresh', { revision: (await state()).revision, requestId: 'invalid' })).statusCode).toBe(400);
+    const unauthorized = await instance.app.inject({ method: 'POST', url: '/api/chats/main/context/refresh', headers: { host: 'localhost', origin: 'http://localhost' }, payload: { revision: 0, requestId: randomUUID() } });
+    expect(unauthorized.statusCode).toBe(401); expect(mock.requests).toHaveLength(0);
+  });
+
   it('checks and tests unsaved Connection settings without changing chat history or calibrating the counter', async () => {
     const before = await state();
     const input = { connection: before.connection, connectionId: before.settings.connectionId };

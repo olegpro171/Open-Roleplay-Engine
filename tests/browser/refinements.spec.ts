@@ -67,7 +67,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await command(`/api/chats/${chatId}/selections`, { revision: (await state()).revision, settings: { title: saved.settings.title, targetInputTokens: required + 1, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId } }, 'PUT');
   await command(`/api/chats/${chatId}/context/prepare`, { revision: (await state()).revision, requestId: crypto.randomUUID(), mode: 'prepare' });
   await expect(page.getByTestId('memory-status')).toContainText('retained-summary floor');
-  await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();
 
   await page.getByRole('button', { name: 'Setup', exact: true }).click();
   await page.getByLabel('Target input tokens').fill('45000');
