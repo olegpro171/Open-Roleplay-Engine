@@ -2,7 +2,7 @@
 
 Date: 2026-10-16
 
-Status: accepted technology and architecture baseline; persistent chat, roleplay libraries and durable layered compaction are implemented for local testing. The user confirmed a first roleplay response through OpenRouter on 2026-10-16. “Roleplay Engine” remains a working name. Actual phone use, real-model compaction quality and broader provider compatibility remain to be verified.
+Status: accepted technology and architecture baseline; persistent chat, roleplay libraries and durable layered compaction are implemented for local testing. The user confirmed a first roleplay response through OpenRouter on 2026-10-16. The in-app name is “ORE”; the repository remains “Roleplay Engine”. Actual phone use, real-model compaction quality and broader provider compatibility remain to be verified.
 
 ## 1. How to use this document
 
@@ -176,7 +176,7 @@ The user explicitly moved this work ahead of context management on 2026-10-16 an
 Implementation behavior:
 
 - Reuse the accepted stack and module boundaries. Core modules resolve prompts and normalize external formats; persistence owns library revisions, chat selections and transactional history replacement; generation remains server-owned.
-- Character import reads V1/V2 JSON and PNG-embedded text metadata. Edit the six basic fields: name, description, personality, scenario, greeting (`first_mes`) and example dialogue (`mes_example`). Retain unsupported imported fields for export but do not execute lorebooks, extensions or prompt overrides. Persona import reads SillyTavern backup JSON and basic name/description JSON. Export cards/personas as compatible JSON; exporting an avatar PNG is outside this subset.
+- Character import reads V1/V2/V3 JSON and PNG-embedded text metadata (V3 basic-field compatibility was added on 2026-10-17). Edit the six basic fields: name, description, personality, scenario, greeting (`first_mes`) and example dialogue (`mes_example`). Retain unsupported imported fields and the imported V3 format for export but do not execute lorebooks, extensions or prompt overrides. Prefer ccv3 PNG metadata over legacy chara when both exist. Persona import reads SillyTavern backup JSON and basic name/description JSON. Export cards/personas as compatible JSON; exporting an avatar PNG is outside this subset.
 - Prompt blocks carry stable identities, enabled state, roles, and either text or a marker. Support whole character, persona, individual character fields, Messages and Summary sources. Exactly one enabled Messages marker owns full verbatim history; Summary is explicitly empty until compaction exists. Preserve stored message roles rather than using the marker's role. A later context component will own both source selections and their cutoff; independent markers must not make independent coverage choices.
 - Replace case-insensitive `{{user}}` and `{{char}}` once in text blocks and character/persona fields. Names are inserted literally; unknown macros remain literal. Preserve stored conversation text. Resolve a greeting once when creating a chat, then save it as ordinary completed history under the accepted greeting rules. Compatibility is implemented independently from the documented behavior; no SillyTavern engine source is copied.
 - Keep a simple editable built-in default with a restore action, alongside user-created/duplicated presets. The eventual default wording remains open.

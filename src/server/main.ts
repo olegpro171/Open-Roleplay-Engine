@@ -5,7 +5,7 @@ import { createApp } from './app.js';
 
 const [major, minor] = process.versions.node.split('.').map(Number);
 if (!(major === 24 || (major === 22 && minor >= 12))) {
-  console.error('Use Node.js 22.12+ or 24 LTS. On this Mac, start-app.command selects a working LTS runtime.');
+  console.error('Use Node.js 22.12+ or 24 LTS. The local launcher selects a working LTS runtime.');
   process.exit(1);
 }
 const host = process.env.ROLEPLAY_HOST ?? '127.0.0.1';
@@ -21,7 +21,7 @@ const { app } = await createApp({
 });
 await app.listen({ host, port });
 const protocol = certificate ? 'https' : 'http';
-console.log(`Roleplay Engine is running.\nMac: ${protocol}://localhost:${port}`);
+console.log(`ORE is running.\nLocal: ${protocol}://localhost:${port}`);
 if (!['127.0.0.1', 'localhost', '::1'].includes(host)) {
   for (const addresses of Object.values(networkInterfaces())) {
     for (const address of addresses ?? []) {

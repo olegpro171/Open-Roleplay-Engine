@@ -49,9 +49,11 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await page.getByLabel('Your next turn').fill('I enter the tower.');
   await page.getByRole('button', { name: 'Request inspector' }).click();
   await page.getByRole('button', { name: 'Preview next request' }).click();
+  await expect(page.getByTestId('request-body')).toBeHidden();
+  await page.getByText('Endpoint and request body', { exact: true }).click();
   const preview = JSON.parse((await page.getByTestId('request-body').textContent())!);
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Send turn' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByLabel('Conversation')).toContainText('The lantern');
   await expect(phone.getByLabel('Conversation')).toContainText('I enter the tower.');
   await expect(phone.getByLabel('Your next turn')).toBeDisabled();
@@ -64,6 +66,8 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await expect(phone.getByLabel('Your next turn')).toBeEnabled();
 
   await phone.getByRole('button', { name: 'Request inspector' }).click();
+  await expect(phone.getByTestId('request-body')).toBeHidden();
+  await phone.getByText('Endpoint and request body', { exact: true }).click();
   await expect(phone.getByTestId('request-body')).toContainText('I enter the tower.');
   await phone.getByRole('combobox', { name: 'Inspect request', exact: true }).click();
   await phone.getByRole('option').filter({ hasText: 'succeeded' }).first().click();
@@ -88,10 +92,13 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await expect(phone.getByText('blank', { exact: true })).toHaveCount(2);
 
   await page.getByLabel('Your next turn').fill('I light the lantern.');
-  await page.getByRole('button', { name: 'Send turn' }).click();
-  await expect(page.getByRole('button', { name: 'Cancel response' })).toBeVisible();
-  await phone.getByRole('button', { name: 'Cancel response' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('.generation-status')).toContainText('Generating…');
+  await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await phone.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Retry response' })).toBeVisible();
+  await expect(page.locator('.recovery')).toContainText('Last turn is still pending.');
+  await expect(page.locator('.recovery')).toContainText('Response cancelled. Generate response before next turn.');
   await expect(page.getByLabel('Your next turn')).toBeDisabled();
   await request.post('/__test/mode', { data: { mode: 'normal' } });
   await page.getByRole('button', { name: 'Retry response' }).click();

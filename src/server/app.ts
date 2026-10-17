@@ -34,7 +34,7 @@ export async function createApp(options: {
     reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     const hostname = request.hostname;
     if (!secure && !['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname)) {
-      throw new AppError(403, 'https_required', 'LAN access requires HTTPS. Open the local address on the Mac.');
+      throw new AppError(403, 'https_required', 'LAN access requires HTTPS. Open the local address on the server computer.');
     }
     if (!request.url.startsWith('/api/')) return;
     reply.header('Cache-Control', 'no-store');
@@ -59,7 +59,7 @@ export async function createApp(options: {
   };
   app.get('/api/session', async (request) => ({ setupRequired: auth.setupRequired(), authenticated: auth.authenticated(request.cookies.session) }));
   app.post('/api/setup', async (request, reply) => {
-    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.ip)) throw new AppError(403, 'local_setup_only', 'Create the owner account from the Mac first.');
+    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.ip)) throw new AppError(403, 'local_setup_only', 'Create the owner account from the server computer first.');
     const { password } = passwordSchema.parse(request.body);
     setSession(reply, await auth.setup(password));
     return { ok: true };

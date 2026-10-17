@@ -2,7 +2,7 @@
 
 Date: 2026-10-16
 
-Status: product concept reference; persistent chats, roleplay libraries and durable layered compaction are implemented for local testing. A standalone synthetic compaction visualizer is also available. “Roleplay Engine” is a working name.
+Status: product concept reference; persistent chats, roleplay libraries and durable layered compaction are implemented for local testing. A standalone synthetic compaction visualizer is also available. The in-app name is “ORE”; the repository remains “Roleplay Engine”.
 
 This document records the product intent and concepts discussed so far. User-defined requirements are distinguished from proposed refinements, which remain open for revision. The user approved the technology and architecture baseline on 2026-10-16: TypeScript, React + Vite, Node.js + Fastify, and SQLite with better-sqlite3 + Drizzle, using Zod, HTTP + SSE, Vitest, and Playwright. Follow [IMPLEMENTATION.md](IMPLEMENTATION.md) for the accepted implementation guide and [README.md](README.md) for the working application. Persistent chats, reusable libraries, prompt editing, reviewed history replacement, imported-session preparation, layered memory inspection and targeted repair review are implemented. HTTPS setup, actual phone verification and real-model compaction quality remain unverified. There is no delivery schedule.
 
@@ -180,7 +180,7 @@ Separate reusable records:
 - **Character:** describes the identity played by the model.
 - **Persona:** describes the identity played by the user.
 
-Separate reusable Character and Persona records and their libraries are accepted in the second milestone. Their data can be inserted through prompt markers. Initial compatibility covers basic SillyTavern character text fields and persona names/descriptions; full Character Card V2 behavior, including lorebooks, is deferred. One character and one persona are selected per chat; multiple active characters remain open.
+Separate reusable Character and Persona records and their libraries are accepted in the second milestone. Their data can be inserted through prompt markers. Initial compatibility covers basic SillyTavern character text fields and persona names/descriptions; on 2026-10-17 the importer was extended to read the same basic fields from V3 JSON/PNG cards while preserving inactive metadata and the V3 export format; full Character Card V2 behavior, including lorebooks, is deferred. One character and one persona are selected per chat; multiple active characters remain open.
 
 ### Generation record
 
@@ -256,13 +256,13 @@ Defer broad provider-specific adaptation, semantic retrieval, automatic scene-bo
 
 ### First-milestone token-count decision
 
-On 2026-10-16 the user approved allowing generation with a clearly labeled conservative estimate before model-specific tokenizers are available, enforcing the configured budget against that estimate. This is not a claim of exact provider token counting. The current implementation measures serialized-message UTF-8 bytes with additional framing allowances and separately checks the input target and the combined model window with reserved output. See [README.md](README.md) for the method and initial protocol subset. Verified tokenizer coverage remains future work.
+On 2026-10-16 the user approved allowing generation with a clearly labeled conservative estimate before model-specific tokenizers are available, enforcing the configured budget against that estimate. This is not a claim of exact provider token counting. The current implementation measures serialized-message UTF-8 bytes with additional framing allowances and separately checks the input target and the combined model window with reserved output. See [README.md](README.md) for the method and initial protocol subset. Verified tokenizer coverage remains future work. A read-only check on 2026-10-17 found the saved Gemma request estimated at 29,446 against 5,912 provider-reported input tokens (approximately 5×); all selected memory and expected verbatim messages were present. The byte-based policy remains unchanged pending a separate counting-method decision. See [token and card diagnostics](docs/DIAGNOSTICS.md).
 
 ### Decisions still open
 
-- Project name and location-independent identity.
+- Distribution identity beyond the accepted in-app name “ORE”; repository renaming is deferred.
 - Later database schemas and distribution packaging. Exact package versions, the initial chat/turn/generation schema, owner sessions, and a local launcher now exist; see [README.md](README.md). HTTPS certificate provisioning/trust and stronger credential storage protection remain open. These implementation choices do not settle future context schemas or product policies.
-- Additional card and chat import/export formats. The implemented subset is character V1/V2 JSON or embedded-card PNG, persona-backup JSON (plus name/description JSON), application prompt/context-preset JSON, and SillyTavern-style JSONL chat replacement; see [README.md](README.md).
+- Additional card and chat import/export formats. The implemented subset is character V1/V2/V3 JSON or embedded-card PNG, persona-backup JSON (plus name/description JSON), application prompt/context-preset JSON, and SillyTavern-style JSONL chat replacement; see [README.md](README.md).
 - Future turn/summary revision retention, regeneration and branching behavior. Stable turn/part revisions, whole-turn deletion, independent part editing and intentionally blank parts are implemented; archived turns remain editable.
 - Quality-oriented tuning of initial numerical values, any future hard summary-size enforcement, and operational headroom. The initial output-size setting is a soft prompt target. Fixed batches, configurable promotion grouping/floors and geometric-pressure ranking are accepted; real-model detail retention still requires validation.
 - Additional recovery options beyond the implemented errors, explicit retries, reviewed repairs and Clear memory. Failure when required input cannot fit is settled. Imported consecutive same-speaker messages use the accepted separate-turn rule above; system-message and group-chat conversion remain outside the subset.

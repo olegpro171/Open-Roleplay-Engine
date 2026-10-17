@@ -3,6 +3,7 @@ import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
 import { assembleRequest } from '../../src/core/prompt';
+import type { SummaryNode } from '../../src/shared/context';
 
 test('live input inspection, budget recovery, provider usage and clearing every memory layer', async ({ page, browser, request }) => {
   const password = 'browser-synthetic-password';
@@ -46,7 +47,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await page.screenshot({ path: 'test-results/desktop-prompt-peek.png', fullPage: true });
   await page.keyboard.press('Escape'); await expect(peek).toHaveCount(0);
   await expect(meta.getByRole('button', { name: 'Prompt peek', exact: true })).toBeFocused();
-  await page.getByRole('button', { name: 'Send turn' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByLabel('Your next turn')).toBeEnabled();
   await expect(page.locator('.turn-usage').last()).toHaveText('321 in · 17 out');
   const originalRequest = (await state()).generations[0].request;
@@ -113,4 +114,89 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   expect(cleared.context.jobs).toEqual([]); expect(cleared.context.summaries).toEqual([]);
   expect(cleared.context.archivedTurnIds).toEqual([]); expect(cleared.turns).toHaveLength(9);
   expect(cleared.generations[0].request).toEqual(originalRequest);
+});
+
+test('keeps the reading turn during resize, jumps to latest, and makes dense memory readable', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1380, height: 900 });
+  const session = await request.get('/api/session').then(response => response.json());
+  const { endpoint } = await request.get('/__test/endpoint').then(response => response.json());
+  await page.goto('/');
+  await expect(page).toHaveTitle('ORE');
+  await page.getByLabel('Owner password').fill('browser-synthetic-password');
+  await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
+  const command = async (url: string, data: unknown, method = 'POST') => {
+    const response = await page.request.fetch(url, { method, headers: { Origin: 'http://127.0.0.1:4173' }, data });
+    expect(response.ok(), await response.text()).toBe(true); return response.json();
+  };
+  const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
+  const { id: connectionId } = await command('/api/library', { revision: library.revision, kind: 'connections', data: { name: 'Resize fixture', endpoint, model: 'synthetic-roleplay', contextWindow: 2_000_000, maxOutputTokens: 1_000, customParameters: {} } });
+  const { id: chatId } = await command('/api/chats', { title: 'Resize and timeline proof', targetInputTokens: 1_000_000, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: null });
+  await command(`/api/chats/${chatId}/history`, { revision: 0, turns: Array.from({ length: 220 }, (_, i) => ({ user: `Turn ${i + 1}. ${'Mira holds the brass key and listens for footsteps. '.repeat(12)}`, assistant: 'Leon watches the lantern cast shadows across the cellar door. '.repeat(18), complete: true })) }, 'PUT');
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Resize and timeline proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  const transcript = page.locator('.transcript');
+  await expect(page.getByRole('button', { name: 'Latest turn', exact: false })).toHaveCount(0);
+  const composerPositions = () => page.locator('.composer').evaluate(node => {
+    const input = node.querySelector('textarea')!.getBoundingClientRect(), send = node.querySelector('button')!.getBoundingClientRect();
+    return { right: send.left >= input.right, below: send.top >= input.bottom };
+  });
+  expect((await composerPositions()).right).toBe(true);
+  await transcript.evaluate(node => {
+    const turn = node.querySelectorAll<HTMLElement>('.turn')[99];
+    node.scrollTop += turn.getBoundingClientRect().top - node.getBoundingClientRect().top + turn.clientHeight * .35;
+  });
+  await expect(page.getByRole('button', { name: 'Latest turn', exact: false })).toBeVisible();
+  const readingPosition = () => transcript.evaluate(node => {
+    const top = node.getBoundingClientRect().top;
+    const turn = Array.from(node.querySelectorAll<HTMLElement>('.turn')).find(turn => turn.getBoundingClientRect().bottom > top)!;
+    const rect = turn.getBoundingClientRect();
+    return { turn: turn.getAttribute('aria-label'), progress: (top - rect.top) / rect.height };
+  });
+  const before = await readingPosition();
+  expect(before.turn).toBe('Turn 100');
+  for (const viewport of [{ width: 1100, height: 760 }, { width: 900, height: 680 }, { width: 760, height: 610 }, { width: 390, height: 650 }, { width: 1000, height: 820 }, { width: 1380, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    await expect.poll(async () => (await readingPosition()).turn).toBe(before.turn);
+    await expect.poll(async () => Math.abs((await readingPosition()).progress - before.progress)).toBeLessThan(.02);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const positions = await composerPositions();
+    expect(viewport.width <= 800 ? positions.below : positions.right).toBe(true);
+  }
+  await page.getByRole('button', { name: 'Latest turn', exact: false }).click();
+  await expect.poll(() => transcript.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);
+  await page.setViewportSize({ width: 760, height: 620 });
+  await expect.poll(() => transcript.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);
+
+  // A synthetic read-only snapshot exercises small summary boxes without paid model calls.
+  await page.route(`**/api/chats/${chatId}`, async route => {
+    const response = await route.fetch(), snapshot = await response.json() as ChatSnapshot;
+    const summary = (id: string, level: number, start: number, end: number): SummaryNode => ({ id, revision: 0, level, text: 'Mira keeps the brass key.', approved: true, manual: false, createdAt: new Date().toISOString(), children: [], prior: [], turns: snapshot.turns.slice(start, end).map(turn => ({ turnId: turn.id, userRevision: turn.user.revision, assistantRevision: turn.assistant.revision, complete: true })) });
+    const nodes = [summary('older-memory', 2, 0, 199), summary('recent-memory', 1, 199, 203), summary('retained-l1', 1, 0, 3), summary('retained-l2', 2, 0, 9)];
+    snapshot.context = { ...snapshot.context, archivedTurnIds: snapshot.turns.slice(0, 203).map(turn => turn.id), selected: nodes.slice(0, 2).map(node => ({ id: node.id, revision: node.revision })), summaries: nodes };
+    await route.fulfill({ response, json: snapshot });
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Summary layers' })).toBeVisible();
+  const recent = page.getByRole('button', { name: 'Level 1 summary, turns 200 to 203, active', exact: true });
+  await expect(recent).toHaveText('');
+  await recent.hover();
+  await expect(page.getByRole('tooltip')).toHaveText('L1 · turns 200–203 · active', { timeout: 300 });
+  await expect(page.locator('.turn-band')).toHaveCount(2);
+  const widths = await page.locator('.turn-band').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().width));
+  expect(widths[0] / widths[1]).toBeCloseTo(203 / 17, 1);
+  await page.getByLabel('Zoom timeline', { exact: true }).check();
+  await expect(recent).toHaveText('200–203');
+  await recent.scrollIntoViewIfNeeded();
+  const fits = await recent.evaluate(node => node.scrollWidth <= node.clientWidth);
+  expect(fits).toBe(true);
+  await expect(page.locator('.timeline-labels')).toHaveText('L1L2Turns');
+  await page.screenshot({ path: 'test-results/memory-timeline-zoom.png', fullPage: true });
+  await page.getByLabel('Zoom timeline', { exact: true }).uncheck();
+  await page.setViewportSize({ width: 390, height: 760 });
+  await expect(page.locator('.turn-band')).toHaveCount(2);
+  await expect(recent).toHaveText('');
+  await page.screenshot({ path: 'test-results/memory-timeline-dense-phone.png', fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

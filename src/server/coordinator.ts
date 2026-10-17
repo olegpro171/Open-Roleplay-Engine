@@ -60,7 +60,7 @@ export class GenerationCoordinator {
   cancel(id: string) {
     const operation = this.active.get(id);
     if (!operation || this.store.generation(id)?.status !== 'running') throw new AppError(409, 'inactive_generation', 'This response is no longer active.');
-    this.store.finish(id, 'cancelled', operation.text, 'Response cancelled. Retry explicitly to send a new model request.');
+    this.store.finish(id, 'cancelled', operation.text, 'Response cancelled. Generate response before next turn.');
     operation.controller.abort();
     this.context.cancelForGeneration(id);
     this.changed();

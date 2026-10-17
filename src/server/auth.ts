@@ -32,7 +32,7 @@ export class Auth {
     // Count before awaiting the password hash, including simultaneous attempts.
     this.attempts.set(ip, { count: attempt && attempt.until > Date.now() ? attempt.count + 1 : 1, until: attempt && attempt.until > Date.now() ? attempt.until : Date.now() + 900_000 });
     const owner = this.store.db.select().from(owners).get();
-    if (!owner) throw new AppError(401, 'login_failed', 'Set up the owner account on the Mac first.');
+    if (!owner) throw new AppError(401, 'login_failed', 'Set up the owner account on the server computer first.');
     const hash = await derive(password, owner.salt, 64) as Buffer;
     if (!timingSafeEqual(hash, Buffer.from(owner.hash, 'hex'))) throw new AppError(401, 'login_failed', 'Incorrect password.');
     this.attempts.delete(ip);

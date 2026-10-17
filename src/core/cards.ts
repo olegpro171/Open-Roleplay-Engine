@@ -6,16 +6,16 @@ function object(value: unknown): Record<string, unknown> {
 }
 export function importCharacter(value: unknown): Character {
   const source = object(value);
-  if (source.spec !== undefined && source.spec !== 'chara_card_v2') throw new Error('Only legacy and Character Card V2 cards are supported.');
-  const data = source.spec === 'chara_card_v2' ? object(source.data) : source;
+  if (source.spec !== undefined && !['chara_card_v2', 'chara_card_v3'].includes(source.spec as string)) throw new Error('Only legacy, Character Card V2 and V3 cards are supported.');
+  const data = source.spec === 'chara_card_v2' || source.spec === 'chara_card_v3' ? object(source.data) : source;
   const fields = Object.fromEntries(['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'].map(key => [key, data[key] ?? '']));
   return characterSchema.parse({ ...fields, source });
 }
 export function exportCharacter(card: Character): Record<string, unknown> {
   const original = card.source ?? {};
-  const oldData = original.spec === 'chara_card_v2' ? object(original.data) : original;
+  const oldData = original.spec === 'chara_card_v2' || original.spec === 'chara_card_v3' ? object(original.data) : original;
   const { source: _source, ...fields } = characterSchema.parse(card);
-  return { ...original, ...fields, spec: 'chara_card_v2', spec_version: '2.0', data: {
+  return { ...original, ...fields, spec: original.spec === 'chara_card_v3' ? 'chara_card_v3' : 'chara_card_v2', spec_version: original.spec === 'chara_card_v3' ? '3.0' : '2.0', data: {
     creator_notes: '', system_prompt: '', post_history_instructions: '', alternate_greetings: [], tags: [], creator: '', character_version: '', extensions: {},
     ...oldData, ...fields,
   } };
@@ -28,7 +28,7 @@ export function importPersonas(value: unknown): Persona[] {
     if (entries.length === 0 || entries.length > 1000) throw new Error('Import between 1 and 1000 personas at a time.');
     return entries.map(([key, name]) => personaSchema.parse({ name, description: descriptions[key] ? object(descriptions[key]).description ?? '' : '' }));
   }
-  const card = data.spec === 'chara_card_v2' ? object(data.data) : data;
+  const card = data.spec === 'chara_card_v2' || data.spec === 'chara_card_v3' ? object(data.data) : data;
   return [personaSchema.parse({ name: card.name, description: card.description ?? '' })];
 }
 export function exportPersona(persona: Persona) {

@@ -12,6 +12,7 @@ import { defaultPrompt, promptSchema, type Character } from '../src/shared/libra
 import { createApp } from '../src/server/app.js';
 import { randomUUID } from 'node:crypto';
 import { startMockProvider } from './support/mock-provider.js';
+import { deflateSync } from 'node:zlib';
 
 const folders: string[] = [];
 afterEach(() => { for (const path of folders.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -37,6 +38,26 @@ describe('cards, macros and prompt arrangement', () => {
     expect(importCharacter(readCardFile(png.toString('base64'))).name).toBe('Keeper');
     expect(() => readCardFile(png.subarray(0, 14).toString('base64'))).toThrow();
     expect(() => readCardFile(Buffer.from('invalid JSON').toString('base64'))).toThrow('valid card JSON');
+  });
+  it('imports V3 basic fields, prefers ccv3 PNG metadata, and retains V3 extras through editing and export', () => {
+    const source = { spec: 'chara_card_v3', spec_version: '3.0', data: { ...card, name: 'V3 Keeper', nickname: 'Kept nickname', group_only_greetings: ['Kept greeting'], assets: [{ type: 'icon', uri: 'ccdefault:', name: 'main', ext: 'png' }], extensions: { custom: true } } };
+    const chunk = (keyword: string, value: unknown, type: string) => {
+      const text = Buffer.from(Buffer.from(JSON.stringify(value)).toString('base64'));
+      const payload = Buffer.concat([Buffer.from(keyword + '\0'), type === 'zTXt' ? Buffer.concat([Buffer.from([0]), deflateSync(text)]) : type === 'iTXt' ? Buffer.concat([Buffer.from([1, 0, 0, 0]), deflateSync(text)]) : text]);
+      const result = Buffer.alloc(payload.length + 12); result.writeUInt32BE(payload.length); result.write(type, 4); payload.copy(result, 8); return result;
+    };
+    for (const type of ['tEXt', 'zTXt', 'iTXt']) {
+      for (const reversed of [false, true]) {
+        const chunks = [chunk('chara', card, 'tEXt'), chunk('ccv3', source, type)];
+        const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), ...(reversed ? chunks.reverse() : chunks)]);
+        const imported = importCharacter(readCardFile(png.toString('base64')));
+        expect(imported.name).toBe('V3 Keeper');
+        const exported = exportCharacter({ ...imported, description: 'Edited V3 description' });
+        expect(exported).toMatchObject({ spec: 'chara_card_v3', spec_version: '3.0', data: { ...source.data, description: 'Edited V3 description' } });
+        expect(importCharacter(exported).description).toBe('Edited V3 description');
+      }
+    }
+    expect(importCharacter(readCardFile(Buffer.from(JSON.stringify(source)).toString('base64'))).name).toBe('V3 Keeper');
   });
   it('resolves name tags once, arranges roles, preserves transcript text, and measures the resolved request', () => {
     expect(replaceNameMacros('{{User}} {{ CHAR }} {{unknown}}', '$&{{char}}', 'Keeper')).toBe('$&{{char}} Keeper {{unknown}}');

@@ -22,7 +22,6 @@ export function BudgetBreakdown({ request }: { request: RequestPreview }) {
   return <div className="context-breakdown">
     <div className="allocation-bar" role="img" aria-label={buckets.map(bucket => `${bucket.label}: ${bucket.tokens.toLocaleString()} estimated tokens`).join(', ')}>{buckets.map(bucket => <span key={bucket.kind} className={`allocation ${bucket.kind}`} style={{ width: `${bucket.tokens / request.budget.inputTokens * 100}%` }} title={`${bucket.label}: ${bucket.tokens.toLocaleString()}`} />)}</div>
     <ul className="allocation-legend">{buckets.map(bucket => <li key={bucket.kind}><span><i className={`allocation ${bucket.kind}`} />{bucket.label}</span><span>{bucket.tokens.toLocaleString()} <small>({(bucket.tokens / request.budget.inputTokens * 100).toFixed(1)}%)</small></span></li>)}</ul>
-    <p className="small muted">Conservative input estimates. Output reservation: {request.budget.reservedOutputTokens.toLocaleString()} tokens, separate from input.</p>
   </div>;
 }
 
