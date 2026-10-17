@@ -101,6 +101,8 @@ Backups must capture a consistent database snapshot, including any required asso
 
 Generation is a server-owned operation with an identity and saved state. A browser subscribes to progress; its connection does not own the operation's lifetime.
 
+The composer synchronously stores exact draft text per chat in browser localStorage on each edit, without waiting for a server request, idle timer or unload event. A staged send also stores its request identity and captured revision before transport. Failed or ambiguous responses retain the text; ambiguous failures retain the identity across reload for server-idempotent explicit retry. A definite client-command rejection permits a fresh explicit attempt against current state. Acknowledgement clears only the captured draft, never a newer edit or another chat’s composer; post-send refresh follows the currently selected chat. Storage failures retain in-memory text and show a copy-before-leaving warning. Browser storage is device/origin-local and subject to clearing, quota and private-session lifetime; no cross-device draft synchronization or automatic resend is implemented. Summary-repair candidate discard rules remain separate.
+
 The intended flow is:
 
 1. Validate the command and save a pending turn only if the chat has no unresolved turn.

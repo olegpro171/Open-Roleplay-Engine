@@ -166,6 +166,8 @@ For example, the opening turn contains only “The innkeeper looks up. ‘You're
 
 A persistent conversation that accepts user input and obtains model responses. Many chats can exist, with different characters, personas, and settings.
 
+Accepted composer requirement on 2026-10-17: preserve each chat’s unsent text through menus, chat switching, page closure and browser restart. A send must retain recoverable text until the server acknowledges saving it, including when the server is unavailable or restarted. Drafts are local to the browser/device; they are separate from saved transcript turns and summary-repair candidates. Clearing the composer deliberately or acknowledging its submission clears that draft.
+
 User interface decision on 2026-10-17: select chats through Libraries. Any idle chat, including the original or final chat, may be deleted; deleting the current chat keeps the Chats library open for further cleanup. Story and Setup sit together in the shared header.
 
 Each chat selects:

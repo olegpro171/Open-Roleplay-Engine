@@ -10,27 +10,38 @@ import { staleSummaries } from '../core/context';
 import { refKey } from '../shared/context';
 import { BudgetBreakdown, InputMeter, PromptPeek } from './PromptPeek';
 import { useTranscriptScroll } from './useTranscriptScroll';
+import { useChatDraft } from './useChatDraft';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
 const serverUnavailable = 'Cannot reach the server. Check that it is running.';
+function lastChat() {
+  try { return localStorage.getItem('roleplay-chat') ?? 'main'; }
+  catch { return 'main'; }
+}
+function rememberChat(id: string | null) {
+  try {
+    if (id) localStorage.setItem('roleplay-chat', id);
+    else localStorage.removeItem('roleplay-chat');
+  } catch { /* Selection is optional; the composer separately reports draft storage failures. */ }
+}
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
-  const [chatId, setChatId] = useState<string | null>(() => localStorage.getItem('roleplay-chat') ?? 'main');
+  const [chatId, setChatId] = useState<string | null>(lastChat);
   const [library, setLibrary] = useState<LibrarySnapshot | null>(null);
   const [snapshot, setSnapshot] = useState<ChatSnapshot | null>(null);
   const [error, setError] = useState('');
   const [online, setOnline] = useState(false);
   const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory'>('story');
-  const [draft, setDraft] = useState('');
+  const drafts = useChatDraft(chatId);
+  const draft = drafts.text;
   const [settledDraft, setSettledDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<Edit | null>(null);
   const [peek, setPeek] = useState(false);
   const [generationId, setGenerationId] = useState('');
   const loadId = useRef(0);
-  const submission = useRef<{ requestId: string; revision: number; text: string } | null>(null);
   const { transcript, awayFromLatest, scrollToLatest } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot);
   const clearServerError = useCallback(() => setError(current => current === serverUnavailable ? '' : current), []);
   const refreshSession = useCallback(async () => {
@@ -45,8 +56,8 @@ export function App() {
       if (id === loadId.current) {
         setSnapshot(state); setLibrary(items); clearServerError();
         if (selected !== chatId) {
-          setChatId(selected); setDraft(''); setEdit(null); setPeek(false); setGenerationId(''); submission.current = null;
-          if (selected) localStorage.setItem('roleplay-chat', selected); else localStorage.removeItem('roleplay-chat');
+          setChatId(selected); setEdit(null); setPeek(false); setGenerationId('');
+          rememberChat(selected);
         }
         if (!selected) setTab('library');
       }
@@ -56,6 +67,10 @@ export function App() {
       else setError(error instanceof ApiError ? error.message : serverUnavailable);
     }
   }, [refreshSession, chatId, clearServerError]);
+  const latestRefresh = useRef(refresh);
+  latestRefresh.current = refresh;
+  const selectedChat = useRef(chatId);
+  selectedChat.current = chatId;
   useEffect(() => { void refreshSession(); }, [refreshSession]);
   useEffect(() => {
     if (error !== serverUnavailable) return;
@@ -124,15 +139,23 @@ export function App() {
     event.preventDefault();
     const text = trimBoundaryNewlines(draft);
     if (!snapshot || busy || pending || !text.trim()) return;
-    if (!submission.current || submission.current.text !== text) submission.current = { requestId: crypto.randomUUID(), revision: snapshot.revision, text };
-    if (await command(() => api(`/chats/${chatId}/turns`, 'POST', submission.current))) {
-      submission.current = null; setDraft(''); setPeek(false); scrollToLatest();
-    } else {
-      // A revision conflict is reconciled by the refresh; preserve identity on an ambiguous network failure.
-      const state = await api<ChatSnapshot>(`/chats/${chatId}`).catch(() => null);
-      if (state && state.revision !== submission.current?.revision) submission.current = null;
+    const id = snapshot.id;
+    const sent = drafts.stage(id, snapshot.revision);
+    setBusy(true); setError('');
+    try {
+      await api(`/chats/${id}/turns`, 'POST', sent.submission);
+      drafts.acknowledge(id, sent);
+      if (selectedChat.current === id) { setPeek(false); scrollToLatest(); }
+    } catch (error) {
+      // A server rejection is definite; a lost response is ambiguous, so retain its request identity.
+      if (error instanceof ApiError && error.status < 500) drafts.reject(id, sent);
+      setError(error instanceof Error ? error.message : 'The request failed.');
+    } finally {
+      setBusy(false);
+      await latestRefresh.current();
     }
   }
+
   async function saveEdit(event: FormEvent) {
     event.preventDefault();
     if (!edit) return;
@@ -142,7 +165,7 @@ export function App() {
   if (!session) return <main className="login"><p>Opening ORE…</p>{error && <p role="alert">{error}</p>}</main>;
   if (!session.authenticated) return <Login session={session} onLogin={async () => { setError(''); await refreshSession(); }} />;
   function openChat(id: string) {
-    loadId.current++; localStorage.setItem('roleplay-chat', id); setChatId(id); setTab('story'); setDraft(''); setEdit(null); setPeek(false); setGenerationId(''); submission.current = null; if (id !== chatId) setSnapshot(null);
+    loadId.current++; rememberChat(id); setChatId(id); setTab('story'); setEdit(null); setPeek(false); setGenerationId(''); if (id !== chatId) setSnapshot(null);
   }
   if (!library) return <main className="login"><p>Loading your story…</p>{error && <p role="alert">{error}</p>}</main>;
 
@@ -185,8 +208,9 @@ export function App() {
         </div>{awayFromLatest && <button className="latest-turn secondary" onClick={scrollToLatest}>Latest turn <span aria-hidden="true">↓</span></button>}</div>
         {active ? <div className="generation-status" role="status"><span>Generating…</span><button className="quiet" disabled={busy} onClick={() => void command(() => api(`/generations/${active.id}/cancel`, 'POST', {}))}>Cancel</button></div> : pending && <div className="recovery" role="status"><div><strong>Last turn is still pending.</strong><p>{latest?.status === 'cancelled' ? 'Response cancelled. Generate response before next turn.' : latest?.error ?? 'Generate response before next turn.'}</p>{partial && <small>Partial text is preserved for inspection. It has not been accepted as a response.</small>}</div><button className="secondary" disabled={busy} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID() }))}>Retry response</button></div>}
         <form className="composer" onSubmit={(event) => void send(event)}>
-          <textarea aria-label="Your next turn" id="turn-input" placeholder="What happens next?" value={draft} disabled={pending || busy || Boolean(preparing)} onChange={(event) => { setDraft(event.target.value); setPeek(false); }} />
+          <textarea aria-label="Your next turn" id="turn-input" placeholder="What happens next?" value={draft} disabled={pending || busy || Boolean(preparing)} onChange={(event) => { drafts.change(event.target.value); setPeek(false); }} />
           <button className="send-turn" disabled={pending || busy || Boolean(preparing) || memoryStale || !snapshot.connection || !draft.trim()}>{busy ? 'Saving…' : 'Send'} <span aria-hidden="true">↗</span></button>
+          {drafts.storageError && <span className="composer-status" role="alert">Draft could not be saved in this browser. Keep this page open and copy your text before leaving.</span>}
           {preparing && <span className="composer-status">Preparing memory…</span>}
         </form>
       </section>
