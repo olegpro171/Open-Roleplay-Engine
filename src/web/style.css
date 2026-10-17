@@ -110,3 +110,5 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .turn-tick.turn-band{border:0;min-width:1px}
 .timeline-tooltip{position:fixed;z-index:200;pointer-events:none;transform:translateX(-50%);width:max-content;max-width:270px;padding:8px 10px;border:1px solid #5d7086;border-radius:6px;background:#263343;color:#e2e8ef;font-size:12px;box-shadow:0 4px 14px #0007}
 @media(max-width:800px){.composer{grid-template-columns:minmax(0,1fr)}.composer .send-turn{justify-self:end;font-size:13px;padding:9px 14px;margin:0}.composer-status{grid-row:2;grid-column:1;padding-right:100px;align-self:center}.composer .send-turn{grid-row:2;grid-column:1}.generation-status{padding:5px 16px}.latest-turn{right:18px}}
+
+.connection-tools .connection-help{margin:14px 0 18px}.connection-success{color:#8eb698}

@@ -11,6 +11,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   const password = 'browser-synthetic-password';
   const session = await request.get('/api/session').then(response => response.json());
   const { endpoint } = await request.get('/__test/endpoint').then(response => response.json());
+  await request.post('/__test/mode', { data: { mode: 'normal' } });
   await page.goto('/'); await page.getByLabel('Owner password').fill(password);
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();

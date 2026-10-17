@@ -51,6 +51,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await page.getByRole('button', { name: 'Preview next request' }).click();
   await expect(page.getByTestId('request-body')).toBeHidden();
   await page.getByText('Endpoint and request body', { exact: true }).click();
+  await expect(page.getByTestId('request-body')).toContainText('I enter the tower.');
   const preview = JSON.parse((await page.getByTestId('request-body').textContent())!);
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await page.getByRole('button', { name: 'Send', exact: true }).click();

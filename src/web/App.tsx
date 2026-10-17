@@ -13,6 +13,7 @@ import { useTranscriptScroll } from './useTranscriptScroll';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
+const serverUnavailable = 'Cannot reach the server. Check that it is running.';
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -23,6 +24,7 @@ export function App() {
   const [online, setOnline] = useState(false);
   const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory'>('story');
   const [draft, setDraft] = useState('');
+  const [settledDraft, setSettledDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<Edit | null>(null);
   const [peek, setPeek] = useState(false);
@@ -30,9 +32,10 @@ export function App() {
   const loadId = useRef(0);
   const submission = useRef<{ requestId: string; revision: number; text: string } | null>(null);
   const { transcript, awayFromLatest, scrollToLatest } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot);
+  const clearServerError = useCallback(() => setError(current => current === serverUnavailable ? '' : current), []);
   const refreshSession = useCallback(async () => {
-    try { setSession(await api<Session>('/session')); } catch { setError('Cannot reach the server. Check that it is running.'); }
-  }, []);
+    try { setSession(await api<Session>('/session')); clearServerError(); } catch { setError(serverUnavailable); }
+  }, [clearServerError]);
   const refresh = useCallback(async () => {
     const id = ++loadId.current;
     try {
@@ -40,7 +43,7 @@ export function App() {
       const selected = items.chats.find(chat => chat.id === chatId)?.id ?? items.chats[0]?.id ?? null;
       const state = selected ? await api<ChatSnapshot>(`/chats/${selected}`) : null;
       if (id === loadId.current) {
-        setSnapshot(state); setLibrary(items);
+        setSnapshot(state); setLibrary(items); clearServerError();
         if (selected !== chatId) {
           setChatId(selected); setDraft(''); setEdit(null); setPeek(false); setGenerationId(''); submission.current = null;
           if (selected) localStorage.setItem('roleplay-chat', selected); else localStorage.removeItem('roleplay-chat');
@@ -50,21 +53,34 @@ export function App() {
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) void refreshSession();
       else if (error instanceof ApiError && error.status === 404) { setChatId(null); }
-      else setError(error instanceof Error ? error.message : 'Could not load this chat.');
+      else setError(error instanceof ApiError ? error.message : serverUnavailable);
     }
-  }, [refreshSession, chatId]);
+  }, [refreshSession, chatId, clearServerError]);
   useEffect(() => { void refreshSession(); }, [refreshSession]);
+  useEffect(() => {
+    if (error !== serverUnavailable) return;
+    let checking = false;
+    const timer = setInterval(() => {
+      if (!checking) { checking = true; void refreshSession().finally(() => { checking = false; }); }
+    }, 2_000);
+    return () => clearInterval(timer);
+  }, [error, refreshSession]);
   useEffect(() => {
     if (!session?.authenticated) return;
     void refresh();
     const events = new EventSource('/api/events');
-    events.onopen = () => { setOnline(true); void refresh(); };
+    events.onopen = () => { setOnline(true); clearServerError(); void refresh(); };
     events.onmessage = () => { void refresh(); };
     events.onerror = () => { setOnline(false); void refreshSession(); };
     const visible = () => { if (document.visibilityState === 'visible') { void refreshSession(); void refresh(); } };
     document.addEventListener('visibilitychange', visible);
     return () => { events.close(); setOnline(false); document.removeEventListener('visibilitychange', visible); };
-  }, [session?.authenticated, refresh, refreshSession]);
+  }, [session?.authenticated, refresh, refreshSession, clearServerError]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSettledDraft(draft), 1_000);
+    return () => clearTimeout(timer);
+  }, [draft]);
 
   useEffect(() => { setPeek(false); setGenerationId(''); }, [snapshot?.id]);
   const active = snapshot?.generations.find((generation) => generation.status === 'running');
@@ -75,20 +91,19 @@ export function App() {
   const pending = snapshot?.turns.at(-1)?.complete === false;
   const latest = snapshot?.generations[0];
   const shownGeneration = snapshot?.generations.find((generation) => generation.id === generationId);
-  const [inspection, setInspection] = useState<{ key: string; request: RequestPreview | null; error: string }>({ key: '', request: null, error: '' });
+  const [inspection, setInspection] = useState<{ chatId: string | null; key: string; request: RequestPreview | null; error: string }>({ chatId: null, key: '', request: null, error: '' });
   const inspectionKey = JSON.stringify([snapshot?.id, snapshot?.revision, snapshot?.context.revision, snapshot?.connection, draft, pending]);
   useEffect(() => {
-    if (!snapshot?.connection) return;
+    if (!snapshot?.connection || (!pending && draft !== settledDraft)) return;
     let current = true;
-    const timer = setTimeout(() => {
-      api<RequestPreview>(`/chats/${snapshot.id}/preview`, 'POST', { revision: snapshot.revision, inspection: true, ...(!pending ? { text: draft } : {}) })
-        .then(request => { if (current) setInspection({ key: inspectionKey, request, error: '' }); })
-        .catch(error => { if (current) setInspection({ key: inspectionKey, request: null, error: error.message }); });
-    }, 150);
-    return () => { current = false; clearTimeout(timer); };
-  }, [inspectionKey]);
-  const currentRequest = inspection.key === inspectionKey ? inspection.request : null;
-  const inspectionError = inspection.key === inspectionKey ? inspection.error : snapshot?.connection ? 'Counting current input…' : '';
+    api<RequestPreview>(`/chats/${snapshot.id}/preview`, 'POST', { revision: snapshot.revision, inspection: true, ...(!pending ? { text: draft } : {}) })
+      .then(request => { if (current) setInspection({ chatId: snapshot.id, key: inspectionKey, request, error: '' }); })
+      .catch(error => { if (current) setInspection(previous => ({ chatId: snapshot.id, key: inspectionKey, request: previous.chatId === snapshot.id ? previous.request : null, error: error.message })); });
+    return () => { current = false; };
+  }, [inspectionKey, settledDraft]);
+  const currentRequest = snapshot?.connection && inspection.chatId === snapshot.id ? inspection.request : null;
+  const inspectionCurrent = inspection.key === inspectionKey && !inspection.error;
+  const inspectionError = inspection.key === inspectionKey ? inspection.error : currentRequest ? '' : snapshot?.connection ? 'Counting current input…' : '';
   const shownRequest = generationId ? shownGeneration?.request : currentRequest;
   const archivedIds = new Set(snapshot?.context.archivedTurnIds);
   const activeTurns = snapshot?.turns.filter(turn => !archivedIds.has(turn.id)).length ?? 0;
@@ -149,7 +164,7 @@ export function App() {
         <p className="eyebrow">CURRENT CHAT</p><h1>{snapshot.settings.title}</h1>
         <p>{snapshot.connection ? `${snapshot.connection.name} · ${snapshot.connection.model}` : 'Set up a Connection to begin.'}</p>
         <dl><div><dt>Total turns</dt><dd>{snapshot.turns.length}</dd></div><div title="Saved turns kept verbatim in the current input, including a pending turn"><dt>Active turns</dt><dd>{activeTurns}</dd></div><div><dt>Input target</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString()}</dd></div><div><dt>Estimated input</dt><dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>{currentRequest?.budget.inputTokens.toLocaleString() ?? '—'}</dd></div></dl>
-        <details className="context-dropdown"><summary>Context <span>{snapshot.context.selected.length ? `${snapshot.context.selected.length} summaries` : 'Full history'}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" onClick={() => setPeek(true)}>Prompt peek</button></> : <p className="small muted">{inspectionError || 'Select a Connection to inspect input.'}</p>}</details>
+        <details className="context-dropdown"><summary>Context <span>{snapshot.context.selected.length ? `${snapshot.context.selected.length} summaries` : 'Full history'}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></> : <p className="small muted">{inspectionError || 'Select a Connection to inspect input.'}</p>}</details>
         <button className="secondary" onClick={() => setTab('settings')}>Edit setup</button>
         <button className="quiet" onClick={() => setTab('memory')}>Inspect memory</button>
       </aside>
@@ -178,7 +193,7 @@ export function App() {
     {tab === 'library' && <Libraries library={library} currentChatId={chatId} busy={busy} run={command} openChat={openChat} />}
     {tab === 'settings' && snapshot && <ChatSetup key={snapshot.id} snapshot={snapshot} library={library} busy={busy || working} run={command} saved={() => { setTab('story'); setPeek(false); setGenerationId(''); }} />}
     {tab === 'memory' && snapshot && <Memory key={snapshot.id} snapshot={snapshot} library={library} busy={busy} run={command} />}
-    {tab === 'request' && snapshot && <main className="document-panel"><p className="eyebrow">REQUEST INSPECTOR</p><h1>See what the model receives.</h1><p className="muted">Current input follows your saved setup and composer. Saved attempts preserve the exact request and limits used at that time. Credentials stay on the server.</p><div className="inspector-controls"><label>Inspect request<Dropdown aria-label="Inspect request" value={generationId} onChange={setGenerationId} options={[{ value: '', label: 'Current request' }, ...snapshot.generations.map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString()} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!snapshot.connection || busy} onClick={() => setGenerationId('')}>Preview {pending ? 'pending turn' : 'next request'}</button><button className="secondary" disabled={!currentRequest} onClick={() => setPeek(true)}>Prompt peek</button></div>
+    {tab === 'request' && snapshot && <main className="document-panel"><p className="eyebrow">REQUEST INSPECTOR</p><h1>See what the model receives.</h1><p className="muted">Current input follows your saved setup and composer. Saved attempts preserve the exact request and limits used at that time. Credentials stay on the server.</p><div className="inspector-controls"><label>Inspect request<Dropdown aria-label="Inspect request" value={generationId} onChange={setGenerationId} options={[{ value: '', label: 'Current request' }, ...snapshot.generations.map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString()} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!snapshot.connection || busy} onClick={() => { setGenerationId(''); setSettledDraft(draft); }}>Preview {pending ? 'pending turn' : 'next request'}</button><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></div>
       <p className="small muted">{generationId ? `Saved attempt: ${shownGeneration?.status ?? 'unavailable'}. Its ceiling is historical. ${shownGeneration?.error ?? ''}` : 'Live preview of the current setup and composer, before any preparation. It becomes a saved request when generation starts.'}</p>
       {!generationId && memoryStale && <p role="status">Memory is out of date. This inspection includes stale summaries; repair and review them before sending.</p>}
       {!generationId && inspectionError && <p role="status">{inspectionError}</p>}

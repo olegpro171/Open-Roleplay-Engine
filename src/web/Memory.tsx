@@ -18,11 +18,12 @@ export function Memory({ snapshot, library, busy, run }: { snapshot: ChatSnapsho
     let current = true;
     api<ContextPlan>(`/chats/${snapshot.id}/context/plan`)
       .then(plan => { if (current) setCalculation({ key: planKey, plan, error: '' }); })
-      .catch(error => { if (current) setCalculation({ key: planKey, plan: null, error: error.message }); });
+      .catch(error => { if (current) setCalculation(previous => ({ ...previous, key: planKey, error: error.message })); });
     return () => { current = false; };
   }, [planKey]);
-  const plan = calculation.key === planKey ? calculation.plan : null;
-  const calculationError = calculation.key === planKey ? calculation.error : 'Counting current input…';
+  const plan = calculation.plan;
+  const planCurrent = calculation.key === planKey && !calculation.error;
+  const calculationError = calculation.key === planKey ? calculation.error : plan ? '' : 'Counting current input…';
   const [presetId, setPresetId] = useState(snapshot.settings.contextPresetId ?? ''), [target, setTarget] = useState(snapshot.settings.targetInputTokens);
   const [historyId, setHistoryId] = useState(''), [details, setDetails] = useState<JobDetails | null>(null), [frame, setFrame] = useState(0);
   const [review, setReview] = useState<JobDetails | null>(null), [candidateText, setCandidateText] = useState('');
@@ -84,9 +85,9 @@ export function Memory({ snapshot, library, busy, run }: { snapshot: ChatSnapsho
     {(planError || calculationError) && <p role="status">{planError || calculationError}</p>}
     {latestJob?.error && latestJob.sourceRevision === snapshot.revision && !plan?.ready && <p className="memory-failure" role="status">Last preparation stopped: {latestJob.error}</p>}
     <div className="actions memory-actions">
-      <button disabled={locked || !snapshot.context.preset || !plan || Boolean(plan.stale.length) || Boolean(awaiting) || unsavedSettings} onClick={() => void start('prepare')}>Prepare chat</button>
-      <button className="secondary" disabled={locked || !plan?.next || Boolean(plan.blocked) || Boolean(awaiting) || unsavedSettings} onClick={() => void start('step')}>Save next summary</button>
-      <button className="secondary" disabled={locked || !plan?.stale.length || Boolean(awaiting)} onClick={() => void start('repair')}>Repair next affected summary</button>
+      <button disabled={locked || !planCurrent || !snapshot.context.preset || !plan || Boolean(plan.stale.length) || Boolean(awaiting) || unsavedSettings} onClick={() => void start('prepare')}>Prepare chat</button>
+      <button className="secondary" disabled={locked || !planCurrent || !plan?.next || Boolean(plan.blocked) || Boolean(awaiting) || unsavedSettings} onClick={() => void start('step')}>Save next summary</button>
+      <button className="secondary" disabled={locked || !planCurrent || !plan?.stale.length || Boolean(awaiting)} onClick={() => void start('repair')}>Repair next affected summary</button>
       {active && <button className="secondary" disabled={busy} onClick={() => void run(() => active.generationId ? api(`/generations/${active.generationId}/cancel`, 'POST', {}) : api(`/context/jobs/${active.id}/cancel`, 'POST', {}))}>Stop preparation</button>}
     </div>
     <p className="small muted">Prepare chat reconsiders memory for the saved budget, reuses valid summaries first, and generates missing summaries only if needed. Manually corrected memory stays protected during reselection. Save settings and review any affected memory first.</p>

@@ -96,8 +96,8 @@ export async function createApp(options: {
     const input = z.object({ action: z.enum(['check', 'test']), connection: connectionSchema, connectionId: identity.optional(), apiKey: saveSettingsSchema.shape.apiKey }).strict().parse(request.body);
     const apiKey = connectionKey({ ...input, endpoint: input.connection.endpoint });
     if (input.action === 'check') {
-      const models = await fetchModels(input.connection.endpoint, apiKey);
-      return { message: `The endpoint accepted the connection check${apiKey ? '' : ' without an API key'}. ${models.includes(input.connection.model) ? 'The selected model is listed.' : 'The selected model was not listed; generation access is unverified.'}` };
+      await fetchModels(input.connection.endpoint, apiKey);
+      return { message: 'The endpoint accepted the connection check' };
     }
     const connection = { ...input.connection, maxOutputTokens: Math.min(64, input.connection.maxOutputTokens) };
     const preview = assembleRequest(connection, { title: 'Connection test', instructions: '', character: '', persona: '', targetInputTokens: connection.contextWindow - connection.maxOutputTokens }, [{ id: 'test', position: 1, complete: false, user: { id: 'test-user', revision: 0, text: 'Hi' }, assistant: { id: 'test-assistant', revision: 0, text: '' } }]);

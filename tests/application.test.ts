@@ -87,7 +87,7 @@ describe('persistent chat and generation', () => {
     expect(mock.requests).toHaveLength(0);
     const check = await command('/api/connections/diagnose', { ...input, action: 'check' });
     expect(check.statusCode).toBe(200);
-    expect(check.json().message).toContain('generation access is unverified');
+    expect(check.json().message).toBe('The endpoint accepted the connection check');
     expect(mock.modelRequests.at(-1)?.authorization).toBe('Bearer synthetic-api-secret');
     const test = await command('/api/connections/diagnose', { ...input, action: 'test' });
     expect(test.statusCode).toBe(200);

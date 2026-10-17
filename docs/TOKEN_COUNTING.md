@@ -14,11 +14,11 @@ The input target is enforced against the reference estimate. Separately check es
 
 ## Interface and records
 
-Keep existing estimate wording in the Story sidebar, Prompt peek and Memory/Request inspector. Do not add a tokenizer-name label or repeat technical limitations in the normal interface. Connection test results distinguish estimated input from endpoint-reported usage. Technical details remain in developer documentation and the request metadata available through saved records and the expanded test-request JSON.
+Keep existing estimate wording in the Story sidebar, Prompt peek and Memory/Request inspector. Do not add a tokenizer-name label or repeat technical limitations in the normal interface. Connection test results show endpoint-reported usage, or unavailable; their expanded request JSON retains the separate planning estimate. Technical details remain in developer documentation and the request metadata available through saved records and the expanded test-request JSON.
 
 New request budgets retain the counting method, reference tokenizer, implementation version, approximate framing status, verification limits and `verified: false`. These describe the reference measurement, not the selected model's tokenizer. Old saved bodies, estimates, usage and metadata retain their original meaning and are never recalculated in place. The public metadata contract remains able to read historical model/fallback records.
 
-Browser previews and Memory plans obtain the authoritative server count; composer changes are debounced and superseded replies are ignored. Read-only inspection can display overflow and stale memory without weakening generation checks.
+Browser previews and Memory plans obtain the authoritative server count; composer changes are debounced for one second of typing inactivity and superseded replies are ignored. Budget panels retain the last same-chat result during refreshes; actions that need a fresh preview or plan wait for the matching result. Read-only inspection can display overflow and stale memory without weakening generation checks.
 
 **Check connection** requests `/models` explicitly. **Send test message** explicitly sends `Hi` using the editor settings, with at most 64 output tokens and a 30-second timeout. The result separates its estimate from usage reported for that exact test, or shows usage unavailable. Tests add no chat turns, save no settings, and perform no automatic retry or calibration. Saved keys are used only with their saved endpoint URLs.
 
