@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Turn } from '../shared/contracts';
 
-export function ResponseVariants({ turn, action, locked, select }: {
+export function ResponseVariants({ turn, locked, select }: {
   turn: Turn; locked: boolean;
-  action: { kind: 'regenerate' | 'cancel'; disabled: boolean; run: () => void } | null;
   select: (id: string) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
@@ -34,29 +33,25 @@ export function ResponseVariants({ turn, action, locked, select }: {
     else setDraft(null);
   }
 
-  if (variants.length < 2 && !action) return null;
-  return <div className="response-variants">
-    <div className="variant-selector" role="group" aria-label="Response versions">
-      <button type="button" className="quiet variant-arrow" aria-label="Previous response" title="Previous response"
-        disabled={selectionLocked || activeIndex <= 0} onPointerDown={event => event.preventDefault()} onClick={() => void choose(activeIndex - 1)}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
-      </button>
-      <input className="variant-number" type="text" inputMode="numeric" aria-label="Response version"
-        title={`Response version, 1 to ${versionCount}. Press Enter to jump.`}
-        autoComplete="off" spellCheck={false} disabled={selectionLocked} aria-invalid={!validDraft || undefined}
-        value={draft ?? String(activeNumber)} onChange={event => setDraft(event.target.value)}
-        onFocus={event => event.currentTarget.select()}
-        onKeyDown={event => {
-          if (event.key === 'Enter') { event.preventDefault(); commitDraft(); }
-          else if (event.key === 'Escape') { event.preventDefault(); setDraft(null); }
-        }}
-        onBlur={commitDraft} />
-      <span className="variant-total" aria-label={`${versionCount} response versions`}>/ {versionCount}</span>
-      <button type="button" className="quiet variant-arrow" aria-label="Next response" title="Next response"
-        disabled={selectionLocked || activeIndex < 0 || activeIndex >= variants.length - 1} onPointerDown={event => event.preventDefault()} onClick={() => void choose(activeIndex + 1)}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
-      </button>
-    </div>
-    {action && <button type="button" className="quiet" disabled={action.disabled} onClick={action.run}>{action.kind === 'cancel' ? 'Cancel' : 'Regenerate response'}</button>}
+  return <div className="variant-selector" role="group" aria-label="Response versions">
+    <button type="button" className="quiet variant-arrow" aria-label="Previous response" title="Previous response"
+      disabled={selectionLocked || activeIndex <= 0} onPointerDown={event => event.preventDefault()} onClick={() => void choose(activeIndex - 1)}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
+    </button>
+    <input className="variant-number" type="text" inputMode="numeric" aria-label="Response version"
+      title={`Response version, 1 to ${versionCount}. Press Enter to jump.`}
+      autoComplete="off" spellCheck={false} disabled={selectionLocked} aria-invalid={!validDraft || undefined}
+      value={draft ?? String(activeNumber)} onChange={event => setDraft(event.target.value)}
+      onFocus={event => event.currentTarget.select()}
+      onKeyDown={event => {
+        if (event.key === 'Enter') { event.preventDefault(); commitDraft(); }
+        else if (event.key === 'Escape') { event.preventDefault(); setDraft(null); }
+      }}
+      onBlur={commitDraft} />
+    <span className="variant-total" aria-label={`${versionCount} response versions`}>/ {versionCount}</span>
+    <button type="button" className="quiet variant-arrow" aria-label="Next response" title="Next response"
+      disabled={selectionLocked || activeIndex < 0 || activeIndex >= variants.length - 1} onPointerDown={event => event.preventDefault()} onClick={() => void choose(activeIndex + 1)}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+    </button>
   </div>;
 }

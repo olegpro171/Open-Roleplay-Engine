@@ -1,18 +1,23 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from './api';
+import { TurnActionButton } from './TurnActionButton';
 
-type ReasoningProps = { text: string; live: boolean; chatId: string; generationId: string; length: number };
+export type ReasoningProps = { text: string; live: boolean; chatId: string; generationId: string; length: number };
+
+export function ReasoningPreview({ text }: { text: string }) {
+  return <div className="reasoning-preview" aria-label="Latest model reasoning">
+    <span className="reasoning-heading">Reasoning</span>
+    <span className="reasoning-tail"><span>{text}</span></span>
+  </div>;
+}
 
 export function Reasoning(props: ReasoningProps) {
   const [open, setOpen] = useState(false);
-  return <div className="reasoning">
-    <button type="button" className="reasoning-preview" aria-label="View model reasoning" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
-      <span className="reasoning-heading">Reasoning <span aria-hidden="true">↗</span></span>
-      <span className="reasoning-tail" aria-hidden="true"><span>{props.text}</span></span>
-    </button>
+  return <>
+    <TurnActionButton action="reasoning" label="Show reasoning" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)} />
     {open && <ReasoningDialog {...props} close={() => setOpen(false)} />}
-  </div>;
+  </>;
 }
 
 function ReasoningDialog({ text: preview, live, chatId, generationId, length, close }: ReasoningProps & { close: () => void }) {

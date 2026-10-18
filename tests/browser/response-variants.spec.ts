@@ -98,7 +98,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await expect(version).toHaveValue('1');
   expect((await state()).revision).toBe(arrowRevision + 1);
   await page.unroute(selectUrl);
-  await turn.locator('.response-variants').scrollIntoViewIfNeeded();
+  await turn.getByRole('group', { name: 'Turn controls', exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/desktop-response-variants.png', fullPage: true });
   await page.reload(); await expect(turn.locator('.part.assistant .prose')).toHaveText('Original A.');
   await request.post('/__test/mode', { data: { mode: 'hold-first-token' } });
@@ -172,7 +172,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await next.click();
   await expect(version).toHaveValue('2');
   await expect(page.getByText('Memory needs review.', { exact: true })).toBeVisible();
-  await turn.locator('.response-variants').scrollIntoViewIfNeeded();
+  await turn.getByRole('group', { name: 'Turn controls', exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/phone-response-variants.png', fullPage: true });
   await previous.click();
   await expect(version).toHaveValue('1');

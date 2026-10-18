@@ -3,7 +3,11 @@ import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { syntheticReasoningStart, syntheticReasoningTail } from '../support/mock-provider';
 
-for (const width of [1280, 390]) test(`streams and saves separate turn reasoning at ${width}px`, async ({ page, request }) => {
+test.afterEach(async ({ request }) => {
+  await request.post('/__test/mode', { data: { mode: 'normal' } });
+});
+
+for (const width of [1280, 390, 320]) test(`streams and saves separate turn reasoning at ${width}px`, async ({ page, request }) => {
   test.setTimeout(60000);
   await page.setViewportSize({ width, height: 844 });
   const session = await request.get('/api/session').then(response => response.json());
@@ -27,7 +31,9 @@ for (const width of [1280, 390]) test(`streams and saves separate turn reasoning
   await page.getByLabel('Your next turn').fill('I enter the tower.');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   const turn = page.getByRole('article', { name: 'Turn 1', exact: true });
-  const preview = turn.getByRole('button', { name: 'View model reasoning', exact: true });
+  const preview = turn.getByLabel('Latest model reasoning', { exact: true });
+  const controls = turn.getByRole('group', { name: 'Turn controls', exact: true });
+  const showReasoning = controls.getByRole('button', { name: 'Show reasoning', exact: true });
   const reply = turn.locator('.part.assistant > .prose');
   await expect(preview).toContainText('Reasoning line 80');
   await expect(reply).toHaveText('Waiting for first token…');
@@ -37,7 +43,7 @@ for (const width of [1280, 390]) test(`streams and saves separate turn reasoning
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: `test-results/reasoning-preview-${width}.png`, fullPage: true });
 
-  await preview.focus(); await preview.press('Enter');
+  await showReasoning.focus(); await showReasoning.press('Enter');
   const popup = page.getByRole('dialog', { name: 'Model reasoning', exact: true });
   const stream = popup.getByLabel('Model reasoning stream', { exact: true });
   await expect(stream).toHaveText(syntheticReasoningStart);
@@ -53,25 +59,56 @@ for (const width of [1280, 390]) test(`streams and saves separate turn reasoning
   await expect.poll(() => stream.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);
   await popup.press('Escape');
   await expect(popup).toHaveCount(0);
-  await expect(preview).toBeFocused();
+  await expect(showReasoning).toBeFocused();
   expect((await state()).generations[0].status).toBe('running');
   await page.reload();
   await expect(preview).toContainText('The newest thought');
   await expect(reply).toHaveText('Waiting for first token…');
-  await preview.click();
+  await showReasoning.click();
   await expect(stream).toHaveText(syntheticReasoningStart + syntheticReasoningTail);
   await request.post('/__test/finish', { data: {} });
+  await expect(reply).toHaveText('The lantern');
+  await expect(preview).toHaveCount(0);
+  await expect(popup).toBeVisible();
+  await expect(stream).toHaveText(syntheticReasoningStart + syntheticReasoningTail);
+  expect((await state()).generations[0].status).toBe('running');
   await request.post('/__test/finish', { data: {} });
   await expect(popup.getByText('Saved reasoning', { exact: true })).toBeVisible();
   await expect(stream).toHaveText(syntheticReasoningStart + syntheticReasoningTail);
   await popup.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(reply).toHaveText('The lantern flickers. 🕯');
+  await expect(preview).toHaveCount(0);
+  // Every turn action shares one footer row, including on narrow phones.
+  await controls.scrollIntoViewIfNeeded();
+  const selector = controls.getByRole('group', { name: 'Response versions', exact: true });
+  const selectorBox = await selector.boundingBox();
+  const replyBottom = await reply.boundingBox();
+  if (!selectorBox || !replyBottom) throw new Error('Missing turn footer');
+  expect(selectorBox.y).toBeGreaterThanOrEqual(replyBottom.y + replyBottom.height);
+  for (const name of ['Delete turn', 'Edit input', 'Edit response', 'Regenerate response', 'Show reasoning']) {
+    const action = controls.getByRole('button', { name, exact: true });
+    await expect(action).toBeEnabled();
+    const box = await action.boundingBox();
+    if (!box) throw new Error(`Missing ${name}`);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(Math.abs(box.y + box.height / 2 - selectorBox.y - selectorBox.height / 2)).toBeLessThan(2);
+  }
+  await expect(turn.locator('.turn-heading button, .part-heading button')).toHaveCount(0);
+  await controls.getByRole('button', { name: 'Delete turn', exact: true }).focus();
+  const deleteBox = await controls.getByRole('button', { name: 'Delete turn', exact: true }).boundingBox();
+  if (!deleteBox) throw new Error('Missing delete control');
+  expect(deleteBox.x + deleteBox.width).toBeLessThanOrEqual(width);
+  const pinnedBox = await selector.boundingBox();
+  expect(pinnedBox?.x).toBe(selectorBox.x);
+  await controls.getByRole('button', { name: 'Regenerate response', exact: true }).focus();
+  await page.screenshot({ path: `test-results/turn-controls-${width}.png`, fullPage: true });
   await page.reload();
-  await expect(preview).toBeVisible();
+  await expect(showReasoning).toBeVisible();
+  await expect(preview).toHaveCount(0);
   // A failed reasoning fetch retains the chat and offers an explicit retry.
   const reasoningUrl = `**/api/chats/${chat.id}/generations/*/reasoning`;
   await page.route(reasoningUrl, route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic reasoning fetch failure' }) }));
-  await preview.click();
+  await showReasoning.click();
   await expect(popup.getByRole('alert')).toContainText('Synthetic reasoning fetch failure');
   await page.unroute(reasoningUrl);
   await popup.getByRole('button', { name: 'Retry', exact: true }).click();
@@ -83,27 +120,73 @@ for (const width of [1280, 390]) test(`streams and saves separate turn reasoning
   await expect(reply).toHaveText('Waiting for first token…');
   await expect(preview).toContainText('Reasoning line 80');
   await expect(preview).not.toContainText('The newest thought');
-  await preview.click();
+  await showReasoning.click();
   const active = (await state()).generations[0];
   await command(`/api/generations/${active.id}/cancel`, {});
   await expect(popup).toHaveCount(0);
   await expect(reply).toHaveText('The lantern flickers. 🕯');
-  await expect(preview).toContainText('The newest thought');
+  await expect(preview).toHaveCount(0);
+  await showReasoning.click();
+  await expect(stream).toHaveText(syntheticReasoningStart + syntheticReasoningTail);
+  await popup.getByRole('button', { name: 'Close', exact: true }).click();
   expect((await state()).turns[0].variants).toHaveLength(1);
   await request.post('/__test/mode', { data: { mode: 'normal' } });
   await turn.getByRole('button', { name: 'Regenerate response', exact: true }).click();
   await expect(turn.getByRole('textbox', { name: 'Response version', exact: true })).toHaveValue('2');
   await expect(preview).toHaveCount(0);
+  await expect(showReasoning).toHaveCount(0);
   await turn.getByRole('button', { name: 'Previous response', exact: true }).click();
-  await expect(preview).toContainText('The newest thought');
+  await expect(preview).toHaveCount(0);
+  await showReasoning.click();
+  await expect(stream).toHaveText(syntheticReasoningStart + syntheticReasoningTail);
+  await popup.getByRole('button', { name: 'Close', exact: true }).click();
   await turn.getByRole('button', { name: 'Next response', exact: true }).click();
   await expect(preview).toHaveCount(0);
+  await expect(showReasoning).toHaveCount(0);
   await page.getByLabel('Your next turn').fill('I return the lantern.');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   const next = page.getByRole('article', { name: 'Turn 2', exact: true });
   await expect(next.locator('.part.assistant > .prose')).toHaveText('The lantern flickers. 🕯');
-  await expect(next.getByRole('button', { name: 'View model reasoning', exact: true })).toHaveCount(0);
+  await expect(next.getByRole('button', { name: 'Show reasoning', exact: true })).toHaveCount(0);
   const outgoing = (await state()).generations[0].request?.body;
   expect(JSON.stringify(outgoing)).not.toContain('Reasoning line');
   expect(JSON.stringify(outgoing)).not.toContain('The newest thought');
+
+  // The relocated edit/delete actions still operate on this turn's saved state.
+  const nextControls = next.getByRole('group', { name: 'Turn controls', exact: true });
+  await nextControls.getByRole('button', { name: 'Edit input', exact: true }).click();
+  await next.getByLabel('Edit user text', { exact: true }).fill('I leave the lantern by the door.');
+  await next.getByRole('button', { name: 'Save edit', exact: true }).click();
+  await expect(next.locator('.part.user > .prose')).toHaveText('I leave the lantern by the door.');
+  expect((await state()).turns[1].user.text).toBe('I leave the lantern by the door.');
+  await nextControls.getByRole('button', { name: 'Edit response', exact: true }).click();
+  await next.getByLabel('Edit assistant text', { exact: true }).fill('The keeper nods.');
+  await next.getByRole('button', { name: 'Save edit', exact: true }).click();
+  await expect(next.locator('.part.assistant > .prose')).toHaveText('The keeper nods.');
+  expect((await state()).turns[1].assistant.text).toBe('The keeper nods.');
+  page.once('dialog', dialog => dialog.dismiss());
+  await nextControls.getByRole('button', { name: 'Delete turn', exact: true }).click();
+  expect((await state()).turns).toHaveLength(2);
+  page.once('dialog', dialog => dialog.accept());
+  await nextControls.getByRole('button', { name: 'Delete turn', exact: true }).click();
+  await expect(next).toHaveCount(0);
+  expect((await state()).turns).toHaveLength(1);
+  await page.reload();
+  await expect(page.getByRole('article')).toHaveCount(1);
+
+  // A stopped first attempt also hides its preview and retains saved reasoning.
+  await request.post('/__test/mode', { data: { mode: 'reasoning' } });
+  await page.getByLabel('Your next turn').fill('I think again.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const pendingReasoning = next.getByRole('button', { name: 'Show reasoning', exact: true });
+  await expect(next.getByLabel('Latest model reasoning', { exact: true })).toBeVisible();
+  await next.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(next.locator('.part.assistant > .prose')).toHaveText('Generation cancelled.');
+  await expect(next.getByLabel('Latest model reasoning', { exact: true })).toHaveCount(0);
+  await pendingReasoning.click();
+  await expect(stream).toHaveText(syntheticReasoningStart);
+  await popup.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.reload();
+  await expect(pendingReasoning).toBeVisible();
+  await expect(next.getByLabel('Latest model reasoning', { exact: true })).toHaveCount(0);
 });
