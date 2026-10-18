@@ -1,0 +1,89 @@
+import type { SpeechRange } from './quoted-speech';
+
+// Explicit speech/action vocabulary plus a guarded structural fallback; neither is a grammar parser.
+const authorVerbs = [
+  /^(?:сказал[аи]?|говорил[аи]?|ответил[аи]?|спросил[аи]?|произн[её]с(?:ла|ли)?|проговорил[аи]?|промолвил[аи]?|воскликнул[аи]?|возмутил(?:ся|ась|ись)|прошептал[аи]?|шепнул[аи]?|крикнул[аи]?|выкрикнул[аи]?|добавил[аи]?|продолжил[аи]?|заметил[аи]?|уточнил[аи]?|повторил[аи]?|перебил[аи]?|соврал[аи]?|солгал[аи]?|подумал[аи]?|усмехнул(?:ся|ась|ись)|улыбнул(?:ся|ась|ись)|вздохнул[аи]?|замолчал[аи]?|помолчал[аи]?|кивнул[аи]?|пожал[аи]?|покачал[аи]?|посмотрел[аи]?|взглянул[аи]?|нахмурил(?:ся|ась|ись))$/iu,
+  /^(?:передразнил|буркнул|бурчал|пробурчал|ворчал|проворчал|бормотал|пробормотал|твердил|прошипел|процедил|выпалил|рявкнул|прорычал|протянул|выдохнул|пискнул|пролепетал|отрезал|возразил|предупредил|напомнил|пояснил|объяснил|заявил)[аи]?$/iu,
+  /^(?:говорит|говорят|отвечает|отвечают|спрашивает|спрашивают|шепчет|шепчут|кричит|кричат|бормочет|бормочут|добавляет|добавляют|продолжает|продолжают|твердит|твердят)$/iu,
+];
+const thirdPersonSubjects = new Set(['он', 'она', 'оно', 'они']);
+const thirdPersonPossessives = new Set(['его', 'ее', 'её', 'их']);
+const bodySubjects = new Set(['голос', 'щеки', 'лицо', 'глаза', 'взгляд', 'рука', 'руки', 'пальцы', 'губы', 'уши', 'ухо', 'хвост', 'плечи', 'дыхание', 'сердце']);
+const speechParticipants = new Set(['я', 'мы', 'ты', 'вы', 'меня', 'мне', 'мной', 'нас', 'нам', 'нами', 'тебя', 'тебе', 'тобой', 'вас', 'вам', 'вами']);
+const participantPossessive = /^(?:мо[йяеёи]|мое(?:го|му|й|м)|мои(?:х|м|ми)|тво[йяеёи]|твое(?:го|му|й|м)|твои(?:х|м|ми)|наш[аеиу]?|наши(?:х|м|ми)|ваш[аеиу]?|ваши(?:х|м|ми))$/u;
+const pastPredicate = /^[а-яё]{2,}(?:л[аои]?|л(?:ся|ась|ось|ись))$/iu;
+
+function leadingClauseWords(text: string): string[] {
+  const words: string[] = [];
+  // Do not borrow an attribution from a later sentence or a nested quotation.
+  for (const token of text.matchAll(/\p{L}+|[.!?…;:"«“„]/gu)) {
+    if (!/^\p{L}/u.test(token[0])) break;
+    words.push(token[0].toLowerCase());
+    if (words.length === 12) break;
+  }
+  return words;
+}
+
+function isThirdPersonAction(words: string[]): boolean {
+  for (let index = 1; index < words.length; index++) {
+    if (!pastPredicate.test(words[index])) continue;
+    const subject = words.slice(0, index);
+    // «У меня голос сорвался» and «мои щёки горели» can still be the speaker's own aside.
+    if (subject.some(word => speechParticipants.has(word) || participantPossessive.test(word))) continue;
+    const startsWithBody = bodySubjects.has(subject[0].replaceAll('ё', 'е'));
+    const ownedBody = (subject[0] === 'у' || thirdPersonPossessives.has(subject[0]))
+      && subject.slice(1, 5).some(word => bodySubjects.has(word.replaceAll('ё', 'е')));
+    if (thirdPersonSubjects.has(subject[0]) || startsWithBody || ownedBody) return true;
+  }
+  return false;
+}
+
+function isAuthorClause(text: string, punctuatedSpeech: boolean): boolean {
+  if (/^\s*["'«“„‘]/u.test(text)) return false;
+  const words = leadingClauseWords(text);
+  if (words.some(word => authorVerbs.some(pattern => pattern.test(word)))) return true;
+  // Structural evidence needs a speech punctuation boundary, not just any em-dash pause.
+  return punctuatedSpeech && isThirdPersonAction(words);
+}
+
+/** Optional line-oriented heuristic. Quoted spans protect internal dashes from splitting. */
+export function russianDialogueRanges(text: string, quotations: readonly SpeechRange[]): SpeechRange[] {
+  const ranges: SpeechRange[] = [];
+  let lineStart = 0;
+  let quotationIndex = 0;
+  while (lineStart < text.length) {
+    const newline = text.indexOf('\n', lineStart);
+    const lineEnd = newline < 0 ? text.length : newline;
+    const line = text.slice(lineStart, lineEnd);
+    const opening = /^[\t \u00a0\u202f]*—[\t \u00a0\u202f]+/u.exec(line);
+    // Code/HTML/image barriers make the line ambiguous; leave it to basic quotation detection.
+    if (opening && !line.includes('\0')) {
+      const dashes: number[] = [];
+      for (let index = lineStart + opening[0].length; index < lineEnd; index++) {
+        while (quotations[quotationIndex] && quotations[quotationIndex].end <= index) quotationIndex++;
+        if (quotations[quotationIndex] && quotations[quotationIndex].start <= index) continue;
+        if (text[index] === '—' && /\s/u.test(text[index - 1]) && /\s/u.test(text[index + 1] ?? '')) dashes.push(index);
+      }
+      let speechStart: number | null = lineStart + line.indexOf('—');
+      let clauseStart = speechStart;
+      for (let index = 0; index < dashes.length; index++) {
+        const dash = dashes[index];
+        const next = dashes[index + 1] ?? lineEnd;
+        if (speechStart !== null) {
+          let speechEnd = dash;
+          while (speechEnd > speechStart && /\s/u.test(text[speechEnd - 1])) speechEnd--;
+          if (isAuthorClause(text.slice(dash + 1, next), /[,.:!?…]/u.test(text[speechEnd - 1] ?? ''))) {
+            ranges.push({ start: speechStart, end: speechEnd });
+            speechStart = null;
+            clauseStart = dash + 1;
+          }
+        } else if (/[,.:!?…]$/u.test(text.slice(clauseStart, dash).trimEnd()) && text.slice(dash + 1, next).trim()) {
+          speechStart = dash;
+        }
+      }
+      if (speechStart !== null) ranges.push({ start: speechStart, end: lineStart + line.trimEnd().length });
+    }
+    lineStart = lineEnd + 1;
+  }
+  return ranges;
+}

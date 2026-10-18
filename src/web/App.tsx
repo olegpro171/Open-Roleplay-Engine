@@ -13,6 +13,7 @@ import { useTranscriptScroll } from './useTranscriptScroll';
 import { useChatDraft } from './useChatDraft';
 import { ResponseVariants } from './ResponseVariants';
 import { Reasoning } from './Reasoning';
+import { ChatMarkdown } from './ChatMarkdown';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
@@ -239,8 +240,8 @@ export function App() {
               {part === 'assistant' && reasoningGeneration?.reasoningText?.trim() && <Reasoning key={reasoningGeneration.id} text={reasoningGeneration.reasoningText} live={generating} chatId={snapshot.id} generationId={reasoningGeneration.id} length={reasoningGeneration.reasoningLength ?? 0} />}
               {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><textarea aria-label={`Edit ${part} text`} value={edit.text} onChange={(event) => setEdit({ ...edit, text: event.target.value })} /><p className="small muted">{snapshot.settings.lorebookId ? "Saving a history edit starts fresh lore activation history for this chat." : ""}</p><div className="actions"><button disabled={busy}>Save edit</button><button type="button" className="quiet" onClick={() => setEdit(null)}>Cancel edit</button></div></form> : <div className="prose">
                 {part === 'assistant' && (!turn.complete || generating)
-                  ? <>{trimBoundaryNewlines(responseText) || <span className="muted">{generating ? 'Waiting for first token…' : cancelled ? 'Generation cancelled.' : 'Awaiting response.'}</span>}{generating && <span className="cursor" aria-label="Generating" />}</>
-                  : turn[part].text || <span className="muted blank">blank</span>}
+                  ? <>{trimBoundaryNewlines(responseText) ? <ChatMarkdown text={trimBoundaryNewlines(responseText)} /> : <span className="muted">{generating ? 'Waiting for first token…' : cancelled ? 'Generation cancelled.' : 'Awaiting response.'}</span>}{generating && <span className="cursor" aria-label="Generating" />}</>
+                  : turn[part].text ? <ChatMarkdown text={turn[part].text} /> : <span className="muted blank">blank</span>}
               </div>}
             </div>)}
             {(turn.complete || generating) && <ResponseVariants turn={turn} locked={working || busy || Boolean(edit)}

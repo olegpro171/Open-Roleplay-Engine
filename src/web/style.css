@@ -253,3 +253,30 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .variant-selector .variant-number:focus { color: #f0efeb; }
 .variant-selector .variant-number[aria-invalid=true] { border-color: #c78f86; }
 .variant-total { padding-right: .2rem; white-space: nowrap; font-size: 15px; }
+:root { --direct-speech-color: #a8c9f0; }
+.conversation { min-width: 0; }
+.chat-markdown { white-space: normal; min-width: 0; }
+.chat-markdown > :first-child { margin-top: 0; }
+.chat-markdown > :last-child { margin-bottom: 0; }
+.chat-markdown p { margin: 0 0 .8em; }
+.chat-markdown h1, .chat-markdown h2, .chat-markdown h3,
+.chat-markdown h4, .chat-markdown h5, .chat-markdown h6 { margin: 1em 0 .45em; line-height: 1.4; letter-spacing: normal; font-weight: 650; }
+.chat-markdown h1 { font-size: 1.5em; }
+.chat-markdown h2 { font-size: 1.3em; }
+.chat-markdown h3, .chat-markdown h4, .chat-markdown h5, .chat-markdown h6 { font-size: 1.1em; }
+.chat-markdown ul, .chat-markdown ol { margin: .6em 0; padding-left: 1.6em; }
+.chat-markdown li > p { margin-bottom: .35em; }
+.chat-markdown blockquote { margin: .8em 0; padding: .1em 0 .1em 1em; border-left: 3px solid #62778e; color: #bbc6d3; }
+.chat-markdown a { color: #a8c9f0; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.chat-markdown a:focus-visible, .markdown-table:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.chat-markdown code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .88em; background: #101720; border-radius: 4px; padding: .12em .3em; }
+.chat-markdown pre { white-space: pre; overflow-x: auto; overflow-wrap: normal; max-width: 100%; padding: 14px; margin: .8em 0; }
+.chat-markdown pre code { padding: 0; background: none; font-size: inherit; }
+.chat-markdown hr { border: 0; border-top: 1px solid var(--line); margin: 1em 0; }
+.markdown-table { max-width: 100%; overflow-x: auto; margin: .8em 0; }
+.markdown-table table { border-collapse: collapse; font-size: .92em; }
+.markdown-table th, .markdown-table td { border: 1px solid #445160; padding: .35em .7em; min-width: 6em; }
+.chat-markdown .contains-task-list { list-style: none; padding-left: .3em; }
+.chat-markdown input[type=checkbox] { width: auto; margin-right: .5em; }
+.chat-markdown .direct-speech { color: var(--direct-speech-color); font-weight: 700; }
+.markdown-image { color: var(--muted); font-style: italic; }
