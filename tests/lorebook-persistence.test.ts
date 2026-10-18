@@ -1,3 +1,4 @@
+import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -56,10 +57,10 @@ const v3Card = { spec: 'chara_card_v3', spec_version: '3.0', data: { ...cardFiel
 const connection = { name: 'Synthetic', endpoint: 'http://localhost:1234/v1', model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 100, customParameters: {} };
 
 function commandRows(store: Store) { return store.sqlite.prepare('SELECT * FROM lore_commands ORDER BY rowid').all(); }
-function savedRows(database: Database.Database): Record<string, unknown[]> {
+function savedRows(database: Database.Database, legacy = false): Record<string, unknown[]> {
   const records: Record<string, unknown[]> = {};
   for (const table of ['chats', 'library', 'library_state', 'turns', 'generations', 'connections', 'credentials', 'owners', 'sessions', 'summaries', 'context_states', 'context_jobs', 'context_steps']) {
-    records[table] = database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all();
+    records[table] = legacy ? legacyRows(database, table) : database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all();
   }
   return records;
 }
@@ -378,15 +379,16 @@ function populatedVersion6(customized: boolean) {
     database.pragma('foreign_keys = ON');
     database.exec('DROP TABLE character_pictures; DROP TABLE picture_assets; DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags; DROP TABLE lore_operations; DROP TABLE lore_commands; DROP TABLE lore_states; DROP TABLE lore_epochs');
     database.prepare("UPDATE chats SET settings = json_remove(settings, '$.lorebookId')").run();
+    removeVariantSchema(database);
     database.pragma('user_version = 6');
-    return { filename, chatId, customChat, characterId, customPromptId, records: savedRows(database), factory, summary, request, revisionBefore, libraryRevisionBefore, defaultRevisionBefore };
+    return { filename, chatId, customChat, characterId, customPromptId, records: savedRows(database, true), factory, summary, request, revisionBefore, libraryRevisionBefore, defaultRevisionBefore };
   } finally { database.close(); }
 }
 
 describe('schema 7 lorebook migration', () => {
   it('creates fresh durable storage and explicit None without an activated placeholder book', () => {
     const store = open();
-    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(10);
+    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(11);
     expect(store.libraries().lorebooks).toEqual([]);
     expect(store.snapshot().settings.lorebookId).toBeNull();
     expect(store.snapshot().loreState).toEqual({ epoch: 0, entries: {} });
@@ -399,7 +401,7 @@ describe('schema 7 lorebook migration', () => {
   it.each([false, true])('preserves populated version-6 data and upgrades only the exact factory (customized: %s)', customized => {
     const seeded = populatedVersion6(customized);
     let store = open(seeded.filename);
-    const actual = savedRows(store.sqlite);
+    const actual = savedRows(store.sqlite, true);
     for (const table of ['turns', 'generations', 'connections', 'credentials', 'owners', 'sessions', 'summaries', 'context_states', 'context_jobs', 'context_steps']) expect(actual[table]).toEqual(seeded.records[table]);
     const saved = store.snapshot(seeded.chatId);
     expect(saved.revision).toBe(seeded.revisionBefore + Number(!customized) + 1);
@@ -430,7 +432,7 @@ describe('schema 7 lorebook migration', () => {
     const previousCustom = previousChats.find(row => typeof row === 'object' && row !== null && 'id' in row && row.id === seeded.customChat);
     if (typeof previousCustom !== 'object' || previousCustom === null || !('revision' in previousCustom) || typeof previousCustom.revision !== 'number') throw new Error('Missing fixture chat.');
     expect(customRaw).toEqual({ ...previousCustom, revision: previousCustom.revision + 1 });
-    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(10);
+    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(11);
     const after = savedRows(store.sqlite), snapshotAfter = store.snapshot(seeded.chatId);
     store.close();
     store = open(seeded.filename);
@@ -448,15 +450,15 @@ describe('schema 7 lorebook migration', () => {
     const failed = new Database(seeded.filename);
     try {
       expect(failed.pragma('user_version', { simple: true })).toBe(6);
-      expect(savedRows(failed)).toEqual(seeded.records);
+      expect(savedRows(failed, true)).toEqual(seeded.records);
       expect(failed.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'lore_%'").all()).toEqual([]);
       expect(failed.prepare('SELECT * FROM runtime_owner').all()).toEqual([]);
       failed.exec('DROP TRIGGER reject_lore_migration');
     } finally { failed.close(); }
     const recovered = open(seeded.filename);
-    expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(10);
+    expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(11);
     expect(withoutIdentity(required(recovered.libraries().prompts.find(prompt => prompt.id === 'default')))).toEqual(defaultPrompt);
-    expect(savedRows(recovered.sqlite).generations).toEqual(seeded.records.generations);
+    expect(savedRows(recovered.sqlite, true).generations).toEqual(seeded.records.generations);
     expect(savedRows(recovered.sqlite).summaries).toEqual(seeded.records.summaries);
   });
 });

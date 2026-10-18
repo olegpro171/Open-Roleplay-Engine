@@ -10,7 +10,8 @@ import { chmodSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { AppError } from '../core/errors.js';
 import { replaceNameMacros } from '../core/prompt.js';
-import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStatus, RequestPreview, TokenUsage, Turn } from '../shared/contracts.js';
+import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStatus, RequestPreview, ResponseVariant, TokenUsage, Turn } from '../shared/contracts.js';
+import { regenerationView } from '../core/regeneration.js';
 import { characterSchema, defaultPrompt, selectionsSchema, type Character, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary } from '../shared/library.js';
 import { lorebookSchema, type Lorebook, type LoreImportPreview, type LoreResolution, type LoreState } from '../shared/lorebook.js';
 import { importLorebook, loreCompatibility, markLoreEdits } from '../core/lorebook-formats.js';
@@ -201,7 +202,14 @@ export class Store {
           this.bumpLibrary();
           this.sqlite.pragma('user_version = 10');
         })();
-      } else if (version !== 10) throw new Error('Unsupported database schema version.');
+        version = 10;
+      }
+      if (version === 10) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0011_response_variants.sql'), 'utf8'));
+          this.sqlite.pragma('user_version = 11');
+        })();
+      } else if (version !== 11) throw new Error('Unsupported database schema version.');
       this.pictures = new PictureStore(this.sqlite, () => this.bumpLibrary());
       this.contexts = new ContextStore(this);
       this.tags = new TagStore(this.sqlite, expected => this.checkLibrary(expected), () => this.bumpLibrary());
@@ -228,13 +236,29 @@ export class Store {
     const connectionId = chat.settings.connectionId === undefined ? 'main' : chat.settings.connectionId;
     const connection = connectionId ? this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get()?.settings ?? null : null;
     const hasApiKey = Boolean(connectionId && this.db.select().from(schema.credentials).where(eq(schema.credentials.id, connectionId)).get()?.apiKey);
-    const turns: Turn[] = this.db.select().from(schema.turns).where(eq(schema.turns.chatId, chatId)).orderBy(asc(schema.turns.position)).all().map(row => ({
-      id: row.id, position: row.position, complete: row.complete,
-      user: { id: row.userId, revision: row.userRevision, text: row.userText },
-      assistant: { id: row.assistantId, revision: row.assistantRevision, text: row.assistantText },
-    }));
+    const variants = new Map<string, ResponseVariant[]>();
+    const savedVariants = this.db.select({ id: schema.responseVariants.id, turnId: schema.responseVariants.turnId, text: schema.responseVariants.text,
+      sourceRevision: schema.responseVariants.sourceRevision, generationId: schema.responseVariants.generationId, createdAt: schema.responseVariants.createdAt })
+      .from(schema.responseVariants).innerJoin(schema.turns, eq(schema.turns.id, schema.responseVariants.turnId)).where(eq(schema.turns.chatId, chatId)).orderBy(asc(sql`${schema.responseVariants}.rowid`)).all();
+    for (const { turnId, ...variant } of savedVariants) {
+      const group = variants.get(turnId);
+      if (group) group.push(variant);
+      else variants.set(turnId, [variant]);
+    }
+    const turns: Turn[] = this.db.select().from(schema.turns).where(eq(schema.turns.chatId, chatId)).orderBy(asc(schema.turns.position)).all().map(row => {
+      const responses = variants.get(row.id) ?? [];
+      const selected = responses.find(variant => variant.id === row.selectedVariantId);
+      if (row.complete && (!selected || selected.text !== row.assistantText)) throw new AppError(500, 'invalid_response_variant', 'The saved response selection is inconsistent. The transcript has been preserved; inspect the database before continuing.');
+      return {
+        id: row.id, position: row.position, complete: row.complete,
+        user: { id: row.userId, revision: row.userRevision, text: row.userText },
+        assistant: { id: row.assistantId, revision: row.assistantRevision, text: row.assistantText,
+          ...(selected ? { variantId: selected.id, sourceRevision: selected.sourceRevision } : {}) },
+        variants: responses,
+      };
+    });
     const generations: Generation[] = this.db.select().from(schema.generations).where(eq(schema.generations.chatId, chatId)).orderBy(desc(sql`rowid`)).all().map(row => ({
-      id: row.id, turnId: row.turnId, status: row.status, sourceRevision: row.sourceRevision,
+      id: row.id, turnId: row.turnId, status: row.status, sourceRevision: row.sourceRevision, kind: row.kind,
       request: row.request, usage: row.usage, partialText: row.partialText, error: row.error, createdAt: row.createdAt, updatedAt: row.updatedAt,
     }));
     return { id: chatId, revision: chat.revision, settings: { ...chat.settings, lorebookId: chat.settings.lorebookId ?? null }, connection, hasApiKey, turns, generations, loreState: this.loreState(chatId, chat.settings.lorebookId), context: this.contexts.snapshot(chatId, chat.settings.contextPresetId ?? null), sources: {
@@ -585,8 +609,10 @@ export class Store {
     })();
   }
   private insertTurn(chatId: string, position: number, turn: ImportedTurn) {
-    this.db.insert(schema.turns).values({ id: randomUUID(), chatId, position, complete: turn.complete,
-      userId: randomUUID(), userRevision: 0, userText: turn.user, assistantId: randomUUID(), assistantRevision: 0, assistantText: turn.assistant }).run();
+    const id = randomUUID(), variantId = turn.complete ? `original-${id}` : null;
+    this.db.insert(schema.turns).values({ id, chatId, position, complete: turn.complete,
+      userId: randomUUID(), userRevision: 0, userText: turn.user, assistantId: randomUUID(), assistantRevision: 0, assistantText: turn.assistant, selectedVariantId: variantId }).run();
+    if (variantId) this.db.insert(schema.responseVariants).values({ id: variantId, turnId: id, text: turn.assistant, sourceRevision: 0, generationId: null, createdAt: '' }).run();
   }
   replaceHistory(expected: number, chatId: string, turns: ImportedTurn[]) {
     this.sqlite.transaction(() => {
@@ -643,6 +669,54 @@ export class Store {
     })();
   }
   generation(id: string) { return this.db.select().from(schema.generations).where(eq(schema.generations.id, id)).get(); }
+  beginRegeneration(expected: number, requestId: string, turnId: string, chatId: string) {
+    return this.sqlite.transaction(() => {
+      const command = JSON.stringify({ kind: 'regenerate', turnId });
+      const existing = this.db.select().from(schema.generations).where(eq(schema.generations.requestId, requestId)).get();
+      if (existing) {
+        if (existing.command !== command || existing.chatId !== chatId) throw new AppError(409, 'request_id_conflict', 'That request identity was already used for a different command.');
+        return { id: existing.id, fresh: false };
+      }
+      this.checkRevision(expected, chatId);
+      this.ensureIdle(chatId);
+      const snapshot = this.snapshot(chatId), target = snapshot.turns.at(-1);
+      if (!target?.complete || target.id !== turnId) throw new AppError(409, 'latest_turn_only', 'Only the latest completed turn can be regenerated.');
+      if (!snapshot.connection) throw new AppError(422, 'connection_required', 'Select a Connection before regenerating a response.');
+      const { context } = regenerationView(snapshot);
+      const id = randomUUID(), now = new Date().toISOString();
+      this.db.insert(schema.generations).values({ id, chatId, requestId, command, turnId, kind: 'regeneration', status: 'running',
+        sourceRevision: this.bumpRevision(chatId), contextSelection: { revision: context.revision, selected: context.selected, archivedTurnIds: context.archivedTurnIds },
+        request: null, partialText: '', error: null, createdAt: now, updatedAt: now }).run();
+      return { id, fresh: true };
+    })();
+  }
+  generationSnapshot(id: string): ChatSnapshot {
+    const generation = this.generation(id);
+    if (!generation) throw new AppError(404, 'generation_not_found', 'Response attempt not found.');
+    const snapshot = this.snapshot(generation.chatId);
+    if (generation.kind !== 'regeneration') return snapshot;
+    if (snapshot.turns.at(-1)?.id !== generation.turnId || !generation.contextSelection) throw new AppError(409, 'stale_result', 'The regeneration endpoint is no longer available.');
+    return regenerationView({ ...snapshot, context: { ...snapshot.context, ...generation.contextSelection } });
+  }
+  saveGenerationContext(id: string, state: Pick<ChatSnapshot['context'], 'revision' | 'selected' | 'archivedTurnIds'>) {
+    const generation = this.generation(id);
+    if (!generation || generation.kind !== 'regeneration' || generation.status !== 'running') throw new AppError(409, 'inactive_generation', 'This regeneration is no longer active.');
+    this.checkRevision(generation.sourceRevision, generation.chatId);
+    this.db.update(schema.generations).set({ contextSelection: { revision: state.revision, selected: state.selected, archivedTurnIds: state.archivedTurnIds } }).where(eq(schema.generations.id, id)).run();
+  }
+  selectVariant(expected: number, turnId: string, variantId: string, chatId: string) {
+    this.sqlite.transaction(() => {
+      this.checkRevision(expected, chatId);
+      this.ensureIdle(chatId);
+      const turn = this.db.select().from(schema.turns).where(and(eq(schema.turns.id, turnId), eq(schema.turns.chatId, chatId))).get();
+      const variant = this.db.select().from(schema.responseVariants).where(and(eq(schema.responseVariants.id, variantId), eq(schema.responseVariants.turnId, turnId))).get();
+      if (!turn?.complete || !variant) throw new AppError(404, 'variant_not_found', 'This saved response is not available for the selected turn.');
+      if (turn.selectedVariantId === variant.id) return;
+      this.db.update(schema.turns).set({ selectedVariantId: variant.id, assistantText: variant.text, assistantRevision: turn.assistantRevision + 1 }).where(eq(schema.turns.id, turnId)).run();
+      this.resetLoreEpoch(chatId);
+      this.bumpRevision(chatId);
+    })();
+  }
   apiKey(chatId = 'main'): string {
     const id = this.chat(chatId).settings.connectionId ?? 'main';
     return this.db.select().from(schema.credentials).where(eq(schema.credentials.id, id)).get()?.apiKey ?? '';
@@ -679,12 +753,25 @@ export class Store {
       if (!generation || generation.status !== 'running') return false;
       if (status === 'succeeded') {
         text = trimBoundaryNewlines(text);
-        if (!text.trim()) throw new AppError(502, 'empty_response', 'The model returned no text. The turn remains pending; retry or delete it.');
+        if (!text.trim()) throw new AppError(502, 'empty_response', generation.kind === 'regeneration'
+          ? 'The model returned no text. The selected response was kept; regenerate explicitly to try again.'
+          : 'The model returned no text. The turn remains pending; retry or delete it.');
         this.checkRevision(generation.sourceRevision, generation.chatId);
         const turn = this.db.select().from(schema.turns).where(eq(schema.turns.id, generation.turnId)).get();
-        if (!turn || turn.complete) throw new AppError(409, 'stale_result', 'The turn is no longer awaiting this response.');
-        if (generation.request?.lore) this.commitLoreState(generation.chatId, generation.request.lore);
-        this.db.update(schema.turns).set({ assistantText: text, assistantRevision: turn.assistantRevision + 1, complete: true }).where(eq(schema.turns.id, turn.id)).run();
+        const regeneration = generation.kind === 'regeneration';
+        if (!turn || turn.complete !== regeneration) throw new AppError(409, 'stale_result', 'The turn is no longer awaiting this response.');
+        if (regeneration) {
+          if (generation.request?.lore) this.assertLoreCurrent(generation.chatId, generation.request.lore);
+          this.resetLoreEpoch(generation.chatId);
+          if (generation.request?.lore) {
+            const resolution = generation.request.lore;
+            this.sqlite.prepare('INSERT INTO lore_states (chat_id, book_id, epoch, data) VALUES (?, ?, ?, ?)').run(generation.chatId, resolution.book.id, this.loreState(generation.chatId).epoch, JSON.stringify(resolution.stateDelta));
+          }
+        } else if (generation.request?.lore) this.commitLoreState(generation.chatId, generation.request.lore);
+        const variantId = turn.selectedVariantId ? randomUUID() : `original-${turn.id}`;
+        const equivalent = this.db.select().from(schema.responseVariants).where(and(eq(schema.responseVariants.turnId, turn.id), eq(schema.responseVariants.text, text))).get();
+        this.db.insert(schema.responseVariants).values({ id: variantId, turnId: turn.id, text, sourceRevision: equivalent?.sourceRevision ?? turn.assistantRevision + 1, generationId: id, createdAt: generation.createdAt }).run();
+        this.db.update(schema.turns).set({ assistantText: text, assistantRevision: turn.assistantRevision + 1, complete: true, selectedVariantId: variantId }).where(eq(schema.turns.id, turn.id)).run();
       }
       this.db.update(schema.generations).set({ status, partialText: text, error, usage, updatedAt: new Date().toISOString() }).where(eq(schema.generations.id, id)).run();
       this.bumpRevision(generation.chatId); return true;
@@ -706,6 +793,7 @@ export class Store {
       if (!turn) throw new AppError(404, 'turn_not_found', 'Turn not found.');
       if (part === 'assistant' && !turn.complete) throw new AppError(409, 'pending_response', 'A pending response cannot be completed by editing. Retry or delete its turn.');
       this.db.update(schema.turns).set(part === 'user' ? { userText: text, userRevision: turn.userRevision + 1 } : { assistantText: text, assistantRevision: turn.assistantRevision + 1 }).where(eq(schema.turns.id, turnId)).run();
+      if (part === 'assistant' && turn.selectedVariantId) this.db.update(schema.responseVariants).set({ text, sourceRevision: turn.assistantRevision + 1 }).where(eq(schema.responseVariants.id, turn.selectedVariantId)).run();
       this.resetLoreEpoch(chatId);
       this.bumpRevision(chatId);
     })();

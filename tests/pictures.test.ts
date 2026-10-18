@@ -1,3 +1,4 @@
+import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -27,9 +28,9 @@ function command(store: Store, data: Character = fields, id?: string): Character
 }
 async function image() { const p = new PictureProcessor(); processors.push(p); return p.process(await quadrantPicture()); }
 function withPicture(command: CharacterSaveCommand, image: PreparedPicture): CharacterSaveCommand { return { ...command, picture: { mode: 'replace', base64: image.original.toString('base64'), crop: image.crop } }; }
-function rows(store: Store, excluded = ['runtime_owner', 'library_state', 'character_pictures', 'picture_assets']) {
+function rows(store: Store, excluded = ['runtime_owner', 'library_state', 'character_pictures', 'picture_assets'], legacy = false) {
   const tables = store.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[];
-  return Object.fromEntries(tables.filter(table => !excluded.includes(table.name)).map(table => [table.name, store.sqlite.prepare(`SELECT * FROM "${table.name}" ORDER BY rowid`).all()]));
+  return Object.fromEntries(tables.filter(table => !excluded.includes(table.name) && (!legacy || table.name !== 'response_variants')).map(table => [table.name, legacy ? legacyRows(store.sqlite, table.name) : store.sqlite.prepare(`SELECT * FROM "${table.name}" ORDER BY rowid`).all()]));
 }
 
 it('keeps whole PNG artwork, JSON bytes and expanded/base64 metadata limits independent', async () => {
@@ -138,7 +139,8 @@ describe('migration 10', () => {
     const path = join(directory(), 'upgrade.sqlite'); let store = open(path);
     const imported = store.importCard(store.libraryRevision(), randomUUID(), source, 'all');
     store.createChat(selectionsSchema.parse({ title: 'Preserved', targetInputTokens: 10000, promptId: 'default', connectionId: null, characterId: imported.ids[0], personaId: null }));
-    const before = rows(store), revision = store.libraryRevision();
+    const before = rows(store, undefined, true), revision = store.libraryRevision();
+    removeVariantSchema(store.sqlite);
     store.sqlite.exec('DROP TABLE character_pictures; DROP TABLE picture_assets'); store.sqlite.pragma('user_version = 9');
     if (fail) store.sqlite.exec("CREATE TRIGGER reject_picture_migration BEFORE UPDATE ON library_state BEGIN SELECT RAISE(ABORT, 'synthetic upgrade failure'); END");
     store.close();
@@ -146,7 +148,7 @@ describe('migration 10', () => {
       expect(() => new Store(path)).toThrow('synthetic upgrade failure'); const db = new Database(path);
       expect(db.pragma('user_version', { simple: true })).toBe(9); expect(db.prepare("SELECT name FROM sqlite_master WHERE name='picture_assets'").get()).toBeUndefined(); expect(db.prepare('SELECT revision FROM library_state').get()).toEqual({ revision }); db.exec('DROP TRIGGER reject_picture_migration'); db.close();
     }
-    store = open(path); expect(store.sqlite.pragma('user_version', { simple: true })).toBe(10); expect(rows(store)).toEqual(before); expect(store.pictures.list()).toEqual([]); expect(store.libraryRevision()).toBe(revision + 1);
+    store = open(path); expect(store.sqlite.pragma('user_version', { simple: true })).toBe(11); expect(rows(store, undefined, true)).toEqual(before); expect(store.pictures.list()).toEqual([]); expect(store.libraryRevision()).toBe(revision + 1);
     const saved = store.libraries(); store.close(); store = open(path); expect(store.libraries()).toEqual(saved);
   });
 });

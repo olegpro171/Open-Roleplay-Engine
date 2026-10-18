@@ -11,6 +11,7 @@ import { refKey } from '../shared/context';
 import { BudgetBreakdown, InputMeter, PromptPeek, LoreInspection } from './PromptPeek';
 import { useTranscriptScroll } from './useTranscriptScroll';
 import { useChatDraft } from './useChatDraft';
+import { ResponseVariants } from './ResponseVariants';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
@@ -143,7 +144,12 @@ export function App() {
   const archivedIds = new Set(snapshot?.context.archivedTurnIds);
   const activeTurns = currentRequest?.history?.verbatimTurnIds.filter(id => id !== 'draft').length ?? (snapshot?.turns.filter(turn => !archivedIds.has(turn.id)).length ?? 0);
   const inputLimit = currentRequest ? Math.min(currentRequest.budget.targetInputTokens, currentRequest.budget.contextWindow - currentRequest.budget.reservedOutputTokens) : 0;
-  const turnUsage = new Map(snapshot?.generations.filter(generation => generation.status === 'succeeded').slice().reverse().map(generation => [generation.turnId, generation.usage]));
+  const generationById = new Map(snapshot?.generations.map(generation => [generation.id, generation]));
+  const turnUsage = new Map(snapshot?.turns.flatMap(turn => {
+    const variant = turn.variants?.find(item => item.id === turn.assistant.variantId);
+    const generation = variant?.generationId ? generationById.get(variant.generationId) : undefined;
+    return generation ? [[turn.id, generation.usage] as const] : [];
+  }));
   const partial = active?.partialText ?? (pending ? latest?.partialText : '');
 
   async function command(action: () => Promise<unknown>): Promise<boolean> {
@@ -223,12 +229,19 @@ export function App() {
               <div className="part-heading"><strong>{part === 'user' ? snapshot.sources.persona?.name ?? 'You' : snapshot.sources.character?.name ?? 'Character'}</strong><button className="quiet" disabled={working || busy || (part === 'assistant' && !turn.complete)} onClick={() => setEdit({ turnId: turn.id, part, text: turn[part].text, revision: snapshot.revision })}>Edit {part === 'user' ? 'input' : 'response'}</button></div>
               {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><textarea aria-label={`Edit ${part} text`} value={edit.text} onChange={(event) => setEdit({ ...edit, text: event.target.value })} /><p className="small muted">{snapshot.settings.lorebookId ? "Saving a history edit starts fresh lore activation history for this chat." : ""}</p><div className="actions"><button disabled={busy}>Save edit</button><button type="button" className="quiet" onClick={() => setEdit(null)}>Cancel edit</button></div></form> : <div className="prose">{part === 'assistant' && !turn.complete ? <>{trimBoundaryNewlines(partial ?? '') || <span className="muted">{active ? 'Waiting for the model…' : 'Awaiting response.'}</span>}{active && <span className="cursor" aria-label="Generating" />}</> : turn[part].text || <span className="muted blank">blank</span>}</div>}
             </div>)}
+            {turn.complete && <ResponseVariants turn={turn} locked={working || busy || Boolean(edit)} hasLore={Boolean(snapshot.settings.lorebookId)}
+              canRegenerate={index === snapshot.turns.length - 1 && Boolean(snapshot.connection)}
+              regenerate={() => void command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/regenerate`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID() }))}
+              select={id => void command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/variants/${id}/select`, 'POST', { revision: snapshot.revision }))}
+              inspect={id => { setGenerationId(id); setTab('request'); }} />}
           </article>)}
         </div>{awayFromLatest && <button className="latest-turn secondary" onClick={scrollToLatest}>Latest turn <span aria-hidden="true">↓</span></button>}</div>
-        {active ? <div className="generation-status" role="status"><span>Generating…</span><button className="quiet" disabled={busy} onClick={() => void command(() => api(`/generations/${active.id}/cancel`, 'POST', {}))}>Cancel</button></div> : pending && <div className="recovery" role="status"><div><strong>Last turn is still pending.</strong><p>{latest?.status === 'cancelled' ? 'Response cancelled. Generate response before next turn.' : latest?.error ?? 'Generate response before next turn.'}</p>{partial && <small>Partial text is preserved for inspection. It has not been accepted as a response.</small>}</div><button className="secondary" disabled={busy} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID() }))}>Retry response</button></div>}
+        {active?.kind === 'regeneration' && <div className="regeneration-preview" aria-label="Regeneration preview"><p className="small muted">The selected response is kept until regeneration succeeds.</p><div className="prose">{active.partialText || 'Waiting for the model…'}</div></div>}
+        {active ? <div className="generation-status" role="status"><span>{active.kind === 'regeneration' ? 'Regenerating…' : 'Generating…'}</span><button className="quiet" disabled={busy} onClick={() => void command(() => api(`/generations/${active.id}/cancel`, 'POST', {}))}>Cancel</button></div> : pending && <div className="recovery" role="status"><div><strong>Last turn is still pending.</strong><p>{latest?.status === 'cancelled' ? 'Response cancelled. Generate response before next turn.' : latest?.error ?? 'Generate response before next turn.'}</p>{partial && <small>Partial text is preserved for inspection. It has not been accepted as a response.</small>}</div><button className="secondary" disabled={busy} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID() }))}>Retry response</button></div>}
+        {!active && latest?.kind === 'regeneration' && latest.status !== 'succeeded' && <p className="recovery" role="status">{latest.error} The selected response is unchanged. Use Regenerate response to try again.</p>}
         <form className="composer" onSubmit={(event) => void send(event)}>
-          <textarea aria-label="Your next turn" id="turn-input" placeholder="What happens next?" value={draft} disabled={pending || busy || Boolean(preparing)} onChange={(event) => { drafts.change(event.target.value); setPeek(false); }} />
-          <button className="send-turn" disabled={pending || busy || Boolean(preparing) || memoryStale || !snapshot.connection || !draft.trim()}>{busy ? 'Saving…' : 'Send'} <span aria-hidden="true">↗</span></button>
+          <textarea aria-label="Your next turn" id="turn-input" placeholder="What happens next?" value={draft} disabled={pending || busy || working} onChange={(event) => { drafts.change(event.target.value); setPeek(false); }} />
+          <button className="send-turn" disabled={pending || busy || working || memoryStale || !snapshot.connection || !draft.trim()}>{busy ? 'Saving…' : 'Send'} <span aria-hidden="true">↗</span></button>
           {drafts.storageError && <span className="composer-status" role="alert">Draft could not be saved in this browser. Keep this page open and copy your text before leaving.</span>}
           {preparing && <span className="composer-status">Preparing memory…</span>}
         </form>

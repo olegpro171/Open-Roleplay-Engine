@@ -4,7 +4,7 @@ import { refKey, type ContextOperation, type ContextPreset, type ContextState, t
 
 import { correctionMessage, correctionProtection, latestApproved, summaryDependencies } from './context-corrections.js';
 
-export const sourceOf = (turn: Turn) => ({ turnId: turn.id, userRevision: turn.user.revision, assistantRevision: turn.assistant.revision, complete: turn.complete });
+export const sourceOf = (turn: Turn) => ({ turnId: turn.id, userRevision: turn.user.revision, assistantRevision: turn.assistant.sourceRevision ?? turn.assistant.revision, complete: turn.complete });
 export const nodeFor = (state: ContextState, ref: SummaryRef) => state.summaries.find(node => refKey(node) === refKey(ref));
 
 export function staleSummaries(turns: Turn[], state: ContextState): Set<string> {

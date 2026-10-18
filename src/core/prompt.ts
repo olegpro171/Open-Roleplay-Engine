@@ -3,7 +3,7 @@ import { AppError } from './errors.js';
 import { characterFieldLabels, defaultPrompt, hasPromptMarker, promptSchema, promptWarnings, type PromptSources } from '../shared/library.js';
 import type { ContextState, SummaryNode } from '../shared/context.js';
 import { assertCorrectionSelection } from './context-corrections.js';
-import { selectedContext } from './context.js';
+import { selectedContext, sourceOf } from './context.js';
 import { countInput } from './tokens.js';
 import { replaceNameMacros } from './names.js';
 import type { LoreResolution } from '../shared/lorebook.js';
@@ -142,9 +142,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
       model: connection.model, messages, stream: true, max_tokens: connection.maxOutputTokens,
       ...(connection.requestUsage !== false ? { stream_options: { include_usage: true as const } } : {}),
     },
-    coverage: turns.map((turn) => ({
-      turnId: turn.id, userRevision: turn.user.revision, assistantRevision: turn.assistant.revision, complete: turn.complete,
-    })),
+    coverage: turns.map(sourceOf),
     ...(context ? { context: { selected: summariesEnabled ? context.selected : [], archivedTurnIds: summariesEnabled ? context.archivedTurnIds : [] } } : {}),
     history: { mode: summariesEnabled ? 'managed' : 'recent', verbatimTurnIds: verbatim.map(turn => turn.id) },
     budget: {

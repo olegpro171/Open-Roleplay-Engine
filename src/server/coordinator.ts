@@ -23,6 +23,13 @@ export class GenerationCoordinator {
   start(revision: number, requestId: string, text?: string, chatId = 'main') {
     if (this.stopping) throw new AppError(503, 'server_stopping', 'The server is stopping. Retry after it restarts.');
     const result = this.store.begin(revision, requestId, text, chatId);
+    return this.dispatch(result, chatId);
+  }
+  regenerate(revision: number, requestId: string, turnId: string, chatId: string) {
+    if (this.stopping) throw new AppError(503, 'server_stopping', 'The server is stopping. Retry after it restarts.');
+    return this.dispatch(this.store.beginRegeneration(revision, requestId, turnId, chatId), chatId);
+  }
+  private dispatch(result: { id: string; fresh: boolean }, chatId: string) {
     if (result.fresh) {
       const operation = { controller: new AbortController(), task: Promise.resolve(), text: '' };
       this.active.set(result.id, operation);
@@ -33,13 +40,13 @@ export class GenerationCoordinator {
   }
   private async run(id: string, operation: { controller: AbortController; text: string }, chatId: string) {
     try {
-      const initial = this.store.snapshot(chatId);
+      const initial = this.store.generationSnapshot(id);
       const loreResolution = await resolveRequestLore(initial, this.loreRegex, operation.controller.signal);
       if (this.stopping || operation.controller.signal.aborted) return;
       this.store.saveLoreOperation(chatId, id, loreResolution);
       await this.context.prepareForGeneration(chatId, id, operation.controller.signal);
       if (this.stopping || operation.controller.signal.aborted) return;
-      const snapshot = this.store.snapshot(chatId);
+      const snapshot = this.store.generationSnapshot(id);
       const request = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context, { lore: loreResolution });
       this.store.saveRequest(id, request);
       this.changed();
@@ -68,7 +75,7 @@ export class GenerationCoordinator {
   cancel(id: string) {
     const operation = this.active.get(id);
     if (!operation || this.store.generation(id)?.status !== 'running') throw new AppError(409, 'inactive_generation', 'This response is no longer active.');
-    this.store.finish(id, 'cancelled', operation.text, 'Response cancelled. Generate response before next turn.');
+    this.store.finish(id, 'cancelled', operation.text, this.store.generation(id)?.kind === 'regeneration' ? 'Regeneration cancelled. The selected response was kept.' : 'Response cancelled. Generate response before next turn.');
     operation.controller.abort();
     this.context.cancelForGeneration(id);
     this.changed();

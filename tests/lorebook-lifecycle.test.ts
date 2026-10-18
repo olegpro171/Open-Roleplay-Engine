@@ -192,3 +192,32 @@ it('serves bounded routine snapshots and fetches exact historical lore on demand
     expect(f.store.generation(id)?.request?.lore?.outcomes[0].text).toContain('observatory');
   } finally { await instance.app.close(); }
 });
+
+it('resolves regeneration without the old response, commits fresh activation once, and retains lore on failure', async () => {
+  const f = fixture();
+  await f.send();
+  const before = f.snapshot(), target = before.turns.at(-1);
+  if (!target) throw new Error('Missing generated fixture turn');
+  f.setMode('fail');
+  const failed = f.coordinator.regenerate(before.revision, randomUUID(), target.id, f.chatId).generationId;
+  await f.idle(failed);
+  expect(f.matches()).toBe(1);
+  expect(f.snapshot().loreState).toEqual(before.loreState);
+  expect(f.snapshot().turns).toEqual(before.turns);
+  f.setMode('normal');
+  const id = f.coordinator.regenerate(f.snapshot().revision, randomUUID(), target.id, f.chatId).generationId;
+  await f.idle(id);
+  expect(f.store.generation(id)?.status).toBe('succeeded');
+  const sent = f.calls.at(-1);
+  expect(sent?.lore?.stateBefore).toEqual({});
+  expect(sent?.body.messages.some(message => message.content === 'The keeper returns the key.')).toBe(false);
+  expect(sent?.body.messages.some(message => message.content.includes('observatory'))).toBe(true);
+  expect(f.matches()).toBe(1);
+  expect(f.snapshot().loreState?.epoch).toBe((before.loreState?.epoch ?? 0) + 1);
+  const originalId = target.assistant.variantId;
+  if (!originalId) throw new Error('Missing saved fixture response');
+  const historical = f.store.generation(id)?.request;
+  f.store.selectVariant(f.snapshot().revision, target.id, originalId, f.chatId);
+  expect(f.matches()).toBe(0);
+  expect(f.store.generation(id)?.request).toEqual(historical);
+});

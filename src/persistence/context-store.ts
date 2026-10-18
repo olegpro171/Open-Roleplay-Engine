@@ -82,7 +82,11 @@ export class ContextStore {
   }
   private saveJob(job: ContextJob) { this.sqlite.prepare('UPDATE context_jobs SET data = ? WHERE id = ?').run(JSON.stringify(job), job.id); }
   private saveStep(step: ContextStep) { this.sqlite.prepare('UPDATE context_steps SET data = ? WHERE id = ?').run(JSON.stringify(step), step.id); }
-  private saveState(chatId: string, state: ContextState) {
+  private saveState(chatId: string, state: ContextState, generationId?: string | null) {
+    if (generationId && this.store.generation(generationId)?.kind === 'regeneration') {
+      this.store.saveGenerationContext(generationId, state);
+      return;
+    }
     this.sqlite.prepare('INSERT INTO context_states (chat_id, revision, data) VALUES (?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET revision=excluded.revision, data=excluded.data').run(chatId, state.revision, JSON.stringify({ selected: state.selected, archivedTurnIds: state.archivedTurnIds }));
   }
   private saveNode(chatId: string, node: SummaryNode) { this.sqlite.prepare('INSERT INTO summaries (id, revision, chat_id, data) VALUES (?, ?, ?, ?)').run(node.id, node.revision, chatId, JSON.stringify(node)); }
@@ -100,7 +104,7 @@ export class ContextStore {
   private current(job: ContextJob) {
     if (job.status !== 'running' && job.status !== 'awaiting_review') throw new AppError(409, 'inactive_context_job', 'This memory operation is no longer active.');
     this.store.checkRevision(job.sourceRevision, job.chatId);
-    const snapshot = this.store.snapshot(job.chatId);
+    const snapshot = job.generationId ? this.store.generationSnapshot(job.generationId) : this.store.snapshot(job.chatId);
     if (!snapshot.context.preset || refKey(snapshot.context.preset) !== refKey(job.config)) throw new AppError(409, 'stale_context_result', 'The context preset changed. Generate a new candidate from the current settings.');
     if (job.generationId && this.store.generation(job.generationId)?.status !== 'running') throw new AppError(409, 'inactive_generation', 'The response owning this preparation is no longer running.');
     return { ...snapshot, loreResolution: this.store.loreOperation(job.id) ?? (job.generationId ? this.store.loreOperation(job.generationId) : null) };
@@ -142,7 +146,7 @@ export class ContextStore {
         const generation = this.store.generation(generationId);
         if (!generation || generation.chatId !== chatId || generation.status !== 'running' || this.running(chatId)) throw new AppError(409, 'context_running', 'Another operation is already running for this chat.');
       } else this.store.ensureIdle(chatId);
-      const snapshot = { ...this.store.snapshot(chatId), loreResolution: loreResolution ?? (generationId ? this.store.loreOperation(generationId) : null) }, preset = snapshot.context.preset;
+      const snapshot = { ...(generationId ? this.store.generationSnapshot(generationId) : this.store.snapshot(chatId)), loreResolution: loreResolution ?? (generationId ? this.store.loreOperation(generationId) : null) }, preset = snapshot.context.preset;
       if (!hasPromptMarker(snapshot.sources.prompt, 'summary')) throw new AppError(422, 'summaries_disabled', 'Summaries are disabled. Enable a Summary marker in the prompt before preparing memory.');
       if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) throw new AppError(409, 'repair_awaits_review', 'Approve or discard the existing repair candidate before preparing more memory.');
       if (!preset) throw new AppError(422, 'context_required', 'Select a context preset first.');
@@ -169,7 +173,7 @@ export class ContextStore {
       const step: ContextStep = { id: randomUUID(), jobId, operation: plan.next, request: null, status: 'saved', result: { id: node.id, revision: node.revision }, error: null,
         before: { selected: snapshot.context.selected, archivedTurnIds: snapshot.context.archivedTurnIds }, after: { selected: state.selected, archivedTurnIds: state.archivedTurnIds },
         inputBefore: plan.inputTokens, inputAfter, createdAt: new Date().toISOString(), reused: true };
-      this.saveState(job.chatId, state);
+      this.saveState(job.chatId, state, job.generationId);
       this.sqlite.prepare('INSERT INTO context_steps (id, job_id, data) VALUES (?, ?, ?)').run(step.id, jobId, JSON.stringify(step));
       this.saveJob(this.bump({ ...job, stepCount: job.stepCount + 1, reusedCount: (job.reusedCount ?? 0) + 1 }));
       return true;
@@ -243,7 +247,7 @@ export class ContextStore {
       // Keep an existing candidate usable until regeneration succeeds.
       if (repair) this.discardCandidates(job.id);
       this.saveNode(job.chatId, node);
-      if (after) this.saveState(job.chatId, after);
+      if (after) this.saveState(job.chatId, after, job.generationId);
       this.saveStep({ ...savedStep, status: repair && !unchanged ? 'candidate' : 'saved', result: { id: node.id, revision: node.revision }, after: after ? { selected: after.selected, archivedTurnIds: after.archivedTurnIds } : null, inputAfter, ...(unchanged ? { repairOutcome: 'model_unchanged' } : {}) });
       this.saveJob(this.bump({ ...job, generatedCount: (job.generatedCount ?? 0) + Number(Boolean(savedStep.request)), unchangedCount: (job.unchangedCount ?? 0) + Number(unchanged) }));
       return node;

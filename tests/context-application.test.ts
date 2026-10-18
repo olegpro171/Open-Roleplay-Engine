@@ -1,3 +1,4 @@
+import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
 import legacyContextPrompts from './fixtures/legacy-context-prompts.json';
 import { assembleRequest } from '../src/core/prompt.js';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -204,8 +205,9 @@ describe('durable imported-session preparation', () => {
     f.store.sqlite.exec('DROP TABLE character_pictures; DROP TABLE picture_assets; DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags');
     f.store.sqlite.pragma('user_version = 5');
     const before = f.state();
-    const records = () => ['summaries', 'context_states', 'context_jobs', 'context_steps', 'generations', 'credentials'].map(table => f.store.sqlite.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all());
+    const records = () => ['summaries', 'context_states', 'context_jobs', 'context_steps', 'generations', 'credentials'].map(table => legacyRows(f.store.sqlite, table));
     const saved = records(), calls = f.calls.length;
+    removeVariantSchema(f.store.sqlite);
     await f.resume();
     expect(records()).toEqual(saved);
     expect(f.calls).toHaveLength(calls);

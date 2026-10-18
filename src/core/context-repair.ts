@@ -1,7 +1,7 @@
 import type { ChatSnapshot, RequestPreview } from '../shared/contracts.js';
 import { refKey, type ContextOperation, type RepairChange, type SummaryRef } from '../shared/context.js';
 import { AppError } from './errors.js';
-import { nodeFor, staleSummaries } from './context.js';
+import { nodeFor, sourceOf, staleSummaries } from './context.js';
 
 /** Compare effective incorporated inputs, rather than treating all provenance edits as content changes. */
 export function repairInputs(snapshot: ChatSnapshot, operation: ContextOperation, previousRequest: RequestPreview | null) {
@@ -37,7 +37,8 @@ export function repairInputs(snapshot: ChatSnapshot, operation: ContextOperation
       for (const kind of ['user', 'assistant'] as const) add({ kind, id: source.turnId,
         label: `Turn ${after ? snapshot.turns.indexOf(after) + 1 : 'deleted'} · ${kind}`,
         before: before?.[kind] ?? null, after: after?.[kind].text ?? null,
-        beforeRevision: kind === 'user' ? source.userRevision : source.assistantRevision, afterRevision: after?.[kind].revision ?? null });
+        beforeRevision: kind === 'user' ? source.userRevision : source.assistantRevision,
+        afterRevision: after ? kind === 'user' ? after.user.revision : sourceOf(after).assistantRevision : null });
     }
   }
   for (const kind of ['child', 'prior', 'correction'] as const) {

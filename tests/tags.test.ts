@@ -1,3 +1,4 @@
+import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
@@ -25,12 +26,13 @@ const modern = (spec = 'chara_card_v2', tags: unknown = ['Fantasy', ' adventure 
 function card(store: Store, id: string) { return required(store.libraries().characters.find(card => card.id === id)); }
 function editable(store: Store, id: string) { const { id: _id, revision: _revision, ...data } = card(store, id); return data; }
 function addCharacter(store: Store, data = fields, ids?: string[]) { return store.saveLibrary(rev(store), 'characters', data, undefined, undefined, ids); }
-function allRows(database: Database.Database) {
+function allRows(database: Database.Database, legacy = false) {
   const result: Record<string, unknown[]> = {};
-  for (const { name } of database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT IN ('runtime_owner', 'tags', 'character_tags', 'library_state', 'picture_assets', 'character_pictures') ORDER BY name").all() as { name: string }[]) result[name] = database.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all();
+  for (const { name } of database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT IN ('runtime_owner', 'tags', 'character_tags', 'library_state', 'picture_assets', 'character_pictures') ORDER BY name").all() as { name: string }[]) if (!legacy || name !== 'response_variants') result[name] = legacy ? legacyRows(database, name) : database.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all();
   return result;
 }
 function removeTagSchema(database: Database.Database) {
+  removeVariantSchema(database);
   database.exec('DROP TABLE character_pictures; DROP TABLE picture_assets; DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags'); database.pragma('user_version = 8');
 }
 
@@ -230,17 +232,17 @@ describe('version 9 migration and pre-tags command history', () => {
     store.sqlite.prepare('UPDATE lore_commands SET command=?,result=? WHERE request_id=?').run(createHash('sha256').update(JSON.stringify({kind:'character',value:source})).digest('hex'),JSON.stringify(legacyResult),commandId);
     const characterId=required(result.ids[0]);store.createChat(selectionsSchema.parse({title:'Migration',targetInputTokens:32000,connectionId:null,promptId:'default',characterId,personaId:null}));
     store.saveLibrary(rev(store),'connections',{name:'Secret',endpoint:'http://localhost:1234/v1',model:'mock',contextWindow:10000,maxOutputTokens:100,customParameters:{}},undefined,'synthetic-tag-secret');
-    const rows=allRows(store.sqlite);store.close();const old=new Database(path);removeTagSchema(old);const revision=Number((old.prepare('SELECT revision FROM library_state').get() as {revision:number}).revision);old.close();
-    store=open(path);expect(store.sqlite.pragma('user_version',{simple:true})).toBe(10);expect(allRows(store.sqlite)).toEqual(rows);expect(rev(store)).toBe(revision+2);expect(store.tags.links()).toEqual([]);expect(store.tags.catalog()).toEqual([]);
+    const rows=allRows(store.sqlite, true);store.close();const old=new Database(path);removeTagSchema(old);const revision=Number((old.prepare('SELECT revision FROM library_state').get() as {revision:number}).revision);old.close();
+    store=open(path);expect(store.sqlite.pragma('user_version',{simple:true})).toBe(11);expect(allRows(store.sqlite, true)).toEqual(rows);expect(rev(store)).toBe(revision+2);expect(store.tags.links()).toEqual([]);expect(store.tags.catalog()).toEqual([]);
     expect(store.importCard(0,commandId,source,'none')).toEqual(legacyResult);expect(store.importCard(0,commandId,source)).toEqual(legacyResult);expect(()=>store.importCard(0,commandId,source,'all')).toThrow('different command');
     expect(store.tags.embeddedReview(characterId).newTags).toHaveLength(2);
-    const saved=store.libraries();store.close();store=open(path);expect(store.libraries()).toEqual(saved);expect(allRows(store.sqlite)).toEqual(rows);
+    const saved=store.libraries();store.close();store=open(path);expect(store.libraries()).toEqual(saved);expect(allRows(store.sqlite, true)).toEqual(rows);
   });
   it('rolls the migration back and can retry safely after a write failure', () => {
     const path=join(folder(),'rollback.sqlite');const store=open(path);addCharacter(store,importCharacter(modern()));store.close();
-    const old=new Database(path);removeTagSchema(old);const rows=allRows(old);old.exec("CREATE TRIGGER reject_tag_migration BEFORE UPDATE ON library_state BEGIN SELECT RAISE(ABORT, 'synthetic migration failure'); END");old.close();
-    expect(()=>new Store(path)).toThrow('synthetic migration failure');const failed=new Database(path);expect(failed.pragma('user_version',{simple:true})).toBe(8);expect(failed.prepare("SELECT name FROM sqlite_master WHERE name='tags'").get()).toBeUndefined();expect(allRows(failed)).toEqual(rows);failed.exec('DROP TRIGGER reject_tag_migration');failed.close();
-    const recovered=open(path);expect(recovered.sqlite.pragma('user_version',{simple:true})).toBe(10);expect(allRows(recovered.sqlite)).toEqual(rows);
+    const old=new Database(path);removeTagSchema(old);const rows=allRows(old, true);old.exec("CREATE TRIGGER reject_tag_migration BEFORE UPDATE ON library_state BEGIN SELECT RAISE(ABORT, 'synthetic migration failure'); END");old.close();
+    expect(()=>new Store(path)).toThrow('synthetic migration failure');const failed=new Database(path);expect(failed.pragma('user_version',{simple:true})).toBe(8);expect(failed.prepare("SELECT name FROM sqlite_master WHERE name='tags'").get()).toBeUndefined();expect(allRows(failed, true)).toEqual(rows);failed.exec('DROP TRIGGER reject_tag_migration');failed.close();
+    const recovered=open(path);expect(recovered.sqlite.pragma('user_version',{simple:true})).toBe(11);expect(allRows(recovered.sqlite, true)).toEqual(rows);
   });
 });
 

@@ -1,3 +1,4 @@
+import { removeVariantSchema } from './support/legacy-variants.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createReadStream, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -124,6 +125,7 @@ describe('prompt template upgrade', () => {
     const before = store.snapshot(), library = store.libraries();
     store.sqlite.exec('DROP TABLE character_pictures; DROP TABLE picture_assets; DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags');
     store.sqlite.pragma('user_version = 4');
+    removeVariantSchema(store.sqlite);
     store.close(); store = new Store(path);
     try {
       const builtIn = store.libraries().prompts.find(prompt => prompt.id === 'default')!;
@@ -134,7 +136,7 @@ describe('prompt template upgrade', () => {
       expect(store.snapshot().turns).toEqual(before.turns);
       expect(store.snapshot().generations).toEqual(before.generations);
       expect(store.libraries().prompts.find(prompt => prompt.id === customId)!.blocks).toEqual(upgradePrompt(legacy).blocks);
-      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(10);
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(11);
     } finally { store.close(); }
   });
 });
@@ -153,6 +155,7 @@ describe('continuity prompt upgrade', () => {
     const changed = customized !== 'both';
     store.sqlite.exec('DROP TABLE character_pictures; DROP TABLE picture_assets; DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags');
     store.sqlite.pragma('user_version = 5');
+    removeVariantSchema(store.sqlite);
     store.close(); store = new Store(path);
     try {
       expect(store.contextPreset(id)).toEqual({ ...preset, id,
@@ -163,7 +166,7 @@ describe('continuity prompt upgrade', () => {
       expect(store.snapshot(chatId)).toEqual({ ...before, revision: before.revision + Number(changed), context: { ...before.context, preset: store.contextPreset(id) } });
       expect(store.snapshot()).toEqual(unrelated);
       expect(store.libraries().revision).toBe(library.revision + Number(changed) + 2);
-      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(10);
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(11);
       if (changed) expect(() => store.checkRevision(before.revision, chatId)).toThrow('changed on another device');
       const upgraded = store.snapshot(chatId), upgradedLibrary = store.libraries();
       store.close(); store = new Store(path);
@@ -181,6 +184,7 @@ describe('continuity prompt upgrade', () => {
     store.sqlite.exec("CREATE TRIGGER reject_prompt_upgrade BEFORE UPDATE ON library_state BEGIN SELECT RAISE(ABORT, 'synthetic upgrade failure'); END");
     store.sqlite.exec('DROP TABLE character_pictures; DROP TABLE picture_assets; DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags');
     store.sqlite.pragma('user_version = 5');
+    removeVariantSchema(store.sqlite);
     store.close();
     expect(() => new Store(path)).toThrow('synthetic upgrade failure');
     const db = new Database(path);

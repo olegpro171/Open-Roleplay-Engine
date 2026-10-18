@@ -394,6 +394,18 @@ export async function createApp(options: {
       const input = retrySchema.parse(request.body);
       return reply.code(202).send(coordinator.start(input.revision, input.requestId, undefined, chatId(request.params)));
     });
+    app.post(prefix + '/turns/:id/regenerate', async (request, reply) => {
+      const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+      const input = retrySchema.parse(request.body);
+      return reply.code(202).send(coordinator.regenerate(input.revision, input.requestId, id, chatId(request.params)));
+    });
+    app.post(prefix + '/turns/:id/variants/:variantId/select', async request => {
+      const { id, variantId } = z.object({ id: z.string().uuid(), variantId: z.string().min(1).max(100) }).parse(request.params);
+      const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
+      store.selectVariant(revision, id, variantId, chatId(request.params));
+      coordinator.changed();
+      return publicSnapshot(chatId(request.params));
+    });
     app.patch(prefix + '/turns/:id/:part', async request => {
       const { id, part } = z.object({ id: z.string().uuid(), part: z.enum(['user', 'assistant']) }).parse(request.params);
       const input = editSchema.parse(request.body);

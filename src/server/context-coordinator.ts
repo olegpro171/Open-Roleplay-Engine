@@ -64,7 +64,7 @@ export class ContextCoordinator {
     return task;
   }
   async prepareForGeneration(chatId: string, generationId: string, signal: AbortSignal) {
-    const snapshot = { ...this.store.snapshot(chatId), loreResolution: this.store.loreOperation(generationId) };
+    const snapshot = { ...this.store.generationSnapshot(generationId), loreResolution: this.store.loreOperation(generationId) };
     if (!hasPromptMarker(snapshot.sources.prompt, 'summary') || !snapshot.context.preset) return;
     const plan = contextPlan(snapshot);
     if (plan.blocked) throw new AppError(422, 'context_blocked', plan.blocked);

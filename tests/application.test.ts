@@ -465,3 +465,28 @@ describe('owner access', () => {
     expect((await instance.app.inject({ method: 'GET', url: '/api/chat', headers: { host: 'localhost', cookie } })).statusCode).toBe(401);
   });
 });
+
+it('authenticates regeneration and variant selection, deduplicates commands, and keeps exact per-variant requests', async () => {
+  await submit(); await waitForIdle();
+  const before = await state(), turn = before.turns[0], originalId = turn.assistant.variantId;
+  const requestId = randomUUID();
+  const regenerate = () => command(`/api/turns/${turn.id}/regenerate`, { revision: before.revision, requestId });
+  expect((await regenerate()).statusCode).toBe(202);
+  const duplicate = await regenerate(); expect(duplicate.statusCode).toBe(202);
+  const after = await waitForIdle();
+  expect(after.turns[0].variants).toHaveLength(2);
+  expect(mock.requests).toHaveLength(2);
+  expect(after.generations[0].kind).toBe('regeneration');
+  expect(after.generations[0].request?.body.messages.filter(message => message.role === 'assistant')).toEqual([]);
+  const chosen = await command(`/api/turns/${turn.id}/variants/${originalId}/select`, { revision: after.revision });
+  expect(chosen.statusCode).toBe(200);
+  expect((await state()).turns[0].assistant.variantId).toBe(originalId);
+  expect((await command(`/api/turns/${turn.id}/variants/${originalId}/select`, { revision: 0 })).statusCode).toBe(409);
+  expect((await command(`/api/turns/${turn.id}/variants/unknown/select`, { revision: (await state()).revision })).statusCode).toBe(404);
+  expect((await command(`/api/turns/not-a-turn/regenerate`, { revision: (await state()).revision, requestId: randomUUID() })).statusCode).toBe(400);
+  await submit('Later input'); await waitForIdle();
+  expect((await command(`/api/turns/${turn.id}/regenerate`, { revision: (await state()).revision, requestId: randomUUID() })).statusCode).toBe(409);
+  const unauthenticated = await instance.app.inject({ method: 'POST', url: `/api/turns/${turn.id}/variants/${originalId}/select`, headers: { host: 'localhost', origin: 'http://localhost' }, payload: { revision: (await state()).revision } });
+  expect(unauthenticated.statusCode).toBe(401);
+  expect(JSON.stringify(await state())).not.toContain('synthetic-api-secret');
+});

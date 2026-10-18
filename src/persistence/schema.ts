@@ -28,12 +28,20 @@ export const turns = sqliteTable('turns', {
   complete: integer('complete', { mode: 'boolean' }).notNull(),
   userId: text('user_id').notNull(), userRevision: integer('user_revision').notNull(), userText: text('user_text').notNull(),
   assistantId: text('assistant_id').notNull(), assistantRevision: integer('assistant_revision').notNull(), assistantText: text('assistant_text').notNull(),
+  selectedVariantId: text('selected_variant_id'),
 });
+export const responseVariants = sqliteTable('response_variants', {
+  id: text('id').primaryKey(), turnId: text('turn_id').notNull().references(() => turns.id, { onDelete: 'cascade' }),
+  text: text('text').notNull(), sourceRevision: integer('source_revision').notNull(),
+  generationId: text('generation_id').references(() => generations.id, { onDelete: 'set null' }), createdAt: text('created_at').notNull(),
+}, table => [index('response_variants_turn').on(table.turnId)]);
 export const generations = sqliteTable('generations', {
   chatId: text('chat_id').notNull(),
   id: text('id').primaryKey(), requestId: text('request_id').notNull(), command: text('command').notNull(),
   turnId: text('turn_id').notNull(), status: text('status').$type<GenerationStatus>().notNull(),
   sourceRevision: integer('source_revision').notNull(),
+  kind: text('kind').$type<'response' | 'regeneration'>().notNull().default('response'),
+  contextSelection: text('context_selection', { mode: 'json' }).$type<Pick<import('../shared/context.js').ContextState, 'revision' | 'selected' | 'archivedTurnIds'> | null>(),
   request: text('request', { mode: 'json' }).$type<RequestPreview | null>(),
   usage: text('usage', { mode: 'json' }).$type<TokenUsage | null>(),
   partialText: text('partial_text').notNull(), error: text('error'),

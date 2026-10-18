@@ -43,7 +43,13 @@ export type Connection = z.infer<typeof connectionSchema>;
 export type ChatSettings = z.infer<typeof chatSettingsSchema>;
 export type Message = { role: 'system' | 'user' | 'assistant'; content: string };
 export type TurnPart = { id: string; revision: number; text: string };
-export type Turn = { id: string; position: number; complete: boolean; user: TurnPart; assistant: TurnPart };
+export type ResponseVariant = { id: string; text: string; sourceRevision: number; generationId: string | null; createdAt: string };
+export type Turn = {
+  id: string; position: number; complete: boolean; user: TurnPart;
+  // Selection/edit revisions advance; sourceRevision identifies saved content.
+  assistant: TurnPart & { variantId?: string; sourceRevision?: number };
+  variants?: ResponseVariant[];
+};
 export type RequestBody = {
   model: string; messages: Message[]; stream: true; max_tokens: number;
   stream_options?: { include_usage: true };
@@ -76,6 +82,7 @@ export type RequestPreview = {
 export type GenerationStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export type Generation = {
   id: string; turnId: string; status: GenerationStatus; sourceRevision: number;
+  kind?: 'response' | 'regeneration';
   request: RequestPreview | null; partialText: string; error: string | null; usage: TokenUsage | null;
   createdAt: string; updatedAt: string;
 };
