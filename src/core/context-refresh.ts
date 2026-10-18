@@ -21,14 +21,14 @@ export function refreshContext(snapshot: ChatSnapshot, options: { allowOverflowF
     selectedContext(turns, original);
     assertCorrectionSelection(turns, original);
     if (!connection) throw new AppError(422, 'connection_required', 'Select a roleplay Connection before preparing memory.');
-    const input = assembleRequest(connection, settings, turns, sources, original, { validateLimits: false, allowStale: true }).budget.inputTokens;
+    const input = assembleRequest(connection, settings, turns, sources, original, { validateLimits: false, allowStale: true, lore: snapshot.loreResolution }).budget.inputTokens;
     const selection = { selected: original.selected, archivedTurnIds: original.archivedTurnIds };
     return { state: original, report: { before: selection, after: selection, inputBefore: input, inputAfter: input, verbatimBefore: 0, verbatimAfter: 0, changed: false, protectedSummaries: 0, limited: false } };
   }
   if (!connection) throw new AppError(422, 'connection_required', 'Select a roleplay Connection before refreshing memory.');
   const current = selectedContext(turns, original); // Repair comes before restoration.
   const limit = Math.min(settings.targetInputTokens, connection.contextWindow - connection.maxOutputTokens);
-  const measure = (state: ContextState) => assembleRequest(connection, settings, turns, sources, state, { validateLimits: false, allowStale: true }).budget.inputTokens;
+  const measure = (state: ContextState) => assembleRequest(connection, settings, turns, sources, state, { validateLimits: false, allowStale: true, lore: snapshot.loreResolution }).budget.inputTokens;
   const inputBefore = measure(original);
   const positions = new Map(turns.map((turn, i) => [turn.id, i]));
   const nodes = new Map(original.summaries.map(node => [refKey(node), node]));

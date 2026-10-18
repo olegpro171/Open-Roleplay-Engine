@@ -17,8 +17,8 @@ const sources = (blocks: PromptBlock[]): PromptSources => ({ prompt: { name: 'Cu
 const request = (blocks: PromptBlock[], targetInputTokens = 5_000, history = turns, state = context) => assembleRequest(connection, { ...settings, targetInputTokens }, history, sources(blocks), state);
 
 describe('explicit prompt control', () => {
-  it('starts with all four source markers and permits empty/missing-marker presets', () => {
-    expect(defaultPrompt.blocks.map(block => block.id)).toEqual(['instructions', 'character', 'persona', 'summary', 'messages']);
+  it('starts with explicit history and lore controls and permits empty/missing-marker presets', () => {
+    expect(defaultPrompt.blocks.map(block => block.id)).toEqual(['instructions', 'lore-before', 'character', 'lore-after', 'persona', 'summary', 'lore-history', 'messages']);
     expect(promptSchema.parse({ name: 'Empty', blocks: [] }).blocks).toEqual([]);
     expect(promptWarnings({ name: 'Empty', blocks: [] })).toHaveLength(4);
     expect(() => request([])).toThrow('resolved prompt is empty');

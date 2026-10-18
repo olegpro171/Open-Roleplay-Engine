@@ -6,19 +6,52 @@ import type { Store } from '../persistence/store.js';
 import type { Provider } from '../provider/openai.js';
 import type { ContextJob, RepairAction } from '../shared/context.js';
 import { hasPromptMarker } from '../shared/library.js';
+import type { LoreRegexPool } from './lore-regex.js';
+import { resolveRequestLore } from './lore-resolution.js';
+import type { LoreResolution } from '../shared/lorebook.js';
 
 export class ContextCoordinator {
   private active = new Map<string, { controller: AbortController; task: Promise<void>; generationId: string | null }>();
   private stopping = false;
-  constructor(private store: Store, private provider: Provider, private changed: () => void) {}
-  start(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>) {
-    const { job, fresh } = this.store.contexts.begin(chatId, revision, requestId, mode);
+  private preflights = new Set<AbortController>();
+  constructor(private store: Store, private provider: Provider, private changed: () => void, private loreRegex: LoreRegexPool) {}
+  async startResolved(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>) {
+    if (this.stopping) throw new AppError(503, 'server_stopping', 'The server is stopping. Retry after it restarts.');
+    const existing = this.store.contexts.commandJob(chatId, requestId, mode);
+    if (existing) return { jobId: existing.id };
+    this.store.checkRevision(revision, chatId);
+    const lore = await this.resolveLore(chatId);
+    return this.start(chatId, revision, requestId, mode, lore);
+  }
+  start(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>, lore?: LoreResolution | null) {
+    if (this.stopping) throw new AppError(503, 'server_stopping', 'The server is stopping. Retry after it restarts.');
+    const { job, fresh } = this.store.contexts.begin(chatId, revision, requestId, mode, null, lore);
     if (fresh) this.dispatch(job.id);
     return { jobId: job.id };
   }
   repairAction(id: string, revision: number, requestId: string, action: RepairAction, text?: string) {
     const result = this.store.contexts.repairAction(id, revision, requestId, action, text);
     if (result.fresh && action === 'close') this.active.get(id)?.controller.abort();
+    if (result.fresh && result.job.status === 'running') void this.dispatch(id);
+    this.changed();
+    return { jobId: id };
+  }
+  private async resolveLore(chatId: string) {
+    const controller = new AbortController();
+    this.preflights.add(controller);
+    try {
+      const lore = await resolveRequestLore(this.store.snapshot(chatId), this.loreRegex, controller.signal);
+      if (this.stopping || controller.signal.aborted) throw new AppError(503, 'server_stopping', 'The server is stopping. Retry after it restarts.');
+      return lore;
+    } finally { this.preflights.delete(controller); }
+  }
+  async repairActionResolved(id: string, revision: number, requestId: string, action: RepairAction, text?: string) {
+    if (action !== 'regenerate' || this.store.contexts.job(id).repairCommands?.[requestId]) return this.repairAction(id, revision, requestId, action, text);
+    if (this.stopping) throw new AppError(503, 'server_stopping', 'The server is stopping. Retry after it restarts.');
+    const job = this.store.contexts.job(id);
+    this.store.checkRevision(revision, job.chatId);
+    const lore = await this.resolveLore(job.chatId);
+    const result = this.store.contexts.repairAction(id, revision, requestId, action, text, lore);
     if (result.fresh && result.job.status === 'running') void this.dispatch(id);
     this.changed();
     return { jobId: id };
@@ -31,7 +64,7 @@ export class ContextCoordinator {
     return task;
   }
   async prepareForGeneration(chatId: string, generationId: string, signal: AbortSignal) {
-    const snapshot = this.store.snapshot(chatId);
+    const snapshot = { ...this.store.snapshot(chatId), loreResolution: this.store.loreOperation(generationId) };
     if (!hasPromptMarker(snapshot.sources.prompt, 'summary') || !snapshot.context.preset) return;
     const plan = contextPlan(snapshot);
     if (plan.blocked) throw new AppError(422, 'context_blocked', plan.blocked);
@@ -44,7 +77,7 @@ export class ContextCoordinator {
   private async run(id: string, signal: AbortSignal) {
     try {
       while (!signal.aborted && !this.stopping) {
-        const job = this.store.contexts.job(id), snapshot = this.store.snapshot(job.chatId);
+        const job = this.store.contexts.job(id), snapshot = this.store.contexts.operationSnapshot(id);
         const plan = contextPlan(snapshot);
         const replacements = new Map();
         const operation = job.mode === 'repair' ? nextRepair(snapshot.turns, snapshot.context, replacements) : plan.next;
@@ -95,6 +128,7 @@ export class ContextCoordinator {
   }
   async shutdown() {
     this.stopping = true;
+    for (const controller of this.preflights) controller.abort();
     for (const operation of this.active.values()) operation.controller.abort();
     await Promise.allSettled([...this.active.values()].map(operation => operation.task));
   }

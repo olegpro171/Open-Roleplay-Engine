@@ -4,20 +4,24 @@ import { assembleRequest } from '../core/prompt.js';
 import type { Store } from '../persistence/store.js';
 import type { Provider } from '../provider/openai.js';
 import { ContextCoordinator } from './context-coordinator.js';
+import { LoreRegexPool } from './lore-regex.js';
+import { resolveRequestLore } from './lore-resolution.js';
 
 export class GenerationCoordinator {
   readonly events = new EventEmitter();
   private active = new Map<string, { controller: AbortController; task: Promise<void>; text: string }>();
   private stopping = false;
   readonly context: ContextCoordinator;
+  readonly loreRegex = new LoreRegexPool();
   constructor(private store: Store, private provider: Provider) {
     store.recoverInterrupted();
-    this.context = new ContextCoordinator(store, provider, () => this.changed());
+    this.context = new ContextCoordinator(store, provider, () => this.changed(), this.loreRegex);
     this.events.setMaxListeners(100);
   }
   changed() { this.events.emit('changed'); }
 
   start(revision: number, requestId: string, text?: string, chatId = 'main') {
+    if (this.stopping) throw new AppError(503, 'server_stopping', 'The server is stopping. Retry after it restarts.');
     const result = this.store.begin(revision, requestId, text, chatId);
     if (result.fresh) {
       const operation = { controller: new AbortController(), task: Promise.resolve(), text: '' };
@@ -29,10 +33,14 @@ export class GenerationCoordinator {
   }
   private async run(id: string, operation: { controller: AbortController; text: string }, chatId: string) {
     try {
+      const initial = this.store.snapshot(chatId);
+      const loreResolution = await resolveRequestLore(initial, this.loreRegex, operation.controller.signal);
+      if (this.stopping || operation.controller.signal.aborted) return;
+      this.store.saveLoreOperation(chatId, id, loreResolution);
       await this.context.prepareForGeneration(chatId, id, operation.controller.signal);
       if (this.stopping || operation.controller.signal.aborted) return;
       const snapshot = this.store.snapshot(chatId);
-      const request = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context);
+      const request = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context, { lore: loreResolution });
       this.store.saveRequest(id, request);
       this.changed();
       let lastCheckpoint = 0;
@@ -72,6 +80,7 @@ export class GenerationCoordinator {
       operation.controller.abort();
     }
     await this.context.shutdown();
+    await this.loreRegex.close();
     await Promise.allSettled([...this.active.values()].map((operation) => operation.task));
     this.events.emit('shutdown');
   }

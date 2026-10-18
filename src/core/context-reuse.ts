@@ -24,7 +24,7 @@ export function savedReplacement(snapshot: ChatSnapshot, operation: ContextOpera
   const protection = correctionProtection(snapshot.turns, snapshot.context);
   if (protection.unresolved.length) return null;
   selectedContext(snapshot.turns, snapshot.context);
-  const measure = (state: ContextState) => assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, state, { validateLimits: false }).budget.inputTokens;
+  const measure = (state: ContextState) => assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, state, { validateLimits: false, lore: snapshot.loreResolution }).budget.inputTokens;
   const inputBefore = measure(snapshot.context), key = operationKey(operation);
   for (const node of savedSummaries(snapshot.turns, snapshot.context)) {
     if (protection.missingFor(node).length) continue;

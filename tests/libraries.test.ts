@@ -113,7 +113,7 @@ describe('prompt template upgrade', () => {
   it.each([false, true])('upgrades only an untouched old default (customized: %s), retaining saved records', customized => {
     const path = join(folder(), 'template.sqlite');
     let store = new Store(path);
-    const legacy = { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.id !== 'summary') };
+    const legacy = { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.id !== 'summary' && !(block.kind === 'marker' && block.marker.startsWith('lore_'))) };
     const data = customized ? { ...legacy, name: 'My default' } : legacy;
     store.saveLibrary(store.libraries().revision, 'prompts', data, 'default');
     const customId = store.saveLibrary(store.libraries().revision, 'prompts', { ...legacy, name: 'Custom legacy prompt' });
@@ -124,12 +124,12 @@ describe('prompt template upgrade', () => {
       const builtIn = store.libraries().prompts.find(prompt => prompt.id === 'default')!;
       expect(builtIn.blocks).toEqual(customized ? data.blocks : defaultPrompt.blocks);
       expect(builtIn.name).toBe(data.name);
-      expect(builtIn.revision).toBe(library.prompts.find(prompt => prompt.id === 'default')!.revision + Number(!customized));
-      expect(store.snapshot().revision).toBe(before.revision + Number(!customized));
+      expect(builtIn.revision).toBe(library.prompts.find(prompt => prompt.id === 'default')!.revision + 2 * Number(!customized));
+      expect(store.snapshot().revision).toBe(before.revision + 2 * Number(!customized));
       expect(store.snapshot().turns).toEqual(before.turns);
       expect(store.snapshot().generations).toEqual(before.generations);
       expect(store.libraries().prompts.find(prompt => prompt.id === customId)!.blocks).toEqual(legacy.blocks);
-      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(6);
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(7);
     } finally { store.close(); }
   });
 });
@@ -157,7 +157,7 @@ describe('continuity prompt upgrade', () => {
       expect(store.snapshot(chatId)).toEqual({ ...before, revision: before.revision + Number(changed), context: { ...before.context, preset: store.contextPreset(id) } });
       expect(store.snapshot()).toEqual(unrelated);
       expect(store.libraries().revision).toBe(library.revision + Number(changed));
-      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(6);
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(7);
       if (changed) expect(() => store.checkRevision(before.revision, chatId)).toThrow('changed on another device');
       const upgraded = store.snapshot(chatId), upgradedLibrary = store.libraries();
       store.close(); store = new Store(path);

@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ChatSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError } from './api';
-import { hasPromptMarker, type LibrarySnapshot } from '../shared/library';
+import { hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
 import { ChatSetup, Libraries } from './Libraries';
 import { Dropdown } from './Controls';
 import { trimBoundaryNewlines } from '../shared/text';
 import { Memory } from './Memory';
 import { staleSummaries } from '../core/context';
 import { refKey } from '../shared/context';
-import { BudgetBreakdown, InputMeter, PromptPeek } from './PromptPeek';
+import { BudgetBreakdown, InputMeter, PromptPeek, LoreInspection } from './PromptPeek';
 import { useTranscriptScroll } from './useTranscriptScroll';
 import { useChatDraft } from './useChatDraft';
 
@@ -30,6 +30,7 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [chatId, setChatId] = useState<string | null>(lastChat);
   const [library, setLibrary] = useState<LibrarySnapshot | null>(null);
+  const libraryCache = useRef<LibrarySnapshot | null>(null);
   const [snapshot, setSnapshot] = useState<ChatSnapshot | null>(null);
   const [error, setError] = useState('');
   const [online, setOnline] = useState(false);
@@ -50,10 +51,17 @@ export function App() {
   const refresh = useCallback(async () => {
     const id = ++loadId.current;
     try {
-      const items = await api<LibrarySnapshot>('/library');
+      const cached = libraryCache.current;
+      const update = await api<LibrarySnapshot | UnchangedLibrary>(`/library${cached ? `?knownRevision=${cached.revision}` : ''}`);
+      let items: LibrarySnapshot;
+      if ('unchanged' in update) {
+        if (!cached || cached.revision !== update.revision) throw new Error('Library refresh has no matching saved version. Reload this page.');
+        items = { ...cached, chats: update.chats };
+      } else items = update;
       const selected = items.chats.find(chat => chat.id === chatId)?.id ?? items.chats[0]?.id ?? null;
       const state = selected ? await api<ChatSnapshot>(`/chats/${selected}`) : null;
       if (id === loadId.current) {
+        libraryCache.current = items;
         setSnapshot(state); setLibrary(items); clearServerError();
         if (selected !== chatId) {
           setChatId(selected); setEdit(null); setPeek(false); setGenerationId('');
@@ -120,7 +128,18 @@ export function App() {
   const currentRequest = snapshot?.connection && inspection.chatId === snapshot.id ? inspection.request : null;
   const inspectionCurrent = inspection.key === inspectionKey && !inspection.error;
   const inspectionError = inspection.key === inspectionKey ? inspection.error : currentRequest ? '' : snapshot?.connection ? 'Counting current input…' : '';
-  const shownRequest = generationId ? shownGeneration?.request : currentRequest;
+  const [savedInspection, setSavedInspection] = useState<{ chatId: string; generationId: string; request: RequestPreview | null; error: string } | null>(null);
+  const savedRequestPresent = Boolean(shownGeneration?.request);
+  useEffect(() => {
+    if (!snapshot || !generationId || !savedRequestPresent) return;
+    let current = true;
+    api<RequestPreview | null>(`/chats/${snapshot.id}/generations/${generationId}/request`).then(request => {
+      if (current) setSavedInspection({ chatId: snapshot.id, generationId, request, error: '' });
+    }).catch(error => { if (current) setSavedInspection({ chatId: snapshot.id, generationId, request: null, error: error.message }); });
+    return () => { current = false; };
+  }, [snapshot?.id, generationId, savedRequestPresent]);
+  const matchingSavedInspection = savedInspection?.chatId === snapshot?.id && savedInspection?.generationId === generationId ? savedInspection : null;
+  const shownRequest = generationId ? matchingSavedInspection?.request ?? shownGeneration?.request : currentRequest;
   const archivedIds = new Set(snapshot?.context.archivedTurnIds);
   const activeTurns = currentRequest?.history?.verbatimTurnIds.filter(id => id !== 'draft').length ?? (snapshot?.turns.filter(turn => !archivedIds.has(turn.id)).length ?? 0);
   const inputLimit = currentRequest ? Math.min(currentRequest.budget.targetInputTokens, currentRequest.budget.contextWindow - currentRequest.budget.reservedOutputTokens) : 0;
@@ -198,11 +217,11 @@ export function App() {
           {snapshot.turns.length === 0 && <div className="empty-state"><h2>Set up your story</h2><button className="secondary" onClick={() => setTab('settings')}>Setup</button></div>}
           {snapshot.turns.map((turn, index) => <article className="turn" key={turn.id} data-turn-id={turn.id} aria-label={`Turn ${index + 1}`}>
             <div className="turn-heading"><span>TURN {index + 1} {turn.complete ? summariesEnabled && snapshot.context.archivedTurnIds.includes(turn.id) ? '· ARCHIVED' : '' : '· PENDING'}</span>{turn.complete && turnUsage.has(turn.id) && <span className="turn-usage" title="Provider-reported counts for the saved response, before any later edits. Output may include reasoning tokens.">{turnUsage.get(turn.id) ? `${turnUsage.get(turn.id)!.inputTokens.toLocaleString()} in · ${turnUsage.get(turn.id)!.outputTokens.toLocaleString()} out` : 'Usage unavailable'}</span>}<button className="quiet" disabled={working || busy} onClick={() => {
-              if (confirm('Delete this entire turn, including its saved request records?')) void command(() => api(`/chats/${chatId}/turns/${turn.id}`, 'DELETE', { revision: snapshot.revision }));
+              if (confirm(`Delete this entire turn, including its saved request records?${snapshot.settings.lorebookId ? ' Lore activation history for this chat will start fresh.' : ''}`)) void command(() => api(`/chats/${chatId}/turns/${turn.id}`, 'DELETE', { revision: snapshot.revision }));
             }}>Delete turn</button></div>
             {(['user', 'assistant'] as const).filter(part => !(part === 'user' && turn.complete && turn.user.text === '' && turn.user.revision === 0 && !(edit?.turnId === turn.id && edit.part === 'user'))).map((part) => <div className={`part ${part}`} key={part}>
               <div className="part-heading"><strong>{part === 'user' ? snapshot.sources.persona?.name ?? 'You' : snapshot.sources.character?.name ?? 'Character'}</strong><button className="quiet" disabled={working || busy || (part === 'assistant' && !turn.complete)} onClick={() => setEdit({ turnId: turn.id, part, text: turn[part].text, revision: snapshot.revision })}>Edit {part === 'user' ? 'input' : 'response'}</button></div>
-              {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><textarea aria-label={`Edit ${part} text`} value={edit.text} onChange={(event) => setEdit({ ...edit, text: event.target.value })} /><div className="actions"><button disabled={busy}>Save edit</button><button type="button" className="quiet" onClick={() => setEdit(null)}>Cancel edit</button></div></form> : <div className="prose">{part === 'assistant' && !turn.complete ? <>{trimBoundaryNewlines(partial ?? '') || <span className="muted">{active ? 'Waiting for the model…' : 'Awaiting response.'}</span>}{active && <span className="cursor" aria-label="Generating" />}</> : turn[part].text || <span className="muted blank">blank</span>}</div>}
+              {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><textarea aria-label={`Edit ${part} text`} value={edit.text} onChange={(event) => setEdit({ ...edit, text: event.target.value })} /><p className="small muted">{snapshot.settings.lorebookId ? "Saving a history edit starts fresh lore activation history for this chat." : ""}</p><div className="actions"><button disabled={busy}>Save edit</button><button type="button" className="quiet" onClick={() => setEdit(null)}>Cancel edit</button></div></form> : <div className="prose">{part === 'assistant' && !turn.complete ? <>{trimBoundaryNewlines(partial ?? '') || <span className="muted">{active ? 'Waiting for the model…' : 'Awaiting response.'}</span>}{active && <span className="cursor" aria-label="Generating" />}</> : turn[part].text || <span className="muted blank">blank</span>}</div>}
             </div>)}
           </article>)}
         </div>{awayFromLatest && <button className="latest-turn secondary" onClick={scrollToLatest}>Latest turn <span aria-hidden="true">↓</span></button>}</div>
@@ -221,9 +240,9 @@ export function App() {
     {tab === 'request' && snapshot && <main className="document-panel"><p className="eyebrow">REQUEST INSPECTOR</p><h1>See what the model receives.</h1><p className="muted">Current input follows your saved setup and composer. Saved attempts preserve the exact request and limits used at that time. Credentials stay on the server.</p><div className="inspector-controls"><label>Inspect request<Dropdown aria-label="Inspect request" value={generationId} onChange={setGenerationId} options={[{ value: '', label: 'Current request' }, ...snapshot.generations.map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString()} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!snapshot.connection || busy} onClick={() => { setGenerationId(''); setSettledDraft(draft); }}>Preview {pending ? 'pending turn' : 'next request'}</button><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></div>
       <p className="small muted">{generationId ? `Saved attempt: ${shownGeneration?.status ?? 'unavailable'}. Its ceiling is historical. ${shownGeneration?.error ?? ''}` : 'Live preview of the current setup and composer, before any preparation. It becomes a saved request when generation starts.'}</p>
       {!generationId && memoryStale && <p role="status">Memory is out of date. This inspection includes stale summaries; repair and review them before sending.</p>}
-      {!generationId && inspectionError && <p role="status">{inspectionError}</p>}
+      {!generationId && inspectionError && <p role="status">{inspectionError}</p>}{generationId && matchingSavedInspection?.error && <p role="alert">{matchingSavedInspection.error}</p>}
       {shownGeneration?.usage && <p className="small">Provider reported: {shownGeneration.usage.inputTokens.toLocaleString()} input · {shownGeneration.usage.outputTokens.toLocaleString()} output tokens.</p>}
-      {shownRequest && <>{shownRequest.warnings?.map(warning => <p role="status" key={warning}>{warning}</p>)}<div className="budget"><strong>Estimated input: {shownRequest.budget.inputTokens.toLocaleString()} / {shownRequest.budget.targetInputTokens.toLocaleString()}</strong><InputMeter input={shownRequest.budget.inputTokens} limit={Math.min(shownRequest.budget.targetInputTokens, shownRequest.budget.contextWindow - shownRequest.budget.reservedOutputTokens)} /><span>Reserved output: {shownRequest.budget.reservedOutputTokens.toLocaleString()} · Model window: {shownRequest.budget.contextWindow.toLocaleString()}</span></div>{shownRequest.layout && <BudgetBreakdown request={shownRequest} />}<details className="request-details"><summary>Endpoint and request body</summary><h2>Endpoint</h2><pre>{shownRequest.endpoint}</pre><h2>Request body</h2><pre data-testid="request-body">{JSON.stringify(shownRequest.body, null, 2)}</pre></details><details><summary>Turn identities and source revisions</summary><pre>{JSON.stringify(shownRequest.coverage, null, 2)}</pre></details></>}
+      {shownRequest && <>{shownRequest.warnings?.map(warning => <p role="status" key={warning}>{warning}</p>)}<div className="budget"><strong>Estimated input: {shownRequest.budget.inputTokens.toLocaleString()} / {shownRequest.budget.targetInputTokens.toLocaleString()}</strong><InputMeter input={shownRequest.budget.inputTokens} limit={Math.min(shownRequest.budget.targetInputTokens, shownRequest.budget.contextWindow - shownRequest.budget.reservedOutputTokens)} /><span>Reserved output: {shownRequest.budget.reservedOutputTokens.toLocaleString()} · Model window: {shownRequest.budget.contextWindow.toLocaleString()}</span></div>{shownRequest.layout && <BudgetBreakdown request={shownRequest} />}<LoreInspection request={shownRequest} historical={Boolean(generationId)} /><details className="request-details"><summary>Endpoint and request body</summary><h2>Endpoint</h2><pre>{shownRequest.endpoint}</pre><h2>Request body</h2><pre data-testid="request-body">{JSON.stringify(shownRequest.body, null, 2)}</pre></details><details><summary>Turn identities and source revisions</summary><pre>{JSON.stringify(shownRequest.coverage, null, 2)}</pre></details></>}
     </main>}
     {peek && currentRequest && <PromptPeek stale={memoryStale} request={currentRequest} close={() => setPeek(false)} />}
 

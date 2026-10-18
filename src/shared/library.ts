@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { connectionSchema, revisionSchema, type Connection } from './contracts.js';
 import { contextPresetSchema, type ContextPreset } from './context.js';
+import { lorebookSchema, type Lorebook } from './lorebook.js';
 
 const name = z.string().trim().min(1).max(100);
 const text = z.string().max(100_000);
@@ -8,8 +9,9 @@ export const personaSchema = z.object({ name, description: text }).strict();
 export const characterSchema = z.object({
   name, description: text, personality: text, scenario: text, first_mes: text, mes_example: text,
   source: z.record(z.string(), z.unknown()).optional(),
+  lorebookId: z.string().min(1).max(100).nullable().optional(),
 }).strict();
-export const markers = ['character', 'persona', 'description', 'personality', 'scenario', 'examples', 'messages', 'summary'] as const;
+export const markers = ['character', 'persona', 'description', 'personality', 'scenario', 'examples', 'messages', 'summary', 'lore_before', 'lore_after', 'lore_history'] as const;
 const blockBase = { id: z.string().min(1).max(100), name, enabled: z.boolean() };
 export const promptBlockSchema = z.discriminatedUnion('kind', [
   z.object({ ...blockBase, kind: z.literal('text'), role: z.enum(['system', 'user', 'assistant']), text }).strict(),
@@ -19,26 +21,33 @@ export const promptSchema = z.object({ name, blocks: z.array(promptBlockSchema).
   if (new Set(value.blocks.map(b => b.id)).size !== value.blocks.length) ctx.addIssue({ code: 'custom', message: 'Block identities must be unique.' });
   if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === 'messages').length > 1) ctx.addIssue({ code: 'custom', message: 'Use at most one enabled Messages marker.' });
   if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === 'summary').length > 1) ctx.addIssue({ code: 'custom', message: 'Use at most one enabled Summary marker.' });
+  for (const marker of ['lore_before', 'lore_after', 'lore_history'] as const) if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === marker).length > 1) ctx.addIssue({ code: 'custom', message: `Use at most one enabled ${marker} marker.` });
 });
 export type Persona = z.infer<typeof personaSchema>;
 export type Character = z.infer<typeof characterSchema>;
 export type PromptPreset = z.infer<typeof promptSchema>;
 export type PromptBlock = z.infer<typeof promptBlockSchema>;
-export type LibraryKind = 'personas' | 'characters' | 'prompts' | 'connections' | 'contexts';
+export type LibraryKind = 'personas' | 'characters' | 'prompts' | 'connections' | 'contexts' | 'lorebooks';
 export type Saved<T> = T & { id: string; revision: number };
-export type PromptSources = { prompt: Saved<PromptPreset> | null; character: Saved<Character> | null; persona: Saved<Persona> | null };
+export type PromptSources = { prompt: Saved<PromptPreset> | null; character: Saved<Character> | null; persona: Saved<Persona> | null; lorebook?: Saved<Lorebook> | null };
 export type ChatSummary = { id: string; title: string; revision: number; turnCount: number; running: boolean };
+export type UnchangedLibrary = { unchanged: true; revision: number; chats: ChatSummary[] };
 export type LibrarySnapshot = {
   revision: number; personas: Saved<Persona>[]; characters: Saved<Character>[]; prompts: Saved<PromptPreset>[];
   connections: (Saved<Connection> & { hasApiKey: boolean })[]; chats: ChatSummary[];
   contexts: Saved<ContextPreset>[];
+  lorebooks: Saved<Lorebook>[];
+  lorebookUses: { bookId: string; characters: { id: string; name: string }[]; chats: { id: string; title: string }[] }[];
 };
 export const defaultPrompt: PromptPreset = {
   name: 'Default roleplay', blocks: [
     { id: 'instructions', name: 'Instructions', enabled: true, kind: 'text', role: 'system', text: 'Write the next response in this roleplay. Stay consistent with the established story.' },
+    { id: 'lore-before', name: 'Lore before Character', enabled: true, kind: 'marker', role: 'system', marker: 'lore_before' },
     { id: 'character', name: 'Character', enabled: true, kind: 'marker', role: 'system', marker: 'character' },
+    { id: 'lore-after', name: 'Lore after Character', enabled: true, kind: 'marker', role: 'system', marker: 'lore_after' },
     { id: 'persona', name: 'Persona', enabled: true, kind: 'marker', role: 'system', marker: 'persona' },
     { id: 'summary', name: 'Summary', enabled: true, kind: 'marker', role: 'system', marker: 'summary' },
+    { id: 'lore-history', name: 'Lore in history', enabled: true, kind: 'marker', role: 'system', marker: 'lore_history' },
     { id: 'messages', name: 'Messages', enabled: true, kind: 'marker', role: 'system', marker: 'messages' },
   ],
 };
@@ -60,12 +69,14 @@ export const selectionsSchema = z.object({
   connectionId: z.string().min(1).max(100).nullable(), promptId: z.string().min(1).max(100),
   characterId: z.string().min(1).max(100).nullable(), personaId: z.string().min(1).max(100).nullable(),
   contextPresetId: z.string().min(1).max(100).nullable().optional(),
+  lorebookId: z.string().min(1).max(100).nullable().optional(),
 }).strict();
 export const libraryCommandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('personas'), revision: revisionSchema, data: personaSchema }).strict(),
   z.object({ kind: z.literal('characters'), revision: revisionSchema, data: characterSchema }).strict(),
   z.object({ kind: z.literal('prompts'), revision: revisionSchema, data: promptSchema }).strict(),
   z.object({ kind: z.literal('contexts'), revision: revisionSchema, data: contextPresetSchema }).strict(),
+  z.object({ kind: z.literal('lorebooks'), revision: revisionSchema, data: lorebookSchema }).strict(),
   z.object({ kind: z.literal('connections'), revision: revisionSchema, data: connectionSchema, apiKey: z.string().max(10_000).refine(v => !/[\r\n]/.test(v)).optional() }).strict(),
 ]);
 export const importedTurnSchema = z.object({ user: text, assistant: text, complete: z.boolean() }).strict();

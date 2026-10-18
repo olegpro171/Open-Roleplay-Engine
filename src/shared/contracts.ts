@@ -36,6 +36,7 @@ export const chatSettingsSchema = z.object({
   connectionId: z.string().nullable().optional(), promptId: z.string().optional(),
   characterId: z.string().nullable().optional(), personaId: z.string().nullable().optional(),
   contextPresetId: z.string().nullable().optional(),
+  lorebookId: z.string().min(1).max(100).nullable().optional(),
 }).strict();
 
 export type Connection = z.infer<typeof connectionSchema>;
@@ -47,7 +48,7 @@ export type RequestBody = {
   model: string; messages: Message[]; stream: true; max_tokens: number;
   stream_options?: { include_usage: true };
 } & z.infer<typeof customParametersSchema>;
-export type PromptEntry = { messageIndex: number; kind: 'prompt' | 'character' | 'persona' | 'memory' | 'history' | 'draft'; label: string; tokens: number };
+export type PromptEntry = { messageIndex: number; kind: 'prompt' | 'character' | 'persona' | 'memory' | 'history' | 'draft' | 'lore'; label: string; tokens: number };
 export type TokenUsage = { inputTokens: number; outputTokens: number; totalTokens: number };
 export type ConnectionDiagnostic = { message: string; request?: RequestPreview; usage?: TokenUsage | null; response?: string };
 export type TokenCounting = {
@@ -63,6 +64,7 @@ export type RequestPreview = {
   coverage: { turnId: string; userRevision: number; assistantRevision: number; complete: boolean }[];
   context?: { selected: import('./context.js').SummaryRef[]; archivedTurnIds: string[] };
   history?: { mode: 'managed' | 'recent'; verbatimTurnIds: string[] };
+  lore?: import('./lorebook.js').LoreResolution | null;
   // Repair baseline for later edits; stored locally, never added to the provider body.
   summarySources?: { turnId: string; user: string; assistant: string }[];
   budget: {
@@ -82,6 +84,8 @@ export type ChatSnapshot = {
   revision: number; settings: ChatSettings; connection: Connection | null; hasApiKey: boolean;
   turns: Turn[]; generations: Generation[];
   context: import('./context.js').ContextSnapshot;
+  loreState?: import('./lorebook.js').LoreState;
+  loreResolution?: import('./lorebook.js').LoreResolution | null;
 };
 
 export const revisionSchema = z.number().int().nonnegative();

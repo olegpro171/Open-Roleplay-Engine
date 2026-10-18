@@ -1,0 +1,87 @@
+{
+  "v2": {
+    "name": "Synthetic archive",
+    "description": "Human-only fixture description",
+    "scan_depth": 4,
+    "token_budget": 2048,
+    "recursive_scanning": false,
+    "extensions": { "foreign_book_setting": { "keep": true } },
+    "entries": [
+      {
+        "id": 41,
+        "name": "The tower",
+        "comment": "Human-only fixture comment",
+        "keys": ["башня", "tower"],
+        "secondary_keys": ["key"],
+        "selective": true,
+        "content": "The tower door opens with a silver key.",
+        "enabled": true,
+        "insertion_order": 20,
+        "priority": 3,
+        "position": "after_char",
+        "extensions": { "foreign_entry_setting": [1, 2] }
+      }
+    ],
+    "unknown_top_level": "preserve"
+  },
+  "v3": {
+    "spec": "lorebook_v3",
+    "foreign_envelope": "preserve",
+    "data": {
+      "name": "Synthetic V3 archive",
+      "extensions": {},
+      "entries": [
+        {
+          "id": "external-entry-id",
+          "keys": ["/silver\\s+key/iu"],
+          "content": "@@role user\n@@depth 1\nThe key bears a crescent.",
+          "enabled": true,
+          "insertion_order": 10,
+          "use_regex": true,
+          "extensions": {}
+        },
+        {
+          "keys": [],
+          "content": "@@foreign_directive anything\n@@@position before_desc\nThe city is called Lumen.",
+          "enabled": true,
+          "constant": true,
+          "insertion_order": 0,
+          "use_regex": false,
+          "extensions": {}
+        }
+      ]
+    }
+  },
+  "worldInfo": {
+    "name": "Synthetic World Info",
+    "entries": {
+      "17": {
+        "uid": 17,
+        "key": ["harbor"],
+        "keysecondary": ["fog"],
+        "comment": "The harbor",
+        "content": "The harbor bell rings at dusk.",
+        "constant": false,
+        "selective": true,
+        "selectiveLogic": 0,
+        "disable": false,
+        "order": 100,
+        "position": 0,
+        "probability": 50,
+        "useProbability": true,
+        "group": "foreign-group",
+        "sticky": 2,
+        "cooldown": 3,
+        "foreign_field": { "keep": "unchanged" }
+      }
+    }
+  },
+  "emptyV3": { "spec": "lorebook_v3", "data": { "extensions": {}, "entries": [] } },
+  "malformedV3": {
+    "spec": "lorebook_v3",
+    "data": {
+      "extensions": {},
+      "entries": [{ "keys": "not-an-array", "content": "No partial import", "enabled": true, "insertion_order": 0, "use_regex": false, "extensions": {} }]
+    }
+  }
+}

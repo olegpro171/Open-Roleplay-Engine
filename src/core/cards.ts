@@ -1,4 +1,6 @@
 import { characterSchema, personaSchema, type Character, type Persona } from '../shared/library.js';
+import type { Lorebook } from '../shared/lorebook.js';
+import { exportLorebook } from './lorebook-formats.js';
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a card JSON object.');
@@ -11,14 +13,25 @@ export function importCharacter(value: unknown): Character {
   const fields = Object.fromEntries(['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'].map(key => [key, data[key] ?? '']));
   return characterSchema.parse({ ...fields, source });
 }
-export function exportCharacter(card: Character): Record<string, unknown> {
+export function exportCharacter(card: Character, linkedBook?: Lorebook | null): Record<string, unknown> {
   const original = card.source ?? {};
   const oldData = original.spec === 'chara_card_v2' || original.spec === 'chara_card_v3' ? object(original.data) : original;
-  const { source: _source, ...fields } = characterSchema.parse(card);
-  return { ...original, ...fields, spec: original.spec === 'chara_card_v3' ? 'chara_card_v3' : 'chara_card_v2', spec_version: original.spec === 'chara_card_v3' ? '3.0' : '2.0', data: {
+  const { source: _source, lorebookId: _lorebookId, ...fields } = characterSchema.parse(card);
+  const result = { ...original, ...fields, spec: original.spec === 'chara_card_v3' ? 'chara_card_v3' : 'chara_card_v2', spec_version: original.spec === 'chara_card_v3' ? '3.0' : '2.0', data: {
     creator_notes: '', system_prompt: '', post_history_instructions: '', alternate_greetings: [], tags: [], creator: '', character_version: '', extensions: {},
     ...oldData, ...fields,
   } };
+  // An explicit relation, including None, supersedes the preserved import.
+  // Absence exists only on older, not-yet-extracted cards.
+  if (linkedBook !== undefined) {
+    const output: Record<string, unknown> = result.data;
+    if (linkedBook) {
+      const exported = exportLorebook(linkedBook, original.spec === 'chara_card_v3' ? 'v3' : 'v2');
+      output.character_book = original.spec === 'chara_card_v3' ? exported.data : exported;
+    } else delete output.character_book;
+    delete (result as Record<string, unknown>).character_book;
+  }
+  return result;
 }
 export function importPersonas(value: unknown): Persona[] {
   const data = object(value);

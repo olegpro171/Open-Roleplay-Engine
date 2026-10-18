@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PromptEntry, RequestPreview } from '../shared/contracts';
+import { LoreDiagnostics, lorePlacementLabels } from './LorebookEditor';
 
 const categories: { kind: PromptEntry['kind'] | 'overhead'; label: string }[] = [
   { kind: 'prompt', label: 'Prompt' }, { kind: 'character', label: 'Character' },
-  { kind: 'persona', label: 'Persona' }, { kind: 'memory', label: 'Memory' },
+  { kind: 'persona', label: 'Persona' }, { kind: 'lore', label: 'Lore' }, { kind: 'memory', label: 'Memory' },
   { kind: 'history', label: 'Active turns' }, { kind: 'draft', label: 'Unsent input' },
   { kind: 'overhead', label: 'Message framing' },
 ];
@@ -25,6 +26,24 @@ export function BudgetBreakdown({ request }: { request: RequestPreview }) {
   </div>;
 }
 
+export function LoreInspection({ request, historical = false }: { request: RequestPreview; historical?: boolean }) {
+  const [page, setPage] = useState(0);
+  const lore = request.lore;
+  const signature = lore ? `${lore.book.id}:${lore.book.revision}:${lore.epoch}:${lore.outcomes.map(outcome => outcome.id + outcome.status).join(',')}` : '';
+  useEffect(() => { setPage(0); }, [signature]);
+  if (lore === null) return <p className="small muted">No lorebook was selected for this request.</p>;
+  if (!lore) return <p className="small muted">{historical ? 'Lore metadata is unavailable for this saved request.' : 'No lorebook resolution is attached to this request.'}</p>;
+  if (lore.detailsAvailable) return <section className="lore-inspection" aria-label="Resolved lore"><h3>Lore · {lore.book.name}</h3><p className="small" role="status">Loading saved lore details…</p></section>;
+  const admitted = lore.outcomes.filter(outcome => outcome.status === 'admitted').length;
+  const last = Math.max(0, Math.ceil(lore.outcomes.length / 50) - 1), shown = Math.min(page, last);
+  return <section className="lore-inspection" aria-label="Resolved lore"><h3>Lore · {lore.book.name}</h3><p className="small">Book revision {lore.book.revision} · {admitted} admitted / {lore.outcomes.length} evaluated · {lore.tokens.toLocaleString()} estimated tokens{lore.pressure ? ' · Pressure exclusions applied' : ''}</p><p className="small muted">{historical ? 'This saved resolution retains the original entry text and placement.' : 'Resolved against original recent messages, including unsent input. Preview does not advance activation state.'}</p>
+    <LoreDiagnostics diagnostics={lore.diagnostics} />
+    {lore.outcomes.length === 0 && <p className="small muted">This book has no entries to evaluate.</p>}
+    {lore.outcomes.slice(shown * 50, (shown + 1) * 50).map(outcome => <details className={`lore-outcome ${outcome.status}`} key={outcome.id}><summary>{outcome.name || 'Unnamed entry'} · {outcome.status} · {outcome.tokens.toLocaleString()} est.</summary><p className="small">{outcome.reason}</p>{outcome.destination && <p className="small">{lorePlacementLabels[outcome.destination.placement]} · {outcome.destination.role}{outcome.destination.placement === 'history' ? ` · Depth ${outcome.destination.depth}` : ''}</p>}{outcome.text ? <div className="prose">{outcome.text}</div> : <p className="small muted">No resolved prose.</p>}</details>)}
+    {last > 0 && <div className="actions lore-pagination"><button type="button" className="secondary" disabled={shown === 0} onClick={() => setPage(shown - 1)}>Previous lore page</button><span>Page {shown + 1} of {last + 1}</span><button type="button" className="secondary" disabled={shown === last} onClick={() => setPage(shown + 1)}>Next lore page</button></div>}
+  </section>;
+}
+
 export function PromptPeek({ request, stale, close }: { request: RequestPreview; stale: boolean; close: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -41,6 +60,7 @@ export function PromptPeek({ request, stale, close }: { request: RequestPreview;
       <p className="small over-limit" hidden={!stale}>Memory is out of date. Repair and review it before sending.</p>
       <strong>Estimated input: {request.budget.inputTokens.toLocaleString()} / {limit.toLocaleString()}</strong><InputMeter input={request.budget.inputTokens} limit={limit} />
       <BudgetBreakdown request={request} />
+      <LoreInspection request={request} />
       {request.warnings?.map(warning => <p className="small" key={warning}>{warning}</p>)}
       <div className="prompt-message-list">{request.body.messages.map((message, i) => {
         const part = entries.get(i);

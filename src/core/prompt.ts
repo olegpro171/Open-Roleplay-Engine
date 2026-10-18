@@ -5,10 +5,9 @@ import type { ContextState, SummaryNode } from '../shared/context.js';
 import { assertCorrectionSelection } from './context-corrections.js';
 import { selectedContext } from './context.js';
 import { countInput } from './tokens.js';
-
-export function replaceNameMacros(text: string, user: string, character: string): string {
-  return text.replace(/{{\s*(user|char)\s*}}/gi, (_match, key: string) => key.toLowerCase() === 'user' ? user : character);
-}
+import { replaceNameMacros } from './names.js';
+import type { LoreResolution } from '../shared/lorebook.js';
+export { replaceNameMacros } from './names.js';
 
 export function estimateInputTokens(messages: Message[]): number {
   return countInput(messages).inputTokens;
@@ -19,7 +18,7 @@ export function summaryText(node: SummaryNode, turns: Turn[]): string {
   return `[Memory L${node.level} · turns ${positions.get(node.turns[0]?.turnId) ?? '?'}–${positions.get(node.turns.at(-1)?.turnId ?? '') ?? '?'}]\n${node.text}`;
 }
 
-export function assembleRequest(connection: Connection, settings: ChatSettings, turns: Turn[], sources?: PromptSources, context?: ContextState, options: { validateLimits?: boolean; allowStale?: boolean } = {}): RequestPreview {
+export function assembleRequest(connection: Connection, settings: ChatSettings, turns: Turn[], sources?: PromptSources, context?: ContextState, options: { validateLimits?: boolean; allowStale?: boolean; lore?: LoreResolution | null } = {}): RequestPreview {
   // The default template also supports the legacy inline-settings API. An
   // explicitly supplied preset, including an empty one, is always authoritative.
   const preset = sources?.prompt ? promptSchema.parse({ name: sources.prompt.name, blocks: sources.prompt.blocks }) : {
@@ -36,8 +35,18 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   let historyIndex: number | null = null;
   const card = sources?.character;
   const resolve = (text: string) => replaceNameMacros(text, sources?.persona?.name ?? 'You', card?.name ?? 'Character');
+  if (sources?.lorebook && !options.lore) throw new AppError(422, 'lore_unresolved', 'Resolve the selected lorebook from the original transcript before planning this request.');
+  const admitted = options.lore?.outcomes.filter(outcome => outcome.status === 'admitted' && outcome.destination) ?? [];
+  const loreEntry = (entry: typeof admitted[number]): Entry => ({ message: { role: entry.destination?.role ?? 'system', content: entry.text }, kind: 'lore', label: `Lore · ${entry.name}` });
+  const historyLore = admitted.filter(entry => entry.destination?.placement === 'history');
+  const anchored = admitted.filter(entry => entry.destination?.anchorId);
+  const emitAnchored = (blockId: string, placement: string) => anchored.filter(entry => entry.destination?.anchorId === blockId && entry.destination.placement === placement).forEach(entry => entries.push(loreEntry(entry)));
   for (const block of preset.blocks) {
     if (!block.enabled) continue;
+    if (block.kind === 'marker' && block.marker.startsWith('lore_')) {
+      if (block.marker !== 'lore_history') admitted.filter(entry => entry.destination?.controlId === block.id && !entry.destination.anchorId && entry.destination.placement !== 'history').forEach(entry => entries.push(loreEntry(entry)));
+      continue;
+    }
     if (block.kind === 'marker' && block.marker === 'messages') { historyIndex = entries.length; continue; }
     if (block.kind === 'marker' && block.marker === 'summary') {
       if (summary) entries.push({ message: { role: block.role, content: summary }, kind: 'memory', label: block.name });
@@ -53,7 +62,26 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
       case 'scenario': content = card?.scenario ?? ''; break;
       case 'examples': content = card?.mes_example ?? ''; break;
     }
-    if (content !== '') entries.push({ message: { role: block.role, content: resolve(content) }, kind: block.kind === 'text' ? 'prompt' : block.marker === 'persona' ? 'persona' : 'character', label: block.name });
+    const hasAnchors = block.kind === 'marker' && anchored.some(entry => entry.destination?.anchorId === block.id);
+    if (hasAnchors && block.kind === 'marker' && block.marker === 'character' && card) {
+      let pieces: string[] = [];
+      const flush = () => {
+        if (pieces.length) entries.push({ message: { role: block.role, content: resolve(pieces.join('\n\n')) }, kind: 'character', label: block.name });
+        pieces = [];
+      };
+      for (const [field, value] of [['name', card.name], ['description', card.description], ['personality', card.personality], ['scenario', card.scenario], ['examples', card.mes_example]]) {
+        if (!value) continue;
+        if (field === 'description' && anchored.some(entry => entry.destination?.anchorId === block.id && entry.destination.placement === 'before_desc')) { flush(); emitAnchored(block.id, 'before_desc'); }
+        pieces.push(value);
+        const placement = field === 'description' ? 'after_desc' : field;
+        if (anchored.some(entry => entry.destination?.anchorId === block.id && entry.destination.placement === placement)) { flush(); emitAnchored(block.id, placement); }
+      }
+      flush();
+    } else {
+      if (hasAnchors) emitAnchored(block.id, 'before_desc');
+      if (content !== '') entries.push({ message: { role: block.role, content: resolve(content) }, kind: block.kind === 'text' ? 'prompt' : block.marker === 'persona' ? 'persona' : 'character', label: block.name });
+      if (hasAnchors) for (const placement of ['after_desc', 'personality', 'scenario']) emitAnchored(block.id, placement);
+    }
   }
   const turnEntries = (turn: Turn): Entry[] => {
     const result: Entry[] = [];
@@ -66,7 +94,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     if (summariesEnabled) verbatim = resolved.verbatim;
     else {
       const limit = Math.min(settings.targetInputTokens, connection.contextWindow - connection.maxOutputTokens);
-      let used = countInput(entries.map(entry => entry.message)).inputTokens;
+      let used = countInput([...entries, ...historyLore.map(loreEntry)].map(entry => entry.message)).inputTokens;
       let start = turns.length;
       // A pending input is required when Messages is enabled. Completed turns
       // form a contiguous newest suffix; neither parts nor text are truncated.
@@ -78,7 +106,16 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
       }
       verbatim = turns.slice(start);
     }
-    entries = entries.slice(0, historyIndex).concat(verbatim.flatMap(turnEntries), entries.slice(historyIndex));
+    const history = verbatim.flatMap(turnEntries);
+    const eligibleHistory = history.flatMap((entry, index) => entry.message.content.trim() ? [index] : []);
+    const insertions = new Map<number, Entry[]>();
+    for (const entry of historyLore) {
+      const depth = entry.destination?.depth ?? 0;
+      const index = depth === 0 ? (eligibleHistory.at(-1) ?? -1) + 1 : eligibleHistory[Math.max(0, eligibleHistory.length - depth)] ?? 0;
+      insertions.set(index, [...insertions.get(index) ?? [], loreEntry(entry)]);
+    }
+    const expanded = history.flatMap((entry, index) => [...insertions.get(index) ?? [], entry]).concat(insertions.get(history.length) ?? []);
+    entries = entries.slice(0, historyIndex).concat(expanded, entries.slice(historyIndex));
   }
   const messages = entries.map(entry => entry.message);
   const layout: PromptEntry[] = entries.map((entry, messageIndex) => ({ messageIndex, kind: entry.kind, label: entry.label, tokens: 0 }));
@@ -94,6 +131,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   }
   return {
     warnings, layout,
+    ...(options.lore !== undefined ? { lore: options.lore } : {}),
     endpoint: `${connection.endpoint.replace(/\/+$/, '')}/chat/completions`,
     body: {
       ...connection.customParameters,

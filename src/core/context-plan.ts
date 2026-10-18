@@ -12,7 +12,7 @@ import { repairInputs } from './context-repair.js';
 export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
   if (!snapshot.connection) throw new AppError(422, 'connection_required', 'Select a roleplay Connection to measure the complete input.');
   const state = snapshot.context;
-  const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, state, { validateLimits: false, allowStale: true });
+  const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, state, { validateLimits: false, allowStale: true, lore: snapshot.loreResolution });
   const effectiveLimit = Math.min(snapshot.settings.targetInputTokens, snapshot.connection.contextWindow - snapshot.connection.maxOutputTokens);
   if (!hasPromptMarker(snapshot.sources.prompt, 'summary')) {
     const blocked = request.budget.inputTokens > effectiveLimit ? 'The prompt and pending input exceed the input limit. Shorten them or increase the limit.' : null;
@@ -23,7 +23,7 @@ export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
   const stale = state.selected.filter(ref => staleKeys.has(refKey(ref)));
   const archived = new Set(state.archivedTurnIds);
   const verbatim = snapshot.turns.filter(turn => !archived.has(turn.id));
-  const required = assembleRequest(snapshot.connection, snapshot.settings, verbatim, snapshot.sources, emptyContextState(), { validateLimits: false }).budget.inputTokens;
+  const required = assembleRequest(snapshot.connection, snapshot.settings, verbatim, snapshot.sources, emptyContextState(), { validateLimits: false, lore: snapshot.loreResolution }).budget.inputTokens;
   // Rank with the shared reference tokenizer, including labels and separator.
   // Only the complete assembled request determines whether the limit is met.
   const sizes = new Map(state.summaries.map(node => [refKey(node), countText(`${summaryText(node, snapshot.turns)}\n\n`)]));
