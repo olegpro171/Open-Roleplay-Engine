@@ -163,3 +163,59 @@ test('a rejected command keeps its draft and permits a corrected explicit retry'
   await expect(page.getByLabel('Your next turn')).toHaveValue('');
   await expect(page.getByRole('article')).toHaveCount(1);
 });
+
+for (const width of [1440, 390]) test(`typed double dashes become em dashes in composer and turn editors at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  const [chatId] = await setup(page);
+  const composer = page.getByLabel('Your next turn');
+  await composer.pressSequentially('Wait--please - stay');
+  await expect(composer).toHaveValue('Wait—please - stay');
+  await page.reload();
+  await expect(composer).toHaveValue('Wait—please - stay');
+
+  // Replacing selected text in the middle must keep subsequent typing at the edit.
+  // Existing double dashes elsewhere are left literal.
+  await composer.fill('old--text / -X end');
+  await composer.evaluate((field: HTMLTextAreaElement) => field.setSelectionRange(13, 14));
+  await composer.pressSequentially('-here');
+  await expect(composer).toHaveValue('old--text / —here end');
+  expect(await composer.evaluate((field: HTMLTextAreaElement) => field.selectionStart)).toBe(17);
+
+  // Composition input is left to the IME, and deletion must not trigger substitution.
+  await composer.fill('--');
+  await composer.evaluate((field: HTMLTextAreaElement) => {
+    field.value = '---';
+    field.setSelectionRange(3, 3);
+    field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: '-', isComposing: true }));
+  });
+  await expect(composer).toHaveValue('---');
+  await composer.press('Backspace');
+  await expect(composer).toHaveValue('--');
+
+  await composer.fill('');
+  await composer.pressSequentially('I wait--quietly.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const turn = page.getByRole('article', { name: 'Turn 1', exact: true });
+  await expect(turn.getByRole('button', { name: 'Edit response', exact: true })).toBeEnabled();
+  for (const [button, label, text] of [
+    ['Edit input', 'Edit user text', 'Input—changed.'],
+    ['Edit response', 'Edit assistant text', 'Response—changed.'],
+  ]) {
+    await turn.getByRole('button', { name: button, exact: true }).click();
+    const editor = page.getByLabel(label);
+    await editor.fill('');
+    await editor.pressSequentially(text.replace('—', '--'));
+    await expect(editor).toHaveValue(text);
+    await page.getByRole('button', { name: 'Save edit', exact: true }).click();
+    await expect(editor).toHaveCount(0);
+  }
+  await page.reload();
+  const saved = await page.request.get(`/api/chats/${chatId}`).then(response => response.json());
+  expect(saved.turns[0].user.text).toBe('Input—changed.');
+  expect(saved.turns[0].assistant.text).toBe('Response—changed.');
+  await turn.getByRole('button', { name: 'Edit response', exact: true }).click();
+  await page.getByLabel('Edit assistant text').pressSequentially('--discard');
+  await page.getByRole('button', { name: 'Cancel edit', exact: true }).click();
+  await turn.getByRole('button', { name: 'Edit response', exact: true }).click();
+  await expect(page.getByLabel('Edit assistant text')).toHaveValue('Response—changed.');
+});

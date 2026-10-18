@@ -14,6 +14,7 @@ import { useChatDraft } from './useChatDraft';
 import { ResponseVariants } from './ResponseVariants';
 import { Reasoning } from './Reasoning';
 import { ChatMarkdown } from './ChatMarkdown';
+import { ChatTextarea } from './ChatTextarea';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
@@ -238,7 +239,7 @@ export function App() {
             {(['user', 'assistant'] as const).filter(part => !(part === 'user' && turn.complete && turn.user.text === '' && turn.user.revision === 0 && !(edit?.turnId === turn.id && edit.part === 'user'))).map((part) => <div className={`part ${part}`} key={part}>
               <div className="part-heading"><strong>{part === 'user' ? snapshot.sources.persona?.name ?? 'You' : selectedCharacterLabel}</strong><button className="quiet" disabled={working || busy || (part === 'assistant' && !turn.complete)} onClick={() => setEdit({ turnId: turn.id, part, text: turn[part].text, revision: snapshot.revision })}>Edit {part === 'user' ? 'input' : 'response'}</button></div>
               {part === 'assistant' && reasoningGeneration?.reasoningText?.trim() && <Reasoning key={reasoningGeneration.id} text={reasoningGeneration.reasoningText} live={generating} chatId={snapshot.id} generationId={reasoningGeneration.id} length={reasoningGeneration.reasoningLength ?? 0} />}
-              {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><textarea aria-label={`Edit ${part} text`} value={edit.text} onChange={(event) => setEdit({ ...edit, text: event.target.value })} /><p className="small muted">{snapshot.settings.lorebookId ? "Saving a history edit starts fresh lore activation history for this chat." : ""}</p><div className="actions"><button disabled={busy}>Save edit</button><button type="button" className="quiet" onClick={() => setEdit(null)}>Cancel edit</button></div></form> : <div className="prose">
+              {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><ChatTextarea aria-label={`Edit ${part} text`} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><p className="small muted">{snapshot.settings.lorebookId ? "Saving a history edit starts fresh lore activation history for this chat." : ""}</p><div className="actions"><button disabled={busy}>Save edit</button><button type="button" className="quiet" onClick={() => setEdit(null)}>Cancel edit</button></div></form> : <div className="prose">
                 {part === 'assistant' && (!turn.complete || generating)
                   ? <>{trimBoundaryNewlines(responseText) ? <ChatMarkdown text={trimBoundaryNewlines(responseText)} /> : <span className="muted">{generating ? 'Waiting for first token…' : cancelled ? 'Generation cancelled.' : 'Awaiting response.'}</span>}{generating && <span className="cursor" aria-label="Generating" />}</>
                   : turn[part].text ? <ChatMarkdown text={turn[part].text} /> : <span className="muted blank">blank</span>}
@@ -257,7 +258,7 @@ export function App() {
         {!active && pending && <div className="recovery" role="status"><div><strong>Last turn is still pending.</strong><p>{latest?.status === 'cancelled' ? 'Response cancelled. Generate response before next turn.' : latest?.error ?? 'Generate response before next turn.'}</p>{partial && <small>Partial text is preserved for inspection. It has not been accepted as a response.</small>}</div><button className="secondary" disabled={busy} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID() }))}>Retry response</button></div>}
         {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{latest.error ?? 'Regeneration did not finish. Try again.'}</p>}
         <form className="composer" onSubmit={(event) => void send(event)}>
-          <textarea aria-label="Your next turn" id="turn-input" placeholder="What happens next?" value={draft} disabled={pending || busy || working} onChange={(event) => { drafts.change(event.target.value); setPeek(false); }} />
+          <ChatTextarea aria-label="Your next turn" id="turn-input" placeholder="What happens next?" value={draft} disabled={pending || busy || working} onValueChange={text => { drafts.change(text); setPeek(false); }} />
           <button className="send-turn" title={busy ? 'Saving changes…' : undefined} disabled={pending || busy || working || memoryStale || !snapshot.connection || !draft.trim()}>Send <span aria-hidden="true">↗</span></button>
           {drafts.storageError && <span className="composer-status" role="alert">Draft could not be saved in this browser. Keep this page open and copy your text before leaving.</span>}
           {preparing && <span className="composer-status">Preparing memory…</span>}
