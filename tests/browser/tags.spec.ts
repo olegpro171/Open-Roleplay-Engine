@@ -18,7 +18,15 @@ const fields = (name: string) => ({ name, description: 'Saved character text', p
 const row = (page: Page, name: string) => page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
 const filters = (page: Page) => page.getByRole('group', { name: 'Filter characters by tags', exact: true });
 const chooser = (page: Page) => page.getByRole('group', { name: 'Assign tags', exact: true });
-const manager = (page: Page) => page.getByRole('region', { name: 'Manage tags', exact: true });
+async function openFilters(page: Page) {
+  const trigger = page.getByRole('button', { name: /^Tags/ });
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click();
+}
+async function openManager(page: Page) {
+  if (!await page.getByRole('button', { name: 'Manage tags', exact: true }).isVisible()) await openFilters(page);
+  await page.getByRole('button', { name: 'Manage tags', exact: true }).click();
+}
+const manager = (page: Page) => page.getByRole('dialog', { name: 'Manage tags', exact: true });
 
 test('filters with AND, preserves character drafts through catalog edits, and manages stable assignments on a phone', async ({ page }) => {
   await login(page);
@@ -27,27 +35,30 @@ test('filters with AND, preserves character drafts through catalog edits, and ma
   const unused = await command(page, '/library/tags', { revision: (await library(page)).revision, name: 'tag-unused' });
   for (const [name, tagIds] of [['Tag A', [fantasy.id, adventure.id]], ['Tag B', [fantasy.id]], ['Tag C', []]] as const) await command(page, '/library', { kind: 'characters', revision: (await library(page)).revision, data: fields(name), tagIds });
   await expect(row(page, 'Tag C')).toBeVisible();
-  await filters(page).getByRole('checkbox', { name: /tag-fantasy/ }).check(); await expect(row(page, 'Tag A')).toBeVisible(); await expect(row(page, 'Tag B')).toBeVisible(); await expect(row(page, 'Tag C')).toHaveCount(0);
-  await filters(page).getByRole('checkbox', { name: /tag-adventure/ }).check(); await expect(row(page, 'Tag B')).toHaveCount(0);
+  await openFilters(page); await filters(page).getByRole('checkbox', { name: /tag-fantasy/ }).check(); await expect(row(page, 'Tag A')).toBeVisible(); await expect(row(page, 'Tag B')).toBeVisible(); await expect(row(page, 'Tag C')).toHaveCount(0);
+  await openFilters(page); await filters(page).getByRole('checkbox', { name: /tag-adventure/ }).check(); await expect(row(page, 'Tag B')).toHaveCount(0);
   await row(page, 'Tag A').getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByLabel('Character description', { exact: true }).fill('Draft survives catalog operations');
-  await page.getByRole('button', { name: 'Manage tags', exact: true }).click();
+  await openManager(page);
   await manager(page).getByLabel('New tag name', { exact: true }).fill('tag-new, punctuation'); await manager(page).getByRole('button', { name: 'Create tag', exact: true }).click();
-  await expect(chooser(page).getByRole('checkbox', { name: /tag-new, punctuation/ })).toBeVisible(); await expect(page.getByLabel('Character description')).toHaveValue('Draft survives catalog operations');
-  await chooser(page).getByRole('checkbox', { name: /tag-new, punctuation/ }).check();
+  await expect(manager(page).getByRole('button', { name: 'Rename tag-new, punctuation' })).toBeVisible();
   await manager(page).getByRole('button', { name: 'Rename tag-adventure', exact: true }).click(); await manager(page).getByLabel('Rename tag', { exact: true }).fill('tag-journey'); await manager(page).getByRole('button', { name: 'Save tag name', exact: true }).click();
-  await expect(filters(page).getByRole('checkbox', { name: /tag-journey/ })).toBeChecked();
+  await manager(page).getByRole('button', { name: 'Close tag manager', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Manage tags', exact: true })).toBeFocused();
+  await expect(page.getByLabel('Character description')).toHaveValue('Draft survives catalog operations');
+  await chooser(page).getByRole('checkbox', { name: /tag-new, punctuation/ }).check();
   await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(row(page, 'Tag A')).toContainText('Draft survives catalog operations'); await expect(row(page, 'Tag A')).toContainText('tag-new, punctuation');
+  await expect(page.getByRole('group', { name: 'Active tag filters' })).toContainText('tag-journey');
   await row(page, 'Tag A').getByRole('button', { name: 'Duplicate', exact: true }).click(); await expect(row(page, 'Tag A copy')).toContainText('tag-journey');
   await row(page, 'Tag A').getByRole('button', { name: 'Edit', exact: true }).click();
   await chooser(page).getByRole('button', { name: 'Remove tag-new, punctuation', exact: true }).click(); await page.getByRole('button', { name: 'Close editor', exact: true }).click();
   await row(page, 'Tag A').getByRole('button', { name: 'Edit', exact: true }).click(); await expect(chooser(page).getByRole('checkbox', { name: /tag-new, punctuation/ })).toBeChecked();
   await chooser(page).getByRole('button', { name: 'Remove tag-new, punctuation', exact: true }).click(); await page.getByRole('button', { name: 'Save character', exact: true }).click();
-  await filters(page).getByRole('checkbox', { name: /tag-unused/ }).check(); await expect(page.getByRole('status').filter({ hasText: 'No characters match all selected tags' })).toBeVisible();
+  await openFilters(page); await filters(page).getByRole('checkbox', { name: /tag-unused/ }).check(); await expect(page.getByRole('status').filter({ hasText: 'No characters match all selected tags' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters', exact: true }).click(); await expect(row(page, 'Tag C')).toBeVisible();
-  await page.getByRole('button', { name: 'Manage tags', exact: true }).click(); await page.setViewportSize({ width: 390, height: 844 });
+  await openManager(page); await page.setViewportSize({ width: 390, height: 844 });
   await manager(page).getByLabel('Search catalog').fill('tag-journey'); page.once('dialog', dialog => { expect(dialog.message()).toContain('2 characters'); return dialog.accept(); });
-  await manager(page).getByRole('button', { name: 'Delete tag-journey', exact: true }).click(); await expect(filters(page).getByRole('checkbox', { name: /tag-journey/ })).toHaveCount(0);
+  await manager(page).getByRole('button', { name: 'Delete tag-journey', exact: true }).click(); await expect(manager(page).getByRole('button', { name: 'Delete tag-journey', exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/tags-phone.png', fullPage: true });
   await manager(page).getByRole('button', { name: 'Close tag manager', exact: true }).click();
@@ -72,6 +83,10 @@ test('reviews every import mode before commit, cancels without writes and safely
       await expect(page.getByRole('button', { name: 'Retry reviewed character import', exact: true })).toBeEnabled();
       await expect.poll(async () => (await library(page)).characters.filter(card => card.name === 'Tag import all').length).toBe(1);
       await page.unroute('**/api/library/import');
+      await page.getByRole('button', { name: 'New character', exact: true }).click();
+      await page.getByLabel('Name', { exact: true }).fill('Temporary draft during import recovery');
+      await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Retry reviewed character import', exact: true })).toBeEnabled();
       await page.route('**/api/library/import', async route => { commands.push(route.request().postDataJSON()); await route.continue(); });
       await page.getByRole('button', { name: 'Retry reviewed character import', exact: true }).click(); await expect(row(page, 'Tag import all')).toBeVisible();
       expect(commands).toHaveLength(2); expect(commands[1]).toEqual(commands[0]); await page.unroute('**/api/library/import');
@@ -79,7 +94,7 @@ test('reviews every import mode before commit, cancels without writes and safely
     const saved = await library(page), card = saved.characters.find(card => card.name === `Tag import ${mode}`);
     expect(saved.characterTags.filter(link => link.characterId === card?.id)).toHaveLength(mode === 'all' ? 2 : mode === 'existing' ? 1 : 0);
   }
-  await filters(page).getByRole('checkbox', { name: /import-adventure/ }).check();
+  await openFilters(page); await filters(page).getByRole('checkbox', { name: /import-adventure/ }).check();
   await page.getByLabel('Import character', { exact: true }).setInputFiles(file('Tag hidden import')); await page.getByRole('button', { name: 'Import reviewed character', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'may be hidden by your tag filters' })).toBeVisible(); await expect(row(page, 'Tag hidden import')).toHaveCount(0);
   await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
@@ -94,18 +109,18 @@ test('refreshes another tab, prunes deleted filters, retains failed drafts and r
   const tag = await command(page, '/library/tags', { revision: (await library(page)).revision, name: 'concurrent-tag' });
   const character = await command(page, '/library', { revision: (await library(page)).revision, kind: 'characters', data: fields('Tag concurrent'), tagIds: [tag.id] });
   await expect(row(page, 'Tag concurrent')).toBeVisible();
-  await filters(page).getByRole('checkbox', { name: /concurrent-tag/ }).check();
+  await openFilters(page); await filters(page).getByRole('checkbox', { name: /concurrent-tag/ }).check();
   await command(page, '/library', { revision: (await library(page)).revision, kind: 'characters', data: fields('Tag concurrent untagged') });
   const other = await context.newPage(); await other.goto('/');
   await command(other, `/library/tags/${tag.id}`, { revision: (await library(other)).revision }, 'DELETE');
-  await expect(filters(page).getByRole('button', { name: 'Remove concurrent-tag', exact: true })).toHaveCount(0); await expect(row(page, 'Tag concurrent untagged')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove concurrent-tag', exact: true })).toHaveCount(0); await expect(row(page, 'Tag concurrent untagged')).toBeVisible();
   await row(page, 'Tag concurrent').getByRole('button', { name: 'Edit', exact: true }).click(); await page.getByLabel('Character description').fill('Draft retained on conflict');
   await page.route(`**/api/library/${character.id}`, route => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic tag save conflict' }) }));
   await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(page.getByRole('alert').filter({ hasText: 'Synthetic tag save conflict' }).first()).toBeVisible(); await expect(page.getByLabel('Character description')).toHaveValue('Draft retained on conflict'); await page.unroute(`**/api/library/${character.id}`);
   await command(other, '/library/tags', { revision: (await library(other)).revision, name: 'concurrent-change' });
   await expect(page.getByRole('button', { name: 'Save character', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Close editor', exact: true }).click(); await row(page, 'Tag concurrent').getByRole('button', { name: 'Edit', exact: true }).click();
-  await page.getByRole('button', { name: 'Manage tags', exact: true }).click(); await manager(page).getByLabel('New tag name').fill('CONCURRENT-CHANGE'); await manager(page).getByRole('button', { name: 'Create tag', exact: true }).click();
+  await openManager(page); await manager(page).getByLabel('New tag name').fill('CONCURRENT-CHANGE'); await manager(page).getByRole('button', { name: 'Create tag', exact: true }).click();
   await expect(manager(page).getByRole('alert')).toContainText('already exists'); await expect(manager(page).getByLabel('New tag name')).toHaveValue('CONCURRENT-CHANGE');
   await page.setViewportSize({ width: 1280, height: 900 }); await page.screenshot({ path: 'test-results/tags-desktop.png', fullPage: true }); await other.close();
 });
@@ -116,8 +131,16 @@ test('paginates the catalog and keeps long or HTML-like names usable as text in 
   for (const name of [longName, htmlName, ...Array.from({ length: 52 }, (_, i) => `page-tag-${String(i).padStart(2, '0')}`)]) {
     await command(page, '/library/tags', { revision: (await library(page)).revision, name });
   }
-  await page.getByRole('button', { name: 'Manage tags', exact: true }).click();
+  await openManager(page);
   await expect(manager(page).locator('.tag-catalog-row')).toHaveCount(50);
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(await manager(page).evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(await manager(page).locator('.tag-catalog').evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+    await expect(manager(page).getByRole('button', { name: 'Next tags', exact: true })).toBeInViewport();
+    await expect(manager(page).getByRole('button', { name: 'Close tag manager', exact: true })).toBeInViewport();
+    await page.screenshot({ path: `test-results/tag-catalog-${width}.png`, fullPage: true });
+  }
   await manager(page).getByRole('button', { name: 'Next tags', exact: true }).click();
   await expect(manager(page).locator('.tag-catalog-row').first()).toBeVisible();
   await manager(page).getByLabel('Search catalog').fill(htmlName);
@@ -137,4 +160,61 @@ test('paginates the catalog and keeps long or HTML-like names usable as text in 
   await expect(row(page, 'Tag long-name draft')).toContainText(longName);
   await row(page, 'Tag long-name draft').getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(chooser(page).getByRole('button', { name: `Remove ${longName}`, exact: true })).toBeVisible();
+});
+
+
+test('keeps tag tools optional, dismisses the picker, and retains visible removable filters', async ({ page }) => {
+  await login(page);
+  const tag = await command(page, '/library/tags', { revision: (await library(page)).revision, name: 'quiet-ui-tag' });
+  await command(page, '/library', { revision: (await library(page)).revision, kind: 'characters', data: fields('Quiet tagged card'), tagIds: [tag.id] });
+  await command(page, '/library', { revision: (await library(page)).revision, kind: 'characters', data: fields('Quiet untagged card') });
+  await expect(row(page, 'Quiet untagged card')).toBeVisible();
+  await expect(filters(page)).toHaveCount(0);
+  await expect(manager(page)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Clear filters', exact: true })).toHaveCount(0);
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    const buttons = await Promise.all([
+      page.getByRole('button', { name: 'New character', exact: true }).boundingBox(),
+      page.locator('label.file-button').filter({ has: page.getByLabel('Import character', { exact: true }) }).boundingBox(),
+      page.getByRole('button', { name: /^Tags/ }).boundingBox(),
+    ]);
+    expect(buttons.every(box => box !== null)).toBe(true);
+    expect(new Set(buttons.map(box => Math.round(box?.y ?? -1))).size).toBe(1);
+    expect(buttons[1]?.width).toBeLessThan(210);
+    await openFilters(page);
+    await expect(filters(page).getByRole('searchbox')).toBeFocused();
+    await filters(page).getByRole('searchbox').fill('quiet-ui');
+    await filters(page).getByRole('checkbox', { name: /quiet-ui-tag/ }).check();
+    await expect(row(page, 'Quiet untagged card')).toHaveCount(0);
+    await page.screenshot({ path: `test-results/tag-picker-${width}.png`, fullPage: true });
+    await page.keyboard.press('Escape');
+    await expect(filters(page)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Tags/ })).toBeFocused();
+    const active = page.getByRole('group', { name: 'Active tag filters' });
+    await expect(active).toContainText('quiet-ui-tag');
+    await expect(row(page, 'Quiet tagged card')).toBeVisible();
+    await page.screenshot({ path: `test-results/tag-filters-${width}.png`, fullPage: true });
+    await active.getByRole('button', { name: 'Remove quiet-ui-tag', exact: true }).click();
+    await expect(row(page, 'Quiet untagged card')).toBeVisible();
+    await expect(active).toHaveCount(0);
+    await openFilters(page);
+    await page.getByRole('heading', { name: 'Build a place to return to.' }).click();
+    await expect(filters(page)).toHaveCount(0);
+    await openManager(page);
+    await expect(manager(page).getByRole('searchbox')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(manager(page)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Manage tags', exact: true })).toBeFocused();
+    await page.keyboard.press('Escape');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await openFilters(page);
+  await filters(page).getByRole('searchbox').fill('quiet-ui');
+  await filters(page).getByRole('checkbox', { name: /quiet-ui-tag/ }).check();
+  await page.getByRole('button', { name: 'Personas', exact: true }).click();
+  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await expect(row(page, 'Quiet untagged card')).toBeVisible();
+  await expect(filters(page)).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Active tag filters' })).toHaveCount(0);
 });

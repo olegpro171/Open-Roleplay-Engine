@@ -35,7 +35,7 @@ The version-2 database migration retains the existing chat, turn/part identities
 
 ## Character tags
 
-Open **Libraries → Characters** to filter by all selected tags, or **Manage tags** to create, search, rename and delete catalog entries with usage counts. The character editor has a searchable assignment chooser; Save commits assignments with character text, and Close discards that draft. You can manage tags without losing character edits. Duplicating a character copies its assignments.
+In **Libraries → Characters**, **New character**, **Import character** and **Tags** share a toolbar. **Tags** opens a searchable filter dropdown; selected tags appear as removable pills with **Clear filters** beside them. **Manage tags** inside the dropdown opens a scrollable dialog to create, search, rename and delete catalog entries with usage counts. The character editor has a searchable assignment chooser; Save commits assignments with character text, and Close discards that draft. You can manage tags without losing character edits. Duplicating a character copies its assignments.
 
 Character JSON/PNG import now shows a read-only review before saving the character and any embedded lorebook. Choose **Import all**, **Import existing** or **Import none** (default), then **Import reviewed character**. Cancel before commit creates nothing. A changed library requires refresh/review. An uncertain acknowledgement offers a retry using the same command ID and policy, so it cannot create a second copy. Keep that review open to retry; review state is not saved across reloads. An intentional new import begins with a new file selection.
 

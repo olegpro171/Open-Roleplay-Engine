@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LibrarySnapshot } from '../shared/library';
 import type { CharacterImportResult, CharacterImportReview, TagPolicy } from '../shared/tags';
 import { ApiError, api } from './api';
@@ -6,7 +6,7 @@ import { LoreDiagnostics } from './LorebookEditor';
 import { TagImportOptions } from './Tags';
 
 type Pending = { base64: string; review: CharacterImportReview; requestId: string; policy: TagPolicy; uncertain: boolean };
-export function CharacterImport({ revision, busy, run, imported }: { revision: number; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; imported: (result: CharacterImportResult, missing: boolean) => void }) {
+export function CharacterImport({ revision, busy, run, imported, leadingAction, trailingAction, hidden }: { leadingAction?: ReactNode; trailingAction?: ReactNode; hidden?: boolean; revision: number; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; imported: (result: CharacterImportResult, missing: boolean) => void }) {
   const [pending, setPending] = useState<Pending | null>(null), [working, setWorking] = useState(false), [error, setError] = useState('');
   const attempt = useRef(0), submitting = useRef(false);
   useEffect(() => () => { attempt.current++; }, []);
@@ -41,7 +41,8 @@ export function CharacterImport({ revision, busy, run, imported }: { revision: n
     submitting.current = false;
     if (current === attempt.current) setWorking(false);
   }
-  return <section className="character-import" aria-label="Character import">
+  return <section className="character-import" aria-label="Character import" hidden={hidden}>
+    <div className="actions character-toolbar">{leadingAction}
     <label className="file-button">Import character<input type="file" accept=".json,.png" disabled={busy || working || Boolean(pending)} onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
       const current = ++attempt.current; setWorking(true); setError('');
@@ -52,7 +53,7 @@ export function CharacterImport({ revision, busy, run, imported }: { revision: n
         let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte);
         await analyze(btoa(binary));
       } catch (error) { if (current === attempt.current) { setError(error instanceof Error ? error.message : 'Could not read the card.'); setWorking(false); } }
-    }} /></label>
+    }} /></label>{trailingAction}</div>
     {working && <p role="status">{pending ? 'Saving or reviewing this import…' : 'Analyzing this card…'}</p>}
     {pending && <div className="character-import-review"><h2>Review {pending.review.name}</h2><p>{pending.review.book ? `Embedded lorebook “${pending.review.book.name}”: ${pending.review.book.entries} entries. An independent linked book will be created.` : 'No embedded lorebook.'}</p>
       <LoreDiagnostics diagnostics={pending.review.diagnostics} />
