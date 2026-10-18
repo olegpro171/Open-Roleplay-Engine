@@ -9,7 +9,7 @@ const mock = await startMockProvider();
 const { app } = await createApp({ database: join(directory, 'chat.sqlite'), staticDirectory: resolve('dist/client') });
 // These fixture controls exist only in this test process, never in the application.
 app.get('/__test/endpoint', async () => ({ endpoint: mock.url }));
-app.post('/__test/mode', async (request) => { mock.setMode((request.body as { mode: 'normal' | 'hold' }).mode); return {}; });
+app.post('/__test/mode', async (request) => { mock.setMode((request.body as { mode: Parameters<typeof mock.setMode>[0] }).mode); return {}; });
 app.post('/__test/finish', async () => { mock.finishAll(); return {}; });
 app.get('/__test/requests', async () => mock.requests);
 await app.listen({ host: '127.0.0.1', port: 4173 });

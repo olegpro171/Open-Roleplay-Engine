@@ -45,7 +45,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await phone.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(phone.getByLabel('Your next turn')).toBeVisible();
 
-  await request.post('/__test/mode', { data: { mode: 'hold' } });
+  await request.post('/__test/mode', { data: { mode: 'hold-first-token' } });
   await page.getByLabel('Your next turn').fill('I enter the tower.');
   await page.getByRole('button', { name: 'Request inspector' }).click();
   await page.getByRole('button', { name: 'Preview next request' }).click();
@@ -55,6 +55,15 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   const preview = JSON.parse((await page.getByTestId('request-body').textContent())!);
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const firstTurn = page.getByRole('article', { name: 'Turn 1', exact: true });
+  await expect(firstTurn.locator('.part.assistant .prose')).toHaveText('Waiting for first token…');
+  await expect(firstTurn.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
+  await expect(firstTurn.getByRole('textbox', { name: 'Response version', exact: true })).toHaveValue('1');
+  await expect(firstTurn.getByRole('textbox', { name: 'Response version', exact: true })).toBeDisabled();
+  await expect(firstTurn.getByLabel('1 response versions', { exact: true })).toHaveText('/ 1');
+  await expect(page.getByText('Generating…', { exact: true })).toHaveCount(0);
+  await expect.poll(() => request.get('/__test/requests').then(response => response.json()).then(calls => calls.length)).toBe(1);
+  await request.post('/__test/finish', { data: {} });
   await expect(page.getByLabel('Conversation')).toContainText('The lantern');
   await expect(phone.getByLabel('Conversation')).toContainText('I enter the tower.');
   await expect(phone.getByLabel('Your next turn')).toBeDisabled();
@@ -62,6 +71,9 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await request.post('/__test/finish', { data: {} });
   await expect(page.getByLabel('Conversation')).toContainText('The lantern flickers.');
   await expect(page.getByLabel('Your next turn')).toBeEnabled();
+  await expect(firstTurn.getByRole('textbox', { name: 'Response version', exact: true })).toHaveValue('1');
+  await expect(firstTurn.getByRole('textbox', { name: 'Response version', exact: true })).toBeEnabled();
+  await expect(firstTurn.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
   await phone.goto('http://127.0.0.1:4173/');
   await expect(phone.getByLabel('Conversation')).toContainText('The lantern flickers.');
   await expect(phone.getByLabel('Your next turn')).toBeEnabled();
@@ -94,12 +106,46 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
 
   await page.getByLabel('Your next turn').fill('I light the lantern.');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.locator('.generation-status')).toContainText('Generating…');
-  await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
-  await phone.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const pendingTurn = page.getByRole('article', { name: 'Turn 2', exact: true });
+  const phonePendingTurn = phone.getByRole('article', { name: 'Turn 2', exact: true });
+  await expect(pendingTurn.locator('.part.assistant .prose')).toHaveText('Waiting for first token…');
+  await expect(pendingTurn.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
+  await expect(phonePendingTurn.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
+  for (const visibleTurn of [pendingTurn, phonePendingTurn]) {
+    const selector = visibleTurn.getByRole('group', { name: 'Response versions', exact: true });
+    await expect(selector.getByRole('textbox')).toHaveValue('1');
+    await expect(selector.getByRole('textbox')).toBeDisabled();
+    await expect(selector.getByRole('button', { name: 'Previous response', exact: true })).toBeDisabled();
+    await expect(selector.getByRole('button', { name: 'Next response', exact: true })).toBeDisabled();
+    const selectorBounds = await selector.boundingBox();
+    const cancelBounds = await visibleTurn.getByRole('button', { name: 'Cancel', exact: true }).boundingBox();
+    if (!selectorBounds || !cancelBounds) throw new Error('Missing generation footer controls');
+    expect(cancelBounds.x).toBeGreaterThan(selectorBounds.x + selectorBounds.width);
+    expect(Math.abs(cancelBounds.y + cancelBounds.height / 2 - selectorBounds.y - selectorBounds.height / 2)).toBeLessThan(2);
+  }
+  await expect(page.getByText('Generating…', { exact: true })).toHaveCount(0);
+  await phone.screenshot({ path: 'test-results/phone-new-response-inline-cancel.png', fullPage: true });
+  await page.screenshot({ path: 'test-results/desktop-new-response-inline-cancel.png', fullPage: true });
+  await phonePendingTurn.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(pendingTurn.locator('.part.assistant .prose')).toHaveText('Generation cancelled.');
+  await expect(phonePendingTurn.locator('.part.assistant .prose')).toHaveText('Generation cancelled.');
+  await expect(pendingTurn.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(pendingTurn.locator('.part.assistant .prose')).toHaveText('Generation cancelled.');
+  await phone.screenshot({ path: 'test-results/phone-new-response-cancelled.png', fullPage: true });
   await expect(page.getByRole('button', { name: 'Retry response' })).toBeVisible();
   await expect(page.locator('.recovery')).toContainText('Last turn is still pending.');
   await expect(page.locator('.recovery')).toContainText('Response cancelled. Generate response before next turn.');
+  await expect(page.getByLabel('Your next turn')).toBeDisabled();
+  await request.post('/__test/mode', { data: { mode: 'hold' } });
+  await page.getByRole('button', { name: 'Retry response' }).click();
+  await expect(pendingTurn.locator('.part.assistant .prose')).toHaveText('The lantern');
+  await pendingTurn.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Retry response' })).toBeVisible();
+  await expect(page.locator('.recovery')).toContainText('Partial text is preserved for inspection.');
+  await page.reload();
+  await expect(pendingTurn.locator('.part.assistant .prose')).toHaveText('The lantern');
+  await expect(phonePendingTurn.locator('.part.assistant .prose')).toHaveText('The lantern');
   await expect(page.getByLabel('Your next turn')).toBeDisabled();
   await request.post('/__test/mode', { data: { mode: 'normal' } });
   await page.getByRole('button', { name: 'Retry response' }).click();
