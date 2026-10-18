@@ -18,6 +18,15 @@ export const defaultConnection: Connection = { name: 'My Connection', endpoint: 
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 type Selection = { title: string; targetInputTokens: number; connectionId: string | null; promptId: string; characterId: string | null; personaId: string | null; contextPresetId: string | null; lorebookId: string | null };
 type LibraryRecord = Character | Persona | PromptPreset | Connection | ContextPreset | Lorebook;
+const libraryLabels: Record<LibraryKind | 'chats', string> = {
+  chats: 'Chats',
+  personas: 'Personas',
+  characters: 'Characters',
+  lorebooks: 'Lorebooks',
+  prompts: 'Prompts',
+  connections: 'Connections',
+  contexts: 'Context presets',
+};
 function selection(snapshot?: ChatSnapshot, library?: LibrarySnapshot): Selection {
   return { title: snapshot?.settings.title ?? 'A new story', targetInputTokens: snapshot?.settings.targetInputTokens ?? 32_000,
     connectionId: snapshot ? snapshot.settings.connectionId ?? null : library?.connections[0]?.id ?? null, promptId: snapshot?.settings.promptId ?? 'default',
@@ -68,10 +77,22 @@ function download(value: unknown, name: string) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }));
   const link = document.createElement('a'); link.href = url; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-function matchesLorebook(book: Lorebook, query: string): boolean {
-  if (!query) return true;
-  const matches = (value: string) => value.normalize('NFC').toLowerCase().includes(query);
-  return matches(book.name) || matches(book.description) || book.entries.some(entry => matches(entry.name) || matches(entry.comment) || matches(entry.content) || entry.keys.some(matches) || entry.secondaryKeys.some(matches));
+function matchesSearch(value: string, query: string): boolean {
+  return value.normalize('NFC').toLowerCase().includes(query);
+}
+function matchesLibraryRecord(record: LibraryRecord, query: string): boolean {
+  if (!query || matchesSearch(record.name, query)) return true;
+  const matches = (value: string) => matchesSearch(value, query);
+  if ('description' in record && matches(record.description)) return true;
+  if ('model' in record && matches(record.model)) return true;
+  return 'entries' in record && record.entries.some(entry => matches(entry.name) || matches(entry.comment) || matches(entry.content) || entry.keys.some(matches) || entry.secondaryKeys.some(matches));
+}
+function LibrarySearch({ section, value, change }: { section: LibraryKind | 'chats'; value: string; change: (value: string) => void }) {
+  const label = `Search ${libraryLabels[section].toLowerCase()}`;
+  return <div className="library-search">
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
+    <input type="search" aria-label={label} placeholder={label} value={value} onChange={event => change(event.target.value)} />
+  </div>;
 }
 export function Libraries({ library, currentChatId, busy, run, openChat }: { library: LibrarySnapshot; currentChatId: string | null; busy: boolean; run: Run; openChat: (id: string) => void }) {
   const [section, setSection] = useState<LibraryKind | 'chats'>('chats');
@@ -86,34 +107,60 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
   const tagIndex = useMemo(() => characterTagIndex(library.characterTags), [library.characterTags]);
   useEffect(() => { const ids = new Set(library.tags.map(tag => tag.id)); setFilters(previous => previous.filter(id => ids.has(id))); }, [library.tags]);
   const query = search.normalize('NFC').toLowerCase();
-  const visibleRecords: Saved<LibraryRecord>[] = section === 'chats' ? [] : section === 'lorebooks' ? library.lorebooks.filter(book => matchesLorebook(book, query)) : section === 'characters' ? library.characters.filter(character => matchesCharacterTags(tagIndex.get(character.id), filters)) : library[section];
+  const visibleChats = useMemo(() => library.chats.filter(chat => matchesSearch(chat.title, query)), [library.chats, query]);
+  const visibleRecords = useMemo<Saved<LibraryRecord>[]>(() => {
+    if (section === 'chats') return [];
+    return library[section].filter(record => matchesLibraryRecord(record, query)
+      && (section !== 'characters' || matchesCharacterTags(tagIndex.get(record.id), filters)));
+  }, [section, library, query, tagIndex, filters]);
   useEffect(() => {
     if (!pendingBook) return;
     const book = library.lorebooks.find(item => item.id === pendingBook);
     if (!book) return;
     const { id, revision: _revision, ...data } = book;
-    setFilters([]); setSection('lorebooks'); setEditing({ kind: 'lorebooks', id, revision: library.revision, data }); setPendingBook(null);
+    setFilters([]); setSearch(''); setSection('lorebooks'); setEditing({ kind: 'lorebooks', id, revision: library.revision, data }); setPendingBook(null);
   }, [pendingBook, library]);
   function openBook(id: string) {
     const book = library.lorebooks.find(item => item.id === id);
     if (!book) { setNotice('The lorebook is not yet loaded. Reopen Lorebooks after the library refreshes.'); return; }
     const { id: bookId, revision: _revision, ...data } = book;
-    setFilters([]); setSection('lorebooks'); setEditing({ kind: 'lorebooks', id: bookId, revision: library.revision, data });
+    setFilters([]); setSearch(''); setSection('lorebooks'); setEditing({ kind: 'lorebooks', id: bookId, revision: library.revision, data });
   }
   function create() {
     const kind = section as LibraryKind;
     const data = kind === 'lorebooks' ? newLorebook() : kind === 'connections' ? defaultConnection : kind === 'contexts' ? structuredClone(defaultContextPreset) : kind === 'prompts' ? { ...structuredClone(defaultPrompt), name: 'New prompt' } : kind === 'personas' ? { name: '', description: '' } : { name: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', lorebookId: null };
     setEditing({ kind, revision: library.revision, data });
   }
-  return <main className="document-panel library-panel"><p className="eyebrow">YOUR LIBRARIES</p><h1>Build a place to return to.</h1>
-    <div className="library-tabs" role="group" aria-label="Libraries">{(['chats', 'personas', 'characters', 'lorebooks', 'prompts', 'connections', 'contexts'] as const).map(kind => <button className="secondary" aria-pressed={section === kind} key={kind} onClick={() => { if (kind !== 'characters') { setFilters([]); } setSection(kind); setEditing(null); setCreatingChat(false); setNotice(''); setDiagnostics([]); setSearch(''); }}>{kind === 'contexts' ? 'Context presets' : kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>
+  return <main className="library-layout">
+    <aside className="library-sidebar">
+      <p className="eyebrow">YOUR LIBRARIES</p>
+      <nav className="library-tabs" aria-label="Library categories">
+        {(['chats', 'personas', 'characters', 'lorebooks', 'prompts', 'connections', 'contexts'] as const).map(kind => <button
+          type="button"
+          aria-pressed={section === kind}
+          key={kind}
+          onClick={() => {
+            if (kind !== 'characters') setFilters([]);
+            setSection(kind);
+            setEditing(null);
+            setCreatingChat(false);
+            setNotice('');
+            setDiagnostics([]);
+            setSearch('');
+          }}
+        >{libraryLabels[kind]}</button>)}
+      </nav>
+    </aside>
+    <section key={section} className="document-panel library-panel" aria-labelledby="library-heading">
+    <h1 id="library-heading">{libraryLabels[section]}</h1>
     {notice && <p role="status">{notice}</p>}<LoreDiagnostics diagnostics={diagnostics} />
     {section === 'chats' ? <>
-      <button disabled={busy} onClick={() => { setCreatingChat(true); setChat(selection(undefined, library)); }}>New chat</button>
+      <div className="actions library-toolbar" role="group" aria-label="Library actions"><button disabled={busy} onClick={() => { setCreatingChat(true); setChat(selection(undefined, library)); }}>New chat</button></div>
+      {!creatingChat && <LibrarySearch section={section} value={search} change={setSearch} />}
       {creatingChat && <form onSubmit={async e => { e.preventDefault(); let id = ''; if (await run(async () => { id = (await api<{ id: string }>('/chats', 'POST', chat)).id; })) { setCreatingChat(false); openChat(id); } }}><fieldset disabled={busy}><legend>New story</legend><SelectionFields value={chat} change={setChat} library={library} creating /><p className="small muted">Choosing a character prefills its default lorebook. You can choose another book or None before creating the chat.</p><div className="actions"><button>Create chat</button><button type="button" className="quiet" onClick={() => setCreatingChat(false)}>Cancel</button></div></fieldset></form>}
-      <div className="library-list">{library.chats.map(item => <article key={item.id}><div><h2>{item.title}</h2><p>{item.turnCount} turns{item.running ? ' · Response running' : ''}{currentChatId === item.id ? ' · Current chat' : ''}</p></div><div className="actions"><button className="secondary" onClick={() => openChat(item.id)}>Open chat</button><button className="quiet" disabled={busy || item.running} onClick={() => { if (confirm(`Delete “${item.title}” and all its turns and requests?`)) void run(() => api(`/chats/${item.id}`, 'DELETE', { revision: item.revision })); }}>Delete chat</button></div></article>)}{library.chats.length === 0 && <p className="muted">Create a chat to start your next story.</p>}</div>
+      <div className="library-list">{visibleChats.map(item => <article key={item.id}><div><h2>{item.title}</h2><p>{item.turnCount} turns{item.running ? ' · Response running' : ''}{currentChatId === item.id ? ' · Current chat' : ''}</p></div><div className="actions"><button className="secondary" onClick={() => openChat(item.id)}>Open chat</button><button className="quiet" disabled={busy || item.running} onClick={() => { if (confirm(`Delete “${item.title}” and all its turns and requests?`)) void run(() => api(`/chats/${item.id}`, 'DELETE', { revision: item.revision })); }}>Delete chat</button></div></article>)}{library.chats.length === 0 && <p className="muted">Create a chat to start your next story.</p>}{query && visibleChats.length === 0 && library.chats.length > 0 && <p className="muted" role="status">No chats match your search.</p>}</div>
     </> : <>
-      {!editing && section !== 'characters' && <div className="actions"><button disabled={busy} onClick={create}>New {section === 'lorebooks' ? 'lorebook' : section === 'personas' ? 'persona' : section === 'prompts' ? 'prompt' : section === 'contexts' ? 'context preset' : 'Connection'}</button>
+      {!editing && section !== 'characters' && section !== 'lorebooks' && <div className="actions library-toolbar" role="group" aria-label="Library actions"><button disabled={busy} onClick={create}>New {section === 'personas' ? 'persona' : section === 'prompts' ? 'prompt' : section === 'contexts' ? 'context preset' : 'Connection'}</button>
         {(section === 'personas') && <label className="file-button">Import personas<input type="file" accept=".json" disabled={busy} onChange={async e => {
           const file = e.target.files?.[0]; e.target.value = ''; if (!file) return;
           await run(async () => {
@@ -125,24 +172,26 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
         }} /></label>}
         {(section === 'prompts' || section === 'contexts') && <label className="file-button">Import {section === 'contexts' ? 'context preset' : 'prompt'}<input type="file" accept=".json" disabled={busy} onChange={async e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) await run(async () => { if (file.size > 1_000_000) throw new Error('Preset file is too large.'); const value: unknown = JSON.parse(await file.text()); await api('/library', 'POST', { kind: section, revision: library.revision, data: section === 'prompts' ? upgradePrompt(value) : value }); }); }} /></label>}
       </div>}
-      {section === 'characters' && <><CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}>New character</button>} trailingAction={!editing && <TagFilterMenu library={library} busy={busy} run={run} selected={filters} change={setFilters} />} revision={library.revision} busy={busy} run={run} imported={(result, missing) => { setLastImported(missing ? null : result.ids[0] ?? null); setNotice(missing ? 'The original import was saved, but its character is no longer available. A deliberate new import requires selecting the file again.' : `Imported ${result.ids.length} character.${result.books.map(book => ` Lorebook “${book.name}”: ${book.entries} entries.`).join('')}${result.tags ? ` ${result.tags.assigned} local tags assigned; ${result.tags.created} created.` : ' Original tag report unavailable.'}${result.picture ? result.picture.saved ? ' Picture saved.' : ' No picture saved.' : ' Original picture report unavailable.'}${filters.length ? ' The character may be hidden by your tag filters.' : ''}`); setDiagnostics(result.diagnostics); }} />{!editing && lastImported && library.characters.some(card => card.id === lastImported) && <button type="button" className="secondary" onClick={() => { const card = library.characters.find(card => card.id === lastImported); if (card) { const { id, revision: _revision, ...data } = card; setEditing({ kind: 'characters', id, revision: library.revision, data }); } }}>Edit imported character / Adjust crop</button>}{!editing && filters.length > 0 && <div className="character-active-filters" aria-label="Active tag filters" role="group">
+      {!editing && section === 'lorebooks' && <LorebookImport leadingAction={<button disabled={busy} onClick={create}>New lorebook</button>} revision={library.revision} busy={busy} run={run} imported={(_id, message) => setNotice(message)} />}
+      {section === 'characters' && <><CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}>New character</button>} trailingAction={!editing && <TagFilterMenu library={library} busy={busy} run={run} selected={filters} change={setFilters} />} revision={library.revision} busy={busy} run={run} imported={(result, missing) => { setLastImported(missing ? null : result.ids[0] ?? null); setNotice(missing ? 'The original import was saved, but its character is no longer available. A deliberate new import requires selecting the file again.' : `Imported ${result.ids.length} character.${result.books.map(book => ` Lorebook “${book.name}”: ${book.entries} entries.`).join('')}${result.tags ? ` ${result.tags.assigned} local tags assigned; ${result.tags.created} created.` : ' Original tag report unavailable.'}${result.picture ? result.picture.saved ? ' Picture saved.' : ' No picture saved.' : ' Original picture report unavailable.'}${filters.length ? ' The character may be hidden by your tag filters.' : ''}`); setDiagnostics(result.diagnostics); }} />{!editing && lastImported && library.characters.some(card => card.id === lastImported) && <button type="button" className="secondary" onClick={() => { const card = library.characters.find(card => card.id === lastImported); if (card) { const { id, revision: _revision, ...data } = card; setEditing({ kind: 'characters', id, revision: library.revision, data }); } }}>Edit imported character / Adjust crop</button>}</>}
+      {editing ? editing.kind === 'characters' && 'personality' in editing.data ? <CharacterEditor key={editing.id ?? 'new-character'} initial={{ ...editing, data: editing.data }} library={library} busy={busy} run={run} close={() => setEditing(null)} openBook={openBook} saved={() => setNotice(`Character saved.${filters.length ? ' It may be hidden by your tag filters.' : ''}`)} extracted={id => { setEditing(null); setFilters([]); setSection('lorebooks'); setNotice('Embedded lorebook extracted. Review its shared library entries.'); setPendingBook(id); }} /> : editing.kind === 'lorebooks' && 'entries' in editing.data ? <LorebookEditor key={editing.id ?? editing.kind} initial={{ ...editing, data: editing.data }} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <LibraryEditor key={editing.id ?? editing.kind} initial={editing} connections={library.connections} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <>
+      <LibrarySearch section={section} value={search} change={setSearch} />
+      {section === 'characters' && filters.length > 0 && <div className="character-active-filters" aria-label="Active tag filters" role="group">
         <TagChips tags={library.tags} catalog={tagCatalog} selected={filters} remove={id => setFilters(filters.filter(value => value !== id))} />
         <button type="button" className="quiet" onClick={() => setFilters([])}>Clear filters</button>
         <span className="small muted" role="status">{visibleRecords.length} of {library.characters.length} characters</span>
-      </div>}</>}
-      {editing ? editing.kind === 'characters' && 'personality' in editing.data ? <CharacterEditor key={editing.id ?? 'new-character'} initial={{ ...editing, data: editing.data }} library={library} busy={busy} run={run} close={() => setEditing(null)} openBook={openBook} saved={() => setNotice(`Character saved.${filters.length ? ' It may be hidden by your tag filters.' : ''}`)} extracted={id => { setEditing(null); setFilters([]); setSection('lorebooks'); setNotice('Embedded lorebook extracted. Review its shared library entries.'); setPendingBook(id); }} /> : editing.kind === 'lorebooks' && 'entries' in editing.data ? <LorebookEditor key={editing.id ?? editing.kind} initial={{ ...editing, data: editing.data }} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <LibraryEditor key={editing.id ?? editing.kind} initial={editing} connections={library.connections} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <>
-      {section === 'lorebooks' && <label className="lore-search">Search lorebooks<input type="search" value={search} onChange={event => setSearch(event.target.value)} /><small>Search names, descriptions and entry content.</small></label>}
+      </div>}
       <div className={`library-list${section === 'characters' ? ' character-list' : ''}`}>{visibleRecords.map(item => <article key={item.id}>{section === 'characters' && <PictureSquare url={pictureIndex.get(item.id)?.thumbnailUrl} />}<div className={section === 'characters' ? 'character-row-content' : undefined}><h2>{item.name}{item.id === 'default' ? ' · Built in' : ''}</h2>{section === 'characters' && 'description' in item ? <CharacterDescription text={item.description} /> : <p>{section === 'connections' ? (item as Saved<Connection>).model : section === 'prompts' ? `${(item as Saved<PromptPreset>).blocks.length} blocks` : section === 'contexts' ? `Minimum tail ${(item as Saved<ContextPreset>).minTail} · Batch ${(item as Saved<ContextPreset>).batchSize}` : 'description' in item ? item.description.slice(0, 140) : ''}</p>}{section === 'lorebooks' && 'entries' in item && <><p>{item.entries.length} entries · {item.entries.filter(entry => entry.enabled).length} enabled</p><LorebookUses bookId={item.id} library={library} /></>}</div><div className="actions">
         <button className="secondary" aria-label={section === 'characters' ? `Edit ${item.name}` : undefined} disabled={busy} onClick={() => { const { id, revision: _revision, ...record } = item; const { hasApiKey, ...data } = record as typeof record & { hasApiKey?: boolean }; setEditing({ kind: section, id, revision: library.revision, data, hasApiKey }); }}>Edit</button>
         <button className="quiet" aria-label={section === 'characters' ? `Duplicate ${item.name}` : undefined} disabled={busy} onClick={() => void run(async () => { const { id: _id, revision: _revision, ...record } = item; const { hasApiKey: _key, ...data } = record as typeof record & { hasApiKey?: boolean }; if (section === 'characters') await api(`/library/characters/${item.id}/duplicate`, 'POST', { revision: library.revision }); else await api('/library', 'POST', { kind: section, revision: library.revision, data: { ...data, name: `${item.name.slice(0, 90)} copy`, ...('entries' in data ? { entries: data.entries.map(entry => ({ ...entry, id: crypto.randomUUID() })) } : {}) } }); setNotice(section === 'connections' ? 'Connection copied. Add its API key in the new Connection.' : section === 'characters' && 'lorebookId' in data && data.lorebookId ? 'Character copied. Its default lorebook is shared with the original character; duplicate the book for independent edits.' : section === 'lorebooks' ? 'Independent lorebook copy saved.' : 'Copy saved.'); })}>Duplicate</button>
         {section !== 'connections' && <button className="quiet" aria-label={section === 'characters' ? `Export JSON ${item.name}` : undefined} onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}>{section === 'characters' ? 'Export JSON' : 'Export'}</button>}
         {item.id === 'default' && <button className="quiet" disabled={busy} onClick={() => { if (confirm('Restore the built-in default prompt? Chats selecting it will use the restored prompt.')) void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); }}>Restore original</button>}
         {item.id !== 'default' && <button className="quiet" aria-label={section === 'characters' ? `Delete ${item.name}` : undefined} disabled={busy || (section === 'lorebooks' && library.lorebookUses.some(use => use.bookId === item.id && (use.characters.length > 0 || use.chats.length > 0)))} onClick={() => { if (confirm(`Delete “${item.name}” from the library?`)) void run(() => api(`/library/${item.id}`, 'DELETE', { kind: section, revision: library.revision })); }}>Delete</button>}
-      </div></article>)}{library[section].length === 0 && <p className="muted">Create or import your first {section === 'lorebooks' ? 'lorebook' : section === 'personas' ? 'persona' : section === 'characters' ? 'character' : section === 'connections' ? 'Connection' : 'prompt'}.</p>}{section === 'lorebooks' && search && visibleRecords.length === 0 && <p className="muted">No lorebooks match your search.</p>}</div>
-      {section === 'characters' && library.characters.length > 0 && visibleRecords.length === 0 && <p role="status">No characters match all selected tags. Clear filters to see every character.</p>}
-      {section === 'lorebooks' && <LorebookImport revision={library.revision} busy={busy} run={run} imported={(_id, message) => setNotice(message)} />}
+      </div></article>)}{library[section].length === 0 && <p className="muted">Create or import your first {section === 'lorebooks' ? 'lorebook' : section === 'personas' ? 'persona' : section === 'characters' ? 'character' : section === 'connections' ? 'Connection' : 'prompt'}.</p>}{section !== 'characters' && query && visibleRecords.length === 0 && library[section].length > 0 && <p className="muted" role="status">No {libraryLabels[section].toLowerCase()} match your search.</p>}</div>
+      {section === 'characters' && library.characters.length > 0 && visibleRecords.length === 0 && <p role="status">{query ? filters.length ? 'No characters match your search and selected tags.' : 'No characters match your search.' : 'No characters match all selected tags. Clear filters to see every character.'}</p>}
       </>}
     </>}
+    </section>
   </main>;
 }
 function CharacterDescription({ text }: { text: string }) {

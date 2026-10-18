@@ -179,6 +179,8 @@ Accepted composer requirement on 2026-10-17: preserve each chat’s unsent text 
 
 User interface decision on 2026-10-17: select chats through Libraries. Any idle chat, including the original or final chat, may be deleted; deleting the current chat keeps the Chats library open for further cleanup. Story and Setup sit together in the shared header.
 
+Accepted Library interface refinement on 2026-10-18: every category uses a compact search box directly below its actions, with a magnifying glass and “Search …” placeholder for the current library, without a separate visible label or helper paragraph. Lorebooks places Import lorebook beside New lorebook, replacing the standalone import section while retaining import review.
+
 Each chat selects:
 
 - A Connection.

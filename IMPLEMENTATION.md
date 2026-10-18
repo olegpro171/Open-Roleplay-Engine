@@ -274,6 +274,10 @@ Import receipt lookup follows bounded metadata extraction/hash and precedes stri
 
 ### Subsequent interface work
 
+Libraries shares Story's desktop workspace width and sidebar proportions. Its categories form a vertical navigation stack beside the selected library's list/editor, with independent content scrolling. At phone widths, categories wrap above the content in one scrolling page. Existing library editing, import and recovery behavior remains in the owning components.
+
+All library lists use the same compact search control below their actions, with a decorative magnifying glass and an accessible name matching the “Search …” placeholder. Filtering is local, case-insensitive and NFC-normalized: names/titles, available descriptions, Connection models and lorebook entry names/comments/content/keys. Character search intersects with tag filters. Queries survive opening/closing an editor and clear when switching categories. LorebookImport owns the Import lorebook toolbar button beside New lorebook, retaining reviewed commits and exact-command retries.
+
 Expand summary inspection/editing around the verified compaction flow and its initial layered visualization; extend the existing libraries only as needed for accepted product requirements. Use Playwright for meaningful end-to-end workflows and responsive layouts, with actual phone checks for platform-specific behavior.
 
 These are implementation priorities, not a delivery schedule. The application build and its core/server/browser tests now exist and pass; commands are documented in [README.md](README.md). Existing simulator validation commands remain in [VISUALIZER.md](docs/VISUALIZER.md), and that isolated experiment is unchanged.

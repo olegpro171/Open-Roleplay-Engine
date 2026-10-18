@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { LOREBOOK_ENTRY_LIMIT, LOREBOOK_FILE_LIMIT, lorebookSchema, lorePlacements, newLoreEntry, type Lorebook, type LoreDiagnostic, type LoreEntry, type LoreImportPreview, type LorePlacement } from '../shared/lorebook';
 import { api, ApiError } from './api';
 import { Dropdown, NumberInput } from './Controls';
@@ -19,13 +19,14 @@ function Pagination({ page, last, change }: { page: number; last: number; change
   return <div className="actions lore-pagination"><button type="button" className="secondary" disabled={page === 0} onClick={() => change(page - 1)}>Previous page</button><span>Page {page + 1} of {last + 1}</span><button type="button" className="secondary" disabled={page === last} onClick={() => change(page + 1)}>Next page</button></div>;
 }
 
-export function LorebookImport({ revision, busy, run, imported }: { revision: number; busy: boolean; run: Run; imported: (id: string, notice: string) => void }) {
+export function LorebookImport({ leadingAction, revision, busy, run, imported }: { leadingAction: ReactNode; revision: number; busy: boolean; run: Run; imported: (id: string, notice: string) => void }) {
   const [review, setReview] = useState<{ preview: LoreImportPreview; value: unknown; revision: number; requestId: string; filename: string } | null>(null);
   const [error, setError] = useState(''), [reading, setReading] = useState(false), [attempted, setAttempted] = useState(false);
-  const attempt = useRef(0);
+  const attempt = useRef(0), fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => () => { attempt.current++; }, []);
-  return <section className="import-panel lore-import"><h2>Import a standalone lorebook</h2><p className="small muted">Choose V2 character-book JSON, V3 standalone JSON, or World Info JSON up to 5 MB. Review settings before creating an independent library book.</p>
-    <label>Lorebook JSON file<input type="file" accept=".json,application/json" disabled={busy || reading} onChange={async event => {
+  return <div className="lore-import">
+    <div className="actions library-toolbar" role="group" aria-label="Library actions">{leadingAction}<button type="button" className="secondary" disabled={busy || reading} onClick={() => fileInput.current?.click()}>Import lorebook</button></div>
+    <input ref={fileInput} aria-label="Lorebook JSON file" hidden type="file" accept=".json,application/json" disabled={busy || reading} onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
       const current = ++attempt.current; setReview(null); setError(''); setReading(true); setAttempted(false);
       try {
@@ -35,7 +36,7 @@ export function LorebookImport({ revision, busy, run, imported }: { revision: nu
         if (attempt.current === current) setReview({ preview, value, revision, requestId: crypto.randomUUID(), filename: file.name });
       } catch (failure) { if (attempt.current === current) setError(failure instanceof Error ? failure.message : 'Could not read this lorebook.'); }
       finally { if (attempt.current === current) setReading(false); }
-    }} /></label>
+    }} />
     {reading && <p role="status">Reviewing lorebook…</p>}{error && <p role="alert">{error}</p>}
     {review && <div className="lore-import-review"><h3>Review {review.preview.book.name}</h3><p className="small">{review.filename} · Format: {review.preview.format} · {review.preview.book.entries.length} entries ({review.preview.book.entries.filter(entry => entry.enabled).length} enabled)</p><p className="small">Scan depth {review.preview.book.scanDepth} messages · Lore cap {review.preview.book.tokenBudget.toLocaleString()} tokens · Recursion {review.preview.book.recursiveScanning ? 'on' : 'off'}</p><LoreDiagnostics diagnostics={review.preview.diagnostics} />
       <p className="small muted">Import creates a new book. Select it separately in a character or chat.</p>
@@ -54,7 +55,7 @@ export function LorebookImport({ revision, busy, run, imported }: { revision: nu
       }}>{attempted ? 'Retry reviewed import' : 'Import reviewed lorebook'}</button><button className="quiet" disabled={busy} onClick={() => { setReview(null); setAttempted(false); }}>Cancel import</button></div>
       {attempted && <p className="small muted">Retry keeps the same import identity and cannot create a second copy. Select the file again for a separate import.</p>}
     </div>}
-  </section>;
+  </div>;
 }
 
 function markBook(book: Lorebook, patch: Partial<Lorebook>): Lorebook {

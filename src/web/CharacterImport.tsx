@@ -46,7 +46,7 @@ export function CharacterImport({ revision, busy, run, imported, leadingAction, 
     if (current === attempt.current) setWorking(false);
   }
   return <section className="character-import" aria-label="Character import" hidden={hidden}>
-    <div className="actions character-toolbar">{leadingAction}
+    <div className="actions library-toolbar character-toolbar" role="group" aria-label="Library actions">{leadingAction}
     <label className="file-button">Import character<input type="file" accept=".json,.png" disabled={busy || working || Boolean(pending)} onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
       const current = ++attempt.current; setWorking(true); setError('');

@@ -208,7 +208,7 @@ test('keeps tag tools optional, dismisses the picker, and retains visible remova
     await expect(row(page, 'Quiet untagged card')).toBeVisible();
     await expect(active).toHaveCount(0);
     await openFilters(page);
-    await page.getByRole('heading', { name: 'Build a place to return to.' }).click();
+    await page.getByRole('heading', { name: 'Characters', exact: true }).click();
     await expect(filters(page)).toHaveCount(0);
     await openManager(page);
     await expect(manager(page).getByRole('searchbox')).toBeFocused();
