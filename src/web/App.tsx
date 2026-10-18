@@ -257,7 +257,7 @@ export function App() {
         {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{latest.error ?? 'Regeneration did not finish. Try again.'}</p>}
         <form className="composer" onSubmit={(event) => void send(event)}>
           <textarea aria-label="Your next turn" id="turn-input" placeholder="What happens next?" value={draft} disabled={pending || busy || working} onChange={(event) => { drafts.change(event.target.value); setPeek(false); }} />
-          <button className="send-turn" disabled={pending || busy || working || memoryStale || !snapshot.connection || !draft.trim()}>{busy ? 'Saving…' : 'Send'} <span aria-hidden="true">↗</span></button>
+          <button className="send-turn" title={busy ? 'Saving changes…' : undefined} disabled={pending || busy || working || memoryStale || !snapshot.connection || !draft.trim()}>Send <span aria-hidden="true">↗</span></button>
           {drafts.storageError && <span className="composer-status" role="alert">Draft could not be saved in this browser. Keep this page open and copy your text before leaving.</span>}
           {preparing && <span className="composer-status">Preparing memory…</span>}
         </form>

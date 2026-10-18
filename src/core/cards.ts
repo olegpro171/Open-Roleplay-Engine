@@ -1,4 +1,4 @@
-import { characterSchema, libraryCharacterSchema, personaSchema, type Character, type LibraryCharacter, type Persona } from '../shared/library.js';
+import { readCharacterAlternateGreetings, characterSchema, libraryCharacterSchema, personaSchema, type Character, type LibraryCharacter, type Persona } from '../shared/library.js';
 import type { Lorebook } from '../shared/lorebook.js';
 import { exportLorebook } from './lorebook-formats.js';
 
@@ -11,15 +11,16 @@ export function importCharacter(value: unknown): Character {
   if (source.spec !== undefined && !['chara_card_v2', 'chara_card_v3'].includes(source.spec as string)) throw new Error('Only legacy, Character Card V2 and V3 cards are supported.');
   const data = source.spec === 'chara_card_v2' || source.spec === 'chara_card_v3' ? object(source.data) : source;
   const fields = Object.fromEntries(['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'].map(key => [key, data[key] ?? '']));
-  return characterSchema.parse({ ...fields, source });
+  return characterSchema.parse({ ...fields, ...(data.alternate_greetings !== undefined ? { alternate_greetings: data.alternate_greetings } : {}), source });
 }
 export function exportCharacter(card: LibraryCharacter, linkedBook?: Lorebook | null): Record<string, unknown> {
   const original = card.source ?? {};
   const oldData = original.spec === 'chara_card_v2' || original.spec === 'chara_card_v3' ? object(original.data) : original;
   const { source: _source, lorebookId: _lorebookId, titleComment: _titleComment, ...fields } = libraryCharacterSchema.parse(card);
+  const greetings = readCharacterAlternateGreetings(card);
   const result = { ...original, ...fields, spec: original.spec === 'chara_card_v3' ? 'chara_card_v3' : 'chara_card_v2', spec_version: original.spec === 'chara_card_v3' ? '3.0' : '2.0', data: {
-    creator_notes: '', system_prompt: '', post_history_instructions: '', alternate_greetings: [], tags: [], creator: '', character_version: '', extensions: {},
-    ...oldData, ...fields,
+    creator_notes: '', system_prompt: '', post_history_instructions: '', tags: [], creator: '', character_version: '', extensions: {},
+    ...oldData, ...fields, ...(greetings.success ? { alternate_greetings: greetings.data } : {}),
   } };
   // An explicit relation, including None, supersedes the preserved import.
   // Absence exists only on older, not-yet-extracted cards.

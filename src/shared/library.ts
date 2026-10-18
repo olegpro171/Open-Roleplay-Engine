@@ -7,9 +7,12 @@ import { lorebookSchema, type Lorebook } from './lorebook.js';
 
 const name = z.string().trim().min(1).max(100);
 const text = z.string().max(100_000);
+export const maxAlternateGreetings = 1000;
+const alternateGreetingsSchema = z.array(text).max(maxAlternateGreetings);
 export const personaSchema = z.object({ name, description: text }).strict();
 export const characterSchema = z.object({
   name, description: text, personality: text, scenario: text, first_mes: text, mes_example: text,
+  alternate_greetings: alternateGreetingsSchema.optional(),
   source: z.record(z.string(), z.unknown()).optional(),
   lorebookId: z.string().min(1).max(100).nullable().optional(),
 }).strict();
@@ -40,6 +43,14 @@ export const promptSchema = z.object({ name, blocks: z.array(promptBlockSchema).
 });
 export type Persona = z.infer<typeof personaSchema>;
 export type Character = z.infer<typeof characterSchema>;
+/** Older imports retain this field only inside their original card metadata. */
+export function readCharacterAlternateGreetings(card: Pick<Character, 'alternate_greetings' | 'source'>) {
+  if (card.alternate_greetings !== undefined) return alternateGreetingsSchema.safeParse(card.alternate_greetings);
+  const source = card.source;
+  const data = source?.spec === 'chara_card_v2' || source?.spec === 'chara_card_v3' ? source.data : source;
+  const value = data && typeof data === 'object' && 'alternate_greetings' in data ? data.alternate_greetings : [];
+  return alternateGreetingsSchema.safeParse(value);
+}
 export type PromptPreset = z.infer<typeof promptSchema>;
 export type PromptBlock = z.infer<typeof promptBlockSchema>;
 export type LibraryKind = 'personas' | 'characters' | 'prompts' | 'connections' | 'contexts' | 'lorebooks';

@@ -2,7 +2,7 @@
 
 Prepared: 2026-10-18.
 
-Status: proposed handoff, not implemented behavior. The user redirected the next task from Title / comment to alternate greetings. Title / comment remains deferred; no implementation of it is authorized by this assignment. The current request authorizes preparing instructions only.
+Status: historical proposal, superseded by the user’s later request to copy alternate greetings into the existing response variants and expose them in the character editor. The narrower implementation is documented in CONCEPTS.md, IMPLEMENTATION.md and README.md. The separate chooser, greeting provenance/locks, greeting-conditioned lore, migrations and expanded authoring controls below remain proposals; they are not current requirements or implemented behavior. Title / comment has since been implemented independently.
 
 ## 1. Objective and scope
 

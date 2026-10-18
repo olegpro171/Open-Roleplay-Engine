@@ -5,17 +5,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { Store } from '../src/persistence/store.js';
+import { sourceOf, staleSummaries } from '../src/core/context.js';
 import { assembleRequest, replaceNameMacros } from '../src/core/prompt.js';
 import { importChat } from '../src/core/chat-import.js';
 import { importCharacter, exportCharacter, importPersonas, exportPersona } from '../src/core/cards.js';
 import { readCardFile } from '../src/server/card-import.js';
-import { defaultPrompt, promptSchema, type Character } from '../src/shared/library.js';
+import { characterSchema, defaultPrompt, promptSchema, type Character } from '../src/shared/library.js';
 import { createApp } from '../src/server/app.js';
 import { randomUUID } from 'node:crypto';
 import { startMockProvider } from './support/mock-provider.js';
 import { deflateSync } from 'node:zlib';
 import legacyContextPrompts from './fixtures/legacy-context-prompts.json';
-import { contextPresetSchema, defaultContextPreset } from '../src/shared/context.js';
+import { contextPresetSchema, defaultContextPreset, type SummaryNode } from '../src/shared/context.js';
 import { legacyLorePrompt } from '../src/persistence/legacy-prompt.js';
 import { upgradePrompt } from '../src/core/prompt-upgrade.js';
 
@@ -109,6 +110,134 @@ describe('cards, macros and prompt arrangement', () => {
       expect(promptSchema.parse({ name: 'Missing history', blocks: [defaultPrompt.blocks[0]] }).blocks).toHaveLength(1);
       expect(promptSchema.parse({ name: 'Empty', blocks: [] }).blocks).toEqual([]);
       expect(() => promptSchema.parse({ ...defaultPrompt, blocks: [...defaultPrompt.blocks, { ...defaultPrompt.blocks.find(block => block.id === 'messages')!, id: 'duplicate' }] })).toThrow('Messages marker');
+    } finally { store.close(); }
+  });
+});
+
+describe('alternate character greetings', () => {
+  it.each(['legacy', 'chara_card_v2', 'chara_card_v3'])('imports and exports editable alternatives from %s cards', spec => {
+    const fields = { ...card, alternate_greetings: ['Second {{user}}.', 'Third {{char}}.'] };
+    const source = spec === 'legacy' ? fields : { spec, spec_version: spec === 'chara_card_v3' ? '3.0' : '2.0', data: fields };
+    const imported = importCharacter(source);
+    expect(imported).toMatchObject({ alternate_greetings: fields.alternate_greetings });
+    const edited = characterSchema.parse({ ...imported, alternate_greetings: ['Edited greeting.'] });
+    expect(exportCharacter(edited).data).toMatchObject({ alternate_greetings: ['Edited greeting.'] });
+    expect(exportCharacter({ ...edited, alternate_greetings: [] }).data).toMatchObject({ alternate_greetings: [] });
+    expect(() => importCharacter({ ...fields, alternate_greetings: ['Valid', 42] })).toThrow();
+    expect(() => characterSchema.parse({ ...fields, alternate_greetings: 'Invalid' })).toThrow();
+    expect(() => characterSchema.parse({ ...fields, alternate_greetings: ['x'.repeat(100_001)] })).toThrow();
+    expect(() => characterSchema.parse({ ...fields, alternate_greetings: Array.from({ length: 1001 }, () => '') })).toThrow();
+  });
+
+  it('copies old preserved card alternatives once, keeps distinct provenance, and persists selections', () => {
+    const path = join(folder(), 'greetings.sqlite');
+    let store = new Store(path);
+    try {
+      const characterId = store.saveLibrary(store.libraryRevision(), 'characters', card);
+      // Simulate a card imported before alternate greetings became editable.
+      const old = { ...card, source: { spec: 'chara_card_v3', data: { ...card, alternate_greetings: ['\nSecond {{USER}} from {{char}}.\n', 'Third greeting.', 'Third greeting.'] } } };
+      store.sqlite.prepare('UPDATE library SET data = ? WHERE id = ?').run(JSON.stringify(old), characterId);
+      const personaId = store.saveLibrary(store.libraryRevision(), 'personas', { name: 'Traveller', description: '' });
+      const create = () => store.createChat({ title: 'Greetings', targetInputTokens: 32_000, connectionId: null, promptId: 'default', characterId, personaId });
+      const chatId = create();
+      const opening = store.snapshot(chatId).turns[0];
+      expect(opening.variants?.map(variant => variant.text)).toEqual(['Welcome, Traveller.', 'Second Traveller from Keeper.', 'Third greeting.', 'Third greeting.']);
+      expect(opening).toMatchObject({ complete: true, user: { text: '' }, assistant: { text: 'Welcome, Traveller.' } });
+      expect(opening.variants?.every(variant => variant.generationId === null)).toBe(true);
+      const [first, second, third, duplicate] = opening.variants ?? [];
+      if (!first || !second || !third || !duplicate) throw new Error('Missing greeting variants');
+      expect(new Set([first.sourceRevision, second.sourceRevision, third.sourceRevision]).size).toBe(3);
+      expect(duplicate.sourceRevision).toBe(third.sourceRevision);
+      const memory: SummaryNode = { id: 'greeting-memory', revision: 0, level: 1, text: 'Traveller was welcomed.', turns: [sourceOf(opening)], children: [], prior: [], approved: true, manual: false, createdAt: '' };
+      const context = { ...store.snapshot(chatId).context, summaries: [memory] };
+      store.selectVariant(store.snapshot(chatId).revision, opening.id, second.id, chatId);
+      expect(staleSummaries(store.snapshot(chatId).turns, context).size).toBe(1);
+      store.selectVariant(store.snapshot(chatId).revision, opening.id, first.id, chatId);
+      expect(staleSummaries(store.snapshot(chatId).turns, context).size).toBe(0);
+      store.editPart(store.snapshot(chatId).revision, opening.id, 'assistant', 'Edited first.', chatId);
+      expect(store.snapshot(chatId).turns[0].assistant.sourceRevision).toBeGreaterThan(Math.max(...(opening.variants ?? []).map(variant => variant.sourceRevision)));
+      store.selectVariant(store.snapshot(chatId).revision, opening.id, second.id, chatId);
+      expect(store.snapshot(chatId).turns[0].assistant.text).toBe('Second Traveller from Keeper.');
+      const selected = store.snapshot(chatId);
+      const request = assembleRequest(connection, selected.settings, selected.turns, selected.sources);
+      expect(request.body.messages.filter(message => message.role === 'assistant')).toEqual([{ role: 'assistant', content: 'Second Traveller from Keeper.' }]);
+      expect(request.coverage).toHaveLength(1);
+      // Card edits affect future chats, including explicit removal, without changing saved variants.
+      store.saveLibrary(store.libraryRevision(), 'characters', { ...old, alternate_greetings: ['New alternative.'] }, characterId);
+      store.saveLibrary(store.libraryRevision(), 'characters', old, characterId);
+      expect(store.snapshot(create()).turns[0].variants?.map(variant => variant.text)).toEqual(['Welcome, Traveller.', 'New alternative.']);
+      store.saveLibrary(store.libraryRevision(), 'characters', { ...old, alternate_greetings: [] }, characterId);
+      expect(store.snapshot(create()).turns[0].variants).toHaveLength(1);
+      const before = store.snapshot(chatId);
+      store.close(); store = new Store(path);
+      expect(store.snapshot(chatId)).toEqual(before);
+      expect(store.snapshot(chatId).generations).toEqual([]);
+      expect(store.sqlite.pragma('foreign_key_check')).toEqual([]);
+    } finally { store.close(); }
+  });
+
+  it('uses the first nonblank greeting when the primary is empty, and creates no turn when all are blank', () => {
+    const store = new Store(':memory:');
+    try {
+      const create = (first_mes: string, alternate_greetings: string[]) => {
+        const characterId = store.saveLibrary(store.libraryRevision(), 'characters', { ...card, first_mes, alternate_greetings });
+        return store.snapshot(store.createChat({ title: 'Blank greetings', targetInputTokens: 32_000, connectionId: null, promptId: 'default', characterId, personaId: null }));
+      };
+      expect(create('', ['\n  \n', 'Hello {{user}}.', 'Another.']).turns[0]).toMatchObject({ assistant: { text: 'Hello You.' }, variants: [{ text: 'Hello You.' }, { text: 'Another.' }] });
+      expect(create('\n ', [' ', '\n']).turns).toEqual([]);
+    } finally { store.close(); }
+  });
+
+  it.each([{ alternatives: [] }, { alternatives: ['Existing alternative.'] }])('keeps source revisions when an editor exposes unchanged alternatives $alternatives', ({ alternatives }) => {
+    const store = new Store(':memory:');
+    try {
+      const original = { ...card, source: { ...card, alternate_greetings: alternatives } };
+      const characterId = store.saveLibrary(store.libraryRevision(), 'characters', original);
+      const chatId = store.createChat({ title: 'Unchanged greetings', targetInputTokens: 32_000, connectionId: null, promptId: 'default', characterId, personaId: null });
+      const before = store.snapshot(chatId), libraryBefore = store.libraries();
+      store.saveLibrary(store.libraryRevision(), 'characters', { ...original, alternate_greetings: alternatives, titleComment: 'Local label' }, characterId);
+      const after = store.snapshot(chatId);
+      expect(after.revision).toBe(before.revision);
+      expect(after.turns).toEqual(before.turns);
+      expect(after.sources.character?.revision).toBe(before.sources.character?.revision);
+      expect(store.libraries().characters.find(character => character.id === characterId)?.revision).toBe(libraryBefore.characters.find(character => character.id === characterId)?.revision);
+      expect(store.libraryRevision()).toBe(libraryBefore.revision + 1);
+      store.saveLibrary(store.libraryRevision(), 'characters', { ...original, alternate_greetings: ['Changed alternative.'] }, characterId);
+      expect(store.snapshot(chatId).revision).toBeGreaterThan(before.revision);
+      expect(store.snapshot(chatId).turns).toEqual(before.turns);
+    } finally { store.close(); }
+  });
+
+  it('preserves malformed old metadata on unrelated saves/exports until explicit correction', () => {
+    const store = new Store(':memory:');
+    try {
+      const characterId = store.saveLibrary(store.libraryRevision(), 'characters', card);
+      const old = { ...card, source: { spec: 'chara_card_v2', data: { ...card, alternate_greetings: ['Valid text', 17], extensions: { retained: true } } } };
+      store.sqlite.prepare('UPDATE library SET data = ? WHERE id = ?').run(JSON.stringify(old), characterId);
+      store.saveLibrary(store.libraryRevision(), 'characters', { ...old, description: 'Unrelated edit.' }, characterId);
+      const saved = store.libraries().characters.find(character => character.id === characterId);
+      if (!saved) throw new Error('Missing legacy character');
+      expect(saved.source).toEqual(old.source);
+      const { id: _id, revision: _revision, ...fields } = saved;
+      expect(exportCharacter(fields).data).toMatchObject({ alternate_greetings: ['Valid text', 17], extensions: { retained: true } });
+      const create = () => store.createChat({ title: 'Invalid alternatives', targetInputTokens: 32_000, connectionId: null, promptId: 'default', characterId, personaId: null });
+      expect(create).toThrow('Open the character editor');
+      store.saveLibrary(store.libraryRevision(), 'characters', { ...fields, alternate_greetings: [] }, characterId);
+      expect(store.snapshot(create()).turns[0].variants).toHaveLength(1);
+      expect(exportCharacter({ ...fields, alternate_greetings: [] }).data).toMatchObject({ alternate_greetings: [] });
+    } finally { store.close(); }
+  });
+
+  it('rolls back chat creation if any alternate variant cannot be saved', () => {
+    const store = new Store(':memory:');
+    try {
+      const characterId = store.saveLibrary(store.libraryRevision(), 'characters', importCharacter({ ...card, alternate_greetings: ['Rejected alternative.'] }));
+      const before = store.libraries();
+      store.sqlite.exec("CREATE TRIGGER reject_greeting BEFORE INSERT ON response_variants WHEN NEW.text = 'Rejected alternative.' BEGIN SELECT RAISE(ABORT, 'synthetic greeting failure'); END");
+      expect(() => store.createChat({ title: 'Rollback', targetInputTokens: 32_000, connectionId: null, promptId: 'default', characterId, personaId: null })).toThrow('synthetic greeting failure');
+      expect(store.libraries()).toEqual(before);
+      expect(store.sqlite.prepare('SELECT * FROM turns').all()).toEqual([]);
+      expect(store.sqlite.prepare('SELECT * FROM response_variants').all()).toEqual([]);
     } finally { store.close(); }
   });
 });

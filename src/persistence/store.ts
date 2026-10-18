@@ -12,7 +12,7 @@ import { AppError } from '../core/errors.js';
 import { replaceNameMacros } from '../core/prompt.js';
 import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStatus, RequestPreview, ResponseVariant, TokenUsage, Turn } from '../shared/contracts.js';
 import { regenerationView } from '../core/regeneration.js';
-import { characterLabel, characterSchema, libraryCharacterSchema, defaultPrompt, selectionsSchema, type Character, type LibraryCharacter, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary } from '../shared/library.js';
+import { readCharacterAlternateGreetings, characterLabel, characterSchema, libraryCharacterSchema, defaultPrompt, selectionsSchema, type Character, type LibraryCharacter, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary } from '../shared/library.js';
 import { lorebookSchema, type Lorebook, type LoreImportPreview, type LoreResolution, type LoreState } from '../shared/lorebook.js';
 import { importLorebook, loreCompatibility, markLoreEdits } from '../core/lorebook-formats.js';
 import { importCharacter } from '../core/cards.js';
@@ -244,6 +244,12 @@ export class Store {
     const { titleComment: _titleComment, ...fields } = card;
     return characterSchema.parse(fields);
   }
+  private comparableCharacter(card: LibraryCharacter): Character {
+    const fields = this.promptCharacter(card);
+    const greetings = readCharacterAlternateGreetings(fields);
+    // Exposing preserved greetings in the editor does not itself change content.
+    return greetings.success ? { ...fields, alternate_greetings: greetings.data } : fields;
+  }
   snapshot(chatId = 'main'): ChatSnapshot {
     const chat = this.chat(chatId);
     const connectionId = chat.settings.connectionId === undefined ? 'main' : chat.settings.connectionId;
@@ -379,10 +385,11 @@ export class Store {
           this.selected(lorebookId, 'lorebooks');
           // Older clients and internal card-only writes preserve local metadata.
           const titleComment = card.titleComment ?? previous?.titleComment ?? '';
-          const updated: LibraryCharacter = { ...this.promptCharacter(card), ...(lorebookId !== undefined ? { lorebookId } : {}), ...(titleComment ? { titleComment } : {}) };
+          const alternate_greetings = card.alternate_greetings ?? previous?.alternate_greetings;
+          const updated: LibraryCharacter = { ...this.promptCharacter(card), ...(alternate_greetings !== undefined ? { alternate_greetings } : {}), ...(lorebookId !== undefined ? { lorebookId } : {}), ...(titleComment ? { titleComment } : {}) };
           data = updated;
           if (previous && previous.name !== card.name) for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.characterId === identity) this.resetLoreEpoch(chat.id);
-          if (old && previous && isDeepStrictEqual(this.promptCharacter(previous), this.promptCharacter(updated))) {
+          if (old && previous && isDeepStrictEqual(this.comparableCharacter(previous), this.comparableCharacter(updated))) {
             const metadataChanged = !isDeepStrictEqual(old.data, data);
             if (metadataChanged) this.db.update(schema.library).set({ data }).where(eq(schema.library.id, identity)).run();
             const tagsChanged = tagIds !== undefined && this.tags.replaceInTransaction(identity, tagIds);
@@ -612,8 +619,13 @@ export class Store {
       this.selected(lorebookId, 'lorebooks');
       this.db.insert(schema.chats).values({ id, revision: 0, settings: { ...initialSettings, ...input, lorebookId } }).run();
       const persona = this.selected<Persona>(input.personaId, 'personas');
-      const greeting = trimBoundaryNewlines(replaceNameMacros(card?.first_mes ?? '', persona?.name ?? 'You', card?.name ?? 'Character'));
-      if (greeting) this.insertTurn(id, 1, { user: '', assistant: greeting, complete: true });
+      const alternateGreetings = readCharacterAlternateGreetings(card ?? {});
+      if (!alternateGreetings.success) throw new AppError(422, 'invalid_alternate_greetings', 'This character has invalid preserved alternate greetings. Open the character editor to clear or replace them before starting a chat.');
+      const greetings = card ? [card.first_mes, ...alternateGreetings.data]
+        .map(text => trimBoundaryNewlines(replaceNameMacros(text, persona?.name ?? 'You', card.name)))
+        .filter(text => text.trim().length > 0) : [];
+      const [greeting, ...alternatives] = greetings;
+      if (greeting !== undefined) this.insertTurn(id, 1, { user: '', assistant: greeting, complete: true }, alternatives);
       this.bumpLibrary(); return id;
     })();
   }
@@ -636,11 +648,20 @@ export class Store {
       this.db.delete(schema.chats).where(eq(schema.chats.id, chatId)).run(); this.bumpLibrary();
     })();
   }
-  private insertTurn(chatId: string, position: number, turn: ImportedTurn) {
+  private insertTurn(chatId: string, position: number, turn: ImportedTurn, alternatives: string[] = []) {
     const id = randomUUID(), variantId = turn.complete ? `original-${id}` : null;
     this.db.insert(schema.turns).values({ id, chatId, position, complete: turn.complete,
-      userId: randomUUID(), userRevision: 0, userText: turn.user, assistantId: randomUUID(), assistantRevision: 0, assistantText: turn.assistant, selectedVariantId: variantId }).run();
-    if (variantId) this.db.insert(schema.responseVariants).values({ id: variantId, turnId: id, text: turn.assistant, sourceRevision: 0, generationId: null, createdAt: '' }).run();
+      userId: randomUUID(), userRevision: 0, userText: turn.user, assistantId: randomUUID(), assistantRevision: alternatives.length, assistantText: turn.assistant, selectedVariantId: variantId }).run();
+    if (variantId) {
+      const revisions = new Map<string, number>();
+      // Reserve distinct content revisions before any edit/selection can advance
+      // the assistant revision. Equal greetings may share a content baseline.
+      for (const [index, text] of [turn.assistant, ...alternatives].entries()) {
+        const sourceRevision = revisions.get(text) ?? index;
+        revisions.set(text, sourceRevision);
+        this.db.insert(schema.responseVariants).values({ id: index === 0 ? variantId : randomUUID(), turnId: id, text, sourceRevision, generationId: null, createdAt: '' }).run();
+      }
+    }
   }
   replaceHistory(expected: number, chatId: string, turns: ImportedTurn[]) {
     this.sqlite.transaction(() => {
