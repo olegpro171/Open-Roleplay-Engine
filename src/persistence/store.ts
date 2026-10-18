@@ -209,7 +209,14 @@ export class Store {
           this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0011_response_variants.sql'), 'utf8'));
           this.sqlite.pragma('user_version = 11');
         })();
-      } else if (version !== 11) throw new Error('Unsupported database schema version.');
+        version = 11;
+      }
+      if (version === 11) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0012_reasoning.sql'), 'utf8'));
+          this.sqlite.pragma('user_version = 12');
+        })();
+      } else if (version !== 12) throw new Error('Unsupported database schema version.');
       this.pictures = new PictureStore(this.sqlite, () => this.bumpLibrary());
       this.contexts = new ContextStore(this);
       this.tags = new TagStore(this.sqlite, expected => this.checkLibrary(expected), () => this.bumpLibrary());
@@ -257,9 +264,15 @@ export class Store {
         variants: responses,
       };
     });
-    const generations: Generation[] = this.db.select().from(schema.generations).where(eq(schema.generations.chatId, chatId)).orderBy(desc(sql`rowid`)).all().map(row => ({
+    const generations: Generation[] = this.db.select({
+      id: schema.generations.id, turnId: schema.generations.turnId, status: schema.generations.status,
+      sourceRevision: schema.generations.sourceRevision, kind: schema.generations.kind,
+      request: schema.generations.request, usage: schema.generations.usage, partialText: schema.generations.partialText,
+      reasoningText: sql<string>`substr(${schema.generations.reasoningText}, -2000)`,
+      error: schema.generations.error, createdAt: schema.generations.createdAt, updatedAt: schema.generations.updatedAt,
+    }).from(schema.generations).where(eq(schema.generations.chatId, chatId)).orderBy(desc(sql`rowid`)).all().map(row => ({
       id: row.id, turnId: row.turnId, status: row.status, sourceRevision: row.sourceRevision, kind: row.kind,
-      request: row.request, usage: row.usage, partialText: row.partialText, error: row.error, createdAt: row.createdAt, updatedAt: row.updatedAt,
+      request: row.request, usage: row.usage, partialText: row.partialText, reasoningText: row.reasoningText, error: row.error, createdAt: row.createdAt, updatedAt: row.updatedAt,
     }));
     return { id: chatId, revision: chat.revision, settings: { ...chat.settings, lorebookId: chat.settings.lorebookId ?? null }, connection, hasApiKey, turns, generations, loreState: this.loreState(chatId, chat.settings.lorebookId), context: this.contexts.snapshot(chatId, chat.settings.contextPresetId ?? null), sources: {
       prompt: this.selected<PromptPreset>(chat.settings.promptId, 'prompts'),
@@ -743,11 +756,11 @@ export class Store {
       this.db.update(schema.generations).set({ request }).where(eq(schema.generations.id, id)).run();
     })();
   }
-  checkpoint(id: string, partialText: string) {
+  checkpoint(id: string, partialText: string, reasoningText?: string) {
     if (this.generation(id)?.status !== 'running') return false;
-    this.db.update(schema.generations).set({ partialText, updatedAt: new Date().toISOString() }).where(eq(schema.generations.id, id)).run(); return true;
+    this.db.update(schema.generations).set({ partialText, ...(reasoningText !== undefined ? { reasoningText } : {}), updatedAt: new Date().toISOString() }).where(eq(schema.generations.id, id)).run(); return true;
   }
-  finish(id: string, status: Exclude<GenerationStatus, 'running' | 'interrupted'>, text: string, error: string | null = null, usage: TokenUsage | null = null) {
+  finish(id: string, status: Exclude<GenerationStatus, 'running' | 'interrupted'>, text: string, error: string | null = null, usage: TokenUsage | null = null, reasoningText?: string) {
     return this.sqlite.transaction(() => {
       const generation = this.generation(id);
       if (!generation || generation.status !== 'running') return false;
@@ -773,7 +786,7 @@ export class Store {
         this.db.insert(schema.responseVariants).values({ id: variantId, turnId: turn.id, text, sourceRevision: equivalent?.sourceRevision ?? turn.assistantRevision + 1, generationId: id, createdAt: generation.createdAt }).run();
         this.db.update(schema.turns).set({ assistantText: text, assistantRevision: turn.assistantRevision + 1, complete: true, selectedVariantId: variantId }).where(eq(schema.turns.id, turn.id)).run();
       }
-      this.db.update(schema.generations).set({ status, partialText: text, error, usage, updatedAt: new Date().toISOString() }).where(eq(schema.generations.id, id)).run();
+      this.db.update(schema.generations).set({ status, partialText: text, reasoningText: reasoningText ?? generation.reasoningText, error, usage, updatedAt: new Date().toISOString() }).where(eq(schema.generations.id, id)).run();
       this.bumpRevision(generation.chatId); return true;
     })();
   }

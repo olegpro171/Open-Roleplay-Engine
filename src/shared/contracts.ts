@@ -84,6 +84,9 @@ export type Generation = {
   id: string; turnId: string; status: GenerationStatus; sourceRevision: number;
   kind?: 'response' | 'regeneration';
   request: RequestPreview | null; partialText: string; error: string | null; usage: TokenUsage | null;
+  // Bounded preview of separate per-attempt output; full text is fetched on demand.
+  reasoningText?: string;
+  reasoningLength?: number; // Live stream cursor; reply-only updates do not refetch reasoning.
   createdAt: string; updatedAt: string;
 };
 export type ChatSnapshot = {

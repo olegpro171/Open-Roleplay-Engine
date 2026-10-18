@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { createApp } from '../src/server/app.js';
 import type { ChatSnapshot, RequestPreview } from '../src/shared/contracts.js';
 import { defaultPrompt } from '../src/shared/library.js';
-import { startMockProvider } from './support/mock-provider.js';
+import { startMockProvider, syntheticReasoningStart, syntheticReasoningTail } from './support/mock-provider.js';
 
 let directory: string;
 let mock: Awaited<ReturnType<typeof startMockProvider>>;
@@ -73,6 +73,83 @@ afterEach(async () => {
 });
 
 describe('persistent chat and generation', () => {
+  it('exposes live reasoning on reconnect without saving it as reply text or future context', async () => {
+    mock.setMode('reasoning');
+    const sent = await submit();
+    expect(sent.statusCode).toBe(202);
+    await expect.poll(async () => (await state()).generations[0].reasoningText).toBe(syntheticReasoningStart.slice(-2000));
+    const current = await state();
+    expect(current.generations[0].partialText).toBe('');
+    expect(current.turns[0].complete).toBe(false);
+    expect(instance.store.generation(current.generations[0].id)?.reasoningText).toBe(syntheticReasoningStart);
+    mock.finishAll();
+    await expect.poll(async () => (await state()).generations[0].reasoningText).toBe((syntheticReasoningStart + syntheticReasoningTail).slice(-2000));
+    mock.finishAll();
+    await expect.poll(async () => (await state()).generations[0].partialText).toBe('The lantern ');
+    mock.finishAll();
+    const saved = await waitForIdle();
+    expect(saved.turns[0].assistant.text).toBe('The lantern flickers. 🕯');
+    const reasoningUrl = `/api/chats/main/generations/${saved.generations[0].id}/reasoning`;
+    const reasoning = await instance.app.inject({ method: 'GET', url: reasoningUrl, headers: { host: 'localhost', cookie } });
+    expect(reasoning.json()).toEqual({ text: syntheticReasoningStart + syntheticReasoningTail });
+    expect(saved.generations[0].reasoningText).toBe((syntheticReasoningStart + syntheticReasoningTail).slice(-2000));
+    const preview = await command('/api/preview', { revision: saved.revision, text: 'I return.' });
+    expect(preview.statusCode).toBe(200);
+    expect(JSON.stringify(preview.json())).not.toContain('Reasoning line');
+    mock.setMode('normal');
+    await submit('I return.');
+    await waitForIdle();
+    expect(JSON.stringify(mock.requests[1].body)).not.toContain('Reasoning line');
+    expect(mock.requests[1].body.messages).toEqual(preview.json<RequestPreview>().body.messages);
+    const wrongChat = await instance.app.inject({ method: 'GET', url: reasoningUrl.replace('/main/', '/other-chat/'), headers: { host: 'localhost', cookie } });
+    expect(wrongChat.statusCode).toBe(404);
+    const unauthenticated = await instance.app.inject({ method: 'GET', url: reasoningUrl, headers: { host: 'localhost' } });
+    expect(unauthenticated.statusCode).toBe(401);
+    expect(JSON.stringify(await state())).not.toContain('synthetic-api-secret');
+  });
+
+  it('retains cancelled reasoning per attempt, rejects late chunks and starts retry with no previous reasoning', async () => {
+    mock.setMode('reasoning');
+    await submit();
+    await expect.poll(async () => (await state()).generations[0].reasoningText).toBe(syntheticReasoningStart.slice(-2000));
+    const id = (await state()).generations[0].id;
+    expect((await command(`/api/generations/${id}/cancel`, {})).statusCode).toBe(200);
+    mock.finishAll();
+    const cancelled = await waitForIdle();
+    expect(cancelled.generations[0]).toMatchObject({ status: 'cancelled', partialText: '' });
+    expect(instance.store.generation(id)?.reasoningText).toBe(syntheticReasoningStart);
+    mock.setMode('hold-first-token');
+    expect((await command('/api/retry', { revision: cancelled.revision, requestId: randomUUID() })).statusCode).toBe(202);
+    await expect.poll(() => mock.requests.length).toBe(2);
+    const retried = await state();
+    expect(retried.generations[0]).toMatchObject({ status: 'running', partialText: '', reasoningText: '' });
+    expect(retried.turns).toHaveLength(1);
+    expect((await command(`/api/generations/${retried.generations[0].id}/cancel`, {})).statusCode).toBe(200);
+  });
+
+  it('keeps reasoning-only failures pending and preserves reasoning after server restart without replaying the request', async () => {
+    mock.setMode('reasoning-only');
+    await submit();
+    await expect.poll(async () => (await state()).generations[0].reasoningText).toBe(syntheticReasoningStart.slice(-2000));
+    mock.finishAll();
+    await expect.poll(async () => (await state()).generations[0].reasoningText).toContain('The newest thought');
+    mock.finishAll(); mock.finishAll();
+    const failed = await waitForIdle();
+    expect(failed.generations[0]).toMatchObject({ status: 'failed', partialText: '' });
+    expect(instance.store.generation(failed.generations[0].id)?.reasoningText).toBe(syntheticReasoningStart + syntheticReasoningTail);
+    expect(failed.turns[0].complete).toBe(false);
+    mock.setMode('reasoning');
+    await command('/api/retry', { revision: failed.revision, requestId: randomUUID() });
+    await expect.poll(async () => (await state()).generations[0].reasoningText).toBe(syntheticReasoningStart.slice(-2000));
+    await instance.app.close();
+    instance = await createApp({ database: join(directory, 'chat.sqlite') });
+    const reopened = await state();
+    expect(reopened.generations[0]).toMatchObject({ status: 'interrupted', partialText: '' });
+    expect(instance.store.generation(reopened.generations[0].id)?.reasoningText).toBe(syntheticReasoningStart);
+    expect(reopened.turns[0].complete).toBe(false);
+    expect(mock.requests).toHaveLength(2);
+  });
+
   it('previews and sends the same bounded recent history without creating summary jobs', async () => {
     instance.store.saveLibrary(instance.store.libraries().revision, 'prompts', { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.id !== 'summary') }, 'default');
     instance.store.replaceHistory((await state()).revision, 'main', Array.from({ length: 12 }, (_, i) => ({ user: `Input ${i}. ` + 'A brass key. '.repeat(20), assistant: `Response ${i}. ` + 'The cellar is locked. '.repeat(20), complete: true })));

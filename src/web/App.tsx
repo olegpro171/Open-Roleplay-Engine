@@ -12,6 +12,7 @@ import { BudgetBreakdown, InputMeter, PromptPeek, LoreInspection } from './Promp
 import { useTranscriptScroll } from './useTranscriptScroll';
 import { useChatDraft } from './useChatDraft';
 import { ResponseVariants } from './ResponseVariants';
+import { Reasoning } from './Reasoning';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
@@ -225,12 +226,16 @@ export function App() {
             const generating = active?.turnId === turn.id;
             const cancelled = !turn.complete && latest?.turnId === turn.id && latest.status === 'cancelled';
             const responseText = generating ? active.partialText : !turn.complete && latest?.turnId === turn.id ? latest.partialText : '';
+            const selectedVariant = turn.variants?.find(variant => variant.id === turn.assistant.variantId);
+            const reasoningGeneration = generating ? active : !turn.complete && latest?.turnId === turn.id ? latest
+              : selectedVariant?.generationId ? generationById.get(selectedVariant.generationId) : undefined;
             return <article className="turn" key={turn.id} data-turn-id={turn.id} aria-label={`Turn ${index + 1}`}>
             <div className="turn-heading"><span>TURN {index + 1} {turn.complete ? summariesEnabled && snapshot.context.archivedTurnIds.includes(turn.id) ? '· ARCHIVED' : '' : '· PENDING'}</span>{turn.complete && !generating && turnUsage.has(turn.id) && <span className="turn-usage" title="Provider-reported counts for the saved response, before any later edits. Output may include reasoning tokens.">{turnUsage.get(turn.id) ? `${turnUsage.get(turn.id)!.inputTokens.toLocaleString()} in · ${turnUsage.get(turn.id)!.outputTokens.toLocaleString()} out` : 'Usage unavailable'}</span>}<button className="quiet" disabled={working || busy} onClick={() => {
               if (confirm(`Delete this entire turn, including its saved request records?${snapshot.settings.lorebookId ? ' Lore activation history for this chat will start fresh.' : ''}`)) void command(() => api(`/chats/${chatId}/turns/${turn.id}`, 'DELETE', { revision: snapshot.revision }));
             }}>Delete turn</button></div>
             {(['user', 'assistant'] as const).filter(part => !(part === 'user' && turn.complete && turn.user.text === '' && turn.user.revision === 0 && !(edit?.turnId === turn.id && edit.part === 'user'))).map((part) => <div className={`part ${part}`} key={part}>
               <div className="part-heading"><strong>{part === 'user' ? snapshot.sources.persona?.name ?? 'You' : snapshot.sources.character?.name ?? 'Character'}</strong><button className="quiet" disabled={working || busy || (part === 'assistant' && !turn.complete)} onClick={() => setEdit({ turnId: turn.id, part, text: turn[part].text, revision: snapshot.revision })}>Edit {part === 'user' ? 'input' : 'response'}</button></div>
+              {part === 'assistant' && reasoningGeneration?.reasoningText?.trim() && <Reasoning key={reasoningGeneration.id} text={reasoningGeneration.reasoningText} live={generating} chatId={snapshot.id} generationId={reasoningGeneration.id} length={reasoningGeneration.reasoningLength ?? 0} />}
               {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><textarea aria-label={`Edit ${part} text`} value={edit.text} onChange={(event) => setEdit({ ...edit, text: event.target.value })} /><p className="small muted">{snapshot.settings.lorebookId ? "Saving a history edit starts fresh lore activation history for this chat." : ""}</p><div className="actions"><button disabled={busy}>Save edit</button><button type="button" className="quiet" onClick={() => setEdit(null)}>Cancel edit</button></div></form> : <div className="prose">
                 {part === 'assistant' && (!turn.complete || generating)
                   ? <>{trimBoundaryNewlines(responseText) || <span className="muted">{generating ? 'Waiting for first token…' : cancelled ? 'Generation cancelled.' : 'Awaiting response.'}</span>}{generating && <span className="cursor" aria-label="Generating" />}</>

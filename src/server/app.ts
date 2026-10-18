@@ -44,6 +44,7 @@ export async function createApp(options: {
   function publicSnapshot(id: string): ChatSnapshot {
     const { loreState: _state, loreResolution: _resolution, ...snapshot } = store.snapshot(id);
     return { ...snapshot, sources: { ...snapshot.sources, lorebook: undefined }, generations: snapshot.generations.map(generation => ({ ...generation,
+      ...(generation.status === 'running' ? { partialText: coordinator.partialText(generation.id), reasoningText: coordinator.reasoningText(generation.id).slice(-2000), reasoningLength: coordinator.reasoningText(generation.id).length } : {}),
       request: generation.request?.lore ? { ...generation.request, lore: { ...generation.request.lore, detailsAvailable: true, outcomes: [], diagnostics: [], scan: [], stateBefore: {}, stateDelta: {} } } : generation.request,
     })) };
   }
@@ -316,6 +317,12 @@ export async function createApp(options: {
     const generation = store.generation(id);
     if (!generation || generation.chatId !== chatId(request.params)) throw new AppError(404, 'generation_not_found', 'Saved response request not found.');
     return generation.request;
+  });
+  app.get('/api/chats/:chatId/generations/:id/reasoning', async request => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const generation = store.generation(id);
+    if (!generation || generation.chatId !== chatId(request.params)) throw new AppError(404, 'generation_not_found', 'Response reasoning not found.');
+    return { text: generation.status === 'running' ? coordinator.reasoningText(id) : generation.reasoningText };
   });
   app.post('/api/chats/:chatId/context/prepare', async (request, reply) => {
     const input = z.object({ revision: revisionSchema, requestId: z.string().uuid(), mode: z.enum(['prepare', 'step', 'repair']) }).strict().parse(request.body);

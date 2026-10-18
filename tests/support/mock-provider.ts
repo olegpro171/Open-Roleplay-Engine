@@ -5,7 +5,7 @@ export async function startMockProvider() {
   const modelRequests: { authorization?: string }[] = [];
   let modelMode: 'normal' | 'error' | 'invalid' | 'redirect' | number = 'normal';
   const waiting: (() => void)[] = [];
-  let mode: 'normal' | 'repair-unchanged' | 'hold' | 'hold-first-token' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' | 'placeholder' | 'no-usage' | 'bad-usage' = 'normal';
+  let mode: 'normal' | 'repair-unchanged' | 'hold' | 'hold-first-token' | 'reasoning' | 'reasoning-only' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' | 'placeholder' | 'no-usage' | 'bad-usage' = 'normal';
   const send = (response: ServerResponse, value: unknown) => response.write(`data: ${JSON.stringify(value)}\n\n`);
   const server = createServer(async (request, response) => {
     if (request.url === '/v1/models') {
@@ -28,17 +28,25 @@ export async function startMockProvider() {
     if (currentMode === 'error') { response.writeHead(401).end('upstream-secret-do-not-save'); return; }
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
     const firstToken = () => {
-      if (!response.destroyed && currentMode !== 'empty') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'placeholder' ? 'placeholder' : currentMode === 'padded' ? '\r\n \nThe lantern\n\n' : currentMode === 'whitespace' ? '\n\t\n' : repairText ?? 'The lantern ' }, finish_reason: null }] });
+      if (!response.destroyed && currentMode !== 'empty' && currentMode !== 'reasoning-only') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'placeholder' ? 'placeholder' : currentMode === 'padded' ? '\r\n \nThe lantern\n\n' : currentMode === 'whitespace' ? '\n\t\n' : repairText ?? 'The lantern ' }, finish_reason: null }] });
     };
     const finish = () => {
       if (response.destroyed) return;
       if (currentMode === 'broken') { response.end(); return; }
-      if (!repairText && currentMode !== 'empty' && currentMode !== 'whitespace' && currentMode !== 'placeholder') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'padded' ? 'flickers. 🕯\r\n\r\n ' : 'flickers. 🕯' }, finish_reason: null }] });
+      if (!repairText && currentMode !== 'empty' && currentMode !== 'reasoning-only' && currentMode !== 'whitespace' && currentMode !== 'placeholder') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'padded' ? 'flickers. 🕯\r\n\r\n ' : 'flickers. 🕯' }, finish_reason: null }] });
       send(response, { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] });
       if (currentMode !== 'no-usage') send(response, { choices: [], usage: currentMode === 'bad-usage' ? { prompt_tokens: -1, completion_tokens: 'wrong', total_tokens: 19 } : { prompt_tokens: 321, completion_tokens: 17, total_tokens: 338 } });
       response.end('data: [DONE]\n\n');
     };
-    if (currentMode === 'hold-first-token') {
+    if (currentMode === 'reasoning' || currentMode === 'reasoning-only') {
+      response.flushHeaders();
+      send(response, { choices: [{ index: 0, delta: { reasoning: syntheticReasoningStart }, finish_reason: null }] });
+      waiting.push(() => {
+        if (response.destroyed) return;
+        send(response, { choices: [{ index: 0, delta: { reasoning_content: syntheticReasoningTail }, finish_reason: null }] });
+        waiting.push(() => { firstToken(); waiting.push(finish); });
+      });
+    } else if (currentMode === 'hold-first-token') {
       response.flushHeaders();
       waiting.push(() => { firstToken(); waiting.push(finish); });
     } else {
@@ -58,3 +66,6 @@ export async function startMockProvider() {
     async close() { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); },
   };
 }
+
+export const syntheticReasoningStart = 'Consider the scene before answering.\n' + Array.from({ length: 80 }, (_, i) => `Reasoning line ${i + 1}: preserve the lantern and the quiet tower.\n`).join('');
+export const syntheticReasoningTail = 'The newest thought: keep the reply grounded in the scene.\n';

@@ -44,7 +44,7 @@ export const generations = sqliteTable('generations', {
   contextSelection: text('context_selection', { mode: 'json' }).$type<Pick<import('../shared/context.js').ContextState, 'revision' | 'selected' | 'archivedTurnIds'> | null>(),
   request: text('request', { mode: 'json' }).$type<RequestPreview | null>(),
   usage: text('usage', { mode: 'json' }).$type<TokenUsage | null>(),
-  partialText: text('partial_text').notNull(), error: text('error'),
+  partialText: text('partial_text').notNull(), reasoningText: text('reasoning_text').notNull().default(''), error: text('error'),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 });
 

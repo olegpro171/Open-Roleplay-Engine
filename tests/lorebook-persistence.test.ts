@@ -388,7 +388,7 @@ function populatedVersion6(customized: boolean) {
 describe('schema 7 lorebook migration', () => {
   it('creates fresh durable storage and explicit None without an activated placeholder book', () => {
     const store = open();
-    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(11);
+    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(12);
     expect(store.libraries().lorebooks).toEqual([]);
     expect(store.snapshot().settings.lorebookId).toBeNull();
     expect(store.snapshot().loreState).toEqual({ epoch: 0, entries: {} });
@@ -432,7 +432,7 @@ describe('schema 7 lorebook migration', () => {
     const previousCustom = previousChats.find(row => typeof row === 'object' && row !== null && 'id' in row && row.id === seeded.customChat);
     if (typeof previousCustom !== 'object' || previousCustom === null || !('revision' in previousCustom) || typeof previousCustom.revision !== 'number') throw new Error('Missing fixture chat.');
     expect(customRaw).toEqual({ ...previousCustom, revision: previousCustom.revision + 1 });
-    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(11);
+    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(12);
     const after = savedRows(store.sqlite), snapshotAfter = store.snapshot(seeded.chatId);
     store.close();
     store = open(seeded.filename);
@@ -456,7 +456,7 @@ describe('schema 7 lorebook migration', () => {
       failed.exec('DROP TRIGGER reject_lore_migration');
     } finally { failed.close(); }
     const recovered = open(seeded.filename);
-    expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(11);
+    expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(12);
     expect(withoutIdentity(required(recovered.libraries().prompts.find(prompt => prompt.id === 'default')))).toEqual(defaultPrompt);
     expect(savedRows(recovered.sqlite, true).generations).toEqual(seeded.records.generations);
     expect(savedRows(recovered.sqlite).summaries).toEqual(seeded.records.summaries);

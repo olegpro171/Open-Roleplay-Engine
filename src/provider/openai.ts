@@ -1,4 +1,5 @@
 import { AppError } from '../core/errors.js';
+import { z } from 'zod';
 import type { RequestPreview, TokenUsage } from '../shared/contracts.js';
 
 export interface ProviderCompletion {
@@ -7,8 +8,20 @@ export interface ProviderCompletion {
 }
 
 export interface Provider {
-  stream(request: RequestPreview, apiKey: string, signal: AbortSignal, onText: (text: string) => void): Promise<ProviderCompletion | void>;
+  stream(request: RequestPreview, apiKey: string, signal: AbortSignal, onText: (text: string) => void, onReasoning?: (text: string) => void): Promise<ProviderCompletion | void>;
 }
+
+const choicesSchema = z.array(z.object({
+  index: z.number().int(),
+  finish_reason: z.string().nullish(),
+  delta: z.object({
+    content: z.string().nullish(), refusal: z.string().nullish(),
+    reasoning: z.string().nullish(), reasoning_content: z.string().nullish(),
+    reasoning_details: z.array(z.object({
+      type: z.string(), text: z.string().nullish(), summary: z.string().nullish(),
+    })).nullish(),
+  }).nullish(),
+}));
 
 function httpFailureMessage(status: number, apiKey: string, action: 'models' | 'generation'): string {
   const retry = action === 'models' ? 'fetch the model list again' : 'retry the request';
@@ -68,7 +81,7 @@ export async function fetchModels(endpoint: string, apiKey: string): Promise<str
 }
 
 export class OpenAICompatibleProvider implements Provider {
-  async stream(request: RequestPreview, apiKey: string, signal: AbortSignal, onText: (text: string) => void) {
+  async stream(request: RequestPreview, apiKey: string, signal: AbortSignal, onText: (text: string) => void, onReasoning?: (text: string) => void) {
     const response = await fetch(request.endpoint, {
       method: 'POST', redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(300_000)]),
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
@@ -87,6 +100,7 @@ export class OpenAICompatibleProvider implements Provider {
     let usage: TokenUsage | undefined;
     let done = false;
     let outputLength = 0;
+    let reasoningLength = 0;
     const consume = (event: string) => {
       const data = event.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');
       if (!data) return;
@@ -97,19 +111,29 @@ export class OpenAICompatibleProvider implements Provider {
       if (reported && [reported.prompt_tokens, reported.completion_tokens, reported.total_tokens].every(value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) {
         usage = { inputTokens: reported.prompt_tokens as number, outputTokens: reported.completion_tokens as number, totalTokens: reported.total_tokens as number };
       }
-      const choices = (chunk as { choices?: unknown }).choices;
-      if (!Array.isArray(choices) || choices.length === 0) return;
-      const choice = choices.find((item) => item?.index === 0);
+      const rawChoices = (chunk as { choices?: unknown }).choices;
+      if (rawChoices == null) return;
+      const choice = choicesSchema.parse(rawChoices).find(item => item.index === 0);
       if (!choice) return;
       if (choice.delta?.refusal || choice.finish_reason === 'content_filter') {
         throw new AppError(502, 'provider_refusal', 'The model refused or filtered the request. No completed response was accepted.');
       }
       if (choice.finish_reason != null) {
         if (!['stop', 'length'].includes(choice.finish_reason)) throw new Error('Unsupported completion outcome.');
-        finishReason = choice.finish_reason;
+        finishReason = choice.finish_reason === 'stop' ? 'stop' : 'length';
+      }
+      const delta = choice.delta;
+      // Some gateways repeat the same text in both the legacy and details fields.
+      // Display one representation, and never expose encrypted data or signatures.
+      const reasoning = delta?.reasoning || delta?.reasoning_content || delta?.reasoning_details?.map(detail =>
+        detail.type === 'reasoning.text' ? detail.text ?? '' : detail.type === 'reasoning.summary' ? detail.summary ?? '' : '',
+      ).join('');
+      if (reasoning) {
+        reasoningLength += reasoning.length;
+        if (reasoningLength > 4_000_000) throw new Error('Reasoning too large.');
+        onReasoning?.(reasoning);
       }
       const content = choice.delta?.content;
-      if (content != null && typeof content !== 'string') throw new Error('Unsupported response content.');
       if (content) {
         outputLength += content.length;
         if (outputLength > 4_000_000) throw new Error('Response too large.');

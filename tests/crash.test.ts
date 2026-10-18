@@ -4,14 +4,14 @@ import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { startMockProvider } from './support/mock-provider.js';
+import { startMockProvider, syntheticReasoningStart } from './support/mock-provider.js';
 import type { ChatSnapshot } from '../src/shared/contracts.js';
 import { defaultContextPreset } from '../src/shared/context.js';
 
-it('recovers a real server crash with checkpointed text and no automatic provider retry', async () => {
+it.each(['hold', 'reasoning'] as const)('recovers a real server crash during %s with checkpointed output and no automatic provider retry', async mode => {
   const directory = mkdtempSync(join(tmpdir(), 'roleplay-crash-'));
   const mock = await startMockProvider();
-  mock.setMode('hold');
+  mock.setMode(mode);
   let child: ChildProcess | undefined;
   let address = '';
   let cookie = '';
@@ -42,18 +42,22 @@ it('recovers a real server crash with checkpointed text and no automatic provide
     await post('/api/settings', { revision: initial.revision, settings: initial.settings, connection: { name: 'Mock', endpoint: mock.url, model: 'mock', contextWindow: 32_000, maxOutputTokens: 1000, customParameters: {} } }, 'PUT');
     const configured = await getState();
     await post('/api/turns', { revision: configured.revision, requestId: randomUUID(), text: 'I enter the tower.' });
-    await expect.poll(async () => (await getState()).generations[0]?.partialText).toBe('The lantern ');
+    if (mode === 'reasoning') await expect.poll(async () => (await getState()).generations[0]?.reasoningText).toBe(syntheticReasoningStart.slice(-2000));
+    else await expect.poll(async () => (await getState()).generations[0]?.partialText).toBe('The lantern ');
     const pending = (await getState()).turns[0];
     await stop(); await start();
     const recovered = await getState();
     expect(recovered.turns[0]).toEqual(pending);
-    expect(recovered.generations[0]).toMatchObject({ status: 'interrupted', partialText: 'The lantern ' });
+    expect(recovered.generations[0]).toMatchObject({ status: 'interrupted', partialText: mode === 'reasoning' ? '' : 'The lantern ' });
+    const reasoning = await fetch(`${address}/api/chats/main/generations/${recovered.generations[0].id}/reasoning`, { headers: { cookie } }).then(response => response.json() as Promise<{ text: string }>);
+    expect(reasoning.text).toBe(mode === 'reasoning' ? syntheticReasoningStart : '');
     expect(mock.requests).toHaveLength(1);
     mock.setMode('normal');
     await post('/api/retry', { revision: recovered.revision, requestId: randomUUID() });
     await expect.poll(async () => (await getState()).turns[0].complete).toBe(true);
     expect((await getState()).turns).toHaveLength(1);
     expect(mock.requests).toHaveLength(2);
+    expect(JSON.stringify(mock.requests[1].body)).not.toContain('Reasoning line');
   } finally {
     await stop(); await mock.close(); rmSync(directory, { recursive: true, force: true });
   }

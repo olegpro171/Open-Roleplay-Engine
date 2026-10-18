@@ -9,7 +9,7 @@ import { resolveRequestLore } from './lore-resolution.js';
 
 export class GenerationCoordinator {
   readonly events = new EventEmitter();
-  private active = new Map<string, { controller: AbortController; task: Promise<void>; text: string }>();
+  private active = new Map<string, { controller: AbortController; task: Promise<void>; text: string; reasoning: string }>();
   private stopping = false;
   readonly context: ContextCoordinator;
   readonly loreRegex = new LoreRegexPool();
@@ -19,6 +19,8 @@ export class GenerationCoordinator {
     this.events.setMaxListeners(100);
   }
   changed() { this.events.emit('changed'); }
+  reasoningText(id: string) { return this.active.get(id)?.reasoning ?? ''; }
+  partialText(id: string) { return this.active.get(id)?.text ?? ''; }
 
   start(revision: number, requestId: string, text?: string, chatId = 'main') {
     if (this.stopping) throw new AppError(503, 'server_stopping', 'The server is stopping. Retry after it restarts.');
@@ -31,14 +33,17 @@ export class GenerationCoordinator {
   }
   private dispatch(result: { id: string; fresh: boolean }, chatId: string) {
     if (result.fresh) {
-      const operation = { controller: new AbortController(), task: Promise.resolve(), text: '' };
+      const operation = { controller: new AbortController(), task: Promise.resolve(), text: '', reasoning: '' };
       this.active.set(result.id, operation);
       operation.task = this.run(result.id, operation, chatId).finally(() => this.active.delete(result.id));
       this.changed();
     }
     return { generationId: result.id };
   }
-  private async run(id: string, operation: { controller: AbortController; text: string }, chatId: string) {
+  private async run(id: string, operation: { controller: AbortController; text: string; reasoning: string }, chatId: string) {
+    let updateTimer: ReturnType<typeof setTimeout> | undefined;
+    const clearUpdateTimer = () => clearTimeout(updateTimer);
+    operation.controller.signal.addEventListener('abort', clearUpdateTimer, { once: true });
     try {
       const initial = this.store.generationSnapshot(id);
       const loreResolution = await resolveRequestLore(initial, this.loreRegex, operation.controller.signal);
@@ -51,31 +56,48 @@ export class GenerationCoordinator {
       this.store.saveRequest(id, request);
       this.changed();
       let lastCheckpoint = 0;
-      const completion = await this.provider.stream(request, this.store.apiKey(chatId), operation.controller.signal, (delta) => {
-        if (operation.controller.signal.aborted) return;
-        operation.text += delta;
+      const publish = () => {
         if (Date.now() - lastCheckpoint >= 250) {
-          this.store.checkpoint(id, operation.text);
+          clearTimeout(updateTimer);
+          updateTimer = undefined;
+          this.store.checkpoint(id, operation.text, operation.reasoning);
           lastCheckpoint = Date.now();
           this.changed();
+        } else if (!updateTimer) {
+          updateTimer = setTimeout(() => {
+            updateTimer = undefined;
+            if (!operation.controller.signal.aborted && !this.stopping) this.changed();
+          }, 250 - (Date.now() - lastCheckpoint));
         }
+      };
+      const completion = await this.provider.stream(request, this.store.apiKey(chatId), operation.controller.signal, delta => {
+        if (operation.controller.signal.aborted) return;
+        operation.text += delta;
+        publish();
+      }, delta => {
+        if (operation.controller.signal.aborted) return;
+        operation.reasoning += delta;
+        publish();
       });
       if (!this.stopping && !operation.controller.signal.aborted) {
-        this.store.finish(id, 'succeeded', operation.text, null, completion?.usage ?? null);
+        this.store.finish(id, 'succeeded', operation.text, null, completion?.usage ?? null, operation.reasoning);
         this.changed();
       }
     } catch (error) {
       if (this.stopping) return;
       // Never persist upstream response bodies or raw transport errors: they may contain secrets.
       const message = error instanceof AppError ? error.message : 'The model request failed or timed out. Check the Connection and retry.';
-      this.store.finish(id, 'failed', operation.text, message);
+      this.store.finish(id, 'failed', operation.text, message, null, operation.reasoning);
       this.changed();
+    } finally {
+      clearUpdateTimer();
+      operation.controller.signal.removeEventListener('abort', clearUpdateTimer);
     }
   }
   cancel(id: string) {
     const operation = this.active.get(id);
     if (!operation || this.store.generation(id)?.status !== 'running') throw new AppError(409, 'inactive_generation', 'This response is no longer active.');
-    this.store.finish(id, 'cancelled', operation.text, this.store.generation(id)?.kind === 'regeneration' ? 'Regeneration cancelled. The selected response was kept.' : 'Response cancelled. Generate response before next turn.');
+    this.store.finish(id, 'cancelled', operation.text, this.store.generation(id)?.kind === 'regeneration' ? 'Regeneration cancelled. The selected response was kept.' : 'Response cancelled. Generate response before next turn.', null, operation.reasoning);
     operation.controller.abort();
     this.context.cancelForGeneration(id);
     this.changed();
@@ -83,7 +105,7 @@ export class GenerationCoordinator {
   async shutdown() {
     this.stopping = true;
     for (const [id, operation] of this.active) {
-      this.store.checkpoint(id, operation.text);
+      this.store.checkpoint(id, operation.text, operation.reasoning);
       operation.controller.abort();
     }
     await this.context.shutdown();
