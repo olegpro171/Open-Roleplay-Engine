@@ -32,16 +32,44 @@ function selection(snapshot?: ChatSnapshot, library?: LibrarySnapshot): Selectio
     connectionId: snapshot ? snapshot.settings.connectionId ?? null : library?.connections[0]?.id ?? null, promptId: snapshot?.settings.promptId ?? 'default',
     characterId: snapshot?.settings.characterId ?? null, personaId: snapshot?.settings.personaId ?? null, contextPresetId: snapshot?.settings.contextPresetId ?? null, lorebookId: snapshot?.settings.lorebookId ?? null };
 }
-function SelectionFields({ value, change, library, creating = false }: { value: Selection; change: (value: Selection) => void; library: LibrarySnapshot; creating?: boolean }) {
+function SelectionFields({ value, change, library }: { value: Selection; change: (value: Selection) => void; library: LibrarySnapshot }) {
   return <div className="form-grid">
     <label>Chat title<input required maxLength={100} value={value.title} onChange={e => change({ ...value, title: e.target.value })} /></label>
     <label>Target input tokens<NumberInput required value={value.targetInputTokens} onChange={targetInputTokens => change({ ...value, targetInputTokens })} /></label>
     {(['connectionId', 'promptId', 'characterId', 'personaId', 'contextPresetId', 'lorebookId'] as const).map((key, i) => {
       const names = ['Connection', 'Prompt preset', 'Character', 'Persona', 'Context preset', 'Lorebook'];
       const lists = [library.connections, library.prompts, library.characters, library.personas, library.contexts, library.lorebooks];
-      return <label key={key}>{names[i]}<Dropdown aria-label={names[i]} value={value[key] ?? ''} onChange={selected => change({ ...value, [key]: selected || null, ...(creating && key === 'characterId' ? { lorebookId: library.characters.find(character => character.id === selected)?.lorebookId ?? null } : {}) })} options={[...(key !== 'promptId' ? [{ value: '', label: 'None selected' }] : []), ...lists[i].map(item => ({ value: item.id, label: item.name }))]} /></label>;
+      return <label key={key}>{names[i]}<Dropdown aria-label={names[i]} value={value[key] ?? ''} onChange={selected => change({ ...value, [key]: selected || null })} options={[...(key !== 'promptId' ? [{ value: '', label: 'None selected' }] : []), ...lists[i].map(item => ({ value: item.id, label: item.name }))]} /></label>;
     })}
   </div>;
+}
+function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnapshot; busy: boolean; run: Run; created: (id: string) => void; cancel: () => void }) {
+  const [characterId, setCharacterId] = useState<string | null>(null);
+  const [personaId, setPersonaId] = useState<string | null>(null);
+  const submitting = useRef(false);
+  async function create(event: FormEvent) {
+    event.preventDefault();
+    if (busy || submitting.current) return;
+    submitting.current = true;
+    try {
+      const character = library.characters.find(item => item.id === characterId);
+      // Keep the Roleplay suffix within the existing 100-character chat-title limit.
+      const suffix = ' - Roleplay';
+      const title = character ? `${character.name.slice(0, 100 - suffix.length)}${suffix}` : 'A new story';
+      const settings = { ...selection(undefined, library), title, characterId, personaId, lorebookId: character?.lorebookId ?? null };
+      let id = '';
+      if (await run(async () => { id = (await api<{ id: string }>('/chats', 'POST', settings)).id; })) created(id);
+    } finally {
+      submitting.current = false;
+    }
+  }
+  return <form onSubmit={create}><fieldset disabled={busy}><legend>New chat</legend>
+    <div className="form-grid">
+      <label>Character<Dropdown aria-label="Character" value={characterId ?? ''} onChange={id => setCharacterId(id || null)} options={[{ value: '', label: 'None selected' }, ...library.characters.map(item => ({ value: item.id, label: item.name }))]} /></label>
+      <label>Persona<Dropdown aria-label="Persona" value={personaId ?? ''} onChange={id => setPersonaId(id || null)} options={[{ value: '', label: 'None selected' }, ...library.personas.map(item => ({ value: item.id, label: item.name }))]} /></label>
+    </div>
+    <div className="actions"><button>Create chat</button><button type="button" className="quiet" onClick={cancel}>Cancel</button></div>
+  </fieldset></form>;
 }
 export function ChatSetup({ snapshot, library, busy, run, saved }: { snapshot: ChatSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; saved: () => void }) {
   const [value, setValue] = useState(() => selection(snapshot, library));
@@ -94,10 +122,10 @@ function LibrarySearch({ section, value, change }: { section: LibraryKind | 'cha
     <input type="search" aria-label={label} placeholder={label} value={value} onChange={event => change(event.target.value)} />
   </div>;
 }
-export function Libraries({ library, currentChatId, busy, run, openChat }: { library: LibrarySnapshot; currentChatId: string | null; busy: boolean; run: Run; openChat: (id: string) => void }) {
+export function Libraries({ library, currentChatId, busy, run, openChat }: { library: LibrarySnapshot; currentChatId: string | null; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void }) {
   const [section, setSection] = useState<LibraryKind | 'chats'>('chats');
   const [editing, setEditing] = useState<{ kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean } | null>(null);
-  const [creatingChat, setCreatingChat] = useState(false), [chat, setChat] = useState(() => selection(undefined, library));
+  const [creatingChat, setCreatingChat] = useState(false);
   const [notice, setNotice] = useState(''), [diagnostics, setDiagnostics] = useState<LoreDiagnostic[]>([]), [search, setSearch] = useState('');
   const [pendingBook, setPendingBook] = useState<string | null>(null);
   const [filters, setFilters] = useState<string[]>([]);
@@ -155,9 +183,9 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
     <h1 id="library-heading">{libraryLabels[section]}</h1>
     {notice && <p role="status">{notice}</p>}<LoreDiagnostics diagnostics={diagnostics} />
     {section === 'chats' ? <>
-      <div className="actions library-toolbar" role="group" aria-label="Library actions"><button disabled={busy} onClick={() => { setCreatingChat(true); setChat(selection(undefined, library)); }}>New chat</button></div>
+      <div className="actions library-toolbar" role="group" aria-label="Library actions"><button disabled={busy || creatingChat} onClick={() => setCreatingChat(true)}>New chat</button></div>
       {!creatingChat && <LibrarySearch section={section} value={search} change={setSearch} />}
-      {creatingChat && <form onSubmit={async e => { e.preventDefault(); let id = ''; if (await run(async () => { id = (await api<{ id: string }>('/chats', 'POST', chat)).id; })) { setCreatingChat(false); openChat(id); } }}><fieldset disabled={busy}><legend>New story</legend><SelectionFields value={chat} change={setChat} library={library} creating /><p className="small muted">Choosing a character prefills its default lorebook. You can choose another book or None before creating the chat.</p><div className="actions"><button>Create chat</button><button type="button" className="quiet" onClick={() => setCreatingChat(false)}>Cancel</button></div></fieldset></form>}
+      {creatingChat && <NewChat library={library} busy={busy} run={run} created={id => { setCreatingChat(false); openChat(id, 'settings'); }} cancel={() => setCreatingChat(false)} />}
       <div className="library-list">{visibleChats.map(item => <article key={item.id}><div><h2>{item.title}</h2><p>{item.turnCount} turns{item.running ? ' · Response running' : ''}{currentChatId === item.id ? ' · Current chat' : ''}</p></div><div className="actions"><button className="secondary" onClick={() => openChat(item.id)}>Open chat</button><button className="quiet" disabled={busy || item.running} onClick={() => { if (confirm(`Delete “${item.title}” and all its turns and requests?`)) void run(() => api(`/chats/${item.id}`, 'DELETE', { revision: item.revision })); }}>Delete chat</button></div></article>)}{library.chats.length === 0 && <p className="muted">Create a chat to start your next story.</p>}{query && visibleChats.length === 0 && library.chats.length > 0 && <p className="muted" role="status">No chats match your search.</p>}</div>
     </> : <>
       {!editing && section !== 'characters' && section !== 'lorebooks' && <div className="actions library-toolbar" role="group" aria-label="Library actions"><button disabled={busy} onClick={create}>New {section === 'personas' ? 'persona' : section === 'prompts' ? 'prompt' : section === 'contexts' ? 'context preset' : 'Connection'}</button>

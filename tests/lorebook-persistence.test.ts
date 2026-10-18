@@ -178,6 +178,29 @@ describe('durable lorebook imports', () => {
 });
 
 describe('lorebook selection and ownership', () => {
+  it('invalidates cached lorebook uses when Setup renames a chat or changes its book', () => {
+    const store = open();
+    const bookId = store.importBook(store.libraries().revision, randomUUID(), fixtures.v2).id;
+    const chatId = createChat(store, { lorebookId: bookId });
+    const before = store.libraries();
+    const revision = store.snapshot(chatId).revision;
+    store.updateChat(revision, chatId, selection(store, chatId, { title: 'Renamed in Setup' }));
+    const renamed = store.libraryUpdate(before.revision);
+    expect(renamed).not.toHaveProperty('unchanged');
+    if ('unchanged' in renamed) throw new Error('Renamed chat references must refresh the library.');
+    expect(renamed.lorebookUses.find(use => use.bookId === bookId)?.chats).toEqual([{ id: chatId, title: 'Renamed in Setup' }]);
+
+    expect(() => store.updateChat(revision, chatId, selection(store, chatId, { lorebookId: null }))).toThrow();
+    expect(store.libraryUpdate(renamed.revision)).toHaveProperty('unchanged', true);
+    expect(store.snapshot(chatId).settings.lorebookId).toBe(bookId);
+
+    store.updateChat(store.snapshot(chatId).revision, chatId, selection(store, chatId, { lorebookId: null }));
+    const unlinked = store.libraryUpdate(renamed.revision);
+    expect(unlinked).not.toHaveProperty('unchanged');
+    if ('unchanged' in unlinked) throw new Error('Changed chat references must refresh the library.');
+    expect(unlinked.lorebookUses.find(use => use.bookId === bookId)?.chats).toEqual([]);
+  });
+
   it('resolves omitted create selection from the character while explicit None remains None', () => {
     const store = open();
     const imported = store.importCard(store.libraries().revision, randomUUID(), v2Card);

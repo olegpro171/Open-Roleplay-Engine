@@ -179,6 +179,8 @@ Accepted composer requirement on 2026-10-17: preserve each chat’s unsent text 
 
 User interface decision on 2026-10-17: select chats through Libraries. Any idle chat, including the original or final chat, may be deleted; deleting the current chat keeps the Chats library open for further cleanup. Story and Setup sit together in the shared header.
 
+Accepted chat-start refinement on 2026-10-18: **New chat** opens a compact form containing only Character and Persona. **Create chat** immediately saves the chat and opens its Setup page with the saved title “[Character name] - Roleplay”. All other selections use the existing defaults, including the character's default lorebook and copied greeting; leaving Setup requires no additional save. None remains available for either selection; without a character the title is “A new story”. Long character names are shortened in the title to preserve the suffix within the existing 100-character limit. Further setup changes still require Save setup.
+
 Accepted Library interface refinement on 2026-10-18: every category uses a compact search box directly below its actions, with a magnifying glass and “Search …” placeholder for the current library, without a separate visible label or helper paragraph. Lorebooks places Import lorebook beside New lorebook, replacing the standalone import section while retaining import review.
 
 Each chat selects:

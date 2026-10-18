@@ -190,8 +190,8 @@ export function App() {
 
   if (!session) return <main className="login"><p>Opening ORE…</p>{error && <p role="alert">{error}</p>}</main>;
   if (!session.authenticated) return <Login session={session} onLogin={async () => { setError(''); await refreshSession(); }} />;
-  function openChat(id: string) {
-    loadId.current++; rememberChat(id); setChatId(id); setTab('story'); setEdit(null); setPeek(false); setGenerationId(''); if (id !== chatId) setSnapshot(null);
+  function openChat(id: string, destination: 'story' | 'settings' = 'story') {
+    loadId.current++; rememberChat(id); setChatId(id); setTab(destination); setEdit(null); setPeek(false); setGenerationId(''); if (id !== chatId) setSnapshot(null);
   }
   if (!library) return <main className="login"><p>Loading your story…</p>{error && <p role="alert">{error}</p>}</main>;
 

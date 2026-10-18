@@ -611,8 +611,11 @@ export class Store {
       if (input.contextPresetId === null && this.contexts.snapshot(chatId, null).archivedTurnIds.length) throw new AppError(409, 'restore_context_first', 'Clear memory in Memory before disabling the context preset.');
       const previous = this.chat(chatId).settings;
       if (input.characterId !== previous.characterId || input.personaId !== previous.personaId) this.resetLoreEpoch(chatId);
-      this.db.update(schema.chats).set({ settings: { ...this.chat(chatId).settings, ...input, instructions: '', character: '', persona: '' } }).where(eq(schema.chats.id, chatId)).run();
+      const settings = { ...previous, ...input, instructions: '', character: '', persona: '' };
+      this.db.update(schema.chats).set({ settings }).where(eq(schema.chats.id, chatId)).run();
       this.bumpRevision(chatId);
+      // Lorebook usage labels and links are cached with the library revision.
+      if (settings.title !== previous.title || settings.lorebookId !== previous.lorebookId) this.bumpLibrary();
     })();
   }
   deleteChat(expected: number, chatId: string) {
