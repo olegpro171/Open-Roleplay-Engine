@@ -191,15 +191,17 @@ describe('lorebook cap, ordering and recursion', () => {
   });
 
   it('cannot recurse through disabled, empty, unplaceable, cap-excluded or pressure-excluded entries', async () => {
-    const noBefore = removeMarker(sources(), 'lore_before');
+    const noScenario = sources();
+    if (!noScenario.character) throw new Error('Fixture character missing.');
+    noScenario.character.scenario = '';
     const result = await run([
       entry('disabled', { content: 'key-disabled', enabled: false }),
       entry('empty', { content: '@@activate\n' }),
-      entry('unplaceable', { content: 'key-unplaceable', placement: 'before_char' }),
+      entry('unplaceable', { content: 'key-unplaceable', placement: 'scenario' }),
       entry('oversized', { content: `key-cap ${'large '.repeat(200)}` }),
       entry('optional', { content: '@@ignore_on_max_context\nkey-optional' }),
       ...['disabled', 'unplaceable', 'cap', 'optional'].map(key => entry(`child-${key}`, { keys: [`key-${key}`] })),
-    ], { sources: noBefore, pressure: true, book: { recursiveScanning: true, tokenBudget: 20 } });
+    ], { sources: noScenario, pressure: true, book: { recursiveScanning: true, tokenBudget: 20 } });
     expect(admitted(result)).toEqual([]);
     expect(reason(result, 'optional')).toBe('pressure');
     expect(Object.keys(result.stateDelta)).toEqual([]);
@@ -214,7 +216,7 @@ describe('lorebook cap, ordering and recursion', () => {
 });
 
 describe('lorebook destination authority', () => {
-  it('resolves every supported placement and roles within explicit controls', async () => {
+  it('resolves every supported placement automatically with system defaults and entry roles', async () => {
     const placements = ['before_char', 'after_char', 'history', 'before_desc', 'after_desc', 'personality', 'scenario'] as const;
     const result = await run(placements.map(placement => entry(placement, { placement, role: placement === 'history' ? 'assistant' : null, depth: 99 })));
     expect(admitted(result)).toEqual([...placements]);
@@ -243,18 +245,18 @@ describe('lorebook destination authority', () => {
     let input = removeMarker(sources(), 'character');
     const fallback = await run([entry('fallback', { content: '@@position scenario\n@@@depth 3\nLore' })], { sources: input });
     expect(fallback.outcomes[0].destination?.placement).toBe('history');
-    input = removeMarker(input, 'lore_history');
+    input = removeMarker(input, 'messages');
     const lowPriority = await run([entry('fallback', { content: '@@position scenario\n@@@depth 3\nLore' })], { sources: input });
-    expect(lowPriority.outcomes[0].destination?.placement).toBe('before_char');
-    expect(lowPriority.diagnostics.some(value => value.code === 'depth_fallback')).toBe(true);
+    expect(reason(lowPriority, 'fallback')).toBe('unavailable_destination');
+    expect(lowPriority.diagnostics.some(value => value.code === 'unavailable_destination')).toBe(true);
   });
 
-  it('does not require Messages for ordinary lore and respects missing/disabled controls and empty presets', async () => {
+  it('requires the corresponding character or Messages source, with no implicit history fallback', async () => {
     const noMessages = removeMarker(sources(), 'messages');
     expect(admitted(await run([entry('ordinary')], { sources: noMessages }))).toEqual(['ordinary']);
     const high = await run([entry('depth', { content: '@@depth 0\nLore' })], { sources: noMessages });
-    expect(high.outcomes[0].destination?.placement).toBe('after_char');
-    const none = removeMarker(removeMarker(noMessages, 'lore_after'), 'lore_before');
+    expect(reason(high, 'depth')).toBe('unavailable_destination');
+    const none = removeMarker(noMessages, 'character');
     const unavailable = await run([entry('depth', { content: '@@depth 0\nLore' })], { sources: none });
     expect(reason(unavailable, 'depth')).toBe('unavailable_destination');
     const blank = sources();

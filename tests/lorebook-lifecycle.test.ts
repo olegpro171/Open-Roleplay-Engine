@@ -32,7 +32,7 @@ function fixture(content = '@@dont_activate_after_match\nThe key opens the obser
     return { finishReason: 'stop' };
   } };
   const connectionId = store.saveLibrary(store.libraries().revision, 'connections', { name: 'Synthetic', endpoint: 'http://localhost:1234/v1', model: 'synthetic', contextWindow: 10_000, maxOutputTokens: 100, customParameters: {} }, undefined, 'synthetic-lore-secret');
-  const bookId = store.saveLibrary(store.libraries().revision, 'lorebooks', { ...newLorebook(), entries: [{ ...newLoreEntry(randomUUID()), name: 'Observatory', keys: ['key'], content }] });
+  const bookId = store.saveLibrary(store.libraries().revision, 'lorebooks', { ...newLorebook(), entries: [{ ...newLoreEntry(randomUUID()), placement: 'history', name: 'Observatory', keys: ['key'], content }] });
   const chatId = store.createChat({ title: 'Stateful lore', connectionId, promptId: 'default', characterId: null, personaId: null, lorebookId: bookId, targetInputTokens: 9000 });
   let coordinator = new GenerationCoordinator(store, provider);
   const snapshot = () => store.snapshot(chatId);
@@ -167,7 +167,7 @@ it('serves bounded routine snapshots and fetches exact historical lore on demand
     const setup = await instance.app.inject({ method: 'POST', url: '/api/setup', headers: { host: 'localhost', origin: 'http://localhost' }, payload: { password: 'synthetic-lore-password' } });
     const cookie = String(setup.headers['set-cookie']).split(';')[0];
     const connectionId = instance.store.saveLibrary(instance.store.libraries().revision, 'connections', { name: 'Model', endpoint: 'http://localhost:1234', model: 'synthetic', contextWindow: 10_000, maxOutputTokens: 100, customParameters: {} }, undefined, 'NEVER-IN-LORE-RECORD');
-    const bookId = instance.store.saveLibrary(instance.store.libraries().revision, 'lorebooks', { ...newLorebook(), entries: [{ ...newLoreEntry(randomUUID()), constant: true, content: 'Immutable lore' }] });
+    const bookId = instance.store.saveLibrary(instance.store.libraries().revision, 'lorebooks', { ...newLorebook(), entries: [{ ...newLoreEntry(randomUUID()), placement: 'history', constant: true, content: 'Immutable lore' }] });
     const chatId = instance.store.createChat({ title: 'HTTP lore', targetInputTokens: 9000, connectionId, promptId: 'default', characterId: null, personaId: null, lorebookId: bookId });
     const started = instance.coordinator.start(0, randomUUID(), 'Input', chatId);
     await expect.poll(() => instance.store.generation(started.generationId)?.status).toBe('succeeded');

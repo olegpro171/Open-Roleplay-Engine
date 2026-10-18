@@ -1,12 +1,13 @@
 import type { ChatSettings, Connection, Message, PromptEntry, RequestPreview, Turn } from '../shared/contracts.js';
 import { AppError } from './errors.js';
-import { defaultPrompt, hasPromptMarker, promptSchema, promptWarnings, type PromptSources } from '../shared/library.js';
+import { characterFieldLabels, defaultPrompt, hasPromptMarker, promptSchema, promptWarnings, type PromptSources } from '../shared/library.js';
 import type { ContextState, SummaryNode } from '../shared/context.js';
 import { assertCorrectionSelection } from './context-corrections.js';
 import { selectedContext } from './context.js';
 import { countInput } from './tokens.js';
 import { replaceNameMacros } from './names.js';
 import type { LoreResolution } from '../shared/lorebook.js';
+import { characterParts } from './character-prompt.js';
 export { replaceNameMacros } from './names.js';
 
 export function estimateInputTokens(messages: Message[]): number {
@@ -29,59 +30,62 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   const resolved = summariesEnabled && context ? selectedContext(turns, context, options.allowStale) : { summaries: [], verbatim: turns };
   const summary = resolved.summaries.map(node => summaryText(node, turns)).join('\n\n');
   const positions = new Map(turns.map((turn, index) => [turn.id, index + 1]));
-  type Entry = { message: Message; kind: PromptEntry['kind']; label: string };
+  type Entry = { message: Message; kind: PromptEntry['kind']; label: string; group?: PromptEntry['group'] };
   let entries: Entry[] = [];
   const warnings = promptWarnings(preset);
   let historyIndex: number | null = null;
   const card = sources?.character;
   const resolve = (text: string) => replaceNameMacros(text, sources?.persona?.name ?? 'You', card?.name ?? 'Character');
   if (sources?.lorebook && !options.lore) throw new AppError(422, 'lore_unresolved', 'Resolve the selected lorebook from the original transcript before planning this request.');
+  // Saved request inspection reads immutable bodies directly. An unfinished old
+  // operation must explicitly resolve again instead of dropping retired anchors.
+  if (options.lore?.outcomes.some(outcome => outcome.destination?.controlId !== undefined)) {
+    throw new AppError(409, 'lore_layout_changed', 'This operation captured lore with an older prompt layout. Regenerate the repair or start preparation again to use the current layout. Previously saved memory remains intact.');
+  }
   const admitted = options.lore?.outcomes.filter(outcome => outcome.status === 'admitted' && outcome.destination) ?? [];
-  const loreEntry = (entry: typeof admitted[number]): Entry => ({ message: { role: entry.destination?.role ?? 'system', content: entry.text }, kind: 'lore', label: `Lore · ${entry.name}` });
+  const groups = new Map(preset.blocks.filter(block => block.enabled && block.kind === 'marker' && block.marker === 'character').map(block => [block.id, { id: block.id, label: block.name }]));
+  const loreEntry = (entry: typeof admitted[number]): Entry => {
+    const destination = entry.destination;
+    const fieldRelative = destination && ['before_desc', 'after_desc', 'personality', 'scenario'].includes(destination.placement);
+    const group = fieldRelative && destination.anchorId ? groups.get(destination.anchorId) : undefined;
+    return {
+      message: { role: destination?.role ?? 'system', content: entry.text },
+      kind: 'lore', label: `Lore · ${entry.name}`, ...(group ? { group } : {}),
+    };
+  };
   const historyLore = admitted.filter(entry => entry.destination?.placement === 'history');
   const anchored = admitted.filter(entry => entry.destination?.anchorId);
   const emitAnchored = (blockId: string, placement: string) => anchored.filter(entry => entry.destination?.anchorId === blockId && entry.destination.placement === placement).forEach(entry => entries.push(loreEntry(entry)));
   for (const block of preset.blocks) {
     if (!block.enabled) continue;
-    if (block.kind === 'marker' && block.marker.startsWith('lore_')) {
-      if (block.marker !== 'lore_history') admitted.filter(entry => entry.destination?.controlId === block.id && !entry.destination.anchorId && entry.destination.placement !== 'history').forEach(entry => entries.push(loreEntry(entry)));
-      continue;
-    }
     if (block.kind === 'marker' && block.marker === 'messages') { historyIndex = entries.length; continue; }
     if (block.kind === 'marker' && block.marker === 'summary') {
       if (summary) entries.push({ message: { role: block.role, content: summary }, kind: 'memory', label: block.name });
       continue;
     }
+    const parts = characterParts(block, card, settings.character);
+    if (parts.length) {
+      emitAnchored(block.id, 'before_char');
+      for (const part of parts) {
+        if (part.field === 'description') emitAnchored(block.id, 'before_desc');
+        const group = groups.get(block.id);
+        entries.push({
+          message: { role: block.role, content: resolve(part.text) }, kind: 'character',
+          label: group ? characterFieldLabels[part.field] : block.name,
+          ...(group ? { group } : {}),
+        });
+        const placement = part.field === 'description' ? 'after_desc' : part.field;
+        emitAnchored(block.id, placement);
+      }
+      emitAnchored(block.id, 'after_char');
+      continue;
+    }
     let content = '';
     if (block.kind === 'text') content = block.text;
     else switch (block.marker) {
-      case 'character': content = card ? [card.name, card.description, card.personality, card.scenario, card.mes_example].filter(Boolean).join('\n\n') : settings.character; break;
       case 'persona': content = sources?.persona?.description ?? settings.persona; break;
-      case 'description': content = card?.description ?? ''; break;
-      case 'personality': content = card?.personality ?? ''; break;
-      case 'scenario': content = card?.scenario ?? ''; break;
-      case 'examples': content = card?.mes_example ?? ''; break;
     }
-    const hasAnchors = block.kind === 'marker' && anchored.some(entry => entry.destination?.anchorId === block.id);
-    if (hasAnchors && block.kind === 'marker' && block.marker === 'character' && card) {
-      let pieces: string[] = [];
-      const flush = () => {
-        if (pieces.length) entries.push({ message: { role: block.role, content: resolve(pieces.join('\n\n')) }, kind: 'character', label: block.name });
-        pieces = [];
-      };
-      for (const [field, value] of [['name', card.name], ['description', card.description], ['personality', card.personality], ['scenario', card.scenario], ['examples', card.mes_example]]) {
-        if (!value) continue;
-        if (field === 'description' && anchored.some(entry => entry.destination?.anchorId === block.id && entry.destination.placement === 'before_desc')) { flush(); emitAnchored(block.id, 'before_desc'); }
-        pieces.push(value);
-        const placement = field === 'description' ? 'after_desc' : field;
-        if (anchored.some(entry => entry.destination?.anchorId === block.id && entry.destination.placement === placement)) { flush(); emitAnchored(block.id, placement); }
-      }
-      flush();
-    } else {
-      if (hasAnchors) emitAnchored(block.id, 'before_desc');
-      if (content !== '') entries.push({ message: { role: block.role, content: resolve(content) }, kind: block.kind === 'text' ? 'prompt' : block.marker === 'persona' ? 'persona' : 'character', label: block.name });
-      if (hasAnchors) for (const placement of ['after_desc', 'personality', 'scenario']) emitAnchored(block.id, placement);
-    }
+    if (content !== '') entries.push({ message: { role: block.role, content: resolve(content) }, kind: block.kind === 'text' ? 'prompt' : 'persona', label: block.name });
   }
   const turnEntries = (turn: Turn): Entry[] => {
     const result: Entry[] = [];
@@ -118,7 +122,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     entries = entries.slice(0, historyIndex).concat(expanded, entries.slice(historyIndex));
   }
   const messages = entries.map(entry => entry.message);
-  const layout: PromptEntry[] = entries.map((entry, messageIndex) => ({ messageIndex, kind: entry.kind, label: entry.label, tokens: 0 }));
+  const layout: PromptEntry[] = entries.map((entry, messageIndex) => ({ messageIndex, kind: entry.kind, label: entry.label, tokens: 0, ...(entry.group ? { group: entry.group } : {}) }));
   if (options.validateLimits !== false && !messages.length) throw new AppError(422, 'empty_prompt', 'The resolved prompt is empty. Enable a block or marker before sending.');
   const { contentTokens, ...measurement } = countInput(messages);
   const { inputTokens } = measurement;

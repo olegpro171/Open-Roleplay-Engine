@@ -36,7 +36,8 @@ export const newLoreEntry = (id: string): LoreEntry => ({ id, name: 'New entry',
 export type LoreScanMessage = { turnId: string; partId: string; revision: number; role: 'user' | 'assistant'; text: string };
 export type LoreEntryState = { fingerprint: string; matches: number };
 export type LoreState = { epoch: number; entries: Record<string, LoreEntryState> };
-export type LoreDestination = { controlId: string; placement: LorePlacement; role: 'system' | 'user' | 'assistant'; depth: number; anchorId?: string };
+// controlId remains readable only for immutable requests captured before schema 8.
+export type LoreDestination = { controlId?: string; placement: LorePlacement; role: 'system' | 'user' | 'assistant'; depth: number; anchorId?: string };
 export type LoreOutcome = {
   id: string; name: string; status: 'admitted' | 'excluded'; reason: string;
   text: string; destination: LoreDestination | null; tokens: number; fingerprint: string;

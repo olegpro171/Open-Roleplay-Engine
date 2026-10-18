@@ -27,7 +27,7 @@ async function fixture() {
   cleanup.push(async () => { await coordinator.shutdown(); store.close(); rmSync(directory, { recursive: true, force: true }); });
   const connectionId = store.saveLibrary(store.libraries().revision, 'connections', { name: 'Synthetic', endpoint: 'http://localhost:1234/v1', model: 'synthetic', contextWindow: 100000, maxOutputTokens: 100, customParameters: {} });
   const contextId = store.saveLibrary(store.libraries().revision, 'contexts', { ...defaultContextPreset, connectionId, minTail: 1, batchSize: 2 });
-  const bookId = store.saveLibrary(store.libraries().revision, 'lorebooks', { ...newLorebook(), scanDepth: 20, entries: [{ ...newLoreEntry('initial'), constant: true, content: 'OLD LIVE LORE: the vault is blue.' }] });
+  const bookId = store.saveLibrary(store.libraries().revision, 'lorebooks', { ...newLorebook(), scanDepth: 20, entries: [{ ...newLoreEntry('initial'), placement: 'history', constant: true, content: 'OLD LIVE LORE: the vault is blue.' }] });
   const chatId = store.createChat({ title: 'Synthetic repair', targetInputTokens: 90000, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId, lorebookId: bookId });
   store.replaceHistory(store.snapshot(chatId).revision, chatId, Array.from({ length: 3 }, (_, index) => ({ user: `Mira asks about the brass key ${index}.`, assistant: `The keeper answers ${index}.`, complete: true })));
   const before = store.snapshot(chatId);

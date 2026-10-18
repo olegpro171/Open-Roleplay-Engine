@@ -1,6 +1,6 @@
 # Lorebook contract review
 
-Prepared and accepted 2026-10-18. The user approved the proposed defaults/state/pressure rules and upstream interpretations in this review before dependent implementation. This remains the reviewed contract, not an implementation report; current behavior and verification limits are documented in [LOREBOOKS.md](LOREBOOKS.md). The original implementation brief remains unchanged.
+Prepared and accepted 2026-10-18. The user approved the proposed defaults/state/pressure rules and upstream interpretations in this review before dependent implementation. This is a historical review, not an implementation report. The user subsequently approved selectable Character fields and automatic lore destinations on 2026-10-18. Its lore-control authority, implicit depth fallback and conditional Character segmentation rules below are superseded by [the current placement contract](LOREBOOKS.md#activation-and-placement); other policies remain applicable.
 
 ## Integration plan
 

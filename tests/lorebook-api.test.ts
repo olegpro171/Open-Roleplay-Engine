@@ -114,7 +114,8 @@ describe('authenticated lorebook API', () => {
     const imported = await f.request('POST', '/api/library/lorebooks/import', { revision: f.store.libraries().revision, requestId: randomUUID(), value: fixtures.v2 });
     expect(imported.statusCode).toBe(200);
     const bookId = idResponse.parse(imported.json<unknown>()).id;
-    const selections = { title: 'API lore selection', targetInputTokens: 90_000, connectionId, promptId: 'default', characterId: null, personaId: null, lorebookId: bookId };
+    const characterId = f.store.saveLibrary(f.store.libraries().revision, 'characters', { name: 'Keeper', description: 'The tower keeper.', personality: '', scenario: '', first_mes: '', mes_example: '' });
+    const selections = { title: 'API lore selection', targetInputTokens: 90_000, connectionId, promptId: 'default', characterId, personaId: null, lorebookId: bookId };
     const before = f.store.libraries();
     expect((await f.request('POST', '/api/chats', { ...selections, lorebookId: [bookId, bookId] })).statusCode).toBe(400);
     expect((await f.request('POST', '/api/chats', { ...selections, lorebookIds: [bookId] })).statusCode).toBe(400);
@@ -140,7 +141,7 @@ describe('authenticated lorebook API', () => {
   it('fails regex timeouts before transport and cancels a retry without committing activation state', async () => {
     const f = await fixture();
     const connectionId = f.store.saveLibrary(f.store.libraries().revision, 'connections', connection, undefined, syntheticSecret);
-    const bookId = f.store.saveLibrary(f.store.libraries().revision, 'lorebooks', { ...newLorebook(), entries: [{ ...newLoreEntry(randomUUID()), useRegex: true, keys: ['(a+)+$'], content: 'Regex lore.' }] });
+    const bookId = f.store.saveLibrary(f.store.libraries().revision, 'lorebooks', { ...newLorebook(), entries: [{ ...newLoreEntry(randomUUID()), placement: 'history', useRegex: true, keys: ['(a+)+$'], content: 'Regex lore.' }] });
     const chatId = f.store.createChat({ title: 'Regex API', targetInputTokens: 90_000, connectionId, promptId: 'default', characterId: null, personaId: null, lorebookId: bookId });
     const text = 'a'.repeat(40_000) + '!';
     const before = f.store.snapshot(chatId);

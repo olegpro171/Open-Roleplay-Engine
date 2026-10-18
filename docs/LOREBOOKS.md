@@ -22,15 +22,15 @@ Primary keys use any-match. Selective literal entries require any secondary key 
 
 Admission order is descending priority, constant-first among ties, ascending insertion order, then source order. Final placement order is insertion order then source order. Each admitted entry is a separate message and consumes its fully resolved content, role and framing against the cap. Consider smaller lower-ranked entries after an oversized exclusion. Constants obey the cap. Recursion discovers only from admitted, actually placeable prose; prior admissions remain selected and cycles cannot insert an identity twice. Safety-limit failures are explicit.
 
-| Prompt control | Authority |
+| Lore destination | Automatic anchor |
 | --- | --- |
-| Lore before Character (`lore_before`) | Insert before-character entries at this explicit preset position; authorize before-description anchors. |
-| Lore after Character (`lore_after`) | Insert after-character entries at this explicit preset position; authorize after-description/personality/scenario anchors. |
-| Lore in history (`lore_history`) | Authorize depth insertion inside the enabled Messages expansion. |
+| Before/after Character | Before the first / after the last enabled nonempty character source in preset order. |
+| Before/after description, after personality/scenario | The first included nonempty corresponding field, separate or checked within Character. |
+| In history | Depth insertion inside the enabled Messages expansion. |
 
-At most one enabled control of each kind is allowed. Controls supply the default role; supported entry/decorator roles override it. Before/after controls do not require Character. Field-relative lore requires a corresponding active nonempty field, either separate or inside Character; only the first eligible repeated source anchors the lore. Personality/scenario lore follows its field. Combined Character text is segmented only when anchored lore requires it. No-lore bodies/layout/estimates retain their original form.
+Selecting a book authorizes its eligible insertions; None disables lore. The preset controls base sources and the book places conditional entries relative to them. Lore defaults to system; supported entry/decorator roles override it. Character always expands checked Name, Description, Personality, Scenario and Example dialogue fields as separate messages in fixed order with the marker role, just like adjacent individual field markers. Empty/unchecked fields cannot anchor lore. Prompt peek groups those messages and any interleaved field lore under Character. No extra lore markers are needed.
 
-History depth counts outgoing eligible nonblank original messages: zero follows the newest, one precedes it, and excessive depth clamps before the oldest. Whitespace-only historical parts do not affect lore depth. Whole stored turns remain the unit of history budgeting and coverage. Depth never creates a stored turn, cuts text or changes the saved cutoff. There is no assistant-prefill feature. Missing destinations exclude entries before cap admission/recursion; standard depth fallback uses an enabled before/after control. Fallback cannot restore a missing Character/Messages source or bypass prompt authority.
+History depth counts outgoing eligible nonblank original messages: zero follows the newest, one precedes it, and excessive depth clamps before the oldest. Whitespace-only historical parts do not affect lore depth. Whole stored turns remain the unit of history budgeting and coverage. Depth never creates a stored turn, cuts text or changes the saved cutoff. There is no assistant-prefill feature. Missing destinations exclude entries with diagnostics before cap admission/recursion. In this profile, missing Messages does not implicitly redirect depth entries to character placement. Explicit decorator fallback chains may still choose another available supported destination; they cannot restore an unchecked/missing source.
 
 ## V3 decorator matrix
 
@@ -81,6 +81,10 @@ Only successful roleplay completion commits admitted-entry match state, atomical
 Async commits recheck operation ownership, book revision/selection and captured epoch/state. Shared edits are blocked during response/preparation work and affected chats advance revisions. Late cancelled/superseded results cannot commit. Explicit repair regeneration captures current lore for the new attempt; approval continuing an untouched repair preserves its existing operation context. Shutdown cancels preflight work before it can create a new job. Restart marks interrupted paid work and never repeats it automatically.
 
 Schema 7 adds durable lore commands, operation resolution, chat epochs and per-book state under process ownership. Its transaction upgrades only the exact untouched old factory prompt. Existing chat selections, transcript/summary identities, revisions, corrections, credentials and historical requests remain intact. Explicit extraction/selection enables older inactive books. Historical requests without metadata mean unavailable, not an inferred empty activation report.
+
+Schema 8 removes the three retired lore controls from all saved presets and adds all fields to unconfigured Character markers, retaining explicit selections and remaining block order/roles. The same conversion supports older prompt-file imports. Old custom control positions, roles and disabled states no longer govern future requests: a selected book uses automatic anchors and default system roles. Select None to disable lore. Separate character messages change framing/estimates. Preset/selecting-chat/library revisions advance transactionally; selected-book chats also advance for changed placement semantics. Failure rolls back, restart retries safely, and historical bodies/provenance, activation state and saved memory are untouched.
+
+An unfinished operation retaining an old lore-control resolution cannot assemble a new request with it. Regenerate the repair or start preparation again to capture current destinations; approved progress and historical request inspection remain available. No paid work repeats automatically.
 
 ## Bounds, inspection and verification
 

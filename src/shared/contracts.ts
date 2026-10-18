@@ -48,7 +48,7 @@ export type RequestBody = {
   model: string; messages: Message[]; stream: true; max_tokens: number;
   stream_options?: { include_usage: true };
 } & z.infer<typeof customParametersSchema>;
-export type PromptEntry = { messageIndex: number; kind: 'prompt' | 'character' | 'persona' | 'memory' | 'history' | 'draft' | 'lore'; label: string; tokens: number };
+export type PromptEntry = { messageIndex: number; kind: 'prompt' | 'character' | 'persona' | 'memory' | 'history' | 'draft' | 'lore'; label: string; tokens: number; group?: { id: string; label: string } };
 export type TokenUsage = { inputTokens: number; outputTokens: number; totalTokens: number };
 export type ConnectionDiagnostic = { message: string; request?: RequestPreview; usage?: TokenUsage | null; response?: string };
 export type TokenCounting = {

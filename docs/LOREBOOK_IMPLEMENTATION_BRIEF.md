@@ -1,5 +1,7 @@
 # Lorebooks: implementation assignment
 
+Historical brief for the initial implementation. The selectable Character fields and automatic lore placement approved on 2026-10-18 supersede the lore-marker and combined-Character placement rules below. See [the current contract](LOREBOOKS.md#activation-and-placement).
+
 Prepared: 2026-10-18.
 
 Status: handoff instructions, not an implementation report. The current request authorizes preparing these instructions; it does not start application implementation. Do not describe the functionality below as already available.

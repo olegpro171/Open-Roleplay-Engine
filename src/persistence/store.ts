@@ -7,7 +7,7 @@ import { dirname, resolve } from 'node:path';
 import { AppError } from '../core/errors.js';
 import { replaceNameMacros } from '../core/prompt.js';
 import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStatus, RequestPreview, TokenUsage, Turn } from '../shared/contracts.js';
-import { characterSchema, defaultPrompt, promptSchema, selectionsSchema, type Character, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary } from '../shared/library.js';
+import { characterSchema, defaultPrompt, selectionsSchema, type Character, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary } from '../shared/library.js';
 import { lorebookSchema, type Lorebook, type LoreImportPreview, type LoreResolution, type LoreState } from '../shared/lorebook.js';
 import { importLorebook, loreCompatibility, markLoreEdits } from '../core/lorebook-formats.js';
 import { importCharacter } from '../core/cards.js';
@@ -18,6 +18,9 @@ import { contextPresetSchema, defaultContextPreset, type ContextPreset } from '.
 import { upgradedContextPrompts } from './context-prompt-upgrade.js';
 import { ContextStore } from './context-store.js';
 import { z } from 'zod';
+import { isDeepStrictEqual } from 'node:util';
+import { legacyLorePrompt } from './legacy-prompt.js';
+import { upgradePrompt } from '../core/prompt-upgrade.js';
 
 function parseImport<T>(parse: () => T): T {
   try { return parse(); }
@@ -111,11 +114,11 @@ export class Store {
       if (version === 4) {
         this.sqlite.transaction(() => {
           const builtIn = this.db.select().from(schema.library).where(and(eq(schema.library.id, 'default'), eq(schema.library.kind, 'prompts'))).get();
-          const previousDefault = { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.id !== 'summary' && !(block.kind === 'marker' && block.marker.startsWith('lore_'))) };
+          const previousDefault = { ...legacyLorePrompt, blocks: legacyLorePrompt.blocks.filter(block => block.id !== 'summary' && !block.marker?.startsWith('lore_')) };
           // Upgrade only the exact old factory preset. Edited defaults and all
           // user presets keep their deliberate marker choices.
-          if (builtIn && JSON.stringify(promptSchema.parse(builtIn.data)) === JSON.stringify(promptSchema.parse(previousDefault))) {
-            this.db.update(schema.library).set({ data: { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => !(block.kind === 'marker' && block.marker.startsWith('lore_'))) }, revision: builtIn.revision + 1 }).where(eq(schema.library.id, 'default')).run();
+          if (builtIn && isDeepStrictEqual(builtIn.data, previousDefault)) {
+            this.sqlite.prepare('UPDATE library SET data = ?, revision = revision + 1 WHERE id = ?').run(JSON.stringify({ ...legacyLorePrompt, blocks: legacyLorePrompt.blocks.filter(block => !block.marker?.startsWith('lore_')) }), 'default');
             for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.promptId === 'default') this.bumpRevision(chat.id);
             this.sqlite.prepare('UPDATE library_state SET revision = revision + 1 WHERE id = 1').run();
           }
@@ -146,15 +149,34 @@ export class Store {
         this.sqlite.transaction(() => {
           this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0007_lorebooks.sql'), 'utf8'));
           const builtIn = this.db.select().from(schema.library).where(and(eq(schema.library.id, 'default'), eq(schema.library.kind, 'prompts'))).get();
-          const previousDefault = { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => !(block.kind === 'marker' && block.marker.startsWith('lore_'))) };
-          if (builtIn && JSON.stringify(promptSchema.parse(builtIn.data)) === JSON.stringify(previousDefault)) {
-            this.db.update(schema.library).set({ data: defaultPrompt, revision: builtIn.revision + 1 }).where(eq(schema.library.id, 'default')).run();
+          const previousDefault = { ...legacyLorePrompt, blocks: legacyLorePrompt.blocks.filter(block => !block.marker?.startsWith('lore_')) };
+          if (builtIn && isDeepStrictEqual(builtIn.data, previousDefault)) {
+            this.sqlite.prepare('UPDATE library SET data = ?, revision = revision + 1 WHERE id = ?').run(JSON.stringify(legacyLorePrompt), 'default');
             for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.promptId === 'default') this.bumpRevision(chat.id);
             this.bumpLibrary();
           }
           this.sqlite.pragma('user_version = 7');
         })();
-      } else if (version !== 7) throw new Error('Unsupported database schema version.');
+        version = 7;
+      }
+      if (version === 7) {
+        this.sqlite.transaction(() => {
+          const changedIds = new Set<string>();
+          for (const preset of this.db.select().from(schema.library).where(eq(schema.library.kind, 'prompts')).all()) {
+            const data = upgradePrompt(preset.data);
+            if (isDeepStrictEqual(data, preset.data)) continue;
+            this.db.update(schema.library).set({ data, revision: preset.revision + 1 }).where(eq(schema.library.id, preset.id)).run();
+            changedIds.add(preset.id);
+          }
+          for (const chat of this.db.select().from(schema.chats).all()) {
+            // A selected book now authorizes automatic insertion even in a
+            // preset that previously omitted all lore controls.
+            if (changedIds.has(chat.settings.promptId ?? '') || chat.settings.lorebookId) this.bumpRevision(chat.id);
+          }
+          if (changedIds.size) this.bumpLibrary();
+          this.sqlite.pragma('user_version = 8');
+        })();
+      } else if (version !== 8) throw new Error('Unsupported database schema version.');
       this.contexts = new ContextStore(this);
       if (newDatabase) this.db.insert(schema.chats).values({ id: 'main', revision: 0, settings: initialSettings }).onConflictDoNothing().run();
     } catch (error) {
@@ -243,6 +265,7 @@ export class Store {
     };
   }
   saveLibrary(expected: number, kind: LibraryKind, data: Character | Persona | PromptPreset | ContextPreset | Connection | Lorebook, id?: string, apiKey?: string) {
+    if (kind === 'prompts') data = upgradePrompt(data);
     return this.sqlite.transaction(() => {
       this.checkLibrary(expected);
       const identity = id ?? randomUUID();

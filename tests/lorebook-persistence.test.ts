@@ -11,6 +11,8 @@ import { assembleRequest } from '../src/core/prompt.js';
 import { defaultPrompt, selectionsSchema, type Character } from '../src/shared/library.js';
 import { defaultContextPreset, type ContextJob, type ContextStep, type SummaryNode } from '../src/shared/context.js';
 import fixtures from './fixtures/lorebooks.json';
+import { legacyLorePrompt } from '../src/persistence/legacy-prompt.js';
+import { upgradePrompt } from '../src/core/prompt-upgrade.js';
 
 const folders: string[] = [];
 const stores: Store[] = [];
@@ -333,10 +335,12 @@ function populatedVersion6(customized: boolean) {
   const connectionId = store.saveLibrary(store.libraries().revision, 'connections', connection, undefined, 'synthetic-migration-secret');
   const characterId = store.saveLibrary(store.libraries().revision, 'characters', importCharacter(v2Card));
   const contextId = store.saveLibrary(store.libraries().revision, 'contexts', { ...defaultContextPreset, name: 'Preserved custom context' });
-  const oldFactory = { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => !(block.kind === 'marker' && block.marker.startsWith('lore_'))) };
+  const oldFactory = { ...legacyLorePrompt, blocks: legacyLorePrompt.blocks.filter(block => !block.marker?.startsWith('lore_')) };
   const factory = customized ? { ...oldFactory, name: 'My edited default' } : oldFactory;
-  store.saveLibrary(store.libraries().revision, 'prompts', factory, 'default');
-  const customPromptId = store.saveLibrary(store.libraries().revision, 'prompts', { ...oldFactory, name: 'Custom old prompt' });
+  store.saveLibrary(store.libraries().revision, 'prompts', upgradePrompt(factory), 'default');
+  const customPromptId = store.saveLibrary(store.libraries().revision, 'prompts', { ...upgradePrompt(oldFactory), name: 'Custom old prompt' });
+  store.sqlite.prepare('UPDATE library SET data = ? WHERE id = ?').run(JSON.stringify(factory), 'default');
+  store.sqlite.prepare('UPDATE library SET data = ? WHERE id = ?').run(JSON.stringify({ ...oldFactory, name: 'Custom old prompt' }), customPromptId);
   const chatId = createChat(store, { connectionId, characterId, contextPresetId: contextId });
   const customChat = createChat(store, { connectionId, promptId: customPromptId });
   store.replaceHistory(store.snapshot(chatId).revision, chatId, [
@@ -382,14 +386,14 @@ function populatedVersion6(customized: boolean) {
 describe('schema 7 lorebook migration', () => {
   it('creates fresh durable storage and explicit None without an activated placeholder book', () => {
     const store = open();
-    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(7);
+    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(8);
     expect(store.libraries().lorebooks).toEqual([]);
     expect(store.snapshot().settings.lorebookId).toBeNull();
     expect(store.snapshot().loreState).toEqual({ epoch: 0, entries: {} });
     expect(store.sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'lore_%' ORDER BY name").all()).toEqual([
       { name: 'lore_commands' }, { name: 'lore_epochs' }, { name: 'lore_operations' }, { name: 'lore_states' },
     ]);
-    expect(required(store.libraries().prompts.find(prompt => prompt.id === 'default')).blocks.filter(block => block.kind === 'marker' && block.marker.startsWith('lore_'))).toHaveLength(3);
+    expect(required(store.libraries().prompts.find(prompt => prompt.id === 'default')).blocks).toEqual(defaultPrompt.blocks);
   });
 
   it.each([false, true])('preserves populated version-6 data and upgrades only the exact factory (customized: %s)', customized => {
@@ -398,8 +402,8 @@ describe('schema 7 lorebook migration', () => {
     const actual = savedRows(store.sqlite);
     for (const table of ['turns', 'generations', 'connections', 'credentials', 'owners', 'sessions', 'summaries', 'context_states', 'context_jobs', 'context_steps']) expect(actual[table]).toEqual(seeded.records[table]);
     const saved = store.snapshot(seeded.chatId);
-    expect(saved.revision).toBe(seeded.revisionBefore + Number(!customized));
-    expect(store.libraries().revision).toBe(seeded.libraryRevisionBefore + Number(!customized));
+    expect(saved.revision).toBe(seeded.revisionBefore + Number(!customized) + 1);
+    expect(store.libraries().revision).toBe(seeded.libraryRevisionBefore + Number(!customized) + 1);
     expect(saved.settings.lorebookId).toBeNull();
     expect(saved.sources.lorebook).toBeNull();
     expect(store.libraries().lorebooks).toEqual([]);
@@ -411,18 +415,22 @@ describe('schema 7 lorebook migration', () => {
     expect(store.apiKey(seeded.chatId)).toBe('synthetic-migration-secret');
     expect(JSON.stringify(store.libraries()) + JSON.stringify(saved)).not.toContain('synthetic-migration-secret');
     const factory = required(store.libraries().prompts.find(prompt => prompt.id === 'default'));
-    expect(withoutIdentity(factory)).toEqual(customized ? seeded.factory : defaultPrompt);
-    expect(factory.revision).toBe(seeded.defaultRevisionBefore + Number(!customized));
-    const excludingFactory = (rows: unknown[]) => rows.filter(row => typeof row !== 'object' || row === null || !('id' in row) || row.id !== 'default');
-    expect(excludingFactory(actual.library)).toEqual(excludingFactory(seeded.records.library));
+    expect(withoutIdentity(factory)).toEqual(customized ? upgradePrompt(seeded.factory) : defaultPrompt);
+    expect(factory.revision).toBe(seeded.defaultRevisionBefore + Number(!customized) + 1);
+    const excludingPrompts = (rows: unknown[]) => rows.filter(row => typeof row !== 'object' || row === null || !('kind' in row) || row.kind !== 'prompts');
+    expect(excludingPrompts(actual.library)).toEqual(excludingPrompts(seeded.records.library));
     const custom = required(store.libraries().prompts.find(prompt => prompt.id === seeded.customPromptId));
+    expect(withoutIdentity(custom)).toEqual({ ...upgradePrompt(seeded.factory), name: 'Custom old prompt' });
+    expect(custom.revision).toBe(1);
     expect(custom.blocks.some(block => block.kind === 'marker' && block.marker.startsWith('lore_'))).toBe(false);
     const previousChats = seeded.records.chats;
     expect(Array.isArray(previousChats)).toBe(true);
-    // A custom-prompt chat has no revision change from the factory-only upgrade.
+    // The custom prompt also gains an explicit field selection in version 8.
     const customRaw = store.sqlite.prepare('SELECT * FROM chats WHERE id = ?').get(seeded.customChat);
-    expect(customRaw).toEqual(Array.isArray(previousChats) ? previousChats.find(row => typeof row === 'object' && row !== null && 'id' in row && row.id === seeded.customChat) : undefined);
-    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(7);
+    const previousCustom = previousChats.find(row => typeof row === 'object' && row !== null && 'id' in row && row.id === seeded.customChat);
+    if (typeof previousCustom !== 'object' || previousCustom === null || !('revision' in previousCustom) || typeof previousCustom.revision !== 'number') throw new Error('Missing fixture chat.');
+    expect(customRaw).toEqual({ ...previousCustom, revision: previousCustom.revision + 1 });
+    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(8);
     const after = savedRows(store.sqlite), snapshotAfter = store.snapshot(seeded.chatId);
     store.close();
     store = open(seeded.filename);
@@ -446,7 +454,7 @@ describe('schema 7 lorebook migration', () => {
       failed.exec('DROP TRIGGER reject_lore_migration');
     } finally { failed.close(); }
     const recovered = open(seeded.filename);
-    expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(7);
+    expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(8);
     expect(withoutIdentity(required(recovered.libraries().prompts.find(prompt => prompt.id === 'default')))).toEqual(defaultPrompt);
     expect(savedRows(recovered.sqlite).generations).toEqual(seeded.records.generations);
     expect(savedRows(recovered.sqlite).summaries).toEqual(seeded.records.summaries);

@@ -11,17 +11,22 @@ export const characterSchema = z.object({
   source: z.record(z.string(), z.unknown()).optional(),
   lorebookId: z.string().min(1).max(100).nullable().optional(),
 }).strict();
-export const markers = ['character', 'persona', 'description', 'personality', 'scenario', 'examples', 'messages', 'summary', 'lore_before', 'lore_after', 'lore_history'] as const;
+export const characterFields = ['name', 'description', 'personality', 'scenario', 'examples'] as const;
+export type CharacterField = typeof characterFields[number];
+export const characterFieldLabels: Record<CharacterField, string> = { name: 'Name', description: 'Description', personality: 'Personality', scenario: 'Scenario', examples: 'Example dialogue' };
+export const markers = ['character', 'persona', ...characterFields, 'messages', 'summary'] as const;
 const blockBase = { id: z.string().min(1).max(100), name, enabled: z.boolean() };
 export const promptBlockSchema = z.discriminatedUnion('kind', [
   z.object({ ...blockBase, kind: z.literal('text'), role: z.enum(['system', 'user', 'assistant']), text }).strict(),
-  z.object({ ...blockBase, kind: z.literal('marker'), role: z.enum(['system', 'user', 'assistant']), marker: z.enum(markers) }).strict(),
+  z.object({ ...blockBase, kind: z.literal('marker'), role: z.enum(['system', 'user', 'assistant']), marker: z.enum(markers), fields: z.array(z.enum(characterFields)).max(characterFields.length).optional() }).strict().superRefine((block, ctx) => {
+    if (block.fields !== undefined && block.marker !== 'character') ctx.addIssue({ code: 'custom', path: ['fields'], message: 'Only Character supports a field selection.' });
+    if (block.fields && new Set(block.fields).size !== block.fields.length) ctx.addIssue({ code: 'custom', path: ['fields'], message: 'Character fields must be unique.' });
+  }),
 ]);
 export const promptSchema = z.object({ name, blocks: z.array(promptBlockSchema).max(100) }).strict().superRefine((value, ctx) => {
   if (new Set(value.blocks.map(b => b.id)).size !== value.blocks.length) ctx.addIssue({ code: 'custom', message: 'Block identities must be unique.' });
   if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === 'messages').length > 1) ctx.addIssue({ code: 'custom', message: 'Use at most one enabled Messages marker.' });
   if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === 'summary').length > 1) ctx.addIssue({ code: 'custom', message: 'Use at most one enabled Summary marker.' });
-  for (const marker of ['lore_before', 'lore_after', 'lore_history'] as const) if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === marker).length > 1) ctx.addIssue({ code: 'custom', message: `Use at most one enabled ${marker} marker.` });
 });
 export type Persona = z.infer<typeof personaSchema>;
 export type Character = z.infer<typeof characterSchema>;
@@ -42,12 +47,9 @@ export type LibrarySnapshot = {
 export const defaultPrompt: PromptPreset = {
   name: 'Default roleplay', blocks: [
     { id: 'instructions', name: 'Instructions', enabled: true, kind: 'text', role: 'system', text: 'Write the next response in this roleplay. Stay consistent with the established story.' },
-    { id: 'lore-before', name: 'Lore before Character', enabled: true, kind: 'marker', role: 'system', marker: 'lore_before' },
-    { id: 'character', name: 'Character', enabled: true, kind: 'marker', role: 'system', marker: 'character' },
-    { id: 'lore-after', name: 'Lore after Character', enabled: true, kind: 'marker', role: 'system', marker: 'lore_after' },
+    { id: 'character', name: 'Character', enabled: true, kind: 'marker', role: 'system', marker: 'character', fields: [...characterFields] },
     { id: 'persona', name: 'Persona', enabled: true, kind: 'marker', role: 'system', marker: 'persona' },
     { id: 'summary', name: 'Summary', enabled: true, kind: 'marker', role: 'system', marker: 'summary' },
-    { id: 'lore-history', name: 'Lore in history', enabled: true, kind: 'marker', role: 'system', marker: 'lore_history' },
     { id: 'messages', name: 'Messages', enabled: true, kind: 'marker', role: 'system', marker: 'messages' },
   ],
 };
@@ -61,7 +63,10 @@ export function promptWarnings(prompt: PromptPreset): string[] {
   if (!hasPromptMarker(prompt, 'summary')) warnings.push('Summary marker is absent or disabled. Summaries will not be sent.');
   if (!hasPromptMarker(prompt, 'messages')) warnings.push('Messages marker is absent or disabled. Conversation turns will not be sent.');
   if (!hasPromptMarker(prompt, 'persona')) warnings.push('Persona marker is absent or disabled. Persona content will not be sent.');
-  if (!(['character', 'description', 'personality', 'scenario', 'examples'] as const).some(marker => hasPromptMarker(prompt, marker))) warnings.push('Character markers are absent or disabled. Character content will not be sent.');
+  const characterEnabled = prompt.blocks.some(block => block.enabled && block.kind === 'marker' && (
+    block.marker === 'character' ? (block.fields ?? characterFields).length > 0 : characterFields.some(field => field === block.marker)
+  ));
+  if (!characterEnabled) warnings.push('Character markers are absent, disabled or have no selected fields. Character content will not be sent.');
   return warnings;
 }
 export const selectionsSchema = z.object({

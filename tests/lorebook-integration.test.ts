@@ -191,14 +191,15 @@ describe('lore placement in authoritative outgoing messages', () => {
       { role: 'assistant', content: 'Field before' }, { role: 'system', content: 'Description' }, { role: 'system', content: 'Field after' },
       { role: 'system', content: 'Personality' }, { role: 'system', content: 'Personality lore' },
       { role: 'system', content: 'Scenario' }, { role: 'user', content: 'Scenario lore' },
-      { role: 'system', content: 'After' }, { role: 'system', content: 'Mira\n\nDescription\n\nPersonality\n\nScenario' },
+      { role: 'system', content: 'Mira' }, { role: 'system', content: 'Description' },
+      { role: 'system', content: 'Personality' }, { role: 'system', content: 'Scenario' }, { role: 'system', content: 'After' },
       { role: 'user', content: 'Oldest lore' }, { role: 'user', content: 'trigger' }, { role: 'assistant', content: 'reply' },
       { role: 'system', content: 'Before pending' }, { role: 'user', content: 'pending' }, { role: 'assistant', content: 'Newest lore' },
     ]);
   });
 
   it('counts depth using nonblank original messages while preserving untouched blank outgoing parts', async () => {
-    const prompt = { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.kind === 'marker' && (block.marker === 'messages' || block.marker === 'lore_history')) };
+    const prompt = { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.kind === 'marker' && block.marker === 'messages') };
     const f = fixture([
       loreEntry('old', { constant: true, placement: 'history', depth: 99, content: 'Old lore' }),
       loreEntry('one', { constant: true, placement: 'history', depth: 1, content: 'Before reply' }),
@@ -219,24 +220,24 @@ describe('lore placement in authoritative outgoing messages', () => {
   });
 
   it('allows anchored lore without Messages and omits unauthorized destinations before recursion/cap', async () => {
-    const prompt = { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.id !== 'instructions' && block.id !== 'messages' && block.id !== 'summary' && block.id !== 'lore-before') };
-    const f = fixture([loreEntry('field', { placement: 'after_desc', content: 'Anchored lore.' }), loreEntry('blocked', { placement: 'before_char', content: 'blocked-child-key' }), loreEntry('child', { keys: ['blocked-child-key'], content: 'Should not activate.' })], prompt);
+    const prompt = { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.id !== 'instructions' && block.id !== 'messages' && block.id !== 'summary') };
+    const f = fixture([loreEntry('field', { placement: 'after_desc', content: 'Anchored lore.' }), loreEntry('blocked', { placement: 'history', content: 'blocked-child-key' }), loreEntry('child', { keys: ['blocked-child-key'], content: 'Should not activate.' })], prompt);
     const snapshot = await f.withLore();
     const request = measure(snapshot);
-    expect(request.body.messages).toEqual([{ role: 'system', content: 'Mira\n\nDescription' }, { role: 'system', content: 'Anchored lore.' }, { role: 'system', content: 'Personality\n\nScenario' }]);
+    expect(request.body.messages).toEqual([{ role: 'system', content: 'Mira' }, { role: 'system', content: 'Description' }, { role: 'system', content: 'Anchored lore.' }, { role: 'system', content: 'Personality' }, { role: 'system', content: 'Scenario' }]);
     expect(snapshot.loreResolution?.outcomes.map(value => value.reason)).toEqual(['keyword', 'unavailable_destination', 'no_match']);
     expect(request.history?.verbatimTurnIds).toEqual([]);
   });
 
-  it('leaves provider messages, estimates and layout unchanged when lore controls insert nothing', async () => {
+  it('leaves provider messages, estimates and layout unchanged when the selected book admits nothing', async () => {
     const f = fixture([]);
     const snapshot = await f.withLore();
     if (!snapshot.sources.prompt) throw new Error('Fixture preset missing.');
-    const withControls = measure(snapshot);
-    const baseline = measure({ ...snapshot, sources: { ...snapshot.sources, lorebook: null, prompt: { ...snapshot.sources.prompt, blocks: snapshot.sources.prompt.blocks.filter(block => block.kind !== 'marker' || !block.marker.startsWith('lore_')) } }, loreResolution: undefined });
-    expect(JSON.stringify(withControls.body)).toBe(JSON.stringify(baseline.body));
-    expect(withControls.budget).toEqual(baseline.budget);
-    expect(withControls.layout).toEqual(baseline.layout);
+    const withBook = measure(snapshot);
+    const baseline = measure({ ...snapshot, sources: { ...snapshot.sources, lorebook: null }, loreResolution: undefined });
+    expect(JSON.stringify(withBook.body)).toBe(JSON.stringify(baseline.body));
+    expect(withBook.budget).toEqual(baseline.budget);
+    expect(withBook.layout).toEqual(baseline.layout);
   });
 
   it('rejects excessive decorator control lines before resolution or a paid call', () => {

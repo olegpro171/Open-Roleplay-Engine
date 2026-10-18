@@ -3,6 +3,7 @@ import { defaultPrompt, type PromptSources, type Saved } from '../shared/library
 import type { Lorebook, LoreDestination, LoreDiagnostic, LoreEntry, LoreEntryState, LoreOutcome, LorePlacement, LoreResolution, LoreScanMessage, LoreState } from '../shared/lorebook.js';
 import { AppError } from './errors.js';
 import { parseLoreDirectives, type LoreDirectives } from './lorebook-directives.js';
+import { characterParts } from './character-prompt.js';
 import { replaceNameMacros } from './names.js';
 import { countInput } from './tokens.js';
 
@@ -67,29 +68,23 @@ function literalMatch(keys: string[], normalizedTexts: string[], caseSensitive: 
 }
 
 type DestinationResolver = (placement: LorePlacement, depth?: number, role?: Message['role'] | null) => LoreDestination | null;
-function destinationResolver(sources: PromptSources, originalMessageCount: number): DestinationResolver {
+function destinationResolver(sources: PromptSources): DestinationResolver {
   const blocks = (sources.prompt ?? defaultPrompt).blocks.filter(block => block.enabled);
-  const control = (marker: 'lore_before' | 'lore_after' | 'lore_history') => blocks.find(block => block.kind === 'marker' && block.marker === marker);
-  const before = control('lore_before');
-  const after = control('lore_after');
-  const history = control('lore_history');
-  const messages = blocks.some(block => block.kind === 'marker' && block.marker === 'messages');
+  const characterBlocks = blocks.flatMap(block => {
+    const parts = characterParts(block, sources.character);
+    return parts.length ? [{ block, parts }] : [];
+  });
+  const messages = blocks.find(block => block.kind === 'marker' && block.marker === 'messages');
   return (placement, depth = 0, role) => {
-    const chosen = placement === 'before_char' || placement === 'before_desc' ? before : placement === 'history' ? history : after;
-    if (placement === 'history' && (!history || !messages)) {
-      const fallback = depth > originalMessageCount ? before : after;
-      if (!fallback) return null;
-      return { controlId: fallback.id, placement: depth > originalMessageCount ? 'before_char' : 'after_char', role: role ?? fallback.role, depth };
+    if (placement === 'history') {
+      return messages ? { anchorId: messages.id, placement, role: role ?? 'system', depth } : null;
     }
-    if (!chosen) return null;
-    if (placement === 'before_desc' || placement === 'after_desc' || placement === 'personality' || placement === 'scenario') {
-      const field = placement === 'before_desc' || placement === 'after_desc' ? 'description' : placement;
-      if (!sources.character?.[field].trim()) return null;
-      const anchor = blocks.find(block => block.kind === 'marker' && (block.marker === field || block.marker === 'character'));
-      if (!anchor) return null;
-      return { controlId: chosen.id, placement, role: role ?? chosen.role, depth, anchorId: anchor.id };
-    }
-    return { controlId: chosen.id, placement, role: role ?? chosen.role, depth };
+    const field = placement === 'before_desc' || placement === 'after_desc' ? 'description' : placement;
+    let anchor;
+    if (placement === 'before_char') anchor = characterBlocks[0];
+    else if (placement === 'after_char') anchor = characterBlocks.at(-1);
+    else anchor = characterBlocks.find(value => value.parts.some(part => part.field === field));
+    return anchor ? { anchorId: anchor.block.id, placement, role: role ?? 'system', depth } : null;
   };
 }
 
@@ -134,12 +129,10 @@ function excludedReason(entry: PreparedEntry, assistantCount: number, pressure: 
 export async function resolveLore(input: LoreInput, matchRegex: RegexMatcher): Promise<LoreResolution> {
   const { book, sources, turns, state } = input;
   let assistantCount = 0;
-  let originalMessageCount = 0;
   for (const turn of turns) {
-    if (turn.user.text.trim() !== '') originalMessageCount++;
-    if (turn.complete && turn.assistant.text.trim() !== '') { assistantCount++; originalMessageCount++; }
+    if (turn.complete && turn.assistant.text.trim() !== '') assistantCount++;
   }
-  const destination = destinationResolver(sources, originalMessageCount);
+  const destination = destinationResolver(sources);
   const diagnostics: LoreDiagnostic[] = [];
   const resolveNames = (text: string) => replaceNameMacros(text, sources.persona?.name ?? 'You', sources.character?.name ?? 'Character');
   const prepared: PreparedEntry[] = book.entries.map((entry, sourceIndex) => {
@@ -161,7 +154,7 @@ export async function resolveLore(input: LoreInput, matchRegex: RegexMatcher): P
     if (unknownMacros.size) diagnostics.push({ code: 'unsupported_macro', entryId: entry.id, message: `Only {{char}} and {{user}} resolve. ${unknownMacros.size} other macro${unknownMacros.size === 1 ? ' remains' : 's remain'} literal.` });
     const placement = directives.position ?? (directives.depth !== undefined ? 'history' : entry.placement);
     const resolvedDestination = parsed.unavailablePlacement ? null : destination(placement, directives.depth ?? entry.depth, directives.role ?? entry.role);
-    if (placement === 'history' && resolvedDestination && resolvedDestination.placement !== 'history') diagnostics.push({ code: 'depth_fallback', entryId: entry.id, message: `History placement is unavailable; the enabled ${resolvedDestination.placement === 'before_char' ? 'Lore before Character' : 'Lore after Character'} control provides the standard depth fallback.` });
+    if (!resolvedDestination) diagnostics.push({ code: 'unavailable_destination', entryId: entry.id, message: `Lore destination ${placement} requires its enabled, nonempty character field or Messages source. Unchecked Character fields are unavailable.` });
     if (directives.position && directives.depth !== undefined) diagnostics.push({ code: 'position_overrides_depth', entryId: entry.id, message: '@@position takes precedence over @@depth.' });
     const outcome: LoreOutcome = { id: entry.id, name: entry.name, status: 'excluded', reason: 'no_match', text, destination: resolvedDestination, tokens: 0, fingerprint };
     return { entry, sourceIndex, fingerprint, matches, text, directives, destination: resolvedDestination, scanDepth: directives.scanDepth ?? entry.scanDepth ?? book.scanDepth, keys, secondaryKeys, additionalKeys, excludeKeys, outcome, terminal: false };

@@ -15,6 +15,8 @@ import { startMockProvider } from './support/mock-provider.js';
 import { deflateSync } from 'node:zlib';
 import legacyContextPrompts from './fixtures/legacy-context-prompts.json';
 import { contextPresetSchema, defaultContextPreset } from '../src/shared/context.js';
+import { legacyLorePrompt } from '../src/persistence/legacy-prompt.js';
+import { upgradePrompt } from '../src/core/prompt-upgrade.js';
 
 const folders: string[] = [];
 afterEach(() => { for (const path of folders.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -97,7 +99,8 @@ describe('cards, macros and prompt arrangement', () => {
       expect(snapshot.turns[0]).toMatchObject({ complete: true, user: { text: '' }, assistant: { text: 'Welcome, Traveller.' } });
       const request = assembleRequest(snapshot.connection!, snapshot.settings, [...snapshot.turns, { ...snapshot.turns[0], complete: false, user: { ...snapshot.turns[0].user, text: 'Literal {{char}}' } }], snapshot.sources);
       expect(request.body.messages[0]).toEqual({ role: 'user', content: 'Traveller visits Keeper.' });
-      expect(request.body.messages[1].content).toContain('Keeper greets Traveller.');
+      expect(request.body.messages[1].content).toBe('Keeper');
+      expect(request.body.messages[2]).toEqual({ role: 'system', content: 'Keeper greets Traveller.' });
       expect(request.body.messages.slice(-2)).toEqual([{ role: 'user', content: 'Literal {{char}}' }, { role: 'system', content: 'Keeper replies to Traveller.' }]);
       expect(JSON.stringify(store.libraries())).not.toContain('synthetic-library-api-key-7319');
       store.saveLibrary(store.libraries().revision, 'characters', { ...card, first_mes: 'Different greeting' }, characterId);
@@ -113,23 +116,24 @@ describe('prompt template upgrade', () => {
   it.each([false, true])('upgrades only an untouched old default (customized: %s), retaining saved records', customized => {
     const path = join(folder(), 'template.sqlite');
     let store = new Store(path);
-    const legacy = { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.id !== 'summary' && !(block.kind === 'marker' && block.marker.startsWith('lore_'))) };
+    const legacy = { ...legacyLorePrompt, blocks: legacyLorePrompt.blocks.filter(block => block.id !== 'summary' && !block.marker?.startsWith('lore_')) };
     const data = customized ? { ...legacy, name: 'My default' } : legacy;
-    store.saveLibrary(store.libraries().revision, 'prompts', data, 'default');
-    const customId = store.saveLibrary(store.libraries().revision, 'prompts', { ...legacy, name: 'Custom legacy prompt' });
+    store.sqlite.prepare('UPDATE library SET data = ? WHERE id = ?').run(JSON.stringify(data), 'default');
+    const customId = store.saveLibrary(store.libraries().revision, 'prompts', { ...upgradePrompt(legacy), name: 'Custom legacy prompt' });
+    store.sqlite.prepare('UPDATE library SET data = ? WHERE id = ?').run(JSON.stringify({ ...legacy, name: 'Custom legacy prompt' }), customId);
     const before = store.snapshot(), library = store.libraries();
     store.sqlite.pragma('user_version = 4');
     store.close(); store = new Store(path);
     try {
       const builtIn = store.libraries().prompts.find(prompt => prompt.id === 'default')!;
-      expect(builtIn.blocks).toEqual(customized ? data.blocks : defaultPrompt.blocks);
+      expect(builtIn.blocks).toEqual(customized ? upgradePrompt(data).blocks : defaultPrompt.blocks);
       expect(builtIn.name).toBe(data.name);
-      expect(builtIn.revision).toBe(library.prompts.find(prompt => prompt.id === 'default')!.revision + 2 * Number(!customized));
-      expect(store.snapshot().revision).toBe(before.revision + 2 * Number(!customized));
+      expect(builtIn.revision).toBe(library.prompts.find(prompt => prompt.id === 'default')!.revision + 1 + 2 * Number(!customized));
+      expect(store.snapshot().revision).toBe(before.revision + 1 + 2 * Number(!customized));
       expect(store.snapshot().turns).toEqual(before.turns);
       expect(store.snapshot().generations).toEqual(before.generations);
-      expect(store.libraries().prompts.find(prompt => prompt.id === customId)!.blocks).toEqual(legacy.blocks);
-      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(7);
+      expect(store.libraries().prompts.find(prompt => prompt.id === customId)!.blocks).toEqual(upgradePrompt(legacy).blocks);
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(8);
     } finally { store.close(); }
   });
 });
@@ -157,7 +161,7 @@ describe('continuity prompt upgrade', () => {
       expect(store.snapshot(chatId)).toEqual({ ...before, revision: before.revision + Number(changed), context: { ...before.context, preset: store.contextPreset(id) } });
       expect(store.snapshot()).toEqual(unrelated);
       expect(store.libraries().revision).toBe(library.revision + Number(changed));
-      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(7);
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(8);
       if (changed) expect(() => store.checkRevision(before.revision, chatId)).toThrow('changed on another device');
       const upgraded = store.snapshot(chatId), upgradedLibrary = store.libraries();
       store.close(); store = new Store(path);

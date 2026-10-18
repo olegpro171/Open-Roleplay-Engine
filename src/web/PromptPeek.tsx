@@ -62,11 +62,24 @@ export function PromptPeek({ request, stale, close }: { request: RequestPreview;
       <BudgetBreakdown request={request} />
       <LoreInspection request={request} />
       {request.warnings?.map(warning => <p className="small" key={warning}>{warning}</p>)}
-      <div className="prompt-message-list">{request.body.messages.map((message, i) => {
-        const part = entries.get(i);
-        return <details className={`prompt-message ${part?.kind ?? 'prompt'}`} key={i} open={i === 0}><summary><span className="message-order">{i + 1}</span><span>{part?.label ?? 'Message'}<small>{message.role}</small></span><span className="message-size">{part?.tokens.toLocaleString() ?? '—'} est.</span></summary><div className="prose">{message.content}</div></details>;
-      })}</div>
+      <div className="prompt-message-list"><PromptMessages request={request} entries={entries} /></div>
       <details><summary>Effective request parameters</summary><pre>{JSON.stringify({ ...request.body, messages: undefined }, null, 2)}</pre></details>
     </div>
   </dialog>;
+}
+
+function PromptMessages({ request, entries }: { request: RequestPreview; entries: Map<number, PromptEntry> }) {
+  const message = (i: number) => {
+    const part = entries.get(i), value = request.body.messages[i];
+    return <details className={`prompt-message ${part?.kind ?? 'prompt'}`} key={i} open={i === 0}><summary><span className="message-order">{i + 1}</span><span>{part?.label ?? 'Message'}<small>{value.role}</small></span><span className="message-size">{part?.tokens.toLocaleString() ?? '—'} est.</span></summary><div className="prose">{value.content}</div></details>;
+  };
+  const result = [];
+  for (let i = 0; i < request.body.messages.length;) {
+    const group = entries.get(i)?.group;
+    if (!group) { result.push(message(i)); i++; continue; }
+    const start = i, children = [];
+    while (i < request.body.messages.length && entries.get(i)?.group?.id === group.id) children.push(message(i++));
+    result.push(<section className="prompt-message-group" aria-label={`${group.label} messages`} key={`group-${start}`}><h3>{group.label}</h3>{children}</section>);
+  }
+  return result;
 }
