@@ -13,6 +13,14 @@ export const characterSchema = z.object({
   source: z.record(z.string(), z.unknown()).optional(),
   lorebookId: z.string().min(1).max(100).nullable().optional(),
 }).strict();
+// Local library metadata is deliberately absent from prompt-bearing Character.
+export const libraryCharacterSchema = characterSchema.extend({
+  titleComment: z.string().trim().max(200).refine(value => !/[\r\n]/.test(value), 'Use a single line.').optional(),
+});
+export type LibraryCharacter = z.infer<typeof libraryCharacterSchema>;
+export function characterLabel(character: { name: string; titleComment?: string }): string {
+  return character.titleComment ? `${character.name} · ${character.titleComment}` : character.name;
+}
 export const characterFields = ['name', 'description', 'personality', 'scenario', 'examples'] as const;
 export type CharacterField = typeof characterFields[number];
 export const characterFieldLabels: Record<CharacterField, string> = { name: 'Name', description: 'Description', personality: 'Personality', scenario: 'Scenario', examples: 'Example dialogue' };
@@ -42,11 +50,11 @@ export type UnchangedLibrary = { unchanged: true; revision: number; chats: ChatS
 export type LibrarySnapshot = {
   characterPictures: CharacterPicture[];
   tags: Tag[]; characterTags: CharacterTag[];
-  revision: number; personas: Saved<Persona>[]; characters: Saved<Character>[]; prompts: Saved<PromptPreset>[];
+  revision: number; personas: Saved<Persona>[]; characters: Saved<LibraryCharacter>[]; prompts: Saved<PromptPreset>[];
   connections: (Saved<Connection> & { hasApiKey: boolean })[]; chats: ChatSummary[];
   contexts: Saved<ContextPreset>[];
   lorebooks: Saved<Lorebook>[];
-  lorebookUses: { bookId: string; characters: { id: string; name: string }[]; chats: { id: string; title: string }[] }[];
+  lorebookUses: { bookId: string; characters: { id: string; name: string; titleComment?: string }[]; chats: { id: string; title: string }[] }[];
 };
 export const defaultPrompt: PromptPreset = {
   name: 'Default roleplay', blocks: [
@@ -82,7 +90,7 @@ export const selectionsSchema = z.object({
 }).strict();
 export const libraryCommandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('personas'), revision: revisionSchema, data: personaSchema }).strict(),
-  z.object({ kind: z.literal('characters'), revision: revisionSchema, data: characterSchema, tagIds: tagIdsSchema.optional(), requestId: z.string().uuid().optional(), expectedPicture: z.string().uuid().nullable().optional(), picture: pictureMutationSchema.optional() }).strict(),
+  z.object({ kind: z.literal('characters'), revision: revisionSchema, data: libraryCharacterSchema, tagIds: tagIdsSchema.optional(), requestId: z.string().uuid().optional(), expectedPicture: z.string().uuid().nullable().optional(), picture: pictureMutationSchema.optional() }).strict(),
   z.object({ kind: z.literal('prompts'), revision: revisionSchema, data: promptSchema }).strict(),
   z.object({ kind: z.literal('contexts'), revision: revisionSchema, data: contextPresetSchema }).strict(),
   z.object({ kind: z.literal('lorebooks'), revision: revisionSchema, data: lorebookSchema }).strict(),

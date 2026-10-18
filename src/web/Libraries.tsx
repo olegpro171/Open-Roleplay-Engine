@@ -1,7 +1,7 @@
 import { PictureSquare } from './Pictures';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ChatSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
-import { characterFields, characterFieldLabels, defaultPrompt, markers, promptWarnings, type Character, type LibraryKind, type LibrarySnapshot, type Persona, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
+import { characterLabel, characterFields, characterFieldLabels, defaultPrompt, markers, promptWarnings, type LibraryCharacter, type LibraryKind, type LibrarySnapshot, type Persona, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { upgradePrompt } from '../core/prompt-upgrade';
 import { importChat } from '../core/chat-import';
 import { CharacterImport } from './CharacterImport';
@@ -17,7 +17,7 @@ import { LorebookEditor, LorebookImport, LoreDiagnostics } from './LorebookEdito
 export const defaultConnection: Connection = { name: 'My Connection', endpoint: 'https://api.openai.com/v1', model: '', contextWindow: 128_000, maxOutputTokens: 2048, customParameters: {} };
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 type Selection = { title: string; targetInputTokens: number; connectionId: string | null; promptId: string; characterId: string | null; personaId: string | null; contextPresetId: string | null; lorebookId: string | null };
-type LibraryRecord = Character | Persona | PromptPreset | Connection | ContextPreset | Lorebook;
+type LibraryRecord = LibraryCharacter | Persona | PromptPreset | Connection | ContextPreset | Lorebook;
 const libraryLabels: Record<LibraryKind | 'chats', string> = {
   chats: 'Chats',
   personas: 'Personas',
@@ -39,7 +39,7 @@ function SelectionFields({ value, change, library }: { value: Selection; change:
     {(['connectionId', 'promptId', 'characterId', 'personaId', 'contextPresetId', 'lorebookId'] as const).map((key, i) => {
       const names = ['Connection', 'Prompt preset', 'Character', 'Persona', 'Context preset', 'Lorebook'];
       const lists = [library.connections, library.prompts, library.characters, library.personas, library.contexts, library.lorebooks];
-      return <label key={key}>{names[i]}<Dropdown aria-label={names[i]} value={value[key] ?? ''} onChange={selected => change({ ...value, [key]: selected || null })} options={[...(key !== 'promptId' ? [{ value: '', label: 'None selected' }] : []), ...lists[i].map(item => ({ value: item.id, label: item.name }))]} /></label>;
+      return <label key={key}>{names[i]}<Dropdown aria-label={names[i]} value={value[key] ?? ''} onChange={selected => change({ ...value, [key]: selected || null })} options={[...(key !== 'promptId' ? [{ value: '', label: 'None selected' }] : []), ...lists[i].map(item => ({ value: item.id, label: key === 'characterId' ? characterLabel(item) : item.name }))]} /></label>;
     })}
   </div>;
 }
@@ -55,7 +55,7 @@ function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnap
       const character = library.characters.find(item => item.id === characterId);
       // Keep the Roleplay suffix within the existing 100-character chat-title limit.
       const suffix = ' - Roleplay';
-      const title = character ? `${character.name.slice(0, 100 - suffix.length)}${suffix}` : 'A new story';
+      const title = character ? `${characterLabel(character).slice(0, 100 - suffix.length)}${suffix}` : 'A new story';
       const settings = { ...selection(undefined, library), title, characterId, personaId, lorebookId: character?.lorebookId ?? null };
       let id = '';
       if (await run(async () => { id = (await api<{ id: string }>('/chats', 'POST', settings)).id; })) created(id);
@@ -65,7 +65,7 @@ function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnap
   }
   return <form onSubmit={create}><fieldset disabled={busy}><legend>New chat</legend>
     <div className="form-grid">
-      <label>Character<Dropdown aria-label="Character" value={characterId ?? ''} onChange={id => setCharacterId(id || null)} options={[{ value: '', label: 'None selected' }, ...library.characters.map(item => ({ value: item.id, label: item.name }))]} /></label>
+      <label>Character<Dropdown aria-label="Character" value={characterId ?? ''} onChange={id => setCharacterId(id || null)} options={[{ value: '', label: 'None selected' }, ...library.characters.map(item => ({ value: item.id, label: characterLabel(item) }))]} /></label>
       <label>Persona<Dropdown aria-label="Persona" value={personaId ?? ''} onChange={id => setPersonaId(id || null)} options={[{ value: '', label: 'None selected' }, ...library.personas.map(item => ({ value: item.id, label: item.name }))]} /></label>
     </div>
     <div className="actions"><button>Create chat</button><button type="button" className="quiet" onClick={cancel}>Cancel</button></div>
@@ -111,6 +111,7 @@ function matchesSearch(value: string, query: string): boolean {
 function matchesLibraryRecord(record: LibraryRecord, query: string): boolean {
   if (!query || matchesSearch(record.name, query)) return true;
   const matches = (value: string) => matchesSearch(value, query);
+  if ('titleComment' in record && record.titleComment && matches(record.titleComment)) return true;
   if ('description' in record && matches(record.description)) return true;
   if ('model' in record && matches(record.model)) return true;
   return 'entries' in record && record.entries.some(entry => matches(entry.name) || matches(entry.comment) || matches(entry.content) || entry.keys.some(matches) || entry.secondaryKeys.some(matches));
@@ -156,7 +157,7 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
   }
   function create() {
     const kind = section as LibraryKind;
-    const data = kind === 'lorebooks' ? newLorebook() : kind === 'connections' ? defaultConnection : kind === 'contexts' ? structuredClone(defaultContextPreset) : kind === 'prompts' ? { ...structuredClone(defaultPrompt), name: 'New prompt' } : kind === 'personas' ? { name: '', description: '' } : { name: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', lorebookId: null };
+    const data = kind === 'lorebooks' ? newLorebook() : kind === 'connections' ? defaultConnection : kind === 'contexts' ? structuredClone(defaultContextPreset) : kind === 'prompts' ? { ...structuredClone(defaultPrompt), name: 'New prompt' } : kind === 'personas' ? { name: '', description: '' } : { name: '', titleComment: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', lorebookId: null };
     setEditing({ kind, revision: library.revision, data });
   }
   return <main className="library-layout">
@@ -209,12 +210,12 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
         <button type="button" className="quiet" onClick={() => setFilters([])}>Clear filters</button>
         <span className="small muted" role="status">{visibleRecords.length} of {library.characters.length} characters</span>
       </div>}
-      <div className={`library-list${section === 'characters' ? ' character-list' : ''}`}>{visibleRecords.map(item => <article key={item.id}>{section === 'characters' && <PictureSquare url={pictureIndex.get(item.id)?.thumbnailUrl} />}<div className={section === 'characters' ? 'character-row-content' : undefined}><h2>{item.name}{item.id === 'default' ? ' · Built in' : ''}</h2>{section === 'characters' && 'description' in item ? <CharacterDescription text={item.description} /> : <p>{section === 'connections' ? (item as Saved<Connection>).model : section === 'prompts' ? `${(item as Saved<PromptPreset>).blocks.length} blocks` : section === 'contexts' ? `Minimum tail ${(item as Saved<ContextPreset>).minTail} · Batch ${(item as Saved<ContextPreset>).batchSize}` : 'description' in item ? item.description.slice(0, 140) : ''}</p>}{section === 'lorebooks' && 'entries' in item && <><p>{item.entries.length} entries · {item.entries.filter(entry => entry.enabled).length} enabled</p><LorebookUses bookId={item.id} library={library} /></>}</div><div className="actions">
-        <button className="secondary" aria-label={section === 'characters' ? `Edit ${item.name}` : undefined} disabled={busy} onClick={() => { const { id, revision: _revision, ...record } = item; const { hasApiKey, ...data } = record as typeof record & { hasApiKey?: boolean }; setEditing({ kind: section, id, revision: library.revision, data, hasApiKey }); }}>Edit</button>
-        <button className="quiet" aria-label={section === 'characters' ? `Duplicate ${item.name}` : undefined} disabled={busy} onClick={() => void run(async () => { const { id: _id, revision: _revision, ...record } = item; const { hasApiKey: _key, ...data } = record as typeof record & { hasApiKey?: boolean }; if (section === 'characters') await api(`/library/characters/${item.id}/duplicate`, 'POST', { revision: library.revision }); else await api('/library', 'POST', { kind: section, revision: library.revision, data: { ...data, name: `${item.name.slice(0, 90)} copy`, ...('entries' in data ? { entries: data.entries.map(entry => ({ ...entry, id: crypto.randomUUID() })) } : {}) } }); setNotice(section === 'connections' ? 'Connection copied. Add its API key in the new Connection.' : section === 'characters' && 'lorebookId' in data && data.lorebookId ? 'Character copied. Its default lorebook is shared with the original character; duplicate the book for independent edits.' : section === 'lorebooks' ? 'Independent lorebook copy saved.' : 'Copy saved.'); })}>Duplicate</button>
-        {section !== 'connections' && <button className="quiet" aria-label={section === 'characters' ? `Export JSON ${item.name}` : undefined} onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}>{section === 'characters' ? 'Export JSON' : 'Export'}</button>}
+      <div className={`library-list${section === 'characters' ? ' character-list' : ''}`}>{visibleRecords.map(item => <article key={item.id}>{section === 'characters' && <PictureSquare url={pictureIndex.get(item.id)?.thumbnailUrl} />}<div className={section === 'characters' ? 'character-row-content' : undefined}><h2 title={section === 'characters' ? characterLabel(item) : undefined}>{item.name}{section === 'characters' && 'titleComment' in item && item.titleComment && <span className="character-comment"> · {item.titleComment}</span>}{item.id === 'default' ? ' · Built in' : ''}</h2>{section === 'characters' && 'description' in item ? <CharacterDescription text={item.description} /> : <p>{section === 'connections' ? (item as Saved<Connection>).model : section === 'prompts' ? `${(item as Saved<PromptPreset>).blocks.length} blocks` : section === 'contexts' ? `Minimum tail ${(item as Saved<ContextPreset>).minTail} · Batch ${(item as Saved<ContextPreset>).batchSize}` : 'description' in item ? item.description.slice(0, 140) : ''}</p>}{section === 'lorebooks' && 'entries' in item && <><p>{item.entries.length} entries · {item.entries.filter(entry => entry.enabled).length} enabled</p><LorebookUses bookId={item.id} library={library} /></>}</div><div className="actions">
+        <button className="secondary" aria-label={section === 'characters' ? `Edit ${characterLabel(item)}` : undefined} disabled={busy} onClick={() => { const { id, revision: _revision, ...record } = item; const { hasApiKey, ...data } = record as typeof record & { hasApiKey?: boolean }; setEditing({ kind: section, id, revision: library.revision, data, hasApiKey }); }}>Edit</button>
+        <button className="quiet" aria-label={section === 'characters' ? `Duplicate ${characterLabel(item)}` : undefined} disabled={busy} onClick={() => void run(async () => { const { id: _id, revision: _revision, ...record } = item; const { hasApiKey: _key, ...data } = record as typeof record & { hasApiKey?: boolean }; if (section === 'characters') await api(`/library/characters/${item.id}/duplicate`, 'POST', { revision: library.revision }); else await api('/library', 'POST', { kind: section, revision: library.revision, data: { ...data, name: `${item.name.slice(0, 90)} copy`, ...('entries' in data ? { entries: data.entries.map(entry => ({ ...entry, id: crypto.randomUUID() })) } : {}) } }); setNotice(section === 'connections' ? 'Connection copied. Add its API key in the new Connection.' : section === 'characters' && 'lorebookId' in data && data.lorebookId ? 'Character copied. Its default lorebook is shared with the original character; duplicate the book for independent edits.' : section === 'lorebooks' ? 'Independent lorebook copy saved.' : 'Copy saved.'); })}>Duplicate</button>
+        {section !== 'connections' && <button className="quiet" aria-label={section === 'characters' ? `Export JSON ${characterLabel(item)}` : undefined} onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}>{section === 'characters' ? 'Export JSON' : 'Export'}</button>}
         {item.id === 'default' && <button className="quiet" disabled={busy} onClick={() => { if (confirm('Restore the built-in default prompt? Chats selecting it will use the restored prompt.')) void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); }}>Restore original</button>}
-        {item.id !== 'default' && <button className="quiet" aria-label={section === 'characters' ? `Delete ${item.name}` : undefined} disabled={busy || (section === 'lorebooks' && library.lorebookUses.some(use => use.bookId === item.id && (use.characters.length > 0 || use.chats.length > 0)))} onClick={() => { if (confirm(`Delete “${item.name}” from the library?`)) void run(() => api(`/library/${item.id}`, 'DELETE', { kind: section, revision: library.revision })); }}>Delete</button>}
+        {item.id !== 'default' && <button className="quiet" aria-label={section === 'characters' ? `Delete ${characterLabel(item)}` : undefined} disabled={busy || (section === 'lorebooks' && library.lorebookUses.some(use => use.bookId === item.id && (use.characters.length > 0 || use.chats.length > 0)))} onClick={() => { if (confirm(`Delete “${section === 'characters' ? characterLabel(item) : item.name}” from the library?`)) void run(() => api(`/library/${item.id}`, 'DELETE', { kind: section, revision: library.revision })); }}>Delete</button>}
       </div></article>)}{library[section].length === 0 && <p className="muted">Create or import your first {section === 'lorebooks' ? 'lorebook' : section === 'personas' ? 'persona' : section === 'characters' ? 'character' : section === 'connections' ? 'Connection' : 'prompt'}.</p>}{section !== 'characters' && query && visibleRecords.length === 0 && library[section].length > 0 && <p className="muted" role="status">No {libraryLabels[section].toLowerCase()} match your search.</p>}</div>
       {section === 'characters' && library.characters.length > 0 && visibleRecords.length === 0 && <p role="status">{query ? filters.length ? 'No characters match your search and selected tags.' : 'No characters match your search.' : 'No characters match all selected tags. Clear filters to see every character.'}</p>}
       </>}
@@ -234,7 +235,7 @@ function CharacterDescription({ text }: { text: string }) {
 }
 function LorebookUses({ bookId, library }: { bookId: string; library: LibrarySnapshot }) {
   const use = library.lorebookUses.find(item => item.bookId === bookId);
-  return use && (use.characters.length > 0 || use.chats.length > 0) ? <p className="small">Used by {use.characters.map(character => `character “${character.name}”`).concat(use.chats.map(chat => `chat “${chat.title}”`)).join(', ')}. Unlink these selections before deleting.</p> : <p className="small">No character or chat links.</p>;
+  return use && (use.characters.length > 0 || use.chats.length > 0) ? <p className="small">Used by {use.characters.map(character => `character “${characterLabel(character)}”`).concat(use.chats.map(chat => `chat “${chat.title}”`)).join(', ')}. Unlink these selections before deleting.</p> : <p className="small">No character or chat links.</p>;
 }
 function LibraryEditor({ initial, connections, currentRevision, busy, run, close }: { initial: { kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean }; connections: Saved<Connection>[]; currentRevision: number; busy: boolean; run: Run; close: () => void }) {
   const [data, setData] = useState(initial.data), [key, setKey] = useState(''), [removeKey, setRemoveKey] = useState(false);

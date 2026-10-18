@@ -12,7 +12,7 @@ import { AppError } from '../core/errors.js';
 import { replaceNameMacros } from '../core/prompt.js';
 import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStatus, RequestPreview, ResponseVariant, TokenUsage, Turn } from '../shared/contracts.js';
 import { regenerationView } from '../core/regeneration.js';
-import { characterSchema, defaultPrompt, selectionsSchema, type Character, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary } from '../shared/library.js';
+import { characterLabel, characterSchema, libraryCharacterSchema, defaultPrompt, selectionsSchema, type Character, type LibraryCharacter, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary } from '../shared/library.js';
 import { lorebookSchema, type Lorebook, type LoreImportPreview, type LoreResolution, type LoreState } from '../shared/lorebook.js';
 import { importLorebook, loreCompatibility, markLoreEdits } from '../core/lorebook-formats.js';
 import { importCharacter } from '../core/cards.js';
@@ -236,7 +236,13 @@ export class Store {
     if (!id) return null;
     const row = this.db.select().from(schema.library).where(and(eq(schema.library.id, id), eq(schema.library.kind, kind))).get();
     if (!row) throw new AppError(422, 'missing_selection', 'A selected library item no longer exists.');
-    return { ...row.data, id: row.id, revision: row.revision } as unknown as Saved<T>;
+    // Organizational metadata must never enter PromptSources or source revisions.
+    const data = kind === 'characters' ? this.promptCharacter(libraryCharacterSchema.parse(row.data)) : row.data;
+    return { ...data, id: row.id, revision: row.revision } as unknown as Saved<T>;
+  }
+  private promptCharacter(card: LibraryCharacter): Character {
+    const { titleComment: _titleComment, ...fields } = card;
+    return characterSchema.parse(fields);
   }
   snapshot(chatId = 'main'): ChatSnapshot {
     const chat = this.chat(chatId);
@@ -319,18 +325,18 @@ export class Store {
     return {
       characterPictures: this.pictures.list(),
       tags: this.tags.catalog(), characterTags: this.tags.links(),
-      revision: this.libraryRevision(), personas: list<Persona>('personas'), characters: list<Character>('characters'), prompts: list<PromptPreset>('prompts'),
+      revision: this.libraryRevision(), personas: list<Persona>('personas'), characters: list<LibraryCharacter>('characters'), prompts: list<PromptPreset>('prompts'),
       contexts: list<ContextPreset>('contexts').map(preset => ({ ...preset, repairPrompt: preset.repairPrompt ?? defaultContextPreset.repairPrompt })),
       lorebooks: list<Lorebook>('lorebooks'),
       lorebookUses: list<Lorebook>('lorebooks').map(book => ({ bookId: book.id,
-        characters: list<Character>('characters').filter(card => card.lorebookId === book.id).map(card => ({ id: card.id, name: card.name })),
+        characters: list<LibraryCharacter>('characters').filter(card => card.lorebookId === book.id).map(card => ({ id: card.id, name: card.name, ...(card.titleComment ? { titleComment: card.titleComment } : {}) })),
         chats: this.db.select().from(schema.chats).all().filter(chat => chat.settings.lorebookId === book.id).map(chat => ({ id: chat.id, title: chat.settings.title })),
       })),
       connections: this.db.select().from(schema.connections).all().map(r => ({ ...r.settings, id: r.id, revision: r.revision, hasApiKey: Boolean(this.db.select().from(schema.credentials).where(eq(schema.credentials.id, r.id)).get()?.apiKey) })),
       chats: this.chatSummaries(),
     };
   }
-  saveLibrary(expected: number, kind: LibraryKind, data: Character | Persona | PromptPreset | ContextPreset | Connection | Lorebook, id?: string, apiKey?: string, tagIds?: string[]) {
+  saveLibrary(expected: number, kind: LibraryKind, data: LibraryCharacter | Persona | PromptPreset | ContextPreset | Connection | Lorebook, id?: string, apiKey?: string, tagIds?: string[]) {
     if (kind === 'prompts') data = upgradePrompt(data);
     return this.sqlite.transaction(() => {
       this.checkLibrary(expected);
@@ -368,18 +374,24 @@ export class Store {
           }
         }
         if (kind === 'characters') {
-          const card = characterSchema.parse(data), previous = old ? characterSchema.parse(old.data) : null;
+          const card = libraryCharacterSchema.parse(data), previous = old ? libraryCharacterSchema.parse(old.data) : null;
           const lorebookId = card.lorebookId === undefined ? previous?.lorebookId : card.lorebookId;
           this.selected(lorebookId, 'lorebooks');
-          data = { ...card, ...(lorebookId !== undefined ? { lorebookId } : {}) };
+          // Older clients and internal card-only writes preserve local metadata.
+          const titleComment = card.titleComment ?? previous?.titleComment ?? '';
+          const updated: LibraryCharacter = { ...this.promptCharacter(card), ...(lorebookId !== undefined ? { lorebookId } : {}), ...(titleComment ? { titleComment } : {}) };
+          data = updated;
           if (previous && previous.name !== card.name) for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.characterId === identity) this.resetLoreEpoch(chat.id);
-        }
-        if (kind === 'characters' && old && isDeepStrictEqual(old.data, data)) {
-          if (tagIds !== undefined && this.tags.replaceInTransaction(identity, tagIds)) this.bumpLibrary();
-          return identity;
+          if (old && previous && isDeepStrictEqual(this.promptCharacter(previous), this.promptCharacter(updated))) {
+            const metadataChanged = !isDeepStrictEqual(old.data, data);
+            if (metadataChanged) this.db.update(schema.library).set({ data }).where(eq(schema.library.id, identity)).run();
+            const tagsChanged = tagIds !== undefined && this.tags.replaceInTransaction(identity, tagIds);
+            if (metadataChanged || tagsChanged) this.bumpLibrary();
+            return identity;
+          }
         }
         if (kind === 'personas' && old && 'name' in data && old.data.name !== data.name) for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.personaId === identity) this.resetLoreEpoch(chat.id);
-        const saved = data as Character | Persona | PromptPreset | ContextPreset | Lorebook;
+        const saved = data as LibraryCharacter | Persona | PromptPreset | ContextPreset | Lorebook;
         this.db.insert(schema.library).values({ id: identity, kind, revision: (old?.revision ?? -1) + 1, data: saved }).onConflictDoUpdate({ target: schema.library.id, set: { data: saved, revision: (old?.revision ?? -1) + 1 } }).run();
       }
       if (kind === 'characters' && tagIds !== undefined) this.tags.replaceInTransaction(identity, tagIds);
@@ -502,9 +514,9 @@ export class Store {
   duplicateCharacter(expected: number, characterId: string) {
     return this.sqlite.transaction(() => {
       this.checkLibrary(expected);
-      const card = this.selected<Character>(characterId, 'characters');
-      if (!card) throw new AppError(404, 'character_not_found', 'Character not found.');
-      const { id: _id, revision: _revision, ...data } = card;
+      const original = this.db.select().from(schema.library).where(and(eq(schema.library.id, characterId), eq(schema.library.kind, 'characters'))).get();
+      if (!original) throw new AppError(404, 'character_not_found', 'Character not found.');
+      const data = libraryCharacterSchema.parse(original.data);
       const id = this.saveLibrary(expected, 'characters', { ...data, name: `${data.name.slice(0, 90)} copy` }, undefined, undefined, this.tags.assigned(characterId));
       this.pictures.duplicate(characterId, id);
       return id;
@@ -573,7 +585,7 @@ export class Store {
       const key = kind === 'personas' ? 'personaId' : kind === 'characters' ? 'characterId' : kind === 'prompts' ? 'promptId' : kind === 'contexts' ? 'contextPresetId' : kind === 'lorebooks' ? 'lorebookId' : 'connectionId';
       if (kind === 'lorebooks') {
         const uses = this.libraries().lorebookUses.find(use => use.bookId === id);
-        if (uses && (uses.characters.length || uses.chats.length)) throw new AppError(409, 'item_in_use', `This lorebook is used by ${[...uses.characters.map(card => `character “${card.name}”`), ...uses.chats.map(chat => `chat “${chat.title}”`)].join(', ')}. Choose None or another book there first.`);
+        if (uses && (uses.characters.length || uses.chats.length)) throw new AppError(409, 'item_in_use', `This lorebook is used by ${[...uses.characters.map(card => `character “${characterLabel(card)}”`), ...uses.chats.map(chat => `chat “${chat.title}”`)].join(', ')}. Choose None or another book there first.`);
       }
       if (this.db.select().from(schema.chats).all().some(c => c.settings[key] === id || (kind === 'connections' && id === 'main' && c.settings.connectionId === undefined))) throw new AppError(409, 'item_in_use', 'Select a different item in the chats using this one before deleting it.');
       if (kind === 'connections') {

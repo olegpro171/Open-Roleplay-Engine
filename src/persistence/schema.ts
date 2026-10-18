@@ -1,6 +1,6 @@
 import { blob, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { ChatSettings, Connection, GenerationStatus, RequestPreview, TokenUsage } from '../shared/contracts.js';
-import type { Character, Persona, PromptPreset } from '../shared/library.js';
+import type { LibraryCharacter, Persona, PromptPreset } from '../shared/library.js';
 import type { ContextPreset } from '../shared/context.js';
 import type { Lorebook } from '../shared/lorebook.js';
 
@@ -14,7 +14,7 @@ export const connections = sqliteTable('connections', {
 });
 export const library = sqliteTable('library', {
   id: text('id').primaryKey(), kind: text('kind').notNull(), revision: integer('revision').notNull(),
-  data: text('data', { mode: 'json' }).$type<Character | Persona | PromptPreset | ContextPreset | Lorebook>().notNull(),
+  data: text('data', { mode: 'json' }).$type<LibraryCharacter | Persona | PromptPreset | ContextPreset | Lorebook>().notNull(),
 });
 // Server-only tables; never spread their records into an API response.
 export const credentials = sqliteTable('credentials', { id: text('id').primaryKey(), apiKey: text('api_key').notNull() });

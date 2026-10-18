@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { AppError } from '../core/errors.js';
 import { readEmbeddedTags } from '../core/tags.js';
 import { canonicalTagName, tagIdsSchema, tagLimits, tagNameSchema, tagPolicySchema, type TagCandidates, type TagPolicy, type TagReview } from '../shared/tags.js';
-import { characterSchema } from '../shared/library.js';
+import { libraryCharacterSchema } from '../shared/library.js';
 import * as schema from './schema.js';
 
 /** Organization never writes a prompt-bearing library record or a chat revision. */
@@ -25,7 +25,7 @@ export class TagStore {
   private character(id: string) {
     const row = this.db.select().from(schema.library).where(eq(schema.library.id, id)).get();
     if (!row || row.kind !== 'characters') throw new AppError(404, 'character_not_found', 'Character not found.');
-    return characterSchema.parse(row.data);
+    return libraryCharacterSchema.parse(row.data);
   }
   private byName() { return new Map(this.db.select().from(schema.tags).all().map(tag => [tag.canonicalKey, tag])); }
   private collision(key: string, ownId?: string) {

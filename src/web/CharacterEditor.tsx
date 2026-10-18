@@ -1,13 +1,13 @@
 import type { CharacterSaveCommand } from '../shared/library';
 import { PictureEditor, PictureSquare, pictureMutation, savedPictureDraft } from './Pictures';
 import { useEffect, useRef, useState } from 'react';
-import type { Character, LibrarySnapshot } from '../shared/library';
+import { characterLabel, type LibraryCharacter, type LibrarySnapshot } from '../shared/library';
 import type { TagPolicy, TagReview } from '../shared/tags';
 import { ApiError, api } from './api';
 import { Dropdown } from './Controls';
 import { TagChooser, TagImportOptions, TagManager, type TagCommit } from './Tags';
 
-type Initial = { id?: string; revision: number; data: Character };
+type Initial = { id?: string; revision: number; data: LibraryCharacter };
 export function CharacterEditor({ initial, library, busy, run, close, openBook, extracted, saved }: { initial: Initial; library: LibrarySnapshot; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; close: () => void; openBook: (id: string) => void; extracted: (id: string) => void; saved: () => void }) {
   const [baselineData, setBaselineData] = useState(initial.data);
   const [baselinePicture, setBaselinePicture] = useState(() => library.characterPictures.find(picture => picture.characterId === initial.id) ?? null);
@@ -23,7 +23,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
   const alive = useRef(true), extractionId = useRef(crypto.randomUUID());
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const stale = revision !== library.revision;
-  const characterChanged = (['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'lorebookId'] as const).some(field => data[field] !== baselineData[field]);
+  const characterChanged = (['name', 'titleComment', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'lorebookId'] as const).some(field => data[field] !== baselineData[field]);
   const pictureChanged = pictureMutation(picture, baselinePicture) !== undefined;
   function safeClose() { alive.current = false; close(); }
   const committed: TagCommit = (before, after, snapshot, deletedId) => {
@@ -33,7 +33,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
     const expected = baseline.filter(id => id !== deletedId);
     // Advance only our own checked organizational mutation, with the editor's
     // actual character and assignment dependencies still unchanged.
-    if (initial.id && (character?.revision !== originalRevision.current || (snapshot.characterPictures.find(picture => picture.characterId === initial.id)?.key ?? null) !== (baselinePicture?.key ?? null) || expected.length !== links.length || expected.some(id => !links.includes(id)))) return;
+    if (initial.id && (character?.revision !== originalRevision.current || (character?.titleComment ?? '') !== (baselineData.titleComment ?? '') || (snapshot.characterPictures.find(picture => picture.characterId === initial.id)?.key ?? null) !== (baselinePicture?.key ?? null) || expected.length !== links.length || expected.some(id => !links.includes(id)))) return;
     setRevision(after); setBaseline(links); setEmbedded(null);
     if (deletedId) setTagIds(ids => ids.filter(id => id !== deletedId));
   };
@@ -44,7 +44,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
       try {
         const result = await api<{ revision: number }>(`/library/characters/${initial.id}/tags/apply`, 'POST', { revision: embedded.revision, tagPolicy: policy });
         const snapshot = await api<LibrarySnapshot>('/library');
-        if (!alive.current || embedded.revision !== revision || snapshot.revision !== result.revision || snapshot.characters.find(card => card.id === initial.id)?.revision !== originalRevision.current || (snapshot.characterPictures.find(picture => picture.characterId === initial.id)?.key ?? null) !== (baselinePicture?.key ?? null)) return;
+        if (!alive.current || embedded.revision !== revision || snapshot.revision !== result.revision || snapshot.characters.find(card => card.id === initial.id)?.revision !== originalRevision.current || (snapshot.characters.find(card => card.id === initial.id)?.titleComment ?? '') !== (baselineData.titleComment ?? '') || (snapshot.characterPictures.find(picture => picture.characterId === initial.id)?.key ?? null) !== (baselinePicture?.key ?? null)) return;
         const links = snapshot.characterTags.filter(link => link.characterId === initial.id).map(link => link.tagId);
         setTagIds(ids => [...new Set([...ids, ...links.filter(id => !baseline.includes(id))])]);
         setBaseline(links); setRevision(result.revision); setEmbedded(null);
@@ -91,6 +91,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
   return <>
     <form onSubmit={event => { event.preventDefault(); void save(); }}><fieldset disabled={busy || pending || stale || Boolean(uncertain)}><legend>{initial.id ? 'Edit' : 'Create'} character</legend><div className="form-grid">
       <label className="full">Name<input required maxLength={100} value={data.name} onChange={event => setData({ ...data, name: event.target.value })} /></label>
+      <label className="full">Title / comment<input aria-label="Title / comment" maxLength={200} value={data.titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>Optional local label for distinguishing versions. Never sent to the model or included in card exports.</small></label>
       <PictureEditor value={picture} change={setPicture} original={baselinePicture} disabled={busy || pending || stale || Boolean(uncertain)} processing={setProcessing} />
       {([['description', 'Character description'], ['personality', 'Personality'], ['scenario', 'Scenario'], ['first_mes', 'Greeting'], ['mes_example', 'Example dialogue']] as const).map(([field, label]) => <label key={field} className="full">{label}<textarea aria-label={label} maxLength={100_000} value={data[field]} onChange={event => setData({ ...data, [field]: event.target.value })} /></label>)}
       <label className="full">Default lorebook<Dropdown aria-label="Default lorebook" value={data.lorebookId ?? ''} options={[{ value: '', label: 'None selected' }, ...library.lorebooks.map(book => ({ value: book.id, label: book.name }))]} onChange={id => setData({ ...data, lorebookId: id || null })} /><small>Prefills new chats; existing chats keep their selection. This linked book is embedded on export.</small></label>
@@ -112,10 +113,10 @@ function CharacterReconciliation({ library, characterId, disabled, reconcile }: 
   return <section className="character-reconcile">
     <p role="status">The library changed. Your unsaved edits and picture draft remain here.</p>
     {characterId && <>
-      <p className="small">Current saved character: {character?.name ?? 'Deleted'} · {selectedTags.size} tags. Review current text and tags before reapplying your picture.</p>
+      <p className="small">Current saved character: {character ? characterLabel(character) : 'Deleted'} · {selectedTags.size} tags. Review current text and tags before reapplying your picture.</p>
       <PictureSquare url={picture?.thumbnailUrl} />
       {character && <details><summary>Current saved text and tags</summary>
-        {(['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'] as const).map((field, index) => <div key={field}><strong>{['Name', 'Description', 'Personality', 'Scenario', 'Greeting', 'Example dialogue'][index]}</strong><p className="prose small">{character[field] || 'Empty'}</p></div>)}
+        {(['name', 'titleComment', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'] as const).map((field, index) => <div key={field}><strong>{['Name', 'Title / comment', 'Description', 'Personality', 'Scenario', 'Greeting', 'Example dialogue'][index]}</strong><p className="prose small">{character[field] || 'Empty'}</p></div>)}
         <strong>Default lorebook</strong><p>{library.lorebooks.find(book => book.id === character.lorebookId)?.name ?? 'None'}</p>
         <strong>Tags</strong><p>{library.tags.filter(tag => selectedTags.has(tag.id)).map(tag => tag.name).join(', ') || 'None'}</p>
       </details>}

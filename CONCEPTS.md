@@ -179,7 +179,7 @@ Accepted composer requirement on 2026-10-17: preserve each chat’s unsent text 
 
 User interface decision on 2026-10-17: select chats through Libraries. Any idle chat, including the original or final chat, may be deleted; deleting the current chat keeps the Chats library open for further cleanup. Story and Setup sit together in the shared header.
 
-Accepted chat-start refinement on 2026-10-18: **New chat** opens a compact form containing only Character and Persona. **Create chat** immediately saves the chat and opens its Setup page with the saved title “[Character name] - Roleplay”. All other selections use the existing defaults, including the character's default lorebook and copied greeting; leaving Setup requires no additional save. None remains available for either selection; without a character the title is “A new story”. Long character names are shortened in the title to preserve the suffix within the existing 100-character limit. Further setup changes still require Save setup.
+Accepted chat-start refinement on 2026-10-18: **New chat** opens a compact form containing only Character and Persona. **Create chat** immediately saves the chat and opens its Setup page with the saved title “[Character display label] - Roleplay”. All other selections use the existing defaults, including the character's default lorebook and copied greeting; leaving Setup requires no additional save. None remains available for either selection; without a character the title is “A new story”. Long character names are shortened in the title to preserve the suffix within the existing 100-character limit. Further setup changes still require Save setup.
 
 Accepted Library interface refinement on 2026-10-18: every category uses a compact search box directly below its actions, with a magnifying glass and “Search …” placeholder for the current library, without a separate visible label or helper paragraph. Lorebooks places Import lorebook beside New lorebook, replacing the standalone import section while retaining import review.
 
@@ -220,6 +220,8 @@ Separate reusable records:
 - **Persona:** describes the identity played by the user.
 
 Separate reusable Character and Persona records and their libraries are accepted in the second milestone. Their data can be inserted through prompt markers. Initial compatibility covers basic SillyTavern character text fields and persona names/descriptions; on 2026-10-17 the importer was extended to read the same basic fields from V3 JSON/PNG cards while preserving inactive metadata and the V3 export format; lorebooks now follow the separately accepted profile below. Other card extras remain inactive. One character and one persona are selected per chat; multiple active characters remain open.
+
+Accepted on 2026-10-18: characters have an optional **Title / comment**, stored separately from the character name for local organization. Display “Alice · University version” in character labels, including Libraries, selectors and Story; search includes this metadata. It never enters model input, name substitution or ordinary card exports. It is independent of creator notes and V3 nickname and does not enable additional V3 prompt behavior. Duplication copies it; clearing it restores a name-only label. New chat titles use the displayed character label, within the existing length limit; later metadata edits do not rename saved chats. Metadata-only saves preserve prompt-bearing revisions, memory and lore state, while retaining the shared library concurrency checks.
 
 ### Character pictures
 

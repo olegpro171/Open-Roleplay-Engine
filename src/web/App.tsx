@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ChatSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError } from './api';
-import { hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
+import { characterLabel, hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
 import { ChatSetup, Libraries } from './Libraries';
 import { Dropdown } from './Controls';
 import { trimBoundaryNewlines } from '../shared/text';
@@ -194,6 +194,7 @@ export function App() {
     loadId.current++; rememberChat(id); setChatId(id); setTab(destination); setEdit(null); setPeek(false); setGenerationId(''); if (id !== chatId) setSnapshot(null);
   }
   if (!library) return <main className="login"><p>Loading your story…</p>{error && <p role="alert">{error}</p>}</main>;
+  const selectedCharacterLabel = characterLabel(library.characters.find(character => character.id === snapshot?.settings.characterId) ?? snapshot?.sources.character ?? { name: 'Character' });
 
   return <div className="app">
     <header className="topbar">
@@ -234,7 +235,7 @@ export function App() {
               if (confirm(`Delete this entire turn, including its saved request records?${snapshot.settings.lorebookId ? ' Lore activation history for this chat will start fresh.' : ''}`)) void command(() => api(`/chats/${chatId}/turns/${turn.id}`, 'DELETE', { revision: snapshot.revision }));
             }}>Delete turn</button></div>
             {(['user', 'assistant'] as const).filter(part => !(part === 'user' && turn.complete && turn.user.text === '' && turn.user.revision === 0 && !(edit?.turnId === turn.id && edit.part === 'user'))).map((part) => <div className={`part ${part}`} key={part}>
-              <div className="part-heading"><strong>{part === 'user' ? snapshot.sources.persona?.name ?? 'You' : snapshot.sources.character?.name ?? 'Character'}</strong><button className="quiet" disabled={working || busy || (part === 'assistant' && !turn.complete)} onClick={() => setEdit({ turnId: turn.id, part, text: turn[part].text, revision: snapshot.revision })}>Edit {part === 'user' ? 'input' : 'response'}</button></div>
+              <div className="part-heading"><strong>{part === 'user' ? snapshot.sources.persona?.name ?? 'You' : selectedCharacterLabel}</strong><button className="quiet" disabled={working || busy || (part === 'assistant' && !turn.complete)} onClick={() => setEdit({ turnId: turn.id, part, text: turn[part].text, revision: snapshot.revision })}>Edit {part === 'user' ? 'input' : 'response'}</button></div>
               {part === 'assistant' && reasoningGeneration?.reasoningText?.trim() && <Reasoning key={reasoningGeneration.id} text={reasoningGeneration.reasoningText} live={generating} chatId={snapshot.id} generationId={reasoningGeneration.id} length={reasoningGeneration.reasoningLength ?? 0} />}
               {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><textarea aria-label={`Edit ${part} text`} value={edit.text} onChange={(event) => setEdit({ ...edit, text: event.target.value })} /><p className="small muted">{snapshot.settings.lorebookId ? "Saving a history edit starts fresh lore activation history for this chat." : ""}</p><div className="actions"><button disabled={busy}>Save edit</button><button type="button" className="quiet" onClick={() => setEdit(null)}>Cancel edit</button></div></form> : <div className="prose">
                 {part === 'assistant' && (!turn.complete || generating)
