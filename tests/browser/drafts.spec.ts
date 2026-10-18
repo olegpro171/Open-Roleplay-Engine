@@ -33,6 +33,53 @@ async function open(page: Page, title: string) {
   await expect(page.getByLabel('Your next turn')).toBeVisible();
 }
 
+for (const width of [1440, 390]) test(`composer fits its content at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  await setup(page);
+  const composer = page.getByLabel('Your next turn');
+  const send = page.getByRole('button', { name: 'Send', exact: true });
+  const height = () => composer.evaluate(field => field.getBoundingClientRect().height);
+  const fits = () => composer.evaluate(field => field.scrollHeight <= field.clientHeight + 1);
+  const minimum = await send.evaluate(button => button.getBoundingClientRect().height);
+  await expect.poll(height).toBe(minimum);
+
+  await composer.pressSequentially('Mira waits.');
+  await composer.press('Enter');
+  await composer.pressSequentially('Leon returns the key.');
+  await expect.poll(height).toBeGreaterThan(minimum);
+  await expect.poll(fits).toBe(true);
+  const multilineHeight = await height();
+  await page.reload();
+  await expect(composer).toHaveValue('Mira waits.\nLeon returns the key.');
+  await expect.poll(height).toBe(multilineHeight);
+  await composer.fill('');
+  await expect.poll(height).toBe(minimum);
+
+  await composer.fill('Mira watches the lantern. '.repeat(12));
+  await expect.poll(fits).toBe(true);
+  const originalHeight = await height();
+  await page.setViewportSize({ width: width === 1440 ? 390 : 1440, height: 900 });
+  await expect.poll(async () => width === 1440 ? (await height()) > originalHeight : (await height()) < originalHeight).toBe(true);
+  await expect.poll(fits).toBe(true);
+  await page.setViewportSize({ width, height: 900 });
+  await expect.poll(height).toBe(originalHeight);
+
+  await composer.fill('A long draft line.\n'.repeat(60));
+  await expect.poll(height).toBeLessThanOrEqual(270);
+  await expect.poll(fits).toBe(false);
+  await composer.press('ControlOrMeta+End');
+  expect(await composer.evaluate(field => field.scrollTop)).toBeGreaterThan(0);
+  await composer.pressSequentially('The story continues.');
+  expect(await composer.evaluate(field => field.scrollTop)).toBeGreaterThan(0);
+  await page.screenshot({ path: `test-results/composer-${width}.png`, fullPage: true });
+  await composer.fill('I keep the key.');
+  await expect.poll(height).toBe(minimum);
+  await send.click();
+  await expect(composer).toBeEnabled();
+  await expect(composer).toHaveValue('');
+  await expect.poll(height).toBe(minimum);
+});
+
 test('drafts survive menus, chat switches, reloads and closing the browser page', async ({ page, context }) => {
   await setup(page);
   const text = '\n  Mira holds the key.\nОна ждёт ответа.  \n';

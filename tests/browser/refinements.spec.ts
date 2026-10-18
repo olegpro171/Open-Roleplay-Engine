@@ -142,6 +142,18 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
     return { right: send.left >= input.right, below: send.top >= input.bottom };
   });
   expect((await composerPositions()).right).toBe(true);
+  const composer = page.getByLabel('Your next turn');
+  const bottomGap = () => transcript.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight);
+  for (const width of [1380, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await composer.fill('\n\n\n\n\n');
+    await expect.poll(bottomGap).toBeLessThan(2);
+    await composer.pressSequentially('Mira waits.');
+    await expect.poll(bottomGap).toBeLessThan(2);
+    await composer.fill('');
+    await expect.poll(bottomGap).toBeLessThan(2);
+  }
+  await page.setViewportSize({ width: 1380, height: 900 });
   await transcript.evaluate(node => {
     const turn = node.querySelectorAll<HTMLElement>('.turn')[99];
     node.scrollTop += turn.getBoundingClientRect().top - node.getBoundingClientRect().top + turn.clientHeight * .35;
@@ -155,6 +167,12 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   });
   const before = await readingPosition();
   expect(before.turn).toBe('Turn 100');
+  await composer.fill('\n\n\n\n\n');
+  await composer.pressSequentially('Leon listens.');
+  await expect.poll(async () => (await readingPosition()).turn).toBe(before.turn);
+  await expect.poll(async () => Math.abs((await readingPosition()).progress - before.progress)).toBeLessThan(.02);
+  await composer.fill('');
+  await expect.poll(async () => Math.abs((await readingPosition()).progress - before.progress)).toBeLessThan(.02);
   for (const viewport of [{ width: 1100, height: 760 }, { width: 900, height: 680 }, { width: 760, height: 610 }, { width: 390, height: 650 }, { width: 1000, height: 820 }, { width: 1380, height: 900 }]) {
     await page.setViewportSize(viewport);
     await expect.poll(async () => (await readingPosition()).turn).toBe(before.turn);

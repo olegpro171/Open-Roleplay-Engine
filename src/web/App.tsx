@@ -218,8 +218,8 @@ export function App() {
         <p>{snapshot.connection ? `${snapshot.connection.name} · ${snapshot.connection.model}` : 'Set up a Connection to begin.'}</p>
         <dl><div><dt>Total turns</dt><dd>{snapshot.turns.length}</dd></div><div title="Saved turns kept verbatim in the current input, including a pending turn"><dt>Active turns</dt><dd>{activeTurns}</dd></div><div><dt>Input target</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString()}</dd></div><div><dt>Estimated input</dt><dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>{currentRequest?.budget.inputTokens.toLocaleString() ?? '—'}</dd></div></dl>
         <details className="context-dropdown"><summary>Context <span>{!summariesEnabled ? 'Summaries are disabled' : snapshot.context.selected.length ? `${snapshot.context.selected.length} summaries` : 'Full history'}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></> : <p className="small muted">{inspectionError || 'Select a Connection to inspect input.'}</p>}</details>
-        <button className="secondary" onClick={() => setTab('settings')}>Edit setup</button>
-        <button className="quiet" onClick={() => setTab('memory')}>Inspect memory</button>
+        <button className="secondary" onClick={() => setTab('settings')}>Chat settings</button>
+        <button className="secondary" onClick={() => setTab('memory')}>Inspect memory</button>
       </aside>
       <section className="conversation" aria-label="Conversation">
         {memoryStale && <div className="recovery" role="status"><div><strong>Memory needs review.</strong><p>Archived history changed. Repair the affected summaries before continuing.</p></div><button className="secondary" onClick={() => setTab('memory')}>Review memory</button></div>}
@@ -258,7 +258,7 @@ export function App() {
         {!active && pending && <div className="recovery" role="status"><div><strong>Last turn is still pending.</strong><p>{latest?.status === 'cancelled' ? 'Response cancelled. Generate response before next turn.' : latest?.error ?? 'Generate response before next turn.'}</p>{partial && <small>Partial text is preserved for inspection. It has not been accepted as a response.</small>}</div><button className="secondary" disabled={busy} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID() }))}>Retry response</button></div>}
         {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{latest.error ?? 'Regeneration did not finish. Try again.'}</p>}
         <form className="composer" onSubmit={(event) => void send(event)}>
-          <ChatTextarea aria-label="Your next turn" id="turn-input" placeholder="What happens next?" value={draft} disabled={pending || busy || working} onValueChange={text => { drafts.change(text); setPeek(false); }} />
+          <ChatTextarea autoSize rows={1} aria-label="Your next turn" id="turn-input" placeholder="What happens next?" value={draft} disabled={pending || busy || working} onValueChange={text => { drafts.change(text); setPeek(false); }} />
           <button className="send-turn" title={busy ? 'Saving changes…' : undefined} disabled={pending || busy || working || memoryStale || !snapshot.connection || !draft.trim()}>Send <span aria-hidden="true">↗</span></button>
           {drafts.storageError && <span className="composer-status" role="alert">Draft could not be saved in this browser. Keep this page open and copy your text before leaving.</span>}
           {preparing && <span className="composer-status">Preparing memory…</span>}
