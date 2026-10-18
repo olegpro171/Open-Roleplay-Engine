@@ -122,7 +122,7 @@ describe('prompt template upgrade', () => {
     const customId = store.saveLibrary(store.libraries().revision, 'prompts', { ...upgradePrompt(legacy), name: 'Custom legacy prompt' });
     store.sqlite.prepare('UPDATE library SET data = ? WHERE id = ?').run(JSON.stringify({ ...legacy, name: 'Custom legacy prompt' }), customId);
     const before = store.snapshot(), library = store.libraries();
-    store.sqlite.exec('DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags');
+    store.sqlite.exec('DROP TABLE character_pictures; DROP TABLE picture_assets; DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags');
     store.sqlite.pragma('user_version = 4');
     store.close(); store = new Store(path);
     try {
@@ -134,7 +134,7 @@ describe('prompt template upgrade', () => {
       expect(store.snapshot().turns).toEqual(before.turns);
       expect(store.snapshot().generations).toEqual(before.generations);
       expect(store.libraries().prompts.find(prompt => prompt.id === customId)!.blocks).toEqual(upgradePrompt(legacy).blocks);
-      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(9);
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(10);
     } finally { store.close(); }
   });
 });
@@ -151,7 +151,7 @@ describe('continuity prompt upgrade', () => {
     store.replaceHistory(store.snapshot(chatId).revision, chatId, [{ user: 'Mira kept the key.', assistant: 'Leon promised to return.', complete: true }]);
     const before = store.snapshot(chatId), unrelated = store.snapshot(), library = store.libraries();
     const changed = customized !== 'both';
-    store.sqlite.exec('DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags');
+    store.sqlite.exec('DROP TABLE character_pictures; DROP TABLE picture_assets; DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags');
     store.sqlite.pragma('user_version = 5');
     store.close(); store = new Store(path);
     try {
@@ -162,8 +162,8 @@ describe('continuity prompt upgrade', () => {
       });
       expect(store.snapshot(chatId)).toEqual({ ...before, revision: before.revision + Number(changed), context: { ...before.context, preset: store.contextPreset(id) } });
       expect(store.snapshot()).toEqual(unrelated);
-      expect(store.libraries().revision).toBe(library.revision + Number(changed) + 1);
-      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(9);
+      expect(store.libraries().revision).toBe(library.revision + Number(changed) + 2);
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(10);
       if (changed) expect(() => store.checkRevision(before.revision, chatId)).toThrow('changed on another device');
       const upgraded = store.snapshot(chatId), upgradedLibrary = store.libraries();
       store.close(); store = new Store(path);
@@ -179,7 +179,7 @@ describe('continuity prompt upgrade', () => {
     const before = store.sqlite.prepare('SELECT * FROM library ORDER BY id').all();
     const libraryRevision = store.libraries().revision;
     store.sqlite.exec("CREATE TRIGGER reject_prompt_upgrade BEFORE UPDATE ON library_state BEGIN SELECT RAISE(ABORT, 'synthetic upgrade failure'); END");
-    store.sqlite.exec('DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags');
+    store.sqlite.exec('DROP TABLE character_pictures; DROP TABLE picture_assets; DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags');
     store.sqlite.pragma('user_version = 5');
     store.close();
     expect(() => new Store(path)).toThrow('synthetic upgrade failure');

@@ -147,7 +147,7 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'keeper.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(character)) });
   await page.getByRole('button', { name: 'Import reviewed character', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Embedded harbor book' })).toBeVisible();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported harbor keeper', exact: true }) }).getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported harbor keeper', exact: true }) }).getByRole('button', { name: /^Edit(?: |$)/ }).click();
   await expect(page.getByRole('combobox', { name: 'Default lorebook', exact: true })).toContainText('Embedded harbor book');
   await page.getByRole('button', { name: 'Open book', exact: true }).click();
   await expect(page.getByLabel('Book name', { exact: true })).toHaveValue('Embedded harbor book');
@@ -157,7 +157,7 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   const legacy = await command(page, '/api/library', { kind: 'characters', revision: (await library(page)).revision, data: { name: 'Legacy harbor keeper', description: 'Existing editable description.', personality: '', scenario: '', first_mes: '', mes_example: '', source: legacySource } });
   const beforeExtraction = (await library(page)).lorebooks.length;
   await page.getByRole('button', { name: 'Characters', exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Legacy harbor keeper', exact: true }) }).getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Legacy harbor keeper', exact: true }) }).getByRole('button', { name: /^Edit(?: |$)/ }).click();
   await page.getByRole('button', { name: 'Extract embedded lorebook', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Embedded lorebook extracted' })).toBeVisible();
   await expect(page.getByLabel('Book name', { exact: true })).toHaveValue('Embedded harbor book');

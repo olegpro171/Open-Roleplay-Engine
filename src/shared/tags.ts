@@ -1,3 +1,4 @@
+import type { PictureReview } from './pictures.js';
 import { z } from 'zod';
 
 export const tagLimits = { name: 100, catalog: 2000, assignments: 128, candidates: 1024, metadataEntries: 4096, metadataCharacters: 500_000, diagnostics: 50, page: 50 } as const;
@@ -18,6 +19,7 @@ export type TagReview = {
   modes: Record<TagPolicy, { assign: number; create: number; blocked: string | null }>;
 };
 export type CharacterImportReview = {
+  picture?: PictureReview;
   revision: number; name: string; book: { name: string; entries: number } | null;
   diagnostics: { code: string; message: string; entryId?: string; field?: string }[];
   tags: TagReview;
@@ -28,6 +30,7 @@ export const characterImportResultSchema = z.object({
   ids: z.array(z.string()), books: z.array(z.object({ id: z.string(), name: z.string(), entries: z.number() })),
   diagnostics: z.array(z.object({ code: z.string(), message: z.string(), entryId: z.string().optional(), field: z.string().optional() })),
   tags: tagImportReportSchema.optional(),
+  picture: z.object({ saved: z.boolean() }).optional(),
 });
 export type CharacterImportResult = z.infer<typeof characterImportResultSchema>;
 

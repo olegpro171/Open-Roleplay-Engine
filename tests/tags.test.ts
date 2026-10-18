@@ -27,11 +27,11 @@ function editable(store: Store, id: string) { const { id: _id, revision: _revisi
 function addCharacter(store: Store, data = fields, ids?: string[]) { return store.saveLibrary(rev(store), 'characters', data, undefined, undefined, ids); }
 function allRows(database: Database.Database) {
   const result: Record<string, unknown[]> = {};
-  for (const { name } of database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT IN ('runtime_owner', 'tags', 'character_tags', 'library_state') ORDER BY name").all() as { name: string }[]) result[name] = database.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all();
+  for (const { name } of database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT IN ('runtime_owner', 'tags', 'character_tags', 'library_state', 'picture_assets', 'character_pictures') ORDER BY name").all() as { name: string }[]) result[name] = database.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all();
   return result;
 }
 function removeTagSchema(database: Database.Database) {
-  database.exec('DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags'); database.pragma('user_version = 8');
+  database.exec('DROP TABLE character_pictures; DROP TABLE picture_assets; DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags'); database.pragma('user_version = 8');
 }
 
 describe('tag identity and bounded metadata', () => {
@@ -231,7 +231,7 @@ describe('version 9 migration and pre-tags command history', () => {
     const characterId=required(result.ids[0]);store.createChat(selectionsSchema.parse({title:'Migration',targetInputTokens:32000,connectionId:null,promptId:'default',characterId,personaId:null}));
     store.saveLibrary(rev(store),'connections',{name:'Secret',endpoint:'http://localhost:1234/v1',model:'mock',contextWindow:10000,maxOutputTokens:100,customParameters:{}},undefined,'synthetic-tag-secret');
     const rows=allRows(store.sqlite);store.close();const old=new Database(path);removeTagSchema(old);const revision=Number((old.prepare('SELECT revision FROM library_state').get() as {revision:number}).revision);old.close();
-    store=open(path);expect(store.sqlite.pragma('user_version',{simple:true})).toBe(9);expect(allRows(store.sqlite)).toEqual(rows);expect(rev(store)).toBe(revision+1);expect(store.tags.links()).toEqual([]);expect(store.tags.catalog()).toEqual([]);
+    store=open(path);expect(store.sqlite.pragma('user_version',{simple:true})).toBe(10);expect(allRows(store.sqlite)).toEqual(rows);expect(rev(store)).toBe(revision+2);expect(store.tags.links()).toEqual([]);expect(store.tags.catalog()).toEqual([]);
     expect(store.importCard(0,commandId,source,'none')).toEqual(legacyResult);expect(store.importCard(0,commandId,source)).toEqual(legacyResult);expect(()=>store.importCard(0,commandId,source,'all')).toThrow('different command');
     expect(store.tags.embeddedReview(characterId).newTags).toHaveLength(2);
     const saved=store.libraries();store.close();store=open(path);expect(store.libraries()).toEqual(saved);expect(allRows(store.sqlite)).toEqual(rows);
@@ -240,7 +240,7 @@ describe('version 9 migration and pre-tags command history', () => {
     const path=join(folder(),'rollback.sqlite');const store=open(path);addCharacter(store,importCharacter(modern()));store.close();
     const old=new Database(path);removeTagSchema(old);const rows=allRows(old);old.exec("CREATE TRIGGER reject_tag_migration BEFORE UPDATE ON library_state BEGIN SELECT RAISE(ABORT, 'synthetic migration failure'); END");old.close();
     expect(()=>new Store(path)).toThrow('synthetic migration failure');const failed=new Database(path);expect(failed.pragma('user_version',{simple:true})).toBe(8);expect(failed.prepare("SELECT name FROM sqlite_master WHERE name='tags'").get()).toBeUndefined();expect(allRows(failed)).toEqual(rows);failed.exec('DROP TRIGGER reject_tag_migration');failed.close();
-    const recovered=open(path);expect(recovered.sqlite.pragma('user_version',{simple:true})).toBe(9);expect(allRows(recovered.sqlite)).toEqual(rows);
+    const recovered=open(path);expect(recovered.sqlite.pragma('user_version',{simple:true})).toBe(10);expect(allRows(recovered.sqlite)).toEqual(rows);
   });
 });
 

@@ -88,7 +88,7 @@ An unfinished operation retaining an old lore-control resolution cannot assemble
 
 ## Bounds, inspection and verification
 
-Source JSON: 5 MB; normalized storage: 16 million UTF-16 code units (allows retained root/entry metadata plus editable fields). Card files remain 2 MB. Books: 2,000 entries; content/comment: 100,000 characters; key groups: 64 keys of at most 2,000 characters; scan/depth controls: 0–1,000. Metadata nesting is at most 100. Parsing never truncates source text/fields.
+Source JSON: 5 MB; normalized storage: 16 million UTF-16 code units (allows retained root/entry metadata plus editable fields). Character JSON files remain 2 MB; PNG cards allow 10 MB with independent 2 MB embedded-metadata bounds (see [pictures](PICTURES.md)). Books: 2,000 entries; content/comment: 100,000 characters; key groups: 64 keys of at most 2,000 characters; scan/depth controls: 0–1,000. Metadata nesting is at most 100. Parsing never truncates source text/fields.
 
 Per resolution: at most 20 million scanned original characters, 200 million literal character-by-key work units, 20 million regex work units, 4,096 regex tasks, 32 recursion rounds and 256 decorator lines per entry. Exceeding a work bound is actionable failure before transport. Regex workers use built-in Node isolation with two concurrent workers, 32 queued tasks, resource limits, 500 ms task execution and a shared five-second matcher deadline including queue wait. Cancellation/timeout terminates affected workers; the pool can accept later work. No external regex service/dependency is introduced.
 

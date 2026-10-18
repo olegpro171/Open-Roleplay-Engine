@@ -1,3 +1,5 @@
+import { PictureProcessor, pictureAnalysis, pictureBytes, pictureDigest } from './pictures.js';
+import { pictureBase64Schema, pictureModeSchema, pictureBase64Limit } from '../shared/pictures.js';
 import Fastify, { type FastifyReply } from 'fastify';
 import cookie from '@fastify/cookie';
 import staticFiles from '@fastify/static';
@@ -9,7 +11,7 @@ import type { ServerOptions } from 'node:https';
 import { importPersonas, exportCharacter, exportPersona } from '../core/cards.js';
 import { tagIdsSchema, tagNameSchema, tagPolicySchema } from '../shared/tags.js';
 import { defaultPrompt, libraryCommandSchema, selectionsSchema, replaceHistorySchema } from '../shared/library.js';
-import { readCardFile } from './card-import.js';
+import { readCardFile, readCharacterCardFile } from './card-import.js';
 import { AppError } from '../core/errors.js';
 import { assembleRequest } from '../core/prompt.js';
 import { Store } from '../persistence/store.js';
@@ -36,6 +38,7 @@ export async function createApp(options: {
   provider?: Provider; https?: ServerOptions;
 }) {
   const store = new Store(options.database, options.migrationsDirectory);
+  const pictures = new PictureProcessor();
   const provider = options.provider ?? new OpenAICompatibleProvider();
   const coordinator = new GenerationCoordinator(store, provider);
   function publicSnapshot(id: string): ChatSnapshot {
@@ -139,16 +142,51 @@ export async function createApp(options: {
     const { knownRevision } = z.object({ knownRevision: z.coerce.number().int().nonnegative().optional() }).strict().parse(request.query);
     return store.libraryUpdate(knownRevision);
   });
-  app.post('/api/library', { bodyLimit: 16_100_000 }, async request => {
-    const input = libraryCommandSchema.parse(request.body);
-    const id = store.saveLibrary(input.revision, input.kind, input.data, undefined, input.kind === 'connections' ? input.apiKey : undefined, input.kind === 'characters' ? input.tagIds : undefined);
-    coordinator.changed(); return { id };
+  async function saveLibrary(body: unknown, id?: string) {
+    const input = libraryCommandSchema.parse(body);
+    if (input.kind !== 'characters') return { id: store.saveLibrary(input.revision, input.kind, input.data, id, input.kind === 'connections' ? input.apiKey : undefined) };
+    const replay = store.replayCharacterSave(input, id);
+    if (replay.found) return replay.result;
+    store.checkCharacterSave(input, id);
+    let prepared;
+    if (input.picture?.mode === 'replace') prepared = await pictures.process(pictureBytes(input.picture.base64), input.picture.crop);
+    if (input.picture?.mode === 'keep') {
+      if (!id) throw new AppError(400, 'missing_picture', 'A new character has no saved picture to crop.');
+      prepared = await pictures.process(store.pictures.originalForCrop(id, input.picture.key), input.picture.crop);
+    }
+    return store.saveCharacter(input, id, prepared);
+  }
+  app.post('/api/library', { bodyLimit: 30_000_000 }, async request => {
+    const result = await saveLibrary(request.body); coordinator.changed(); return result;
   });
-  app.put('/api/library/:id', { bodyLimit: 16_100_000 }, async request => {
+  app.put('/api/library/:id', { bodyLimit: 30_000_000 }, async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
-    const input = libraryCommandSchema.parse(request.body);
-    store.saveLibrary(input.revision, input.kind, input.data, id, input.kind === 'connections' ? input.apiKey : undefined, input.kind === 'characters' ? input.tagIds : undefined);
-    coordinator.changed(); return { id };
+    const result = await saveLibrary(request.body, id); coordinator.changed(); return result;
+  });
+  async function previewPicture(bytes: Buffer, reply: FastifyReply) {
+    const controller = new AbortController();
+    const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); };
+    reply.raw.once('close', disconnected);
+    try { return pictureAnalysis(await pictures.process(bytes, undefined, controller.signal)); }
+    finally { reply.raw.removeListener('close', disconnected); }
+  }
+  app.post('/api/pictures/preview', { bodyLimit: pictureBase64Limit + 1000 }, async (request, reply) => {
+    const { base64 } = z.object({ base64: pictureBase64Schema }).strict().parse(request.body);
+    return previewPicture(pictureBytes(base64), reply);
+  });
+  app.get('/api/library/characters/:id/picture/:key/:kind', async (request, reply) => {
+    const { id, key, kind } = z.object({ id: identity, key: z.string().uuid(), kind: z.enum(['thumbnail', 'preview', 'original']) }).parse(request.params);
+    const image = store.pictures.resource(id, key, kind);
+    reply.type(image.mime);
+    if (kind === 'original') {
+      const extension = image.mime === 'image/jpeg' ? 'jpg' : image.mime === 'image/webp' ? 'webp' : 'png';
+      reply.header('Content-Disposition', `attachment; filename="original-picture.${extension}"`);
+    } else {
+      const etag = `"${key}-${kind}"`;
+      reply.header('Cache-Control', 'private, no-cache'); reply.header('ETag', etag);
+      if (request.headers['if-none-match'] === etag) return reply.code(304).send();
+    }
+    return reply.send(image.bytes);
   });
   app.delete('/api/library/:id', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
@@ -159,21 +197,34 @@ export async function createApp(options: {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
     store.saveLibrary(revision, 'prompts', defaultPrompt, 'default'); coordinator.changed(); return { ok: true };
   });
-  app.post('/api/library/import', { bodyLimit: 3_000_000 }, async request => {
-    const input = z.object({ revision: revisionSchema, requestId: z.string().uuid().optional(), kind: z.enum(['personas', 'characters']), tagPolicy: tagPolicySchema.optional(), base64: z.string().max(2_700_000) }).strict().parse(request.body);
-    const value = readCardFile(input.base64);
+  app.post('/api/library/import', { bodyLimit: pictureBase64Limit + 2000 }, async request => {
+    const input = z.object({ revision: revisionSchema, requestId: z.string().uuid().optional(), kind: z.enum(['personas', 'characters']), tagPolicy: tagPolicySchema.optional(), pictureMode: pictureModeSchema.optional(), base64: pictureBase64Schema }).strict().parse(request.body);
     if (input.kind === 'characters') {
-      const result = store.importCard(input.revision, input.requestId ?? randomUUID(), value, input.tagPolicy);
+      const parsed = readCharacterCardFile(input.base64), requestId = input.requestId ?? randomUUID();
+      const artwork = { mode: input.pictureMode ?? 'retain', digest: parsed.artwork ? pictureDigest(parsed.artwork) : null };
+      const replay = store.replayCard(requestId, parsed.value, input.tagPolicy ?? 'none', artwork);
+      if (replay.found) return replay.result;
+      // Metadata review and receipt lookup precede strict artwork validation.
+      store.previewCard(parsed.value);
+      const prepared = artwork.mode === 'retain' && parsed.artwork ? await pictures.process(parsed.artwork) : undefined;
+      const result = store.importCard(input.revision, requestId, parsed.value, input.tagPolicy, artwork, prepared);
       coordinator.changed(); return result;
     }
+    const value = readCardFile(input.base64);
     let items;
     try { items = importPersonas(value); }
     catch (error) { if (error instanceof ZodError) throw error; throw new AppError(400, 'invalid_card', error instanceof Error ? error.message : 'Invalid card.'); }
     const ids = store.importLibrary(input.revision, input.kind, items); coordinator.changed(); return { ids };
   });
-  app.post('/api/library/characters/preview', { bodyLimit: 3_000_000 }, async request => {
-    const { base64 } = z.object({ base64: z.string().max(2_700_000) }).strict().parse(request.body);
-    return store.previewCard(readCardFile(base64));
+  app.post('/api/library/characters/preview', { bodyLimit: pictureBase64Limit + 1000 }, async (request, reply) => {
+    const { base64 } = z.object({ base64: pictureBase64Schema }).strict().parse(request.body);
+    const parsed = readCharacterCardFile(base64), review = store.previewCard(parsed.value);
+    if (!parsed.artwork) return { ...review, picture: { status: 'none' } };
+    try { return { ...review, picture: { status: 'ready', image: await previewPicture(parsed.artwork, reply) } }; }
+    catch (error) {
+      if (!(error instanceof AppError) || error.status !== 422) throw error;
+      return { ...review, picture: { status: 'error', message: error.message } };
+    }
   });
   app.post('/api/library/tags', async request => {
     const input = z.object({ revision: revisionSchema, name: tagNameSchema }).strict().parse(request.body);
@@ -390,7 +441,7 @@ export async function createApp(options: {
     app.get('/index.html', async (_request, reply) => sendIndex(reply));
     app.setNotFoundHandler((request, reply) => request.url.startsWith('/api/') ? reply.code(404).send({ message: 'Not found.' }) : sendIndex(reply));
   }
-  app.addHook('preClose', async () => coordinator.shutdown());
+  app.addHook('preClose', async () => { await pictures.close(); await coordinator.shutdown(); });
   app.addHook('onClose', async () => store.close());
   return { app, store, coordinator };
 }

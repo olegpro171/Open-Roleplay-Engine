@@ -211,6 +211,12 @@ Separate reusable records:
 
 Separate reusable Character and Persona records and their libraries are accepted in the second milestone. Their data can be inserted through prompt markers. Initial compatibility covers basic SillyTavern character text fields and persona names/descriptions; on 2026-10-17 the importer was extended to read the same basic fields from V3 JSON/PNG cards while preserving inactive metadata and the V3 export format; lorebooks now follow the separately accepted profile below. Other card extras remain inactive. One character and one persona are selected per chat; multiple active characters remain open.
 
+### Character pictures
+
+Accepted on 2026-10-18: implement the [picture assignment](docs/PICTURES_IMPLEMENTATION_BRIEF.md), including all proposed defaults and the pinned sharp dependency. Character library rows show square portraits with bounded names/tag/description previews. The editor offers manual pan/zoom crops, replacement and removal as drafts committed with text/tags on Save. Imported PNG cards retain original artwork with a centered default crop; failed artwork requires an explicit metadata-only import choice. JSON/older cards start with a neutral placeholder and can receive a picture separately without reimporting metadata.
+
+Originals and independent crops/renditions live separately from prompt-bearing Character data. Duplication preserves an independent picture association; picture-only changes do not change prompts, chat revisions, memory or lore. Saves use durable exact-command recovery, and conflicts retain local image/crop drafts while the user reviews current saved text/tags. Export JSON remains card data; Download original picture is explicitly separate from current PNG card export. PNG/JPEG/WebP, first-frame presentation, limits and verification scope are specified in [PICTURES.md](docs/PICTURES.md). Chat/selector pictures, persona portraits, backgrounds, remote assets, animation UI and updated PNG card export remain outside this milestone.
+
 ### Character tags
 
 Accepted on 2026-10-18: implement the [tag brief](docs/TAGS_IMPLEMENTATION_BRIEF.md), using all proposed defaults in section 3. One persistent owner-wide catalog organizes characters only. Catalog names have stable identities; trim/NFC/Unicode lowercase defines equality while existing spelling wins on import. Create, rename, delete, assignment editing and usage counts live in Characters. A tag deletion removes its assignments after usage confirmation, retaining characters and embedded metadata; unused tags remain in the catalog.

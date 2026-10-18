@@ -201,7 +201,7 @@ describe('durable imported-session preparation', () => {
     f.store.contexts.editSummary(f.chatId, f.state().revision, node, node.text + ' Author correction: Mira kept a duplicate.');
     const { id: _, revision: presetRevision, ...preset } = f.store.contextPreset(f.contextId)!;
     f.store.sqlite.prepare('UPDATE library SET data = ? WHERE id = ?').run(JSON.stringify({ ...preset, ...legacyContextPrompts }), f.contextId);
-    f.store.sqlite.exec('DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags');
+    f.store.sqlite.exec('DROP TABLE character_pictures; DROP TABLE picture_assets; DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags');
     f.store.sqlite.pragma('user_version = 5');
     const before = f.state();
     const records = () => ['summaries', 'context_states', 'context_jobs', 'context_steps', 'generations', 'credentials'].map(table => f.store.sqlite.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all());

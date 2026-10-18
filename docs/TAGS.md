@@ -6,7 +6,7 @@ Tags organize the Characters library locally. One owner-wide catalog is shared b
 
 Open **Libraries → Characters → Tags** for the searchable filter dropdown. **Manage tags** in that dropdown opens a scrollable dialog to create, search, rename or delete tags and see their character usage. New character, Import character and Tags share one compact toolbar; no filter panel or Clear filters control appears until needed. Escape or clicking outside closes the dropdown. The manager supports Escape and its close button, restores focus to its opener, and keeps the underlying editor inactive while open. Closing is blocked during a catalog save. Unused tags remain visible. Names are plain text and may contain commas. A deletion confirmation states how many characters lose the assignment. Deleting a character removes its assignments but retains the catalog.
 
-The character editor offers a searchable, paginated chooser and individual removal controls. Assignment changes remain a draft until **Save character**; closing discards them along with other character edits. Text and assignments save atomically. Manage tags opens the same dialog over the editor without losing its draft. Close the dialog to continue editing the character. A successful catalog operation advances that editor's captured library revision only if it was based on the editor's revision and its character/assignment dependencies are unchanged. Other concurrent changes require closing and reopening to reconcile; failed saves preserve the draft.
+The character editor offers a searchable, paginated chooser and individual removal controls. Assignment changes remain a draft until **Save character**; closing discards them along with other character edits. Text and assignments save atomically. Manage tags opens the same dialog over the editor without losing its draft. Close the dialog to continue editing the character. A successful catalog operation advances that editor's captured library revision only if it was based on the editor's revision and its character/assignment dependencies are unchanged. Other concurrent changes retain the draft and require reconciliation; the character editor can adopt current saved text/tags while retaining a local picture/crop. Failed saves preserve the draft.
 
 **Apply embedded tags** reviews preserved card metadata without reimporting the character or its book. All creates missing eligible tags and adds assignments; Existing adds only catalog matches; None changes nothing. Existing assignments are retained. This action saves organization immediately and preserves unsaved character text. Closing the editor afterward discards its unsaved draft, while those explicitly applied assignments remain committed.
 
@@ -24,7 +24,7 @@ The reviewed library revision is checked inside the commit transaction. A catalo
 
 An uncertain transport acknowledgement keeps the source, chosen policy and command ID in the open review. **Retry reviewed character import** resends that exact command safely. The review locks its policy after an uncertain response. No automatic resend occurs. Leaving the page does not undo a committed import, and this review state is not persisted across reloads. Recorded success remains replayable after restart or later deletion without recreating data. The interface explains if its original character no longer exists. An intentional new import starts a new command ID and reuses matching catalog tags.
 
-The fingerprint includes card data and effective tag policy. Omitted policy means None and matches explicit None. A pre-tags fingerprint may replay only for effective None; its absent tag report means unavailable. Command history is never rewritten. The reviewed revision is a concurrency precondition and is excluded from the fingerprint, allowing historical replay after later library changes.
+Current fingerprints include card data, effective tag policy and picture digest/mode; pre-picture receipts remain replayable. Omitted policy means None and matches explicit None. A pre-tags fingerprint may replay only for effective None; its absent tag report means unavailable. Command history is never rewritten. The reviewed revision is a concurrency precondition and is excluded from the fingerprint, allowing historical replay after later library changes.
 
 ## Filters and bounds
 
@@ -32,7 +32,7 @@ The searchable Characters filter matches **all** selected local tags. No selecti
 
 | Bound | Value |
 | --- | --- |
-| Preserved character file | 2 MB (existing JSON/PNG limit) |
+| Preserved character file | JSON 2 MB; PNG 10 MB, with independent 2 MB metadata bounds; see [pictures](PICTURES.md) |
 | Local tag name | 100 UTF-16 code units after trim and NFC normalization |
 | Catalog | 2,000 tags |
 | Assignments per character | 128 unique tags |

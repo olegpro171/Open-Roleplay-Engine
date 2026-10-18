@@ -1,3 +1,4 @@
+import { pictureMutationSchema, type CharacterPicture } from './pictures.js';
 import { tagIdsSchema, type Tag, type CharacterTag } from './tags.js';
 import { z } from 'zod';
 import { connectionSchema, revisionSchema, type Connection } from './contracts.js';
@@ -39,6 +40,7 @@ export type PromptSources = { prompt: Saved<PromptPreset> | null; character: Sav
 export type ChatSummary = { id: string; title: string; revision: number; turnCount: number; running: boolean };
 export type UnchangedLibrary = { unchanged: true; revision: number; chats: ChatSummary[] };
 export type LibrarySnapshot = {
+  characterPictures: CharacterPicture[];
   tags: Tag[]; characterTags: CharacterTag[];
   revision: number; personas: Saved<Persona>[]; characters: Saved<Character>[]; prompts: Saved<PromptPreset>[];
   connections: (Saved<Connection> & { hasApiKey: boolean })[]; chats: ChatSummary[];
@@ -80,7 +82,7 @@ export const selectionsSchema = z.object({
 }).strict();
 export const libraryCommandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('personas'), revision: revisionSchema, data: personaSchema }).strict(),
-  z.object({ kind: z.literal('characters'), revision: revisionSchema, data: characterSchema, tagIds: tagIdsSchema.optional() }).strict(),
+  z.object({ kind: z.literal('characters'), revision: revisionSchema, data: characterSchema, tagIds: tagIdsSchema.optional(), requestId: z.string().uuid().optional(), expectedPicture: z.string().uuid().nullable().optional(), picture: pictureMutationSchema.optional() }).strict(),
   z.object({ kind: z.literal('prompts'), revision: revisionSchema, data: promptSchema }).strict(),
   z.object({ kind: z.literal('contexts'), revision: revisionSchema, data: contextPresetSchema }).strict(),
   z.object({ kind: z.literal('lorebooks'), revision: revisionSchema, data: lorebookSchema }).strict(),
@@ -92,3 +94,5 @@ export const replaceHistorySchema = z.object({ revision: revisionSchema, turns: 
   if (value.turns.reduce((n, t) => n + t.user.length + t.assistant.length, 0) > 20_000_000) ctx.addIssue({ code: 'custom', message: 'The active transcript exceeds the 20 million character import limit.' });
 });
 export type ImportedTurn = z.infer<typeof importedTurnSchema>;
+
+export type CharacterSaveCommand = Extract<z.infer<typeof libraryCommandSchema>, { kind: 'characters' }>;

@@ -1,4 +1,4 @@
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { blob, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { ChatSettings, Connection, GenerationStatus, RequestPreview, TokenUsage } from '../shared/contracts.js';
 import type { Character, Persona, PromptPreset } from '../shared/library.js';
 import type { ContextPreset } from '../shared/context.js';
@@ -48,3 +48,14 @@ export const characterTags = sqliteTable('character_tags', {
   characterId: text('character_id').notNull().references(() => library.id, { onDelete: 'cascade' }),
   tagId: text('tag_id').notNull().references(() => tags.id, { onDelete: 'cascade' }),
 }, table => [primaryKey({ columns: [table.characterId, table.tagId] }), index('character_tags_by_tag').on(table.tagId, table.characterId)]);
+
+export const pictureAssets = sqliteTable('picture_assets', {
+  id: text('id').primaryKey(), digest: text('digest').notNull(), mime: text('mime').notNull(),
+  width: integer('width').notNull(), height: integer('height').notNull(), orientation: integer('orientation').notNull(), firstFrame: integer('first_frame', { mode: 'boolean' }).notNull(),
+  original: blob('original', { mode: 'buffer' }).notNull(), preview: blob('preview', { mode: 'buffer' }).notNull(), renditionVersion: integer('rendition_version').notNull(),
+});
+export const characterPictures = sqliteTable('character_pictures', {
+  characterId: text('character_id').primaryKey().references(() => library.id, { onDelete: 'cascade' }),
+  assetId: text('asset_id').notNull().references(() => pictureAssets.id), key: text('key').notNull(), revision: integer('revision').notNull(),
+  crop: text('crop', { mode: 'json' }).$type<import('../shared/pictures.js').PictureCrop>().notNull(), thumbnail: blob('thumbnail', { mode: 'buffer' }).notNull(),
+}, table => [index('character_pictures_asset').on(table.assetId), uniqueIndex('character_picture_key').on(table.key)]);

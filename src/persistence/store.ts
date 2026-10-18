@@ -1,3 +1,7 @@
+import { PictureStore } from './picture-store.js';
+import type { PictureImportIntent } from '../shared/pictures.js';
+import type { PreparedPicture } from './picture-data.js';
+import type { CharacterSaveCommand } from '../shared/library.js';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
@@ -46,6 +50,7 @@ export class Store {
   readonly db;
   readonly contexts: ContextStore;
   readonly tags: TagStore;
+  readonly pictures: PictureStore;
   private readonly ownerToken = randomUUID();
 
   constructor(filename: string, migrationsDirectory = resolve('migrations')) {
@@ -188,7 +193,16 @@ export class Store {
           this.bumpLibrary();
           this.sqlite.pragma('user_version = 9');
         })();
-      } else if (version !== 9) throw new Error('Unsupported database schema version.');
+        version = 9;
+      }
+      if (version === 9) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0010_pictures.sql'), 'utf8'));
+          this.bumpLibrary();
+          this.sqlite.pragma('user_version = 10');
+        })();
+      } else if (version !== 10) throw new Error('Unsupported database schema version.');
+      this.pictures = new PictureStore(this.sqlite, () => this.bumpLibrary());
       this.contexts = new ContextStore(this);
       this.tags = new TagStore(this.sqlite, expected => this.checkLibrary(expected), () => this.bumpLibrary());
       if (newDatabase) this.db.insert(schema.chats).values({ id: 'main', revision: 0, settings: initialSettings }).onConflictDoNothing().run();
@@ -266,6 +280,7 @@ export class Store {
     const rows = this.db.select().from(schema.library).all();
     const list = <T>(kind: string) => rows.filter(r => r.kind === kind).map(r => ({ ...r.data, id: r.id, revision: r.revision })) as unknown as Saved<T>[];
     return {
+      characterPictures: this.pictures.list(),
       tags: this.tags.catalog(), characterTags: this.tags.links(),
       revision: this.libraryRevision(), personas: list<Persona>('personas'), characters: list<Character>('characters'), prompts: list<PromptPreset>('prompts'),
       contexts: list<ContextPreset>('contexts').map(preset => ({ ...preset, repairPrompt: preset.repairPrompt ?? defaultContextPreset.repairPrompt })),
@@ -334,16 +349,49 @@ export class Store {
       this.bumpLibrary(); this.bumpAffected(kind, identity); return identity;
     })();
   }
+  private characterSaveFingerprint(input: CharacterSaveCommand, id?: string) {
+    const picture = input.picture?.mode === 'replace' ? { mode: 'replace', digest: createHash('sha256').update(Buffer.from(input.picture.base64, 'base64')).digest('hex'), crop: input.picture.crop } : input.picture;
+    return { kind: 'character-save-v1', id: id ?? null, data: input.data, tagIds: input.tagIds, picture, expectedPicture: input.expectedPicture };
+  }
+  replayCharacterSave(input: CharacterSaveCommand, id?: string) {
+    if (!input.requestId) {
+      if (input.picture) throw new AppError(400, 'missing_command', 'Picture saves require a command identity.');
+      return { found: false as const };
+    }
+    return this.recordedLibraryCommand(input.requestId, this.libraryCommandFingerprint(this.characterSaveFingerprint(input, id)), value => z.object({ id: z.string() }).parse(value));
+  }
+  checkCharacterSave(input: CharacterSaveCommand, id?: string) {
+    this.checkLibrary(input.revision);
+    if (id) this.selected<Character>(id, 'characters');
+    if (input.picture) {
+      if (input.expectedPicture === undefined) throw new AppError(400, 'missing_picture_precondition', 'Picture saves require the reviewed picture identity.');
+      this.pictures.check(id, input.expectedPicture);
+    }
+  }
+  saveCharacter(input: CharacterSaveCommand, id?: string, prepared?: PreparedPicture) {
+    const replay = this.replayCharacterSave(input, id);
+    if (replay.found) return replay.result;
+    if (input.picture && input.picture.mode !== 'remove') {
+      if (!prepared || !isDeepStrictEqual(prepared.crop, input.picture.crop) || (input.picture.mode === 'replace' && prepared.digest !== createHash('sha256').update(Buffer.from(input.picture.base64, 'base64')).digest('hex'))) throw new Error('Prepared picture does not match the save command.');
+    }
+    const execute = () => {
+      this.checkCharacterSave(input, id);
+      const identity = this.saveLibrary(input.revision, 'characters', input.data, id, undefined, input.tagIds);
+      this.pictures.apply(identity, input.picture, prepared);
+      return { id: identity };
+    };
+    return input.requestId ? this.loreCommand(input.revision, input.requestId, this.characterSaveFingerprint(input, id), value => z.object({ id: z.string() }).parse(value), execute) : this.sqlite.transaction(execute)();
+  }
   importLibrary(expected: number, kind: 'characters' | 'personas', items: (Character | Persona)[]) {
     return this.sqlite.transaction(() => {
       this.checkLibrary(expected);
       return items.map(data => this.saveLibrary(this.libraryRevision(), kind, data));
     })();
   }
-  private recordedLibraryCommand<T>(requestId: string, fingerprint: string, parse: (value: unknown) => T, legacyFingerprint?: string): { found: false } | { found: true; result: T } {
+  private recordedLibraryCommand<T>(requestId: string, fingerprint: string, parse: (value: unknown) => T, legacyFingerprint?: string | string[]): { found: false } | { found: true; result: T } {
     const existing = this.sqlite.prepare('SELECT command, result FROM lore_commands WHERE request_id = ?').get(requestId) as { command: string; result: string } | undefined;
     if (!existing) return { found: false };
-    if (existing.command !== fingerprint && existing.command !== legacyFingerprint) throw new AppError(409, 'request_id_conflict', 'This import identity was already used for a different command.');
+    if (existing.command !== fingerprint && !(Array.isArray(legacyFingerprint) ? legacyFingerprint : [legacyFingerprint]).includes(existing.command)) throw new AppError(409, 'request_id_conflict', 'This import identity was already used for a different command.');
     return { found: true, result: parse(JSON.parse(existing.result)) };
   }
   private libraryCommandFingerprint(command: unknown) {
@@ -387,15 +435,18 @@ export class Store {
       book: book ? { name: book.book.name, entries: book.book.entries.length } : null,
       diagnostics: book?.diagnostics ?? [], tags: this.tags.review(tags) };
   }
-  importCard(expected: number, requestId: string, value: unknown, policyInput: TagPolicy = 'none') {
+  replayCard(requestId: string, value: unknown, policy: TagPolicy, artwork?: PictureImportIntent) {
+    const command = artwork ? { kind: 'character-picture-v1', value, tagPolicy: policy, artwork } : { kind: 'character', value, tagPolicy: policy };
+    const legacy = [{ kind: 'character', value, tagPolicy: policy }, ...(policy === 'none' ? [{ kind: 'character', value }] : [])];
+    return this.recordedLibraryCommand(requestId, this.libraryCommandFingerprint(command), value => characterImportResultSchema.parse(value), legacy.map(value => this.libraryCommandFingerprint(value)));
+  }
+  importCard(expected: number, requestId: string, value: unknown, policyInput: TagPolicy = 'none', artwork?: PictureImportIntent, prepared?: PreparedPicture) {
     const policy = tagPolicySchema.parse(policyInput);
     // Replay precedes analysis and revision checks, so historical success remains
     // available after deletion, catalog growth or stricter parser limits.
-    const command = { kind: 'character', value, tagPolicy: policy };
-    const legacyCommand = policy === 'none' ? { kind: 'character', value } : undefined;
+    const command = artwork ? { kind: 'character-picture-v1', value, tagPolicy: policy, artwork } : { kind: 'character', value, tagPolicy: policy };
     const parseResult = (value: unknown) => characterImportResultSchema.parse(value);
-    const recorded = this.recordedLibraryCommand(requestId, this.libraryCommandFingerprint(command), parseResult,
-      legacyCommand === undefined ? undefined : this.libraryCommandFingerprint(legacyCommand));
+    const recorded = this.replayCard(requestId, value, policy, artwork);
     if (recorded.found) return recorded.result;
     // Card/book analysis is read-only and stays outside the write transaction.
     const { card, book: preview, tags } = this.analyzeCard(value);
@@ -403,9 +454,13 @@ export class Store {
       const bookId = preview ? this.saveLibrary(this.libraryRevision(), 'lorebooks', preview.book) : null;
       const resolved = this.tags.resolveInTransaction(tags, policy);
       const id = this.saveLibrary(this.libraryRevision(), 'characters', { ...card, lorebookId: bookId }, undefined, undefined, resolved.ids);
-      return { ids: [id], books: preview && bookId ? [{ id: bookId, name: preview.book.name, entries: preview.book.entries.length }] : [],
+      if (artwork?.mode === 'retain' && artwork.digest) {
+        if (!prepared || prepared.digest !== artwork.digest) throw new Error('Imported artwork must be prepared before commit.');
+        this.pictures.apply(id, { mode: 'replace', crop: prepared.crop }, prepared);
+      }
+      return { ...(artwork ? { picture: { saved: artwork.mode === 'retain' && Boolean(artwork.digest) } } : {}), ids: [id], books: preview && bookId ? [{ id: bookId, name: preview.book.name, entries: preview.book.entries.length }] : [],
         diagnostics: preview && bookId ? this.savedLoreDiagnostics(preview, bookId) : [], tags: resolved.report };
-    }, legacyCommand);
+    });
   }
   duplicateCharacter(expected: number, characterId: string) {
     return this.sqlite.transaction(() => {
@@ -413,7 +468,9 @@ export class Store {
       const card = this.selected<Character>(characterId, 'characters');
       if (!card) throw new AppError(404, 'character_not_found', 'Character not found.');
       const { id: _id, revision: _revision, ...data } = card;
-      return this.saveLibrary(expected, 'characters', { ...data, name: `${data.name.slice(0, 90)} copy` }, undefined, undefined, this.tags.assigned(characterId));
+      const id = this.saveLibrary(expected, 'characters', { ...data, name: `${data.name.slice(0, 90)} copy` }, undefined, undefined, this.tags.assigned(characterId));
+      this.pictures.duplicate(characterId, id);
+      return id;
     })();
   }
   extractBook(expected: number, requestId: string, characterId: string) {
@@ -487,6 +544,7 @@ export class Store {
         this.db.delete(schema.credentials).where(eq(schema.credentials.id, id)).run();
         if (!this.db.delete(schema.connections).where(eq(schema.connections.id, id)).run().changes) throw new AppError(404, 'item_not_found', 'Connection not found.');
       } else if (!this.db.delete(schema.library).where(and(eq(schema.library.id, id), eq(schema.library.kind, kind))).run().changes) throw new AppError(404, 'item_not_found', 'Library item not found.');
+      this.pictures.cleanup();
       this.bumpLibrary();
     })();
   }
