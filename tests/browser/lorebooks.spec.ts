@@ -54,8 +54,8 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   const copiedBook = copiedLibrary.lorebooks.find(book => book.name === 'Moon Gate atlas copy');
   expect(copiedBook?.id).not.toBe(originalBook?.id);
   expect(copiedBook?.entries[0]?.id).not.toBe(originalBook?.entries[0]?.id);
-  page.once('dialog', dialog => dialog.accept());
   await copyRow.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.locator('.confirmation-dialog').getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(copyRow).toHaveCount(0);
   await page.getByRole('button', { name: 'Characters', exact: true }).click();
   await page.getByRole('button', { name: 'New character', exact: true }).click();

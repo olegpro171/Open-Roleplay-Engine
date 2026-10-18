@@ -1,0 +1,94 @@
+import { test, expect } from '@playwright/test';
+import type { LibrarySnapshot } from '../../src/shared/library';
+
+for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+  test(`deletion confirmation preserves data on dismissal and stale writes at ${viewport.width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    const session = await page.request.get('/api/session').then(response => response.json());
+    await page.goto('/');
+    await page.getByLabel('Owner password').fill('browser-synthetic-password');
+    await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+    await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+    await page.getByRole('button', { name: 'Personas', exact: true }).click();
+    await page.getByRole('button', { name: 'New persona', exact: true }).click();
+    const name = `Traveller ${viewport.width} <b>literal</b> ${'long name '.repeat(7)}`.trim();
+    await page.getByLabel('Name', { exact: true }).fill(name);
+    await page.getByRole('button', { name: 'Save persona', exact: true }).click();
+    const row = page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
+    const trigger = row.getByRole('button', { name: 'Delete', exact: true });
+    const dialog = page.getByRole('dialog', { name: 'Delete library item?' });
+    const library = (): Promise<LibrarySnapshot> => page.request.get('/api/library').then(response => response.json());
+    const before = await library();
+    let deletes = 0;
+    page.on('request', request => { if (request.method() === 'DELETE') deletes++; });
+    page.on('dialog', () => { throw new Error('Unexpected browser confirmation'); });
+    await trigger.click();
+    await expect(dialog).toContainText(name);
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeInViewport();
+    expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath('confirmation.png') });
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await trigger.click();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    expect(deletes).toBe(0);
+    expect((await library()).revision).toBe(before.revision);
+
+    // A confirmation retains its captured revision when another device edits the library.
+    await trigger.click();
+    const update = await page.request.post('/api/library', { headers: { Origin: 'http://127.0.0.1:4173' }, data: { kind: 'personas', revision: before.revision, data: { name: `Other device ${viewport.width}`, description: '' } } });
+    expect(update.ok()).toBe(true);
+    await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByRole('alert')).toBeVisible();
+    await expect(row).toBeVisible();
+    expect((await library()).personas.some(item => item.name === name)).toBe(true);
+    await trigger.click();
+    await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(row).toHaveCount(0);
+    expect(deletes).toBe(2);
+    await page.reload();
+    expect((await library()).personas.some(item => item.name === name)).toBe(false);
+  });
+}
+
+test('lore entry deletion stays in the book draft until saved', async ({ page }) => {
+  const session = await page.request.get('/api/session').then(response => response.json());
+  await page.goto('/');
+  await page.getByLabel('Owner password').fill('browser-synthetic-password');
+  await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await page.getByRole('button', { name: 'Lorebooks', exact: true }).click();
+  await page.getByRole('button', { name: 'New lorebook', exact: true }).click();
+  await page.getByLabel('Book name', { exact: true }).fill('Deletion draft atlas');
+  await page.getByRole('button', { name: 'Add entry', exact: true }).click();
+  await page.getByLabel('Entry name', { exact: true }).fill('Keep the gate');
+  await page.getByRole('button', { name: 'Save lorebook', exact: true }).click();
+  const row = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Deletion draft atlas', exact: true }) });
+  await row.getByRole('button', { name: 'Edit', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Delete lore entry?' });
+  const entry = page.getByLabel('Entry name', { exact: true });
+  await page.getByRole('button', { name: 'Delete entry', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(entry).toHaveValue('Keep the gate');
+  await page.getByRole('button', { name: 'Delete entry', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Delete entry', exact: true }).click();
+  await expect(entry).toHaveCount(0);
+  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await row.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(entry).toHaveValue('Keep the gate');
+  await page.getByRole('button', { name: 'Delete entry', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Delete entry', exact: true }).click();
+  await page.getByRole('button', { name: 'Save lorebook', exact: true }).click();
+  await expect(row).toContainText('0 entries');
+  await page.reload();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await page.getByRole('button', { name: 'Lorebooks', exact: true }).click();
+  await row.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(entry).toHaveCount(0);
+});

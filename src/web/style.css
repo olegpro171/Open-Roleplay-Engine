@@ -300,3 +300,14 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .chat-markdown input[type=checkbox] { width: auto; margin-right: .5em; }
 .chat-markdown .direct-speech { color: var(--direct-speech-color); font-weight: 700; }
 .markdown-image { color: var(--muted); font-style: italic; }
+
+/* Shared destructive-action confirmation, including dialogs opened over tag management. */
+.confirmation-dialog{width:min(460px,calc(100% - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:28px;border:1px solid #5a4343;border-radius:14px;background:var(--surface);color:#e8e8e4;box-shadow:0 24px 80px #0008}
+.confirmation-dialog::backdrop{background:#080c12b8}
+.confirmation-symbol{display:grid;place-items:center;width:36px;height:36px;margin-bottom:18px;border:1px solid #865452;border-radius:50%;background:#39292c;color:#f0aaa3;font-weight:700}
+.confirmation-dialog h2{font-size:21px;margin-bottom:12px}
+.confirmation-dialog p{color:#b8c1cd;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:24px}
+.confirmation-dialog .actions{justify-content:flex-end;gap:10px}
+.confirmation-dialog button{min-height:44px}
+button.danger{background:#b74e48;color:#fff;border-color:#d16b64}
+@media(max-width:480px){.confirmation-dialog{padding:22px}.confirmation-dialog .actions>button{flex:1}}

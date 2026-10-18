@@ -1,3 +1,4 @@
+import { useConfirmation } from './Confirmation';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { LibrarySnapshot } from '../shared/library';
 import { canonicalTagName, tagLimits, type Tag, type TagPolicy, type TagReview } from '../shared/tags';
@@ -60,6 +61,7 @@ export function TagFilterMenu({ library, busy, run, selected, change }: { librar
   </div>;
 }
 export function TagManager({ library, busy, run, committed, close }: { library: LibrarySnapshot; busy: boolean; run: Run; committed?: TagCommit; close: () => void }) {
+  const confirmAction = useConfirmation();
   const [search, setSearch] = useState(''), [name, setName] = useState(''), [rename, setRename] = useState<{ id: string; name: string; revision: number } | null>(null);
   const [error, setError] = useState(''), [pending, setPending] = useState(false), [page, setPage] = useState(0);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -99,7 +101,7 @@ export function TagManager({ library, busy, run, committed, close }: { library: 
         <label>Rename tag<input required autoFocus value={rename.name} onChange={event => setRename({ ...rename, name: event.target.value })} /></label>
         <div className="actions"><button disabled={busy || pending || rename.revision !== library.revision}>Save tag name</button><button type="button" className="quiet" disabled={pending} onClick={() => setRename(null)}>Cancel rename</button></div>
         {rename.revision !== library.revision && <p role="status">The catalog changed. Your draft remains here; cancel and reopen Rename to reconcile.</p>}
-      </form> : <><span>{tag.name}<small>{tag.usageCount} {tag.usageCount === 1 ? 'character' : 'characters'}</small></span><div className="actions"><button type="button" className="quiet" aria-label={`Rename ${tag.name}`} disabled={busy || pending} onClick={() => setRename({ id: tag.id, name: tag.name, revision: library.revision })}>Rename</button><button type="button" className="quiet" aria-label={`Delete ${tag.name}`} disabled={busy || pending} onClick={() => { if (confirm(`Delete “${tag.name}”? ${tag.usageCount} characters will lose this local assignment. Embedded card metadata is preserved.`)) void mutate('DELETE', `/library/tags/${tag.id}`, { revision: library.revision }, tag.id); }}>Delete</button></div></>}
+      </form> : <><span>{tag.name}<small>{tag.usageCount} {tag.usageCount === 1 ? 'character' : 'characters'}</small></span><div className="actions"><button type="button" className="quiet" aria-label={`Rename ${tag.name}`} disabled={busy || pending} onClick={() => setRename({ id: tag.id, name: tag.name, revision: library.revision })}>Rename</button><button type="button" className="quiet" aria-label={`Delete ${tag.name}`} disabled={busy || pending} onClick={() => { confirmAction({ title: 'Delete tag?', message: `Delete “${tag.name}”? ${tag.usageCount} characters will lose this local assignment. Embedded card metadata is preserved.`, actionLabel: 'Delete tag', onConfirm: () => { void mutate('DELETE', `/library/tags/${tag.id}`, { revision: library.revision }, tag.id); } }); }}>Delete</button></div></>}
     </div>)}</div>
     {!matches.length && <p className="muted tag-manager-empty">{library.tags.length ? 'No tags match your search.' : 'No tags yet. Create your first tag above.'}</p>}
     <footer className="tag-manager-footer"><span className="small muted">{matches.length} {matches.length === 1 ? 'tag' : 'tags'}{search && ' found'}</span>

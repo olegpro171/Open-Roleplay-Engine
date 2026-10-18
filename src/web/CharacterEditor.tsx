@@ -1,3 +1,4 @@
+import { useConfirmation } from './Confirmation';
 import type { CharacterSaveCommand } from '../shared/library';
 import { PictureEditor, PictureSquare, pictureMutation, savedPictureDraft } from './Pictures';
 import { useEffect, useRef, useState } from 'react';
@@ -13,6 +14,7 @@ function editableCharacter(data: LibraryCharacter): LibraryCharacter {
   return greetings.success ? { ...data, alternate_greetings: greetings.data } : data;
 }
 export function CharacterEditor({ initial, library, busy, run, close, openBook, extracted, saved }: { initial: Initial; library: LibrarySnapshot; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; close: () => void; openBook: (id: string) => void; extracted: (id: string) => void; saved: () => void }) {
+  const confirmAction = useConfirmation();
   const [baselineData, setBaselineData] = useState(() => editableCharacter(initial.data));
   const [baselinePicture, setBaselinePicture] = useState(() => library.characterPictures.find(picture => picture.characterId === initial.id) ?? null);
   const [picture, setPicture] = useState(() => savedPictureDraft(baselinePicture));
@@ -113,7 +115,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
           : <button type="button" className="secondary" onClick={() => setData({ ...data, alternate_greetings: [] })}>Clear invalid alternate greetings</button>}
       </div>
       <label className="full">Default lorebook<Dropdown aria-label="Default lorebook" value={data.lorebookId ?? ''} options={[{ value: '', label: 'None selected' }, ...library.lorebooks.map(book => ({ value: book.id, label: book.name }))]} onChange={id => setData({ ...data, lorebookId: id || null })} /><small>Prefills new chats; existing chats keep their selection. This linked book is embedded on export.</small></label>
-      {data.lorebookId && <button type="button" className="secondary" onClick={() => { if (data.lorebookId && (!characterChanged && !pictureChanged && tagIds.join() === baseline.join() || confirm('Open the book and discard unsaved character edits?'))) openBook(data.lorebookId); }}>Open book</button>}
+      {data.lorebookId && <button type="button" className="secondary" onClick={() => { const bookId = data.lorebookId; if (!bookId) return; if (!characterChanged && !pictureChanged && tagIds.join() === baseline.join()) openBook(bookId); else confirmAction({ title: 'Discard character edits?', message: 'Open the book and discard unsaved character edits?', actionLabel: 'Discard edits', onConfirm: () => openBook(bookId) }); }}>Open book</button>}
       {initial.id && !data.lorebookId && embeddedBook && <div className="full"><button type="button" className="secondary" disabled={characterChanged || pictureChanged || tagIds.join() !== baseline.join()} onClick={async () => { let bookId = ''; if (await run(async () => { bookId = (await api<{ bookId: string }>(`/library/characters/${initial.id}/extract`, 'POST', { revision, requestId: extractionId.current })).bookId; })) extracted(bookId); }}>Extract embedded lorebook</button><p className="small muted">Save character edits first. Extraction creates and links an independent library book.</p></div>}
       <div className="full"><TagChooser label="Assign tags" tags={library.tags} selected={tagIds} change={setTagIds} /><button type="button" className="secondary" onClick={() => setManager(true)}>Manage tags</button>
         {initial.id && <button type="button" className="quiet" onClick={async () => { setPending(true); await run(async () => { const preview = await api<{ revision: number; tags: TagReview }>(`/library/characters/${initial.id}/tags/preview`); if (alive.current) { setEmbedded(preview); setPolicy('none'); } }); setPending(false); }}>Apply embedded tags</button>}

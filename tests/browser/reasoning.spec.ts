@@ -164,11 +164,11 @@ for (const width of [1280, 390, 320]) test(`streams and saves separate turn reas
   await next.getByRole('button', { name: 'Save edit', exact: true }).click();
   await expect(next.locator('.part.assistant > .prose')).toHaveText('The keeper nods.');
   expect((await state()).turns[1].assistant.text).toBe('The keeper nods.');
-  page.once('dialog', dialog => dialog.dismiss());
   await nextControls.getByRole('button', { name: 'Delete turn', exact: true }).click();
+  await page.locator('.confirmation-dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
   expect((await state()).turns).toHaveLength(2);
-  page.once('dialog', dialog => dialog.accept());
   await nextControls.getByRole('button', { name: 'Delete turn', exact: true }).click();
+  await page.locator('.confirmation-dialog').getByRole('button', { name: 'Delete turn', exact: true }).click();
   await expect(next).toHaveCount(0);
   expect((await state()).turns).toHaveLength(1);
   await page.reload();

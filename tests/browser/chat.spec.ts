@@ -236,8 +236,8 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
   await page.getByLabel('Block text').fill('Modified default');
   await page.getByRole('button', { name: 'Save prompt', exact: true }).click();
-  page.once('dialog', dialog => dialog.accept());
   await builtIn.getByRole('button', { name: 'Restore original', exact: true }).click();
+  await page.locator('.confirmation-dialog').getByRole('button', { name: 'Restore original', exact: true }).click();
   await builtIn.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
   await expect(page.getByLabel('Block text')).toHaveValue('Write the next response in this roleplay. Stay consistent with the established story.');
@@ -351,15 +351,15 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await page.screenshot({ path: 'test-results/phone-empty-story.png', fullPage: true });
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   const temporary = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Temporary sweep chat', exact: true }) });
-  page.once('dialog', dialog => dialog.accept());
   await temporary.getByRole('button', { name: 'Delete chat', exact: true }).click();
+  await page.locator('.confirmation-dialog').getByRole('button', { name: 'Delete chat', exact: true }).click();
   await expect(temporary).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
   // All fixture chats, including the original and final chat, can be removed without leaving the library.
   while (await page.getByRole('button', { name: 'Delete chat', exact: true }).count()) {
     const before = await page.getByRole('article').count();
-    page.once('dialog', dialog => dialog.accept());
     await page.getByRole('button', { name: 'Delete chat', exact: true }).first().click();
+    await page.locator('.confirmation-dialog').getByRole('button', { name: 'Delete chat', exact: true }).click();
     await expect(page.getByRole('article')).toHaveCount(before - 1);
     await expect(page.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
   }

@@ -62,8 +62,11 @@ test('filters with AND, preserves character drafts through catalog edits, and ma
   await openFilters(page); await filters(page).getByRole('checkbox', { name: /tag-unused/ }).check(); await expect(page.getByRole('status').filter({ hasText: 'No characters match all selected tags' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters', exact: true }).click(); await expect(row(page, 'Tag C')).toBeVisible();
   await openManager(page); await page.setViewportSize({ width: 390, height: 844 });
-  await manager(page).getByLabel('Search catalog').fill('tag-journey'); page.once('dialog', dialog => { expect(dialog.message()).toContain('2 characters'); return dialog.accept(); });
-  await manager(page).getByRole('button', { name: 'Delete tag-journey', exact: true }).click(); await expect(manager(page).getByRole('button', { name: 'Delete tag-journey', exact: true })).toHaveCount(0);
+  await manager(page).getByLabel('Search catalog').fill('tag-journey');
+  await manager(page).getByRole('button', { name: 'Delete tag-journey', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Delete tag?' })).toContainText('2 characters');
+  await page.locator('.confirmation-dialog').getByRole('button', { name: 'Delete tag', exact: true }).click();
+  await expect(manager(page).getByRole('button', { name: 'Delete tag-journey', exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/tags-phone.png', fullPage: true });
   await manager(page).getByRole('button', { name: 'Close tag manager', exact: true }).click();

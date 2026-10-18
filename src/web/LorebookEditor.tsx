@@ -1,3 +1,4 @@
+import { useConfirmation } from './Confirmation';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { LOREBOOK_ENTRY_LIMIT, LOREBOOK_FILE_LIMIT, lorebookSchema, lorePlacements, newLoreEntry, type Lorebook, type LoreDiagnostic, type LoreEntry, type LoreImportPreview, type LorePlacement } from '../shared/lorebook';
 import { api, ApiError } from './api';
@@ -66,6 +67,7 @@ function markEntry(entry: LoreEntry, patch: Partial<LoreEntry>): LoreEntry {
 }
 
 export function LorebookEditor({ initial, currentRevision, busy, run, close }: { initial: { id?: string; revision: number; data: Lorebook }; currentRevision: number; busy: boolean; run: Run; close: () => void }) {
+  const confirmAction = useConfirmation();
   const [book, setBook] = useState(initial.data), [selectedId, setSelectedId] = useState(initial.data.entries[0]?.id ?? '');
   const [query, setQuery] = useState(''), [page, setPage] = useState(0), [issues, setIssues] = useState<{ path: PropertyKey[]; message: string }[]>([]);
   const compatibility = useMemo(() => loreCompatibility(initial.data), [initial.data]);
@@ -108,7 +110,7 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
         {matching.slice(shown * pageSize, (shown + 1) * pageSize).map(entry => <button type="button" className="secondary" aria-pressed={entry.id === selectedId} key={entry.id} onClick={() => setSelectedId(entry.id)}><strong>{entry.name || 'Unnamed entry'}</strong><small>{entry.enabled ? 'Enabled' : 'Disabled'} · Order {entry.insertionOrder} · Priority {entry.priority}</small></button>)}
         {matching.length === 0 && <p className="small muted">{book.entries.length ? 'No entries match your search.' : 'This book is empty. Add an entry to begin.'}</p>}
         {last > 0 && <Pagination page={shown} last={last} change={setPage} />}
-      </div>{selected ? <section className="lore-entry-editor" aria-label="Selected lore entry"><EntryFields key={selected.id} entry={selected} update={updateEntry} issues={entryIssues} /><div className="actions"><button type="button" className="secondary" disabled={book.entries.length >= LOREBOOK_ENTRY_LIMIT} onClick={() => add(selected)}>Duplicate entry</button><button type="button" className="quiet" onClick={() => { if (confirm(`Delete entry “${selected.name}”? Save the book to commit this change.`)) { update({ entries: book.entries.filter(entry => entry.id !== selectedId) }); setSelectedId(book.entries.find(entry => entry.id !== selectedId)?.id ?? ''); } }}>Delete entry</button></div></section> : <p className="small muted">Select an entry to edit its content and matching rules.</p>}</div>
+      </div>{selected ? <section className="lore-entry-editor" aria-label="Selected lore entry"><EntryFields key={selected.id} entry={selected} update={updateEntry} issues={entryIssues} /><div className="actions"><button type="button" className="secondary" disabled={book.entries.length >= LOREBOOK_ENTRY_LIMIT} onClick={() => add(selected)}>Duplicate entry</button><button type="button" className="quiet" onClick={() => { confirmAction({ title: 'Delete lore entry?', message: `Delete entry “${selected.name}”? Save the book to commit this change.`, actionLabel: 'Delete entry', onConfirm: () => { update({ entries: book.entries.filter(entry => entry.id !== selectedId) }); setSelectedId(book.entries.find(entry => entry.id !== selectedId)?.id ?? ''); } }); }}>Delete entry</button></div></section> : <p className="small muted">Select an entry to edit its content and matching rules.</p>}</div>
     </fieldset>
     {issues.length > 0 && <div role="alert"><p>Correct these fields before saving:</p><ul>{issues.map((issue, index) => <li key={index}>{issue.path[0] === 'entries' && typeof issue.path[1] === 'number' && book.entries[issue.path[1]] ? <button type="button" className="quiet" onClick={() => setSelectedId(book.entries[Number(issue.path[1])].id)}>{book.entries[Number(issue.path[1])].name}: </button> : null}{issue.path.join('.')}: {issue.message}</li>)}</ul></div>}
     {stale && <p role="status">The library changed. Your unsaved edits remain here. Close and reopen this book to load its current revision.</p>}

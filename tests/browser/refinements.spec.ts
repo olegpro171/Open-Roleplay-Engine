@@ -107,8 +107,8 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await phoneContext.close();
 
   await page.locator('.restore-memory > summary').click();
-  page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Clear memory', exact: true }).click();
+  await page.locator('.confirmation-dialog').getByRole('button', { name: 'Clear memory', exact: true }).click();
   await expect(page.locator('.summary-span:not(.preparing)')).toHaveCount(0);
   const cleared = await state();
   expect(cleared.context.jobs).toEqual([]); expect(cleared.context.summaries).toEqual([]);

@@ -1,3 +1,4 @@
+import { useConfirmation } from './Confirmation';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ChatSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError } from './api';
@@ -39,6 +40,7 @@ export function App() {
   const [error, setError] = useState('');
   const [online, setOnline] = useState(false);
   const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory'>('story');
+  const confirmAction = useConfirmation(`${chatId}:${tab}:${session?.authenticated}`);
   const drafts = useChatDraft(chatId);
   const draft = drafts.text;
   const [settledDraft, setSettledDraft] = useState('');
@@ -258,7 +260,7 @@ export function App() {
               select={id => command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/variants/${id}/select`, 'POST', { revision: snapshot.revision }))}
               edit={part => setEdit({ turnId: turn.id, part, text: turn[part].text, revision: snapshot.revision })}
               remove={() => {
-                if (confirm(`Delete this entire turn, including its saved request records?${snapshot.settings.lorebookId ? ' Lore activation history for this chat will start fresh.' : ''}`)) void command(() => api(`/chats/${chatId}/turns/${turn.id}`, 'DELETE', { revision: snapshot.revision }));
+                confirmAction({ title: 'Delete turn?', message: `Delete this entire turn, including its saved request records?${snapshot.settings.lorebookId ? ' Lore activation history for this chat will start fresh.' : ''}`, actionLabel: 'Delete turn', onConfirm: () => { void command(() => api(`/chats/${chatId}/turns/${turn.id}`, 'DELETE', { revision: snapshot.revision })); } });
               }} />
           </article>;
           })}
