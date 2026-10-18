@@ -1,3 +1,4 @@
+import { tagIdsSchema, type Tag, type CharacterTag } from './tags.js';
 import { z } from 'zod';
 import { connectionSchema, revisionSchema, type Connection } from './contracts.js';
 import { contextPresetSchema, type ContextPreset } from './context.js';
@@ -38,6 +39,7 @@ export type PromptSources = { prompt: Saved<PromptPreset> | null; character: Sav
 export type ChatSummary = { id: string; title: string; revision: number; turnCount: number; running: boolean };
 export type UnchangedLibrary = { unchanged: true; revision: number; chats: ChatSummary[] };
 export type LibrarySnapshot = {
+  tags: Tag[]; characterTags: CharacterTag[];
   revision: number; personas: Saved<Persona>[]; characters: Saved<Character>[]; prompts: Saved<PromptPreset>[];
   connections: (Saved<Connection> & { hasApiKey: boolean })[]; chats: ChatSummary[];
   contexts: Saved<ContextPreset>[];
@@ -78,7 +80,7 @@ export const selectionsSchema = z.object({
 }).strict();
 export const libraryCommandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('personas'), revision: revisionSchema, data: personaSchema }).strict(),
-  z.object({ kind: z.literal('characters'), revision: revisionSchema, data: characterSchema }).strict(),
+  z.object({ kind: z.literal('characters'), revision: revisionSchema, data: characterSchema, tagIds: tagIdsSchema.optional() }).strict(),
   z.object({ kind: z.literal('prompts'), revision: revisionSchema, data: promptSchema }).strict(),
   z.object({ kind: z.literal('contexts'), revision: revisionSchema, data: contextPresetSchema }).strict(),
   z.object({ kind: z.literal('lorebooks'), revision: revisionSchema, data: lorebookSchema }).strict(),

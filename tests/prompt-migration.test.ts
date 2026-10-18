@@ -41,6 +41,7 @@ async function seed() {
   const untouched = store.saveLibrary(store.libraries().revision, 'prompts', { name: 'Text only', blocks: [defaultPrompt.blocks[0]] });
   store.sqlite.prepare('UPDATE library SET data = ? WHERE id = ?').run(JSON.stringify(custom), promptId);
   const before = store.snapshot(chatId), library = store.libraries(), preserved = rows(store.sqlite);
+  store.sqlite.exec('DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags');
   store.sqlite.pragma('user_version = 7');
   store.close();
   return { path, chatId, promptId, custom, before, library, preserved, untouched };
@@ -56,9 +57,9 @@ describe('version 8 prompt migration', () => {
       expect(store.snapshot(f.chatId)).toEqual({ ...f.before, revision: f.before.revision + 1, sources: { ...f.before.sources, prompt: preset } });
       expect(rows(store.sqlite)).toEqual(f.preserved);
       expect(store.libraries().prompts.find(prompt => prompt.id === f.untouched)).toEqual(f.library.prompts.find(prompt => prompt.id === f.untouched));
-      expect(store.libraries().revision).toBe(f.library.revision + 1);
+      expect(store.libraries().revision).toBe(f.library.revision + 2);
       expect(() => store.checkRevision(f.before.revision, f.chatId)).toThrow('changed on another device');
-      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(8);
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(9);
       const after = store.snapshot(f.chatId), libraryAfter = store.libraries();
       store.close(); store = new Store(f.path);
       expect(store.snapshot(f.chatId)).toEqual(after);
@@ -83,7 +84,7 @@ describe('version 8 prompt migration', () => {
       failed.exec('DROP TRIGGER reject_prompt_migration');
     } finally { failed.close(); }
     const recovered = new Store(f.path);
-    try { expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(8); expect(rows(recovered.sqlite)).toEqual(f.preserved); }
+    try { expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(9); expect(rows(recovered.sqlite)).toEqual(f.preserved); }
     finally { recovered.close(); }
   });
 

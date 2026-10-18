@@ -240,6 +240,16 @@ The user requested implementation on 2026-10-18 and approved the brief's propose
 
 The exact standards/decorator/extension coverage and operational bounds live in [LOREBOOKS.md](docs/LOREBOOKS.md). Verification uses synthetic books/transcripts, real temporary SQLite and controlled local-provider behavior, plus desktop/phone-sized browser workflows. Real-model usefulness, semantic relevance and actual phone behavior remain unverified.
 
+### Character tag organization
+
+The user requested the [tag brief](docs/TAGS_IMPLEMENTATION_BRIEF.md) on 2026-10-18 and accepted all section 3 defaults. `src/shared/tags.ts` owns browser-safe normalization/contracts/limits; `src/core/tags.ts` analyzes authoritative preserved metadata; `src/persistence/tag-store.ts` owns catalog/assignment writes. Tags are separate snapshot fields, never fields of Character or PromptSources. Migration 9 adds normalized tags, canonical-key uniqueness, unique character/tag relations, foreign keys, kind guards and lookup indexes. It does not backfill assignments or rewrite existing character data; it invalidates the library cache once.
+
+Catalog/assignment commands use the established library revision and global idle guard. No-op writes preserve revisions. Tag-only editor saves compare normalized character data and use organization writes without updating character/chat revisions or lore epochs. Combined saves, duplication, deletion, imports and explicit additive Apply embedded tags are transactional. Character duplication shares catalog IDs and the existing default book link. Character deletion cascades assignments while retaining unused tags.
+
+Import analysis is read-only outside write transactions and reviews character/book diagnostics and bounded normalized candidates. Final commit rechecks the reviewed library revision and saves character/book/link/new tags/assignments plus the durable command result together. Fingerprints include source and effective policy, excluding the concurrency revision; legacy fingerprints are accepted only for effective None and original recorded results remain immutable/replayable after deletion. Uncertain UI acknowledgements retain the exact command for explicit retry in the open review. Catalog changes require renewed review, and parser/capacity failures cannot partially import.
+
+CharacterEditor, CharacterImport and Tags components own the cohesive editing/review/organization workflows. Manager operations preserve the character draft and advance its captured revision only for checked self-originated changes with unchanged dependencies. Authoritative refresh prunes deleted filter identities. Memoized membership/catalog indexes avoid per-chip queries or repeated catalog maps. Full behavior, limits and verification scope live in [TAGS.md](docs/TAGS.md).
+
 ### Subsequent interface work
 
 Expand summary inspection/editing around the verified compaction flow and its initial layered visualization; extend the existing libraries only as needed for accepted product requirements. Use Playwright for meaningful end-to-end workflows and responsive layouts, with actual phone checks for platform-specific behavior.

@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { ChatSettings, Connection, GenerationStatus, RequestPreview, TokenUsage } from '../shared/contracts.js';
 import type { Character, Persona, PromptPreset } from '../shared/library.js';
 import type { ContextPreset } from '../shared/context.js';
@@ -39,3 +39,12 @@ export const generations = sqliteTable('generations', {
   partialText: text('partial_text').notNull(), error: text('error'),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 });
+
+export const tags = sqliteTable('tags', {
+  id: text('id').primaryKey(), name: text('name').notNull(),
+  canonicalKey: text('canonical_key').notNull(), revision: integer('revision').notNull().default(0),
+}, table => [uniqueIndex('tags_canonical_key').on(table.canonicalKey)]);
+export const characterTags = sqliteTable('character_tags', {
+  characterId: text('character_id').notNull().references(() => library.id, { onDelete: 'cascade' }),
+  tagId: text('tag_id').notNull().references(() => tags.id, { onDelete: 'cascade' }),
+}, table => [primaryKey({ columns: [table.characterId, table.tagId] }), index('character_tags_by_tag').on(table.tagId, table.characterId)]);

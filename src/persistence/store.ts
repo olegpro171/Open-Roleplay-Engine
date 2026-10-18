@@ -20,6 +20,9 @@ import { ContextStore } from './context-store.js';
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
 import { legacyLorePrompt } from './legacy-prompt.js';
+import { TagStore } from './tag-store.js';
+import { readEmbeddedTags } from '../core/tags.js';
+import { characterImportResultSchema, tagPolicySchema, type TagPolicy, type CharacterImportReview } from '../shared/tags.js';
 import { upgradePrompt } from '../core/prompt-upgrade.js';
 
 function parseImport<T>(parse: () => T): T {
@@ -42,6 +45,7 @@ export class Store {
   readonly sqlite: Database.Database;
   readonly db;
   readonly contexts: ContextStore;
+  readonly tags: TagStore;
   private readonly ownerToken = randomUUID();
 
   constructor(filename: string, migrationsDirectory = resolve('migrations')) {
@@ -176,8 +180,17 @@ export class Store {
           if (changedIds.size) this.bumpLibrary();
           this.sqlite.pragma('user_version = 8');
         })();
-      } else if (version !== 8) throw new Error('Unsupported database schema version.');
+        version = 8;
+      }
+      if (version === 8) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0009_tags.sql'), 'utf8'));
+          this.bumpLibrary();
+          this.sqlite.pragma('user_version = 9');
+        })();
+      } else if (version !== 9) throw new Error('Unsupported database schema version.');
       this.contexts = new ContextStore(this);
+      this.tags = new TagStore(this.sqlite, expected => this.checkLibrary(expected), () => this.bumpLibrary());
       if (newDatabase) this.db.insert(schema.chats).values({ id: 'main', revision: 0, settings: initialSettings }).onConflictDoNothing().run();
     } catch (error) {
       this.sqlite.prepare('DELETE FROM runtime_owner WHERE token = ?').run(this.ownerToken);
@@ -229,7 +242,7 @@ export class Store {
     this.db.update(schema.chats).set({ revision }).where(eq(schema.chats.id, chatId)).run();
     return revision;
   }
-  private libraryRevision() { return (this.sqlite.prepare('SELECT revision FROM library_state WHERE id = 1').get() as { revision: number }).revision; }
+  libraryRevision() { return (this.sqlite.prepare('SELECT revision FROM library_state WHERE id = 1').get() as { revision: number }).revision; }
   private checkLibrary(expected: number) {
     if (this.libraryRevision() !== expected) throw new AppError(409, 'revision_conflict', 'The library changed on another device. Reopen the editor before saving.');
     this.ensureIdle();
@@ -253,6 +266,7 @@ export class Store {
     const rows = this.db.select().from(schema.library).all();
     const list = <T>(kind: string) => rows.filter(r => r.kind === kind).map(r => ({ ...r.data, id: r.id, revision: r.revision })) as unknown as Saved<T>[];
     return {
+      tags: this.tags.catalog(), characterTags: this.tags.links(),
       revision: this.libraryRevision(), personas: list<Persona>('personas'), characters: list<Character>('characters'), prompts: list<PromptPreset>('prompts'),
       contexts: list<ContextPreset>('contexts').map(preset => ({ ...preset, repairPrompt: preset.repairPrompt ?? defaultContextPreset.repairPrompt })),
       lorebooks: list<Lorebook>('lorebooks'),
@@ -264,7 +278,7 @@ export class Store {
       chats: this.chatSummaries(),
     };
   }
-  saveLibrary(expected: number, kind: LibraryKind, data: Character | Persona | PromptPreset | ContextPreset | Connection | Lorebook, id?: string, apiKey?: string) {
+  saveLibrary(expected: number, kind: LibraryKind, data: Character | Persona | PromptPreset | ContextPreset | Connection | Lorebook, id?: string, apiKey?: string, tagIds?: string[]) {
     if (kind === 'prompts') data = upgradePrompt(data);
     return this.sqlite.transaction(() => {
       this.checkLibrary(expected);
@@ -308,10 +322,15 @@ export class Store {
           data = { ...card, ...(lorebookId !== undefined ? { lorebookId } : {}) };
           if (previous && previous.name !== card.name) for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.characterId === identity) this.resetLoreEpoch(chat.id);
         }
+        if (kind === 'characters' && old && isDeepStrictEqual(old.data, data)) {
+          if (tagIds !== undefined && this.tags.replaceInTransaction(identity, tagIds)) this.bumpLibrary();
+          return identity;
+        }
         if (kind === 'personas' && old && 'name' in data && old.data.name !== data.name) for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.personaId === identity) this.resetLoreEpoch(chat.id);
         const saved = data as Character | Persona | PromptPreset | ContextPreset | Lorebook;
         this.db.insert(schema.library).values({ id: identity, kind, revision: (old?.revision ?? -1) + 1, data: saved }).onConflictDoUpdate({ target: schema.library.id, set: { data: saved, revision: (old?.revision ?? -1) + 1 } }).run();
       }
+      if (kind === 'characters' && tagIds !== undefined) this.tags.replaceInTransaction(identity, tagIds);
       this.bumpLibrary(); this.bumpAffected(kind, identity); return identity;
     })();
   }
@@ -321,14 +340,21 @@ export class Store {
       return items.map(data => this.saveLibrary(this.libraryRevision(), kind, data));
     })();
   }
-  private loreCommand<T>(expected: number, requestId: string, command: unknown, parse: (value: unknown) => T, execute: () => T): T {
-    const fingerprint = createHash('sha256').update(JSON.stringify(command)).digest('hex');
+  private recordedLibraryCommand<T>(requestId: string, fingerprint: string, parse: (value: unknown) => T, legacyFingerprint?: string): { found: false } | { found: true; result: T } {
+    const existing = this.sqlite.prepare('SELECT command, result FROM lore_commands WHERE request_id = ?').get(requestId) as { command: string; result: string } | undefined;
+    if (!existing) return { found: false };
+    if (existing.command !== fingerprint && existing.command !== legacyFingerprint) throw new AppError(409, 'request_id_conflict', 'This import identity was already used for a different command.');
+    return { found: true, result: parse(JSON.parse(existing.result)) };
+  }
+  private libraryCommandFingerprint(command: unknown) {
+    return createHash('sha256').update(JSON.stringify(command)).digest('hex');
+  }
+  private loreCommand<T>(expected: number, requestId: string, command: unknown, parse: (value: unknown) => T, execute: () => T, legacyCommand?: unknown): T {
+    const fingerprint = this.libraryCommandFingerprint(command);
+    const legacyFingerprint = legacyCommand === undefined ? undefined : this.libraryCommandFingerprint(legacyCommand);
     return this.sqlite.transaction(() => {
-      const existing = this.sqlite.prepare('SELECT command, result FROM lore_commands WHERE request_id = ?').get(requestId) as { command: string; result: string } | undefined;
-      if (existing) {
-        if (existing.command !== fingerprint) throw new AppError(409, 'request_id_conflict', 'This import identity was already used for a different command.');
-        return parse(JSON.parse(existing.result));
-      }
+      const existing = this.recordedLibraryCommand(requestId, fingerprint, parse, legacyFingerprint);
+      if (existing.found) return existing.result;
       this.checkLibrary(expected);
       const result = execute();
       this.sqlite.prepare('INSERT INTO lore_commands (request_id, command, result) VALUES (?, ?, ?)').run(requestId, fingerprint, JSON.stringify(result));
@@ -348,17 +374,47 @@ export class Store {
     const identities = new Map(preview.book.entries.map((entry, index) => [entry.id, saved?.entries[index]?.id]));
     return preview.diagnostics.map(diagnostic => diagnostic.entryId ? { ...diagnostic, entryId: identities.get(diagnostic.entryId) ?? diagnostic.entryId } : diagnostic);
   }
-  importCard(expected: number, requestId: string, value: unknown) {
+  private analyzeCard(value: unknown) {
     const card = parseImport(() => importCharacter(value));
     const raw = z.record(z.string(), z.unknown()).parse(value);
     const data = raw.spec === 'chara_card_v2' || raw.spec === 'chara_card_v3' ? z.record(z.string(), z.unknown()).parse(raw.data) : raw;
-    const preview = data.character_book === undefined ? null : parseImport(() => importLorebook(data.character_book, randomUUID, raw.spec === 'chara_card_v3' ? 'v3' : 'v2'));
-    const resultSchema = z.object({ ids: z.array(z.string()), books: z.array(z.object({ id: z.string(), name: z.string(), entries: z.number() })), diagnostics: z.array(z.object({ code: z.string(), message: z.string(), entryId: z.string().optional(), field: z.string().optional() })) });
-    return this.loreCommand(expected, requestId, { kind: 'character', value }, value => resultSchema.parse(value), () => {
+    const book = data.character_book === undefined ? null : parseImport(() => importLorebook(data.character_book, randomUUID, raw.spec === 'chara_card_v3' ? 'v3' : 'v2'));
+    return { card, book, tags: readEmbeddedTags(raw) };
+  }
+  previewCard(value: unknown): CharacterImportReview {
+    const { card, book, tags } = this.analyzeCard(value);
+    return { revision: this.libraryRevision(), name: card.name,
+      book: book ? { name: book.book.name, entries: book.book.entries.length } : null,
+      diagnostics: book?.diagnostics ?? [], tags: this.tags.review(tags) };
+  }
+  importCard(expected: number, requestId: string, value: unknown, policyInput: TagPolicy = 'none') {
+    const policy = tagPolicySchema.parse(policyInput);
+    // Replay precedes analysis and revision checks, so historical success remains
+    // available after deletion, catalog growth or stricter parser limits.
+    const command = { kind: 'character', value, tagPolicy: policy };
+    const legacyCommand = policy === 'none' ? { kind: 'character', value } : undefined;
+    const parseResult = (value: unknown) => characterImportResultSchema.parse(value);
+    const recorded = this.recordedLibraryCommand(requestId, this.libraryCommandFingerprint(command), parseResult,
+      legacyCommand === undefined ? undefined : this.libraryCommandFingerprint(legacyCommand));
+    if (recorded.found) return recorded.result;
+    // Card/book analysis is read-only and stays outside the write transaction.
+    const { card, book: preview, tags } = this.analyzeCard(value);
+    return this.loreCommand(expected, requestId, command, parseResult, () => {
       const bookId = preview ? this.saveLibrary(this.libraryRevision(), 'lorebooks', preview.book) : null;
-      const id = this.saveLibrary(this.libraryRevision(), 'characters', { ...card, lorebookId: bookId });
-      return { ids: [id], books: preview && bookId ? [{ id: bookId, name: preview.book.name, entries: preview.book.entries.length }] : [], diagnostics: preview && bookId ? this.savedLoreDiagnostics(preview, bookId) : [] };
-    });
+      const resolved = this.tags.resolveInTransaction(tags, policy);
+      const id = this.saveLibrary(this.libraryRevision(), 'characters', { ...card, lorebookId: bookId }, undefined, undefined, resolved.ids);
+      return { ids: [id], books: preview && bookId ? [{ id: bookId, name: preview.book.name, entries: preview.book.entries.length }] : [],
+        diagnostics: preview && bookId ? this.savedLoreDiagnostics(preview, bookId) : [], tags: resolved.report };
+    }, legacyCommand);
+  }
+  duplicateCharacter(expected: number, characterId: string) {
+    return this.sqlite.transaction(() => {
+      this.checkLibrary(expected);
+      const card = this.selected<Character>(characterId, 'characters');
+      if (!card) throw new AppError(404, 'character_not_found', 'Character not found.');
+      const { id: _id, revision: _revision, ...data } = card;
+      return this.saveLibrary(expected, 'characters', { ...data, name: `${data.name.slice(0, 90)} copy` }, undefined, undefined, this.tags.assigned(characterId));
+    })();
   }
   extractBook(expected: number, requestId: string, characterId: string) {
     const resultSchema = z.object({ bookId: z.string(), diagnostics: z.array(z.object({ code: z.string(), message: z.string(), entryId: z.string().optional(), field: z.string().optional() })) });

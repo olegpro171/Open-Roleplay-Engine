@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ChatSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
 import { characterFields, characterFieldLabels, defaultPrompt, markers, promptWarnings, type Character, type LibraryKind, type LibrarySnapshot, type Persona, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { upgradePrompt } from '../core/prompt-upgrade';
 import { importChat } from '../core/chat-import';
+import { CharacterImport } from './CharacterImport';
+import { CharacterEditor } from './CharacterEditor';
+import { TagChips, TagChooser, TagManager } from './Tags';
+import { characterTagIndex, matchesCharacterTags } from '../shared/tags';
 import { api } from './api';
 import { Dropdown, NumberInput } from './Controls';
 import { defaultContextPreset, type ContextPreset } from '../shared/context';
@@ -74,20 +78,24 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
   const [creatingChat, setCreatingChat] = useState(false), [chat, setChat] = useState(() => selection(undefined, library));
   const [notice, setNotice] = useState(''), [diagnostics, setDiagnostics] = useState<LoreDiagnostic[]>([]), [search, setSearch] = useState('');
   const [pendingBook, setPendingBook] = useState<string | null>(null);
+  const [filters, setFilters] = useState<string[]>([]), [tagManager, setTagManager] = useState(false);
+  const tagCatalog = useMemo(() => new Map(library.tags.map(tag => [tag.id, tag])), [library.tags]);
+  const tagIndex = useMemo(() => characterTagIndex(library.characterTags), [library.characterTags]);
+  useEffect(() => { const ids = new Set(library.tags.map(tag => tag.id)); setFilters(previous => previous.filter(id => ids.has(id))); }, [library.tags]);
   const query = search.normalize('NFC').toLowerCase();
-  const visibleRecords: Saved<LibraryRecord>[] = section === 'chats' ? [] : section === 'lorebooks' ? library.lorebooks.filter(book => matchesLorebook(book, query)) : library[section];
+  const visibleRecords: Saved<LibraryRecord>[] = section === 'chats' ? [] : section === 'lorebooks' ? library.lorebooks.filter(book => matchesLorebook(book, query)) : section === 'characters' ? library.characters.filter(character => matchesCharacterTags(tagIndex.get(character.id), filters)) : library[section];
   useEffect(() => {
     if (!pendingBook) return;
     const book = library.lorebooks.find(item => item.id === pendingBook);
     if (!book) return;
     const { id, revision: _revision, ...data } = book;
-    setSection('lorebooks'); setEditing({ kind: 'lorebooks', id, revision: library.revision, data }); setPendingBook(null);
+    setFilters([]); setTagManager(false); setSection('lorebooks'); setEditing({ kind: 'lorebooks', id, revision: library.revision, data }); setPendingBook(null);
   }, [pendingBook, library]);
   function openBook(id: string) {
     const book = library.lorebooks.find(item => item.id === id);
     if (!book) { setNotice('The lorebook is not yet loaded. Reopen Lorebooks after the library refreshes.'); return; }
     const { id: bookId, revision: _revision, ...data } = book;
-    setSection('lorebooks'); setEditing({ kind: 'lorebooks', id: bookId, revision: library.revision, data });
+    setFilters([]); setTagManager(false); setSection('lorebooks'); setEditing({ kind: 'lorebooks', id: bookId, revision: library.revision, data });
   }
   function create() {
     const kind = section as LibraryKind;
@@ -95,7 +103,7 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
     setEditing({ kind, revision: library.revision, data });
   }
   return <main className="document-panel library-panel"><p className="eyebrow">YOUR LIBRARIES</p><h1>Build a place to return to.</h1>
-    <div className="library-tabs" role="group" aria-label="Libraries">{(['chats', 'personas', 'characters', 'lorebooks', 'prompts', 'connections', 'contexts'] as const).map(kind => <button className="secondary" aria-pressed={section === kind} key={kind} onClick={() => { setSection(kind); setEditing(null); setCreatingChat(false); setNotice(''); setDiagnostics([]); setSearch(''); }}>{kind === 'contexts' ? 'Context presets' : kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>
+    <div className="library-tabs" role="group" aria-label="Libraries">{(['chats', 'personas', 'characters', 'lorebooks', 'prompts', 'connections', 'contexts'] as const).map(kind => <button className="secondary" aria-pressed={section === kind} key={kind} onClick={() => { if (kind !== 'characters') { setFilters([]); setTagManager(false); } setSection(kind); setEditing(null); setCreatingChat(false); setNotice(''); setDiagnostics([]); setSearch(''); }}>{kind === 'contexts' ? 'Context presets' : kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>
     {notice && <p role="status">{notice}</p>}<LoreDiagnostics diagnostics={diagnostics} />
     {section === 'chats' ? <>
       <button disabled={busy} onClick={() => { setCreatingChat(true); setChat(selection(undefined, library)); }}>New chat</button>
@@ -103,26 +111,28 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
       <div className="library-list">{library.chats.map(item => <article key={item.id}><div><h2>{item.title}</h2><p>{item.turnCount} turns{item.running ? ' · Response running' : ''}{currentChatId === item.id ? ' · Current chat' : ''}</p></div><div className="actions"><button className="secondary" onClick={() => openChat(item.id)}>Open chat</button><button className="quiet" disabled={busy || item.running} onClick={() => { if (confirm(`Delete “${item.title}” and all its turns and requests?`)) void run(() => api(`/chats/${item.id}`, 'DELETE', { revision: item.revision })); }}>Delete chat</button></div></article>)}{library.chats.length === 0 && <p className="muted">Create a chat to start your next story.</p>}</div>
     </> : <>
       {!editing && <div className="actions"><button disabled={busy} onClick={create}>New {section === 'lorebooks' ? 'lorebook' : section === 'personas' ? 'persona' : section === 'characters' ? 'character' : section === 'prompts' ? 'prompt' : section === 'contexts' ? 'context preset' : 'Connection'}</button>
-        {(section === 'characters' || section === 'personas') && <label className="file-button">Import {section === 'characters' ? 'character' : 'personas'}<input type="file" accept={section === 'characters' ? '.json,.png' : '.json'} disabled={busy} onChange={async e => {
+        {(section === 'personas') && <label className="file-button">Import personas<input type="file" accept=".json" disabled={busy} onChange={async e => {
           const file = e.target.files?.[0]; e.target.value = ''; if (!file) return;
           await run(async () => {
             if (file.size > 2_000_000) throw new Error('Card imports are limited to 2 MB.');
             const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte);
             const result = await api<{ ids: string[]; books?: { id: string; name: string; entries: number }[]; diagnostics?: LoreDiagnostic[] }>('/library/import', 'POST', { revision: library.revision, requestId: crypto.randomUUID(), kind: section, base64: btoa(binary) });
-            setNotice(`Imported ${result.ids.length} ${section === 'characters' ? 'character' : 'persona(s)'}.${result.books?.map(book => ` Lorebook “${book.name}”: ${book.entries} entries.`).join('') ?? ''}`); setDiagnostics(result.diagnostics ?? []);
+            setNotice(`Imported ${result.ids.length} persona(s).${result.books?.map(book => ` Lorebook “${book.name}”: ${book.entries} entries.`).join('') ?? ''}`); setDiagnostics(result.diagnostics ?? []);
           });
         }} /></label>}
         {(section === 'prompts' || section === 'contexts') && <label className="file-button">Import {section === 'contexts' ? 'context preset' : 'prompt'}<input type="file" accept=".json" disabled={busy} onChange={async e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) await run(async () => { if (file.size > 1_000_000) throw new Error('Preset file is too large.'); const value: unknown = JSON.parse(await file.text()); await api('/library', 'POST', { kind: section, revision: library.revision, data: section === 'prompts' ? upgradePrompt(value) : value }); }); }} /></label>}
       </div>}
-      {editing ? editing.kind === 'lorebooks' && 'entries' in editing.data ? <LorebookEditor key={editing.id ?? editing.kind} initial={{ ...editing, data: editing.data }} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <LibraryEditor key={editing.id ?? editing.kind} initial={editing} connections={library.connections} lorebooks={library.lorebooks} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} openBook={openBook} extracted={id => { setEditing(null); setSection('lorebooks'); setNotice('Embedded lorebook extracted. Review its shared library entries.'); setPendingBook(id); }} /> : <>
+      {section === 'characters' && <><CharacterImport revision={library.revision} busy={busy} run={run} imported={(result, missing) => { setNotice(missing ? 'The original import was saved, but its character is no longer available. A deliberate new import requires selecting the file again.' : `Imported ${result.ids.length} character.${result.books.map(book => ` Lorebook “${book.name}”: ${book.entries} entries.`).join('')}${result.tags ? ` ${result.tags.assigned} local tags assigned; ${result.tags.created} created.` : ' Original tag report unavailable.'}${filters.length ? ' The character may be hidden by your tag filters.' : ''}`); setDiagnostics(result.diagnostics); }} /><TagChooser label="Filter characters by tags" tags={library.tags} selected={filters} change={setFilters} /><div className="actions"><button type="button" className="quiet" disabled={!filters.length} onClick={() => setFilters([])}>Clear filters</button>{!editing && <button type="button" className="secondary" onClick={() => setTagManager(true)}>Manage tags</button>}<span>{visibleRecords.length} of {library.characters.length} characters · match all selected tags</span></div>{tagManager && !editing && <TagManager library={library} busy={busy} run={run} close={() => setTagManager(false)} />}</>}
+      {editing ? editing.kind === 'characters' && 'personality' in editing.data ? <CharacterEditor key={editing.id ?? 'new-character'} initial={{ ...editing, data: editing.data }} library={library} busy={busy} run={run} close={() => setEditing(null)} openBook={openBook} saved={() => setNotice(`Character saved.${filters.length ? ' It may be hidden by your tag filters.' : ''}`)} extracted={id => { setEditing(null); setFilters([]); setSection('lorebooks'); setNotice('Embedded lorebook extracted. Review its shared library entries.'); setPendingBook(id); }} /> : editing.kind === 'lorebooks' && 'entries' in editing.data ? <LorebookEditor key={editing.id ?? editing.kind} initial={{ ...editing, data: editing.data }} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <LibraryEditor key={editing.id ?? editing.kind} initial={editing} connections={library.connections} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <>
       {section === 'lorebooks' && <label className="lore-search">Search lorebooks<input type="search" value={search} onChange={event => setSearch(event.target.value)} /><small>Search names, descriptions and entry content.</small></label>}
-      <div className="library-list">{visibleRecords.map(item => <article key={item.id}><div><h2>{item.name}{item.id === 'default' ? ' · Built in' : ''}</h2><p>{section === 'connections' ? (item as Saved<Connection>).model : section === 'prompts' ? `${(item as Saved<PromptPreset>).blocks.length} blocks` : section === 'contexts' ? `Minimum tail ${(item as Saved<ContextPreset>).minTail} · Batch ${(item as Saved<ContextPreset>).batchSize}` : 'description' in item ? item.description.slice(0, 140) : ''}</p>{section === 'lorebooks' && 'entries' in item && <><p>{item.entries.length} entries · {item.entries.filter(entry => entry.enabled).length} enabled</p><LorebookUses bookId={item.id} library={library} /></>}</div><div className="actions">
+      <div className="library-list">{visibleRecords.map(item => <article key={item.id}><div><h2>{item.name}{item.id === 'default' ? ' · Built in' : ''}</h2>{section === 'characters' && <TagChips tags={library.tags} catalog={tagCatalog} selected={[...(tagIndex.get(item.id) ?? [])]} />}<p>{section === 'connections' ? (item as Saved<Connection>).model : section === 'prompts' ? `${(item as Saved<PromptPreset>).blocks.length} blocks` : section === 'contexts' ? `Minimum tail ${(item as Saved<ContextPreset>).minTail} · Batch ${(item as Saved<ContextPreset>).batchSize}` : 'description' in item ? item.description.slice(0, 140) : ''}</p>{section === 'lorebooks' && 'entries' in item && <><p>{item.entries.length} entries · {item.entries.filter(entry => entry.enabled).length} enabled</p><LorebookUses bookId={item.id} library={library} /></>}</div><div className="actions">
         <button className="secondary" disabled={busy} onClick={() => { const { id, revision: _revision, ...record } = item; const { hasApiKey, ...data } = record as typeof record & { hasApiKey?: boolean }; setEditing({ kind: section, id, revision: library.revision, data, hasApiKey }); }}>Edit</button>
-        <button className="quiet" disabled={busy} onClick={() => void run(async () => { const { id: _id, revision: _revision, ...record } = item; const { hasApiKey: _key, ...data } = record as typeof record & { hasApiKey?: boolean }; await api('/library', 'POST', { kind: section, revision: library.revision, data: { ...data, name: `${item.name.slice(0, 90)} copy`, ...('entries' in data ? { entries: data.entries.map(entry => ({ ...entry, id: crypto.randomUUID() })) } : {}) } }); setNotice(section === 'connections' ? 'Connection copied. Add its API key in the new Connection.' : section === 'characters' && 'lorebookId' in data && data.lorebookId ? 'Character copied. Its default lorebook is shared with the original character; duplicate the book for independent edits.' : section === 'lorebooks' ? 'Independent lorebook copy saved.' : 'Copy saved.'); })}>Duplicate</button>
+        <button className="quiet" disabled={busy} onClick={() => void run(async () => { const { id: _id, revision: _revision, ...record } = item; const { hasApiKey: _key, ...data } = record as typeof record & { hasApiKey?: boolean }; if (section === 'characters') await api(`/library/characters/${item.id}/duplicate`, 'POST', { revision: library.revision }); else await api('/library', 'POST', { kind: section, revision: library.revision, data: { ...data, name: `${item.name.slice(0, 90)} copy`, ...('entries' in data ? { entries: data.entries.map(entry => ({ ...entry, id: crypto.randomUUID() })) } : {}) } }); setNotice(section === 'connections' ? 'Connection copied. Add its API key in the new Connection.' : section === 'characters' && 'lorebookId' in data && data.lorebookId ? 'Character copied. Its default lorebook is shared with the original character; duplicate the book for independent edits.' : section === 'lorebooks' ? 'Independent lorebook copy saved.' : 'Copy saved.'); })}>Duplicate</button>
         {section !== 'connections' && <button className="quiet" onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}>Export</button>}
         {item.id === 'default' && <button className="quiet" disabled={busy} onClick={() => { if (confirm('Restore the built-in default prompt? Chats selecting it will use the restored prompt.')) void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); }}>Restore original</button>}
         {item.id !== 'default' && <button className="quiet" disabled={busy || (section === 'lorebooks' && library.lorebookUses.some(use => use.bookId === item.id && (use.characters.length > 0 || use.chats.length > 0)))} onClick={() => { if (confirm(`Delete “${item.name}” from the library?`)) void run(() => api(`/library/${item.id}`, 'DELETE', { kind: section, revision: library.revision })); }}>Delete</button>}
       </div></article>)}{library[section].length === 0 && <p className="muted">Create or import your first {section === 'lorebooks' ? 'lorebook' : section === 'personas' ? 'persona' : section === 'characters' ? 'character' : section === 'connections' ? 'Connection' : 'prompt'}.</p>}{section === 'lorebooks' && search && visibleRecords.length === 0 && <p className="muted">No lorebooks match your search.</p>}</div>
+      {section === 'characters' && library.characters.length > 0 && visibleRecords.length === 0 && <p role="status">No characters match all selected tags. Clear filters to see every character.</p>}
       {section === 'lorebooks' && <LorebookImport revision={library.revision} busy={busy} run={run} imported={(_id, message) => setNotice(message)} />}
       </>}
     </>}
@@ -132,18 +142,11 @@ function LorebookUses({ bookId, library }: { bookId: string; library: LibrarySna
   const use = library.lorebookUses.find(item => item.bookId === bookId);
   return use && (use.characters.length > 0 || use.chats.length > 0) ? <p className="small">Used by {use.characters.map(character => `character “${character.name}”`).concat(use.chats.map(chat => `chat “${chat.title}”`)).join(', ')}. Unlink these selections before deleting.</p> : <p className="small">No character or chat links.</p>;
 }
-function hasEmbeddedBook(card: Character): boolean {
-  const source = card.source;
-  if (!source) return false;
-  const nested = source.data;
-  return source.character_book !== undefined || (typeof nested === 'object' && nested !== null && !Array.isArray(nested) && 'character_book' in nested && nested.character_book !== undefined);
-}
-function LibraryEditor({ initial, connections, lorebooks, currentRevision, busy, run, close, openBook, extracted }: { initial: { kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean }; connections: Saved<Connection>[]; lorebooks: Saved<Lorebook>[]; currentRevision: number; busy: boolean; run: Run; close: () => void; openBook: (id: string) => void; extracted: (id: string) => void }) {
+function LibraryEditor({ initial, connections, currentRevision, busy, run, close }: { initial: { kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean }; connections: Saved<Connection>[]; currentRevision: number; busy: boolean; run: Run; close: () => void }) {
   const [data, setData] = useState(initial.data), [key, setKey] = useState(''), [removeKey, setRemoveKey] = useState(false);
   const [parameters, setParameters] = useState(JSON.stringify((initial.data as Connection).customParameters ?? {}, null, 2));
   const [error, setError] = useState('');
   const [models, setModels] = useState<string[]>([]), [fetchingModels, setFetchingModels] = useState(false), [modelNotice, setModelNotice] = useState('');
-  const extractionId = useRef(crypto.randomUUID());
   const discovery = useRef(0);
   function resetModels() { discovery.current++; setModels([]); setFetchingModels(false); setModelNotice(''); }
   async function loadModels() {
@@ -156,7 +159,6 @@ function LibraryEditor({ initial, connections, lorebooks, currentRevision, busy,
     finally { if (attempt === discovery.current) setFetchingModels(false); }
   }
   const stale = initial.revision !== currentRevision;
-  const characterChanged = initial.kind === 'characters' && (['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'lorebookId'] as const).some(field => (data as Character)[field] !== (initial.data as Character)[field]);
   async function save(e: FormEvent) {
     e.preventDefault(); setError('');
     let value = data;
@@ -170,11 +172,6 @@ function LibraryEditor({ initial, connections, lorebooks, currentRevision, busy,
   }
   return <form onSubmit={e => void save(e)}><fieldset disabled={busy || stale}><legend>{initial.id ? 'Edit' : 'Create'} {initial.kind === 'connections' ? 'Connection' : initial.kind.slice(0, -1)}</legend><div className="form-grid">{textField('name', 'Name', false)}
     {initial.kind === 'personas' && textField('description', 'Persona description')}
-    {initial.kind === 'characters' && <>{[['description', 'Character description'], ['personality', 'Personality'], ['scenario', 'Scenario'], ['first_mes', 'Greeting'], ['mes_example', 'Example dialogue']].map(([field, label]) => textField(field, label))}
-      <label className="full">Default lorebook<Dropdown aria-label="Default lorebook" value={(data as Character).lorebookId ?? ''} options={[{ value: '', label: 'None selected' }, ...lorebooks.map(book => ({ value: book.id, label: book.name }))]} onChange={lorebookId => setData({ ...data as Character, lorebookId: lorebookId || null })} /><small>Prefills new chats. Existing chats keep their own selection. The current linked book is embedded when exporting this character.</small></label>
-      {(data as Character).lorebookId && <div className="actions full"><button type="button" className="secondary" onClick={() => { const id = (data as Character).lorebookId; if (id && (!characterChanged || confirm('Open the book and discard unsaved character edits?'))) openBook(id); }}>Open book</button></div>}
-      {initial.id && !(data as Character).lorebookId && hasEmbeddedBook(initial.data as Character) && <div className="full"><button type="button" className="secondary" disabled={characterChanged} onClick={async () => { let bookId = ''; if (await run(async () => { bookId = (await api<{ bookId: string }>(`/library/characters/${initial.id}/extract`, 'POST', { revision: initial.revision, requestId: extractionId.current })).bookId; })) extracted(bookId); }}>Extract embedded lorebook</button><p className="small muted">Save character edits first. Extraction creates an independent shared library book and links it as this character’s default.</p></div>}
-      <p className="small muted full">Use {'{{user}}'} and {'{{char}}'} for names. Imported alternate greetings, assets and prompt overrides are preserved for export and remain inactive. A lorebook is shared by every selecting character and chat.</p></>}
     {initial.kind === 'contexts' && <ContextPresetFields value={data as ContextPreset} change={setData} connections={connections} />}
     {initial.kind === 'connections' && <>
       <div className="full model-field"><label>Model identifier<Dropdown editable required aria-label="Model identifier" value={(data as Connection).model} onChange={model => setData({ ...data as Connection, model })} options={models.map(model => ({ value: model, label: model }))} /></label><button className="secondary" type="button" disabled={fetchingModels || !(data as Connection).endpoint} onClick={() => void loadModels()}>{fetchingModels ? 'Fetching…' : 'Fetch model list'}</button><p className="small muted">If your provider requires an API key, enter it below before fetching models. A saved key is used automatically. You can also enter a model identifier from your provider’s documentation.</p>{modelNotice && <p className="small muted" role="status">{modelNotice}</p>}</div>

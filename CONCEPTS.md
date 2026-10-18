@@ -211,6 +211,14 @@ Separate reusable records:
 
 Separate reusable Character and Persona records and their libraries are accepted in the second milestone. Their data can be inserted through prompt markers. Initial compatibility covers basic SillyTavern character text fields and persona names/descriptions; on 2026-10-17 the importer was extended to read the same basic fields from V3 JSON/PNG cards while preserving inactive metadata and the V3 export format; lorebooks now follow the separately accepted profile below. Other card extras remain inactive. One character and one persona are selected per chat; multiple active characters remain open.
 
+### Character tags
+
+Accepted on 2026-10-18: implement the [tag brief](docs/TAGS_IMPLEMENTATION_BRIEF.md), using all proposed defaults in section 3. One persistent owner-wide catalog organizes characters only. Catalog names have stable identities; trim/NFC/Unicode lowercase defines equality while existing spelling wins on import. Create, rename, delete, assignment editing and usage counts live in Characters. A tag deletion removes its assignments after usage confirmation, retaining characters and embedded metadata; unused tags remain in the catalog.
+
+Character imports review All / Existing / None before one atomic commit, defaulting to None. Existing matches the reviewed current catalog; All creates missing eligible tags; omitted API policy means None. Embedded tags stay preserved independently and continue to export unchanged by local organization. Existing cards start unassigned and expose an explicit additive Apply embedded tags action. Duplicating a character copies local assignments and shares catalog identities. Assignment drafts save atomically with character text and are discarded on editor close; explicit Apply saves organization immediately without saving the text draft.
+
+Characters filter by all selected local tags (AND), including untagged characters when no filter is selected. Editing/import/refresh preserves the view's filters; leaving Characters clears them. Renames preserve selected identities; confirmed deletion/authoritative refresh removes unavailable identities. Setup and other libraries are unaffected. Tags never affect prompts, chat revisions, memory, budgets or lore activation. Shared-edit running-work restrictions still apply. See [TAGS.md](docs/TAGS.md) for limits, normalization, import notices and retry/recovery behavior.
+
 ### Lorebooks
 
 Accepted on 2026-10-18: implement the complete workflow in [the lorebook brief](docs/LOREBOOK_IMPLEMENTATION_BRIEF.md), adopting its proposed defaults, state reconciliation and two-pass pressure policy. The user also accepted the documented upstream interpretations in [the contract review](docs/LOREBOOK_CONTRACT_REVIEW.md). The library/editor, imports/exports, character defaults, chat selection, activation, budgeting and request inspection are implemented for local testing; this does not establish semantic relevance or model recall.

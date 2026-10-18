@@ -6,7 +6,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { ServerOptions } from 'node:https';
-import { importCharacter, importPersonas, exportCharacter, exportPersona } from '../core/cards.js';
+import { importPersonas, exportCharacter, exportPersona } from '../core/cards.js';
+import { tagIdsSchema, tagNameSchema, tagPolicySchema } from '../shared/tags.js';
 import { defaultPrompt, libraryCommandSchema, selectionsSchema, replaceHistorySchema } from '../shared/library.js';
 import { readCardFile } from './card-import.js';
 import { AppError } from '../core/errors.js';
@@ -140,13 +141,13 @@ export async function createApp(options: {
   });
   app.post('/api/library', { bodyLimit: 16_100_000 }, async request => {
     const input = libraryCommandSchema.parse(request.body);
-    const id = store.saveLibrary(input.revision, input.kind, input.data, undefined, input.kind === 'connections' ? input.apiKey : undefined);
+    const id = store.saveLibrary(input.revision, input.kind, input.data, undefined, input.kind === 'connections' ? input.apiKey : undefined, input.kind === 'characters' ? input.tagIds : undefined);
     coordinator.changed(); return { id };
   });
   app.put('/api/library/:id', { bodyLimit: 16_100_000 }, async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
     const input = libraryCommandSchema.parse(request.body);
-    store.saveLibrary(input.revision, input.kind, input.data, id, input.kind === 'connections' ? input.apiKey : undefined);
+    store.saveLibrary(input.revision, input.kind, input.data, id, input.kind === 'connections' ? input.apiKey : undefined, input.kind === 'characters' ? input.tagIds : undefined);
     coordinator.changed(); return { id };
   });
   app.delete('/api/library/:id', async request => {
@@ -159,16 +160,55 @@ export async function createApp(options: {
     store.saveLibrary(revision, 'prompts', defaultPrompt, 'default'); coordinator.changed(); return { ok: true };
   });
   app.post('/api/library/import', { bodyLimit: 3_000_000 }, async request => {
-    const input = z.object({ revision: revisionSchema, requestId: z.string().uuid().optional(), kind: z.enum(['personas', 'characters']), base64: z.string().max(2_700_000) }).strict().parse(request.body);
+    const input = z.object({ revision: revisionSchema, requestId: z.string().uuid().optional(), kind: z.enum(['personas', 'characters']), tagPolicy: tagPolicySchema.optional(), base64: z.string().max(2_700_000) }).strict().parse(request.body);
     const value = readCardFile(input.base64);
     if (input.kind === 'characters') {
-      const result = store.importCard(input.revision, input.requestId ?? randomUUID(), value);
+      const result = store.importCard(input.revision, input.requestId ?? randomUUID(), value, input.tagPolicy);
       coordinator.changed(); return result;
     }
     let items;
     try { items = importPersonas(value); }
     catch (error) { if (error instanceof ZodError) throw error; throw new AppError(400, 'invalid_card', error instanceof Error ? error.message : 'Invalid card.'); }
     const ids = store.importLibrary(input.revision, input.kind, items); coordinator.changed(); return { ids };
+  });
+  app.post('/api/library/characters/preview', { bodyLimit: 3_000_000 }, async request => {
+    const { base64 } = z.object({ base64: z.string().max(2_700_000) }).strict().parse(request.body);
+    return store.previewCard(readCardFile(base64));
+  });
+  app.post('/api/library/tags', async request => {
+    const input = z.object({ revision: revisionSchema, name: tagNameSchema }).strict().parse(request.body);
+    const id = store.tags.create(input.revision, input.name); coordinator.changed();
+    return { id, revision: store.libraryRevision() };
+  });
+  app.put('/api/library/tags/:id', async request => {
+    const { id } = z.object({ id: identity }).parse(request.params);
+    const input = z.object({ revision: revisionSchema, name: tagNameSchema }).strict().parse(request.body);
+    store.tags.rename(input.revision, id, input.name); coordinator.changed(); return { revision: store.libraryRevision() };
+  });
+  app.delete('/api/library/tags/:id', async request => {
+    const { id } = z.object({ id: identity }).parse(request.params);
+    const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
+    store.tags.delete(revision, id); coordinator.changed(); return { revision: store.libraryRevision() };
+  });
+  app.put('/api/library/characters/:id/tags', async request => {
+    const { id } = z.object({ id: identity }).parse(request.params);
+    const input = z.object({ revision: revisionSchema, tagIds: tagIdsSchema }).strict().parse(request.body);
+    store.tags.setAssignments(input.revision, id, input.tagIds); coordinator.changed(); return { ok: true };
+  });
+  app.get('/api/library/characters/:id/tags/preview', async request => {
+    const { id } = z.object({ id: identity }).parse(request.params);
+    return { revision: store.libraryRevision(), tags: store.tags.embeddedReview(id) };
+  });
+  app.post('/api/library/characters/:id/tags/apply', async request => {
+    const { id } = z.object({ id: identity }).parse(request.params);
+    const input = z.object({ revision: revisionSchema, tagPolicy: tagPolicySchema }).strict().parse(request.body);
+    const tags = store.tags.applyEmbedded(input.revision, id, input.tagPolicy); coordinator.changed();
+    return { tags, revision: store.libraryRevision() };
+  });
+  app.post('/api/library/characters/:id/duplicate', async request => {
+    const { id } = z.object({ id: identity }).parse(request.params);
+    const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
+    const copied = store.duplicateCharacter(revision, id); coordinator.changed(); return { id: copied };
   });
   app.post('/api/library/lorebooks/preview', { bodyLimit: 5_100_000 }, async request => {
     const { value } = z.object({ value: z.unknown() }).strict().parse(request.body);
