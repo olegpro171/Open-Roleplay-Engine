@@ -100,7 +100,7 @@ test('keeps mixed library rows bounded and crop controls usable at desktop, phon
   for (const [index, bytes] of images.entries()) {
     const data = fields(`Picture visual ${index} ${index === 1 ? 'with a long name that wraps predictably over two lines' : ''}`);
     const analysis = bytes ? await command(page, '/pictures/preview', { base64: bytes.toString('base64') }) : undefined;
-    await command(page, '/library', { kind: 'characters', revision: (await library(page)).revision, requestId: crypto.randomUUID(), data, tagIds, expectedPicture: null, ...(bytes ? { picture: { mode: 'replace', base64: bytes.toString('base64'), crop: analysis.crop } } : {}) });
+    await command(page, '/library', { kind: 'characters', revision: (await library(page)).revision, requestId: crypto.randomUUID(), data, tagIds: index === 3 ? [] : tagIds, expectedPicture: null, ...(bytes ? { picture: { mode: 'replace', base64: bytes.toString('base64'), crop: analysis.crop } } : {}) });
   }
   await page.route('**/picture/*/thumbnail', async route => { if (route.request().url().includes('/characters/')) { const last = (await library(page)).characters.find(card => card.name.startsWith('Picture visual 2')); if (last && route.request().url().includes(last.id)) return route.abort(); } await route.continue(); });
   await page.reload(); await page.getByRole('button', { name: 'Libraries', exact: true }).click(); await page.getByRole('button', { name: 'Characters', exact: true }).click();
@@ -108,7 +108,28 @@ test('keeps mixed library rows bounded and crop controls usable at desktop, phon
   for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 });
     const rows = page.getByRole('article').filter({ has: page.getByRole('heading', { name: /^Picture visual / }) }); await expect(rows).toHaveCount(4);
+    for (const characterRow of await rows.all()) {
+      const heading = await characterRow.getByRole('heading').boundingBox();
+      const description = await characterRow.locator('p').boundingBox();
+      if (!heading || !description) throw new Error('Missing character preview');
+      const picture = await characterRow.locator('.picture-square').boundingBox();
+      if (!picture) throw new Error('Missing character picture');
+      expect(Math.abs(description.y + description.height - (picture.y + picture.height))).toBeLessThanOrEqual(1);
+      if (width > 800) {
+        const bounds = await characterRow.boundingBox();
+        if (!bounds) throw new Error('Missing character row');
+        const topMargin = picture.y - bounds.y;
+        const bottomMargin = bounds.y + bounds.height - (picture.y + picture.height);
+        expect(Math.abs(topMargin - bottomMargin)).toBeLessThanOrEqual(1);
+        expect(Math.abs(picture.width - picture.height)).toBeLessThanOrEqual(1);
+      }
+      const gap = description.y - (heading.y + heading.height);
+      expect(gap).toBeGreaterThanOrEqual(0);
+      expect(gap).toBeLessThanOrEqual(8);
+      await expect(characterRow).not.toContainText('picture-visual-tag-');
+    }
     const heights = await rows.evaluateAll(elements => elements.map(element => Math.round(element.getBoundingClientRect().height))); expect(new Set(heights).size).toBe(1);
+    expect(Math.max(...heights)).toBeLessThanOrEqual(200);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await rows.first().scrollIntoViewIfNeeded(); await page.screenshot({ path: `test-results/pictures-library-${width}.png`, fullPage: true });
   }

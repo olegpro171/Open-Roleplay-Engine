@@ -35,7 +35,7 @@ The version-2 database migration retains the existing chat, turn/part identities
 
 ## Character pictures
 
-Characters show square library pictures with bounded names, tags and fading description previews. Open Edit → Picture to choose PNG/JPEG/WebP (up to 10 MB), Adjust crop by dragging or keyboard sliders, replace or remove. Use crop changes the draft; Save character commits it with text/tags. Cancel crop and Close editor preserve their existing separate discard meanings. Small sources show a resolution hint; animated sources display their first supported frame.
+Characters show square library pictures in compact rows, with bounded names and fading description previews directly below them. Tags remain available in the editor and filter controls. Open Edit → Picture to choose PNG/JPEG/WebP (up to 10 MB), Adjust crop by dragging or keyboard sliders, replace or remove. Use crop changes the draft; Save character commits it with text/tags. Cancel crop and Close editor preserve their existing separate discard meanings. Small sources show a resolution hint; animated sources display their first supported frame.
 
 PNG character imports show a centered picture in the existing book/tag review. Invalid artwork retains the metadata review and requires the explicit Import without picture choice. Older saved characters have no recoverable image bytes; attach their original PNG using Choose picture without reimporting metadata. Duplication copies an independent crop/association. Picture changes do not affect model input or saved memory.
 

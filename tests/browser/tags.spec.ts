@@ -47,10 +47,14 @@ test('filters with AND, preserves character drafts through catalog edits, and ma
   await expect(page.getByRole('button', { name: 'Manage tags', exact: true })).toBeFocused();
   await expect(page.getByLabel('Character description')).toHaveValue('Draft survives catalog operations');
   await chooser(page).getByRole('checkbox', { name: /tag-new, punctuation/ }).check();
-  await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(row(page, 'Tag A')).toContainText('Draft survives catalog operations'); await expect(row(page, 'Tag A')).toContainText('+1 tags · Edit to view');
-  // Rows bound tag previews; opening Edit below still verifies the hidden assignment.
+  await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(row(page, 'Tag A')).toContainText('Draft survives catalog operations'); await expect(row(page, 'Tag A')).not.toContainText('tag-new, punctuation');
+  // Assignments stay available through filters and the editor without appearing in rows.
   await expect(page.getByRole('group', { name: 'Active tag filters' })).toContainText('tag-journey');
-  await row(page, 'Tag A').getByRole('button', { name: /^Duplicate(?: |$)/ }).click(); await expect(row(page, 'Tag A copy')).toContainText('tag-journey');
+  await row(page, 'Tag A').getByRole('button', { name: /^Duplicate(?: |$)/ }).click(); await expect(row(page, 'Tag A copy')).toBeVisible();
+  await row(page, 'Tag A copy').getByRole('button', { name: /^Edit(?: |$)/ }).click();
+  await expect(chooser(page).getByRole('checkbox', { name: /tag-journey/ })).toBeChecked();
+  await expect(chooser(page).getByRole('checkbox', { name: /tag-new, punctuation/ })).toBeChecked();
+  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
   await row(page, 'Tag A').getByRole('button', { name: /^Edit(?: |$)/ }).click();
   await chooser(page).getByRole('button', { name: 'Remove tag-new, punctuation', exact: true }).click(); await page.getByRole('button', { name: 'Close editor', exact: true }).click();
   await row(page, 'Tag A').getByRole('button', { name: /^Edit(?: |$)/ }).click(); await expect(chooser(page).getByRole('checkbox', { name: /tag-new, punctuation/ })).toBeChecked();
@@ -102,7 +106,10 @@ test('reviews every import mode before commit, cancels without writes and safely
   await row(page, 'Tag import none').getByRole('button', { name: /^Edit(?: |$)/ }).click(); await page.getByLabel('Character description').fill('Unsaved text during apply');
   await page.getByRole('button', { name: 'Apply embedded tags', exact: true }).click(); await page.getByRole('radio', { name: 'Import all', exact: true }).check(); await page.getByRole('button', { name: 'Apply reviewed tags', exact: true }).click();
   await expect(page.getByLabel('Character description')).toHaveValue('Unsaved text during apply'); await expect(chooser(page).getByRole('checkbox', { name: /import-adventure/ })).toBeChecked();
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click(); await expect(row(page, 'Tag import none')).toContainText('import-adventure'); await expect(row(page, 'Tag import none')).toContainText('Saved character text');
+  await page.getByRole('button', { name: 'Close editor', exact: true }).click(); await expect(row(page, 'Tag import none')).not.toContainText('import-adventure');
+  await row(page, 'Tag import none').getByRole('button', { name: /^Edit(?: |$)/ }).click();
+  await expect(chooser(page).getByRole('checkbox', { name: /import-adventure/ })).toBeChecked();
+  await page.getByRole('button', { name: 'Close editor', exact: true }).click(); await expect(row(page, 'Tag import none')).toContainText('Saved character text');
 });
 
 test('refreshes another tab, prunes deleted filters, retains failed drafts and rejects unrelated revision advancement', async ({ page, context }) => {
@@ -158,7 +165,8 @@ test('paginates the catalog and keeps long or HTML-like names usable as text in 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await chooser(page).screenshot({ path: 'test-results/tags-phone-chooser.png' });
   await page.getByRole('button', { name: 'Save character', exact: true }).click();
-  await expect(row(page, 'Tag long-name draft')).toContainText(longName);
+  await expect(row(page, 'Tag long-name draft')).toBeVisible();
+  await expect(row(page, 'Tag long-name draft')).not.toContainText(longName);
   await row(page, 'Tag long-name draft').getByRole('button', { name: /^Edit(?: |$)/ }).click();
   await expect(chooser(page).getByRole('button', { name: `Remove ${longName}`, exact: true })).toBeVisible();
 });
