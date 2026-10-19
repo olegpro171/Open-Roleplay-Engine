@@ -1,7 +1,8 @@
+import { DataManagement } from './DataManagement';
 import { useConfirmation } from './Confirmation';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ChatSnapshot, RequestPreview } from '../shared/contracts';
-import { api, ApiError } from './api';
+import { api, ApiError, datasetChanged } from './api';
 import { characterLabel, personaLabel, hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
 import { ChatSetup, Libraries, type LibraryTarget } from './Libraries';
 import { Dropdown } from './Controls';
@@ -33,6 +34,8 @@ function rememberChat(id: string | null) {
 }
 
 export function App() {
+  const [dataChanged, setDataChanged] = useState(false);
+  useEffect(() => { const changed = () => setDataChanged(true); window.addEventListener('ore-dataset-changed', changed); return () => window.removeEventListener('ore-dataset-changed', changed); }, []);
   const [session, setSession] = useState<Session | null>(null);
   const [chatId, setChatId] = useState<string | null>(lastChat);
   const [library, setLibrary] = useState<LibrarySnapshot | null>(null);
@@ -40,7 +43,7 @@ export function App() {
   const [snapshot, setSnapshot] = useState<ChatSnapshot | null>(null);
   const [error, setError] = useState('');
   const [online, setOnline] = useState(false);
-  const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory'>('story');
+  const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory' | 'data'>('story');
   const [libraryTarget, setLibraryTarget] = useState<LibraryTarget | null>(null);
   const confirmAction = useConfirmation(`${chatId}:${tab}:${session?.authenticated}`);
   const drafts = useChatDraft(chatId);
@@ -62,6 +65,8 @@ export function App() {
     try {
       const cached = libraryCache.current;
       const update = await api<LibrarySnapshot | UnchangedLibrary>(`/library${cached ? `?knownRevision=${cached.revision}` : ''}`);
+      // Keep existing editors/transcript available to copy after a dataset replacement.
+      if (datasetChanged()) return;
       let items: LibrarySnapshot;
       if ('unchanged' in update) {
         if (!cached || cached.revision !== update.revision) throw new Error('Library refresh has no matching saved version. Reload this page.');
@@ -69,14 +74,14 @@ export function App() {
       } else items = update;
       const selected = items.chats.find(chat => chat.id === chatId)?.id ?? items.chats[0]?.id ?? null;
       const state = selected ? await api<ChatSnapshot>(`/chats/${selected}`) : null;
-      if (id === loadId.current) {
+      if (id === loadId.current && !datasetChanged()) {
         libraryCache.current = items;
         setSnapshot(state); setLibrary(items); clearServerError();
         if (selected !== chatId) {
           setChatId(selected); setEdit(null); setPeek(false); setGenerationId('');
           rememberChat(selected);
         }
-        if (!selected) setTab('library');
+        if (!selected) setTab(current => current === 'data' ? current : 'library');
       }
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) void refreshSession();
@@ -171,7 +176,7 @@ export function App() {
   async function send(event: FormEvent) {
     event.preventDefault();
     const text = trimBoundaryNewlines(draft);
-    if (!snapshot || busy || pending || !text.trim()) return;
+    if (!snapshot || busy || pending || dataChanged || drafts.needsReview || !text.trim()) return;
     const id = snapshot.id;
     const sent = drafts.stage(id, snapshot.revision);
     setBusy(true); setError('');
@@ -216,12 +221,15 @@ export function App() {
     <header className="topbar">
       <div className="brand"><span className="brand-mark" aria-hidden="true">O</span><div><strong>ORE</strong><small>Your stories. Room to continue.</small></div></div>
       <nav className="tabs" aria-label="Workspace">
-        <button disabled={!snapshot} aria-current={tab !== 'library' ? 'page' : undefined} onClick={() => setTab('story')}>Story</button>
+        <button disabled={!snapshot} aria-current={tab !== 'library' && tab !== 'data' ? 'page' : undefined} onClick={() => setTab('story')}>Story</button>
         <button aria-current={tab === 'library' ? 'page' : undefined} onClick={() => { setLibraryTarget(null); setTab('library'); }}>Libraries</button>
+        <button aria-current={tab === 'data' ? 'page' : undefined} onClick={() => setTab('data')}>Data management</button>
       </nav>
       <div className="connection-status"><span className={online ? 'dot online' : 'dot'} />{online ? 'Connected' : 'Reconnecting'}</div>
       <button className="quiet signout" onClick={() => void command(async () => { await api('/logout', 'POST', {}); setSnapshot(null); await refreshSession(); })}>Sign out</button>
     </header>
+    {dataChanged && <div className="error-banner" role="alert"><span>Application data was imported or wiped in another tab. Old edits cannot be saved. Copy any unsaved editor text, then reload to review the current data. Browser composer drafts remain recoverable.</span><button onClick={() => window.location.reload()}>Reload current data</button></div>}
+    {tab === 'data' && <DataManagement openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
     {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" onClick={() => setError('')}>Dismiss</button></div>}
     {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<>
         <button className="secondary" aria-label="Chat settings" onClick={() => setTab('settings')}>Chat settings{snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : ''}</button>
@@ -272,9 +280,10 @@ export function App() {
         </div>{awayFromLatest && <button className="latest-turn secondary" onClick={scrollToLatest}>Latest turn <span aria-hidden="true">↓</span></button>}</div>
         {!active && pending && <div className="recovery" role="status"><div><strong>Last turn is still pending.</strong><p>{latest?.status === 'cancelled' ? 'Response cancelled. Generate response before next turn.' : latest?.error ?? 'Generate response before next turn.'}</p>{partial && <small>Partial text is preserved for inspection. It has not been accepted as a response.</small>}</div><button className="secondary" disabled={busy} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID() }))}>Retry response</button></div>}
         {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{latest.error ?? 'Regeneration did not finish. Try again.'}</p>}
+        {drafts.needsReview && <div className="recovery" role="alert"><p>This browser draft predates a backup import or wipe. Review its text and the restored story before sending. Its previous staged send has no retry authority.</p><button onClick={drafts.review}>Use recovered draft</button></div>}
         <form className="composer" onSubmit={(event) => void send(event)}>
           <ChatTextarea autoSize rows={1} aria-label="Your next turn" id="turn-input" placeholder="What happens next?" value={draft} disabled={pending || busy || working} onValueChange={text => { drafts.change(text); setPeek(false); }} />
-          <button className="send-turn" title={busy ? 'Saving changes…' : undefined} disabled={pending || busy || working || memoryStale || !snapshot.connection || !draft.trim()}>Send <span aria-hidden="true">↗</span></button>
+          <button className="send-turn" title={busy ? 'Saving changes…' : undefined} disabled={pending || busy || working || memoryStale || dataChanged || drafts.needsReview || !snapshot.connection || !draft.trim()}>Send <span aria-hidden="true">↗</span></button>
           {drafts.storageError && <span className="composer-status" role="alert">Draft could not be saved in this browser. Keep this page open and copy your text before leaving.</span>}
           {preparing && <span className="composer-status">Preparing memory…</span>}
         </form>

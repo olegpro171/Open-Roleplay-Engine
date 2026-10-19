@@ -50,7 +50,7 @@ it('reads existing populated version-12 records without rewriting presets, reque
   f.store.close();
   const reopened = new Store(path);
   disposers.push(() => reopened.close());
-  expect(reopened.sqlite.pragma('user_version', { simple: true })).toBe(12);
+  expect(reopened.sqlite.pragma('user_version', { simple: true })).toBe(13);
   expect(reopened.snapshot(f.chatId)).toEqual(before);
   expect(reopened.libraries()).toEqual(library);
   expect(reopened.libraries().prompts.find(prompt => prompt.id === 'default')?.blocks).toEqual(legacyRoleplayPrompt.blocks);

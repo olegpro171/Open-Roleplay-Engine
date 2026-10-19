@@ -206,7 +206,7 @@ Each chat selects:
 
 Accepted implementation direction: separate the stored Chat from the server-owned generation process that coordinates context preparation, prompt assembly, provider requests, and response persistence. Browser disconnection does not cancel that process; server interruption exposes recovery rather than promising resumable provider streams.
 
-Accepted navigation refinement on 2026-10-19: the header contains only **Story** and **Libraries**. Story’s current-chat sidebar opens **Chat settings**, **Inspect memory** and **Request inspector**. Setup, Memory and Request inspector retain that sidebar beside their content. Setup replaces those navigation actions with primary **Save and return** and secondary **Return without saving**; the latter discards unsaved setup edits. Memory and Request inspector offer **Return to chat**. Saving returns only after server confirmation; failures retain the setup draft. On narrow screens, chat details can collapse above the page content while navigation and return controls remain available.
+Accepted navigation refinement on 2026-10-19: the header contains **Story**, **Libraries** and the application-level **Data management** action implemented in the backup milestone below. Story’s current-chat sidebar opens **Chat settings**, **Inspect memory** and **Request inspector**. Setup, Memory and Request inspector retain that sidebar beside their content. Setup replaces those navigation actions with primary **Save and return** and secondary **Return without saving**; the latter discards unsaved setup edits. Memory and Request inspector offer **Return to chat**. Saving returns only after server confirmation; failures retain the setup draft. On narrow screens, chat details can collapse above the page content while navigation and return controls remain available.
 
 ### Agent
 
@@ -348,6 +348,10 @@ The final decision on 2026-10-17 is implemented: use `cl100k_base` as a single r
 
 The normal interface keeps existing estimate wording without additional tokenizer labels or repeated technical notes. Preserve method/version and verification limits in request metadata, and keep endpoint-reported usage separate. Recalculation of the same historical request gives 5,766 with the shared counter versus 5,912 reported. Saved bodies, old estimates and usage remain unchanged. That one comparison does not establish accuracy for other texts, languages or models. See [counting details](docs/TOKEN_COUNTING.md), [README.md](README.md) and [diagnostics](docs/DIAGNOSTICS.md).
 
+### Database backup and data management — implemented 2026-10-19
+
+The user split the first beta-readiness package into two implementation tasks. In-app data management should provide database backup download, a tree preview of a selected backup, import that appends its data to existing content, and a database-wipe action. When record IDs overlap, show a warning and overwrite only after the user accepts. The user can cancel and preserve copies under different IDs before importing. Do not infer matching identities from equal names or silently merge versions. Detailed aggregate boundaries, preservation of local authentication, concurrency safeguards and validation are specified as implementation guidance in the [backup assignment](docs/BACKUP_IMPLEMENTATION_BRIEF.md); manual backup, inspection, append import and wipe are now implemented for local testing through the application-level Data management header action; see [backup behavior and limits](docs/BACKUPS.md).
+
 ### Decisions still open
 
 - Distribution identity beyond the accepted in-app name “ORE”; repository renaming is deferred.
@@ -364,7 +368,7 @@ The normal interface keeps existing estimate wording without additional tokenize
 - Future shared-record version pinning or per-chat copies. In the implemented library milestone, saved edits apply to subsequent requests in chats selecting that record; copied greetings and saved generation requests retain their historical text. Shared edits are blocked while any response is running.
 - Whether agents ship in the first version and which triggers they support.
 - Missing product-agent-output behavior. Missing ordinary prompt markers are settled as advisory omissions with no implicit insertion.
-- Backup policy and generation-record retention.
+- Automatic backup cadence/retention and generation-record retention. Manual backup/inspection/import/wipe follows the accepted direction above.
 
 ## 8. Suggested first proof
 

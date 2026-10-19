@@ -58,6 +58,16 @@ export function semanticFingerprint(book: Lorebook, entry: LoreEntry): string {
 }
 export const loreEntryFingerprint = semanticFingerprint;
 
+/** Only semantic equivalence may retain prior-match state across a shared book edit/import. */
+export function unchangedLoreEntries(before: Lorebook, after: Lorebook): Set<string> {
+  const previous = new Map(before.entries.map(entry => [entry.id,entry]));
+  return new Set(after.entries.filter(entry => {
+    const old = previous.get(entry.id);
+    return old && semanticFingerprint(before,old) === semanticFingerprint(after,entry);
+  }).map(entry => entry.id));
+}
+
+
 function normalizeLiteral(text: string, caseSensitive: boolean): string {
   const normalized = text.normalize('NFC');
   return caseSensitive ? normalized : normalized.toLowerCase();

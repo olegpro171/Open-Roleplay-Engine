@@ -15,6 +15,7 @@ export class ContextCoordinator {
   private stopping = false;
   private preflights = new Set<AbortController>();
   constructor(private store: Store, private provider: Provider, private changed: () => void, private loreRegex: LoreRegexPool) {}
+  hasActiveWork() { return this.active.size > 0 || this.preflights.size > 0; }
   async startResolved(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>) {
     if (this.stopping) throw new AppError(503, 'server_stopping', 'The server is stopping. Retry after it restarts.');
     const existing = this.store.contexts.commandJob(chatId, requestId, mode);

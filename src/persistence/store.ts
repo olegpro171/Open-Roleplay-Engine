@@ -16,7 +16,7 @@ import { readCharacterAlternateGreetings, characterLabel, characterSchema, libra
 import { lorebookSchema, type Lorebook, type LoreImportPreview, type LoreResolution, type LoreState } from '../shared/lorebook.js';
 import { importLorebook, loreCompatibility, markLoreEdits } from '../core/lorebook-formats.js';
 import { importCharacter } from '../core/cards.js';
-import { semanticFingerprint } from '../core/lorebook.js';
+import { semanticFingerprint, unchangedLoreEntries } from '../core/lorebook.js';
 import * as schema from './schema.js';
 import { trimBoundaryNewlines } from '../shared/text.js';
 import { contextPresetSchema, defaultContextPreset, type ContextPreset } from '../shared/context.js';
@@ -217,7 +217,14 @@ export class Store {
           this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0012_reasoning.sql'), 'utf8'));
           this.sqlite.pragma('user_version = 12');
         })();
-      } else if (version !== 12) throw new Error('Unsupported database schema version.');
+        version = 12;
+      }
+      if (version === 12) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0013_data_management.sql'), 'utf8'));
+          this.sqlite.pragma('user_version = 13');
+        })();
+      } else if (version !== 13) throw new Error('Unsupported database schema version.');
       this.pictures = new PictureStore(this.sqlite, () => this.bumpLibrary());
       this.contexts = new ContextStore(this);
       this.tags = new TagStore(this.sqlite, expected => this.checkLibrary(expected), () => this.bumpLibrary());
@@ -389,10 +396,7 @@ export class Store {
             return { ...sameEpoch, id: previous ? entry.id : randomUUID(), activationRevision: (before?.activationRevision ?? 0) + Number(Boolean(changed)) };
           }) };
           if (old) {
-            const retained = new Set(data.entries.filter(entry => {
-              const before = previousEntries.get(entry.id);
-              return before && previous && semanticFingerprint(previous, before) === semanticFingerprint(data as Lorebook, entry);
-            }).map(entry => entry.id));
+            const retained = previous ? unchangedLoreEntries(previous, data) : new Set<string>();
             const states = this.sqlite.prepare('SELECT chat_id, data FROM lore_states WHERE book_id = ?').all(identity) as { chat_id: string; data: string }[];
             for (const state of states) {
               const entries = JSON.parse(state.data) as LoreState['entries'];

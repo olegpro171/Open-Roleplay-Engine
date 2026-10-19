@@ -95,7 +95,7 @@ If the sources changed while the model was working, an obsolete result must not 
 
 Restarting the server must load the committed selection rather than reconstructing a different tree from transcript length or token totals.
 
-Backups must capture a consistent database snapshot, including any required associated files. Do not treat copying only the main database file during active WAL writes as a complete backup. Backup scheduling, retention, destination, and treatment of credentials remain open. Verify restore behavior before describing backups as dependable.
+Backups must capture a consistent database snapshot, including any required associated files. Do not treat copying only the main database file during active WAL writes as a complete backup. Manual backup/inspection/import/wipe is implemented as described in [BACKUPS.md](docs/BACKUPS.md), including saved API keys and excluding login/runtime authority. Scheduling and retention remain open.
 
 ## 6. Generation and streaming
 
@@ -301,7 +301,7 @@ Import receipt lookup follows bounded metadata extraction/hash and precedes stri
 
 ### Subsequent interface work
 
-`ChatWorkspace.tsx` owns the shared two-column shell and sidebar action area for Story, Setup, Memory and Request inspector. App supplies the current chat’s authoritative metadata and request estimates. The header exposes Story and Libraries; tool navigation lives in the Story sidebar. Setup owns its form and external sidebar submit button, preserves failed drafts, rejects duplicate/stale submission and returns only after a confirmed save while still mounted. Returning without saving unmounts its draft. Memory and Request inspector return to Story without changing the selected chat or composer. Content scrolls independently on desktop; narrow layouts stack the controls above content with expandable chat details.
+`ChatWorkspace.tsx` owns the shared two-column shell and sidebar action area for Story, Setup, Memory and Request inspector. App supplies the current chat’s authoritative metadata and request estimates. The header exposes Story, Libraries and application-level Data management; chat tool navigation lives in the Story sidebar. Setup owns its form and external sidebar submit button, preserves failed drafts, rejects duplicate/stale submission and returns only after a confirmed save while still mounted. Returning without saving unmounts its draft. Memory and Request inspector return to Story without changing the selected chat or composer. Content scrolls independently on desktop; narrow layouts stack the controls above content with expandable chat details.
 
 App retains the Context dropdown’s open/closed state across workspace navigation, including save/return actions. Remounting a tool’s sidebar must not collapse that dropdown; this is in-memory presentation state, with no saved-chat mutation.
 
@@ -348,3 +348,12 @@ Do not treat these as reasons to delay independent implementation work. Resolve 
 - [Playwright: device emulation](https://playwright.dev/docs/emulation)
 
 These references explain the selected tools. Product decisions and implementation requirements are defined by this repository's documentation and the user's subsequent instructions.
+
+
+### Application data management
+
+`src/server/backups.ts` owns private, expiring, session-bound staging, online snapshot export and bounded authenticated inspection. `src/persistence/backup-validation.ts` checks uploaded records and graphs against shipped schemas; `backup-store.ts` owns import units, merged-state preflight, immutable asset mapping, whole-chat aggregate replacement, wipe, dataset epochs and durable receipts. Shared contracts remain browser-safe in `src/shared/backups.ts`; `DataManagement.tsx` owns the independent page and existing destructive confirmations.
+
+Migration 13 adds `dataset_state` and `data_commands`. The global request gate includes asynchronous mutation requests and both coordinators' active/preflight work. A commit requires idle/exclusive ownership, rechecks the reviewed full-state digest, and commits all content changes, a fresh epoch and its receipt atomically. Ordinary mutating requests carry a captured epoch, preventing revision ABA without rewriting source provenance. Imported execution receipts are never installed; unfinished work becomes interrupted and unapproved repairs are discarded. The owner login remains local. Other tabs retain recoverable editor text with a reload notice; stored composer drafts require explicit reconciliation after an epoch change.
+
+The portable format is a single SQLite snapshot with metadata, including artwork and Connection keys. Input schema SQL is compared to shipped schema definitions and never executed against the live database. Schema 12 is reconstructed privately into schema 13; future/unknown versions fail. Exact limits, collision/shared-record effects, wipe scope and uncertain acknowledgement recovery are specified in [BACKUPS.md](docs/BACKUPS.md). No new dependency or release packaging change is introduced.

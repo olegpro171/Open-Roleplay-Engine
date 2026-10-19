@@ -18,6 +18,7 @@ export class GenerationCoordinator {
     this.context = new ContextCoordinator(store, provider, () => this.changed(), this.loreRegex);
     this.events.setMaxListeners(100);
   }
+  hasActiveWork() { return this.active.size > 0 || this.context.hasActiveWork(); }
   changed() { this.events.emit('changed'); }
   reasoningText(id: string) { return this.active.get(id)?.reasoning ?? ''; }
   partialText(id: string) { return this.active.get(id)?.text ?? ''; }

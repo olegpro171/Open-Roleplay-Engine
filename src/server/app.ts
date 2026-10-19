@@ -1,7 +1,11 @@
+import { BackupService } from './backups.js';
+import { backupLimits, backupTableSchema, dataCommandSchema } from '../shared/backups.js';
+import { createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { promptDiagnostics } from '../core/prompt-diagnostics.js';
 import { PictureProcessor, pictureAnalysis, pictureBytes, pictureDigest } from './pictures.js';
 import { pictureBase64Schema, pictureModeSchema, pictureBase64Limit } from '../shared/pictures.js';
-import Fastify, { type FastifyReply } from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
 import staticFiles from '@fastify/static';
 import { z, ZodError } from 'zod';
@@ -53,6 +57,49 @@ export async function createApp(options: {
   const secure = Boolean(options.https);
   const app = Fastify({ logger: false, bodyLimit: 1_000_000, ...(options.https ? { https: options.https } : {}) });
   await app.register(cookie);
+  const backups = new BackupService(store, options.database, options.migrationsDirectory);
+  app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: backupLimits.bytes }, (_request, body, done) => done(null, body));
+  const mutations = new Set<string>();
+  const executingMutations = new Set<string>();
+  const isMutation = (request: FastifyRequest) => request.url.startsWith('/api/')
+    && !['GET','HEAD'].includes(request.method)
+    && !['/api/setup','/api/login','/api/logout'].includes(request.url.split('?')[0]);
+  const checkEpoch = (request: FastifyRequest) => {
+    if (!request.url.startsWith('/api/data/') && (request.headers['x-ore-epoch'] ?? 'initial') !== backups.persistence.epoch) {
+      throw new AppError(409,'dataset_changed','Application data was imported or wiped. Reopen the editor and review recovered draft text before sending.');
+    }
+  };
+  const releaseIngress = (id: string) => {
+    // A disconnected browser does not stop an already executing asynchronous save.
+    if (!executingMutations.has(id)) mutations.delete(id);
+  };
+  app.addHook('onResponse',async request => { releaseIngress(request.id); });
+  app.addHook('onRequestAbort',async request => { releaseIngress(request.id); });
+  app.addHook('onTimeout',async request => { releaseIngress(request.id); });
+  app.addHook('onRequest',async (request,reply) => {
+    reply.header('X-ORE-Epoch',backups.persistence.epoch);
+    if (!isMutation(request)) return;
+    checkEpoch(request);
+    mutations.add(request.id);
+  });
+  app.addHook('onRoute',route => {
+    const methods = Array.isArray(route.method) ? route.method : [route.method];
+    if (!route.url.startsWith('/api/') || methods.every(method => ['GET','HEAD'].includes(method)) || ['/api/setup','/api/login','/api/logout'].includes(route.url)) return;
+    const handler = route.handler;
+    route.handler = async function(request,reply) {
+      if (!isMutation(request)) return handler.call(this,request,reply);
+      // Recheck after body parsing/prehandlers, including interrupted ingress.
+      checkEpoch(request);
+      executingMutations.add(request.id);
+      mutations.add(request.id);
+      try { return await handler.call(this,request,reply); }
+      finally { executingMutations.delete(request.id); mutations.delete(request.id); }
+    };
+  });
+  const requireExclusive = (id: string) => {
+    if ([...mutations].some(active => active !== id) || coordinator.hasActiveWork()) throw new AppError(409, 'data_management_busy', 'Wait for other saves, uploads, responses and memory work to finish before importing or wiping data.');
+    store.ensureIdle();
+  };
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('X-Content-Type-Options', 'nosniff');
@@ -66,7 +113,7 @@ export async function createApp(options: {
     reply.header('Cache-Control', 'no-store');
     if (!['GET', 'HEAD'].includes(request.method)) {
       const expectedOrigin = `${secure ? 'https' : 'http'}://${request.host}`;
-      if (request.headers.origin !== expectedOrigin || !request.headers['content-type']?.startsWith('application/json')) {
+      if (request.headers.origin !== expectedOrigin || !(request.headers['content-type']?.startsWith('application/json') || (request.url === '/api/data/stages' && request.method === 'POST' && request.headers['content-type'] === 'application/octet-stream'))) {
         throw new AppError(403, 'invalid_origin', 'Commands must come from this application with a JSON body.');
       }
     }
@@ -100,6 +147,59 @@ export async function createApp(options: {
     reply.clearCookie('session', { path: '/', secure, sameSite: 'strict' });
     coordinator.changed();
     return { ok: true };
+  });
+
+  const stageParams = z.object({ stageId: z.string().uuid() });
+  const owner = (token?: string) => createHash('sha256').update(token ?? '').digest('hex');
+  app.get('/api/data/backup', async (_request, reply) => {
+    const file = await backups.export();
+    if (reply.raw.destroyed) { file.cleanup(); return reply; }
+    const stream = createReadStream(file.path);
+    stream.once('close', file.cleanup);
+    reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename="ORE-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.sqlite"`);
+    return reply.send(stream);
+  });
+  app.post('/api/data/stages', { bodyLimit: backupLimits.bytes }, async request => {
+    const bytes = z.instanceof(Buffer).parse(request.body);
+    return backups.upload(bytes, owner(request.cookies.session));
+  });
+  app.get('/api/data/stages/:stageId', async request => {
+    const { stageId } = stageParams.parse(request.params);
+    const { offset } = z.object({ offset: z.coerce.number().int().nonnegative().max(backupLimits.rows).default(0) }).strict().parse(request.query);
+    return backups.review(stageId,owner(request.cookies.session),offset);
+  });
+  app.delete('/api/data/stages/:stageId', async request => {
+    const { stageId } = stageParams.parse(request.params); backups.cancel(stageId,owner(request.cookies.session)); return { ok: true };
+  });
+  app.get('/api/data/stages/:stageId/records/:table', async request => {
+    const { stageId, table } = stageParams.extend({ table: backupTableSchema }).parse(request.params);
+    const { offset, chat } = z.object({ offset: z.coerce.number().int().nonnegative().max(backupLimits.rows).default(0), chat: z.string().min(1).max(100).optional() }).strict().parse(request.query);
+    return backups.page(stageId,owner(request.cookies.session),table,offset,chat);
+  });
+  app.get('/api/data/stages/:stageId/records/:table/:key', async request => {
+    const { stageId, table, key } = stageParams.extend({ table: backupTableSchema, key: z.coerce.number().int().positive() }).parse(request.params);
+    const { offset, field } = z.object({ offset: z.coerce.number().int().nonnegative().max(backupLimits.textBytes * 2).default(0), field: z.string().min(1).max(100).optional() }).strict().parse(request.query);
+    return backups.leaf(stageId,owner(request.cookies.session),table,key,offset,field);
+  });
+  app.get('/api/data/stages/:stageId/image/:table/:key', async (request,reply) => {
+    const { stageId, table, key } = stageParams.extend({ table: z.enum(['picture_assets','character_pictures']), key: z.coerce.number().int().positive() }).parse(request.params);
+    return reply.type('image/png').send(backups.image(stageId,owner(request.cookies.session),table,key));
+  });
+  app.post('/api/data/stages/:stageId/import', async request => {
+    const { stageId } = stageParams.parse(request.params); const input = dataCommandSchema.parse(request.body);
+    const replay = backups.persistence.replay(input.requestId,`import:${input.digest}:${input.token}:${input.overwrite}`);
+    if (replay) return replay;
+    requireExclusive(request.id);
+    const outcome = backups.commit(stageId,owner(request.cookies.session),input); coordinator.changed(); return outcome;
+  });
+  app.get('/api/data/wipe-preview', async () => ({ token: backups.persistence.token, digest: '0'.repeat(64) }));
+  app.post('/api/data/wipe', async request => {
+    const input = dataCommandSchema.parse(request.body);
+    const replay = backups.persistence.replay(input.requestId,`wipe:${input.digest}:${input.token}:${input.overwrite}`);
+    if (replay) return replay;
+    requireExclusive(request.id);
+    if (!input.overwrite) throw new AppError(409,'wipe_confirmation','Confirm the wipe before continuing.');
+    const outcome = backups.persistence.commit(input,undefined,owner(request.cookies.session)); coordinator.changed(); return outcome;
   });
 
   const identity = z.string().min(1).max(100);
@@ -184,7 +284,7 @@ export async function createApp(options: {
       const extension = image.mime === 'image/jpeg' ? 'jpg' : image.mime === 'image/webp' ? 'webp' : 'png';
       reply.header('Content-Disposition', `attachment; filename="original-picture.${extension}"`);
     } else {
-      const etag = `"${key}-${kind}"`;
+      const etag = `"${key}-${kind}-${backups.persistence.epoch}"`;
       reply.header('Cache-Control', 'private, no-cache'); reply.header('ETag', etag);
       if (request.headers['if-none-match'] === etag) return reply.code(304).send();
     }
@@ -467,6 +567,6 @@ export async function createApp(options: {
     app.setNotFoundHandler((request, reply) => request.url.startsWith('/api/') ? reply.code(404).send({ message: 'Not found.' }) : sendIndex(reply));
   }
   app.addHook('preClose', async () => { await pictures.close(); await coordinator.shutdown(); });
-  app.addHook('onClose', async () => store.close());
+  app.addHook('onClose', async () => { try { backups.close(); } finally { store.close(); } });
   return { app, store, coordinator };
 }

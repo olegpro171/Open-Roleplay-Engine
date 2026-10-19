@@ -1,0 +1,54 @@
+# Database backup and data management
+
+ORE's **Data management** page is independent of the selected chat. It saves a portable SQLite snapshot, inspects a selected file, imports its entire content into the current installation, and wipes application content. These operations use the same format on each platform; actual Windows/Linux execution and actual phone interaction still need platform testing.
+
+## Save and inspect
+
+**Save backup** uses SQLite's online backup API, including committed WAL pages and picture BLOBs. The downloaded `ORE-backup-<UTC timestamp>.sqlite` file includes saved model API keys in plaintext. Keep it private. It contains schema/build/creation metadata. The page reports when the snapshot is ready; the browser's download list reports the file download. It does not claim a disk save before the browser finishes.
+
+The artifact excludes owner password hashes, login sessions, process ownership, library command receipts and data-management command receipts. Removed data is securely deleted from the private snapshot and its pages are rebuilt before download. Runtime state is never removed from the live database by exporting.
+
+Select **Inspect backup** to upload the file to private server staging. The source file remains unchanged. An inspection is bound to the uploading login session and expires after 30 minutes, even while open. Cancel, completed import, application shutdown and restart remove staging. Uncertain commands retain staging until explicit retry or expiry; successful command receipts survive restart even when staging no longer exists.
+
+Branches load only when expanded. Chats have nested branches for their turns, variants, requests, memory, preparation and lore records. Global categories expose libraries, Connections, pictures and tag relations. Records are paged in groups of 40; branches fetch labels without loading text or image BLOBs. Leaf text fields are selected individually and fetched in 8,192-character pieces. API key nodes reveal only presence. Images come from authenticated local PNG resources. Text is displayed literally; remote URLs, HTML and instructions in a backup are never executed.
+
+## Import and collisions
+
+Review lists additions and overlapping identities, current dependent-record counts for replaced chats, blockers, and retained chats using incoming shared records. Review pages show at most 40 units/effects at once. Names are labels, not identity. Equal names with different IDs remain independent. Built-in IDs can overlap.
+
+An overlapping chat is replaced as a whole: transcript, variants, generations and historical requests, memory versions and corrections, saved selection/cutoff, preparation history, and lore state/provenance. Current-only children are removed. An incoming library record replaces its text, links, local tag/picture associations and saved key presence/absence. An absent incoming key or picture clears the overlapping value.
+
+Import requires explicit confirmation, naming the number of overwrites. Cancel changes no application content. Import retains unrelated records. Shared settings affect retained chats' future requests and advance their chat revisions, while preserving original turns, saved requests and narrative memory. Book overwrites retain only semantically unchanged entry matches (cosmetic labels/comments preserve them); character/persona name changes reset affected retained chats' lore epochs. Imported chats retain their own saved lore state.
+
+Different tag IDs with the same normalized name block import. Rename the source or destination tag and create/review a new backup; identities are not silently merged or renamed. Cross-kind identities, cross-chat child ownership, broken selections/dependencies and incompatible unique constraints also block import. Storage-level picture collisions map incoming immutable assets to a separate internal identity, preserving bytes used by retained characters. Only unreferenced assets are cleaned up.
+
+Save a backup before overwriting. Existing library copy/edit actions can preserve some records, but a duplicated character can share its lorebook. ORE does not yet provide an independent full chat-copy/branch workflow. This feature imports the entire backup; selective import and a separate Replace mode are outside its scope.
+
+## Atomicity and recovery
+
+Import/wipe require globally idle response/preparation work and exclusive mutation coordination. The server also blocks them while another command or asynchronous library/image/lore request is in flight. Cancellation must settle before these actions proceed. The browser's disabled controls are not the integrity guard.
+
+Upload validation, trusted reconstruction and merged-state preflight run before the final transaction. A full destination-state SHA-256 token covers all portable tables and the dataset epoch, including child records and picture/tag state. Commit rechecks it inside the transaction. Any saved content change requires refreshed review. Coupled import/wipe changes, the new dataset epoch and the durable command receipt commit together. Constraint/write failure rolls back to the previous state and permits explicit retry. A synthetic child-process kill immediately before the command receipt write verifies recovery of the previous committed story.
+
+Commands retain UUID identity and exact payload digests. Retrying an acknowledged or ambiguous successful command returns its original outcome without executing again, including after restart. Different data with the same command ID conflicts. A deliberate second import uses a new review/command. The browser stores only this command identity/digests for uncertain acknowledgement recovery, never backup bytes or API keys. Do not clear browser storage during uncertain recovery.
+
+Migration 13 adds a durable dataset epoch and data-management receipts without changing source revisions. Every ordinary mutating API request carries the browser's captured epoch (`X-ORE-Epoch`). Before the first import/wipe, an omitted header means the legacy `initial` epoch; after it changes, omitted/stale headers fail. The request gate covers commands without numeric revisions too. Existing async mutations prevent import/wipe until they settle; server-owned response/preparation tasks are also checked. Restoring an old numeric revision therefore cannot validate an old client command.
+
+Other tabs display a dataset-change notice and cannot save old edits. Copy unsaved library/turn editor text before reloading. Composer drafts stay in browser localStorage, outside the backup, with their captured epoch. After reloading, recovered nonempty drafts require **Use recovered draft** before an explicit send; old staged-send identities are discarded on that acknowledgement. No draft is automatically submitted. Drafts do not sync between devices and may be lost when browser storage is cleared/unavailable.
+
+Running generation/preparation becomes interrupted in the portable artifact, retaining committed progress and saved partial reply/reasoning. Incomplete output does not become a response variant or complete a pending turn. Unapproved repair candidates are omitted; their steps become discarded, and awaiting review becomes interrupted. Historical model bodies, budgets, usage and approved summary versions stay unchanged. Internal generation/job request IDs are replaced and repair-command receipts are removed so historical retries do not become local execution authority. Import/restart never automatically calls a provider.
+
+## Wipe scope
+
+Wipe deletes all chats and their children, user libraries, Connections and API keys, pictures, tags, and content command receipts. It retains the local owner password/login, the requesting session, factory `default` prompt and `default-context` preset, dataset epoch and data-management retry receipts. Other sessions are revoked. It empties tables transactionally without deleting the open database file, and does not recreate a starter chat. Libraries and Data management remain usable for import or creating new content. This is not account reset, password reset or uninstall.
+
+## Format and bounds
+
+- Single SQLite file, portable format `ore-sqlite`, format version 1, current schema 13 and build metadata from the application package.
+- Supported older input: exact shipped ORE schema 12, tested with a populated database. A private trusted copy upgrades it to schema 13. Exact full schema-13 databases are also accepted without portable metadata; owner/runtime records are ignored. Other schemas, future versions and arbitrary SQLite files are rejected.
+- Uploaded/downloaded database size: at most 128 MiB. At most 100,000 portable rows in the input and combined result; at most 16 MiB UTF-8 per text column; JSON nesting at most 100. Existing subsystem field limits still apply. Picture limits remain those in [PICTURES.md](PICTURES.md).
+- At most three staged inspections per server; each expires after 30 minutes. Staging reserves four times the input size plus 16 MiB of free disk headroom. Actual I/O errors still roll back/clean up rather than relying on the free-space estimate.
+- Schema tables, columns, constraints, triggers and indexes must match shipped definitions. Unknown triggers, views, virtual tables and other executable schema additions are rejected. Uploaded schema SQL never runs against the destination. Only rows are reconstructed into a freshly created trusted schema, checked for types, references, constraints, selected variants, coverage and dependency cycles.
+- Validation and transactions are bounded but synchronous SQLite work can briefly pause API processing for large files. There is no background job, incremental half-import, scheduler, retention policy, encryption or automatic retry.
+
+Verification uses temporary real SQLite databases, synthetic stories/images/keys and controlled providers. A 4,000-turn synthetic fixture verifies bounded record/text responses. Browser workflows cover desktop and phone-sized inspection, pagination, cancel, overwrite, lost acknowledgement/reload/retry, wipe/reimport and another tab's stale editor/draft. These tests establish structural recovery; they do not establish semantic memory quality, physical disk-failure immunity, native platform support or actual phone behavior.

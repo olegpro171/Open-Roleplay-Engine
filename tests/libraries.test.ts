@@ -265,7 +265,7 @@ describe('prompt template upgrade', () => {
       expect(store.snapshot().turns).toEqual(before.turns);
       expect(store.snapshot().generations).toEqual(before.generations);
       expect(store.libraries().prompts.find(prompt => prompt.id === customId)!.blocks).toEqual(upgradePrompt(legacy).blocks);
-      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(12);
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(13);
     } finally { store.close(); }
   });
 });
@@ -295,7 +295,7 @@ describe('continuity prompt upgrade', () => {
       expect(store.snapshot(chatId)).toEqual({ ...before, revision: before.revision + Number(changed), context: { ...before.context, preset: store.contextPreset(id) } });
       expect(store.snapshot()).toEqual(unrelated);
       expect(store.libraries().revision).toBe(library.revision + Number(changed) + 2);
-      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(12);
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(13);
       if (changed) expect(() => store.checkRevision(before.revision, chatId)).toThrow('changed on another device');
       const upgraded = store.snapshot(chatId), upgradedLibrary = store.libraries();
       store.close(); store = new Store(path);

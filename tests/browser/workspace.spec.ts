@@ -17,7 +17,7 @@ for (const width of [1280, 820, 390, 320]) {
     const initial = await state();
     const sidebar = page.getByRole('complementary', { name: 'Current chat' });
     const navigation = page.getByRole('navigation', { name: 'Workspace' });
-    await expect(navigation.getByRole('button')).toHaveText(['Story', 'Libraries']);
+    await expect(navigation.getByRole('button')).toHaveText(['Story', 'Libraries', 'Data management']);
     await page.getByLabel('Chat title').fill('Discard this title');
     await sidebar.getByRole('button', { name: 'Return without saving', exact: true }).click();
     await expect(page.getByLabel('Conversation')).toBeVisible();
