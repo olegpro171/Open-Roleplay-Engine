@@ -12,7 +12,7 @@ import { assembleRequest } from '../src/core/prompt.js';
 import { defaultPrompt, selectionsSchema, type Character } from '../src/shared/library.js';
 import { defaultContextPreset, type ContextJob, type ContextStep, type SummaryNode } from '../src/shared/context.js';
 import fixtures from './fixtures/lorebooks.json';
-import { legacyLorePrompt } from '../src/persistence/legacy-prompt.js';
+import { legacyLorePrompt, legacyRoleplayPrompt } from '../src/persistence/legacy-prompt.js';
 import { upgradePrompt } from '../src/core/prompt-upgrade.js';
 
 const folders: string[] = [];
@@ -471,7 +471,7 @@ describe('schema 7 lorebook migration', () => {
     expect(store.apiKey(seeded.chatId)).toBe('synthetic-migration-secret');
     expect(JSON.stringify(store.libraries()) + JSON.stringify(saved)).not.toContain('synthetic-migration-secret');
     const factory = required(store.libraries().prompts.find(prompt => prompt.id === 'default'));
-    expect(withoutIdentity(factory)).toEqual(customized ? upgradePrompt(seeded.factory) : defaultPrompt);
+    expect(withoutIdentity(factory)).toEqual(customized ? upgradePrompt(seeded.factory) : legacyRoleplayPrompt);
     expect(factory.revision).toBe(seeded.defaultRevisionBefore + Number(!customized) + 1);
     const excludingPrompts = (rows: unknown[]) => rows.filter(row => typeof row !== 'object' || row === null || !('kind' in row) || row.kind !== 'prompts');
     expect(excludingPrompts(actual.library)).toEqual(excludingPrompts(seeded.records.library));
@@ -511,7 +511,7 @@ describe('schema 7 lorebook migration', () => {
     } finally { failed.close(); }
     const recovered = open(seeded.filename);
     expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(12);
-    expect(withoutIdentity(required(recovered.libraries().prompts.find(prompt => prompt.id === 'default')))).toEqual(defaultPrompt);
+    expect(withoutIdentity(required(recovered.libraries().prompts.find(prompt => prompt.id === 'default')))).toEqual(legacyRoleplayPrompt);
     expect(savedRows(recovered.sqlite, true).generations).toEqual(seeded.records.generations);
     expect(savedRows(recovered.sqlite).summaries).toEqual(seeded.records.summaries);
   });

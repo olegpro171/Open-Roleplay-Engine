@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Store } from '../src/persistence/store.js';
-import { legacyLorePrompt } from '../src/persistence/legacy-prompt.js';
+import { legacyLorePrompt, legacyRoleplayPrompt } from '../src/persistence/legacy-prompt.js';
 import { upgradePrompt } from '../src/core/prompt-upgrade.js';
 import { assembleRequest } from '../src/core/prompt.js';
 import { resolveLore } from '../src/core/lorebook.js';
@@ -91,7 +91,7 @@ describe('version 8 prompt migration', () => {
   });
 
   it('accepts old prompt exports but rejects unknown sources, invalid retired controls and invalid field choices', () => {
-    expect(upgradePrompt(legacyLorePrompt)).toEqual(defaultPrompt);
+    expect(upgradePrompt(legacyLorePrompt)).toEqual(legacyRoleplayPrompt);
     expect(() => upgradePrompt({ ...legacyLorePrompt, blocks: [...legacyLorePrompt.blocks, { ...legacyLorePrompt.blocks[1], marker: 'unknown' }] })).toThrow();
     expect(() => upgradePrompt({ ...legacyLorePrompt, blocks: [{ ...legacyLorePrompt.blocks[1], role: 'root' }] })).toThrow();
     expect(() => upgradePrompt({ ...legacyLorePrompt, blocks: [{ ...defaultPrompt.blocks[1], fields: ['first_mes'] }] })).toThrow();

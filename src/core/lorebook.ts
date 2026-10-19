@@ -68,7 +68,7 @@ function literalMatch(keys: string[], normalizedTexts: string[], caseSensitive: 
 }
 
 type DestinationResolver = (placement: LorePlacement, depth?: number, role?: Message['role'] | null) => LoreDestination | null;
-function destinationResolver(sources: PromptSources): DestinationResolver {
+export function loreDestinationResolver(sources: PromptSources): DestinationResolver {
   const blocks = (sources.prompt ?? defaultPrompt).blocks.filter(block => block.enabled);
   const characterBlocks = blocks.flatMap(block => {
     const parts = characterParts(block, sources.character);
@@ -86,6 +86,14 @@ function destinationResolver(sources: PromptSources): DestinationResolver {
     else anchor = characterBlocks.find(value => value.parts.some(part => part.field === field));
     return anchor ? { anchorId: anchor.block.id, placement, role: role ?? 'system', depth } : null;
   };
+}
+
+export function loreEntryLayout(entry: LoreEntry, destination: DestinationResolver) {
+  const parsed = parseLoreDirectives(entry.content, entry.id, (placement, depth) => destination(placement, depth, entry.role) !== null);
+  const directives = parsed.values;
+  const placement = directives.position ?? (directives.depth !== undefined ? 'history' : entry.placement);
+  const resolved = parsed.unavailablePlacement ? null : destination(placement, directives.depth ?? entry.depth, directives.role ?? entry.role);
+  return { parsed, placement, destination: resolved };
 }
 
 type PreparedEntry = {
@@ -132,11 +140,12 @@ export async function resolveLore(input: LoreInput, matchRegex: RegexMatcher): P
   for (const turn of turns) {
     if (turn.complete && turn.assistant.text.trim() !== '') assistantCount++;
   }
-  const destination = destinationResolver(sources);
+  const destination = loreDestinationResolver(sources);
   const diagnostics: LoreDiagnostic[] = [];
   const resolveNames = (text: string) => replaceNameMacros(text, sources.persona?.name ?? 'You', sources.character?.name ?? 'Character');
   const prepared: PreparedEntry[] = book.entries.map((entry, sourceIndex) => {
-    const parsed = parseLoreDirectives(entry.content, entry.id, (placement, depth) => destination(placement, depth, entry.role) !== null);
+    const layout = loreEntryLayout(entry, destination);
+    const { parsed } = layout;
     diagnostics.push(...parsed.diagnostics);
     const directives = parsed.values;
     const fingerprint = semanticFingerprint(book, entry);
@@ -152,8 +161,7 @@ export async function resolveLore(input: LoreInput, matchRegex: RegexMatcher): P
       for (const macro of value.matchAll(/{{([^{}]*)}}/g)) if (!/^\s*(char|user)\s*$/i.test(macro[1])) unknownMacros.add(macro[0]);
     }
     if (unknownMacros.size) diagnostics.push({ code: 'unsupported_macro', entryId: entry.id, message: `Only {{char}} and {{user}} resolve. ${unknownMacros.size} other macro${unknownMacros.size === 1 ? ' remains' : 's remain'} literal.` });
-    const placement = directives.position ?? (directives.depth !== undefined ? 'history' : entry.placement);
-    const resolvedDestination = parsed.unavailablePlacement ? null : destination(placement, directives.depth ?? entry.depth, directives.role ?? entry.role);
+    const { placement, destination: resolvedDestination } = layout;
     if (!resolvedDestination) diagnostics.push({ code: 'unavailable_destination', entryId: entry.id, message: `Lore destination ${placement} requires its enabled, nonempty character field or Messages source. Unchecked Character fields are unavailable.` });
     if (directives.position && directives.depth !== undefined) diagnostics.push({ code: 'position_overrides_depth', entryId: entry.id, message: '@@position takes precedence over @@depth.' });
     const outcome: LoreOutcome = { id: entry.id, name: entry.name, status: 'excluded', reason: 'no_match', text, destination: resolvedDestination, tokens: 0, fingerprint };

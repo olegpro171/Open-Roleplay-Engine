@@ -16,12 +16,19 @@ export function importCharacter(value: unknown): Character {
 export function exportCharacter(card: LibraryCharacter, linkedBook?: Lorebook | null): Record<string, unknown> {
   const original = card.source ?? {};
   const oldData = original.spec === 'chara_card_v2' || original.spec === 'chara_card_v3' ? object(original.data) : original;
-  const { source: _source, lorebookId: _lorebookId, titleComment: _titleComment, ...fields } = libraryCharacterSchema.parse(card);
+  const { source: _source, lorebookId: _lorebookId, titleComment: _titleComment, depth_prompt, ...fields } = libraryCharacterSchema.parse(card);
   const greetings = readCharacterAlternateGreetings(card);
   const result = { ...original, ...fields, spec: original.spec === 'chara_card_v3' ? 'chara_card_v3' : 'chara_card_v2', spec_version: original.spec === 'chara_card_v3' ? '3.0' : '2.0', data: {
     creator_notes: '', system_prompt: '', post_history_instructions: '', tags: [], creator: '', character_version: '', extensions: {},
     ...oldData, ...fields, ...(greetings.success ? { alternate_greetings: greetings.data } : {}),
   } };
+  if (depth_prompt !== undefined) {
+    // An explicit note replacement also repairs an invalid extension container.
+    // Unrelated saves keep that original value because depth_prompt is absent.
+    const preserved = oldData.extensions && typeof oldData.extensions === 'object' && !Array.isArray(oldData.extensions) ? object(oldData.extensions) : {};
+    const oldNote = preserved.depth_prompt && typeof preserved.depth_prompt === 'object' && !Array.isArray(preserved.depth_prompt) ? object(preserved.depth_prompt) : {};
+    result.data.extensions = { ...preserved, depth_prompt: { ...oldNote, ...depth_prompt } };
+  }
   // An explicit relation, including None, supersedes the preserved import.
   // Absence exists only on older, not-yet-extracted cards.
   if (linkedBook !== undefined) {

@@ -90,6 +90,7 @@ export type Generation = {
   createdAt: string; updatedAt: string;
 };
 export type ChatSnapshot = {
+  promptDiagnostics?: import('./prompt-diagnostics.js').PromptDiagnostic[];
   id: string; sources: import('./library.js').PromptSources;
   revision: number; settings: ChatSettings; connection: Connection | null; hasApiKey: boolean;
   turns: Turn[]; generations: Generation[];

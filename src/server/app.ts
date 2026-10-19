@@ -1,3 +1,4 @@
+import { promptDiagnostics } from '../core/prompt-diagnostics.js';
 import { PictureProcessor, pictureAnalysis, pictureBytes, pictureDigest } from './pictures.js';
 import { pictureBase64Schema, pictureModeSchema, pictureBase64Limit } from '../shared/pictures.js';
 import Fastify, { type FastifyReply } from 'fastify';
@@ -43,7 +44,7 @@ export async function createApp(options: {
   const coordinator = new GenerationCoordinator(store, provider);
   function publicSnapshot(id: string): ChatSnapshot {
     const { loreState: _state, loreResolution: _resolution, ...snapshot } = store.snapshot(id);
-    return { ...snapshot, sources: { ...snapshot.sources, lorebook: undefined }, generations: snapshot.generations.map(generation => ({ ...generation,
+    return { ...snapshot, promptDiagnostics: promptDiagnostics(snapshot.sources), sources: { ...snapshot.sources, lorebook: undefined }, generations: snapshot.generations.map(generation => ({ ...generation,
       ...(generation.status === 'running' ? { partialText: coordinator.partialText(generation.id), reasoningText: coordinator.reasoningText(generation.id).slice(-2000), reasoningLength: coordinator.reasoningText(generation.id).length } : {}),
       request: generation.request?.lore ? { ...generation.request, lore: { ...generation.request.lore, detailsAvailable: true, outcomes: [], diagnostics: [], scan: [], stateBefore: {}, stateDelta: {} } } : generation.request,
     })) };
@@ -297,6 +298,11 @@ export async function createApp(options: {
   app.put('/api/chats/:chatId/selections', async request => {
     const input = z.object({ revision: revisionSchema, settings: selectionsSchema }).strict().parse(request.body);
     store.updateChat(input.revision, chatId(request.params), input.settings); coordinator.changed(); return publicSnapshot(chatId(request.params));
+  });
+  app.post('/api/chats/:chatId/prompt-diagnostics', async request => {
+    const input = z.object({ revision: revisionSchema, settings: selectionsSchema }).strict().parse(request.body);
+    store.checkRevision(input.revision, chatId(request.params));
+    return promptDiagnostics(store.promptSources(input.settings));
   });
   app.delete('/api/chats/:chatId', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);

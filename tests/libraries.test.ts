@@ -17,7 +17,7 @@ import { startMockProvider } from './support/mock-provider.js';
 import { deflateSync } from 'node:zlib';
 import legacyContextPrompts from './fixtures/legacy-context-prompts.json';
 import { contextPresetSchema, defaultContextPreset, type SummaryNode } from '../src/shared/context.js';
-import { legacyLorePrompt } from '../src/persistence/legacy-prompt.js';
+import { legacyLorePrompt, legacyRoleplayPrompt } from '../src/persistence/legacy-prompt.js';
 import { upgradePrompt } from '../src/core/prompt-upgrade.js';
 
 const folders: string[] = [];
@@ -258,7 +258,7 @@ describe('prompt template upgrade', () => {
     store.close(); store = new Store(path);
     try {
       const builtIn = store.libraries().prompts.find(prompt => prompt.id === 'default')!;
-      expect(builtIn.blocks).toEqual(customized ? upgradePrompt(data).blocks : defaultPrompt.blocks);
+      expect(builtIn.blocks).toEqual(customized ? upgradePrompt(data).blocks : legacyRoleplayPrompt.blocks);
       expect(builtIn.name).toBe(data.name);
       expect(builtIn.revision).toBe(library.prompts.find(prompt => prompt.id === 'default')!.revision + 1 + 2 * Number(!customized));
       expect(store.snapshot().revision).toBe(before.revision + 1 + 2 * Number(!customized));

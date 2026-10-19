@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { connectionSchema, revisionSchema, type Connection } from './contracts.js';
 import { contextPresetSchema, type ContextPreset } from './context.js';
 import { lorebookSchema, type Lorebook } from './lorebook.js';
+import { cardInstructionTextSchema, characterDepthPromptSchema } from './card-instructions.js';
 
 const name = z.string().trim().min(1).max(100);
 const text = z.string().max(100_000);
@@ -13,6 +14,9 @@ export const personaSchema = z.object({ name, description: text }).strict();
 export const characterSchema = z.object({
   name, description: text, personality: text, scenario: text, first_mes: text, mes_example: text,
   alternate_greetings: alternateGreetingsSchema.optional(),
+  system_prompt: cardInstructionTextSchema.optional(),
+  post_history_instructions: cardInstructionTextSchema.optional(),
+  depth_prompt: characterDepthPromptSchema.optional(),
   source: z.record(z.string(), z.unknown()).optional(),
   lorebookId: z.string().min(1).max(100).nullable().optional(),
 }).strict();
@@ -27,19 +31,29 @@ export function characterLabel(character: { name: string; titleComment?: string 
 export const characterFields = ['name', 'description', 'personality', 'scenario', 'examples'] as const;
 export type CharacterField = typeof characterFields[number];
 export const characterFieldLabels: Record<CharacterField, string> = { name: 'Name', description: 'Description', personality: 'Personality', scenario: 'Scenario', examples: 'Example dialogue' };
-export const markers = ['character', 'persona', ...characterFields, 'messages', 'summary'] as const;
+export const markers = ['character', 'persona', ...characterFields, 'messages', 'summary', 'card_system_prompt', 'card_post_history_instructions'] as const;
+export function markerLabel(marker: typeof markers[number]): string {
+  if (marker === 'card_system_prompt') return 'Card system prompt';
+  if (marker === 'card_post_history_instructions') return 'Card post-history instructions';
+  return marker[0].toUpperCase() + marker.slice(1);
+}
 const blockBase = { id: z.string().min(1).max(100), name, enabled: z.boolean() };
 export const promptBlockSchema = z.discriminatedUnion('kind', [
   z.object({ ...blockBase, kind: z.literal('text'), role: z.enum(['system', 'user', 'assistant']), text }).strict(),
-  z.object({ ...blockBase, kind: z.literal('marker'), role: z.enum(['system', 'user', 'assistant']), marker: z.enum(markers), fields: z.array(z.enum(characterFields)).max(characterFields.length).optional() }).strict().superRefine((block, ctx) => {
+  z.object({ ...blockBase, kind: z.literal('marker'), role: z.enum(['system', 'user', 'assistant']), marker: z.enum(markers), fields: z.array(z.enum(characterFields)).max(characterFields.length).optional(), fallback: text.optional(), allowDepthPrompt: z.boolean().optional() }).strict().superRefine((block, ctx) => {
     if (block.fields !== undefined && block.marker !== 'character') ctx.addIssue({ code: 'custom', path: ['fields'], message: 'Only Character supports a field selection.' });
     if (block.fields && new Set(block.fields).size !== block.fields.length) ctx.addIssue({ code: 'custom', path: ['fields'], message: 'Character fields must be unique.' });
+    if (block.fallback !== undefined && block.marker !== 'card_system_prompt' && block.marker !== 'card_post_history_instructions') ctx.addIssue({ code: 'custom', path: ['fallback'], message: 'Only card instruction markers support fallback text.' });
+    if (block.allowDepthPrompt !== undefined && block.marker !== 'messages') ctx.addIssue({ code: 'custom', path: ['allowDepthPrompt'], message: 'Only Messages permits character depth injection.' });
   }),
 ]);
 export const promptSchema = z.object({ name, blocks: z.array(promptBlockSchema).max(100) }).strict().superRefine((value, ctx) => {
   if (new Set(value.blocks.map(b => b.id)).size !== value.blocks.length) ctx.addIssue({ code: 'custom', message: 'Block identities must be unique.' });
   if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === 'messages').length > 1) ctx.addIssue({ code: 'custom', message: 'Use at most one enabled Messages marker.' });
   if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === 'summary').length > 1) ctx.addIssue({ code: 'custom', message: 'Use at most one enabled Summary marker.' });
+  for (const marker of ['card_system_prompt', 'card_post_history_instructions'] as const) {
+    if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === marker).length > 1) ctx.addIssue({ code: 'custom', message: `Use at most one enabled ${markerLabel(marker)} marker.` });
+  }
 });
 export type Persona = z.infer<typeof personaSchema>;
 export type Character = z.infer<typeof characterSchema>;
@@ -67,13 +81,15 @@ export type LibrarySnapshot = {
   lorebooks: Saved<Lorebook>[];
   lorebookUses: { bookId: string; characters: { id: string; name: string; titleComment?: string }[]; chats: { id: string; title: string }[] }[];
 };
+export const defaultInstructions = 'Write the next response in this roleplay. Stay consistent with the established story.';
 export const defaultPrompt: PromptPreset = {
   name: 'Default roleplay', blocks: [
-    { id: 'instructions', name: 'Instructions', enabled: true, kind: 'text', role: 'system', text: 'Write the next response in this roleplay. Stay consistent with the established story.' },
+    { id: 'instructions', name: 'Card system prompt', enabled: true, kind: 'marker', role: 'system', marker: 'card_system_prompt', fallback: defaultInstructions },
     { id: 'character', name: 'Character', enabled: true, kind: 'marker', role: 'system', marker: 'character', fields: [...characterFields] },
     { id: 'persona', name: 'Persona', enabled: true, kind: 'marker', role: 'system', marker: 'persona' },
     { id: 'summary', name: 'Summary', enabled: true, kind: 'marker', role: 'system', marker: 'summary' },
-    { id: 'messages', name: 'Messages', enabled: true, kind: 'marker', role: 'system', marker: 'messages' },
+    { id: 'messages', name: 'Messages', enabled: true, kind: 'marker', role: 'system', marker: 'messages', allowDepthPrompt: true },
+    { id: 'post-history', name: 'Card post-history instructions', enabled: true, kind: 'marker', role: 'system', marker: 'card_post_history_instructions', fallback: '' },
   ],
 };
 export function hasPromptMarker(prompt: PromptPreset | null | undefined, marker: typeof markers[number]): boolean {
@@ -89,7 +105,7 @@ export function promptWarnings(prompt: PromptPreset): string[] {
   const characterEnabled = prompt.blocks.some(block => block.enabled && block.kind === 'marker' && (
     block.marker === 'character' ? (block.fields ?? characterFields).length > 0 : characterFields.some(field => field === block.marker)
   ));
-  if (!characterEnabled) warnings.push('Character markers are absent, disabled or have no selected fields. Character content will not be sent.');
+  if (!characterEnabled) warnings.push('Character field markers are absent, disabled or have no selected fields. Character definition fields will not be sent.');
   return warnings;
 }
 export const selectionsSchema = z.object({

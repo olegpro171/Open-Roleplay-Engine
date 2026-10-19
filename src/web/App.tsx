@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { ChatSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError } from './api';
 import { characterLabel, hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
-import { ChatSetup, Libraries } from './Libraries';
+import { ChatSetup, Libraries, type LibraryTarget } from './Libraries';
 import { Dropdown } from './Controls';
 import { trimBoundaryNewlines } from '../shared/text';
 import { Memory } from './Memory';
@@ -41,6 +41,7 @@ export function App() {
   const [error, setError] = useState('');
   const [online, setOnline] = useState(false);
   const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory'>('story');
+  const [libraryTarget, setLibraryTarget] = useState<LibraryTarget | null>(null);
   const confirmAction = useConfirmation(`${chatId}:${tab}:${session?.authenticated}`);
   const drafts = useChatDraft(chatId);
   const draft = drafts.text;
@@ -215,14 +216,14 @@ export function App() {
       <div className="brand"><span className="brand-mark" aria-hidden="true">O</span><div><strong>ORE</strong><small>Your stories. Room to continue.</small></div></div>
       <nav className="tabs" aria-label="Workspace">
         <button disabled={!snapshot} aria-current={tab !== 'library' ? 'page' : undefined} onClick={() => setTab('story')}>Story</button>
-        <button aria-current={tab === 'library' ? 'page' : undefined} onClick={() => setTab('library')}>Libraries</button>
+        <button aria-current={tab === 'library' ? 'page' : undefined} onClick={() => { setLibraryTarget(null); setTab('library'); }}>Libraries</button>
       </nav>
       <div className="connection-status"><span className={online ? 'dot online' : 'dot'} />{online ? 'Connected' : 'Reconnecting'}</div>
       <button className="quiet signout" onClick={() => void command(async () => { await api('/logout', 'POST', {}); setSnapshot(null); await refreshSession(); })}>Sign out</button>
     </header>
     {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" onClick={() => setError('')}>Dismiss</button></div>}
     {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<>
-        <button className="secondary" onClick={() => setTab('settings')}>Chat settings</button>
+        <button className="secondary" aria-label="Chat settings" onClick={() => setTab('settings')}>Chat settings{snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : ''}</button>
         <button className="secondary" onClick={() => setTab('memory')}>Inspect memory</button>
         <button className="secondary" onClick={() => setTab('request')}>Request inspector</button>
       </>}>
@@ -278,8 +279,8 @@ export function App() {
         </form>
       </section>
     </ChatWorkspace>}
-    {tab === 'library' && <Libraries library={library} currentChatId={chatId} busy={busy} run={command} openChat={openChat} />}
-    {tab === 'settings' && snapshot && <ChatSetup key={snapshot.id} snapshot={snapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} />}
+    {tab === 'library' && <Libraries library={library} currentChatId={chatId} busy={busy} run={command} openChat={openChat} initialTarget={libraryTarget} />}
+    {tab === 'settings' && snapshot && <ChatSetup key={snapshot.id} snapshot={snapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
     {tab === 'memory' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>Return to chat</button>}><Memory key={snapshot.id} snapshot={snapshot} library={library} busy={busy} run={command} /></ChatWorkspace>}
     {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>Return to chat</button>}><section className="document-panel chat-panel" aria-label="Request inspector"><p className="eyebrow">REQUEST INSPECTOR</p><h1>See what the model receives.</h1><p className="muted">Current input follows your saved setup and composer. Saved attempts preserve the exact request and limits used at that time. Credentials stay on the server.</p><div className="inspector-controls"><label>Inspect request<Dropdown aria-label="Inspect request" value={generationId} onChange={setGenerationId} options={[{ value: '', label: 'Current request' }, ...snapshot.generations.map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString()} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!snapshot.connection || busy} onClick={() => { setGenerationId(''); setSettledDraft(draft); }}>Preview {pending ? 'pending turn' : 'next request'}</button><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></div>
       <p className="small muted">{generationId ? `Saved attempt: ${shownGeneration?.status ?? 'unavailable'}. Its ceiling is historical. ${shownGeneration?.error ?? ''}` : 'Live preview of the current setup and composer, before any preparation. It becomes a saved request when generation starts.'}</p>

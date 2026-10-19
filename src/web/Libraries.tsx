@@ -1,9 +1,10 @@
+import type { PromptDiagnostic } from '../shared/prompt-diagnostics';
 import { useConfirmation } from './Confirmation';
 import { PictureSquare } from './Pictures';
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ChatWorkspace } from './ChatWorkspace';
 import type { ChatSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
-import { characterLabel, characterFields, characterFieldLabels, defaultPrompt, markers, promptWarnings, type LibraryCharacter, type LibraryKind, type LibrarySnapshot, type Persona, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
+import { characterLabel, characterFields, characterFieldLabels, defaultPrompt, markers, markerLabel, promptWarnings, type LibraryCharacter, type LibraryKind, type LibrarySnapshot, type Persona, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { upgradePrompt } from '../core/prompt-upgrade';
 import { importChat } from '../core/chat-import';
 import { CharacterImport } from './CharacterImport';
@@ -75,9 +76,27 @@ function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnap
     <div className="actions"><button>Create chat</button><button type="button" className="quiet" onClick={cancel}>Cancel</button></div>
   </fieldset></form>;
 }
-export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, returnToChat }: { snapshot: ChatSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; saved: () => void; sidebar: ReactNode; returnToChat: () => void }) {
+export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, returnToChat, openLibraryItem }: { snapshot: ChatSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; saved: () => void; sidebar: ReactNode; returnToChat: () => void; openLibraryItem: (target: LibraryTarget) => void }) {
   const [value, setValue] = useState(() => selection(snapshot, library));
   const [revision] = useState(snapshot.revision);
+  const confirmAction = useConfirmation(snapshot.id);
+  const [diagnosticsRetry, setDiagnosticsRetry] = useState(0);
+  const diagnosticsKey = JSON.stringify([snapshot.id, snapshot.revision, library.revision, value.promptId, value.characterId, value.personaId, value.lorebookId, diagnosticsRetry]);
+  const [diagnostics, setDiagnostics] = useState<{ key: string; warnings: PromptDiagnostic[]; error?: string } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void api<PromptDiagnostic[]>(`/chats/${snapshot.id}/prompt-diagnostics`, 'POST', { revision: snapshot.revision, settings: { ...selection(snapshot, library), promptId: value.promptId, characterId: value.characterId, personaId: value.personaId, lorebookId: value.lorebookId } }, controller.signal).then(warnings => {
+      if (!controller.signal.aborted) setDiagnostics({ key: diagnosticsKey, warnings });
+    }).catch(error => {
+      if (!controller.signal.aborted) setDiagnostics({ key: diagnosticsKey, warnings: [], error: error instanceof Error ? error.message : 'Could not check prompt configuration.' });
+    });
+    return () => controller.abort();
+  }, [snapshot.id, snapshot.revision, diagnosticsKey]);
+  function openWarning(warning: PromptDiagnostic) {
+    const target = { kind: warning.target, id: warning.itemId };
+    if (JSON.stringify(value) === JSON.stringify(selection(snapshot, library))) openLibraryItem(target);
+    else confirmAction({ title: 'Discard chat settings changes?', message: 'Open the library editor and discard unsaved chat settings?', actionLabel: 'Discard changes', onConfirm: () => openLibraryItem(target) });
+  }
   const formId = useId();
   const mounted = useRef(true);
   const submitting = useRef(false);
@@ -86,7 +105,7 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
   return <ChatWorkspace sidebar={sidebar} actions={<>
     <button type="submit" form={formId} disabled={busy || revision !== snapshot.revision}>Save and return</button>
     <button type="button" className="secondary" disabled={saving} onClick={returnToChat}>Return without saving</button>
-  </>}><section className="document-panel chat-panel" aria-label="Chat setup"><p className="eyebrow">CHAT SETUP</p><h1>Choose this story’s ingredients.</h1><p className="muted">Each chat keeps its own selections. Edit reusable cards, prompts and Connections in Libraries; saved changes apply to chats using them.</p>
+  </>}><section className="document-panel chat-panel" aria-label="Chat setup"><p className="eyebrow">CHAT SETTINGS</p><h1>Choose this story’s ingredients.</h1><p className="muted">Each chat keeps its own selections. Edit reusable cards, prompts and Connections in Libraries; saved changes apply to chats using them.</p>
     <form id={formId} onSubmit={async e => {
       e.preventDefault();
       if (busy || submitting.current || revision !== snapshot.revision) return;
@@ -99,7 +118,10 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
     }}><fieldset disabled={busy}><legend>Selections</legend><SelectionFields value={value} change={setValue} library={library} /></fieldset>
       <p className="small muted">With Summary enabled, a context preset prepares older history. Without Summary, Messages uses recent whole turns that fit the input limit. Missing markers send no content. Changing a character preserves the selected lorebook, greeting and saved turns. Changing character or persona starts fresh lore activation history for this chat.</p>
       {revision !== snapshot.revision && <p role="status">This chat changed. Reopen Setup to load its current settings.</p>}
-    </form><HistoryImport snapshot={snapshot} busy={busy} run={run} />
+    </form><section className="import-panel" aria-label="Prompt configuration warnings"><h2>Prompt configuration warnings</h2>
+      <p className="small muted">Checks the selections shown above. Keyword matches and token-cap exclusions are explained in Prompt peek.</p>
+      {diagnostics?.key !== diagnosticsKey ? <p role="status">Checking prompt configuration…</p> : diagnostics.error ? <><p role="alert">{diagnostics.error}</p><button type="button" className="secondary" onClick={() => setDiagnosticsRetry(value => value + 1)}>Check again</button></> : diagnostics.warnings.length ? <ul>{diagnostics.warnings.map(warning => <li key={warning.code}><p>{warning.message}</p><button type="button" className="secondary" onClick={() => openWarning(warning)}>Edit {warning.target === 'prompts' ? 'prompt preset' : warning.target === 'characters' ? 'character' : 'lorebook'}</button></li>)}</ul> : <p>No prompt configuration warnings.</p>}
+    </section><HistoryImport snapshot={snapshot} busy={busy} run={run} />
   </section></ChatWorkspace>;
 }
 async function* fileChunks(file: File) {
@@ -143,10 +165,16 @@ function LibrarySearch({ section, value, change }: { section: LibraryKind | 'cha
     <input type="search" aria-label={label} placeholder={label} value={value} onChange={event => change(event.target.value)} />
   </div>;
 }
-export function Libraries({ library, currentChatId, busy, run, openChat }: { library: LibrarySnapshot; currentChatId: string | null; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void }) {
-  const [section, setSection] = useState<LibraryKind | 'chats'>('chats');
+export type LibraryTarget = { kind: 'prompts' | 'characters' | 'lorebooks'; id: string };
+export function Libraries({ library, currentChatId, busy, run, openChat, initialTarget }: { library: LibrarySnapshot; currentChatId: string | null; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void; initialTarget?: LibraryTarget | null }) {
+  const [section, setSection] = useState<LibraryKind | 'chats'>(initialTarget?.kind ?? 'chats');
   const confirmAction = useConfirmation(section);
-  const [editing, setEditing] = useState<{ kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean } | null>(null);
+  const [editing, setEditing] = useState<{ kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean } | null>(() => {
+    const record = initialTarget ? library[initialTarget.kind].find(record => record.id === initialTarget.id) : undefined;
+    if (!record || !initialTarget) return null;
+    const { id, revision: _revision, ...data } = record;
+    return { kind: initialTarget.kind, id, revision: library.revision, data };
+  });
   const [creatingChat, setCreatingChat] = useState(false);
   const [notice, setNotice] = useState(''), [diagnostics, setDiagnostics] = useState<LoreDiagnostic[]>([]), [search, setSearch] = useState('');
   const [pendingBook, setPendingBook] = useState<string | null>(null);
@@ -373,9 +401,11 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
           <label>Marker source<Dropdown aria-label={`Marker source for block ${index + 1}`} value={block.marker} onChange={selected => {
             const marker = markers.find(marker => marker === selected);
             if (!marker || marker === block.marker) return;
-            const { fields: _fields, ...base } = block;
-            update(index, { ...base, marker, ...(marker === 'character' ? { fields: [...characterFields] } : {}) });
-          }} options={markers.map(marker => ({ value: marker, label: marker[0].toUpperCase() + marker.slice(1) }))} /></label>
+            const { fields: _fields, fallback: _fallback, allowDepthPrompt: _allowDepthPrompt, ...base } = block;
+            update(index, { ...base, name: block.name === 'Marker' || block.name === markerLabel(block.marker) ? markerLabel(marker) : block.name, marker, ...(marker === 'character' ? { fields: [...characterFields] } : {}) });
+          }} options={markers.map(marker => ({ value: marker, label: markerLabel(marker) }))} /></label>
+          {(block.marker === 'card_system_prompt' || block.marker === 'card_post_history_instructions') && <label>Fallback text<EditorTextarea aria-label="Fallback text" maxLength={100_000} value={block.fallback ?? ''} onChange={event => update(index, { ...block, fallback: event.target.value })} /><small>Used when the card field is empty. {'{{original}}'} in the card field inserts this text.</small></label>}
+          {block.marker === 'messages' && <label className="checkbox"><input type="checkbox" checked={block.allowDepthPrompt ?? false} onChange={event => update(index, { ...block, allowDepthPrompt: event.target.checked })} />Allow character depth prompt injection</label>}
           {block.marker === 'character' && <MarkerFieldSelection label="Included character fields" options={characterFields.map(field => ({ value: field, label: characterFieldLabels[field] }))} selected={block.fields ?? [...characterFields]} change={fields => update(index, { ...block, fields })} />}
         </>}
       </div>}

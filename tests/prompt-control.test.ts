@@ -18,7 +18,7 @@ const request = (blocks: PromptBlock[], targetInputTokens = 5_000, history = tur
 
 describe('explicit prompt control', () => {
   it('starts with explicit base sources and permits empty/missing-marker presets', () => {
-    expect(defaultPrompt.blocks.map(block => block.id)).toEqual(['instructions', 'character', 'persona', 'summary', 'messages']);
+    expect(defaultPrompt.blocks.map(block => block.id)).toEqual(['instructions', 'character', 'persona', 'summary', 'messages', 'post-history']);
     expect(promptSchema.parse({ name: 'Empty', blocks: [] }).blocks).toEqual([]);
     expect(promptWarnings({ name: 'Empty', blocks: [] })).toHaveLength(4);
     expect(() => request([])).toThrow('resolved prompt is empty');

@@ -18,7 +18,7 @@ test('edits explicit markers, uses recent history, and enables preparation again
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Explicit prompt proof');
-  await expect(page.locator('.prompt-block')).toHaveCount(5);
+  await expect(page.locator('.prompt-block')).toHaveCount(6);
   await page.getByRole('button', { name: 'Expand block 4', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Marker source for block 4', exact: true })).toContainText('Summary');
   await expect(page.locator('body')).not.toContainText('future compaction');
@@ -89,7 +89,7 @@ test('saves a prompt with every block removed and shows generic advisory warning
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Empty prompt proof');
-  for (let i = 0; i < 5; i++) await page.getByRole('button', { name: 'Remove block 1', exact: true }).click();
+  for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Remove block 1', exact: true }).click();
   await expect(page.locator('.prompt-block')).toHaveCount(0);
   await expect(page.getByRole('status').filter({ hasText: 'marker' })).toHaveCount(4);
   await page.getByRole('button', { name: 'Save prompt', exact: true }).click();

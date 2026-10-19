@@ -12,7 +12,7 @@ import { AppError } from '../core/errors.js';
 import { replaceNameMacros } from '../core/prompt.js';
 import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStatus, RequestPreview, ResponseVariant, TokenUsage, Turn } from '../shared/contracts.js';
 import { regenerationView } from '../core/regeneration.js';
-import { readCharacterAlternateGreetings, characterLabel, characterSchema, libraryCharacterSchema, defaultPrompt, selectionsSchema, type Character, type LibraryCharacter, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary } from '../shared/library.js';
+import { readCharacterAlternateGreetings, characterLabel, characterSchema, libraryCharacterSchema, defaultPrompt, defaultInstructions, selectionsSchema, type Character, type LibraryCharacter, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary, type PromptSources } from '../shared/library.js';
 import { lorebookSchema, type Lorebook, type LoreImportPreview, type LoreResolution, type LoreState } from '../shared/lorebook.js';
 import { importLorebook, loreCompatibility, markLoreEdits } from '../core/lorebook-formats.js';
 import { importCharacter } from '../core/cards.js';
@@ -24,11 +24,12 @@ import { upgradedContextPrompts } from './context-prompt-upgrade.js';
 import { ContextStore } from './context-store.js';
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
-import { legacyLorePrompt } from './legacy-prompt.js';
+import { legacyLorePrompt, legacyRoleplayPrompt } from './legacy-prompt.js';
 import { TagStore } from './tag-store.js';
 import { readEmbeddedTags } from '../core/tags.js';
 import { characterImportResultSchema, tagPolicySchema, type TagPolicy, type CharacterImportReview } from '../shared/tags.js';
 import { upgradePrompt } from '../core/prompt-upgrade.js';
+import { cardInstructionFields, readCardInstruction, readCharacterDepthPrompt } from '../shared/card-instructions.js';
 
 function parseImport<T>(parse: () => T): T {
   try { return parse(); }
@@ -39,7 +40,7 @@ function parseImport<T>(parse: () => T): T {
 }
 
 const initialSettings: ChatSettings = {
-  title: 'A new story', instructions: defaultPrompt.blocks[0].kind === 'text' ? defaultPrompt.blocks[0].text : '',
+  title: 'A new story', instructions: defaultInstructions,
   character: '', persona: '', targetInputTokens: 32_000,
   connectionId: null, promptId: 'default', characterId: null, personaId: null,
   contextPresetId: null,
@@ -86,11 +87,11 @@ export class Store {
       if (version === 1) {
         this.sqlite.transaction(() => {
           this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0002_libraries.sql'), 'utf8'));
-          this.db.insert(schema.library).values({ id: 'default', kind: 'prompts', revision: 0, data: defaultPrompt }).run();
+          this.db.insert(schema.library).values({ id: 'default', kind: 'prompts', revision: 0, data: newDatabase ? defaultPrompt : legacyRoleplayPrompt }).run();
           const chat = this.db.select().from(schema.chats).where(eq(schema.chats.id, 'main')).get();
           if (chat) {
             const settings = { ...chat.settings, connectionId: this.db.select().from(schema.connections).get()?.id ?? null, promptId: 'migrated-prompt', characterId: null as string | null, personaId: null as string | null };
-            this.db.insert(schema.library).values({ id: settings.promptId, kind: 'prompts', revision: 0, data: { name: 'Saved prompt', blocks: defaultPrompt.blocks.map(b => b.kind === 'text' ? { ...b, text: chat.settings.instructions } : b) } }).run();
+            this.db.insert(schema.library).values({ id: settings.promptId, kind: 'prompts', revision: 0, data: { name: 'Saved prompt', blocks: legacyRoleplayPrompt.blocks.map(b => b.kind === 'text' ? { ...b, text: chat.settings.instructions } : b) } }).run();
             if (settings.character !== '') {
               settings.characterId = 'migrated-character';
               this.db.insert(schema.library).values({ id: settings.characterId, kind: 'characters', revision: 0, data: { name: 'Character', description: settings.character, personality: '', scenario: '', first_mes: '', mes_example: '' } }).run();
@@ -248,7 +249,14 @@ export class Store {
     const fields = this.promptCharacter(card);
     const greetings = readCharacterAlternateGreetings(fields);
     // Exposing preserved greetings in the editor does not itself change content.
-    return greetings.success ? { ...fields, alternate_greetings: greetings.data } : fields;
+    const result = greetings.success ? { ...fields, alternate_greetings: greetings.data } : fields;
+    for (const field of cardInstructionFields) {
+      const value = readCardInstruction(fields, field);
+      if (value.success) result[field] = value.data;
+    }
+    const note = readCharacterDepthPrompt(fields);
+    if (note.success) result.depth_prompt = note.data;
+    return result;
   }
   snapshot(chatId = 'main'): ChatSnapshot {
     const chat = this.chat(chatId);
@@ -291,6 +299,14 @@ export class Store {
       character: this.selected<Character>(chat.settings.characterId, 'characters'), persona: this.selected<Persona>(chat.settings.personaId, 'personas'),
       lorebook: this.selected<Lorebook>(chat.settings.lorebookId, 'lorebooks'),
     } };
+  }
+  promptSources(input: ReturnType<typeof selectionsSchema.parse>): PromptSources {
+    return {
+      prompt: this.selected<PromptPreset>(input.promptId, 'prompts'),
+      character: this.selected<Character>(input.characterId, 'characters'),
+      persona: this.selected<Persona>(input.personaId, 'personas'),
+      lorebook: this.selected<Lorebook>(input.lorebookId, 'lorebooks'),
+    };
   }
   checkRevision(expected: number, chatId = 'main') {
     if (this.chat(chatId).revision !== expected) throw new AppError(409, 'revision_conflict', 'The chat changed on another device. Review the latest state and try again.');
@@ -386,7 +402,14 @@ export class Store {
           // Older clients and internal card-only writes preserve local metadata.
           const titleComment = card.titleComment ?? previous?.titleComment ?? '';
           const alternate_greetings = card.alternate_greetings ?? previous?.alternate_greetings;
-          const updated: LibraryCharacter = { ...this.promptCharacter(card), ...(alternate_greetings !== undefined ? { alternate_greetings } : {}), ...(lorebookId !== undefined ? { lorebookId } : {}), ...(titleComment ? { titleComment } : {}) };
+          const instructions: Pick<Character, 'system_prompt' | 'post_history_instructions' | 'depth_prompt'> = {};
+          for (const field of cardInstructionFields) {
+            const value = card[field] ?? previous?.[field];
+            if (value !== undefined) instructions[field] = value;
+          }
+          const depthPrompt = card.depth_prompt ?? previous?.depth_prompt;
+          if (depthPrompt !== undefined) instructions.depth_prompt = depthPrompt;
+          const updated: LibraryCharacter = { ...this.promptCharacter(card), ...instructions, ...(alternate_greetings !== undefined ? { alternate_greetings } : {}), ...(lorebookId !== undefined ? { lorebookId } : {}), ...(titleComment ? { titleComment } : {}) };
           data = updated;
           if (previous && previous.name !== card.name) for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.characterId === identity) this.resetLoreEpoch(chat.id);
           if (old && previous && isDeepStrictEqual(this.comparableCharacter(previous), this.comparableCharacter(updated))) {

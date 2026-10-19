@@ -8,6 +8,9 @@ import { countInput } from './tokens.js';
 import { replaceNameMacros } from './names.js';
 import type { LoreResolution } from '../shared/lorebook.js';
 import { characterParts } from './character-prompt.js';
+import { readCharacterDepthPrompt } from '../shared/card-instructions.js';
+import { resolveCardInstruction } from './card-instructions.js';
+import { injectHistory } from './history-injections.js';
 export { replaceNameMacros } from './names.js';
 
 export function estimateInputTokens(messages: Message[]): number {
@@ -23,7 +26,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   // The default template also supports the legacy inline-settings API. An
   // explicitly supplied preset, including an empty one, is always authoritative.
   const preset = sources?.prompt ? promptSchema.parse({ name: sources.prompt.name, blocks: sources.prompt.blocks }) : {
-    ...defaultPrompt, blocks: defaultPrompt.blocks.map(block => block.kind === 'text' ? { ...block, text: settings.instructions } : block),
+    ...defaultPrompt, blocks: defaultPrompt.blocks.map(block => block.kind === 'marker' && block.marker === 'card_system_prompt' ? { ...block, fallback: settings.instructions } : block),
   };
   const summariesEnabled = hasPromptMarker(preset, 'summary');
   if (summariesEnabled && context && !options.allowStale) assertCorrectionSelection(turns, context);
@@ -36,6 +39,16 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   let historyIndex: number | null = null;
   const card = sources?.character;
   const resolve = (text: string) => replaceNameMacros(text, sources?.persona?.name ?? 'You', card?.name ?? 'Character');
+  const messagesBlock = preset.blocks.find(block => block.enabled && block.kind === 'marker' && block.marker === 'messages');
+  let depthNote: { depth: number; entry: Entry } | null = null;
+  if (messagesBlock?.kind === 'marker' && messagesBlock.allowDepthPrompt) {
+    const note = readCharacterDepthPrompt(card ?? {});
+    if (!note.success) throw new AppError(422, 'invalid_character_depth_prompt', 'This character’s depth note has invalid settings. Edit the character to clear or replace it before generating.');
+    if (note.data.prompt.trim()) depthNote = {
+      depth: note.data.depth,
+      entry: { message: { role: note.data.role, content: resolve(note.data.prompt) }, kind: 'character', label: `Character depth note · depth ${note.data.depth}` },
+    };
+  }
   if (sources?.lorebook && !options.lore) throw new AppError(422, 'lore_unresolved', 'Resolve the selected lorebook from the original transcript before planning this request.');
   // Saved request inspection reads immutable bodies directly. An unfinished old
   // operation must explicitly resolve again instead of dropping retired anchors.
@@ -61,6 +74,12 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     if (block.kind === 'marker' && block.marker === 'messages') { historyIndex = entries.length; continue; }
     if (block.kind === 'marker' && block.marker === 'summary') {
       if (summary) entries.push({ message: { role: block.role, content: summary }, kind: 'memory', label: block.name });
+      continue;
+    }
+    if (block.kind === 'marker' && (block.marker === 'card_system_prompt' || block.marker === 'card_post_history_instructions')) {
+      const field = block.marker === 'card_system_prompt' ? 'system_prompt' : 'post_history_instructions';
+      const instruction = resolveCardInstruction(card, field, block.fallback ?? '', sources?.persona?.name ?? 'You');
+      if (instruction.text.trim()) entries.push({ message: { role: block.role, content: instruction.text }, kind: instruction.fallback ? 'prompt' : 'character', label: `${block.name} · ${field} · ${instruction.fallback ? 'fallback' : 'card'}` });
       continue;
     }
     const parts = characterParts(block, card, settings.character);
@@ -98,7 +117,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     if (summariesEnabled) verbatim = resolved.verbatim;
     else {
       const limit = Math.min(settings.targetInputTokens, connection.contextWindow - connection.maxOutputTokens);
-      let used = countInput([...entries, ...historyLore.map(loreEntry)].map(entry => entry.message)).inputTokens;
+      let used = countInput([...entries, ...historyLore.map(loreEntry), ...(depthNote ? [depthNote.entry] : [])].map(entry => entry.message)).inputTokens;
       let start = turns.length;
       // A pending input is required when Messages is enabled. Completed turns
       // form a contiguous newest suffix; neither parts nor text are truncated.
@@ -111,14 +130,10 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
       verbatim = turns.slice(start);
     }
     const history = verbatim.flatMap(turnEntries);
-    const eligibleHistory = history.flatMap((entry, index) => entry.message.content.trim() ? [index] : []);
-    const insertions = new Map<number, Entry[]>();
-    for (const entry of historyLore) {
-      const depth = entry.destination?.depth ?? 0;
-      const index = depth === 0 ? (eligibleHistory.at(-1) ?? -1) + 1 : eligibleHistory[Math.max(0, eligibleHistory.length - depth)] ?? 0;
-      insertions.set(index, [...insertions.get(index) ?? [], loreEntry(entry)]);
-    }
-    const expanded = history.flatMap((entry, index) => [...insertions.get(index) ?? [], entry]).concat(insertions.get(history.length) ?? []);
+    const expanded = injectHistory(history, entry => Boolean(entry.message.content.trim()), [
+      ...historyLore.map(entry => ({ depth: entry.destination?.depth ?? 0, entry: loreEntry(entry) })),
+      ...(depthNote ? [depthNote] : []),
+    ]);
     entries = entries.slice(0, historyIndex).concat(expanded, entries.slice(historyIndex));
   }
   const messages = entries.map(entry => entry.message);

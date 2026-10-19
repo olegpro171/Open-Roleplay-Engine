@@ -1,3 +1,4 @@
+import { cardInstructionFields, cardInstructionLabels, readCardInstruction, readCharacterDepthPrompt } from '../shared/card-instructions';
 import { useConfirmation } from './Confirmation';
 import type { CharacterSaveCommand } from '../shared/library';
 import { PictureEditor, PictureSquare, pictureMutation, savedPictureDraft } from './Pictures';
@@ -7,13 +8,20 @@ import { EditorTextarea } from './EditorTextarea';
 import { readCharacterAlternateGreetings, characterLabel, maxAlternateGreetings, type LibraryCharacter, type LibrarySnapshot } from '../shared/library';
 import type { TagPolicy, TagReview } from '../shared/tags';
 import { ApiError, api } from './api';
-import { Dropdown } from './Controls';
+import { Dropdown, NumberInput } from './Controls';
 import { TagChooser, TagImportOptions, TagManager, type TagCommit } from './Tags';
 
 type Initial = { id?: string; revision: number; data: LibraryCharacter };
 function editableCharacter(data: LibraryCharacter): LibraryCharacter {
   const greetings = readCharacterAlternateGreetings(data);
-  return greetings.success ? { ...data, alternate_greetings: greetings.data } : data;
+  const editable = greetings.success ? { ...data, alternate_greetings: greetings.data } : { ...data };
+  for (const field of cardInstructionFields) {
+    const value = readCardInstruction(data, field);
+    if (value.success) editable[field] = value.data;
+  }
+  const note = readCharacterDepthPrompt(data);
+  if (note.success) editable.depth_prompt = note.data;
+  return editable;
 }
 export function CharacterEditor({ initial, library, busy, run, close, openBook, extracted, saved }: { initial: Initial; library: LibrarySnapshot; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; close: () => void; openBook: (id: string) => void; extracted: (id: string) => void; saved: () => void }) {
   const formId = useId();
@@ -34,8 +42,9 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
   const stale = revision !== library.revision;
   const greetings = readCharacterAlternateGreetings(data);
   const alternatives = greetings.success ? greetings.data : [];
-  const characterChanged = (['name', 'titleComment', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'lorebookId'] as const).some(field => data[field] !== baselineData[field])
-    || JSON.stringify(data.alternate_greetings) !== JSON.stringify(baselineData.alternate_greetings);
+  const characterChanged = (['name', 'titleComment', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'lorebookId', 'system_prompt', 'post_history_instructions'] as const).some(field => data[field] !== baselineData[field])
+    || JSON.stringify(data.alternate_greetings) !== JSON.stringify(baselineData.alternate_greetings)
+    || JSON.stringify(data.depth_prompt) !== JSON.stringify(baselineData.depth_prompt);
   const pictureChanged = pictureMutation(picture, baselinePicture) !== undefined;
   function safeClose() { alive.current = false; close(); }
   const committed: TagCommit = (before, after, snapshot, deletedId) => {
@@ -108,6 +117,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
       <label>Title / comment<input aria-label="Title / comment" maxLength={200} value={data.titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>An optional label, useful for distinguishing between versions.</small></label>
       <PictureEditor value={picture} change={setPicture} original={baselinePicture} disabled={busy || pending || stale || Boolean(uncertain)} processing={setProcessing} />
       {([['description', 'Character description'], ['personality', 'Personality'], ['scenario', 'Scenario'], ['first_mes', 'Greeting'], ['mes_example', 'Example dialogue']] as const).map(([field, label]) => <label key={field} className="full">{label}<EditorTextarea aria-label={label} maxLength={100_000} value={data[field]} onChange={event => setData({ ...data, [field]: event.target.value })} /></label>)}
+      <CardInstructions value={data} change={setData} />
       <div className="full" role="group" aria-label="Alternate greetings">
         <h3>Alternate greetings</h3>
         {!greetings.success && <p role="alert">The preserved alternate greetings are invalid. They will be retained on save and export. Clear them before adding replacements or starting a new chat with this character.</p>}
@@ -143,6 +153,7 @@ function CharacterReconciliation({ library, characterId, disabled, reconcile }: 
       <PictureSquare url={picture?.thumbnailUrl} />
       {character && <details><summary>Current saved text and tags</summary>
         {(['name', 'titleComment', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'] as const).map((field, index) => <div key={field}><strong>{['Name', 'Title / comment', 'Description', 'Personality', 'Scenario', 'Greeting', 'Example dialogue'][index]}</strong><p className="prose small">{character[field] || 'Empty'}</p></div>)}
+        <CardInstructions value={character} />
         <strong>Alternate greetings</strong>
         {greetingTexts === null && <p>Invalid preserved alternate greetings; raw metadata is retained.</p>}
         {greetingTexts?.length === 0 && <p>None</p>}
@@ -154,4 +165,45 @@ function CharacterReconciliation({ library, characterId, disabled, reconcile }: 
     <button type="button" className="secondary" disabled={disabled || Boolean(characterId && !character)} onClick={reconcile}>Use current text and tags; keep my picture draft</button>
     <p className="small muted">This replaces local text/tag edits with the saved values shown above. Your picture and crop stay in the draft. Review them, then Save character.</p>
   </section>;
+}
+
+function CardInstructions({ value, change }: { value: LibraryCharacter; change?: (value: LibraryCharacter) => void }) {
+  const [open, setOpen] = useState(false);
+  const note = readCharacterDepthPrompt(value);
+  function instructionField(field: typeof cardInstructionFields[number]) {
+    const instruction = readCardInstruction(value, field);
+    const label = cardInstructionLabels[field];
+    if (!instruction.success) return <div className="full" key={field}>
+      <p role="alert">{label} is invalid. The preserved value will remain until explicitly cleared.</p>
+      {change && <button type="button" className="secondary" onClick={() => change({ ...value, [field]: '' })}>Clear invalid {label.toLowerCase()}</button>}
+    </div>;
+    if (!change) return <p className="prose small full" key={field}>{label}: {instruction.data || 'Empty'}</p>;
+    return <label className="full" key={field}>{label}
+      <EditorTextarea aria-label={label} maxLength={100_000} value={instruction.data} onChange={event => change({ ...value, [field]: event.target.value })} />
+    </label>;
+  }
+  return <details className="full card-instructions" onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>Card instructions</summary>
+    {open && <div className="form-grid">
+      <p className="small muted full">The Prompt preset controls whether these instructions are sent. Character notes use their configured depth and role when Messages permits injection.</p>
+      {cardInstructionFields.map(instructionField)}
+      {!note.success ? <div className="full">
+        <p role="alert">The character depth note has invalid settings. The preserved value will remain until explicitly cleared. Clearing replaces malformed note metadata on export.</p>
+        {change && <button type="button" className="secondary" onClick={() => change({ ...value, depth_prompt: { prompt: '', depth: 2, role: 'system' } })}>Clear invalid character depth note</button>}
+      </div> : change ? <>
+        <label className="full">Character depth note
+          <EditorTextarea aria-label="Character depth note" maxLength={100_000} value={note.data.prompt} onChange={event => change({ ...value, depth_prompt: { ...note.data, prompt: event.target.value } })} />
+        </label>
+        <label>Character note depth
+          <NumberInput aria-label="Character note depth" required min={0} max={1000} value={note.data.depth} onChange={depth => change({ ...value, depth_prompt: { ...note.data, depth } })} />
+        </label>
+        <label>Character note role
+          <Dropdown aria-label="Character note role" value={note.data.role} onChange={role => {
+            if (role === 'system' || role === 'user' || role === 'assistant') change({ ...value, depth_prompt: { ...note.data, role } });
+          }} options={['system', 'user', 'assistant'].map(role => ({ value: role, label: role }))} />
+        </label>
+        <p className="small muted full">Depth 0 follows the newest history message; depth 1 precedes it. Depth counts nonblank outgoing history messages. Larger depths stop at the oldest included message.</p>
+      </> : <p className="prose small full">Character depth note ({note.data.role}, depth {note.data.depth}): {note.data.prompt || 'Empty'}</p>}
+    </div>}
+  </details>;
 }

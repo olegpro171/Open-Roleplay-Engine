@@ -1,0 +1,160 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Store } from '../src/persistence/store.js';
+import { importCharacter, exportCharacter } from '../src/core/cards.js';
+import { assembleRequest } from '../src/core/prompt.js';
+import { contextPlan } from '../src/core/context-plan.js';
+import { legacyRoleplayPrompt } from '../src/persistence/legacy-prompt.js';
+import { defaultPrompt, readCharacterAlternateGreetings, type Character, type CharacterSaveCommand } from '../src/shared/library.js';
+import { readCardInstruction, readCharacterDepthPrompt } from '../src/shared/card-instructions.js';
+import { createApp } from '../src/server/app.js';
+import type { Provider } from '../src/provider/openai.js';
+import type { RequestPreview } from '../src/shared/contracts.js';
+
+const disposers: (() => void | Promise<void>)[] = [];
+afterEach(async () => { for (const dispose of disposers.splice(0).reverse()) await dispose(); });
+const fields = { name: 'Mira', description: 'Keeper', personality: '', scenario: '', first_mes: '', mes_example: '' };
+const source = { spec: 'chara_card_v3', data: { ...fields, system_prompt: '{{original}} Narrate Mira.', post_history_instructions: 'Use dialogue.', extensions: { depth_prompt: { prompt: 'Keep the key secret.', depth: 1, role: 'system' } } } };
+const connection = { name: 'Synthetic', endpoint: 'http://localhost/v1', model: 'synthetic', contextWindow: 10000, maxOutputTokens: 100, customParameters: {} };
+function required<T>(value: T | undefined): T { if (value === undefined) throw new Error('Missing synthetic fixture record.'); return value; }
+function fixture(path = ':memory:') {
+  const store = new Store(path);
+  const characterId = store.saveLibrary(store.libraryRevision(), 'characters', importCharacter(source));
+  const connectionId = store.saveLibrary(store.libraryRevision(), 'connections', connection, undefined, 'SYNTHETIC-CARD-SECRET');
+  const chatId = store.createChat({ title: 'Story', targetInputTokens: 5000, characterId, connectionId, promptId: 'default', personaId: null, lorebookId: null });
+  return { store, characterId, chatId };
+}
+function card(store: Store, id: string) {
+  const { id: _id, revision: _revision, ...data } = required(store.libraries().characters.find(card => card.id === id));
+  return data;
+}
+const command = (store: Store, data: Character): CharacterSaveCommand => ({ kind: 'characters', revision: store.libraryRevision(), requestId: randomUUID(), data });
+
+it('reads existing populated version-12 records without rewriting presets, requests, source data or revisions across restart', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'ore-card-compatibility-'));
+  disposers.push(() => rmSync(folder, { recursive: true, force: true }));
+  const path = join(folder, 'chat.sqlite');
+  const f = fixture(path);
+  f.store.saveLibrary(f.store.libraryRevision(), 'prompts', legacyRoleplayPrompt, 'default');
+  f.store.replaceHistory(f.store.snapshot(f.chatId).revision, f.chatId, [{ user: 'Original', assistant: 'Reply', complete: true }]);
+  const operation = f.store.begin(f.store.snapshot(f.chatId).revision, randomUUID(), 'Continue', f.chatId);
+  const snapshot = f.store.generationSnapshot(operation.id);
+  const historical = assembleRequest(connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context);
+  expect(JSON.stringify(historical.body)).not.toContain('Keep the key secret.');
+  f.store.saveRequest(operation.id, historical);
+  f.store.finish(operation.id, 'succeeded', 'Saved response', null);
+  const before = f.store.snapshot(f.chatId), library = f.store.libraries();
+  f.store.close();
+  const reopened = new Store(path);
+  disposers.push(() => reopened.close());
+  expect(reopened.sqlite.pragma('user_version', { simple: true })).toBe(12);
+  expect(reopened.snapshot(f.chatId)).toEqual(before);
+  expect(reopened.libraries()).toEqual(library);
+  expect(reopened.libraries().prompts.find(prompt => prompt.id === 'default')?.blocks).toEqual(legacyRoleplayPrompt.blocks);
+  expect(reopened.snapshot(f.chatId).generations[0].request).toEqual(historical);
+});
+
+it('materializes unchanged instructions without changing source/chat revisions; saves edits and explicit clearing through old-client writes', () => {
+  const f = fixture(); disposers.push(() => f.store.close());
+  const before = f.store.snapshot(f.chatId);
+  const original = card(f.store, f.characterId);
+  const main = readCardInstruction(original, 'system_prompt'), post = readCardInstruction(original, 'post_history_instructions'), note = readCharacterDepthPrompt(original);
+  if (!main.success || !post.success || !note.success) throw new Error('Invalid synthetic source.');
+  const exposed = { ...original, system_prompt: main.data, post_history_instructions: post.data, depth_prompt: note.data };
+  f.store.saveCharacter(command(f.store, exposed), f.characterId);
+  expect(f.store.snapshot(f.chatId).revision).toBe(before.revision);
+  expect(f.store.snapshot(f.chatId).sources.character?.revision).toBe(before.sources.character?.revision);
+  const edited = { ...exposed, system_prompt: 'Edited main', depth_prompt: { ...note.data, prompt: 'Edited note' } };
+  const save = command(f.store, edited);
+  f.store.saveCharacter(save, f.characterId);
+  expect(f.store.replayCharacterSave(save, f.characterId)).toEqual({ found: true, result: { id: f.characterId } });
+  expect(f.store.snapshot(f.chatId).revision).toBe(before.revision + 1);
+  expect(() => f.store.saveCharacter({ ...save, requestId: randomUUID() }, f.characterId)).toThrow('changed on another device');
+  f.store.saveCharacter(command(f.store, { ...original, description: 'Old client changes description' }), f.characterId);
+  expect(card(f.store, f.characterId)).toMatchObject({ system_prompt: 'Edited main', depth_prompt: { prompt: 'Edited note' } });
+  const current = card(f.store, f.characterId);
+  f.store.saveCharacter(command(f.store, { ...current, system_prompt: '', post_history_instructions: '', depth_prompt: { prompt: '', depth: 2, role: 'system' } }), f.characterId);
+  const cleared = card(f.store, f.characterId);
+  expect(readCardInstruction(cleared, 'system_prompt')).toMatchObject({ success: true, data: '' });
+  expect(exportCharacter(cleared).data).toMatchObject({ system_prompt: '', post_history_instructions: '', extensions: { depth_prompt: { prompt: '' } } });
+  expect(readCharacterAlternateGreetings(cleared)).toMatchObject({ success: true, data: [] });
+  const duplicateId = f.store.duplicateCharacter(f.store.libraryRevision(), f.characterId);
+  expect(card(f.store, duplicateId).depth_prompt).toEqual(cleared.depth_prompt);
+});
+
+it('rolls back failed writes, blocks shared edits during generation, and preserves immutable earlier requests', () => {
+  const f = fixture(); disposers.push(() => f.store.close());
+  const before = f.store.libraries();
+  const rejected = { ...command(f.store, { ...card(f.store, f.characterId), system_prompt: 'MUST ROLL BACK' }), tagIds: ['missing-tag'] };
+  expect(() => f.store.saveCharacter(rejected, f.characterId)).toThrow('no longer exists');
+  expect(f.store.libraries()).toEqual(before);
+  expect(f.store.replayCharacterSave(rejected, f.characterId)).toEqual({ found: false });
+  const operation = f.store.begin(f.store.snapshot(f.chatId).revision, randomUUID(), 'Continue', f.chatId);
+  const snapshot = f.store.generationSnapshot(operation.id);
+  const historical = assembleRequest(connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context);
+  f.store.saveRequest(operation.id, historical);
+  expect(() => f.store.saveCharacter(command(f.store, { ...card(f.store, f.characterId), system_prompt: 'BLOCKED' }), f.characterId)).toThrow('current response');
+  f.store.finish(operation.id, 'succeeded', 'Response', null);
+  f.store.saveCharacter(command(f.store, { ...card(f.store, f.characterId), system_prompt: 'Future only' }), f.characterId);
+  expect(f.store.generation(operation.id)?.request).toEqual(historical);
+  const current = f.store.snapshot(f.chatId);
+  expect(contextPlan(current).inputTokens).toBe(assembleRequest(connection, current.settings, current.turns, current.sources, current.context).budget.inputTokens);
+});
+
+describe('server diagnostics and generation integration', () => {
+  it('previews draft selections without writes, excludes credentials, and stops invalid injection before any provider call', async () => {
+    const calls: RequestPreview[] = [];
+    const provider: Provider = { async stream(request, _key, _signal, onText) { calls.push(request); onText('Synthetic reply.'); return { finishReason: 'stop' }; } };
+    const { app, store } = await createApp({ database: ':memory:', provider });
+    disposers.push(() => app.close());
+    const setup = await app.inject({ method: 'POST', url: '/api/setup', headers: { host: 'localhost', origin: 'http://localhost' }, payload: { password: 'synthetic-card-password' } });
+    const headers = { host: 'localhost', origin: 'http://localhost', cookie: String(setup.headers['set-cookie']).split(';')[0] };
+    const characterId = store.saveLibrary(store.libraryRevision(), 'characters', importCharacter(source));
+    const connectionId = store.saveLibrary(store.libraryRevision(), 'connections', connection, undefined, 'SYNTHETIC-CARD-SECRET');
+    const oldPreset = store.saveLibrary(store.libraryRevision(), 'prompts', legacyRoleplayPrompt);
+    const selected = { title: 'Story', targetInputTokens: 5000, characterId, connectionId, promptId: oldPreset, personaId: null, lorebookId: null };
+    const chatId = store.createChat(selected);
+    const before = store.snapshot(chatId);
+    const diagnostic = await app.inject({ method: 'POST', url: `/api/chats/${chatId}/prompt-diagnostics`, headers, payload: { revision: before.revision, settings: selected } });
+    expect(diagnostic.statusCode).toBe(200);
+    expect(diagnostic.json<unknown>()).toMatchObject([{ code: 'disabled_system_prompt' }, { code: 'disabled_post_history_instructions' }, { code: 'disabled_depth_prompt' }]);
+    const draft = await app.inject({ method: 'POST', url: `/api/chats/${chatId}/prompt-diagnostics`, headers, payload: { revision: before.revision, settings: { ...selected, promptId: 'default' } } });
+    expect(draft.json<unknown>()).toEqual([]);
+    expect(store.snapshot(chatId)).toEqual(before);
+    const unauthorized = await app.inject({ method: 'POST', url: `/api/chats/${chatId}/prompt-diagnostics`, headers: { host: 'localhost', origin: 'http://localhost' }, payload: { revision: before.revision, settings: selected } });
+    expect(unauthorized.statusCode).toBe(401);
+    store.updateChat(before.revision, chatId, { ...selected, promptId: 'default' });
+    const stale = await app.inject({ method: 'POST', url: `/api/chats/${chatId}/prompt-diagnostics`, headers, payload: { revision: before.revision, settings: selected } });
+    expect(stale.statusCode).toBe(409);
+    const response = await app.inject({ method: 'GET', url: `/api/chats/${chatId}`, headers });
+    expect(response.json<unknown>()).toMatchObject({ promptDiagnostics: [] });
+    expect(response.body + diagnostic.body).not.toContain('SYNTHETIC-CARD-SECRET');
+    store.saveLibrary(store.libraryRevision(), 'characters', { ...fields, source: { extensions: { depth_prompt: { prompt: 'Bad', depth: -1 } } } }, characterId);
+    const invalid = await app.inject({ method: 'POST', url: `/api/chats/${chatId}/preview`, headers, payload: { revision: store.snapshot(chatId).revision, text: 'Continue' } });
+    expect(invalid.statusCode).toBe(422);
+    expect(invalid.body).toContain('depth note has invalid settings');
+    expect(calls).toEqual([]);
+    const submitted = await app.inject({ method: 'POST', url: `/api/chats/${chatId}/turns`, headers, payload: { revision: store.snapshot(chatId).revision, requestId: randomUUID(), text: 'Continue' } });
+    expect(submitted.statusCode).toBe(202);
+    const failedId = submitted.json<{ generationId: string }>().generationId;
+    await vi.waitFor(() => expect(store.generation(failedId)?.status).toBe('failed'));
+    expect(store.generation(failedId)?.error).toContain('depth note has invalid settings');
+    expect(store.generation(failedId)?.request).toBeNull();
+    expect(store.snapshot(chatId).turns.at(-1)?.complete).toBe(false);
+    expect(calls).toEqual([]);
+    store.saveLibrary(store.libraryRevision(), 'characters', { ...card(store, characterId), depth_prompt: { prompt: 'Valid note', depth: 0, role: 'assistant' } }, characterId);
+    const current = store.snapshot(chatId);
+    const preview = await app.inject({ method: 'POST', url: `/api/chats/${chatId}/preview`, headers, payload: { revision: current.revision } });
+    expect(preview.statusCode).toBe(200);
+    const operation = store.begin(current.revision, randomUUID(), undefined, chatId);
+    const pending = store.generationSnapshot(operation.id);
+    const assembled = assembleRequest(connection, pending.settings, pending.turns, pending.sources, pending.context);
+    expect(assembled.body).toEqual(preview.json<RequestPreview>().body);
+    expect(assembled.body.messages.at(-1)).toEqual({ role: 'assistant', content: 'Valid note' });
+    store.finish(operation.id, 'cancelled', '', 'Synthetic cancellation');
+    expect(store.libraries().prompts.find(prompt => prompt.id === 'default')?.blocks).toEqual(defaultPrompt.blocks);
+  });
+});
