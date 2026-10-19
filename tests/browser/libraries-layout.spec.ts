@@ -273,3 +273,33 @@ test('fits library editors within their forms at desktop and phone widths', asyn
     }
   }
 });
+
+test('returns to the top of a scrollable prompt list after saving or closing a deep editor', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await login(page);
+  for (let index = 0; index < 8; index++) {
+    await addRecord(page, 'prompts', { ...defaultPrompt, name: `Scroll position prompt ${index}` });
+  }
+  await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'Prompts', exact: true });
+  const edit = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Scroll position prompt 0', exact: true }) }).getByRole('button', { name: 'Edit', exact: true });
+  await edit.click();
+  for (let index = 1; index <= 6; index++) {
+    await panel.getByRole('button', { name: `Expand block ${index}`, exact: true }).click();
+  }
+  await panel.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await panel.getByRole('textbox', { name: 'Fallback text' }).last().fill('Edited while scrolled down.');
+  await panel.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await page.getByRole('button', { name: 'Save prompt', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'New prompt', exact: true })).toBeInViewport();
+  expect(await panel.evaluate(element => element.scrollTop)).toBe(0);
+
+  await edit.click();
+  for (let index = 1; index <= 6; index++) {
+    await panel.getByRole('button', { name: `Expand block ${index}`, exact: true }).click();
+  }
+  await panel.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'New prompt', exact: true })).toBeInViewport();
+  expect(await panel.evaluate(element => element.scrollTop)).toBe(0);
+});

@@ -1,7 +1,7 @@
 import type { PromptDiagnostic } from '../shared/prompt-diagnostics';
 import { useConfirmation } from './Confirmation';
 import { PictureSquare } from './Pictures';
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ChatWorkspace } from './ChatWorkspace';
 import type { ChatSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
 import { characterLabel, characterFields, characterFieldLabels, defaultPrompt, markers, markerLabel, promptWarnings, type LibraryCharacter, type LibraryKind, type LibrarySnapshot, type Persona, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
@@ -175,6 +175,13 @@ export function Libraries({ library, currentChatId, busy, run, openChat, initial
     const { id, revision: _revision, ...data } = record;
     return { kind: initialTarget.kind, id, revision: library.revision, data };
   });
+  const panel = useRef<HTMLElement>(null);
+  const wasEditing = useRef(Boolean(editing));
+  useLayoutEffect(() => {
+    // The list can be much shorter than the editor it replaces.
+    if (wasEditing.current && !editing) panel.current?.scrollTo(0, 0);
+    wasEditing.current = Boolean(editing);
+  }, [editing]);
   const [creatingChat, setCreatingChat] = useState(false);
   const [notice, setNotice] = useState(''), [diagnostics, setDiagnostics] = useState<LoreDiagnostic[]>([]), [search, setSearch] = useState('');
   const [pendingBook, setPendingBook] = useState<string | null>(null);
@@ -230,7 +237,7 @@ export function Libraries({ library, currentChatId, busy, run, openChat, initial
       </nav>
       {editing && <div ref={setEditorActionsTarget} />}
     </aside>
-    <section key={section} className="document-panel library-panel" aria-labelledby="library-heading">
+    <section ref={panel} key={section} className="document-panel library-panel" aria-labelledby="library-heading">
     <h1 id="library-heading">{libraryLabels[section]}</h1>
     {notice && <p role="status">{notice}</p>}<LoreDiagnostics diagnostics={diagnostics} />
     {section === 'chats' ? <>
