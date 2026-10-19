@@ -30,12 +30,13 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await page.getByLabel('Name', { exact: true }).fill('Traveller');
   await page.getByLabel('Persona description').fill('The user is a traveller.');
   await page.getByRole('button', { name: 'Save persona', exact: true }).click();
-  await page.getByRole('button', { name: 'Setup', exact: true }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
   await page.getByLabel('Chat title').fill('The Lantern Tower');
   await choose(page, 'Connection', 'Tower model');
   await choose(page, 'Character', 'Keeper');
   await choose(page, 'Persona', 'Traveller');
-  await page.getByRole('button', { name: 'Save setup' }).click();
+  await page.getByRole('button', { name: 'Save and return' }).click();
   await expect(page.getByRole('heading', { name: 'The Lantern Tower' })).toBeVisible();
 
   const phoneContext = await browser.newContext({ ...devices['iPhone 13'] });
@@ -47,7 +48,8 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
 
   await request.post('/__test/mode', { data: { mode: 'hold-first-token' } });
   await page.getByLabel('Your next turn').fill('I enter the tower.');
-  await page.getByRole('button', { name: 'Request inspector' }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Request inspector', exact: true }).click();
   await page.getByRole('button', { name: 'Preview next request' }).click();
   await expect(page.getByTestId('request-body')).toBeHidden();
   await page.getByText('Endpoint and request body', { exact: true }).click();
@@ -78,7 +80,8 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await expect(phone.getByLabel('Conversation')).toContainText('The lantern flickers.');
   await expect(phone.getByLabel('Your next turn')).toBeEnabled();
 
-  await phone.getByRole('button', { name: 'Request inspector' }).click();
+  await phone.getByRole('button', { name: 'Story', exact: true }).click();
+  await phone.getByRole('button', { name: 'Request inspector', exact: true }).click();
   await expect(phone.getByTestId('request-body')).toBeHidden();
   await phone.getByText('Endpoint and request body', { exact: true }).click();
   await expect(phone.getByTestId('request-body')).toContainText('I enter the tower.');
@@ -200,10 +203,11 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await page.getByLabel('Chat title').fill('The Observatory');
   await choose(page, 'Connection', 'Tower model');
   await choose(page, 'Prompt preset', 'Observatory prompt');
-  await page.getByRole('button', { name: 'Save setup', exact: true }).click();
+  await page.getByRole('button', { name: 'Save and return', exact: true }).click();
   await expect(page.getByLabel('Conversation')).toContainText('Hello, Visitor. I am Moon.');
   await expect(page.locator('.part.user')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Edit input', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
   await page.getByRole('button', { name: 'Request inspector', exact: true }).click();
   await page.getByRole('button', { name: 'Preview next request', exact: true }).click();
   const preview = JSON.parse((await page.getByTestId('request-body').textContent())!);
@@ -211,7 +215,8 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   expect(preview.messages.at(-2).content).toBe('An observatory');
   expect(preview.messages.at(-1).content).toBe('After history: Moon answers.');
   expect(JSON.stringify(preview)).not.toContain('INACTIVE LORE');
-  await page.getByRole('button', { name: 'Setup', exact: true }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
   const entries = [{ user_name: 'Visitor', character_name: 'Moon', chat_metadata: { summary: 'IGNORE OLD SUMMARY' } },
     { is_user: false, mes: 'Imported opening', extra: { advancedMemorySnapshot: 'x'.repeat(1_200_000), hiddenFromAI: true } },
     { is_user: false, mes: 'Another assistant entry' }, { is_user: true, mes: 'A question' }, { is_user: false, mes: 'An answer' }];
@@ -224,7 +229,8 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await expect(page.getByLabel('Conversation')).not.toContainText('Hello, Visitor.');
   await page.reload();
   await expect(page.getByLabel('Conversation')).toContainText('An answer');
-  await page.getByRole('button', { name: 'Setup', exact: true }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
   await page.getByLabel('Chat JSONL file').setInputFiles({ name: 'bad.jsonl', mimeType: 'application/jsonl', buffer: Buffer.from('{broken') });
   await expect(page.getByRole('alert')).toContainText('Line 1');
   await page.getByRole('button', { name: 'Story', exact: true }).click();
@@ -258,8 +264,8 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await page.goto('/');
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByLabel('Current chat', { exact: true })).toHaveCount(0);
-  await expect(page.locator('.topbar .tabs button')).toHaveText(['Story', 'Setup', 'Memory', 'Libraries', 'Request inspector']);
+  await expect(page.getByRole('combobox', { name: 'Current chat', exact: true })).toHaveCount(0);
+  await expect(page.locator('.topbar .tabs button')).toHaveText(['Story', 'Libraries']);
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Connections', exact: true }).click();
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -342,7 +348,7 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await page.getByLabel('Target input tokens').fill('24000');
   const connection = page.getByRole('combobox', { name: 'Connection', exact: true });
   await connection.focus(); await connection.press('ArrowDown'); await connection.press('Home'); await connection.press('Enter');
-  await page.getByRole('button', { name: 'Save setup', exact: true }).click();
+  await page.getByRole('button', { name: 'Save and return', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Set up your story' })).toBeVisible();
   const header = await page.locator('.topbar').boundingBox();
   const tabs = await page.getByRole('navigation', { name: 'Workspace' }).boundingBox();

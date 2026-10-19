@@ -62,7 +62,8 @@ test('keeps chat and memory budget panels mounted during debounced and delayed r
   expect(await meter!.evaluate(node => node.isConnected)).toBe(true);
   await expect(context).toHaveAttribute('open', '');
 
-  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
   const budget = page.locator('.memory-panel .budget');
   await expect(budget.locator('strong')).toContainText('/ 20,000');
   const budgetNode = await budget.elementHandle();

@@ -71,8 +71,9 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await expect(page.getByRole('combobox', { name: 'Lorebook', exact: true })).toContainText('Moon Gate atlas');
   await page.getByLabel('Chat title').fill('Lore browser story');
   await choose(page, 'Connection', 'Lore browser model');
-  await page.getByRole('button', { name: 'Save setup', exact: true }).click();
+  await page.getByRole('button', { name: 'Save and return', exact: true }).click();
   await page.getByLabel('Your next turn').fill('I approach MoonGate.');
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
   await page.getByRole('button', { name: 'Request inspector', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Resolved lore' })).toContainText('Moon Gate memory · admitted');
   await page.getByText('Endpoint and request body', { exact: true }).click();
@@ -98,6 +99,7 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await bookRow.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByLabel('Lore content', { exact: true }).fill('The Moon Gate now bears a golden sun.');
   await page.getByRole('button', { name: 'Save lorebook', exact: true }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
   await page.getByRole('button', { name: 'Request inspector', exact: true }).click();
   await page.getByRole('combobox', { name: 'Inspect request', exact: true }).click();
   await page.getByRole('option').filter({ hasText: 'succeeded' }).first().click();
@@ -108,11 +110,12 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   const after: ChatSnapshot = await page.request.get(`/api/chats/${chat.id}`).then(response => response.json());
   expect(after.generations[0]?.request).toEqual(saved.generations[0]?.request);
   expect(await page.request.get(`/api/chats/${chat.id}/generations/${generation.id}/request`).then(response => response.json())).toEqual(historical);
-  await page.getByRole('button', { name: 'Setup', exact: true }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
   await choose(page, 'Character', 'None selected');
   await expect(page.getByRole('combobox', { name: 'Lorebook', exact: true })).toContainText('Moon Gate atlas');
   await choose(page, 'Lorebook', 'None selected');
-  await page.getByRole('button', { name: 'Save setup', exact: true }).click();
+  await page.getByRole('button', { name: 'Save and return', exact: true }).click();
   const unlinked: ChatSnapshot = await page.request.get(`/api/chats/${chat.id}`).then(response => response.json());
   expect(unlinked.settings.lorebookId).toBeNull();
   expect(unlinked.turns).toEqual(after.turns);

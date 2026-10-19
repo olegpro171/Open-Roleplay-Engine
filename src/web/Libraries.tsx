@@ -1,6 +1,7 @@
 import { useConfirmation } from './Confirmation';
 import { PictureSquare } from './Pictures';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { ChatWorkspace } from './ChatWorkspace';
 import type { ChatSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
 import { characterLabel, characterFields, characterFieldLabels, defaultPrompt, markers, promptWarnings, type LibraryCharacter, type LibraryKind, type LibrarySnapshot, type Persona, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { upgradePrompt } from '../core/prompt-upgrade';
@@ -72,16 +73,32 @@ function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnap
     <div className="actions"><button>Create chat</button><button type="button" className="quiet" onClick={cancel}>Cancel</button></div>
   </fieldset></form>;
 }
-export function ChatSetup({ snapshot, library, busy, run, saved }: { snapshot: ChatSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; saved: () => void }) {
+export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, returnToChat }: { snapshot: ChatSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; saved: () => void; sidebar: ReactNode; returnToChat: () => void }) {
   const [value, setValue] = useState(() => selection(snapshot, library));
   const [revision] = useState(snapshot.revision);
-  return <main className="document-panel"><p className="eyebrow">CHAT SETUP</p><h1>Choose this story’s ingredients.</h1><p className="muted">Each chat keeps its own selections. Edit reusable cards, prompts and Connections in Libraries; saved changes apply to chats using them.</p>
-    <form onSubmit={async e => { e.preventDefault(); if (await run(() => api(`/chats/${snapshot.id}/selections`, 'PUT', { revision, settings: value }))) saved(); }}><fieldset disabled={busy}><legend>Selections</legend><SelectionFields value={value} change={setValue} library={library} /></fieldset>
+  const formId = useId();
+  const mounted = useRef(true);
+  const submitting = useRef(false);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  return <ChatWorkspace sidebar={sidebar} actions={<>
+    <button type="submit" form={formId} disabled={busy || revision !== snapshot.revision}>Save and return</button>
+    <button type="button" className="secondary" disabled={saving} onClick={returnToChat}>Return without saving</button>
+  </>}><section className="document-panel chat-panel" aria-label="Chat setup"><p className="eyebrow">CHAT SETUP</p><h1>Choose this story’s ingredients.</h1><p className="muted">Each chat keeps its own selections. Edit reusable cards, prompts and Connections in Libraries; saved changes apply to chats using them.</p>
+    <form id={formId} onSubmit={async e => {
+      e.preventDefault();
+      if (busy || submitting.current || revision !== snapshot.revision) return;
+      submitting.current = true;
+      setSaving(true);
+      try {
+        const committed = await run(() => api(`/chats/${snapshot.id}/selections`, 'PUT', { revision, settings: value }));
+        if (committed && mounted.current) saved();
+      } finally { submitting.current = false; if (mounted.current) setSaving(false); }
+    }}><fieldset disabled={busy}><legend>Selections</legend><SelectionFields value={value} change={setValue} library={library} /></fieldset>
       <p className="small muted">With Summary enabled, a context preset prepares older history. Without Summary, Messages uses recent whole turns that fit the input limit. Missing markers send no content. Changing a character preserves the selected lorebook, greeting and saved turns. Changing character or persona starts fresh lore activation history for this chat.</p>
       {revision !== snapshot.revision && <p role="status">This chat changed. Reopen Setup to load its current settings.</p>}
-      <button disabled={busy || revision !== snapshot.revision}>Save setup</button>
     </form><HistoryImport snapshot={snapshot} busy={busy} run={run} />
-  </main>;
+  </section></ChatWorkspace>;
 }
 async function* fileChunks(file: File) {
   const reader = file.stream().getReader(), decoder = new TextDecoder('utf-8', { fatal: true });

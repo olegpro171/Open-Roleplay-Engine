@@ -16,6 +16,7 @@ import { TurnControls } from './TurnControls';
 import { ReasoningPreview } from './Reasoning';
 import { ChatMarkdown } from './ChatMarkdown';
 import { ChatTextarea } from './ChatTextarea';
+import { ChatWorkspace } from './ChatWorkspace';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
@@ -47,6 +48,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<Edit | null>(null);
   const [peek, setPeek] = useState(false);
+  const [contextExpanded, setContextExpanded] = useState(false);
   const [generationId, setGenerationId] = useState('');
   const loadId = useRef(0);
   const { transcript, awayFromLatest, scrollToLatest } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot);
@@ -200,29 +202,30 @@ export function App() {
   if (!library) return <main className="login"><p>Loading your story…</p>{error && <p role="alert">{error}</p>}</main>;
   const selectedCharacterLabel = characterLabel(library.characters.find(character => character.id === snapshot?.settings.characterId) ?? snapshot?.sources.character ?? { name: 'Character' });
 
+  const sidebar = snapshot && <>
+        <p className="eyebrow">CURRENT CHAT</p><h1>{snapshot.settings.title}</h1>
+        <p>{snapshot.connection ? `${snapshot.connection.name} · ${snapshot.connection.model}` : 'Set up a Connection to begin.'}</p>
+        <dl><div><dt>Total turns</dt><dd>{snapshot.turns.length}</dd></div><div title="Saved turns kept verbatim in the current input, including a pending turn"><dt>Active turns</dt><dd>{activeTurns}</dd></div><div><dt>Input target</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString()}</dd></div><div><dt>Estimated input</dt><dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>{currentRequest?.budget.inputTokens.toLocaleString() ?? '—'}</dd></div></dl>
+        <details className="context-dropdown" open={contextExpanded} onToggle={event => setContextExpanded(event.currentTarget.open)}><summary>Context <span>{!summariesEnabled ? 'Summaries are disabled' : snapshot.context.selected.length ? `${snapshot.context.selected.length} summaries` : 'Full history'}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></> : <p className="small muted">{inspectionError || 'Select a Connection to inspect input.'}</p>}</details>
+  </>;
+  const returnToChat = () => { setTab('story'); setPeek(false); setGenerationId(''); };
+
   return <div className="app">
     <header className="topbar">
       <div className="brand"><span className="brand-mark" aria-hidden="true">O</span><div><strong>ORE</strong><small>Your stories. Room to continue.</small></div></div>
       <nav className="tabs" aria-label="Workspace">
-        <button disabled={!snapshot} aria-current={tab === 'story' ? 'page' : undefined} onClick={() => setTab('story')}>Story</button>
-        <button disabled={!snapshot} aria-current={tab === 'settings' ? 'page' : undefined} onClick={() => setTab('settings')}>Setup</button>
-        <button disabled={!snapshot} aria-current={tab === 'memory' ? 'page' : undefined} onClick={() => setTab('memory')}>Memory</button>
+        <button disabled={!snapshot} aria-current={tab !== 'library' ? 'page' : undefined} onClick={() => setTab('story')}>Story</button>
         <button aria-current={tab === 'library' ? 'page' : undefined} onClick={() => setTab('library')}>Libraries</button>
-        <button disabled={!snapshot} aria-current={tab === 'request' ? 'page' : undefined} onClick={() => setTab('request')}>Request inspector</button>
       </nav>
       <div className="connection-status"><span className={online ? 'dot online' : 'dot'} />{online ? 'Connected' : 'Reconnecting'}</div>
       <button className="quiet signout" onClick={() => void command(async () => { await api('/logout', 'POST', {}); setSnapshot(null); await refreshSession(); })}>Sign out</button>
     </header>
     {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" onClick={() => setError('')}>Dismiss</button></div>}
-    {tab === 'story' && snapshot && <main className="story-layout">
-      <aside className="story-meta">
-        <p className="eyebrow">CURRENT CHAT</p><h1>{snapshot.settings.title}</h1>
-        <p>{snapshot.connection ? `${snapshot.connection.name} · ${snapshot.connection.model}` : 'Set up a Connection to begin.'}</p>
-        <dl><div><dt>Total turns</dt><dd>{snapshot.turns.length}</dd></div><div title="Saved turns kept verbatim in the current input, including a pending turn"><dt>Active turns</dt><dd>{activeTurns}</dd></div><div><dt>Input target</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString()}</dd></div><div><dt>Estimated input</dt><dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>{currentRequest?.budget.inputTokens.toLocaleString() ?? '—'}</dd></div></dl>
-        <details className="context-dropdown"><summary>Context <span>{!summariesEnabled ? 'Summaries are disabled' : snapshot.context.selected.length ? `${snapshot.context.selected.length} summaries` : 'Full history'}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></> : <p className="small muted">{inspectionError || 'Select a Connection to inspect input.'}</p>}</details>
+    {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<>
         <button className="secondary" onClick={() => setTab('settings')}>Chat settings</button>
         <button className="secondary" onClick={() => setTab('memory')}>Inspect memory</button>
-      </aside>
+        <button className="secondary" onClick={() => setTab('request')}>Request inspector</button>
+      </>}>
       <section className="conversation" aria-label="Conversation">
         {memoryStale && <div className="recovery" role="status"><div><strong>Memory needs review.</strong><p>Archived history changed. Repair the affected summaries before continuing.</p></div><button className="secondary" onClick={() => setTab('memory')}>Review memory</button></div>}
         <div className="transcript-frame"><div className="transcript" ref={transcript}>
@@ -274,17 +277,17 @@ export function App() {
           {preparing && <span className="composer-status">Preparing memory…</span>}
         </form>
       </section>
-    </main>}
+    </ChatWorkspace>}
     {tab === 'library' && <Libraries library={library} currentChatId={chatId} busy={busy} run={command} openChat={openChat} />}
-    {tab === 'settings' && snapshot && <ChatSetup key={snapshot.id} snapshot={snapshot} library={library} busy={busy || working} run={command} saved={() => { setTab('story'); setPeek(false); setGenerationId(''); }} />}
-    {tab === 'memory' && snapshot && <Memory key={snapshot.id} snapshot={snapshot} library={library} busy={busy} run={command} />}
-    {tab === 'request' && snapshot && <main className="document-panel"><p className="eyebrow">REQUEST INSPECTOR</p><h1>See what the model receives.</h1><p className="muted">Current input follows your saved setup and composer. Saved attempts preserve the exact request and limits used at that time. Credentials stay on the server.</p><div className="inspector-controls"><label>Inspect request<Dropdown aria-label="Inspect request" value={generationId} onChange={setGenerationId} options={[{ value: '', label: 'Current request' }, ...snapshot.generations.map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString()} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!snapshot.connection || busy} onClick={() => { setGenerationId(''); setSettledDraft(draft); }}>Preview {pending ? 'pending turn' : 'next request'}</button><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></div>
+    {tab === 'settings' && snapshot && <ChatSetup key={snapshot.id} snapshot={snapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} />}
+    {tab === 'memory' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>Return to chat</button>}><Memory key={snapshot.id} snapshot={snapshot} library={library} busy={busy} run={command} /></ChatWorkspace>}
+    {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>Return to chat</button>}><section className="document-panel chat-panel" aria-label="Request inspector"><p className="eyebrow">REQUEST INSPECTOR</p><h1>See what the model receives.</h1><p className="muted">Current input follows your saved setup and composer. Saved attempts preserve the exact request and limits used at that time. Credentials stay on the server.</p><div className="inspector-controls"><label>Inspect request<Dropdown aria-label="Inspect request" value={generationId} onChange={setGenerationId} options={[{ value: '', label: 'Current request' }, ...snapshot.generations.map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString()} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!snapshot.connection || busy} onClick={() => { setGenerationId(''); setSettledDraft(draft); }}>Preview {pending ? 'pending turn' : 'next request'}</button><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></div>
       <p className="small muted">{generationId ? `Saved attempt: ${shownGeneration?.status ?? 'unavailable'}. Its ceiling is historical. ${shownGeneration?.error ?? ''}` : 'Live preview of the current setup and composer, before any preparation. It becomes a saved request when generation starts.'}</p>
       {!generationId && memoryStale && <p role="status">Memory is out of date. This inspection includes stale summaries; repair and review them before sending.</p>}
       {!generationId && inspectionError && <p role="status">{inspectionError}</p>}{generationId && matchingSavedInspection?.error && <p role="alert">{matchingSavedInspection.error}</p>}
       {shownGeneration?.usage && <p className="small">Provider reported: {shownGeneration.usage.inputTokens.toLocaleString()} input · {shownGeneration.usage.outputTokens.toLocaleString()} output tokens.</p>}
       {shownRequest && <>{shownRequest.warnings?.map(warning => <p role="status" key={warning}>{warning}</p>)}<div className="budget"><strong>Estimated input: {shownRequest.budget.inputTokens.toLocaleString()} / {shownRequest.budget.targetInputTokens.toLocaleString()}</strong><InputMeter input={shownRequest.budget.inputTokens} limit={Math.min(shownRequest.budget.targetInputTokens, shownRequest.budget.contextWindow - shownRequest.budget.reservedOutputTokens)} /><span>Reserved output: {shownRequest.budget.reservedOutputTokens.toLocaleString()} · Model window: {shownRequest.budget.contextWindow.toLocaleString()}</span></div>{shownRequest.layout && <BudgetBreakdown request={shownRequest} />}<LoreInspection request={shownRequest} historical={Boolean(generationId)} /><details className="request-details"><summary>Endpoint and request body</summary><h2>Endpoint</h2><pre>{shownRequest.endpoint}</pre><h2>Request body</h2><pre data-testid="request-body">{JSON.stringify(shownRequest.body, null, 2)}</pre></details><details><summary>Turn identities and source revisions</summary><pre>{JSON.stringify(shownRequest.coverage, null, 2)}</pre></details></>}
-    </main>}
+    </section></ChatWorkspace>}
     {peek && currentRequest && <PromptPeek stale={memoryStale} request={currentRequest} close={() => setPeek(false)} />}
 
   </div>;

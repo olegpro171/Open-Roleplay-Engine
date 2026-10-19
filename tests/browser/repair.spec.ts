@@ -36,7 +36,8 @@ test('reviews a repair queue with matching panes, source diffs, regenerate, disc
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Continuous repair proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
-  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
   await page.getByRole('button', { name: 'Repair summaries', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Review the proposed replacement' });
   const proposal = () => dialog.getByLabel('Proposed summary', { exact: true });

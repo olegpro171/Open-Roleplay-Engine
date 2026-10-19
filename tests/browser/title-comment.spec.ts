@@ -94,7 +94,7 @@ for (const width of [1440, 390]) {
     await choose(page, medieval);
     await expect(page.getByRole('combobox', { name: 'Character', exact: true })).toContainText(medieval);
     await choose(page, university);
-    await page.getByRole('button', { name: 'Save setup', exact: true }).click();
+    await page.getByRole('button', { name: 'Save and return', exact: true }).click();
     await page.getByRole('button', { name: 'Story', exact: true }).click();
     await expect(page.locator('.part.assistant .part-heading')).toContainText(university);
     await expect(page.locator('.part.assistant .prose')).toHaveText(`I am ${name}.`);

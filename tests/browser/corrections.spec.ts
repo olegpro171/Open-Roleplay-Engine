@@ -39,7 +39,8 @@ test('inspects alternate identities and old versions without timeline collisions
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Alternate memories', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
-  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
   const oldBox = page.getByRole('button', { name: new RegExp(`identity ${old.id}, revision 0`) });
   const newBox = page.getByRole('button', { name: new RegExp(`identity ${alternative.id}, revision 0`) });
   for (const width of [1280, 390]) {

@@ -84,7 +84,8 @@ test('drafts survive menus, chat switches, reloads and closing the browser page'
   await setup(page);
   const text = '\n  Mira holds the key.\nОна ждёт ответа.  \n';
   await page.getByLabel('Your next turn').fill(text);
-  await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Setup', exact: true }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await expect(page.getByLabel('Your next turn')).toHaveValue(text);
   await open(page, 'Draft story B');

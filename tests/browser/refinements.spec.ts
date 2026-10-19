@@ -53,10 +53,11 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   const originalRequest = (await state()).generations[0].request;
   expect(originalRequest?.budget.targetInputTokens).toBe(35_000);
 
-  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
   await page.getByLabel('Input target', { exact: true }).fill('700');
   await page.getByRole('button', { name: 'Save memory settings', exact: true }).click();
-  await expect(page.getByRole('meter', { name: 'Input budget' })).toHaveClass(/overflow/);
+  await expect(page.getByRole('region', { name: 'Memory', exact: true }).getByRole('meter', { name: 'Input budget' })).toHaveClass(/overflow/);
   await expect(page.locator('.budget')).toHaveCSS('background-color', 'rgb(27, 33, 42)');
   await page.getByRole('button', { name: 'Save next summary', exact: true }).click();
   await expect.poll(async () => (await state()).context.jobs[0]?.status).toBe('succeeded');
@@ -69,20 +70,23 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await expect(page.getByTestId('memory-status')).toContainText('retained-summary floor');
   await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();
 
-  await page.getByRole('button', { name: 'Setup', exact: true }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
   await page.getByLabel('Target input tokens').fill('45000');
-  await page.getByRole('button', { name: 'Save setup', exact: true }).click();
+  await page.getByRole('button', { name: 'Save and return', exact: true }).click();
   await expect(meta.locator('dl div').filter({ hasText: 'Active turns' })).toHaveText('Active turns7');
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
   await page.getByRole('button', { name: 'Request inspector', exact: true }).click();
   await expect(page.locator('.budget strong')).toContainText('/ 45,000');
   await page.getByRole('combobox', { name: 'Inspect request', exact: true }).click();
   await page.getByRole('option').filter({ hasText: 'succeeded' }).first().click();
   await expect(page.locator('.budget strong')).toContainText('/ 35,000');
   expect(JSON.parse((await page.getByTestId('request-body').textContent())!)).toEqual(originalRequest!.body);
-  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
   await expect(page.getByTestId('memory-status')).toContainText('Ready:');
   await expect(page.locator('.memory-failure')).toHaveCount(0);
-  await expect(page.getByRole('meter', { name: 'Input budget' })).toHaveClass(/fits/);
+  await expect(page.getByRole('region', { name: 'Memory', exact: true }).getByRole('meter', { name: 'Input budget' })).toHaveClass(/fits/);
   await command(`/api/library/${contextId}`, { revision: (await libraries()).revision, kind: 'contexts', data: preset }, 'PUT');
   await page.getByLabel('Input target', { exact: true }).fill('700');
   await page.getByRole('button', { name: 'Save memory settings', exact: true }).click();
@@ -98,6 +102,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await phone.getByRole('button', { name: 'Sign in', exact: true }).click();
   await phone.getByRole('button', { name: 'Libraries', exact: true }).click();
   await phone.getByRole('article').filter({ has: phone.getByRole('heading', { name: 'Refinement proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await phone.getByRole('button', { name: 'Story', exact: true }).click();
   await phone.getByRole('button', { name: 'Request inspector', exact: true }).click();
   await phone.getByRole('button', { name: 'Prompt peek', exact: true }).click();
   await expect(phone.getByRole('dialog', { name: 'Prompt peek' })).toBeVisible();
@@ -195,7 +200,8 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
     await route.fulfill({ response, json: snapshot });
   });
   await page.reload();
-  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Summary layers' })).toBeVisible();
   const recent = page.getByRole('button', { name: 'Level 1 summary, turns 200 to 203, active · fresh, identity recent-memory, revision 0', exact: true });
   await expect(recent).toHaveText('');

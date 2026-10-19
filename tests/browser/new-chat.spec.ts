@@ -61,7 +61,7 @@ for (const width of [1440, 390]) {
     expect((await library(page)).chats).toHaveLength(before.chats.length);
 
     await page.getByRole('button', { name: 'Create chat', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Setup', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('region', { name: 'Chat setup', exact: true })).toBeVisible();
     await expect(page.getByLabel('Chat title')).toHaveValue(title);
     await expect(page.getByRole('combobox', { name: 'Lorebook', exact: true })).toContainText(book.name);
     await page.screenshot({ path: `test-results/new-chat-setup-${width}.png`, fullPage: true });
@@ -85,7 +85,8 @@ for (const width of [1440, 390]) {
     await expect(page.getByLabel('Conversation')).toContainText(`Welcome, Starter visitor ${width}.`);
     await page.reload();
     await expect(page.getByLabel('Conversation')).toContainText(`Welcome, Starter visitor ${width}.`);
-    await page.getByRole('button', { name: 'Setup', exact: true }).click();
+    await page.getByRole('button', { name: 'Story', exact: true }).click();
+    await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
     await expect(page.getByLabel('Chat title')).toHaveValue(title);
     await expect(page.getByRole('combobox', { name: 'Character', exact: true })).toContainText(characterName);
     await expect(page.getByRole('combobox', { name: 'Persona', exact: true })).toContainText(`Starter visitor ${width}`);
