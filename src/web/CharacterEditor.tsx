@@ -96,7 +96,9 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
   }
   const source = initial.data.source ?? {};
   const nested = source.data;
-  const embeddedBook = source.spec === 'chara_card_v2' || source.spec === 'chara_card_v3' ? typeof nested === 'object' && nested !== null && 'character_book' in nested : source.character_book !== undefined;
+  const embeddedBook = source.spec === 'chara_card_v2' || source.spec === 'chara_card_v3'
+    ? typeof nested === 'object' && nested !== null && 'character_book' in nested && nested.character_book != null
+    : source.character_book != null;
   return <>
     <form onSubmit={event => { event.preventDefault(); void save(); }}><fieldset disabled={busy || pending || stale || Boolean(uncertain)}><legend>{initial.id ? 'Edit' : 'Create'} character</legend><div className="form-grid">
       <label className="full">Name<input required maxLength={100} value={data.name} onChange={event => setData({ ...data, name: event.target.value })} /></label>

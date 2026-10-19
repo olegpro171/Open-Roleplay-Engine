@@ -6,6 +6,7 @@ import type { Provider } from '../src/provider/openai.js';
 import type { RequestPreview } from '../src/shared/contracts.js';
 import { newLorebook, newLoreEntry } from '../src/shared/lorebook.js';
 import fixtures from './fixtures/lorebooks.json';
+import { cardPng, quadrantPicture } from './support/pictures.js';
 
 const disposers: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const dispose of disposers.splice(0)) await dispose(); });
@@ -37,6 +38,36 @@ async function fixture() {
 }
 
 describe('authenticated lorebook API', () => {
+  it.each([
+    ['chara_card_v2', 'json'], ['chara_card_v2', 'png'],
+    ['chara_card_v3', 'json'], ['chara_card_v3', 'png'],
+  ])('previews and imports %s %s cards with a null book', async (spec, format) => {
+    const f = await fixture();
+    const source = { spec, data: { ...characterFields, first_mes: 'Primary greeting.', alternate_greetings: ['Alternate greeting.'], character_book: null, extensions: { preserved: true } } };
+    const bytes = format === 'png' ? cardPng(await quadrantPicture(), source) : Buffer.from(JSON.stringify(source));
+    const base64 = bytes.toString('base64'), before = f.store.libraries();
+    const preview = await f.request('POST', '/api/library/characters/preview', { base64 });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json<unknown>()).toMatchObject({ name: source.data.name, book: null, diagnostics: [], picture: { status: format === 'png' ? 'ready' : 'none' } });
+    expect(f.store.libraries()).toEqual(before);
+    const payload = { kind: 'characters', revision: before.revision, requestId: randomUUID(), base64 };
+    const imported = await f.request('POST', '/api/library/import', payload);
+    expect(imported.statusCode).toBe(200);
+    const result = z.object({ ids: z.array(z.string()).length(1), books: z.array(z.unknown()).length(0) }).parse(imported.json<unknown>());
+    const id = required(result.ids[0]);
+    const saved = f.store.libraries();
+    expect(saved.characters.find(card => card.id === id)).toMatchObject({ ...characterFields, first_mes: source.data.first_mes, alternate_greetings: source.data.alternate_greetings, lorebookId: null, source });
+    expect(saved.lorebooks).toEqual([]);
+    expect(saved.characterPictures.some(picture => picture.characterId === id)).toBe(format === 'png');
+    expect((await f.request('POST', '/api/library/import', payload)).json<unknown>()).toEqual(imported.json<unknown>());
+    expect(f.store.libraries()).toEqual(saved);
+    const exported = await f.request('GET', `/api/library/characters/${id}/export`);
+    expect(exported.statusCode).toBe(200);
+    expect(exported.json<unknown>()).toMatchObject({ spec, data: { alternate_greetings: source.data.alternate_greetings, extensions: source.data.extensions } });
+    expect(exported.body).not.toContain('character_book');
+    expect(f.calls).toEqual([]);
+  });
+
   it.each(['v2', 'v3'] as const)('exports the current linked %s book, preserves metadata and honors explicit unlinking', async format => {
     const f = await fixture();
     const sourceBook = format === 'v2' ? fixtures.v2 : fixtures.v3.data;

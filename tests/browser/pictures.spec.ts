@@ -31,6 +31,29 @@ async function upload(page: Page, bytes: Buffer, label = 'Choose picture') {
   await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toBeEnabled();
 }
 
+test('imports a PNG card with a null lorebook and retains its picture and greetings', async ({ page }) => {
+  await login(page);
+  const source = { spec: 'chara_card_v2', data: { ...fields('Null book browser keeper'), first_mes: 'The keeper welcomes you.', alternate_greetings: ['The keeper waves.'], character_book: null } };
+  const before = await library(page);
+  await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'null-book.png', mimeType: 'image/png', buffer: cardPng(await quadrantPicture(), source) });
+  await expect(page.getByRole('heading', { name: `Review ${source.data.name}` })).toBeVisible();
+  await expect(page.getByText('Centered square picture ready.', { exact: false })).toBeVisible();
+  expect((await library(page)).characters).toEqual(before.characters);
+  await page.getByRole('button', { name: 'Import reviewed character', exact: true }).click();
+  await expect(row(page, source.data.name)).toBeVisible();
+  const saved = await library(page), card = saved.characters.find(card => card.name === source.data.name);
+  if (!card) throw new Error('Missing null-book character');
+  expect(card.lorebookId).toBeNull();
+  expect(saved.lorebooks).toEqual(before.lorebooks);
+  const picture = saved.characterPictures.find(item => item.characterId === card.id);
+  if (!picture) throw new Error('Missing null-book character picture');
+  await expect(row(page, card.name).locator('img')).toHaveAttribute('src', picture.thumbnailUrl);
+  await page.getByRole('button', { name: 'Edit imported character / Adjust crop', exact: true }).click();
+  await expect(page.getByLabel('Greeting', { exact: true })).toHaveValue(source.data.first_mes);
+  await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue(source.data.alternate_greetings[0]);
+  await expect(page.getByRole('button', { name: 'Extract embedded lorebook', exact: true })).toHaveCount(0);
+});
+
 test('keeps crop/editor save levels separate, recovers exact saves, and refreshes another tab', async ({ page, context }) => {
   await login(page); const image = await quadrantPicture();
   await page.getByRole('button', { name: 'New character', exact: true }).click(); await page.getByLabel('Name', { exact: true }).fill('Picture browser keeper');

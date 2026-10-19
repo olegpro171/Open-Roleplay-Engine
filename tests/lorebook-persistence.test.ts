@@ -150,6 +150,37 @@ describe('durable lorebook imports', () => {
     expect(book(store, required(empty.books[0]).id).entries).toEqual([]);
   });
 
+  it.each(['legacy', 'chara_card_v2', 'chara_card_v3'])('treats a null embedded book as absent in %s cards', spec => {
+    const store = open();
+    const fields = { ...cardFields, character_book: null, alternate_greetings: ['Another greeting.'] };
+    const source = spec === 'legacy' ? fields : { spec, data: fields };
+    const before = store.libraries();
+    expect(store.previewCard(source)).toMatchObject({ name: fields.name, book: null, diagnostics: [] });
+    expect(store.libraries()).toEqual(before);
+    const requestId = randomUUID();
+    const result = store.importCard(before.revision, requestId, source);
+    const saved = character(store, required(result.ids[0]));
+    expect(result.books).toEqual([]);
+    expect(saved).toMatchObject({ lorebookId: null, alternate_greetings: fields.alternate_greetings, source });
+    expect(store.libraries().lorebooks).toEqual([]);
+    const committed = store.libraries();
+    expect(store.importCard(before.revision, requestId, source)).toEqual(result);
+    expect(() => store.extractBook(committed.revision, randomUUID(), saved.id)).toThrow('no preserved embedded lorebook');
+    expect(store.libraries()).toEqual(committed);
+    expect(commandRows(store)).toHaveLength(1);
+    expect(exportCharacter(withoutIdentity(saved), null).data).not.toHaveProperty('character_book');
+  });
+
+  it.each([false, '', [], {}])('rejects malformed non-null embedded books without partial records: %j', character_book => {
+    const store = open();
+    const before = store.libraries();
+    const source = { ...v2Card, data: { ...v2Card.data, character_book } };
+    expect(() => store.previewCard(source)).toThrow();
+    expect(() => store.importCard(before.revision, randomUUID(), source)).toThrow();
+    expect(store.libraries()).toEqual(before);
+    expect(commandRows(store)).toEqual([]);
+  });
+
   it('rolls back the book, character, link, revision and durable command when a later character write fails', () => {
     const store = open();
     const before = store.libraries(), commands = commandRows(store), requestId = randomUUID();

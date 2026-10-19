@@ -482,7 +482,7 @@ export class Store {
     const card = parseImport(() => importCharacter(value));
     const raw = z.record(z.string(), z.unknown()).parse(value);
     const data = raw.spec === 'chara_card_v2' || raw.spec === 'chara_card_v3' ? z.record(z.string(), z.unknown()).parse(raw.data) : raw;
-    const book = data.character_book === undefined ? null : parseImport(() => importLorebook(data.character_book, randomUUID, raw.spec === 'chara_card_v3' ? 'v3' : 'v2'));
+    const book = data.character_book == null ? null : parseImport(() => importLorebook(data.character_book, randomUUID, raw.spec === 'chara_card_v3' ? 'v3' : 'v2'));
     return { card, book, tags: readEmbeddedTags(raw) };
   }
   previewCard(value: unknown): CharacterImportReview {
@@ -539,7 +539,7 @@ export class Store {
         return { bookId: card.lorebookId, diagnostics: book ? loreCompatibility(book) : [] };
       }
       const raw = card.source ?? {}, data = raw.spec === 'chara_card_v2' || raw.spec === 'chara_card_v3' ? z.record(z.string(), z.unknown()).parse(raw.data) : raw;
-      if (data.character_book === undefined) throw new AppError(422, 'no_embedded_book', 'This character has no preserved embedded lorebook.');
+      if (data.character_book == null) throw new AppError(422, 'no_embedded_book', 'This character has no preserved embedded lorebook.');
       const preview = parseImport(() => importLorebook(data.character_book, randomUUID, raw.spec === 'chara_card_v3' ? 'v3' : 'v2'));
       const bookId = this.saveLibrary(this.libraryRevision(), 'lorebooks', preview.book);
       const { id: _id, revision: _revision, ...editable } = card;
