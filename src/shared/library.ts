@@ -8,9 +8,11 @@ import { cardInstructionTextSchema, characterDepthPromptSchema } from './card-in
 
 const name = z.string().trim().min(1).max(100);
 const text = z.string().max(100_000);
+const titleComment = z.string().trim().max(200).refine(value => !/[\r\n]/.test(value), 'Use a single line.').optional();
 export const maxAlternateGreetings = 1000;
 const alternateGreetingsSchema = z.array(text).max(maxAlternateGreetings);
 export const personaSchema = z.object({ name, description: text }).strict();
+export const libraryPersonaSchema = personaSchema.extend({ titleComment });
 export const characterSchema = z.object({
   name, description: text, personality: text, scenario: text, first_mes: text, mes_example: text,
   alternate_greetings: alternateGreetingsSchema.optional(),
@@ -22,12 +24,13 @@ export const characterSchema = z.object({
 }).strict();
 // Local library metadata is deliberately absent from prompt-bearing Character.
 export const libraryCharacterSchema = characterSchema.extend({
-  titleComment: z.string().trim().max(200).refine(value => !/[\r\n]/.test(value), 'Use a single line.').optional(),
+  titleComment,
 });
 export type LibraryCharacter = z.infer<typeof libraryCharacterSchema>;
 export function characterLabel(character: { name: string; titleComment?: string }): string {
   return character.titleComment ? `${character.name} · ${character.titleComment}` : character.name;
 }
+export const personaLabel = characterLabel;
 export const characterFields = ['name', 'description', 'personality', 'scenario', 'examples'] as const;
 export type CharacterField = typeof characterFields[number];
 export const characterFieldLabels: Record<CharacterField, string> = { name: 'Name', description: 'Description', personality: 'Personality', scenario: 'Scenario', examples: 'Example dialogue' };
@@ -56,6 +59,7 @@ export const promptSchema = z.object({ name, blocks: z.array(promptBlockSchema).
   }
 });
 export type Persona = z.infer<typeof personaSchema>;
+export type LibraryPersona = z.infer<typeof libraryPersonaSchema>;
 export type Character = z.infer<typeof characterSchema>;
 /** Older imports retain this field only inside their original card metadata. */
 export function readCharacterAlternateGreetings(card: Pick<Character, 'alternate_greetings' | 'source'>) {
@@ -75,7 +79,7 @@ export type UnchangedLibrary = { unchanged: true; revision: number; chats: ChatS
 export type LibrarySnapshot = {
   characterPictures: CharacterPicture[];
   tags: Tag[]; characterTags: CharacterTag[];
-  revision: number; personas: Saved<Persona>[]; characters: Saved<LibraryCharacter>[]; prompts: Saved<PromptPreset>[];
+  revision: number; personas: Saved<LibraryPersona>[]; characters: Saved<LibraryCharacter>[]; prompts: Saved<PromptPreset>[];
   connections: (Saved<Connection> & { hasApiKey: boolean })[]; chats: ChatSummary[];
   contexts: Saved<ContextPreset>[];
   lorebooks: Saved<Lorebook>[];
@@ -116,7 +120,7 @@ export const selectionsSchema = z.object({
   lorebookId: z.string().min(1).max(100).nullable().optional(),
 }).strict();
 export const libraryCommandSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('personas'), revision: revisionSchema, data: personaSchema }).strict(),
+  z.object({ kind: z.literal('personas'), revision: revisionSchema, data: libraryPersonaSchema }).strict(),
   z.object({ kind: z.literal('characters'), revision: revisionSchema, data: libraryCharacterSchema, tagIds: tagIdsSchema.optional(), requestId: z.string().uuid().optional(), expectedPicture: z.string().uuid().nullable().optional(), picture: pictureMutationSchema.optional() }).strict(),
   z.object({ kind: z.literal('prompts'), revision: revisionSchema, data: promptSchema }).strict(),
   z.object({ kind: z.literal('contexts'), revision: revisionSchema, data: contextPresetSchema }).strict(),

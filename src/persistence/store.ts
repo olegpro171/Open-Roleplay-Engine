@@ -12,7 +12,7 @@ import { AppError } from '../core/errors.js';
 import { replaceNameMacros } from '../core/prompt.js';
 import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStatus, RequestPreview, ResponseVariant, TokenUsage, Turn } from '../shared/contracts.js';
 import { regenerationView } from '../core/regeneration.js';
-import { readCharacterAlternateGreetings, characterLabel, characterSchema, libraryCharacterSchema, defaultPrompt, defaultInstructions, selectionsSchema, type Character, type LibraryCharacter, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary, type PromptSources } from '../shared/library.js';
+import { readCharacterAlternateGreetings, characterLabel, characterSchema, libraryCharacterSchema, libraryPersonaSchema, personaSchema, defaultPrompt, defaultInstructions, selectionsSchema, type Character, type LibraryCharacter, type LibraryPersona, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary, type PromptSources } from '../shared/library.js';
 import { lorebookSchema, type Lorebook, type LoreImportPreview, type LoreResolution, type LoreState } from '../shared/lorebook.js';
 import { importLorebook, loreCompatibility, markLoreEdits } from '../core/lorebook-formats.js';
 import { importCharacter } from '../core/cards.js';
@@ -238,12 +238,17 @@ export class Store {
     const row = this.db.select().from(schema.library).where(and(eq(schema.library.id, id), eq(schema.library.kind, kind))).get();
     if (!row) throw new AppError(422, 'missing_selection', 'A selected library item no longer exists.');
     // Organizational metadata must never enter PromptSources or source revisions.
-    const data = kind === 'characters' ? this.promptCharacter(libraryCharacterSchema.parse(row.data)) : row.data;
+    const data = kind === 'characters' ? this.promptCharacter(libraryCharacterSchema.parse(row.data))
+      : kind === 'personas' ? this.promptPersona(libraryPersonaSchema.parse(row.data)) : row.data;
     return { ...data, id: row.id, revision: row.revision } as unknown as Saved<T>;
   }
   private promptCharacter(card: LibraryCharacter): Character {
     const { titleComment: _titleComment, ...fields } = card;
     return characterSchema.parse(fields);
+  }
+  private promptPersona(persona: LibraryPersona): Persona {
+    const { titleComment: _titleComment, ...fields } = persona;
+    return personaSchema.parse(fields);
   }
   private comparableCharacter(card: LibraryCharacter): Character {
     const fields = this.promptCharacter(card);
@@ -347,7 +352,7 @@ export class Store {
     return {
       characterPictures: this.pictures.list(),
       tags: this.tags.catalog(), characterTags: this.tags.links(),
-      revision: this.libraryRevision(), personas: list<Persona>('personas'), characters: list<LibraryCharacter>('characters'), prompts: list<PromptPreset>('prompts'),
+      revision: this.libraryRevision(), personas: list<LibraryPersona>('personas'), characters: list<LibraryCharacter>('characters'), prompts: list<PromptPreset>('prompts'),
       contexts: list<ContextPreset>('contexts').map(preset => ({ ...preset, repairPrompt: preset.repairPrompt ?? defaultContextPreset.repairPrompt })),
       lorebooks: list<Lorebook>('lorebooks'),
       lorebookUses: list<Lorebook>('lorebooks').map(book => ({ bookId: book.id,
@@ -358,7 +363,7 @@ export class Store {
       chats: this.chatSummaries(),
     };
   }
-  saveLibrary(expected: number, kind: LibraryKind, data: LibraryCharacter | Persona | PromptPreset | ContextPreset | Connection | Lorebook, id?: string, apiKey?: string, tagIds?: string[]) {
+  saveLibrary(expected: number, kind: LibraryKind, data: LibraryCharacter | LibraryPersona | PromptPreset | ContextPreset | Connection | Lorebook, id?: string, apiKey?: string, tagIds?: string[]) {
     if (kind === 'prompts') data = upgradePrompt(data);
     return this.sqlite.transaction(() => {
       this.checkLibrary(expected);
@@ -420,8 +425,22 @@ export class Store {
             return identity;
           }
         }
-        if (kind === 'personas' && old && 'name' in data && old.data.name !== data.name) for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.personaId === identity) this.resetLoreEpoch(chat.id);
-        const saved = data as LibraryCharacter | Persona | PromptPreset | ContextPreset | Lorebook;
+        if (kind === 'personas') {
+          const persona = libraryPersonaSchema.parse(data);
+          const previous = old ? libraryPersonaSchema.parse(old.data) : null;
+          const titleComment = persona.titleComment ?? previous?.titleComment ?? '';
+          const updated: LibraryPersona = { ...this.promptPersona(persona), ...(titleComment ? { titleComment } : {}) };
+          data = updated;
+          if (previous && previous.name !== updated.name) for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.personaId === identity) this.resetLoreEpoch(chat.id);
+          if (old && previous && isDeepStrictEqual(this.promptPersona(previous), this.promptPersona(updated))) {
+            if (!isDeepStrictEqual(old.data, updated)) {
+              this.db.update(schema.library).set({ data: updated }).where(eq(schema.library.id, identity)).run();
+              this.bumpLibrary();
+            }
+            return identity;
+          }
+        }
+        const saved = data as LibraryCharacter | LibraryPersona | PromptPreset | ContextPreset | Lorebook;
         this.db.insert(schema.library).values({ id: identity, kind, revision: (old?.revision ?? -1) + 1, data: saved }).onConflictDoUpdate({ target: schema.library.id, set: { data: saved, revision: (old?.revision ?? -1) + 1 } }).run();
       }
       if (kind === 'characters' && tagIds !== undefined) this.tags.replaceInTransaction(identity, tagIds);
