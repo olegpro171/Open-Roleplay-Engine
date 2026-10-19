@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { ChatSnapshot } from '../shared/contracts';
 import { refKey, type SummaryNode } from '../shared/context';
 import { correctionProtection } from '../core/context-corrections';
@@ -6,12 +6,14 @@ import { staleSummaries } from '../core/context';
 import { hasPromptMarker } from '../shared/library';
 import { Dropdown } from './Controls';
 import { api } from './api';
+import { countText } from '../core/tokens';
 
 export function SummaryInspection({ snapshot, node, historical, selected, locked, inspect, saved, run }: {
   snapshot: ChatSnapshot; node: SummaryNode; historical: boolean; selected: Set<string>; locked: boolean;
   inspect: (node: SummaryNode) => void; saved: () => void; run: (action: () => Promise<unknown>) => Promise<boolean>;
 }) {
   const [edit, setEdit] = useState<{ text: string; revision: number } | null>(null);
+  const textTokens = useMemo(() => countText(node.text), [node.text]);
   const versions = snapshot.context.summaries.filter(version => version.id === node.id && version.approved).sort((a, b) => b.revision - a.revision);
   const latest = versions[0]?.revision === node.revision;
   const stale = staleSummaries(snapshot.turns, snapshot.context).has(refKey(node));
@@ -27,7 +29,7 @@ export function SummaryInspection({ snapshot, node, historical, selected, locked
     : 'Retained for inspection. This summary is not currently represented in model input.';
   return <section className="summary-inspection">
     <h2>Level {node.level} summary · revision {node.revision}</h2>
-    <p className="small muted">Identity {node.id} · {node.turns.length} source turns · {selected.has(refKey(node)) ? 'Selected in this view' : 'Retained in this view'} · {stale ? 'Stale' : 'Fresh'}{node.manual ? ' · Manually corrected' : ''}</p>
+    <p className="small muted">Identity {node.id} · {node.turns.length} source turns · {textTokens.toLocaleString()} estimated text tokens · {selected.has(refKey(node)) ? 'Selected in this view' : 'Retained in this view'} · {stale ? 'Stale' : 'Fresh'}{node.manual ? ' · Manually corrected' : ''}</p>
     <p role="status" data-testid="summary-authority">{status}</p>
     <label>Summary version<Dropdown aria-label="Summary version" value={refKey(node)} onChange={key => {
       const version = versions.find(version => refKey(version) === key);

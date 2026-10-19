@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
+import { countText } from '../../src/core/tokens';
 
 test('inspects alternate identities and old versions without timeline collisions on desktop and phone', async ({ page, request }) => {
   const session = await request.get('/api/session').then(response => response.json());
@@ -51,10 +52,15 @@ test('inspects alternate identities and old versions without timeline collisions
     expect(Math.abs(before!.y - after!.y)).toBeGreaterThanOrEqual(before!.height);
     await oldBox.focus(); await oldBox.press('Enter');
     await expect(page.locator('.summary-inspection')).toContainText(old.id);
+    await expect(page.locator('.summary-inspection')).toContainText(`${countText(old.text).toLocaleString()} estimated text tokens`);
     await expect(page.locator('.summary-inspection')).toContainText('Stale');
+    await expect(oldBox).toHaveAttribute('aria-pressed', 'true');
+    await expect(newBox).toHaveAttribute('aria-pressed', 'false');
     await newBox.click();
     await expect(page.locator('.summary-inspection')).toContainText(alternative.id);
     await expect(page.locator('.summary-inspection')).toContainText('Fresh');
+    await expect(oldBox).toHaveAttribute('aria-pressed', 'false');
+    await expect(newBox).toHaveAttribute('aria-pressed', 'true');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.locator('.memory-chart').screenshot({ path: `test-results/alternatives-${width}.png` });
   }

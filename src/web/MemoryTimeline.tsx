@@ -5,10 +5,11 @@ import { refKey, type ContextOperation, type SummaryNode } from '../shared/conte
 type Props = {
   nodes: SummaryNode[]; selected: Set<string>; stale: Set<string>; archived: Set<string>;
   turnIds: string[]; operation: ContextOperation | null | undefined; levels: number; zoom: boolean;
+  inspectedId: string | null;
   inspect: (node: SummaryNode) => void;
 };
 
-export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, operation, levels, zoom, inspect }: Props) {
+export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, operation, levels, zoom, inspectedId, inspect }: Props) {
   const plot = useRef<HTMLDivElement>(null);
   const [plotWidth, setPlotWidth] = useState(0);
   const [hint, setHint] = useState<{ text: string; left: number; top: number } | null>(null);
@@ -74,7 +75,7 @@ export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, oper
         const freshness = stale.has(refKey(node)) ? ' · stale' : ' · fresh';
         const label = `${range.start + 1}–${range.end + 1}`, text = `L${node.level} · turns ${label} · ${status}${freshness}${node.manual ? ' · Manually edited' : ''} · revision ${node.revision}`;
         const fits = (range.end - range.start + 1) / count * plotWidth >= label.length * 6 + 14;
-        return <button key={refKey(node)} data-summary-id={node.id} className={`summary-span ${status}${stale.has(refKey(node)) ? ' stale' : ''}${node.manual ? ' manual' : ''}`} style={{ ...span(range.start, range.end), bottom: bottom(node.level, refKey(node)) }} aria-label={`Level ${node.level} summary, turns ${range.start + 1} to ${range.end + 1}, ${status}${node.manual ? ', manually edited' : ''}${freshness}, revision ${node.revision}`} aria-describedby={hint?.text === text ? tooltipId : undefined} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)} onFocus={e => showHint(e.currentTarget, text)} onBlur={() => setHint(null)} onClick={() => { setHint(null); inspect(node); }}>{fits ? label : ''}</button>;
+        return <button key={refKey(node)} data-summary-id={node.id} className={`summary-span ${status}${stale.has(refKey(node)) ? ' stale' : ''}${node.manual ? ' manual' : ''}${inspectedId === node.id ? ' inspected' : ''}`} style={{ ...span(range.start, range.end), bottom: bottom(node.level, refKey(node)) }} aria-pressed={inspectedId === node.id} aria-label={`Level ${node.level} summary, turns ${range.start + 1} to ${range.end + 1}, ${status}${node.manual ? ', manually edited' : ''}${freshness}, revision ${node.revision}`} aria-describedby={hint?.text === text ? tooltipId : undefined} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)} onFocus={e => showHint(e.currentTarget, text)} onBlur={() => setHint(null)} onClick={() => { setHint(null); inspect(node); }}>{fits ? label : ''}</button>;
       })}
       {operation && (() => { const range = sourceSpan(operation.turnIds); return range && <div className="summary-span preparing" style={{ ...span(range.start, range.end), bottom: bottom(operation.level, 'next') }} aria-label="Next source batch; no replacement is active">{(range.end - range.start + 1) / count * plotWidth >= 40 ? 'next' : ''}</div>; })()}
       {compact ? bands.map(band => {

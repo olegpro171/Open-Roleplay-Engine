@@ -19,7 +19,7 @@ import { defaultContextPreset, type ContextPreset } from '../shared/context';
 import { newLorebook, type Lorebook, type LoreDiagnostic } from '../shared/lorebook';
 import { LorebookEditor, LorebookImport, LoreDiagnostics } from './LorebookEditor';
 
-export const defaultConnection: Connection = { name: 'My Connection', endpoint: 'https://api.openai.com/v1', model: '', contextWindow: 128_000, maxOutputTokens: 2048, customParameters: {} };
+export const defaultConnection: Connection = { name: 'My Connection', endpoint: 'https://api.openai.com/v1', model: '', contextWindow: 128_000, maxOutputTokens: 8196, customParameters: {} };
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 type Selection = { title: string; targetInputTokens: number; connectionId: string | null; promptId: string; characterId: string | null; personaId: string | null; contextPresetId: string | null; lorebookId: string | null };
 type LibraryRecord = LibraryCharacter | Persona | PromptPreset | Connection | ContextPreset | Lorebook;
@@ -32,6 +32,12 @@ const libraryLabels: Record<LibraryKind | 'chats', string> = {
   connections: 'Connections',
   contexts: 'Context presets',
 };
+function lastLibrarySection(): LibraryKind | 'chats' {
+  try {
+    const value = localStorage.getItem('roleplay-library-section');
+    return value && Object.hasOwn(libraryLabels, value) ? value as LibraryKind | 'chats' : 'chats';
+  } catch { return 'chats'; }
+}
 function selection(snapshot?: ChatSnapshot, library?: LibrarySnapshot): Selection {
   return { title: snapshot?.settings.title ?? 'A new story', targetInputTokens: snapshot?.settings.targetInputTokens ?? 32_000,
     connectionId: snapshot ? snapshot.settings.connectionId ?? null : library?.connections[0]?.id ?? null, promptId: snapshot?.settings.promptId ?? 'default',
@@ -167,7 +173,11 @@ function LibrarySearch({ section, value, change }: { section: LibraryKind | 'cha
 }
 export type LibraryTarget = { kind: 'prompts' | 'characters' | 'lorebooks'; id: string };
 export function Libraries({ library, currentChatId, busy, run, openChat, initialTarget }: { library: LibrarySnapshot; currentChatId: string | null; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void; initialTarget?: LibraryTarget | null }) {
-  const [section, setSection] = useState<LibraryKind | 'chats'>(initialTarget?.kind ?? 'chats');
+  const [section, setSection] = useState<LibraryKind | 'chats'>(initialTarget?.kind ?? lastLibrarySection);
+  useEffect(() => {
+    try { localStorage.setItem('roleplay-library-section', section); }
+    catch { /* Navigation still works when browser storage is unavailable. */ }
+  }, [section]);
   const confirmAction = useConfirmation(section);
   const [editing, setEditing] = useState<{ kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean } | null>(() => {
     const record = initialTarget ? library[initialTarget.kind].find(record => record.id === initialTarget.id) : undefined;

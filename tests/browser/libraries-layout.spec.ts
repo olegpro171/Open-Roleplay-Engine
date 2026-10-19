@@ -23,6 +23,24 @@ async function addRecord(page: Page, kind: LibraryKind, data: object) {
   expect(response.ok(), await response.text()).toBe(true);
 }
 
+test('Libraries reopens the last category and new Connections reserve 8,196 output tokens', async ({ page }) => {
+  await login(page);
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Connections', exact: true }).click();
+  await page.getByRole('button', { name: 'New Connection', exact: true }).click();
+  await expect(page.getByLabel('Reserved output tokens', { exact: true })).toHaveValue('8196');
+  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await expect(page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Connections', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.reload();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await expect(page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Connections', exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
 for (const width of [1280, 390]) {
   test(`saves and closes every library editor from stacked sidebar controls at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
