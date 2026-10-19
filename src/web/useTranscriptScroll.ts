@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 type Anchor = { turnId: string; progress: number };
 
 // Keep the visible turn and the reading position within it stable as text reflows.
-export function useTranscriptScroll(chatId: string | null, content: unknown) {
+export function useTranscriptScroll(chatId: string | null, content: unknown, localContent: unknown) {
   const transcript = useRef<HTMLDivElement>(null);
   const anchor = useRef<Anchor | null>(null);
   const following = useRef(true);
@@ -62,9 +62,10 @@ export function useTranscriptScroll(chatId: string | null, content: unknown) {
     return () => { observer.disconnect(); node.removeEventListener('scroll', onScroll); };
   }, [chatId]);
 
+  // Unsaved turn edits resize the transcript without changing the saved snapshot.
   useLayoutEffect(() => {
     if (following.current) scrollToLatest();
-  }, [content, chatId]);
+  }, [content, localContent, chatId]);
 
   return { transcript, awayFromLatest, scrollToLatest };
 }

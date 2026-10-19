@@ -13,7 +13,7 @@ async function choose(page: Page, label: string, name: string) {
 }
 
 for (const width of [1440, 390]) {
-  test(`new chat saves its title and defaults before opening Setup at ${width}px`, async ({ page }) => {
+  test(`new chat saves its title and defaults before opening Chat settings at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     const session = await page.request.get('/api/session').then(response => response.json());
     await page.goto('/');
@@ -61,7 +61,7 @@ for (const width of [1440, 390]) {
     expect((await library(page)).chats).toHaveLength(before.chats.length);
 
     await page.getByRole('button', { name: 'Create chat', exact: true }).click();
-    await expect(page.getByRole('region', { name: 'Chat setup', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Chat settings', exact: true })).toBeVisible();
     await expect(page.getByLabel('Chat title')).toHaveValue(title);
     await expect(page.getByRole('combobox', { name: 'Lorebook', exact: true })).toContainText(book.name);
     await page.screenshot({ path: `test-results/new-chat-setup-${width}.png`, fullPage: true });
@@ -80,7 +80,7 @@ for (const width of [1440, 390]) {
     expect(saved.turns[0]?.complete).toBe(true);
     expect(saved.generations).toHaveLength(0);
 
-    // Leave Setup without saving, then reload and reopen it: the initial values are already durable.
+    // Leave Chat settings without saving, then reload and reopen it: the initial values are already durable.
     await page.getByRole('button', { name: 'Story', exact: true }).click();
     await expect(page.getByLabel('Conversation')).toContainText(`Welcome, Starter visitor ${width}.`);
     await page.reload();

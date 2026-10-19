@@ -63,9 +63,13 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await expect(page.getByTestId('memory-status')).toContainText('Ready:', { timeout: 15_000 });
   await expect(page.locator('.summary-span.active').first()).toBeVisible();
   await expect(page.locator('.summary-span.retained').first()).toBeVisible();
+  const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
+  await page.locator('.summary-span.active').first().hover();
+  await expect(page.getByRole('tooltip')).toBeVisible();
+  const tooltipText = await page.getByRole('tooltip').textContent();
+  expect((await state()).context.summaries.some(summary => tooltipText?.includes(summary.id))).toBe(false);
   await page.locator('.summary-span.active').first().click();
   await expect(page.getByRole('heading', { name: /Level \d+ summary · revision/ })).toBeVisible();
-  const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
   const saved = await state();
   expect(saved.context.summaries.some(node => node.level > 1)).toBe(true);
   expect(saved.turns).toHaveLength(48);

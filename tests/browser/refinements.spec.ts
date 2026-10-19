@@ -40,6 +40,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   const peek = page.getByRole('dialog', { name: 'Prompt peek' });
   await expect(peek).toBeVisible();
   await expect(peek.locator('.allocation-legend')).toContainText('Unsent input');
+  await expect(peek.locator('.prompt-message[open]')).toHaveCount(0);
   await peek.locator('.prompt-message').filter({ hasText: 'Unsent input' }).locator('summary').click();
   await expect(peek).toContainText('Mira keeps the key for herself.');
   expect(await peek.locator('.prompt-message').count()).toBe(18);
@@ -157,6 +158,14 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
     await expect.poll(bottomGap).toBeLessThan(2);
     await composer.fill('');
     await expect.poll(bottomGap).toBeLessThan(2);
+    const lastTurn = page.getByRole('article', { name: 'Turn 220', exact: true });
+    await lastTurn.getByRole('button', { name: 'Edit response', exact: true }).click();
+    await expect.poll(bottomGap).toBeLessThan(2);
+    const editor = page.getByLabel('Edit assistant text');
+    await editor.fill(`${await editor.inputValue()} The lantern stays lit.`);
+    await expect.poll(bottomGap).toBeLessThan(2);
+    await page.getByRole('button', { name: 'Cancel edit', exact: true }).click();
+    await expect.poll(bottomGap).toBeLessThan(2);
   }
   await page.setViewportSize({ width: 1380, height: 900 });
   await transcript.evaluate(node => {
@@ -172,6 +181,10 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   });
   const before = await readingPosition();
   expect(before.turn).toBe('Turn 100');
+  await page.getByRole('article', { name: 'Turn 100', exact: true }).getByRole('button', { name: 'Edit response', exact: true }).evaluate(button => (button as HTMLButtonElement).click());
+  await expect.poll(async () => (await readingPosition()).turn).toBe(before.turn);
+  await expect(page.getByRole('button', { name: 'Latest turn', exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel edit', exact: true }).evaluate(button => (button as HTMLButtonElement).click());
   await composer.fill('\n\n\n\n\n');
   await composer.pressSequentially('Leon listens.');
   await expect.poll(async () => (await readingPosition()).turn).toBe(before.turn);
@@ -203,10 +216,10 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Summary layers' })).toBeVisible();
-  const recent = page.getByRole('button', { name: 'Level 1 summary, turns 200 to 203, active · fresh, identity recent-memory, revision 0', exact: true });
+  const recent = page.getByRole('button', { name: 'Level 1 summary, turns 200 to 203, active · fresh, revision 0', exact: true });
   await expect(recent).toHaveText('');
   await recent.hover();
-  await expect(page.getByRole('tooltip')).toHaveText('L1 · turns 200–203 · active · fresh · recent-memory · revision 0', { timeout: 300 });
+  await expect(page.getByRole('tooltip')).toHaveText('L1 · turns 200–203 · active · fresh · revision 0', { timeout: 300 });
   await expect(page.locator('.turn-band')).toHaveCount(2);
   const widths = await page.locator('.turn-band').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().width));
   expect(widths[0] / widths[1]).toBeCloseTo(203 / 17, 1);

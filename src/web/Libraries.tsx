@@ -105,7 +105,7 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
   return <ChatWorkspace sidebar={sidebar} actions={<>
     <button type="submit" form={formId} disabled={busy || revision !== snapshot.revision}>Save and return</button>
     <button type="button" className="secondary" disabled={saving} onClick={returnToChat}>Return without saving</button>
-  </>}><section className="document-panel chat-panel" aria-label="Chat setup"><p className="eyebrow">CHAT SETTINGS</p><h1>Choose this story’s ingredients.</h1><p className="muted">Each chat keeps its own selections. Edit reusable cards, prompts and Connections in Libraries; saved changes apply to chats using them.</p>
+  </>}><section className="document-panel chat-panel" aria-label="Chat settings"><p className="eyebrow">CHAT SETTINGS</p><h1>Choose this story’s ingredients.</h1><p className="muted">Each chat keeps its own selections. Edit reusable cards, prompts and Connections in Libraries; saved changes apply to chats using them.</p>
     <form id={formId} onSubmit={async e => {
       e.preventDefault();
       if (busy || submitting.current || revision !== snapshot.revision) return;
@@ -117,7 +117,7 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
       } finally { submitting.current = false; if (mounted.current) setSaving(false); }
     }}><fieldset disabled={busy}><legend>Selections</legend><SelectionFields value={value} change={setValue} library={library} /></fieldset>
       <p className="small muted">With Summary enabled, a context preset prepares older history. Without Summary, Messages uses recent whole turns that fit the input limit. Missing markers send no content. Changing a character preserves the selected lorebook, greeting and saved turns. Changing character or persona starts fresh lore activation history for this chat.</p>
-      {revision !== snapshot.revision && <p role="status">This chat changed. Reopen Setup to load its current settings.</p>}
+      {revision !== snapshot.revision && <p role="status">This chat changed. Reopen Chat settings to load its current settings.</p>}
     </form><section className="import-panel" aria-label="Prompt configuration warnings"><h2>Prompt configuration warnings</h2>
       <p className="small muted">Checks the selections shown above. Keyword matches and token-cap exclusions are explained in Prompt peek.</p>
       {diagnostics?.key !== diagnosticsKey ? <p role="status">Checking prompt configuration…</p> : diagnostics.error ? <><p role="alert">{diagnostics.error}</p><button type="button" className="secondary" onClick={() => setDiagnosticsRetry(value => value + 1)}>Check again</button></> : diagnostics.warnings.length ? <ul>{diagnostics.warnings.map(warning => <li key={warning.code}><p>{warning.message}</p><button type="button" className="secondary" onClick={() => openWarning(warning)}>Edit {warning.target === 'prompts' ? 'prompt preset' : warning.target === 'characters' ? 'character' : 'lorebook'}</button></li>)}</ul> : <p>No prompt configuration warnings.</p>}
@@ -412,7 +412,7 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
             update(index, { ...base, name: block.name === 'Marker' || block.name === markerLabel(block.marker) ? markerLabel(marker) : block.name, marker, ...(marker === 'character' ? { fields: [...characterFields] } : {}) });
           }} options={markers.map(marker => ({ value: marker, label: markerLabel(marker) }))} /></label>
           {(block.marker === 'card_system_prompt' || block.marker === 'card_post_history_instructions') && <label>Fallback text<EditorTextarea aria-label="Fallback text" maxLength={100_000} value={block.fallback ?? ''} onChange={event => update(index, { ...block, fallback: event.target.value })} /><small>Used when the card field is empty. {'{{original}}'} in the card field inserts this text.</small></label>}
-          {block.marker === 'messages' && <label className="checkbox"><input type="checkbox" checked={block.allowDepthPrompt ?? false} onChange={event => update(index, { ...block, allowDepthPrompt: event.target.checked })} />Allow character depth prompt injection</label>}
+          {block.marker === 'messages' && <label className="checkbox messages-marker-option"><input type="checkbox" checked={block.allowDepthPrompt ?? false} onChange={event => update(index, { ...block, allowDepthPrompt: event.target.checked })} />Allow character depth prompt injection</label>}
           {block.marker === 'character' && <MarkerFieldSelection label="Included character fields" options={characterFields.map(field => ({ value: field, label: characterFieldLabels[field] }))} selected={block.fields ?? [...characterFields]} change={fields => update(index, { ...block, fields })} />}
         </>}
       </div>}

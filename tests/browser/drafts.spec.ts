@@ -262,8 +262,18 @@ for (const width of [1440, 390]) test(`typed double dashes become em dashes in c
   expect(saved.turns[0].user.text).toBe('Input—changed.');
   expect(saved.turns[0].assistant.text).toBe('Response—changed.');
   await turn.getByRole('button', { name: 'Edit response', exact: true }).click();
+  const responseEditor = page.getByLabel('Edit assistant text');
+  await responseEditor.fill('Leon remembers the corridor and the locked door. '.repeat(20));
+  await expect.poll(() => responseEditor.evaluate(field => field.scrollHeight <= field.clientHeight + 1)).toBe(true);
+  await responseEditor.fill('Response—changed.');
   await page.getByLabel('Edit assistant text').pressSequentially('--discard');
   await page.getByRole('button', { name: 'Cancel edit', exact: true }).click();
   await turn.getByRole('button', { name: 'Edit response', exact: true }).click();
   await expect(page.getByLabel('Edit assistant text')).toHaveValue('Response—changed.');
+  const longResponse = 'Leon remembers the corridor and the locked door. '.repeat(20);
+  await responseEditor.fill(longResponse);
+  await page.getByRole('button', { name: 'Save edit', exact: true }).click();
+  await turn.getByRole('button', { name: 'Edit response', exact: true }).click();
+  await expect(responseEditor).toHaveValue(longResponse);
+  await expect.poll(() => responseEditor.evaluate(field => field.scrollHeight <= field.clientHeight + 1)).toBe(true);
 });

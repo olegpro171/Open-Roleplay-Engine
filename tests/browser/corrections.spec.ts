@@ -41,8 +41,8 @@ test('inspects alternate identities and old versions without timeline collisions
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Alternate memories', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
-  const oldBox = page.getByRole('button', { name: new RegExp(`identity ${old.id}, revision 0`) });
-  const newBox = page.getByRole('button', { name: new RegExp(`identity ${alternative.id}, revision 0`) });
+  const oldBox = page.locator(`.summary-span[data-summary-id="${old.id}"]`);
+  const newBox = page.locator(`.summary-span[data-summary-id="${alternative.id}"]`);
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await oldBox.scrollIntoViewIfNeeded();
@@ -62,7 +62,7 @@ test('inspects alternate identities and old versions without timeline collisions
   await page.getByRole('button', { name: 'Edit summary', exact: true }).click();
   await page.getByLabel('Summary text', { exact: true }).fill('Author correction: Mira has a duplicate key.');
   await page.getByRole('button', { name: 'Save summary edit', exact: true }).click();
-  const editedBox = page.getByRole('button', { name: new RegExp(`identity ${old.id}, revision 1`) });
+  const editedBox = page.locator(`.summary-span[data-summary-id="${old.id}"][aria-label$="revision 1"]`);
   await editedBox.click();
   await expect(page.getByTestId('summary-authority')).toContainText('awaiting reconciliation');
   await expect(page.getByRole('button', { name: 'Repair summaries', exact: true })).toBeEnabled();

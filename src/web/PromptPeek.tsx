@@ -71,7 +71,7 @@ export function PromptPeek({ request, stale, close }: { request: RequestPreview;
 function PromptMessages({ request, entries }: { request: RequestPreview; entries: Map<number, PromptEntry> }) {
   const message = (i: number) => {
     const part = entries.get(i), value = request.body.messages[i];
-    return <details className={`prompt-message ${part?.kind ?? 'prompt'}`} key={i} open={i === 0}><summary><span className="message-order">{i + 1}</span><span>{part?.label ?? 'Message'}<small>{value.role}</small></span><span className="message-size">{part?.tokens.toLocaleString() ?? '—'} est.</span></summary><div className="prose">{value.content}</div></details>;
+    return <details className={`prompt-message ${part?.kind ?? 'prompt'}`} key={i}><summary><span className="message-order">{i + 1}</span><span>{part?.label ?? 'Message'}<small>{value.role}</small></span><span className="message-size">{part?.tokens.toLocaleString() ?? '—'} est.</span></summary><div className="prose">{value.content}</div></details>;
   };
   const result = [];
   for (let i = 0; i < request.body.messages.length;) {

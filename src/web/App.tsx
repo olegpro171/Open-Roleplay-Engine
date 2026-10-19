@@ -52,7 +52,7 @@ export function App() {
   const [contextExpanded, setContextExpanded] = useState(false);
   const [generationId, setGenerationId] = useState('');
   const loadId = useRef(0);
-  const { transcript, awayFromLatest, scrollToLatest } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot);
+  const { transcript, awayFromLatest, scrollToLatest } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot, edit);
   const clearServerError = useCallback(() => setError(current => current === serverUnavailable ? '' : current), []);
   const refreshSession = useCallback(async () => {
     try { setSession(await api<Session>('/session')); clearServerError(); } catch { setError(serverUnavailable); }
@@ -230,7 +230,7 @@ export function App() {
       <section className="conversation" aria-label="Conversation">
         {memoryStale && <div className="recovery" role="status"><div><strong>Memory needs review.</strong><p>Archived history changed. Repair the affected summaries before continuing.</p></div><button className="secondary" onClick={() => setTab('memory')}>Review memory</button></div>}
         <div className="transcript-frame"><div className="transcript" ref={transcript}>
-          {snapshot.turns.length === 0 && <div className="empty-state"><h2>Set up your story</h2><button className="secondary" onClick={() => setTab('settings')}>Setup</button></div>}
+          {snapshot.turns.length === 0 && <div className="empty-state"><h2>Set up your story</h2><button className="secondary" onClick={() => setTab('settings')}>Open chat settings</button></div>}
           {snapshot.turns.map((turn, index) => {
             const generating = active?.turnId === turn.id;
             const cancelled = !turn.complete && latest?.turnId === turn.id && latest.status === 'cancelled';
@@ -249,7 +249,7 @@ export function App() {
             {(['user', 'assistant'] as const).filter(part => part !== 'user' || inputVisible).map((part) => <div className={`part ${part}`} key={part}>
               <div className="part-heading"><strong>{part === 'user' ? snapshot.sources.persona?.name ?? 'You' : selectedCharacterLabel}</strong></div>
               {part === 'assistant' && reasoning && generating && !responseText && <ReasoningPreview text={reasoning.text} />}
-              {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><ChatTextarea aria-label={`Edit ${part} text`} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><p className="small muted">{snapshot.settings.lorebookId ? "Saving a history edit starts fresh lore activation history for this chat." : ""}</p><div className="actions"><button disabled={busy}>Save edit</button><button type="button" className="quiet" onClick={() => setEdit(null)}>Cancel edit</button></div></form> : <div className="prose">
+              {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><ChatTextarea autoSize aria-label={`Edit ${part} text`} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><p className="small muted">{snapshot.settings.lorebookId ? "Saving a history edit starts fresh lore activation history for this chat." : ""}</p><div className="actions"><button disabled={busy}>Save edit</button><button type="button" className="quiet" onClick={() => setEdit(null)}>Cancel edit</button></div></form> : <div className="prose">
                 {part === 'assistant' && (!turn.complete || generating)
                   ? <>{trimBoundaryNewlines(responseText) ? <ChatMarkdown text={trimBoundaryNewlines(responseText)} /> : <span className="muted">{generating ? 'Waiting for first token…' : cancelled ? 'Generation cancelled.' : 'Awaiting response.'}</span>}{generating && <span className="cursor" aria-label="Generating" />}</>
                   : turn[part].text ? <ChatMarkdown text={turn[part].text} /> : <span className="muted blank">blank</span>}

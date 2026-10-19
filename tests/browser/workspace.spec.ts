@@ -36,7 +36,7 @@ for (const width of [1280, 820, 390, 320]) {
     await sidebar.getByRole('button', { name: 'Save and return', exact: true }).click();
     await expect(page.getByLabel('Your next turn')).toHaveValue('A composer draft survives the tools.');
     expect((await state()).settings.title).toBe(`Saved workspace ${width}`);
-    for (const [button, region] of [['Chat settings', 'Chat setup'], ['Inspect memory', 'Memory'], ['Request inspector', 'Request inspector']]) {
+    for (const [button, region] of [['Chat settings', 'Chat settings'], ['Inspect memory', 'Memory'], ['Request inspector', 'Request inspector']]) {
       await sidebar.getByRole('button', { name: button, exact: true }).click();
       const content = page.getByRole('region', { name: region, exact: true });
       await expect(content).toBeVisible();
@@ -51,8 +51,8 @@ for (const width of [1280, 820, 390, 320]) {
       expect(await content.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`${region}-${width}.png`), animations: 'disabled' });
       await content.evaluate(node => { node.scrollTop = node.scrollHeight; });
-      await expect(sidebar.getByRole('button', { name: region === 'Chat setup' ? 'Return without saving' : 'Return to chat', exact: true })).toBeInViewport();
-      await sidebar.getByRole('button', { name: region === 'Chat setup' ? 'Return without saving' : 'Return to chat', exact: true }).click();
+      await expect(sidebar.getByRole('button', { name: region === 'Chat settings' ? 'Return without saving' : 'Return to chat', exact: true })).toBeInViewport();
+      await sidebar.getByRole('button', { name: region === 'Chat settings' ? 'Return without saving' : 'Return to chat', exact: true }).click();
       await expect(page.getByLabel('Your next turn')).toHaveValue('A composer draft survives the tools.');
       expect(await page.evaluate(() => localStorage.getItem('roleplay-chat'))).toBe(chatId);
     }
