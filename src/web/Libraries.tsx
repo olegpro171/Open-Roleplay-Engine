@@ -8,6 +8,8 @@ import { upgradePrompt } from '../core/prompt-upgrade';
 import { importChat } from '../core/chat-import';
 import { CharacterImport } from './CharacterImport';
 import { CharacterEditor } from './CharacterEditor';
+import { EditorActions, EditorActionsTarget } from './EditorActions';
+import { EditorTextarea } from './EditorTextarea';
 import { TagChips, TagFilterMenu } from './Tags';
 import { characterTagIndex, matchesCharacterTags } from '../shared/tags';
 import { api } from './api';
@@ -149,7 +151,7 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
   const [notice, setNotice] = useState(''), [diagnostics, setDiagnostics] = useState<LoreDiagnostic[]>([]), [search, setSearch] = useState('');
   const [pendingBook, setPendingBook] = useState<string | null>(null);
   const [filters, setFilters] = useState<string[]>([]);
-  const [lastImported, setLastImported] = useState<string | null>(null);
+  const [editorActionsTarget, setEditorActionsTarget] = useState<HTMLDivElement | null>(null);
   const pictureIndex = useMemo(() => new Map(library.characterPictures.map(picture => [picture.characterId, picture])), [library.characterPictures]);
   const tagCatalog = useMemo(() => new Map(library.tags.map(tag => [tag.id, tag])), [library.tags]);
   const tagIndex = useMemo(() => characterTagIndex(library.characterTags), [library.characterTags]);
@@ -179,7 +181,7 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
     const data = kind === 'lorebooks' ? newLorebook() : kind === 'connections' ? defaultConnection : kind === 'contexts' ? structuredClone(defaultContextPreset) : kind === 'prompts' ? { ...structuredClone(defaultPrompt), name: 'New prompt' } : kind === 'personas' ? { name: '', description: '' } : { name: '', titleComment: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', lorebookId: null };
     setEditing({ kind, revision: library.revision, data });
   }
-  return <main className="library-layout">
+  return <EditorActionsTarget value={editorActionsTarget}><main className="library-layout">
     <aside className="library-sidebar">
       <p className="eyebrow">YOUR LIBRARIES</p>
       <nav className="library-tabs" aria-label="Library categories">
@@ -198,6 +200,7 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
           }}
         >{libraryLabels[kind]}</button>)}
       </nav>
+      {editing && <div ref={setEditorActionsTarget} />}
     </aside>
     <section key={section} className="document-panel library-panel" aria-labelledby="library-heading">
     <h1 id="library-heading">{libraryLabels[section]}</h1>
@@ -221,7 +224,7 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
         {(section === 'prompts' || section === 'contexts') && <label className="file-button">Import {section === 'contexts' ? 'context preset' : 'prompt'}<input type="file" accept=".json" disabled={busy} onChange={async e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) await run(async () => { if (file.size > 1_000_000) throw new Error('Preset file is too large.'); const value: unknown = JSON.parse(await file.text()); await api('/library', 'POST', { kind: section, revision: library.revision, data: section === 'prompts' ? upgradePrompt(value) : value }); }); }} /></label>}
       </div>}
       {!editing && section === 'lorebooks' && <LorebookImport leadingAction={<button disabled={busy} onClick={create}>New lorebook</button>} revision={library.revision} busy={busy} run={run} imported={(_id, message) => setNotice(message)} />}
-      {section === 'characters' && <><CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}>New character</button>} trailingAction={!editing && <TagFilterMenu library={library} busy={busy} run={run} selected={filters} change={setFilters} />} revision={library.revision} busy={busy} run={run} imported={(result, missing) => { setLastImported(missing ? null : result.ids[0] ?? null); setNotice(missing ? 'The original import was saved, but its character is no longer available. A deliberate new import requires selecting the file again.' : `Imported ${result.ids.length} character.${result.books.map(book => ` Lorebook “${book.name}”: ${book.entries} entries.`).join('')}${result.tags ? ` ${result.tags.assigned} local tags assigned; ${result.tags.created} created.` : ' Original tag report unavailable.'}${result.picture ? result.picture.saved ? ' Picture saved.' : ' No picture saved.' : ' Original picture report unavailable.'}${filters.length ? ' The character may be hidden by your tag filters.' : ''}`); setDiagnostics(result.diagnostics); }} />{!editing && lastImported && library.characters.some(card => card.id === lastImported) && <button type="button" className="secondary" onClick={() => { const card = library.characters.find(card => card.id === lastImported); if (card) { const { id, revision: _revision, ...data } = card; setEditing({ kind: 'characters', id, revision: library.revision, data }); } }}>Edit imported character / Adjust crop</button>}</>}
+      {section === 'characters' && <CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}>New character</button>} trailingAction={!editing && <TagFilterMenu library={library} busy={busy} run={run} selected={filters} change={setFilters} />} revision={library.revision} busy={busy} run={run} imported={(result, missing) => { setNotice(missing ? 'The original import was saved, but its character is no longer available. A deliberate new import requires selecting the file again.' : `Imported ${result.ids.length} character.${result.books.map(book => ` Lorebook “${book.name}”: ${book.entries} entries.`).join('')}${result.tags ? ` ${result.tags.assigned} local tags assigned; ${result.tags.created} created.` : ' Original tag report unavailable.'}${result.picture ? result.picture.saved ? ' Picture saved.' : ' No picture saved.' : ' Original picture report unavailable.'}${filters.length ? ' The character may be hidden by your tag filters.' : ''}`); setDiagnostics(result.diagnostics); }} />}
       {editing ? editing.kind === 'characters' && 'personality' in editing.data ? <CharacterEditor key={editing.id ?? 'new-character'} initial={{ ...editing, data: editing.data }} library={library} busy={busy} run={run} close={() => setEditing(null)} openBook={openBook} saved={() => setNotice(`Character saved.${filters.length ? ' It may be hidden by your tag filters.' : ''}`)} extracted={id => { setEditing(null); setFilters([]); setSection('lorebooks'); setNotice('Embedded lorebook extracted. Review its shared library entries.'); setPendingBook(id); }} /> : editing.kind === 'lorebooks' && 'entries' in editing.data ? <LorebookEditor key={editing.id ?? editing.kind} initial={{ ...editing, data: editing.data }} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <LibraryEditor key={editing.id ?? editing.kind} initial={editing} connections={library.connections} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <>
       <LibrarySearch section={section} value={search} change={setSearch} />
       {section === 'characters' && filters.length > 0 && <div className="character-active-filters" aria-label="Active tag filters" role="group">
@@ -240,7 +243,7 @@ export function Libraries({ library, currentChatId, busy, run, openChat }: { lib
       </>}
     </>}
     </section>
-  </main>;
+  </main></EditorActionsTarget>;
 }
 function CharacterDescription({ text }: { text: string }) {
   const node = useRef<HTMLParagraphElement>(null), [overflow, setOverflow] = useState(false);
@@ -257,6 +260,7 @@ function LorebookUses({ bookId, library }: { bookId: string; library: LibrarySna
   return use && (use.characters.length > 0 || use.chats.length > 0) ? <p className="small">Used by {use.characters.map(character => `character “${characterLabel(character)}”`).concat(use.chats.map(chat => `chat “${chat.title}”`)).join(', ')}. Unlink these selections before deleting.</p> : <p className="small">No character or chat links.</p>;
 }
 function LibraryEditor({ initial, connections, currentRevision, busy, run, close }: { initial: { kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean }; connections: Saved<Connection>[]; currentRevision: number; busy: boolean; run: Run; close: () => void }) {
+  const formId = useId();
   const [data, setData] = useState(initial.data), [key, setKey] = useState(''), [removeKey, setRemoveKey] = useState(false);
   const [parameters, setParameters] = useState(JSON.stringify((initial.data as Connection).customParameters ?? {}, null, 2));
   const [error, setError] = useState('');
@@ -282,20 +286,20 @@ function LibraryEditor({ initial, connections, currentRevision, busy, run, close
   }
   function textField(field: string, label: string, multiline = true) {
     const value = (data as unknown as Record<string, string>)[field];
-    return <label className="full" key={field}>{label}{multiline ? <textarea value={value} maxLength={100_000} onChange={e => setData({ ...data, [field]: e.target.value })} /> : <input required maxLength={100} value={value} onChange={e => setData({ ...data, [field]: e.target.value })} />}</label>;
+    return <label className="full" key={field}>{label}{multiline ? <EditorTextarea value={value} maxLength={100_000} onChange={e => setData({ ...data, [field]: e.target.value })} /> : <input required maxLength={100} value={value} onChange={e => setData({ ...data, [field]: e.target.value })} />}</label>;
   }
-  return <form onSubmit={e => void save(e)}><fieldset disabled={busy || stale}><legend>{initial.id ? 'Edit' : 'Create'} {initial.kind === 'connections' ? 'Connection' : initial.kind.slice(0, -1)}</legend><div className="form-grid">{textField('name', 'Name', false)}
+  return <form id={formId} onSubmit={e => void save(e)}><fieldset disabled={busy || stale}><legend>{initial.id ? 'Edit' : 'Create'} {initial.kind === 'connections' ? 'Connection' : initial.kind.slice(0, -1)}</legend><div className="form-grid">{textField('name', 'Name', false)}
     {initial.kind === 'personas' && textField('description', 'Persona description')}
     {initial.kind === 'contexts' && <ContextPresetFields value={data as ContextPreset} change={setData} connections={connections} />}
     {initial.kind === 'connections' && <>
       <div className="full model-field"><label>Model identifier<Dropdown editable required aria-label="Model identifier" value={(data as Connection).model} onChange={model => setData({ ...data as Connection, model })} options={models.map(model => ({ value: model, label: model }))} /></label><button className="secondary" type="button" disabled={fetchingModels || !(data as Connection).endpoint} onClick={() => void loadModels()}>{fetchingModels ? 'Fetching…' : 'Fetch model list'}</button><p className="small muted">If your provider requires an API key, enter it below before fetching models. A saved key is used automatically. You can also enter a model identifier from your provider’s documentation.</p>{modelNotice && <p className="small muted" role="status">{modelNotice}</p>}</div>
       <label className="full">API base URL<input type="url" required value={(data as Connection).endpoint} onChange={e => { setData({ ...data as Connection, endpoint: e.target.value }); resetModels(); }} /></label>
       <div className="full api-key-row"><label>API key<input type="password" autoComplete="new-password" disabled={removeKey} placeholder={initial.hasApiKey ? 'Saved · leave blank to keep it' : 'Optional for endpoints without authentication'} value={key} onChange={e => { setKey(e.target.value); resetModels(); }} /></label>{initial.hasApiKey && <label className="checkbox"><input type="checkbox" checked={removeKey} onChange={e => { setRemoveKey(e.target.checked); resetModels(); }} />Remove the saved API key</label>}</div>
-      <label>Model context window<NumberInput required value={(data as Connection).contextWindow} onChange={contextWindow => setData({ ...data as Connection, contextWindow })} /></label><label>Reserved output tokens<NumberInput required max={1_000_000} value={(data as Connection).maxOutputTokens} onChange={maxOutputTokens => setData({ ...data as Connection, maxOutputTokens })} /></label><label className="checkbox full"><input type="checkbox" checked={(data as Connection).requestUsage !== false} onChange={e => setData({ ...data as Connection, requestUsage: e.target.checked })} />Request token usage from the endpoint</label><p className="small muted full">Turn statistics use counts supplied by the endpoint. Disable this if your endpoint rejects streaming usage requests.</p><label className="full">Custom request parameters<textarea className="code-input" value={parameters} onChange={e => setParameters(e.target.value)} /><small>temperature, top_p, presence_penalty, frequency_penalty, seed, stop and reasoning_effort.</small></label>
+      <label>Model context window<NumberInput required value={(data as Connection).contextWindow} onChange={contextWindow => setData({ ...data as Connection, contextWindow })} /></label><label>Reserved output tokens<NumberInput required max={1_000_000} value={(data as Connection).maxOutputTokens} onChange={maxOutputTokens => setData({ ...data as Connection, maxOutputTokens })} /></label><label className="checkbox full"><input type="checkbox" checked={(data as Connection).requestUsage !== false} onChange={e => setData({ ...data as Connection, requestUsage: e.target.checked })} />Request token usage from the endpoint</label><p className="small muted full">Turn statistics use counts supplied by the endpoint. Disable this if your endpoint rejects streaming usage requests.</p><label className="full">Custom request parameters<EditorTextarea className="code-input" value={parameters} onChange={e => setParameters(e.target.value)} /><small>temperature, top_p, presence_penalty, frequency_penalty, seed, stop and reasoning_effort.</small></label>
       <ConnectionTools connection={data as Connection} parameters={parameters} connectionId={initial.id} apiKey={removeKey ? '' : key || undefined} />
     </>}
     {initial.kind === 'prompts' && <div className="full"><p className="small muted">Enabled blocks and markers compose the base prompt. The chat’s selected lorebook inserts matching entries beside included character fields or within Messages. Character expands checked fields into separate messages. Text blocks and card fields support {'{{user}}'} and {'{{char}}'}. Without Summary, Messages uses recent whole turns that fit the input limit.</p><PromptEditor value={data as PromptPreset} change={setData} /></div>}
-  </div></fieldset>{error && <p role="alert">{error}</p>}{stale && <p role="status">The library changed. Close this editor and reopen it before saving.</p>}<div className="actions"><button disabled={busy || stale}>Save {initial.kind === 'connections' ? 'Connection' : initial.kind.slice(0, -1)}</button><button type="button" className="quiet" onClick={close}>Close editor</button></div></form>;
+  </div></fieldset>{error && <p role="alert">{error}</p>}{stale && <p role="status">The library changed. Close this editor and reopen it before saving.</p>}<EditorActions><button type="submit" form={formId} disabled={busy || stale}>Save {initial.kind === 'connections' ? 'Connection' : initial.kind.slice(0, -1)}</button><button type="button" className="quiet" onClick={close}>Close editor</button></EditorActions></form>;
 }
 function ConnectionTools({ connection, parameters, connectionId, apiKey }: { connection: Connection; parameters: string; connectionId?: string; apiKey?: string }) {
   const [result, setResult] = useState<ConnectionDiagnostic | null>(null), [error, setError] = useState('');
@@ -327,9 +331,9 @@ function ContextPresetFields({ value, change, connections }: { value: ContextPre
   return <><label className="full">Summarization Connection<Dropdown aria-label="Summarization Connection" value={value.connectionId ?? ''} onChange={connectionId => change({ ...value, connectionId: connectionId || null })} options={[{ value: '', label: 'Select a Connection' }, ...connections.map(connection => ({ value: connection.id, label: `${connection.name} · ${connection.model}` }))]} /></label>
     {fields.map(([field, label, min]) => <label key={field}>{label}<NumberInput required min={min} max={field === 'summaryTokens' ? 1_000_000 : 50_000} value={value[field]} onChange={number => change({ ...value, [field]: number })} /></label>)}
     <p className="small muted full">The input target belongs to each chat. Summary size is a prompt target; the Connection reserves output separately. Preparation stops when input fits. Promotion uses actual layer sizes and protects the newest summaries at each level.</p>
-    <label className="full">First-layer extraction prompt<textarea required value={value.extractionPrompt} maxLength={100_000} onChange={e => change({ ...value, extractionPrompt: e.target.value })} /></label>
-    <label className="full">Higher-layer compression prompt<textarea required value={value.promotionPrompt} maxLength={100_000} onChange={e => change({ ...value, promotionPrompt: e.target.value })} /></label>
-    <label className="full">Repair prompt<textarea required value={value.repairPrompt} maxLength={100_000} onChange={e => change({ ...value, repairPrompt: e.target.value })} /></label>
+    <label className="full">First-layer extraction prompt<EditorTextarea required value={value.extractionPrompt} maxLength={100_000} onChange={e => change({ ...value, extractionPrompt: e.target.value })} /></label>
+    <label className="full">Higher-layer compression prompt<EditorTextarea required value={value.promotionPrompt} maxLength={100_000} onChange={e => change({ ...value, promotionPrompt: e.target.value })} /></label>
+    <label className="full">Repair prompt<EditorTextarea required value={value.repairPrompt} maxLength={100_000} onChange={e => change({ ...value, repairPrompt: e.target.value })} /></label>
     <p className="small muted full">Repair receives the existing summary and before/after versions of changed inputs. Exactly unchanged results are saved automatically when coverage is unchanged; changed text awaits review. Downstream memory is reused without a model only when all of its consumed content is unchanged.</p>
     <p className="small muted full">Available variables: {'{{target_tokens}}'}, {'{{level}}'}, {'{{user}}'}, {'{{char}}'}. Source text is attached separately. Extraction and compression include up to three earlier selected summaries when they fit. Repair keeps the original dependencies and includes every changed input, or stops if they cannot fit. Saved requests keep their original prompts; edits apply to future work.</p>
   </>;
@@ -365,7 +369,7 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
         <div className="block-actions"><button type="button" className="quiet" aria-label={`Move block ${index + 1} up`} disabled={index === 0} onClick={() => move(index, index - 1)}>↑</button><button type="button" className="quiet" aria-label={`Move block ${index + 1} down`} disabled={index === value.blocks.length - 1} onClick={() => move(index, index + 1)}>↓</button><button type="button" className="quiet" aria-label={`Remove block ${index + 1}`} onClick={() => change({ ...value, blocks: value.blocks.filter((_, i) => i !== index) })}>Remove</button><button type="button" className="quiet block-toggle" aria-expanded={expanded} aria-controls={`block-content-${block.id}`} aria-label={`${expanded ? 'Collapse' : 'Expand'} block ${index + 1}`} onClick={() => setExpandedBlocks(old => { const next = new Set(old); if (expanded) next.delete(block.id); else next.add(block.id); return next; })}>{expanded ? '⌃' : '⌄'}</button></div>
       </div>
       {expanded && <div className="block-content" id={`block-content-${block.id}`}>
-        {block.kind === 'text' ? <label>Block text<textarea value={block.text} onChange={event => update(index, { ...block, text: event.target.value })} /></label> : <>
+        {block.kind === 'text' ? <label>Block text<EditorTextarea value={block.text} onChange={event => update(index, { ...block, text: event.target.value })} /></label> : <>
           <label>Marker source<Dropdown aria-label={`Marker source for block ${index + 1}`} value={block.marker} onChange={selected => {
             const marker = markers.find(marker => marker === selected);
             if (!marker || marker === block.marker) return;

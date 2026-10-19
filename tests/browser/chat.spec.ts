@@ -179,7 +179,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await page.getByRole('button', { name: 'Characters', exact: true }).click();
   const card = { spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'Moon', description: '{{char}} welcomes {{user}}.', personality: 'Kind', scenario: 'An observatory', first_mes: 'Hello, {{user}}. I am {{char}}.', mes_example: '', character_book: { extensions: {}, entries: [{ keys: [], content: 'INACTIVE LORE', enabled: false, insertion_order: 0, extensions: {} }] } } };
   await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'moon.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(card)) });
-  await page.getByRole('button', { name: 'Import reviewed character', exact: true }).click();
+  await page.getByRole('button', { name: 'Import', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Moon', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();

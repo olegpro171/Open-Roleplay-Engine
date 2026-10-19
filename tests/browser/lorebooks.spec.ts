@@ -150,7 +150,7 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   await page.getByRole('button', { name: 'Characters', exact: true }).click();
   const character = { spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'Imported harbor keeper', description: 'The keeper waits.', personality: '', scenario: '', first_mes: '', mes_example: '', character_book: { name: 'Embedded harbor book', entries: [{ keys: ['bell'], content: 'The bell is bronze.', enabled: true, insertion_order: 0, extensions: {} }], extensions: {} } } };
   await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'keeper.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(character)) });
-  await page.getByRole('button', { name: 'Import reviewed character', exact: true }).click();
+  await page.getByRole('button', { name: 'Import', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Embedded harbor book' })).toBeVisible();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported harbor keeper', exact: true }) }).getByRole('button', { name: /^Edit(?: |$)/ }).click();
   await expect(page.getByRole('combobox', { name: 'Default lorebook', exact: true })).toContainText('Embedded harbor book');

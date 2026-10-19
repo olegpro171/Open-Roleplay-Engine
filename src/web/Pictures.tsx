@@ -31,7 +31,7 @@ export function PictureEditor({ value, change, original, disabled, processing }:
   const cropTrigger = useRef<HTMLButtonElement>(null);
   const attempt = useRef(0), abort = useRef<AbortController | null>(null);
   useEffect(() => () => { attempt.current++; abort.current?.abort(); }, []);
-  return <section className="full picture-editor" aria-label="Character picture"><div className="picture-editor-square">{value ? <CroppedPicture image={value} /> : <PictureSquare />}</div><div className="picture-editor-controls"><h2>Picture</h2><p className="small muted">The original is kept. This square crop controls the library picture.</p><div className="actions">
+  return <section className="full picture-editor" aria-label="Character picture"><div className="picture-editor-square">{value ? <CroppedPicture image={value} /> : <PictureSquare />}</div><div className="picture-editor-controls"><div className="actions">
     <label className={`file-button${disabled || working ? ' disabled' : ''}`}>{value ? 'Replace picture' : 'Choose picture'}<input type="file" accept="image/png,image/jpeg,image/webp" aria-label={value ? 'Replace picture' : 'Choose picture'} disabled={disabled || working} onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
       const current = ++attempt.current; abort.current?.abort(); const controller = new AbortController(); abort.current = controller;
@@ -63,7 +63,6 @@ export function PictureEditor({ value, change, original, disabled, processing }:
     }}>Adjust crop</button><button type="button" className="quiet" disabled={disabled || working} onClick={() => { change(null); setError(''); }}>Remove picture</button></>}
   </div>{value && Math.min(value.width, value.height) < pictureLimits.thumbEdge && <p className="small muted">Small original: enlarging it cannot add detail.</p>}
   <p className="small muted">PNG, JPEG or WebP · up to 10 MB. Animated pictures display the first frame.</p>
-  {original && <details className="original-picture-download"><summary>Original picture</summary><p className="small muted">An original card PNG may contain its old embedded character metadata. Downloading it does not update that metadata with your edits.</p><a href={original.originalUrl} download>Download original picture</a></details>}
   {working && <p role="status">Validating and preparing picture…</p>}{error && <p role="alert">{error} Your previous picture draft is retained.</p>}</div>
   {cropOpen && value && <CropDialog focusTarget={cropTrigger.current} image={value} close={() => setCropOpen(false)} apply={crop => { change({ ...value, crop }); setCropOpen(false); }} />}</section>;
 }

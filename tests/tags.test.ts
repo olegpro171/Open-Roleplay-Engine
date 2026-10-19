@@ -191,6 +191,15 @@ describe('atomic policy-aware card import and retries', () => {
     const requestId=randomUUID();expect(()=>store.importCard(rev(store),requestId,source,'all')).toThrow('synthetic mid-import failure');expect(store.libraries()).toEqual(current);expect(store.sqlite.prepare('SELECT * FROM lore_commands').all()).toEqual([]);
     store.sqlite.exec('DROP TRIGGER reject_tag_import');store.importCard(rev(store),requestId,source,'all');expect(store.libraries().lorebooks).toHaveLength(1);expect(store.tags.catalog()).toHaveLength(3);
   });
+  it('retains complete overlong tag names for review tooltips without relaxing import limits', () => {
+    const store = open(), name = 'Long review name '.repeat(30).trim();
+    const source = modern('chara_card_v3', [name]);
+    const before = store.libraries(), review = store.previewCard(source);
+    expect(review.tags.newTags).toEqual([{ name, eligible: false, sourceIndexes: [0] }]);
+    expect(review.tags.modes.all.blocked).toContain('100-character');
+    expect(() => store.importCard(before.revision, randomUUID(), source, 'all')).toThrow('100-character');
+    expect(store.libraries()).toEqual(before);
+  });
   it('replays across restart/deletion without resurrection, conflicts on changed policy and permits intentional copies', () => {
     const path=join(folder(),'retry.sqlite');let store=open(path);const requestId=randomUUID(),source=modern(),revision=rev(store);
     const first=store.importCard(revision,requestId,source,'all');expect(store.importCard(revision,requestId,source,'all')).toEqual(first);
@@ -254,7 +263,10 @@ it('validates authenticated APIs, modes and IDs while keeping previews read-only
     const auth={...headers,cookie:String(setup.headers['set-cookie']).split(';')[0]};
     const send=(url:string,payload:Record<string,unknown>,method:'POST'|'PUT'|'DELETE'='POST')=>instance.app.inject({method,url,headers:auth,payload});
     const source=modern(),base64=Buffer.from(JSON.stringify(source)).toString('base64'),before=instance.store.libraries();
-    expect((await send('/api/library/characters/preview',{base64})).statusCode).toBe(200);expect(instance.store.libraries()).toEqual(before);
+    const preview = await send('/api/library/characters/preview', { base64 });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json()).toMatchObject({ name: fields.name, description: fields.description });
+    expect(instance.store.libraries()).toEqual(before);
     expect((await send('/api/library/import',{kind:'characters',base64,revision:before.revision,tagPolicy:'typo'})).statusCode).toBe(400);
     expect((await instance.app.inject({method:'POST',url:'/api/library/tags',headers,payload:{revision:before.revision,name:'unauthorized'}})).statusCode).toBe(401);
     expect((await send('/api/library/tags',{revision:before.revision,name:'  '})).statusCode).toBe(400);

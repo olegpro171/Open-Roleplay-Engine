@@ -21,7 +21,7 @@ for (const width of [1440, 390]) {
       alternate_greetings: ['First alternative from {{char}}.', 'Remove this greeting.'],
     } };
     await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'greetings.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(card)) });
-    await page.getByRole('button', { name: 'Import reviewed character', exact: true }).click();
+    await page.getByRole('button', { name: 'Import', exact: true }).click();
     await page.getByRole('button', { name: `Edit ${name}`, exact: true }).click();
     await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue('First alternative from {{char}}.');
     await page.getByLabel('Alternate greeting 1', { exact: true }).fill('Edited greeting for {{user}} from {{char}}.');

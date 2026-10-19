@@ -1,5 +1,7 @@
 import { useConfirmation } from './Confirmation';
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { EditorActions } from './EditorActions';
+import { EditorTextarea } from './EditorTextarea';
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { LOREBOOK_ENTRY_LIMIT, LOREBOOK_FILE_LIMIT, lorebookSchema, lorePlacements, newLoreEntry, type Lorebook, type LoreDiagnostic, type LoreEntry, type LoreImportPreview, type LorePlacement } from '../shared/lorebook';
 import { api, ApiError } from './api';
 import { Dropdown, NumberInput } from './Controls';
@@ -67,6 +69,7 @@ function markEntry(entry: LoreEntry, patch: Partial<LoreEntry>): LoreEntry {
 }
 
 export function LorebookEditor({ initial, currentRevision, busy, run, close }: { initial: { id?: string; revision: number; data: Lorebook }; currentRevision: number; busy: boolean; run: Run; close: () => void }) {
+  const formId = useId();
   const confirmAction = useConfirmation();
   const [book, setBook] = useState(initial.data), [selectedId, setSelectedId] = useState(initial.data.entries[0]?.id ?? '');
   const [query, setQuery] = useState(''), [page, setPage] = useState(0), [issues, setIssues] = useState<{ path: PropertyKey[]; message: string }[]>([]);
@@ -93,11 +96,11 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
   function error(field: string) { return issues.filter(issue => issue.path.length === 1 && issue.path[0] === field).map((issue, index) => <small role="alert" key={index}>{issue.message}</small>); }
   const entryIndex = book.entries.findIndex(entry => entry.id === selectedId);
   const entryIssues = issues.filter(issue => issue.path[0] === 'entries' && issue.path[1] === entryIndex);
-  return <form className="lorebook-editor" onSubmit={event => void save(event)}>
+  return <form id={formId} className="lorebook-editor" onSubmit={event => void save(event)}>
     <LoreDiagnostics diagnostics={compatibility} />
     <fieldset disabled={busy || stale}><legend>{initial.id ? 'Edit' : 'Create'} lorebook</legend><div className="form-grid">
       <label className="full">Book name<input required maxLength={100} value={book.name} onChange={event => update({ name: event.target.value })} />{error('name')}</label>
-      <label className="full">Book description<textarea aria-label="Book description" value={book.description} maxLength={100_000} onChange={event => update({ description: event.target.value })} /><small>For your library; never inserted into the prompt.</small>{error('description')}</label>
+      <label className="full">Book description<EditorTextarea aria-label="Book description" value={book.description} maxLength={100_000} onChange={event => update({ description: event.target.value })} /><small>For your library; never inserted into the prompt.</small>{error('description')}</label>
       <label>Book scan depth<NumberInput aria-label="Book scan depth" required min={0} max={1000} value={book.scanDepth} onChange={scanDepth => update({ scanDepth })} /><small>Number of recent nonempty original messages to scan.</small>{error('scanDepth')}</label>
       <label>Lore token cap<NumberInput required min={0} max={1_000_000} value={book.tokenBudget} onChange={tokenBudget => update({ tokenBudget })} />{error('tokenBudget')}</label>
       <label className="checkbox full"><input type="checkbox" checked={book.recursiveScanning} onChange={event => update({ recursiveScanning: event.target.checked })} />Allow admitted lore to activate other entries</label>
@@ -115,7 +118,7 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
     {issues.length > 0 && <div role="alert"><p>Correct these fields before saving:</p><ul>{issues.map((issue, index) => <li key={index}>{issue.path[0] === 'entries' && typeof issue.path[1] === 'number' && book.entries[issue.path[1]] ? <button type="button" className="quiet" onClick={() => setSelectedId(book.entries[Number(issue.path[1])].id)}>{book.entries[Number(issue.path[1])].name}: </button> : null}{issue.path.join('.')}: {issue.message}</li>)}</ul></div>}
     {stale && <p role="status">The library changed. Your unsaved edits remain here. Close and reopen this book to load its current revision.</p>}
     <p className="small muted">Saved changes apply to future requests in every chat selecting this shared book. Changing activation rules or content resets affected entries’ prior-match history; labels and comments preserve it. Saved requests retain their original lore.</p>
-    <div className="actions"><button disabled={busy || stale}>Save lorebook</button><button type="button" className="quiet" onClick={close}>Close editor</button></div>
+    <EditorActions><button type="submit" form={formId} disabled={busy || stale}>Save lorebook</button><button type="button" className="quiet" onClick={close}>Close editor</button></EditorActions>
   </form>;
 }
 
@@ -126,13 +129,13 @@ function EntryFields({ entry, update, issues }: { entry: LoreEntry; update: (pat
     <label className="full">Entry name<input maxLength={200} value={entry.name} onChange={event => update({ name: event.target.value })} />{errors('name')}</label>
     <label className="checkbox"><input type="checkbox" checked={entry.enabled} onChange={event => update({ enabled: event.target.checked })} />Entry enabled</label>
     <label className="checkbox"><input type="checkbox" checked={entry.constant} onChange={event => update({ constant: event.target.checked })} />Constant activation</label>
-    <label className="full">Primary keys<textarea aria-label="Primary keys" value={keys} onChange={event => { setKeys(event.target.value); update({ keys: event.target.value.split('\n').filter(Boolean) }); }} /><small>One key per line. At least one primary key must match unless constant.</small>{errors('keys')}</label>
-    <label className="full">Secondary keys<textarea aria-label="Secondary keys" value={secondary} onChange={event => { setSecondary(event.target.value); update({ secondaryKeys: event.target.value.split('\n').filter(Boolean) }); }} /><small>One key per line; secondary matching additionally requires one of these keys.</small>{errors('secondaryKeys')}</label>
+    <label className="full">Primary keys<EditorTextarea aria-label="Primary keys" value={keys} onChange={event => { setKeys(event.target.value); update({ keys: event.target.value.split('\n').filter(Boolean) }); }} /><small>One key per line. At least one primary key must match unless constant.</small>{errors('keys')}</label>
+    <label className="full">Secondary keys<EditorTextarea aria-label="Secondary keys" value={secondary} onChange={event => { setSecondary(event.target.value); update({ secondaryKeys: event.target.value.split('\n').filter(Boolean) }); }} /><small>One key per line; secondary matching additionally requires one of these keys.</small>{errors('secondaryKeys')}</label>
     <label className="checkbox full"><input type="checkbox" checked={entry.selective} onChange={event => update({ selective: event.target.checked })} />Require a secondary-key match</label>
     <label className="checkbox"><input type="checkbox" checked={entry.caseSensitive} onChange={event => update({ caseSensitive: event.target.checked })} />Case-sensitive matching</label>
     <label className="checkbox"><input type="checkbox" checked={entry.useRegex} onChange={event => update({ useRegex: event.target.checked })} />Use regular expressions</label>
-    <label className="full">Lore content<textarea aria-label="Lore content" className="lore-content" maxLength={100_000} value={entry.content} onChange={event => update({ content: event.target.value })} /><small>Inserted prose supports {'{{user}}'} and {'{{char}}'}. V3 decorator lines control activation and are removed from outgoing prose.</small>{errors('content')}</label>
-    <label className="full">Entry comment<textarea aria-label="Entry comment" maxLength={100_000} value={entry.comment} onChange={event => update({ comment: event.target.value })} /><small>For you; never inserted into the prompt.</small>{errors('comment')}</label>
+    <label className="full">Lore content<EditorTextarea aria-label="Lore content" className="lore-content" maxLength={100_000} value={entry.content} onChange={event => update({ content: event.target.value })} /><small>Inserted prose supports {'{{user}}'} and {'{{char}}'}. V3 decorator lines control activation and are removed from outgoing prose.</small>{errors('content')}</label>
+    <label className="full">Entry comment<EditorTextarea aria-label="Entry comment" maxLength={100_000} value={entry.comment} onChange={event => update({ comment: event.target.value })} /><small>For you; never inserted into the prompt.</small>{errors('comment')}</label>
     <label>Insertion order<input required type="number" step="any" value={entry.insertionOrder} onChange={event => update({ insertionOrder: Number(event.target.value) })} />{errors('insertionOrder')}</label>
     <label>Admission priority<input required type="number" step="any" value={entry.priority} onChange={event => update({ priority: Number(event.target.value) })} />{errors('priority')}</label>
     <label>Placement<Dropdown aria-label="Lore entry placement" value={entry.placement} options={lorePlacements.map(value => ({ value, label: lorePlacementLabels[value] }))} onChange={placement => { const parsed = lorePlacements.find(value => value === placement); if (parsed) update({ placement: parsed }); }} /></label>

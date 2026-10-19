@@ -1,7 +1,9 @@
 import { useConfirmation } from './Confirmation';
 import type { CharacterSaveCommand } from '../shared/library';
 import { PictureEditor, PictureSquare, pictureMutation, savedPictureDraft } from './Pictures';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { EditorActions } from './EditorActions';
+import { EditorTextarea } from './EditorTextarea';
 import { readCharacterAlternateGreetings, characterLabel, maxAlternateGreetings, type LibraryCharacter, type LibrarySnapshot } from '../shared/library';
 import type { TagPolicy, TagReview } from '../shared/tags';
 import { ApiError, api } from './api';
@@ -14,6 +16,7 @@ function editableCharacter(data: LibraryCharacter): LibraryCharacter {
   return greetings.success ? { ...data, alternate_greetings: greetings.data } : data;
 }
 export function CharacterEditor({ initial, library, busy, run, close, openBook, extracted, saved }: { initial: Initial; library: LibrarySnapshot; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; close: () => void; openBook: (id: string) => void; extracted: (id: string) => void; saved: () => void }) {
+  const formId = useId();
   const confirmAction = useConfirmation();
   const [baselineData, setBaselineData] = useState(() => editableCharacter(initial.data));
   const [baselinePicture, setBaselinePicture] = useState(() => library.characterPictures.find(picture => picture.characterId === initial.id) ?? null);
@@ -100,31 +103,30 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
     ? typeof nested === 'object' && nested !== null && 'character_book' in nested && nested.character_book != null
     : source.character_book != null;
   return <>
-    <form onSubmit={event => { event.preventDefault(); void save(); }}><fieldset disabled={busy || pending || stale || Boolean(uncertain)}><legend>{initial.id ? 'Edit' : 'Create'} character</legend><div className="form-grid">
-      <label className="full">Name<input required maxLength={100} value={data.name} onChange={event => setData({ ...data, name: event.target.value })} /></label>
-      <label className="full">Title / comment<input aria-label="Title / comment" maxLength={200} value={data.titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>Optional local label for distinguishing versions. Never sent to the model or included in card exports.</small></label>
+    <form id={formId} onSubmit={event => { event.preventDefault(); void save(); }}><fieldset disabled={busy || pending || stale || Boolean(uncertain)}><legend>{initial.id ? 'Edit' : 'Create'} character</legend><div className="form-grid">
+      <label>Name<input required maxLength={100} value={data.name} onChange={event => setData({ ...data, name: event.target.value })} /></label>
+      <label>Title / comment<input aria-label="Title / comment" maxLength={200} value={data.titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>An optional label, useful for distinguishing between versions.</small></label>
       <PictureEditor value={picture} change={setPicture} original={baselinePicture} disabled={busy || pending || stale || Boolean(uncertain)} processing={setProcessing} />
-      {([['description', 'Character description'], ['personality', 'Personality'], ['scenario', 'Scenario'], ['first_mes', 'Greeting'], ['mes_example', 'Example dialogue']] as const).map(([field, label]) => <label key={field} className="full">{label}<textarea aria-label={label} maxLength={100_000} value={data[field]} onChange={event => setData({ ...data, [field]: event.target.value })} /></label>)}
+      {([['description', 'Character description'], ['personality', 'Personality'], ['scenario', 'Scenario'], ['first_mes', 'Greeting'], ['mes_example', 'Example dialogue']] as const).map(([field, label]) => <label key={field} className="full">{label}<EditorTextarea aria-label={label} maxLength={100_000} value={data[field]} onChange={event => setData({ ...data, [field]: event.target.value })} /></label>)}
       <div className="full" role="group" aria-label="Alternate greetings">
         <h3>Alternate greetings</h3>
-        <p className="small muted">Copied into new chats as response versions after the main greeting. Blank greetings are skipped. Existing chats keep their saved greetings.</p>
         {!greetings.success && <p role="alert">The preserved alternate greetings are invalid. They will be retained on save and export. Clear them before adding replacements or starting a new chat with this character.</p>}
-        {alternatives.map((greeting, index) => <div key={index}>
-          <label>Alternate greeting {index + 1}<textarea aria-label={`Alternate greeting ${index + 1}`} maxLength={100_000} value={greeting} onChange={event => setData({ ...data, alternate_greetings: alternatives.map((text, position) => position === index ? event.target.value : text) })} /></label>
+        {alternatives.map((greeting, index) => <div className="alternate-greeting" key={index}>
+          <label>Alternate greeting {index + 1}<EditorTextarea aria-label={`Alternate greeting ${index + 1}`} maxLength={100_000} value={greeting} onChange={event => setData({ ...data, alternate_greetings: alternatives.map((text, position) => position === index ? event.target.value : text) })} /></label>
           <button type="button" className="quiet" aria-label={`Remove alternate greeting ${index + 1}`} onClick={() => setData({ ...data, alternate_greetings: alternatives.filter((_, position) => position !== index) })}>Remove greeting</button>
         </div>)}
-        {greetings.success ? <button type="button" className="secondary" disabled={alternatives.length >= maxAlternateGreetings} onClick={() => setData({ ...data, alternate_greetings: [...alternatives, ''] })}>Add alternate greeting</button>
+        {greetings.success ? <button type="button" className="secondary add-alternate-greeting" disabled={alternatives.length >= maxAlternateGreetings} onClick={() => setData({ ...data, alternate_greetings: [...alternatives, ''] })}>Add alternate greeting</button>
           : <button type="button" className="secondary" onClick={() => setData({ ...data, alternate_greetings: [] })}>Clear invalid alternate greetings</button>}
       </div>
-      <label className="full">Default lorebook<Dropdown aria-label="Default lorebook" value={data.lorebookId ?? ''} options={[{ value: '', label: 'None selected' }, ...library.lorebooks.map(book => ({ value: book.id, label: book.name }))]} onChange={id => setData({ ...data, lorebookId: id || null })} /><small>Prefills new chats; existing chats keep their selection. This linked book is embedded on export.</small></label>
+      <label className="full">Default lorebook<Dropdown aria-label="Default lorebook" value={data.lorebookId ?? ''} options={[{ value: '', label: 'None selected' }, ...library.lorebooks.map(book => ({ value: book.id, label: book.name }))]} onChange={id => setData({ ...data, lorebookId: id || null })} /></label>
       {data.lorebookId && <button type="button" className="secondary" onClick={() => { const bookId = data.lorebookId; if (!bookId) return; if (!characterChanged && !pictureChanged && tagIds.join() === baseline.join()) openBook(bookId); else confirmAction({ title: 'Discard character edits?', message: 'Open the book and discard unsaved character edits?', actionLabel: 'Discard edits', onConfirm: () => openBook(bookId) }); }}>Open book</button>}
       {initial.id && !data.lorebookId && embeddedBook && <div className="full"><button type="button" className="secondary" disabled={characterChanged || pictureChanged || tagIds.join() !== baseline.join()} onClick={async () => { let bookId = ''; if (await run(async () => { bookId = (await api<{ bookId: string }>(`/library/characters/${initial.id}/extract`, 'POST', { revision, requestId: extractionId.current })).bookId; })) extracted(bookId); }}>Extract embedded lorebook</button><p className="small muted">Save character edits first. Extraction creates and links an independent library book.</p></div>}
       <div className="full"><TagChooser label="Assign tags" tags={library.tags} selected={tagIds} change={setTagIds} /><button type="button" className="secondary" onClick={() => setManager(true)}>Manage tags</button>
-        {initial.id && <button type="button" className="quiet" onClick={async () => { setPending(true); await run(async () => { const preview = await api<{ revision: number; tags: TagReview }>(`/library/characters/${initial.id}/tags/preview`); if (alive.current) { setEmbedded(preview); setPolicy('none'); } }); setPending(false); }}>Apply embedded tags</button>}
-      </div><p className="small muted full">Assignments are a draft until Save. Use {'{{user}}'} and {'{{char}}'} for names. Imported metadata stays preserved for export.</p>
-    </div></fieldset>{error && <p role="alert">{error}</p>}{uncertain && <p role="status">Acknowledgement uncertain. The save may have reached the server. Retry same save sends the frozen text, tags, file and crop. Closing does not undo a saved change.</p>}{stale && !uncertain && <CharacterReconciliation library={library} characterId={initial.id} disabled={busy || pending} reconcile={reconcile} />}<div className="actions"><button disabled={busy || pending || processing || stale || Boolean(uncertain)}>Save character</button>{uncertain && <button type="button" disabled={busy || pending} onClick={() => void save(uncertain)}>Retry same save</button>}<button type="button" className="quiet" disabled={pending} onClick={safeClose}>Close editor</button></div></form>
+        {initial.id && <button type="button" className="quiet" onClick={async () => { setPending(true); await run(async () => { const preview = await api<{ revision: number; tags: TagReview }>(`/library/characters/${initial.id}/tags/preview`); if (alive.current) { setEmbedded(preview); setPolicy('none'); } }); setPending(false); }}>Review embedded tags</button>}
+      </div>
+    </div></fieldset>{error && <p role="alert">{error}</p>}{uncertain && <p role="status">Acknowledgement uncertain. The save may have reached the server. Retry same save sends the frozen text, tags, file and crop. Closing does not undo a saved change.</p>}{stale && !uncertain && <CharacterReconciliation library={library} characterId={initial.id} disabled={busy || pending} reconcile={reconcile} />}<EditorActions><button type="submit" form={formId} disabled={busy || pending || processing || stale || Boolean(uncertain)}>Save character</button>{uncertain && <button type="button" disabled={busy || pending} onClick={() => void save(uncertain)}>Retry same save</button>}<button type="button" className="quiet" disabled={pending} onClick={safeClose}>Close editor</button></EditorActions></form>
     {manager && <TagManager library={library} busy={busy || pending} run={run} committed={committed} close={() => setManager(false)} />}
-    {embedded && <section className="character-import-review"><h2>Apply embedded tags</h2><p className="small">This saves only local tags, preserving your character draft. Existing local assignments are never removed.</p><TagImportOptions review={embedded.tags} policy={policy} change={setPolicy} disabled={busy || pending} /><button type="button" disabled={busy || pending || stale || embedded.revision !== revision || Boolean(embedded.tags.modes[policy].blocked)} onClick={() => void applyEmbedded()}>Apply reviewed tags</button><button type="button" className="quiet" onClick={() => setEmbedded(null)}>Cancel embedded tags</button></section>}
+    {embedded && <section className="character-import-review"><h2>Review embedded tags</h2><p className="small">This saves only local tags, preserving your character draft. Existing local assignments are never removed.</p><TagImportOptions review={embedded.tags} policy={policy} change={setPolicy} disabled={busy || pending} /><button type="button" disabled={busy || pending || stale || embedded.revision !== revision || Boolean(embedded.tags.modes[policy].blocked)} onClick={() => void applyEmbedded()}>Apply reviewed tags</button><button type="button" className="quiet" onClick={() => setEmbedded(null)}>Cancel embedded tags</button></section>}
   </>;
 }
 

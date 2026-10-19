@@ -84,7 +84,7 @@ export class TagStore {
     for (const candidate of parsed.candidates) {
       const match = catalog.get(candidate.key);
       if (match) existing.push({ id: match.id, name: match.name, sourceIndexes: candidate.sourceIndexes });
-      else newTags.push({ name: candidate.name.slice(0, tagLimits.name + 40), eligible: candidate.eligible, sourceIndexes: candidate.sourceIndexes });
+      else newTags.push({ name: candidate.name, eligible: candidate.eligible, sourceIndexes: candidate.sourceIndexes });
     }
     const unionSize = new Set([...assigned, ...existing.map(tag => tag.id)]).size;
     const existingAssignments = unionSize - assigned.length;

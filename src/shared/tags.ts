@@ -20,7 +20,7 @@ export type TagReview = {
 };
 export type CharacterImportReview = {
   picture?: PictureReview;
-  revision: number; name: string; book: { name: string; entries: number } | null;
+  revision: number; name: string; description: string; book: { name: string; entries: number } | null;
   diagnostics: { code: string; message: string; entryId?: string; field?: string }[];
   tags: TagReview;
 };

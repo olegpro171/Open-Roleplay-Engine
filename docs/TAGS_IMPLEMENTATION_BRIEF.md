@@ -1,5 +1,7 @@
 # Tags: implementation assignment
 
+2026-10-19 UI update: character import now defaults to All, with policy controls inside Review tags and a bounded tag/status table. Import and Cancel replace the earlier action labels. Omitted API policy remains None; see [TAGS.md](TAGS.md) for the current workflow.
+
 Prepared: 2026-10-18.
 
 Status: proposed implementation handoff, not an implementation report. This request authorizes writing the guide only. Do not start application implementation merely because this file exists.

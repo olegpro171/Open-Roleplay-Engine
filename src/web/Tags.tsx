@@ -13,15 +13,26 @@ export function TagChips({ tags, selected, remove, catalog }: { catalog?: Readon
 }
 export function TagChooser({ tags, selected, change, label, disabled = false, showSelected = true, autoFocus = false }: { tags: Tag[]; selected: string[]; change: (ids: string[]) => void; label: string; disabled?: boolean; showSelected?: boolean; autoFocus?: boolean }) {
   const [search, setSearch] = useState(''), [page, setPage] = useState(0);
+  const results = useRef<HTMLDivElement>(null);
+  const [resultsMinHeight, setResultsMinHeight] = useState<number>();
   const query = canonicalTagName(search), chosen = useMemo(() => new Set(selected), [selected]);
   const matches = useMemo(() => tags.filter(tag => canonicalTagName(tag.name).includes(query)).sort((a, b) => a.name.localeCompare(b.name)), [tags, query]);
   const last = Math.max(0, Math.ceil(matches.length / tagLimits.page) - 1), shown = Math.min(page, last);
   return <fieldset className="tag-chooser" disabled={disabled}><legend>{label}</legend>
     {showSelected && <TagChips tags={tags} selected={selected} remove={id => change(selected.filter(value => value !== id))} />}
-    <label>Search tags<input type="search" autoFocus={autoFocus} value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} /></label>
-    <div className="tag-options">{matches.slice(shown * tagLimits.page, (shown + 1) * tagLimits.page).map(tag => <label className="checkbox" key={tag.id}><input type="checkbox" checked={chosen.has(tag.id)} onChange={event => change(event.target.checked ? [...selected, tag.id] : selected.filter(id => id !== tag.id))} /><span className="tag-option-name">{tag.name}</span><small>({tag.usageCount})</small></label>)}</div>
-    {!matches.length && <p className="small muted">{tags.length ? 'No tags match your search.' : 'No tags yet. Create one in Manage tags.'}</p>}
-    {last > 0 && <div className="actions"><button type="button" disabled={shown === 0} onClick={() => setPage(shown - 1)}>Previous tags</button><span>{shown + 1} / {last + 1}</span><button type="button" disabled={shown === last} onClick={() => setPage(shown + 1)}>Next tags</button></div>}
+    <label>Search tags<input type="search" autoFocus={autoFocus} value={search} onChange={event => {
+      const next = event.target.value;
+      // Rows, empty notices and pagination share one reserved area during search,
+      // so filtering cannot shrink the page and clamp its scroll position.
+      if (next) setResultsMinHeight(results.current?.getBoundingClientRect().height);
+      else setResultsMinHeight(undefined);
+      setSearch(next); setPage(0);
+    }} /></label>
+    <div className="tag-chooser-results" ref={results} style={{ minHeight: resultsMinHeight }}>
+      <div className="tag-options">{matches.slice(shown * tagLimits.page, (shown + 1) * tagLimits.page).map(tag => <label className="checkbox" key={tag.id}><input type="checkbox" checked={chosen.has(tag.id)} onChange={event => change(event.target.checked ? [...selected, tag.id] : selected.filter(id => id !== tag.id))} /><span className="tag-option-name">{tag.name}</span></label>)}</div>
+      {!matches.length && <p className="small muted">{tags.length ? 'No tags match your search.' : 'No tags yet. Create one in Manage tags.'}</p>}
+      {last > 0 && <div className="actions"><button type="button" disabled={shown === 0} onClick={() => setPage(shown - 1)}>Previous tags</button><span>{shown + 1} / {last + 1}</span><button type="button" disabled={shown === last} onClick={() => setPage(shown + 1)}>Next tags</button></div>}
+    </div>
   </fieldset>;
 }
 export function TagFilterMenu({ library, busy, run, selected, change }: { library: LibrarySnapshot; busy: boolean; run: Run; selected: string[]; change: (ids: string[]) => void }) {
@@ -114,12 +125,23 @@ export function TagImportOptions({ review, policy, change, disabled }: { review:
   const groupName = useId();
   const candidates = [...review.existing.map(tag => ({ ...tag, group: 'Existing', eligible: true })), ...review.newTags.map(tag => ({ ...tag, group: 'New' }))];
   const last = Math.max(0, Math.ceil(candidates.length / tagLimits.page) - 1), shown = Math.min(page, last);
-  return <div className="tag-import-options"><p>{review.existing.length} existing · {review.newTags.length} new candidate tags</p>
-    <details><summary>Review embedded tags</summary><ul>{candidates.slice(shown * tagLimits.page, (shown + 1) * tagLimits.page).map(tag => <li key={tag.sourceIndexes[0]}>{tag.name}{!tag.eligible && '… (exceeds local limit)'} · {tag.group} · source {tag.sourceIndexes.map(i => i + 1).join(', ')}</li>)}</ul>
+  return <div className="tag-import-options"><p>{review.existing.length} existing · {review.newTags.length} new tags</p>
+    <details><summary>Review tags</summary>
+      <fieldset className="tag-import-policy" disabled={disabled}><legend>Import tags</legend>
+        <div className="tag-import-modes">{(['all', 'existing', 'none'] as const).map(mode => <label className="radio-option" key={mode}>
+          <input type="radio" name={groupName} aria-label={`Import ${mode}`} checked={policy === mode} disabled={Boolean(review.modes[mode].blocked)} aria-describedby={review.modes[mode].blocked ? `${groupName}-${mode}-blocked` : undefined} onChange={() => change(mode)} />
+          <span>Import {mode}</span>
+          {review.modes[mode].blocked && <small id={`${groupName}-${mode}-blocked`}>{review.modes[mode].blocked}</small>}
+        </label>)}</div>
+      </fieldset>
+      {candidates.length > 0 && <table className="tag-review-table" aria-label="Embedded tags"><colgroup><col className="tag-review-name-column" /><col /></colgroup><thead><tr><th scope="col">Tag</th><th scope="col">Status</th></tr></thead><tbody>
+        {candidates.slice(shown * tagLimits.page, (shown + 1) * tagLimits.page).map(tag => <tr key={tag.sourceIndexes[0]}>
+          <td><span className="tag-review-name" title={tag.name} tabIndex={0}>{tag.name}</span></td><td>{tag.group}{!tag.eligible && <small>Exceeds local limit</small>}</td>
+        </tr>)}
+      </tbody></table>}
       {last > 0 && <div className="actions"><button type="button" disabled={!shown} onClick={() => setPage(shown - 1)}>Previous candidates</button><span>{shown + 1} / {last + 1}</span><button type="button" disabled={shown === last} onClick={() => setPage(shown + 1)}>Next candidates</button></div>}
     </details>
     {review.notices.length > 0 && <details><summary>Tag compatibility notices ({review.notices.length + review.omittedNotices})</summary><ul>{review.notices.map((notice, i) => <li key={i}>{notice}</li>)}</ul>{review.omittedNotices > 0 && <p>{review.omittedNotices} additional notices omitted.</p>}</details>}
-    <fieldset disabled={disabled}><legend>Import tags</legend>{(['all', 'existing', 'none'] as const).map(mode => <label className="checkbox" key={mode}><input type="radio" name={groupName} checked={policy === mode} disabled={Boolean(review.modes[mode].blocked)} onChange={() => change(mode)} />Import {mode}{review.modes[mode].blocked && <small>{review.modes[mode].blocked}</small>}</label>)}</fieldset>
-    <p className="small">{review.modes[policy].assign} local assignments added · {review.modes[policy].create} tags created. Original embedded metadata is preserved.</p>
+    <p className="small">{policy === 'all' ? `${review.existing.length} matching tags · ${review.modes.all.create} new tags.` : policy === 'existing' ? `${review.existing.length} matching tags.` : 'Tags are not imported.'}</p>
   </div>;
 }

@@ -6,7 +6,7 @@ import { ApiError, api } from './api';
 import { LoreDiagnostics } from './LorebookEditor';
 import { TagImportOptions } from './Tags';
 
-type Pending = { base64: string; review: CharacterImportReview; requestId: string; policy: TagPolicy; pictureMode: 'retain' | 'none'; uncertain: boolean };
+type Pending = { base64: string; review: CharacterImportReview; requestId: string; policy: TagPolicy; uncertain: boolean };
 export function CharacterImport({ revision, busy, run, imported, leadingAction, trailingAction, hidden }: { leadingAction?: ReactNode; trailingAction?: ReactNode; hidden?: boolean; revision: number; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; imported: (result: CharacterImportResult, missing: boolean) => void }) {
   const [pending, setPending] = useState<Pending | null>(null), [working, setWorking] = useState(false), [error, setError] = useState('');
   const attempt = useRef(0), submitting = useRef(false), analysisAbort = useRef<AbortController | null>(null);
@@ -16,7 +16,7 @@ export function CharacterImport({ revision, busy, run, imported, leadingAction, 
     analysisAbort.current?.abort(); const controller = new AbortController(); analysisAbort.current = controller;
     try {
       const review = await api<CharacterImportReview>('/library/characters/preview', 'POST', { base64 }, controller.signal);
-      if (current === attempt.current) setPending({ base64, review, requestId, policy: 'none', pictureMode: 'retain', uncertain: false });
+      if (current === attempt.current) setPending({ base64, review, requestId, policy: 'all', uncertain: false });
     } catch (error) { if (current === attempt.current) setError(error instanceof Error ? error.message : 'Could not analyze this card.'); }
     finally { if (current === attempt.current) setWorking(false); }
   }
@@ -28,7 +28,7 @@ export function CharacterImport({ revision, busy, run, imported, leadingAction, 
     await run(async () => {
       let acknowledged = false;
       try {
-        const result = await api<CharacterImportResult>('/library/import', 'POST', { kind: 'characters', revision: captured.review.revision, requestId: captured.requestId, tagPolicy: captured.policy, pictureMode: captured.pictureMode, base64: captured.base64 });
+        const result = await api<CharacterImportResult>('/library/import', 'POST', { kind: 'characters', revision: captured.review.revision, requestId: captured.requestId, tagPolicy: captured.policy, pictureMode: 'retain', base64: captured.base64 });
         acknowledged = true;
         const snapshot = await api<LibrarySnapshot>('/library');
         if (current !== attempt.current) return;
@@ -58,14 +58,19 @@ export function CharacterImport({ revision, busy, run, imported, leadingAction, 
       } catch (error) { if (current === attempt.current) { setError(error instanceof Error ? error.message : 'Could not read the card.'); setWorking(false); } }
     }} /></label>{trailingAction}</div>
     {working && <p role="status">{pending ? 'Saving or reviewing this import…' : 'Analyzing this card…'}</p>}
-    {pending && <div className="character-import-review"><h2>Review {pending.review.name}</h2><p>{pending.review.book ? `Embedded lorebook “${pending.review.book.name}”: ${pending.review.book.entries} entries. An independent linked book will be created.` : 'No embedded lorebook.'}</p>
-      <div className="import-picture"><div className="picture-editor-square">{pending.review.picture?.status === 'ready' && pending.pictureMode === 'retain' ? <CroppedPicture image={pending.review.picture.image} /> : <PictureSquare />}</div><div>{pending.review.picture?.status === 'ready' ? <p className="small">Centered square picture ready. Adjust its crop in Edit character after import.</p> : pending.review.picture?.status === 'error' ? <p role="alert">{pending.review.picture.message} Card, book and tag analysis is retained.</p> : <p className="small muted">No picture in this JSON card.</p>}{pending.review.picture?.status !== 'none' && <label className="checkbox"><input type="checkbox" disabled={working || pending.uncertain} checked={pending.pictureMode === 'none'} onChange={event => setPending({ ...pending, pictureMode: event.target.checked ? 'none' : 'retain', requestId: crypto.randomUUID() })} />Import without picture</label>}{pending.pictureMode === 'none' && <p className="small">No picture will be saved.</p>}</div></div>
+    {pending && <div className="character-import-review"><h2>Review {pending.review.name}</h2>
+      {pending.review.book && <p>Embedded lorebook “{pending.review.book.name}”: {pending.review.book.entries} entries. An independent linked book will be created.</p>}
+      <div className="import-picture">
+        <div className="picture-editor-square">{pending.review.picture?.status === 'ready' ? <CroppedPicture image={pending.review.picture.image} /> : <PictureSquare />}</div>
+        <p className="import-description small muted" aria-label="Character description preview">{pending.review.description}</p>
+      </div>
+      {pending.review.picture?.status === 'error' && <p role="alert">{pending.review.picture.message} Cancel and select a card with valid artwork or a JSON card.</p>}
       <LoreDiagnostics diagnostics={pending.review.diagnostics} />
       <TagImportOptions review={pending.review.tags} policy={pending.policy} change={policy => setPending({ ...pending, policy, requestId: crypto.randomUUID() })} disabled={working || pending.uncertain} />
-      {pending.review.revision !== revision && !pending.uncertain && <p role="status">The library changed. Refresh and review before importing.</p>}
+      {pending.review.revision !== revision && !pending.uncertain && <p role="status">The library changed. Cancel and select the card again to review before importing.</p>}
       {pending.uncertain && <p className="small">A command has been sent. Closing this page does not undo a saved import. Retry here to reconcile its acknowledgement.</p>}
-      <div className="actions"><button type="button" disabled={busy || working || (!pending.uncertain && pending.review.revision !== revision) || Boolean(pending.review.tags.modes[pending.policy].blocked) || (pending.review.picture?.status === 'error' && pending.pictureMode !== 'none')} onClick={() => void commit()}>{pending.uncertain ? 'Retry reviewed character import' : 'Import reviewed character'}</button>
-        {!pending.uncertain && <><button type="button" className="secondary" disabled={working || busy} onClick={() => void analyze(pending.base64, pending.requestId)}>Refresh character review</button><button type="button" className="quiet" disabled={working || busy} onClick={() => { attempt.current++; analysisAbort.current?.abort(); setPending(null); setError(''); }}>Cancel character import</button></>}
+      <div className="actions"><button type="button" disabled={busy || working || (!pending.uncertain && pending.review.revision !== revision) || Boolean(pending.review.tags.modes[pending.policy].blocked) || pending.review.picture?.status === 'error'} onClick={() => void commit()}>{pending.uncertain ? 'Retry reviewed character import' : 'Import'}</button>
+        {!pending.uncertain && <button type="button" className="quiet" disabled={working || busy} onClick={() => { attempt.current++; analysisAbort.current?.abort(); setPending(null); setError(''); }}>Cancel</button>}
       </div>
     </div>}{error && <p role="alert">{error}</p>}
   </section>;

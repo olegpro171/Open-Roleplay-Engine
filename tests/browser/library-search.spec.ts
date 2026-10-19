@@ -58,7 +58,7 @@ test('searches every library, preserves the query through editing, and combines 
     await expect(content.getByRole('article').getByRole('heading')).toContainText('Café');
     if (category !== 'Chats') {
       await content.getByRole('article').getByRole('button', { name: /^Edit(?: |$)/ }).click();
-      await content.getByRole('button', { name: 'Close editor', exact: true }).click();
+      await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Close editor', exact: true }).click();
       await expect(search).toHaveValue('CAFE\u0301');
       await expect(content.getByRole('article')).toHaveCount(1);
     }

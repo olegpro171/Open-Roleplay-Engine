@@ -487,7 +487,7 @@ export class Store {
   }
   previewCard(value: unknown): CharacterImportReview {
     const { card, book, tags } = this.analyzeCard(value);
-    return { revision: this.libraryRevision(), name: card.name,
+    return { revision: this.libraryRevision(), name: card.name, description: card.description,
       book: book ? { name: book.book.name, entries: book.book.entries.length } : null,
       diagnostics: book?.diagnostics ?? [], tags: this.tags.review(tags) };
   }

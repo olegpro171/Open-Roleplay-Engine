@@ -37,9 +37,9 @@ test('imports a PNG card with a null lorebook and retains its picture and greeti
   const before = await library(page);
   await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'null-book.png', mimeType: 'image/png', buffer: cardPng(await quadrantPicture(), source) });
   await expect(page.getByRole('heading', { name: `Review ${source.data.name}` })).toBeVisible();
-  await expect(page.getByText('Centered square picture ready.', { exact: false })).toBeVisible();
+  await expect(page.locator('.import-picture .cropped-picture')).toBeVisible();
   expect((await library(page)).characters).toEqual(before.characters);
-  await page.getByRole('button', { name: 'Import reviewed character', exact: true }).click();
+  await page.getByRole('button', { name: 'Import', exact: true }).click();
   await expect(row(page, source.data.name)).toBeVisible();
   const saved = await library(page), card = saved.characters.find(card => card.name === source.data.name);
   if (!card) throw new Error('Missing null-book character');
@@ -48,7 +48,7 @@ test('imports a PNG card with a null lorebook and retains its picture and greeti
   const picture = saved.characterPictures.find(item => item.characterId === card.id);
   if (!picture) throw new Error('Missing null-book character picture');
   await expect(row(page, card.name).locator('img')).toHaveAttribute('src', picture.thumbnailUrl);
-  await page.getByRole('button', { name: 'Edit imported character / Adjust crop', exact: true }).click();
+  await row(page, source.data.name).getByRole('button', { name: `Edit ${source.data.name}`, exact: true }).click();
   await expect(page.getByLabel('Greeting', { exact: true })).toHaveValue(source.data.first_mes);
   await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue(source.data.alternate_greetings[0]);
   await expect(page.getByRole('button', { name: 'Extract embedded lorebook', exact: true })).toHaveCount(0);
@@ -91,19 +91,19 @@ test('keeps crop/editor save levels separate, recovers exact saves, and refreshe
   expect((await library(page)).characterPictures.find(item => item.characterId === card.id)?.key).toBe(replacement.key); await other.close();
 });
 
-test('reviews PNG artwork, preserves diagnostics, explicitly escapes failed art and retains picture drafts through conflicts/tag edits', async ({ page }) => {
+test('reviews PNG artwork, preserves diagnostics, blocks failed art and retains picture drafts through conflicts/tag edits', async ({ page }) => {
   await login(page);
   const source = { spec: 'chara_card_v3', data: { ...fields('Picture imported card'), tags: ['picture-imported-tag'], character_book: { name: 'Picture import book', entries: [], extensions: {} } } };
   const image = await quadrantPicture(); const original = cardPng(image, source);
   await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'card.png', mimeType: 'image/png', buffer: original });
-  await expect(page.getByRole('heading', { name: 'Review Picture imported card' })).toBeVisible(); await expect(page.getByText('Centered square picture ready.', { exact: false })).toBeVisible();
-  await page.getByRole('radio', { name: 'Import all', exact: true }).check(); await page.getByRole('button', { name: 'Import reviewed character', exact: true }).click();
-  await expect(row(page, source.data.name)).toBeVisible(); await page.getByRole('button', { name: 'Edit imported character / Adjust crop', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Review Picture imported card' })).toBeVisible(); await expect(page.locator('.import-picture .cropped-picture')).toBeVisible();
+  await page.getByRole('button', { name: 'Import', exact: true }).click();
+  await expect(row(page, source.data.name)).toBeVisible(); await row(page, source.data.name).getByRole('button', { name: `Edit ${source.data.name}`, exact: true }).click();
   await upload(page, image, 'Replace picture'); await page.getByLabel('Character description').fill('Local text remains after definite failure');
   await page.getByRole('button', { name: 'Manage tags', exact: true }).click(); const manager = page.getByRole('dialog', { name: 'Manage tags', exact: true });
   await manager.getByLabel('New tag name').fill('picture-manager-tag'); await manager.getByRole('button', { name: 'Create tag', exact: true }).click(); await expect(manager.getByRole('button', { name: 'Rename picture-manager-tag', exact: true })).toBeVisible(); await manager.getByRole('button', { name: 'Close tag manager', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'Apply embedded tags', exact: true }).click(); await page.getByRole('radio', { name: 'Import all', exact: true }).check(); await page.getByRole('button', { name: 'Apply reviewed tags', exact: true }).click();
+  await page.getByRole('button', { name: 'Review embedded tags', exact: true }).click(); await page.getByText('Review tags', { exact: true }).click(); await page.getByRole('radio', { name: 'Import all', exact: true }).check(); await page.getByRole('button', { name: 'Apply reviewed tags', exact: true }).click();
   const saved = await library(page), card = saved.characters.find(card => card.name === source.data.name); if (!card) throw new Error('Missing imported character');
   await page.route(`**/api/library/${card.id}`, route => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic picture conflict' }) }));
   await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(page.getByRole('alert').filter({ hasText: 'Synthetic picture conflict' }).first()).toBeVisible(); await expect(page.getByLabel('Character description')).toHaveValue('Local text remains after definite failure'); await page.unroute(`**/api/library/${card.id}`);
@@ -113,7 +113,13 @@ test('reviews PNG artwork, preserves diagnostics, explicitly escapes failed art 
   await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toBeEnabled(); await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(row(page, card.name)).toContainText('Newer independent text');
   const invalidSource = { ...source, data: { ...source.data, name: 'Picture metadata only' } }, invalid = Buffer.concat([image.subarray(0,8), pngChunk('tEXt', Buffer.from(`chara\0${Buffer.from(JSON.stringify(invalidSource)).toString('base64')}`))]);
   await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'invalid-card.png', mimeType: 'image/png', buffer: invalid }); await expect(page.getByRole('heading', { name: 'Review Picture metadata only' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Import reviewed character', exact: true })).toBeDisabled(); await page.getByRole('checkbox', { name: 'Import without picture', exact: true }).check(); await expect(page.getByText('No picture will be saved.', { exact: true })).toBeVisible(); await page.getByRole('button', { name: 'Import reviewed character', exact: true }).click(); await expect(row(page, invalidSource.data.name)).toContainText('No picture');
+  await expect(page.getByRole('button', { name: 'Import', exact: true })).toBeDisabled();
+  await expect(page.getByRole('alert').filter({ hasText: 'Cancel and select a card with valid artwork' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Import without picture', exact: true })).toHaveCount(0);
+  const beforeCancel = await library(page);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect((await library(page)).revision).toBe(beforeCancel.revision);
+  expect((await library(page)).characters.some(card => card.name === invalidSource.data.name)).toBe(false);
 });
 
 test('keeps mixed library rows bounded and crop controls usable at desktop, phone, landscape and enlarged sizes', async ({ page }) => {
