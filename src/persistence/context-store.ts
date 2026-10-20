@@ -3,6 +3,7 @@ import type { Store } from './store.js';
 import { AppError } from '../core/errors.js';
 import { contextPlan } from '../core/context-plan.js';
 import { refreshContext } from '../core/context-refresh.js';
+import { summaryDeletion } from '../core/context-delete.js';
 import { savedReplacement } from '../core/context-reuse.js';
 import { nextRepair, nodeFor, repairQueue, replaceSelection, selectedContext, sourceOf } from '../core/context.js';
 import { repairInputs } from '../core/context-repair.js';
@@ -359,6 +360,25 @@ export class ContextStore {
       const current = this.job(id);
       this.saveJob({ ...current, repairCommands: { ...current.repairCommands, [requestId]: command } });
       return { fresh: true, job: this.job(id) };
+    })();
+  }
+  deleteSummary(chatId: string, revision: number, ref: SummaryRef) {
+    return this.sqlite.transaction(() => {
+      this.store.checkRevision(revision, chatId);
+      this.store.ensureIdle(chatId);
+      if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) {
+        throw new AppError(409, 'context_review_pending', 'Close the repair review before deleting summaries.');
+      }
+      const deletion = summaryDeletion(this.store.snapshot(chatId).context, ref);
+      this.sqlite.prepare(`UPDATE context_steps SET data = json_set(data, '$.resultDeleted', json('true'))
+        WHERE job_id IN (SELECT id FROM context_jobs WHERE chat_id = ?)
+        AND json_extract(data, '$.result.id') IN (SELECT value FROM json_each(?))`)
+        .run(chatId, JSON.stringify([...deletion.deletedIds]));
+      const remove = this.sqlite.prepare('DELETE FROM summaries WHERE chat_id = ? AND id = ?');
+      for (const id of deletion.deletedIds) remove.run(chatId, id);
+      this.saveState(chatId, deletion.after);
+      this.store.bumpRevision(chatId);
+      return { deletedIds: [...deletion.deletedIds], restoredTurnIds: deletion.restoredTurnIds };
     })();
   }
   clearMemory(chatId: string, revision: number) {

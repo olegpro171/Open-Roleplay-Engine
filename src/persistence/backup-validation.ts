@@ -59,7 +59,7 @@ const requestSchema = z.object({
 const operation = z.object({ level: integer.positive(), turnIds: z.array(id), children: refs, repair: ref.optional(), reconcile: refs.optional() });
 const refreshSchema = z.object({ before: selection, after: selection, inputBefore: integer, inputAfter: integer, verbatimBefore: integer, verbatimAfter: integer, changed: z.boolean(), protectedSummaries: integer, limited: z.boolean(), limitation: z.string().optional() });
 const jobSchema = z.object({ retry: summaryRetrySchema.optional(), refresh: refreshSchema.optional(), finalRefresh: refreshSchema.optional(), repairCommands: z.record(z.string(),z.string()).optional(), outcome: z.object({ inputTokens: integer, verbatimTurns: integer }).optional(), reusedCount: integer.optional(), generatedCount: integer.optional(), reviewedCount: integer.optional(), unchangedCount: integer.optional(), revalidatedCount: integer.optional(), id, chatId: id, status: z.enum(['running','awaiting_review','succeeded','failed','cancelled','interrupted']), mode: z.enum(['prepare','step','repair','refresh']), generationId: id.nullable(), sourceRevision: integer, config: contextPresetSchema.extend({ id, revision: integer }), stepCount: integer, error: z.string().nullable(), historyTurnIds: z.array(id), createdAt: z.string(), updatedAt: z.string() }) satisfies z.ZodType<ContextJob>;
-const stepSchema = z.object({ reused: z.boolean().optional(), repairOutcome: z.enum(['model_unchanged','inputs_unchanged']).optional(), id, jobId: id, status: z.enum(['running','saved','candidate','discarded','failed','interrupted']), operation, request: requestSchema.nullable(), result: ref.nullable(), before: selection, after: selection.nullable(), inputBefore: integer, inputAfter: integer.nullable(), error: z.string().nullable(), createdAt: z.string() }) satisfies z.ZodType<ContextStep>;
+const stepSchema = z.object({ resultDeleted: z.literal(true).optional(), reused: z.boolean().optional(), repairOutcome: z.enum(['model_unchanged','inputs_unchanged']).optional(), id, jobId: id, status: z.enum(['running','saved','candidate','discarded','failed','interrupted']), operation, request: requestSchema.nullable(), result: ref.nullable(), before: selection, after: selection.nullable(), inputBefore: integer, inputAfter: integer.nullable(), error: z.string().nullable(), createdAt: z.string() }) satisfies z.ZodType<ContextStep>;
 
 function validateRendition(bytes: Buffer, edge: number) {
   const signature = Buffer.from([137,80,78,71,13,10,26,10]);
@@ -191,7 +191,10 @@ export function validateContent(db: Database.Database) {
   for (const row of rows(db, 'context_steps')) {
     const step = stepSchema.parse(json(row));
     if (step.id !== row.id || step.jobId !== row.job_id || !jobs.has(step.jobId)) throw invalidBackup();
-    if (step.result && nodes.get(`${step.result.id}:${step.result.revision}`)?.chat !== jobs.get(step.jobId)?.chatId) throw invalidBackup();
+    if (step.result) {
+      const result = nodes.get(`${step.result.id}:${step.result.revision}`);
+      if (result ? result.chat !== jobs.get(step.jobId)?.chatId : !step.resultDeleted) throw invalidBackup();
+    }
   }
   for (const row of rows(db, 'chats')) {
     id.parse(row.id); num(row, 'revision'); const settings = chatSettingsSchema.parse(json(row, 'settings'));

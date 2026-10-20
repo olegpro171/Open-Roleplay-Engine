@@ -450,6 +450,12 @@ export async function createApp(options: {
     const result = store.contexts.refresh(snapshot.id, input.revision, input.requestId, lore);
     coordinator.changed(); return result;
   });
+  app.delete('/api/chats/:chatId/context/summaries/:id', async request => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const input = z.object({ revision: revisionSchema, summaryRevision: revisionSchema }).strict().parse(request.body);
+    const result = store.contexts.deleteSummary(chatId(request.params), input.revision, { id, revision: input.summaryRevision });
+    coordinator.changed(); return result;
+  });
   app.patch('/api/chats/:chatId/context/summaries/:id', { bodyLimit: 1_100_000 }, async request => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = z.object({ revision: revisionSchema, summaryRevision: revisionSchema, text: z.string().max(1_000_000) }).strict().parse(request.body);

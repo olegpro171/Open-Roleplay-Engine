@@ -67,6 +67,64 @@ function retainedAlternative(f: ReturnType<typeof fixture>, source: SummaryNode,
   return node;
 }
 
+describe('summary deletion', () => {
+  it('deletes every version and consumer atomically, preserves requests and restores a contiguous tail across restart', async () => {
+    const f = fixture(24); await f.idle(f.start());
+    const before = f.state();
+    const target = before.context.summaries.find(node => node.level === 1)!;
+    const edited = f.store.contexts.editSummary(f.chatId, before.revision, target, target.text + ' Manual correction.');
+    const history = f.state().context.jobs.map(job => f.store.contexts.details(job.id));
+    const originalTurns = f.state().turns;
+    const callCount = f.calls.length;
+    const revision = f.state().revision;
+    // A failure after row deletion must roll back both deleted rows and selection.
+    f.store.sqlite.exec("CREATE TRIGGER reject_deletion_state BEFORE UPDATE ON context_states BEGIN SELECT RAISE(ABORT, 'test rollback'); END");
+    expect(() => f.store.contexts.deleteSummary(f.chatId, revision, edited)).toThrow('test rollback');
+    expect(f.state().revision).toBe(revision);
+    expect(f.state().context.summaries.some(node => node.id === target.id)).toBe(true);
+    expect(f.state().context.selected).toEqual(before.context.selected);
+    expect(f.state().context.jobs.map(job => f.store.contexts.details(job.id))).toEqual(history);
+    f.store.sqlite.exec('DROP TRIGGER reject_deletion_state');
+    const result = f.store.contexts.deleteSummary(f.chatId, revision, edited);
+    expect(result.deletedIds).toContain(target.id);
+    expect(result.deletedIds.length).toBeGreaterThan(1);
+    const after = f.state();
+    expect(after.context.summaries.every(node => !result.deletedIds.includes(node.id))).toBe(true);
+    expect(after.context.archivedTurnIds).toEqual([]);
+    expect(after.context.selected).toEqual([]);
+    expect(selectedContext(after.turns, after.context).verbatim).toEqual(originalTurns);
+    expect(after.turns).toEqual(originalTurns);
+    expect(after.context.jobs.map(job => f.store.contexts.details(job.id))).toEqual(history.map(detail => ({ ...detail, steps: detail.steps.map(step => step.result && result.deletedIds.includes(step.result.id) ? { ...step, resultDeleted: true } : step) })));
+    expect(() => validateContent(f.store.sqlite)).not.toThrow();
+    // Missing results remain invalid unless explicitly recorded as deleted.
+    f.store.sqlite.exec("UPDATE context_steps SET data = json_remove(data, '$.resultDeleted') WHERE json_extract(data, '$.resultDeleted') = 1");
+    expect(() => validateContent(f.store.sqlite)).toThrow();
+    for (const id of result.deletedIds) f.store.sqlite.prepare("UPDATE context_steps SET data = json_set(data, '$.resultDeleted', json('true')) WHERE json_extract(data, '$.result.id') = ?").run(id);
+    expect(f.calls).toHaveLength(callCount);
+    expect(() => f.store.contexts.deleteSummary(f.chatId, revision, edited)).toThrow('chat changed');
+    expect(() => f.store.contexts.deleteSummary(f.chatId, after.revision, edited)).toThrow('current approved summary');
+    await f.resume();
+    expect(f.state().context).toEqual(after.context);
+  });
+
+  it('rejects deletion while preparing or awaiting review and rejects a summary from another chat', async () => {
+    const f = fixture(24); await f.idle(f.start());
+    const target = f.state().context.summaries[0];
+    const other = f.store.createChat({ title: 'Other', targetInputTokens: 500, connectionId: null, promptId: 'default', characterId: null, personaId: null, contextPresetId: null });
+    expect(() => f.store.contexts.deleteSummary(other, f.store.snapshot(other).revision, target)).toThrow('current approved summary');
+    f.store.editPart(f.state().revision, target.turns[0].turnId, 'user', 'Changed source', f.chatId);
+    f.holdNext();
+    const job = f.start('repair');
+    await expect.poll(() => f.calls.at(-1)?.request.body.messages.at(-1)?.content).toContain('previous_summary');
+    expect(() => f.store.contexts.deleteSummary(f.chatId, f.state().revision, target)).toThrow('memory preparation');
+    f.release();
+    expect((await f.idle(job)).status).toBe('awaiting_review');
+    const before = f.state();
+    expect(() => f.store.contexts.deleteSummary(f.chatId, before.revision, target)).toThrow('Close the repair review');
+    expect(f.state()).toEqual(before);
+  });
+});
+
 describe('retained editorial authority', () => {
   it('selects a fresh retained L2 edit with ample space, carries it into promotion under pressure, and restores it repeatedly', async () => {
     const f = fixture(24); await f.idle(f.start());

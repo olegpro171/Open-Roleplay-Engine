@@ -6,10 +6,11 @@ type Props = {
   nodes: SummaryNode[]; selected: Set<string>; stale: Set<string>; archived: Set<string>;
   turnIds: string[]; operation: ContextOperation | null | undefined; levels: number; zoom: boolean;
   inspectedId: string | null;
+  deleting?: Set<string>; restoring?: Set<string>;
   inspect: (node: SummaryNode) => void;
 };
 
-export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, operation, levels, zoom, inspectedId, inspect }: Props) {
+export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, operation, levels, zoom, inspectedId, inspect, deleting, restoring }: Props) {
   const plot = useRef<HTMLDivElement>(null);
   const [plotWidth, setPlotWidth] = useState(0);
   const [hint, setHint] = useState<{ text: string; left: number; top: number } | null>(null);
@@ -58,11 +59,11 @@ export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, oper
     setHint({ text, left: Math.max(140, Math.min(window.innerWidth - 140, rect.left + rect.width / 2)), top: Math.max(8, rect.top - 48) });
   };
   const compact = plotWidth / count < 5;
-  const bands: { start: number; end: number; archived: boolean }[] = [];
+  const bands: { start: number; end: number; archived: boolean; restoring: boolean }[] = [];
   for (const [i, id] of turnIds.entries()) {
     const last = bands.at(-1), isArchived = archived.has(id);
-    if (last && last.archived === isArchived) last.end = i;
-    else bands.push({ start: i, end: i, archived: isArchived });
+    if (last && last.archived === isArchived && last.restoring === Boolean(restoring?.has(id))) last.end = i;
+    else bands.push({ start: i, end: i, archived: isArchived, restoring: Boolean(restoring?.has(id)) });
   }
   return <div className="timeline-layout">
     <div className="timeline-labels" aria-hidden="true">{Array.from({ length: levels }, (_, i) => <span key={i} style={{ bottom: rowBottom.get(i + 1) }}>L{i + 1}</span>)}<span className="turn-layer-label">Turns</span></div>
@@ -75,13 +76,13 @@ export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, oper
         const freshness = stale.has(refKey(node)) ? ' · stale' : ' · fresh';
         const label = `${range.start + 1}–${range.end + 1}`, text = `L${node.level} · turns ${label} · ${status}${freshness}${node.manual ? ' · Manually edited' : ''} · revision ${node.revision}`;
         const fits = (range.end - range.start + 1) / count * plotWidth >= label.length * 6 + 14;
-        return <button key={refKey(node)} data-summary-id={node.id} className={`summary-span ${status}${stale.has(refKey(node)) ? ' stale' : ''}${node.manual ? ' manual' : ''}${inspectedId === node.id ? ' inspected' : ''}`} style={{ ...span(range.start, range.end), bottom: bottom(node.level, refKey(node)) }} aria-pressed={inspectedId === node.id} aria-label={`Level ${node.level} summary, turns ${range.start + 1} to ${range.end + 1}, ${status}${node.manual ? ', manually edited' : ''}${freshness}, revision ${node.revision}`} aria-describedby={hint?.text === text ? tooltipId : undefined} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)} onFocus={e => showHint(e.currentTarget, text)} onBlur={() => setHint(null)} onClick={() => { setHint(null); inspect(node); }}>{fits ? label : ''}</button>;
+        return <button key={refKey(node)} data-summary-id={node.id} className={`summary-span ${status}${stale.has(refKey(node)) ? ' stale' : ''}${node.manual ? ' manual' : ''}${inspectedId === node.id ? ' inspected' : ''}${deleting?.has(node.id) ? ' deleting' : ''}`} style={{ ...span(range.start, range.end), bottom: bottom(node.level, refKey(node)) }} aria-pressed={inspectedId === node.id} aria-label={`Level ${node.level} summary, turns ${range.start + 1} to ${range.end + 1}, ${status}${deleting?.has(node.id) ? ', will be deleted' : ''}${node.manual ? ', manually edited' : ''}${freshness}, revision ${node.revision}`} aria-describedby={hint?.text === text ? tooltipId : undefined} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)} onFocus={e => showHint(e.currentTarget, text)} onBlur={() => setHint(null)} onClick={() => { setHint(null); inspect(node); }}>{fits ? label : ''}</button>;
       })}
       {operation && (() => { const range = sourceSpan(operation.turnIds); return range && <div className="summary-span preparing" style={{ ...span(range.start, range.end), bottom: bottom(operation.level, 'next') }} aria-label="Next source batch; no replacement is active">{(range.end - range.start + 1) / count * plotWidth >= 40 ? 'next' : ''}</div>; })()}
       {compact ? bands.map(band => {
-        const text = `Turns ${band.start + 1}–${band.end + 1} · ${band.archived ? 'archived' : 'verbatim'}`;
-        return <div key={band.start} className={`turn-tick turn-band ${band.archived ? 'retained' : 'active'}`} role="img" aria-label={text} style={span(band.start, band.end)} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)} />;
-      }) : turnIds.map((id, i) => <div key={id} title={`Turn ${i + 1} · ${archived.has(id) ? 'archived' : 'verbatim'}`} className={`turn-tick ${archived.has(id) ? 'retained' : 'active'}`} style={span(i, i)}>{zoom && plotWidth / count >= String(i + 1).length * 6 + 4 ? i + 1 : ''}</div>)}
+        const text = `Turns ${band.start + 1}–${band.end + 1} · ${band.archived ? 'archived' : 'verbatim'}${band.restoring ? ' · returns to verbatim' : ''}`;
+        return <div key={band.start} className={`turn-tick turn-band ${band.archived ? 'retained' : 'active'}${band.restoring ? ' restoring' : ''}`} role="img" aria-label={text} style={span(band.start, band.end)} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)} />;
+      }) : turnIds.map((id, i) => <div key={id} title={`Turn ${i + 1} · ${archived.has(id) ? 'archived' : 'verbatim'}${restoring?.has(id) ? ' · returns to verbatim' : ''}`} className={`turn-tick ${archived.has(id) ? 'retained' : 'active'}${restoring?.has(id) ? ' restoring' : ''}`} style={span(i, i)}>{zoom && plotWidth / count >= String(i + 1).length * 6 + 4 ? i + 1 : ''}</div>)}
     </div></div>
     {hint && createPortal(<div id={tooltipId} role="tooltip" className="timeline-tooltip" style={{ left: hint.left, top: hint.top }}>{hint.text}</div>, document.body)}
   </div>;

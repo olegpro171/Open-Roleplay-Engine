@@ -111,6 +111,8 @@ export type ContextStep = {
   error: string | null; before: { archivedTurnIds: string[]; selected: SummaryRef[] }; after: { archivedTurnIds: string[]; selected: SummaryRef[] } | null;
   inputBefore: number; inputAfter: number | null; createdAt: string;
   reused?: boolean;
+  /** The immutable result reference remains inspectable after explicit summary deletion. */
+  resultDeleted?: true;
   repairOutcome?: 'model_unchanged' | 'inputs_unchanged';
 };
 export type RepairChange = { kind: 'user' | 'assistant' | 'child' | 'prior' | 'correction'; id: string; label: string; before: string | null; after: string | null; beforeRevision: number | null; afterRevision: number | null; coverageChanged?: boolean };

@@ -8,9 +8,10 @@ import { Dropdown } from './Controls';
 import { api } from './api';
 import { countText } from '../core/tokens';
 
-export function SummaryInspection({ snapshot, node, historical, selected, locked, inspect, saved, run }: {
+export function SummaryInspection({ snapshot, node, historical, selected, locked, inspect, saved, run, previewDelete }: {
   snapshot: ChatSnapshot; node: SummaryNode; historical: boolean; selected: Set<string>; locked: boolean;
   inspect: (node: SummaryNode) => void; saved: () => void; run: (action: () => Promise<unknown>) => Promise<boolean>;
+  previewDelete: (node: SummaryNode) => void;
 }) {
   const [edit, setEdit] = useState<{ text: string; revision: number } | null>(null);
   const textTokens = useMemo(() => countText(node.text), [node.text]);
@@ -44,6 +45,7 @@ export function SummaryInspection({ snapshot, node, historical, selected, locked
       <div className="actions"><button disabled={locked || edit.revision !== snapshot.revision || !edit.text.trim()}>Save summary edit</button><button type="button" className="quiet" onClick={() => setEdit(null)}>Cancel edit</button></div>
       {edit.revision !== snapshot.revision && <p role="status">The chat changed. Cancel and reopen the summary editor.</p>}
     </form> : <><div className="prose">{node.text}</div>{!historical && latest && <button type="button" className="quiet" disabled={locked} onClick={() => setEdit({ text: node.text, revision: snapshot.revision })}>Edit summary</button>}</>}
+    {!historical && latest && !edit && <button type="button" className="quiet" disabled={locked} onClick={() => previewDelete(node)}>Delete summary…</button>}
     <details><summary>Source turns and dependencies</summary><pre>{JSON.stringify({ turns: node.turns, children: node.children, earlierContext: node.prior, reconciledCorrections: node.corrections ?? [] }, null, 2)}</pre>
       {node.turns.slice(0, 30).map(source => {
         const position = snapshot.turns.findIndex(turn => turn.id === source.turnId), turn = snapshot.turns[position];

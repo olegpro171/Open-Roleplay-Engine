@@ -415,3 +415,8 @@ button:has(> .ui-icon):has(> .sr-only), .block-actions button { min-width:36px; 
 .summary-retry-controls { margin: -16px 0 24px; }
 .summary-retry-controls>label:not(.checkbox) { margin-top: 12px; }
 .summary-retry-controls input[aria-label="Maximum retries"] { width: 7rem; max-width: 100%; }
+
+.summary-span.deleting{background:repeating-linear-gradient(135deg,#612f37,#612f37 6px,#442b33 6px,#442b33 12px);color:#ffd4d4;border:2px solid #ff9b9b;box-shadow:none}
+.turn-tick.restoring{background:#8bc9ff;color:#12273c;border-color:#b6dfff}
+.summary-deletion{margin-top:20px;padding:16px;border:1px solid #c87979;border-radius:8px;overflow-wrap:anywhere}
+.summary-deletion ul{max-height:180px;overflow:auto;padding-left:22px}

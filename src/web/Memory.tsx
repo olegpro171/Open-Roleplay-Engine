@@ -1,8 +1,9 @@
 import { useConfirmation } from './Confirmation';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatSnapshot } from '../shared/contracts';
 import { hasPromptMarker, type LibrarySnapshot } from '../shared/library';
 import { refKey, type ContextJob, type ContextPlan, type ContextStep, type SummaryNode } from '../shared/context';
+import { summaryDeletion } from '../core/context-delete';
 import { staleSummaries } from '../core/context';
 import { api } from './api';
 import { Dropdown, NumberInput } from './Controls';
@@ -35,6 +36,16 @@ export function Memory({ snapshot, library, busy, run }: { snapshot: ChatSnapsho
   const [historyId, setHistoryId] = useState(''), [details, setDetails] = useState<JobDetails | null>(null), [frame, setFrame] = useState(0);
   const [repairSession, setRepairSession] = useState('');
   const [zoom, setZoom] = useState(false), [inspected, setInspected] = useState<SummaryNode | null>(null);
+  const [deletionTarget, setDeletionTarget] = useState<{ node: SummaryNode; revision: number } | null>(null);
+  const deletionHeading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { if (deletionTarget) deletionHeading.current?.focus(); }, [deletionTarget]);
+  const deletion = useMemo(() => deletionTarget && deletionTarget.revision === snapshot.revision && !historyId
+    ? summaryDeletion(snapshot.context, deletionTarget.node) : null, [deletionTarget, snapshot.context, snapshot.revision, historyId]);
+  const restoring = new Set(deletion?.restoredTurnIds ?? []);
+  const inspectSummary = (node: SummaryNode | null) => {
+    setInspected(node);
+    setDeletionTarget(null);
+  };
   const summariesEnabled = hasPromptMarker(snapshot.sources.prompt, 'summary');
   const active = snapshot.context.jobs.find(job => job.status === 'running');
   const awaiting = snapshot.context.jobs.find(job => job.status === 'awaiting_review');
@@ -111,11 +122,27 @@ export function Memory({ snapshot, library, busy, run }: { snapshot: ChatSnapsho
     <section className="memory-chart"><div className="memory-chart-heading"><div><h2>Summary layers</h2><p className="small muted">Select a summary to inspect its coverage.</p></div><label className="checkbox"><input type="checkbox" checked={zoom} onChange={e => setZoom(e.target.checked)} />Zoom timeline</label></div>
       <label>Inspect saved preparation<Dropdown aria-label="Saved preparation" value={historyId} onChange={id => { setHistoryId(id); setInspected(null); }} options={[{ value: '', label: 'Current committed selection' }, ...snapshot.context.jobs.map(job => ({ value: job.id, label: `${new Date(job.createdAt).toLocaleString()} · ${job.mode} · ${job.status}` }))]} /></label>
       {details && <label className="snapshot-slider">Saved step {frame} / {frameCount}<input type="range" aria-label="Saved preparation step" min={0} max={frameCount} value={frame} onChange={e => { setFrame(Number(e.target.value)); setInspected(null); }} /><small>History inspection only. Current chat memory is unchanged.</small></label>}
-      <MemoryTimeline nodes={nodes} selected={selected} stale={stale} archived={archived} turnIds={viewTurnIds} operation={operation} levels={levels} zoom={zoom} inspectedId={inspected?.id ?? null} inspect={node => { setInspected(node); }} /><div className="memory-legend"><span className="active">● {summariesEnabled || historyId ? 'Active in input' : 'Saved selection (disabled)'}</span><span className="preparing">● Next batch</span><span className="retained">● Retained alternatives</span><span className="stale">● Out of date</span><span className="manual">● Manually edited</span></div>
+      <MemoryTimeline nodes={nodes} selected={selected} stale={stale} archived={archived} turnIds={viewTurnIds} operation={operation} levels={levels} zoom={zoom} inspectedId={inspected?.id ?? null} deleting={deletion?.deletedIds} restoring={restoring} inspect={inspectSummary} /><div className="memory-legend"><span className="active">● {summariesEnabled || historyId ? 'Active in input' : 'Saved selection (disabled)'}</span><span className="preparing">● Next batch</span><span className="retained">● Retained alternatives</span><span className="stale">● Out of date</span><span className="manual">● Manually edited</span></div>
+      {deletionTarget && <section className="summary-deletion" aria-label="Summary deletion preview">
+        <h3 ref={deletionHeading} tabIndex={-1}>Delete summary and dependents?</h3>
+        {deletion ? <>
+          <p role="status">{deletion.deletedIds.size} summaries ({deletion.deleted.length} saved versions) will be deleted, including dependent summaries that used them as sources, earlier context or corrections. Highlighted red spans will be deleted; blue turns return to verbatim.</p>
+          <p>{deletion.restoredTurnIds.length} archived turns return to verbatim from the earliest affected active span onward. Surviving later summaries stay saved for Prepare chat to reuse. Long history may need preparation again. No model requests run during deletion.</p>
+          {deletion.deleted.some(node => node.manual) && <p><strong>This includes manually corrected summaries.</strong></p>}
+          <p>All versions of these summaries are removed. Original turns and saved request history stay saved.</p>
+          {awaiting && <p role="status">Close the repair review before deleting summaries.</p>}
+          <ul>{nodes.filter(node => deletion.deletedIds.has(node.id)).map(node => <li key={node.id}>{summaryOptions.find(option => option.value === node.id)?.label}</li>)}</ul>
+          <button type="button" disabled={locked || Boolean(awaiting)} onClick={() => void run(async () => {
+            await api(`/chats/${snapshot.id}/context/summaries/${deletionTarget.node.id}`, 'DELETE', { revision: deletionTarget.revision, summaryRevision: deletionTarget.node.revision });
+            setDeletionTarget(null); setInspected(null); setPlanError('');
+          })}>Delete {deletion.deletedIds.size} summaries</button>
+        </> : <p role="status">The chat or view changed. Cancel this preview and reopen the current summary before deleting.</p>}
+        <button type="button" className="quiet" disabled={busy} onClick={() => setDeletionTarget(null)}>Cancel deletion</button>
+      </section>}
     </section>
-    {nodes.length > 0 && <label>Inspect saved summary<Dropdown aria-label="Inspect saved summary" value={inspected?.id ?? ''} onChange={id => setInspected(nodes.find(node => node.id === id) ?? null)} options={[{ value: '', label: 'Choose an identity and range' }, ...summaryOptions]} /></label>}
-    {inspected && <SummaryInspection key={refKey(inspected)} snapshot={snapshot} node={inspected} historical={Boolean(historyId)} selected={selected} locked={locked} inspect={setInspected} saved={() => setInspected(null)} run={run} />}
-    {details && <details><summary>Summary requests and step outcomes</summary>{details.job.error && <p className="small muted">Saved outcome: {details.job.error}</p>}{refreshFrame && <p className="small muted">Saved-memory selection: {refreshFrame.verbatimBefore} → {refreshFrame.verbatimAfter} verbatim turns; estimated input {refreshFrame.inputBefore.toLocaleString()} → {refreshFrame.inputAfter.toLocaleString()}.</p>}{finalRefresh && <p className="small muted">Final saved-memory selection: {finalRefresh.verbatimBefore} → {finalRefresh.verbatimAfter} verbatim turns; estimated input {finalRefresh.inputBefore.toLocaleString()} → {finalRefresh.inputAfter.toLocaleString()}.</p>}{details.steps.map((step, i) => <details key={step.id}><summary>Step {i + 1} · L{step.operation.level} · {step.repairOutcome === 'model_unchanged' ? 'model checked · unchanged' : step.repairOutcome === 'inputs_unchanged' ? 'unchanged inputs · no model request' : step.reused ? 'reused saved summary' : step.status}</summary>{step.error && <p>{step.error}</p>}<pre>{JSON.stringify(step.request ?? { note: step.repairOutcome === 'inputs_unchanged' ? 'All consumed content was unchanged. Updated dependency records without a model request.' : step.reused ? 'Reused a saved summary. No model request.' : 'No model request: all covered source turns were deleted.' }, null, 2)}</pre></details>)}</details>}
+    {nodes.length > 0 && <label>Inspect saved summary<Dropdown aria-label="Inspect saved summary" value={inspected?.id ?? ''} onChange={id => inspectSummary(nodes.find(node => node.id === id) ?? null)} options={[{ value: '', label: 'Choose an identity and range' }, ...summaryOptions]} /></label>}
+    {inspected && <SummaryInspection key={refKey(inspected)} snapshot={snapshot} node={inspected} historical={Boolean(historyId)} selected={selected} locked={locked} inspect={inspectSummary} saved={() => setInspected(null)} run={run} previewDelete={node => setDeletionTarget({ node, revision: snapshot.revision })} />}
+    {details && <details><summary>Summary requests and step outcomes</summary>{details.job.error && <p className="small muted">Saved outcome: {details.job.error}</p>}{refreshFrame && <p className="small muted">Saved-memory selection: {refreshFrame.verbatimBefore} → {refreshFrame.verbatimAfter} verbatim turns; estimated input {refreshFrame.inputBefore.toLocaleString()} → {refreshFrame.inputAfter.toLocaleString()}.</p>}{finalRefresh && <p className="small muted">Final saved-memory selection: {finalRefresh.verbatimBefore} → {finalRefresh.verbatimAfter} verbatim turns; estimated input {finalRefresh.inputBefore.toLocaleString()} → {finalRefresh.inputAfter.toLocaleString()}.</p>}{details.steps.map((step, i) => <details key={step.id}><summary>Step {i + 1} · L{step.operation.level} · {step.repairOutcome === 'model_unchanged' ? 'model checked · unchanged' : step.repairOutcome === 'inputs_unchanged' ? 'unchanged inputs · no model request' : step.reused ? 'reused saved summary' : step.status}</summary>{step.resultDeleted && <p>The saved result summary was deleted. This request records the original attempt.</p>}{step.error && <p>{step.error}</p>}<pre>{JSON.stringify(step.request ?? { note: step.repairOutcome === 'inputs_unchanged' ? 'All consumed content was unchanged. Updated dependency records without a model request.' : step.reused ? 'Reused a saved summary. No model request.' : 'No model request: all covered source turns were deleted.' }, null, 2)}</pre></details>)}</details>}
     {snapshot.context.summaries.length > 0 || snapshot.context.jobs.length > 0 ? <details className="restore-memory"><summary>Clear memory</summary><p className="small muted">Delete every summary layer, previous summary version, repair candidate and preparation record for this chat. All original turns stay saved and become available for verbatim input within the selected prompt’s rules. Your context preset and saved roleplay requests stay unchanged. Long history may need preparation again.</p><button className="secondary" disabled={locked} onClick={() => { confirmAction({ title: 'Clear memory?', message: 'Clear all memory layers and preparation records for this chat? Original turns and saved roleplay requests will be kept.', actionLabel: 'Clear memory', onConfirm: () => { void run(async () => { await api(`/chats/${snapshot.id}/context/clear`, 'POST', { revision: snapshot.revision }); setHistoryId(''); setDetails(null); setInspected(null); setPlanError(''); }); } }); }}>Clear memory</button></details> : null}
   </section>;
 }
