@@ -1,3 +1,4 @@
+import { Icon } from './Icon';
 import { useConfirmation } from './Confirmation';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { LibrarySnapshot } from '../shared/library';
@@ -9,7 +10,7 @@ export type TagCommit = (before: number, after: number, snapshot: LibrarySnapsho
 
 export function TagChips({ tags, selected, remove, catalog }: { catalog?: ReadonlyMap<string, Tag>; tags: Tag[]; selected: readonly string[]; remove?: (id: string) => void }) {
   const byId = useMemo(() => catalog ?? new Map(tags.map(tag => [tag.id, tag])), [tags, catalog]);
-  return <div className="tag-chips">{selected.map(id => <span className="tag-chip" key={id}>{byId.get(id)?.name ?? 'Unavailable tag'}{remove && <button type="button" className="quiet" aria-label={`Remove ${byId.get(id)?.name ?? 'unavailable tag'}`} onClick={() => remove(id)}>×</button>}</span>)}</div>;
+  return <div className="tag-chips">{selected.map(id => <span className="tag-chip" key={id}>{byId.get(id)?.name ?? 'Unavailable tag'}{remove && <button type="button" className="quiet" aria-label={`Remove ${byId.get(id)?.name ?? 'unavailable tag'}`} onClick={() => remove(id)}><Icon name="Close" /></button>}</span>)}</div>;
 }
 export function TagChooser({ tags, selected, change, label, disabled = false, showSelected = true, autoFocus = false }: { tags: Tag[]; selected: string[]; change: (ids: string[]) => void; label: string; disabled?: boolean; showSelected?: boolean; autoFocus?: boolean }) {
   const [search, setSearch] = useState(''), [page, setPage] = useState(0);
@@ -20,14 +21,14 @@ export function TagChooser({ tags, selected, change, label, disabled = false, sh
   const last = Math.max(0, Math.ceil(matches.length / tagLimits.page) - 1), shown = Math.min(page, last);
   return <fieldset className="tag-chooser" disabled={disabled}><legend>{label}</legend>
     {showSelected && <TagChips tags={tags} selected={selected} remove={id => change(selected.filter(value => value !== id))} />}
-    <label>Search tags<input type="search" autoFocus={autoFocus} value={search} onChange={event => {
+    <label>Search tags<span className="search-field"><Icon name="Search" /><input type="search" autoFocus={autoFocus} value={search} onChange={event => {
       const next = event.target.value;
       // Rows, empty notices and pagination share one reserved area during search,
       // so filtering cannot shrink the page and clamp its scroll position.
       if (next) setResultsMinHeight(results.current?.getBoundingClientRect().height);
       else setResultsMinHeight(undefined);
       setSearch(next); setPage(0);
-    }} /></label>
+    }} /></span></label>
     <div className="tag-chooser-results" ref={results} style={{ minHeight: resultsMinHeight }}>
       <div className="tag-options">{matches.slice(shown * tagLimits.page, (shown + 1) * tagLimits.page).map(tag => <label className="checkbox" key={tag.id}><input type="checkbox" checked={chosen.has(tag.id)} onChange={event => change(event.target.checked ? [...selected, tag.id] : selected.filter(id => id !== tag.id))} /><span className="tag-option-name">{tag.name}</span></label>)}</div>
       {!matches.length && <p className="small muted">{tags.length ? 'No tags match your search.' : 'No tags yet. Create one in Manage tags.'}</p>}
@@ -62,7 +63,7 @@ export function TagFilterMenu({ library, busy, run, selected, change }: { librar
     }
   }}>
     <button type="button" className="secondary tag-filter-trigger" ref={trigger} aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(!open)}>
-      Tags{selected.length > 0 && <span className="tag-filter-count">{selected.length}</span>}<span aria-hidden="true">⌄</span>
+      Tags{selected.length > 0 && <span className="tag-filter-count">{selected.length}</span>}<Icon name="ArrowShortBottom" />
     </button>
     {open && <div id={panelId} className="tag-filter-panel">
       <TagChooser label="Filter characters by tags" tags={library.tags} selected={selected} change={change} showSelected={false} autoFocus />
@@ -101,10 +102,10 @@ export function TagManager({ library, busy, run, committed, close }: { library: 
     setPending(false); return ok;
   }
   return <dialog ref={dialog} className="tag-manager" aria-labelledby={titleId} onCancel={event => { event.preventDefault(); if (!pending) close(); }}>
-    <header className="tag-manager-heading"><div><h2 id={titleId}>Manage tags</h2><p className="small muted">Organize your characters. Changes save immediately.</p></div><button type="button" className="quiet" aria-label="Close tag manager" disabled={pending} onClick={close}>×</button></header>
+    <header className="tag-manager-heading"><div><h2 id={titleId}>Manage tags</h2><p className="small muted">Organize your characters. Changes save immediately.</p></div><button type="button" className="quiet" aria-label="Close tag manager" disabled={pending} onClick={close}><Icon name="Close" /></button></header>
     <div className="tag-manager-controls">
       <form onSubmit={async event => { event.preventDefault(); if (await mutate('POST', '/library/tags', { revision: library.revision, name })) setName(''); }}><label>New tag name<input required value={name} onChange={event => setName(event.target.value)} /></label><button disabled={busy || pending}>Create tag</button></form>
-      <label>Search catalog<input type="search" ref={searchInput} value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} /></label>
+      <label>Search catalog<span className="search-field"><Icon name="Search" /><input type="search" ref={searchInput} value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} /></span></label>
       {error && <p role="alert">{error}</p>}
     </div>
     <div className="tag-catalog">{matches.slice(shown * tagLimits.page, (shown + 1) * tagLimits.page).map(tag => <div key={tag.id} className="tag-catalog-row">
@@ -112,7 +113,7 @@ export function TagManager({ library, busy, run, committed, close }: { library: 
         <label>Rename tag<input required autoFocus value={rename.name} onChange={event => setRename({ ...rename, name: event.target.value })} /></label>
         <div className="actions"><button disabled={busy || pending || rename.revision !== library.revision}>Save tag name</button><button type="button" className="quiet" disabled={pending} onClick={() => setRename(null)}>Cancel rename</button></div>
         {rename.revision !== library.revision && <p role="status">The catalog changed. Your draft remains here; cancel and reopen Rename to reconcile.</p>}
-      </form> : <><span>{tag.name}<small>{tag.usageCount} {tag.usageCount === 1 ? 'character' : 'characters'}</small></span><div className="actions"><button type="button" className="quiet" aria-label={`Rename ${tag.name}`} disabled={busy || pending} onClick={() => setRename({ id: tag.id, name: tag.name, revision: library.revision })}>Rename</button><button type="button" className="quiet" aria-label={`Delete ${tag.name}`} disabled={busy || pending} onClick={() => { confirmAction({ title: 'Delete tag?', message: `Delete “${tag.name}”? ${tag.usageCount} characters will lose this local assignment. Embedded card metadata is preserved.`, actionLabel: 'Delete tag', onConfirm: () => { void mutate('DELETE', `/library/tags/${tag.id}`, { revision: library.revision }, tag.id); } }); }}>Delete</button></div></>}
+      </form> : <><span>{tag.name}<small>{tag.usageCount} {tag.usageCount === 1 ? 'character' : 'characters'}</small></span><div className="actions"><button type="button" className="quiet" aria-label={`Rename ${tag.name}`} disabled={busy || pending} onClick={() => setRename({ id: tag.id, name: tag.name, revision: library.revision })}>Rename</button><button type="button" className="quiet" aria-label={`Delete ${tag.name}`} disabled={busy || pending} onClick={() => { confirmAction({ title: 'Delete tag?', message: `Delete “${tag.name}”? ${tag.usageCount} characters will lose this local assignment. Embedded card metadata is preserved.`, actionLabel: 'Delete tag', onConfirm: () => { void mutate('DELETE', `/library/tags/${tag.id}`, { revision: library.revision }, tag.id); } }); }}><Icon name="TrashOutline" />Delete</button></div></>}
     </div>)}</div>
     {!matches.length && <p className="muted tag-manager-empty">{library.tags.length ? 'No tags match your search.' : 'No tags yet. Create your first tag above.'}</p>}
     <footer className="tag-manager-footer"><span className="small muted">{matches.length} {matches.length === 1 ? 'tag' : 'tags'}{search && ' found'}</span>

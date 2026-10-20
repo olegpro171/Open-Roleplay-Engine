@@ -1,3 +1,4 @@
+import { Icon } from './Icon';
 import { useEffect, useRef, useState } from 'react';
 import type { PromptEntry, RequestPreview } from '../shared/contracts';
 import { LoreDiagnostics, lorePlacementLabels } from './LorebookEditor';
@@ -55,7 +56,7 @@ export function PromptPeek({ request, stale, close }: { request: RequestPreview;
   const entries = new Map(request.layout?.map(part => [part.messageIndex, part]));
   const limit = Math.min(request.budget.targetInputTokens, request.budget.contextWindow - request.budget.reservedOutputTokens);
   return <dialog ref={dialog} className="prompt-peek" aria-labelledby="prompt-peek-title" onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }}>
-    <div className="peek-content"><div className="peek-heading"><div><p className="eyebrow">CURRENT INPUT</p><h2 id="prompt-peek-title">Prompt peek</h2></div><button className="secondary" onClick={close} autoFocus>Close peek</button></div>
+    <div className="peek-content"><div className="peek-heading"><div><p className="eyebrow">CURRENT INPUT</p><h2 id="prompt-peek-title">Prompt peek</h2></div><button className="secondary" onClick={close} autoFocus title="Close peek"><Icon name="Close" /><span className="sr-only">Close peek</span></button></div>
       <p className="small muted">Resolved messages in model order, including unsent input. Preparation may change memory before the next response.</p>
       <p className="small over-limit" hidden={!stale}>Memory is out of date. Repair and review it before sending.</p>
       <strong>Estimated input: {request.budget.inputTokens.toLocaleString()} / {limit.toLocaleString()}</strong><InputMeter input={request.budget.inputTokens} limit={limit} />

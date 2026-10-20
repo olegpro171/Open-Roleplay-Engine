@@ -51,11 +51,11 @@ for (const width of [1280, 390, 320]) test(`streams and saves separate turn reas
   await page.screenshot({ path: `test-results/reasoning-popup-${width}.png`, fullPage: true });
   // Reading earlier text must survive incoming chunks without jumping to the tail.
   await stream.evaluate(node => { node.scrollTop = 0; });
-  await expect(popup.getByRole('button', { name: 'Latest reasoning ↓', exact: true })).toBeVisible();
+  await expect(popup.getByRole('button', { name: 'Latest reasoning', exact: true })).toBeVisible();
   await request.post('/__test/finish', { data: {} });
   await expect(stream).toHaveText(syntheticReasoningStart + syntheticReasoningTail);
   expect(await stream.evaluate(node => node.scrollTop)).toBe(0);
-  await popup.getByRole('button', { name: 'Latest reasoning ↓', exact: true }).click();
+  await popup.getByRole('button', { name: 'Latest reasoning', exact: true }).click();
   await expect.poll(() => stream.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);
   await popup.press('Escape');
   await expect(popup).toHaveCount(0);

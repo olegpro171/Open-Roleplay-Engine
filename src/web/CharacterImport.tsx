@@ -1,3 +1,4 @@
+import { Icon } from './Icon';
 import { CroppedPicture, fileBase64, PictureSquare } from './Pictures';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LibrarySnapshot } from '../shared/library';
@@ -47,7 +48,7 @@ export function CharacterImport({ revision, busy, run, imported, leadingAction, 
   }
   return <section className="character-import" aria-label="Character import" hidden={hidden}>
     <div className="actions library-toolbar character-toolbar" role="group" aria-label="Library actions">{leadingAction}
-    <label className="file-button">Import character<input type="file" accept=".json,.png" disabled={busy || working || Boolean(pending)} onChange={async event => {
+    <label className="file-button"><Icon name="Import" />Import character<input type="file" accept=".json,.png" disabled={busy || working || Boolean(pending)} onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
       const current = ++attempt.current; setWorking(true); setError('');
       try {

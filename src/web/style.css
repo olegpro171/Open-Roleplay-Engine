@@ -380,3 +380,25 @@ button.danger{background:#b74e48;color:#fff;border-color:#d16b64}
 
 .about-version dd{margin:0 0 1rem;overflow-wrap:anywhere}
 .about-version dt{font-weight:600}
+
+/* Preserve source path fills/strokes while inheriting the control color. */
+svg.ui-icon { display:inline-block; width:20px; height:20px; flex-shrink:0; fill:none; stroke:none; vertical-align:middle; }
+button:has(> .ui-icon), .file-button:has(> .ui-icon) { display:inline-flex; align-items:center; gap:8px; }
+.file-button:has(> .ui-icon) { flex-direction:row; }
+.library-tabs button:has(> .ui-icon), .library-tabs button:has(> .icon-placeholder) { display:flex; align-items:center; justify-content:flex-start; gap:10px; }
+.icon-placeholder { display:inline-block; width:20px; height:20px; flex-shrink:0; }
+.library-search svg.ui-icon { fill:none; stroke:none; color:var(--muted); }
+.search-field { display:block; position:relative; }
+.search-field > .ui-icon { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--muted); pointer-events:none; }
+.search-field > input { padding-left:40px; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
+button:has(> .ui-icon):has(> .sr-only), .block-actions button { min-width:36px; min-height:36px; }
+@media(max-width:600px) {
+  .character-toolbar > button, .character-toolbar > .file-button { gap:4px; padding-inline:6px; font-size:11px; }
+  .character-toolbar > button > .ui-icon, .character-toolbar > .file-button > .ui-icon { width:16px; height:16px; }
+}
+.character-list .actions button:has(> .ui-icon) { gap:5px; font-size:12px; }
+.character-list .actions button > .ui-icon { width:18px; height:18px; }
+@media(max-width:600px) {
+  .character-list .actions button:has(> .ui-icon) { flex-direction:column; gap:2px; padding:4px 5px; font-size:11px; }
+}

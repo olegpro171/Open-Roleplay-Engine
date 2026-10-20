@@ -1,3 +1,4 @@
+import { Icon } from './Icon';
 import { useConfirmation } from './Confirmation';
 import { EditorActions } from './EditorActions';
 import { EditorTextarea } from './EditorTextarea';
@@ -28,7 +29,7 @@ export function LorebookImport({ leadingAction, revision, busy, run, imported }:
   const attempt = useRef(0), fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => () => { attempt.current++; }, []);
   return <div className="lore-import">
-    <div className="actions library-toolbar" role="group" aria-label="Library actions">{leadingAction}<button type="button" className="secondary" disabled={busy || reading} onClick={() => fileInput.current?.click()}>Import lorebook</button></div>
+    <div className="actions library-toolbar" role="group" aria-label="Library actions">{leadingAction}<button type="button" className="secondary" disabled={busy || reading} onClick={() => fileInput.current?.click()}><Icon name="Import" />Import lorebook</button></div>
     <input ref={fileInput} aria-label="Lorebook JSON file" hidden type="file" accept=".json,application/json" disabled={busy || reading} onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
       const current = ++attempt.current; setReview(null); setError(''); setReading(true); setAttempted(false);
@@ -108,17 +109,17 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
     <fieldset disabled={busy || stale}><legend>Entries · {book.entries.length}</legend>
       <p className="small muted">Higher priority is admitted first; equal priorities prefer constants, then insertion order and source order. Final placement follows insertion order. Only complete entries that fit the cap and an enabled lore control are inserted.</p>
       <div className="actions"><button type="button" className="secondary" disabled={book.entries.length >= LOREBOOK_ENTRY_LIMIT} onClick={() => add()}>Add entry</button></div>
-      <label className="lore-search">Search entries<input type="search" value={query} onChange={event => { setQuery(event.target.value); setPage(0); }} /></label>
+      <label className="lore-search">Search entries<span className="search-field"><Icon name="Search" /><input type="search" value={query} onChange={event => { setQuery(event.target.value); setPage(0); }} /></span></label>
       <div className="lore-workspace"><div className="lore-entry-list" role="group" aria-label="Lorebook entries">
         {matching.slice(shown * pageSize, (shown + 1) * pageSize).map(entry => <button type="button" className="secondary" aria-pressed={entry.id === selectedId} key={entry.id} onClick={() => setSelectedId(entry.id)}><strong>{entry.name || 'Unnamed entry'}</strong><small>{entry.enabled ? 'Enabled' : 'Disabled'} · Order {entry.insertionOrder} · Priority {entry.priority}</small></button>)}
         {matching.length === 0 && <p className="small muted">{book.entries.length ? 'No entries match your search.' : 'This book is empty. Add an entry to begin.'}</p>}
         {last > 0 && <Pagination page={shown} last={last} change={setPage} />}
-      </div>{selected ? <section className="lore-entry-editor" aria-label="Selected lore entry"><EntryFields key={selected.id} entry={selected} update={updateEntry} issues={entryIssues} /><div className="actions"><button type="button" className="secondary" disabled={book.entries.length >= LOREBOOK_ENTRY_LIMIT} onClick={() => add(selected)}>Duplicate entry</button><button type="button" className="quiet" onClick={() => { confirmAction({ title: 'Delete lore entry?', message: `Delete entry “${selected.name}”? Save the book to commit this change.`, actionLabel: 'Delete entry', onConfirm: () => { update({ entries: book.entries.filter(entry => entry.id !== selectedId) }); setSelectedId(book.entries.find(entry => entry.id !== selectedId)?.id ?? ''); } }); }}>Delete entry</button></div></section> : <p className="small muted">Select an entry to edit its content and matching rules.</p>}</div>
+      </div>{selected ? <section className="lore-entry-editor" aria-label="Selected lore entry"><EntryFields key={selected.id} entry={selected} update={updateEntry} issues={entryIssues} /><div className="actions"><button type="button" className="secondary" disabled={book.entries.length >= LOREBOOK_ENTRY_LIMIT} onClick={() => add(selected)}><Icon name="CopyOutline" />Duplicate entry</button><button type="button" className="quiet" onClick={() => { confirmAction({ title: 'Delete lore entry?', message: `Delete entry “${selected.name}”? Save the book to commit this change.`, actionLabel: 'Delete entry', onConfirm: () => { update({ entries: book.entries.filter(entry => entry.id !== selectedId) }); setSelectedId(book.entries.find(entry => entry.id !== selectedId)?.id ?? ''); } }); }}><Icon name="TrashOutline" />Delete entry</button></div></section> : <p className="small muted">Select an entry to edit its content and matching rules.</p>}</div>
     </fieldset>
     {issues.length > 0 && <div role="alert"><p>Correct these fields before saving:</p><ul>{issues.map((issue, index) => <li key={index}>{issue.path[0] === 'entries' && typeof issue.path[1] === 'number' && book.entries[issue.path[1]] ? <button type="button" className="quiet" onClick={() => setSelectedId(book.entries[Number(issue.path[1])].id)}>{book.entries[Number(issue.path[1])].name}: </button> : null}{issue.path.join('.')}: {issue.message}</li>)}</ul></div>}
     {stale && <p role="status">The library changed. Your unsaved edits remain here. Close and reopen this book to load its current revision.</p>}
     <p className="small muted">Saved changes apply to future requests in every chat selecting this shared book. Changing activation rules or content resets affected entries’ prior-match history; labels and comments preserve it. Saved requests retain their original lore.</p>
-    <EditorActions><button type="submit" form={formId} disabled={busy || stale}>Save lorebook</button><button type="button" className="quiet" onClick={close}>Close editor</button></EditorActions>
+    <EditorActions><button type="submit" form={formId} disabled={busy || stale}>Save lorebook</button><button type="button" className="quiet" onClick={close} title="Close editor"><Icon name="Close" /><span className="sr-only">Close editor</span></button></EditorActions>
   </form>;
 }
 

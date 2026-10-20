@@ -1,3 +1,4 @@
+import { Icon } from './Icon';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from './api';
@@ -62,7 +63,7 @@ function ReasoningDialog({ text: preview, live, chatId, generationId, length, cl
   }, [text]);
 
   return createPortal(<dialog ref={dialog} className="reasoning-dialog" aria-labelledby={titleId} onCancel={event => { event.preventDefault(); close(); }}>
-    <header className="reasoning-dialog-heading"><h2 id={titleId}>Model reasoning</h2><button type="button" className="secondary" onClick={close}>Close</button></header>
+    <header className="reasoning-dialog-heading"><h2 id={titleId}>Model reasoning</h2><button type="button" className="secondary" onClick={close} title="Close"><Icon name="Close" /><span className="sr-only">Close</span></button></header>
     {error && <p className="reasoning-error" role="alert">{error} <button type="button" className="quiet" onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
     <div className="reasoning-stream prose" ref={stream} tabIndex={0} aria-label="Model reasoning stream" onScroll={() => {
       const node = stream.current;
@@ -70,6 +71,6 @@ function ReasoningDialog({ text: preview, live, chatId, generationId, length, cl
       following.current = node.scrollHeight - node.scrollTop - node.clientHeight < 40;
       setAwayFromLatest(!following.current);
     }}>{text ?? 'Loading reasoning…'}</div>
-    <footer className="reasoning-dialog-footer"><span>{live ? 'Live reasoning' : 'Saved reasoning'}</span>{awayFromLatest && <button type="button" className="quiet" onClick={latest}>Latest reasoning ↓</button>}</footer>
+    <footer className="reasoning-dialog-footer"><span>{live ? 'Live reasoning' : 'Saved reasoning'}</span>{awayFromLatest && <button type="button" className="quiet" onClick={latest}>Latest reasoning <Icon name="ArrowLongBottom" /></button>}</footer>
   </dialog>, document.body);
 }

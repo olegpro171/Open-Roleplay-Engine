@@ -1,3 +1,4 @@
+import { Icon } from './Icon';
 import { useEffect, useRef, useState } from 'react';
 import type { Turn } from '../shared/contracts';
 
@@ -36,7 +37,7 @@ export function ResponseVariants({ turn, locked, select }: {
   return <div className="variant-selector" role="group" aria-label="Response versions">
     <button type="button" className="quiet variant-arrow" aria-label="Previous response" title="Previous response"
       disabled={selectionLocked || activeIndex <= 0} onPointerDown={event => event.preventDefault()} onClick={() => void choose(activeIndex - 1)}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
+      <Icon name="ArrowShortBack" />
     </button>
     <input className="variant-number" type="text" inputMode="numeric" aria-label="Response version"
       title={`Response version, 1 to ${versionCount}. Press Enter to jump.`}
@@ -51,7 +52,7 @@ export function ResponseVariants({ turn, locked, select }: {
     <span className="variant-total" aria-label={`${versionCount} response versions`}>/ {versionCount}</span>
     <button type="button" className="quiet variant-arrow" aria-label="Next response" title="Next response"
       disabled={selectionLocked || activeIndex < 0 || activeIndex >= variants.length - 1} onPointerDown={event => event.preventDefault()} onClick={() => void choose(activeIndex + 1)}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+      <Icon name="ArrowShortForward" />
     </button>
   </div>;
 }

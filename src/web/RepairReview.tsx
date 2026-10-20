@@ -1,3 +1,4 @@
+import { Icon } from './Icon';
 import { useEffect, useRef, useState } from 'react';
 import type { ChatSnapshot } from '../shared/contracts';
 import { refKey, type ContextJob, type ContextJobDetails, type RepairAction } from '../shared/context';
@@ -64,6 +65,6 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
       {(error || job.error) && <p className="repair-error" role="alert">{error || job.error}</p>}
       {obsolete && !running && <p role="status">The chat or settings changed. Regenerate this candidate before approving.</p>}
     </div>
-    <div className="repair-footer"><div className="actions"><button disabled={locked || !current || obsolete || !candidate || Boolean(candidate.turns.length && !text.trim())} onClick={() => void act('approve')}>{remaining === 1 ? 'Approve & Finish' : 'Approve & Next'}</button><button className="secondary" disabled={locked} onClick={() => void act('regenerate')}>Regenerate</button><button className="secondary" disabled={busy} onClick={() => void act('close')}>Close</button></div><small className="muted">Close discards this candidate and your unapproved edits. Approved repairs stay saved.</small></div>
+    <div className="repair-footer"><div className="actions"><button disabled={locked || !current || obsolete || !candidate || Boolean(candidate.turns.length && !text.trim())} onClick={() => void act('approve')}>{remaining === 1 ? 'Approve & Finish' : 'Approve & Next'}</button><button className="secondary" disabled={locked} onClick={() => void act('regenerate')}>Regenerate</button><button className="secondary" disabled={busy} title="Close" onClick={() => void act('close')}><Icon name="Close" /><span className="sr-only">Close</span></button></div><small className="muted">Close discards this candidate and your unapproved edits. Approved repairs stay saved.</small></div>
   </dialog>;
 }
