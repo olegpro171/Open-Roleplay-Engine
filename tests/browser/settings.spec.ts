@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import packageInfo from '../../package.json' with { type: 'json' };
 
 for (const width of [1440, 820, 390, 320]) {
   test(`application settings shares the workspace and scrolls categories at ${width}px`, async ({ page }, testInfo) => {
@@ -45,6 +46,12 @@ for (const width of [1440, 820, 390, 320]) {
     await expect(page.getByRole('region', { name: 'Data backup', exact: true })).toHaveCount(1);
     expect(await pageNode?.evaluate(node => node.isConnected)).toBe(true);
     await expect(navigation).toBeInViewport();
+    await categories.getByRole('button', { name: 'About ORE', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'About ORE', exact: true })).toBeFocused();
+    await expect(page.getByText(`${packageInfo.version} · Development build`, { exact: true })).toBeVisible();
+    await expect(page.getByText('Unrecorded development checkout', { exact: true })).toBeVisible();
+    expect(await content.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`about-${width}.png`) });
     await categories.getByRole('button', { name: 'Data backup', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Data backup', exact: true })).toBeFocused();
     await expect(page.getByRole('button', { name: 'Save backup', exact: true })).toBeInViewport();

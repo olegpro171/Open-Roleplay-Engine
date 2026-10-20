@@ -377,3 +377,6 @@ button.danger{background:#b74e48;color:#fff;border-color:#d16b64}
 .backup-record pre { max-height: 22rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; }
 .backup-record img { max-width: min(100%, 320px); max-height: 320px; object-fit: contain; }
 @media(max-width: 650px) { .backup-record { margin-left: .3rem; } .topbar .tabs { flex-wrap: wrap; } }
+
+.about-version dd{margin:0 0 1rem;overflow-wrap:anywhere}
+.about-version dt{font-weight:600}

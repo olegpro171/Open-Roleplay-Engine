@@ -1,3 +1,4 @@
+import { buildInfo } from './installation.js';
 import { BackupService } from './backups.js';
 import { backupLimits, backupTableSchema, dataCommandSchema } from '../shared/backups.js';
 import { createReadStream } from 'node:fs';
@@ -130,6 +131,7 @@ export async function createApp(options: {
   const setSession = (reply: { setCookie: (name: string, token: string, options: object) => unknown }, token: string) => {
     reply.setCookie('session', token, { httpOnly: true, secure, sameSite: 'strict', path: '/', maxAge: sessionSeconds });
   };
+  app.get('/api/about', async () => buildInfo());
   app.get('/api/session', async (request) => ({ setupRequired: auth.setupRequired(), authenticated: auth.authenticated(request.cookies.session) }));
   app.post('/api/setup', async (request, reply) => {
     if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.ip)) throw new AppError(403, 'local_setup_only', 'Create the owner account from the server computer first.');

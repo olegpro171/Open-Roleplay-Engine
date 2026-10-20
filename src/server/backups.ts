@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { buildInfo } from './installation.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statfsSync, statSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,7 +21,7 @@ export class BackupService {
   private readonly directory: string;
   private readonly template: Buffer;
   private readonly schema: ReturnType<typeof schemaEntries>;
-  private readonly build = z.object({ version: z.string().min(1).max(100) }).parse(JSON.parse(readFileSync(resolve('package.json'),'utf8'))).version;
+  private readonly build = buildInfo().version;
   private readonly stages = new Map<string, { path: string; owner: string; digest: string; expires: number; metadata: BackupMetadata | null; plan?: ReturnType<BackupStore['preflight']> }>();
   private readonly timer: ReturnType<typeof setInterval>;
   private closed = false;

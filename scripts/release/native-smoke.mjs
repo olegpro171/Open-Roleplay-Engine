@@ -1,0 +1,14 @@
+import Database from 'better-sqlite3';
+import sharp from 'sharp';
+import { Worker } from 'node:worker_threads';
+import { encode } from 'gpt-tokenizer/encoding/cl100k_base';
+const db = new Database(':memory:');
+if (db.prepare('SELECT 42 AS n').get().n !== 42) throw new Error('SQLite failed.');
+const sqliteVersion = db.prepare('SELECT sqlite_version() AS version').get().version;
+db.close();
+await sharp({ create: { width: 2, height: 2, channels: 4, background: '#123456' } }).png().toBuffer();
+if (!encode('ORE проверка').length) throw new Error('Tokenizer assets missing.');
+const worker = new Worker("require('node:worker_threads').parentPort.postMessage(/ORE/u.test('ORE'));", { eval: true });
+await new Promise((resolve, reject) => { worker.once('message', value => value ? resolve() : reject(new Error('Worker failed.'))); worker.once('error', reject); });
+await worker.terminate();
+console.log(`Native/runtime smoke passed: Node ${process.versions.node}, SQLite ${sqliteVersion}, sharp ${sharp.versions.sharp}, libvips ${sharp.versions.vips}.`);

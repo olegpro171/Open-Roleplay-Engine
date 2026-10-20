@@ -2,6 +2,7 @@ import sharp from 'sharp';
 import { z } from 'zod';
 import { cropFromControls, cropPixels, cropSchema, pictureLimits } from '../shared/pictures.js';
 
+process.once('disconnect', () => process.exit(0));
 sharp.cache(false);
 sharp.concurrency(1);
 const inputSchema = z.object({ bytes: z.instanceof(Buffer), crop: cropSchema.optional() });

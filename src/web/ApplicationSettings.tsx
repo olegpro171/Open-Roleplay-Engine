@@ -1,3 +1,4 @@
+import { About } from './About';
 import { Dropdown } from './Controls';
 import { useEffect, useRef, useState } from 'react';
 import { backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type DataOutcome } from '../shared/backups';
@@ -92,6 +93,7 @@ export function ApplicationSettings({ openLibraries }: { openLibraries: () => vo
       <nav className="library-tabs" aria-label="Settings categories">
         <button type="button" onClick={() => scrollToCategory('data-backup-heading')}>Data backup</button>
         <button type="button" onClick={() => scrollToCategory('wipe-data-heading')}>Wipe application data</button>
+        <button type="button" onClick={() => scrollToCategory('about-heading')}>About ORE</button>
       </nav>
     </aside>
     <div className="document-panel library-panel settings-panel" aria-labelledby="application-settings-heading">
@@ -126,7 +128,7 @@ export function ApplicationSettings({ openLibraries }: { openLibraries: () => vo
       const preview = await api<{ token: string; digest: string }>('/data/wipe-preview');
       confirm({ title: 'Wipe application data?',message: 'All saved story content, libraries, API keys and pictures will be deleted. Your local owner login and mandatory factory presets remain. Other sessions are revoked.',actionLabel: 'Wipe application data',onConfirm: () => void run(() => execute({ path: '/data/wipe',body: { ...preview,requestId: crypto.randomUUID(),overwrite: true } })) });
     })}>Wipe application data</button>
-  </section></div></main>;
+  </section><About /></div></main>;
 }
 
 function BackupTree({ stageId }: { stageId: string }) {

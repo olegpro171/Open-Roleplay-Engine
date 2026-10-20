@@ -64,7 +64,12 @@ test('reviews a repair queue with matching panes, source diffs, regenerate, disc
   await dialog.getByRole('checkbox', { name: 'Collapse unchanged', exact: true }).check();
   await expect(dialog.locator('.cm-collapsedLines').first()).toBeVisible();
   await dialog.getByRole('checkbox', { name: 'Collapse unchanged', exact: true }).uncheck();
+  // CodeMirror renders a viewport of this long document. Reveal each scene
+  // before asserting its DOM text; toggling collapse may retain the end caret.
+  await proposal().press('ControlOrMeta+Home');
+  await dialog.getByRole('button', { name: 'Next difference', exact: true }).first().click();
   await expect(proposal()).toContainText('Scene twelve:');
+  await proposal().press('ControlOrMeta+End');
   await expect(proposal()).toContainText('Scene 24:');
   expect(await dialog.locator('.cm-mergeView').evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
   await replaceProposal('Mira kept the key. This draft must be discarded.');

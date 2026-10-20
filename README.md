@@ -14,7 +14,7 @@ Dependencies are installed in this workspace. Double-click **start-app.command**
 ./start-app.command
 ```
 
-The launcher selects a working Node.js LTS runtime, builds the interface and server, and prints the local address (normally `http://localhost:3000`). Leave its terminal open. Stop it with Control-C.
+This source launcher requires supported Node.js on the invoking terminal's PATH, builds the interface and server, and prints the local address (normally `http://localhost:3000`). For an installation with its own runtime, use the [contained installation procedure](#contained-installation-and-release-tooling). Leave its terminal open. Stop it with Control-C.
 
 In Safari on the Mac, open that address and choose **File → Add to Dock**. The tab favicon and Dock icon use the current ORE header mark. If ORE was already added to the Dock with an older icon, remove that web app and add it again to pick up the new artwork. Icon PNGs are generated from `artwork/ore-mark.svg` with `node scripts/generate-icons.mjs` using the supported Node runtime.
 
@@ -139,6 +139,21 @@ The chat composer places **Send** beside the textbox on wide screens and below i
 
 Completed generated turns show endpoint-reported input/output tokens beside the turn number. Imported turns and greetings have no generation usage; older or unsupported endpoint responses show usage as unavailable. Counts describe the original request/response before later edits and may include reasoning in the endpoint’s output count.
 
+## Contained installation and release tooling
+
+For the early portable workflow prerelease, see [v0.1.0-test.1 testing instructions](docs/TEST_RELEASE.md).
+
+Use the Bash bootstrap for a private Node/runtime/dependency installation:
+
+```sh
+./build-portable.sh --development "$HOME/ORE"
+"$HOME/ORE/start.command"
+```
+
+Builds stage before activation; installed startup works without rebuilding or downloading. Data defaults to `ORE/data/roleplay.sqlite`, with external language packs in `ORE/languages/`; explicit `ROLEPLAY_DATABASE` overrides remain supported. Settings → About ORE shows build identity. Existing older databases receive a private consistent pre-upgrade snapshot; future schemas are refused. App-file rollback and database restoration are separate operations.
+
+See [release/build/update/recovery instructions](docs/RELEASES.md), [actual platform evidence](docs/RELEASE_VERIFICATION.md) and the [Windows executable handoff](docs/WINDOWS_RELEASE_HANDOFF.md). macOS arm64 was exercised locally; Linux, macOS x64, Windows executable delivery and signing remain unqualified. Clean release mode requires a committed clean main-reachable revision. Nothing is published automatically.
+
 ## Installation and development
 
 Use **Node.js 24 LTS**, or Node.js 22.12+, with npm. Exact package versions are recorded in `package.json` and `package-lock.json`. Do not share `node_modules` between different Node major versions: better-sqlite3 is a native dependency. This workspace was built and tested with Node.js 24.19.0.
@@ -158,11 +173,7 @@ npm run dev:ui
 
 The first command watches the server on port 3000; the second serves the interface on port 5173 and forwards API requests. Normal use runs the built interface and API together through Fastify. The Mac must remain awake for generation and phone access.
 
-If the shell selects this Mac's Node 26 installation, use the launcher, or select the working bundled LTS runtime for this terminal:
-
-```sh
-export PATH="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:$PATH"
-```
+The source convenience launcher uses supported Node from the invoking terminal's PATH. It does not select a Codex-managed runtime. For normal use without a global Node installation, use the contained procedure above.
 
 ## Verification
 
@@ -215,12 +226,12 @@ The default server listens on loopback only. Plain HTTP LAN binding is refused. 
 ROLEPLAY_HOST=0.0.0.0 \
 ROLEPLAY_TLS_CERT=/absolute/path/to/certificate.pem \
 ROLEPLAY_TLS_KEY=/absolute/path/to/private-key.pem \
-./start-app.command
+"$HOME/ORE/start.command"
 ```
 
 The server then prints available LAN addresses. Use an address covered by the certificate and allow access through the Mac's firewall if required. Login sessions use Secure cookies with HTTPS. Certificate provisioning and trust installation have not been selected or tested on the actual phone; routine phone use remains pending that setup. No certificate or trust settings are installed by this project.
 
-Optional environment settings: `ROLEPLAY_PORT` (default 3000), `ROLEPLAY_HOST` (default 127.0.0.1), `ROLEPLAY_DATABASE` (default `data/roleplay.sqlite`), and the paired TLS certificate/key paths above. Run commands from this project directory so built files and migrations resolve correctly.
+Optional environment settings: `ROLEPLAY_PORT` (default 3000), `ROLEPLAY_HOST` (default 127.0.0.1), `ROLEPLAY_DATABASE` (default `data/roleplay.sqlite`), and the paired TLS certificate/key paths above. Source-development commands run from this project directory. Built startup resolves UI/migrations/package metadata from its installation, independently of the invoking directory. Relative explicit database overrides resolve from the invoking directory; prefer absolute paths.
 
 ## Source boundaries
 

@@ -8,6 +8,9 @@ import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { savePreUpgradeSnapshot } from './schema-backup.js';
+import { databaseSchemaVersion } from '../shared/build-info.js';
 import { AppError } from '../core/errors.js';
 import { replaceNameMacros } from '../core/prompt.js';
 import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStatus, RequestPreview, ResponseVariant, TokenUsage, Turn } from '../shared/contracts.js';
@@ -55,14 +58,19 @@ export class Store {
   readonly pictures: PictureStore;
   private readonly ownerToken = randomUUID();
 
-  constructor(filename: string, migrationsDirectory = resolve('migrations')) {
+  constructor(filename: string, migrationsDirectory = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? '../../migrations/' : '../../../migrations/', import.meta.url))) {
     if (filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true, mode: 0o700 });
     this.sqlite = new Database(filename);
     if (filename !== ':memory:') chmodSync(filename, 0o600);
+    const storedVersion: unknown = this.sqlite.pragma('user_version', { simple: true });
+    if (typeof storedVersion !== 'number' || storedVersion < 0 || storedVersion > databaseSchemaVersion) {
+      this.sqlite.close();
+      throw new Error(`Unsupported database schema ${String(storedVersion)}. This ORE supports up to ${databaseSchemaVersion}. Use the newer application; the database was not downgraded.`);
+    }
     this.sqlite.pragma('journal_mode = WAL');
     this.sqlite.pragma('foreign_keys = ON');
     this.sqlite.pragma('busy_timeout = 5000');
-    let version = this.sqlite.pragma('user_version', { simple: true }) as number;
+    let version = storedVersion;
     const newDatabase = version === 0;
     if (version === 0) {
       this.sqlite.transaction(() => {
@@ -84,6 +92,9 @@ export class Store {
         }
         this.sqlite.prepare('INSERT INTO runtime_owner (id, process_id, token) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET process_id = excluded.process_id, token = excluded.token').run(process.pid, this.ownerToken);
       }).immediate();
+      if (!newDatabase && version < databaseSchemaVersion && filename !== ':memory:') {
+        savePreUpgradeSnapshot(this.sqlite, filename, version);
+      }
       if (version === 1) {
         this.sqlite.transaction(() => {
           this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0002_libraries.sql'), 'utf8'));

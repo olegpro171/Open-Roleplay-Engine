@@ -52,7 +52,7 @@ export class PictureProcessor {
       clearTimeout(work.timer); work.signal?.removeEventListener('abort', work.abort);
       const compiled = fileURLToPath(new URL('./picture-worker.js', import.meta.url));
       const workerPath = existsSync(compiled) ? compiled : fileURLToPath(new URL('./picture-worker.ts', import.meta.url));
-      const child = fork(workerPath, [], { execArgv: workerPath.endsWith('.ts') ? ['--import', 'tsx', '--max-old-space-size=256'] : ['--max-old-space-size=256'], serialization: 'advanced', stdio: ['ignore', 'ignore', 'ignore', 'ipc'], env: { ...process.env, VIPS_CONCURRENCY: '1', MALLOC_ARENA_MAX: '2' } });
+      const child = fork(workerPath, [], { execPath: process.execPath, execArgv: workerPath.endsWith('.ts') ? ['--import', 'tsx', '--max-old-space-size=256'] : ['--max-old-space-size=256'], serialization: 'advanced', stdio: ['ignore', 'ignore', 'ignore', 'ipc'], env: { ...process.env, VIPS_CONCURRENCY: '1', MALLOC_ARENA_MAX: '2' } });
       let finished = false;
       const finish = (error?: unknown, value?: unknown) => {
         if (finished) return;

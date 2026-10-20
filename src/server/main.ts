@@ -1,27 +1,43 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { networkInterfaces } from 'node:os';
 import { createApp } from './app.js';
+import { startupPaths, validateInstalledAssets } from './installation.js';
+
+// The launcher's IPC channel can close while imports/startup are still running.
+const launchedByParent = process.env.ORE_PARENT_IPC === '1' || typeof process.send === 'function';
+let parentDisconnected = launchedByParent && !process.connected;
+if (launchedByParent) process.once('disconnect', () => { parentDisconnected = true; });
 
 const [major, minor] = process.versions.node.split('.').map(Number);
-if (!(major === 24 || (major === 22 && minor >= 12))) {
-  console.error('Use Node.js 22.12+ or 24 LTS. The local launcher selects a working LTS runtime.');
-  process.exit(1);
-}
+if (!(major === 24 || (major === 22 && minor >= 12))) throw new Error('Use Node.js 22.12+ or 24 LTS. Start portable installations with their supplied launcher.');
+const paths = startupPaths();
+// Vite serves source development separately; only built delivery requires UI assets.
+if (import.meta.url.endsWith('.js')) validateInstalledAssets(paths);
 const host = process.env.ROLEPLAY_HOST ?? '127.0.0.1';
 const port = Number(process.env.ROLEPLAY_PORT ?? 3000);
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('ROLEPLAY_PORT must be an integer from 1 to 65535.');
 const certificate = process.env.ROLEPLAY_TLS_CERT;
 const key = process.env.ROLEPLAY_TLS_KEY;
 if (Boolean(certificate) !== Boolean(key)) throw new Error('Set both ROLEPLAY_TLS_CERT and ROLEPLAY_TLS_KEY.');
 if (!['127.0.0.1', 'localhost', '::1'].includes(host) && !certificate) throw new Error('LAN access requires ROLEPLAY_TLS_CERT and ROLEPLAY_TLS_KEY. Start locally to set up the owner login first.');
 const { app } = await createApp({
-  database: resolve(process.env.ROLEPLAY_DATABASE ?? 'data/roleplay.sqlite'),
-  staticDirectory: resolve('dist/client'),
+  ...paths,
   ...(certificate && key ? { https: { cert: readFileSync(certificate), key: readFileSync(key) } } : {}),
 });
-await app.listen({ host, port });
+if (parentDisconnected) { await app.close(); process.exit(0); }
+try { await app.listen({ host, port }); }
+catch (error) {
+  await app.close();
+  if (error instanceof Error && 'code' in error && error.code === 'EADDRINUSE') throw new Error(`Port ${port} is occupied. Stop the other ORE terminal or choose ROLEPLAY_PORT. No process was killed.`);
+  throw error;
+}
+if (parentDisconnected) { await app.close(); process.exit(0); }
+let stopping = false;
 const protocol = certificate ? 'https' : 'http';
-console.log(`ORE is running.\nLocal: ${protocol}://localhost:${port}`);
+const localHost = host === '::1' ? '[::1]' : host === '0.0.0.0' || host === '::' ? 'localhost' : host;
+const url = `${protocol}://${localHost}:${port}`;
+console.log(`ORE is running.\nLocal: ${url}\nStop: press Ctrl+C in this terminal.`);
+process.send?.({ type: 'ready', url }, error => { if (error) stop(); });
 if (!['127.0.0.1', 'localhost', '::1'].includes(host)) {
   for (const addresses of Object.values(networkInterfaces())) {
     for (const address of addresses ?? []) {
@@ -29,6 +45,11 @@ if (!['127.0.0.1', 'localhost', '::1'].includes(host)) {
     }
   }
 } else console.log('LAN access is off. Configure HTTPS to connect a phone.');
-for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => {
+function stop() {
+  if (stopping) return;
+  stopping = true;
   void app.close().then(() => process.exit(0)).catch(() => process.exit(1));
-});
+}
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, stop);
+// The portable launcher owns this child. Losing it must not orphan the server.
+if (launchedByParent) process.once('disconnect', stop);
