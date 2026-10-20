@@ -1,3 +1,4 @@
+import { openChatTool } from './chat-tools';
 import { test, expect, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
 
@@ -85,7 +86,7 @@ test('drafts survive menus, chat switches, reloads and closing the browser page'
   const text = '\n  Mira holds the key.\nОна ждёт ответа.  \n';
   await page.getByLabel('Your next turn').fill(text);
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
+  await openChatTool(page, 'Chat settings');
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await expect(page.getByLabel('Your next turn')).toHaveValue(text);
   await open(page, 'Draft story B');

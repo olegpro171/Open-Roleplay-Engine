@@ -1,3 +1,4 @@
+import { openChatTool } from './chat-tools';
 import { test, expect, devices, type Page } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -41,7 +42,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported compaction proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
+  await openChatTool(page, 'Chat settings');
   const messages = Array.from({ length: 48 }, (_, i) => [
     { is_user: true, mes: `Mira offers Leon her brass key. Turn ${i + 1}. ${'The room is quiet. '.repeat(10)}` },
     { is_user: false, mes: `Leon promises not to enter the cellar. ${'The lantern casts long shadows. '.repeat(7)}` },
@@ -50,7 +51,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await expect(page.getByText(/96 messages → 48 turns/)).toBeVisible();
   await page.getByRole('button', { name: 'Replace all messages', exact: true }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
+  await openChatTool(page, 'Inspect memory');
   await expect(page.getByRole('button', { name: 'Save next summary', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Save next summary', exact: true }).click();
   await expect(page.getByText(/2 archived turns/)).toBeVisible();
@@ -90,7 +91,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await phone.getByRole('button', { name: 'Libraries', exact: true }).click();
   await phone.getByRole('article').filter({ has: phone.getByRole('heading', { name: 'Imported compaction proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
   await phone.getByRole('button', { name: 'Story', exact: true }).click();
-  await phone.getByRole('button', { name: 'Inspect memory', exact: true }).click();
+  await openChatTool(phone, 'Inspect memory');
   await expect(phone.getByTestId('memory-status')).toContainText('Ready:');
   expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await phone.locator('.memory-chart').scrollIntoViewIfNeeded();
@@ -132,7 +133,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await choose(phone, 'Saved preparation', 'Current committed selection');
   await phone.reload();
   await phone.getByRole('button', { name: 'Story', exact: true }).click();
-  await phone.getByRole('button', { name: 'Inspect memory', exact: true }).click();
+  await openChatTool(phone, 'Inspect memory');
   await expect(phone.getByTestId('memory-prepare-result')).toContainText('0 new summaries generated.');
   expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const editedId = refreshed.context.archivedTurnIds.at(-1)!;
@@ -168,7 +169,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await phone.screenshot({ path: 'test-results/phone-memory-manual.png', fullPage: true });
   await page.reload();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
+  await openChatTool(page, 'Inspect memory');
   await expect(page.getByRole('button', { name: /summary, turns .*active, manually edited/ }).last()).toBeVisible();
   await page.locator('.memory-chart').scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/desktop-memory-manual.png', fullPage: true });

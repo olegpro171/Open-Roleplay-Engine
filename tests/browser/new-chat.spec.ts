@@ -1,3 +1,4 @@
+import { openChatTool } from './chat-tools';
 import { test, expect, type Page } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -86,7 +87,7 @@ for (const width of [1440, 390]) {
     await page.reload();
     await expect(page.getByLabel('Conversation')).toContainText(`Welcome, Starter visitor ${width}.`);
     await page.getByRole('button', { name: 'Story', exact: true }).click();
-    await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
+    await openChatTool(page, 'Chat settings');
     await expect(page.getByLabel('Chat title')).toHaveValue(title);
     await expect(page.getByRole('combobox', { name: 'Character', exact: true })).toContainText(characterName);
     await expect(page.getByRole('combobox', { name: 'Persona', exact: true })).toContainText(`Starter visitor ${width}`);

@@ -1,3 +1,4 @@
+import { openChatTool } from './chat-tools';
 import { test, expect, devices, type Page } from '@playwright/test';
 
 async function choose(page: Page, label: string, option: string) {
@@ -31,7 +32,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await page.getByLabel('Persona description').fill('The user is a traveller.');
   await page.getByRole('button', { name: 'Save persona', exact: true }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
+  await openChatTool(page, 'Chat settings');
   await page.getByLabel('Chat title').fill('The Lantern Tower');
   await choose(page, 'Connection', 'Tower model');
   await choose(page, 'Character', 'Keeper');
@@ -49,7 +50,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await request.post('/__test/mode', { data: { mode: 'hold-first-token' } });
   await page.getByLabel('Your next turn').fill('I enter the tower.');
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Request inspector', exact: true }).click();
+  await openChatTool(page, 'Request inspector');
   await page.getByRole('button', { name: 'Preview next request' }).click();
   await expect(page.getByTestId('request-body')).toBeHidden();
   await page.getByText('Endpoint and request body', { exact: true }).click();
@@ -81,7 +82,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await expect(phone.getByLabel('Your next turn')).toBeEnabled();
 
   await phone.getByRole('button', { name: 'Story', exact: true }).click();
-  await phone.getByRole('button', { name: 'Request inspector', exact: true }).click();
+  await openChatTool(phone, 'Request inspector');
   await expect(phone.getByTestId('request-body')).toBeHidden();
   await phone.getByText('Endpoint and request body', { exact: true }).click();
   await expect(phone.getByTestId('request-body')).toContainText('I enter the tower.');
@@ -208,7 +209,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await expect(page.locator('.part.user')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Edit input', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Request inspector', exact: true }).click();
+  await openChatTool(page, 'Request inspector');
   await page.getByRole('button', { name: 'Preview next request', exact: true }).click();
   const preview = JSON.parse((await page.getByTestId('request-body').textContent())!);
   expect(preview.messages[0].content).toBe('Play Moon in a story with Visitor.');
@@ -216,7 +217,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   expect(preview.messages.at(-1).content).toBe('After history: Moon answers.');
   expect(JSON.stringify(preview)).not.toContain('INACTIVE LORE');
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
+  await openChatTool(page, 'Chat settings');
   const entries = [{ user_name: 'Visitor', character_name: 'Moon', chat_metadata: { summary: 'IGNORE OLD SUMMARY' } },
     { is_user: false, mes: 'Imported opening', extra: { advancedMemorySnapshot: 'x'.repeat(1_200_000), hiddenFromAI: true } },
     { is_user: false, mes: 'Another assistant entry' }, { is_user: true, mes: 'A question' }, { is_user: false, mes: 'An answer' }];
@@ -230,7 +231,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await page.reload();
   await expect(page.getByLabel('Conversation')).toContainText('An answer');
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
+  await openChatTool(page, 'Chat settings');
   await page.getByLabel('Chat JSONL file').setInputFiles({ name: 'bad.jsonl', mimeType: 'application/jsonl', buffer: Buffer.from('{broken') });
   await expect(page.getByRole('alert')).toContainText('Line 1');
   await page.getByRole('button', { name: 'Story', exact: true }).click();

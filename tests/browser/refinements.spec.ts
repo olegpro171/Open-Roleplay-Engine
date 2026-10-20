@@ -1,3 +1,4 @@
+import { openChatTool } from './chat-tools';
 import { test, expect, devices } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -48,6 +49,19 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await page.screenshot({ path: 'test-results/desktop-prompt-peek.png', fullPage: true });
   await page.keyboard.press('Escape'); await expect(peek).toHaveCount(0);
   await expect(meta.getByRole('button', { name: 'Prompt peek', exact: true })).toBeFocused();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const detailsToggle = page.getByRole('button', { name: 'Chat details', exact: true });
+  await detailsToggle.click();
+  await meta.getByRole('button', { name: 'Prompt peek', exact: true }).click();
+  await expect(peek).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(peek).toHaveCount(0);
+  await expect(detailsToggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(meta.getByRole('button', { name: 'Prompt peek', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(detailsToggle).toBeFocused();
+  await expect(detailsToggle).toHaveAttribute('aria-expanded', 'false');
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByLabel('Your next turn')).toBeEnabled();
   await expect(page.locator('.turn-usage').last()).toHaveText('321 in · 17 out');
@@ -55,7 +69,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   expect(originalRequest?.budget.targetInputTokens).toBe(35_000);
 
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
+  await openChatTool(page, 'Inspect memory');
   await page.getByLabel('Input target', { exact: true }).fill('700');
   await page.getByRole('button', { name: 'Save memory settings', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Memory', exact: true }).getByRole('meter', { name: 'Input budget' })).toHaveClass(/overflow/);
@@ -72,19 +86,19 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();
 
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
+  await openChatTool(page, 'Chat settings');
   await page.getByLabel('Target input tokens').fill('45000');
   await page.getByRole('button', { name: 'Save and return', exact: true }).click();
   await expect(meta.locator('dl div').filter({ hasText: 'Active turns' })).toHaveText('Active turns7');
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Request inspector', exact: true }).click();
+  await openChatTool(page, 'Request inspector');
   await expect(page.locator('.budget strong')).toContainText('/ 45,000');
   await page.getByRole('combobox', { name: 'Inspect request', exact: true }).click();
   await page.getByRole('option').filter({ hasText: 'succeeded' }).first().click();
   await expect(page.locator('.budget strong')).toContainText('/ 35,000');
   expect(JSON.parse((await page.getByTestId('request-body').textContent())!)).toEqual(originalRequest!.body);
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
+  await openChatTool(page, 'Inspect memory');
   await expect(page.getByTestId('memory-status')).toContainText('Ready:');
   await expect(page.locator('.memory-failure')).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Memory', exact: true }).getByRole('meter', { name: 'Input budget' })).toHaveClass(/fits/);
@@ -104,7 +118,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await phone.getByRole('button', { name: 'Libraries', exact: true }).click();
   await phone.getByRole('article').filter({ has: phone.getByRole('heading', { name: 'Refinement proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
   await phone.getByRole('button', { name: 'Story', exact: true }).click();
-  await phone.getByRole('button', { name: 'Request inspector', exact: true }).click();
+  await openChatTool(phone, 'Request inspector');
   await phone.getByRole('button', { name: 'Prompt peek', exact: true }).click();
   await expect(phone.getByRole('dialog', { name: 'Prompt peek' })).toBeVisible();
   expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -214,7 +228,7 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   });
   await page.reload();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
+  await openChatTool(page, 'Inspect memory');
   await expect(page.getByRole('heading', { name: 'Summary layers' })).toBeVisible();
   const recent = page.getByRole('button', { name: 'Level 1 summary, turns 200 to 203, active · fresh, revision 0', exact: true });
   await expect(recent).toHaveText('');

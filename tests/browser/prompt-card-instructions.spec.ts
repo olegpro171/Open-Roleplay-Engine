@@ -1,3 +1,4 @@
+import { openChatTool } from './chat-tools';
 import { expect, test, type Page } from '@playwright/test';
 import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -38,7 +39,7 @@ test('edits card instructions, enables preset injection, explains unavailable so
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Card instructions story', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Chat settings', exact: true })).toHaveText('Chat settings (4)');
-  await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
+  await openChatTool(page, 'Chat settings');
   const warnings = page.getByRole('region', { name: 'Prompt configuration warnings', exact: true });
   await expect(warnings.getByRole('listitem')).toHaveCount(4);
   await expect(warnings).toContainText('Missing personality');
@@ -67,8 +68,9 @@ test('edits card instructions, enables preset injection, explains unavailable so
   await choose(page, 'Marker source for block 7', 'Card post-history instructions');
   await page.getByRole('button', { name: 'Save prompt', exact: true }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('button', { name: 'Chat details', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Chat settings', exact: true })).toHaveText('Chat settings (1)');
-  await page.getByRole('button', { name: 'Chat settings', exact: true }).click();
+  await openChatTool(page, 'Chat settings');
   await expect(warnings.getByRole('listitem')).toHaveCount(1);
   await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();

@@ -1,3 +1,4 @@
+import { openChatTool } from './chat-tools';
 import { test, expect } from '@playwright/test';
 import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -38,7 +39,7 @@ test('edits explicit markers, uses recent history, and enables preparation again
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Explicit prompt chat', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
+  await openChatTool(page, 'Inspect memory');
   await expect(page.getByTestId('memory-status')).toContainText('Summaries are disabled');
   await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Save next summary', exact: true })).toBeDisabled();
@@ -67,7 +68,7 @@ test('edits explicit markers, uses recent history, and enables preparation again
   const enabledBlocks = prompt.blocks.map(block => ({ ...block, enabled: true }));
   await command(`/api/library/${prompt.id}`, { revision: (await library()).revision, kind: 'prompts', data: { name: prompt.name, blocks: enabledBlocks } }, 'PUT');
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
+  await openChatTool(page, 'Inspect memory');
   await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Prepare chat', exact: true }).click();
   await expect(page.getByTestId('memory-status')).toContainText('Ready:', { timeout: 15_000 });

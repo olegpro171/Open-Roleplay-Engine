@@ -18,7 +18,7 @@ import { TurnControls } from './TurnControls';
 import { ReasoningPreview } from './Reasoning';
 import { ChatMarkdown } from './ChatMarkdown';
 import { ChatTextarea } from './ChatTextarea';
-import { ChatWorkspace } from './ChatWorkspace';
+import { ChatDetailsTarget, ChatWorkspace } from './ChatWorkspace';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
@@ -54,6 +54,7 @@ export function App() {
   const [edit, setEdit] = useState<Edit | null>(null);
   const [peek, setPeek] = useState(false);
   const [contextExpanded, setContextExpanded] = useState(false);
+  const [chatDetailsTarget, setChatDetailsTarget] = useState<HTMLDivElement | null>(null);
   const [generationId, setGenerationId] = useState('');
   const loadId = useRef(0);
   const { transcript, awayFromLatest, scrollToLatest } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot, edit);
@@ -218,7 +219,7 @@ export function App() {
   </>;
   const returnToChat = () => { setTab('story'); setPeek(false); setGenerationId(''); };
 
-  return <div className="app">
+  return <ChatDetailsTarget.Provider value={chatDetailsTarget}><div className="app">
     <header className="topbar">
       <div className="brand"><span className="brand-mark" aria-hidden="true">O</span><div><strong>ORE</strong><small>Your stories. Room to continue.</small></div></div>
       <nav className="tabs" aria-label="Workspace">
@@ -226,13 +227,14 @@ export function App() {
         <button aria-current={tab === 'library' ? 'page' : undefined} onClick={() => { setLibraryTarget(null); setTab('library'); }}>Libraries</button>
         <button aria-current={tab === 'data' ? 'page' : undefined} onClick={() => setTab('data')}>Settings</button>
       </nav>
+      <div className="chat-details-slot" ref={setChatDetailsTarget} />
       <div className="connection-status"><span className={online ? 'dot online' : 'dot'} />{online ? 'Connected' : 'Reconnecting'}</div>
       <button className="quiet signout" onClick={() => void command(async () => { await api('/logout', 'POST', {}); setSnapshot(null); await refreshSession(); })}>Sign out</button>
     </header>
     {dataChanged && <div className="error-banner" role="alert"><span>Application data was imported or wiped in another tab. Old edits cannot be saved. Copy any unsaved editor text, then reload to review the current data. Browser composer drafts remain recoverable.</span><button onClick={() => window.location.reload()}>Reload current data</button></div>}
     {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" onClick={() => setError('')}>Dismiss</button></div>}
     {tab === 'data' && <ApplicationSettings openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
-    {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<>
+    {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} navigation actions={<>
         <button className="quiet chat-navigation-action" aria-label="Chat settings" onClick={() => setTab('settings')}><Icon name="Settings" />Chat settings{snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : ''}</button>
         <button className="quiet chat-navigation-action" onClick={() => setTab('memory')}><Icon name="List" />Inspect memory</button>
         <button className="quiet chat-navigation-action" onClick={() => setTab('request')}><Icon name="Menu" />Request inspector</button>
@@ -302,7 +304,7 @@ export function App() {
     </section></ChatWorkspace>}
     {peek && currentRequest && <PromptPeek stale={memoryStale} request={currentRequest} close={() => setPeek(false)} />}
 
-  </div>;
+  </div></ChatDetailsTarget.Provider>;
 }
 
 function Login({ session, onLogin }: { session: Session; onLogin: () => Promise<void> }) {

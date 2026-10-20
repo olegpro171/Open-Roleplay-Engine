@@ -1,3 +1,4 @@
+import { openChatTool } from './chat-tools';
 import { test, expect } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -63,7 +64,7 @@ test('keeps chat and memory budget panels mounted during debounced and delayed r
   await expect(context).toHaveAttribute('open', '');
 
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
+  await openChatTool(page, 'Inspect memory');
   const budget = page.locator('.memory-panel .budget');
   await expect(budget.locator('strong')).toContainText('/ 20,000');
   const budgetNode = await budget.elementHandle();
