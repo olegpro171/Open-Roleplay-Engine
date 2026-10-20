@@ -186,8 +186,11 @@ it('keeps the last committed story when the server process dies inside the impor
   backups.close(); db.close();
   const child = spawn(process.execPath,['--import','tsx','tests/support/backup-crash-worker.ts',join(directory,'crash.sqlite'),input],{ cwd: process.cwd(),stdio: ['ignore','pipe','pipe'] });
   let output = '', errors = ''; child.stdout.on('data',chunk => { output += String(chunk); }); child.stderr.on('data',chunk => { errors += String(chunk); });
-  const signal = await new Promise<NodeJS.Signals|null>((resolve,reject) => { child.once('error',reject); child.once('exit',(_code,signal) => resolve(signal)); });
-  expect(output,errors).toContain('crash-before-data-receipt'); expect(signal).toBe('SIGKILL');
+  const termination = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve,reject) => { child.once('error',reject); child.once('exit',(code,signal) => resolve({ code, signal })); });
+  expect(output,errors).toContain('crash-before-data-receipt');
+  // Windows reports TerminateProcess as a nonzero exit code, without a signal.
+  if (process.platform === 'win32') expect(termination.code).not.toBe(0);
+  else expect(termination.signal).toBe('SIGKILL');
   const restarted = open('crash'); expect(restarted.snapshot()).toEqual(before); expect(new BackupStore(restarted).token).toBe(token); expect(restarted.sqlite.prepare('SELECT * FROM data_commands').all()).toEqual([]);
   restarted.sqlite.exec('DROP TRIGGER synthetic_crash');
   const resumed = backup(restarted,'crash'), review = resumed.upload(readFileSync(input),'owner'); expect(review.blockers).toEqual([]); resumed.commit(review.stageId,'owner',command(review)); expect(restarted.snapshot().turns[0].assistant.text).toBe('Older backup response');

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { readSelection, writeSelection } from './selection.mjs';
+import { readSelection, writeSelection, runtimeExecutable } from './selection.mjs';
 import { resolveDatabase, selectDatabase } from './database-location.mjs';
 import { verifyStartup } from './startup-smoke.mjs';
 
@@ -15,8 +15,8 @@ function application(id) {
   const path = join(home, 'app', id);
   const info = JSON.parse(readFileSync(join(path, 'build-info.json'), 'utf8'));
   const manifest = JSON.parse(readFileSync(join(path, 'manifest.json'), 'utf8'));
-  if (!Number.isInteger(info.schema) || info.schema < 1 || !/^node-v[0-9.]+-(darwin|linux)-(arm64|x64)$/u.test(manifest.runtime)) throw new Error('Invalid retained application metadata.');
-  return { path, info, selection: { id, runtime: manifest.runtime }, node: join(home, 'runtime', manifest.runtime, 'bin/node') };
+  if (!Number.isInteger(info.schema) || info.schema < 1 || !/^node-v[0-9.]+-(darwin|linux|win32)-(arm64|x64)$/u.test(manifest.runtime)) throw new Error('Invalid retained application metadata.');
+  return { path, info, selection: { id, runtime: manifest.runtime }, node: runtimeExecutable(home, manifest.runtime) };
 }
 async function recover() {
   if (action === '--list') {

@@ -9,6 +9,7 @@ import { inspectDatabase } from './check-database.mjs';
 
 const application = resolve(process.argv[3] ?? resolve(dirname(fileURLToPath(import.meta.url)), '../..'));
 const home = resolve(process.argv[2] ?? '');
+const recoveryCommand = process.platform === 'win32' ? 'recover-app.bat' : 'recover.command (recover-app.command from source)';
 let database;
 try {
   if (process.env.ROLEPLAY_DATABASE !== undefined && !process.env.ROLEPLAY_DATABASE.trim()) throw new Error('ROLEPLAY_DATABASE must name a database file. Unset it to use the installation default.');
@@ -31,7 +32,7 @@ try {
   if (!Number.isInteger(info.schema) || info.schema < 1) throw new Error('Invalid application schema metadata.');
   if (existsSync(database.path)) inspectDatabase(application, database.path, info.schema);
 } catch (error) {
-  console.error(`ORE cannot start: ${error.message}\nNo alternative database was selected. Use recover.command --list / --previous (recover-app.command from source) to inspect and recover retained versions safely.`);
+  console.error(`ORE cannot start: ${error.message}\nNo alternative database was selected. Use ${recoveryCommand} --list / --previous to inspect and recover retained versions safely.`);
   process.exit(1);
 }
 const logPath = resolve(home, 'logs', `startup-${Date.now()}-${process.pid}.log`);
@@ -45,7 +46,7 @@ let stopping = false;
 function stop() {
   if (stopping) return;
   stopping = true;
-  child?.kill('SIGTERM');
+  if (child?.connected) child.disconnect();
 }
 // These cover a terminal close as well as Ctrl+C. Never kill a foreign PID.
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, stop);
@@ -67,14 +68,15 @@ child.on('message', message => {
     process.send?.({ type: 'ready', url: message.url }, error => { if (error) stop(); });
   } catch (error) { failed = true; console.error(`Could not record successful startup: ${error.message}`); stop(); return; }
   if (process.env.ORE_OPEN_BROWSER === '0') return;
-  const command = process.platform === 'darwin' ? 'open' : 'xdg-open';
-  const browser = spawn(command, [message.url], { stdio: 'ignore' });
+  // Avoid cmd.exe parsing of a provider-independent URL on Windows.
+  const command = process.platform === 'win32' ? 'rundll32.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+  const browser = spawn(command, process.platform === 'win32' ? ['url.dll,FileProtocolHandler', message.url] : [message.url], { stdio: 'ignore' });
   browser.on('error', () => console.log(`Open ${message.url} in your browser.`));
   browser.unref();
 });
 child.once('exit', (code, signal) => {
   process.exitCode = failed || !ready ? 1 : code ?? (signal ? 1 : 0);
-  if (!ready) console.error('ORE did not become ready. No older code was launched automatically. Use recover.command --list / --previous (or recover-app.command from source); recovery checks the saved database schema first.');
+  if (!ready) console.error(`ORE did not become ready. No older code was launched automatically. Use ${recoveryCommand} --list / --previous; recovery checks the saved database schema first.`);
   log.end();
   if (process.connected) process.disconnect();
 });

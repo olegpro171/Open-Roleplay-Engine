@@ -145,7 +145,7 @@ Completed generated turns show endpoint-reported input/output tokens beside the 
 
 For the early portable workflow prerelease, see [v0.1.0-test.1 testing instructions](docs/TEST_RELEASE.md).
 
-The daily launcher always installs inside this repository:
+The daily launcher always installs inside this repository. Windows x64 users double-click `start-app.bat` (Windows PowerShell 5.1 and configured Git are the update prerequisites). On Mac:
 
 ```sh
 ./start-app.command
@@ -155,9 +155,9 @@ Run it without arguments: the first start builds into `ore-portable/`, and later
 
 Git, Bash, curl, tar and SHA-256 tools must already exist. This repository is private: configure Git authentication for updates; credentials are not bundled. The source launcher follows its checkout's `origin` through a separate managed checkout; installed downloads default to this repository. Local source edits are preserved and do not become automatic releases. For development snapshots use `./build-portable.sh --development DIRECTORY` explicitly. The published `v0.1.0-test.1` archive predates automatic startup updates. Existing external installations are left intact; saved content can be retained through an explicit database override or backup/import.
 
-See [release/build/update/recovery instructions](docs/RELEASES.md), [actual platform evidence](docs/RELEASE_VERIFICATION.md) and the [Windows executable handoff](docs/WINDOWS_RELEASE_HANDOFF.md). macOS arm64 was exercised locally; Linux, macOS x64, Windows executable delivery and signing remain unqualified. Clean release mode requires a committed clean main-reachable revision. Nothing is published automatically.
+See [release/build/update/recovery instructions](docs/RELEASES.md), [actual platform evidence](docs/RELEASE_VERIFICATION.md) and the [Windows delivery handoff](docs/WINDOWS_RELEASE_HANDOFF.md). macOS arm64 was exercised locally; Linux, macOS x64, Windows ARM64 and signing remain unqualified. Windows x64 evidence and remaining manual gates are recorded in [Windows verification](docs/WINDOWS_RELEASE_VERIFICATION.md). Clean release mode requires a committed clean main-reachable revision. Nothing is published automatically.
 
-Launcher settings can be saved in a private `.env` beside the source launchers, or beside `start.command`/`recover.command` in a separate installation. The source checkout includes `.env.example`; copy it or create `.env` directly. For example, `ORE_OPEN_BROWSER=0` prevents automatic browser opening in daily and development launches. Recovery reads the same settings. Explicit environment variables override file values, including empty values. Files support blank lines, whole-line `#` comments and `KEY=value` assignments with optional matching single/double quotes; values are literal (no shell execution, variable expansion, multiline values or inline comments). Invalid assignments stop startup with a file/line diagnostic. `.env` is ignored by Git, preserved across builds/updates, and excluded from portable archives. Direct npm commands do not load this launcher file.
+Launcher settings can be saved in a private `.env` beside the source launchers, or beside `start.command`/`recover.command` (Windows: `start-app.bat`/`recover-app.bat`) in a separate installation. The source checkout includes `.env.example`; copy it or create `.env` directly. For example, `ORE_OPEN_BROWSER=0` prevents automatic browser opening in daily and development launches. Recovery reads the same settings. Explicit environment variables override file values. Bash preserves empty values; Windows/.NET treats empty values as unset, with an explicit error for an empty database path. Files support blank lines, whole-line `#` comments and `KEY=value` assignments with optional matching single/double quotes; values are literal (no shell execution, variable expansion, multiline values or inline comments). Invalid assignments stop startup with a file/line diagnostic. `.env` is ignored by Git, preserved across builds/updates, and excluded from portable archives. Direct npm commands do not load this launcher file.
 
 ## Installation and development
 

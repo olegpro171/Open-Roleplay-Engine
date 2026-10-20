@@ -89,7 +89,9 @@ it('snapshots populated WAL data before upgrade and restores to a new filename',
     const backups = readdirSync(directory).filter(name => name.startsWith('chat.sqlite.pre-schema-12-'));
     expect(backups).toHaveLength(1);
     const backupPath = join(directory, backups[0]);
-    expect(statSync(backupPath).mode & 0o777).toBe(0o600);
+    // Windows privacy is established by the enclosing user-owned directory ACL,
+    // checked in native release acceptance; chmod does not establish that ACL.
+    if (process.platform !== 'win32') expect(statSync(backupPath).mode & 0o777).toBe(0o600);
     const backup = new Database(backupPath, { readonly: true });
     expect(backup.pragma('user_version', { simple: true })).toBe(12);
     expect(backup.prepare('SELECT user_text, assistant_text FROM turns').get()).toEqual({ user_text: 'Synthetic original input', assistant_text: 'Saved response' });
