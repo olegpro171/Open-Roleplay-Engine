@@ -45,3 +45,39 @@ it('rejects unexpected executable schema names, binary text, wrong selected vari
     }
   } finally { service.close(); store.close(); fs.rmSync(directory,{ recursive: true,force: true }); }
 });
+
+it('explains schema, content and reconstruction failures without exposing uploaded values',async () => {
+  const directory = fs.mkdtempSync(join(tmpdir(),'ore-backup-diagnostics-')), filename = join(directory,'live.sqlite');
+  const store = new Store(filename), service = new BackupService(store,filename);
+  try {
+    store.replaceHistory(store.snapshot().revision,'main',[{ user: 'Private synthetic prose',assistant: 'Saved response',complete: true }]);
+    const file = await service.export(), bytes = fs.readFileSync(file.path); file.cleanup();
+    const token = service.persistence.token;
+    const cases = [
+      { sql: 'PRAGMA user_version = 999', reason: 'Unsupported database schema version 999' },
+      { sql: "CREATE TABLE private_uploaded_secret (value TEXT)", reason: 'unexpected schema objects' },
+      { sql: "PRAGMA writable_schema = ON; UPDATE sqlite_master SET sql = replace(sql, char(10), char(13) || char(10)) WHERE name = 'turns'", reason: 'CRLF/LF line endings' },
+      { sql: "UPDATE turns SET user_text = X'616263'", reason: 'Table turns, column user_text: expected TEXT' },
+      { sql: "UPDATE turns SET selected_variant_id = 'private_uploaded_secret'", reason: 'missing or inconsistent selected response variant' },
+      { sql: "UPDATE turns SET chat_id = 'private_uploaded_secret'", reason: 'SQLITE_CONSTRAINT_FOREIGNKEY' },
+      { sql: "UPDATE chats SET settings = '{private_uploaded_secret'", reason: 'Column settings contains malformed JSON' },
+      { sql: `UPDATE chats SET settings = json_set(settings, '$.title', json('[]'))`, reason: 'Table chats, column settings: title: invalid_type' },
+    ];
+    for (const { sql,reason } of cases) {
+      const path = join(directory,'input.sqlite'); fs.writeFileSync(path,bytes);
+      const db = new Database(path);
+      // Deliberately corrupt only this temporary fixture, including references and schema text.
+      try { db.unsafeMode(true); db.pragma('foreign_keys = OFF'); db.exec(sql); } finally { db.close(); }
+      const input = fs.readFileSync(path);
+      let failure: unknown;
+      try { service.upload(input,'owner'); } catch (error) { failure = error; }
+      expect(failure).toMatchObject({ code: 'invalid_backup',message: 'This file is not a valid ORE backup.',details: expect.stringContaining(reason) });
+      expect(JSON.stringify(failure)).not.toContain('private_uploaded_secret');
+      expect(JSON.stringify(failure)).not.toContain('Private synthetic prose');
+      expect(fs.readFileSync(path)).toEqual(input);
+      expect(service.persistence.token).toBe(token);
+      expect(fs.readdirSync(join(directory,'.ore-backups-live.sqlite'))).toEqual([]);
+    }
+    const review = service.upload(bytes,'owner'); expect(review.blockers).toEqual([]); service.cancel(review.stageId,'owner');
+  } finally { service.close(); store.close(); fs.rmSync(directory,{ recursive: true,force: true }); }
+});

@@ -10,6 +10,8 @@ The artifact excludes owner password hashes, login sessions, process ownership, 
 
 Select **Inspect & import backup** to upload the file to private server staging. The source file remains unchanged. An inspection is bound to the uploading login session and expires after 30 minutes, even while open. Cancel, completed import, application shutdown and restart remove staging. Uncertain commands retain staging until explicit retry or expiry; successful command receipts survive restart even when staging no longer exists.
 
+Invalid files show “This file is not a valid ORE backup.” with a collapsed **Details** control. Expand it for the failed validation phase and a specific structural reason, including schema-object differences (and CRLF/LF-only differences), record fields, constraint codes or coverage/dependency failures. Diagnostics omit uploaded values, API keys, arbitrary schema names and raw SQLite/Zod messages. Failed inspection leaves the source file and current saved data unchanged; select another file to retry. This diagnostic display does not itself change cross-platform validation rules.
+
 Branches load only when expanded. Chats have nested branches for their turns, variants, requests, memory, preparation and lore records. Global categories expose libraries, Connections, pictures and tag relations. Records are paged in groups of 40; branches fetch labels without loading text or image BLOBs. Leaf text fields are selected individually and fetched in 8,192-character pieces. API key nodes reveal only presence. Images come from authenticated local PNG resources. Text is displayed literally; remote URLs, HTML and instructions in a backup are never executed.
 
 ## Import and collisions

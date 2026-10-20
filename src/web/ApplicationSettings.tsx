@@ -14,6 +14,9 @@ const labels: Record<BackupTable,string> = {
   picture_assets: 'Original pictures and previews', character_pictures: 'Picture associations and crops', lore_epochs: 'Lore epochs', lore_states: 'Lore activation state', lore_operations: 'Saved lore provenance',
 };
 const commandSchema = z.object({ path: z.string().regex(/^\/data\/(wipe|stages\/[0-9a-f-]+\/import)$/), body: dataCommandSchema });
+class BackupUploadError extends Error {
+  constructor(message: string, readonly details?: string) { super(message); }
+}
 type Command = z.infer<typeof commandSchema>;
 const commandKey = 'ore-data-management-command';
 function recoveredCommand(): Command | null {
@@ -24,6 +27,7 @@ export function ApplicationSettings({ openLibraries }: { openLibraries: () => vo
   const [review,setReview] = useState<BackupReview|null>(null);
   const [offset,setOffset] = useState(0);
   const [busy,setBusy] = useState(false), [error,setError] = useState(''), [message,setMessage] = useState('');
+  const [errorDetails,setErrorDetails] = useState('');
   const [uncertain,setUncertain] = useState<Command|null>(recoveredCommand);
   const [loading,setLoading] = useState(false);
   const mounted = useRef(true), pending = useRef(false), stage = useRef<string|null>(null);
@@ -36,8 +40,13 @@ export function ApplicationSettings({ openLibraries }: { openLibraries: () => vo
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; if (stage.current && !pending.current) void api(`/data/stages/${stage.current}`,'DELETE',{}).catch(() => {}); }; },[]);
   async function run(action: () => Promise<void>) {
     if (pending.current) return;
-    pending.current = true; setBusy(true); setError(''); setMessage('');
-    try { await action(); } catch (error) { if (mounted.current) setError(error instanceof Error ? error.message : 'Data management failed. Try again.'); }
+    pending.current = true; setBusy(true); setError(''); setErrorDetails(''); setMessage('');
+    try { await action(); } catch (error) {
+      if (mounted.current) {
+        setError(error instanceof Error ? error.message : 'Data management failed. Try again.');
+        setErrorDetails(error instanceof BackupUploadError ? error.details ?? '' : '');
+      }
+    }
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   }
   async function download() {
@@ -53,10 +62,13 @@ export function ApplicationSettings({ openLibraries }: { openLibraries: () => vo
   async function select(file: File) {
     await run(async () => {
       if (file.size > backupLimits.bytes) throw new Error('Select an ORE SQLite backup no larger than 128 MiB.');
-      if (stage.current) { await api(`/data/stages/${stage.current}`,'DELETE',{}); stage.current = null; }
+      if (stage.current) { await api(`/data/stages/${stage.current}`,'DELETE',{}); stage.current = null; setReview(null); }
       const response = await fetch('/api/data/stages',{ method: 'POST',credentials: 'same-origin',headers: { 'Content-Type': 'application/octet-stream' },body: file });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.message ?? 'Backup validation failed.');
+      if (!response.ok) {
+        const failure = z.object({ message: z.string(), details: z.string().optional() }).safeParse(result);
+        throw new BackupUploadError(failure.success ? failure.data.message : 'Backup validation failed.', failure.success ? failure.data.details : undefined);
+      }
       const value: BackupReview = result;
       if (!mounted.current) { await api(`/data/stages/${value.stageId}`,'DELETE',{}); return; }
       stage.current = value.stageId; setOffset(0); setReview(value); setUncertain(null);
@@ -64,7 +76,7 @@ export function ApplicationSettings({ openLibraries }: { openLibraries: () => vo
   }
   async function refresh(next = 0) {
     if (!review) return;
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setErrorDetails('');
     try {
       const value = await api<BackupReview>(`/data/stages/${review.stageId}?offset=${next}`);
       if (mounted.current) { setOffset(next); setReview(value); }
@@ -98,7 +110,7 @@ export function ApplicationSettings({ openLibraries }: { openLibraries: () => vo
     </aside>
     <div className="document-panel library-panel settings-panel" aria-labelledby="application-settings-heading">
     {busy && <p role="status">Working… Upload, validation and snapshot work must finish before a result is shown.</p>}
-    {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
+    {message && <p role="status">{message}</p>}{error && <div role="alert"><p>{error}</p>{errorDetails && <details className="backup-error-details"><summary>Details</summary><pre>{errorDetails}</pre></details>}</div>}
     {uncertain && <div className="recovery"><p>The command may have committed. Retry this exact command to retrieve its saved outcome. Do not start a different import or wipe.</p><button disabled={busy} onClick={() => void run(() => execute(uncertain))}>Retry data command</button></div>}
     <section className="settings-section" aria-labelledby="data-backup-heading">
     <h2 id="data-backup-heading" tabIndex={-1}>Data backup</h2>

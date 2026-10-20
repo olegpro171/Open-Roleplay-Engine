@@ -19,7 +19,7 @@ import { importPersonas, exportCharacter, exportPersona } from '../core/cards.js
 import { tagIdsSchema, tagNameSchema, tagPolicySchema } from '../shared/tags.js';
 import { defaultPrompt, libraryCommandSchema, selectionsSchema, replaceHistorySchema } from '../shared/library.js';
 import { readCardFile, readCharacterCardFile } from './card-import.js';
-import { AppError } from '../core/errors.js';
+import { AppError, BackupValidationError } from '../core/errors.js';
 import { assembleRequest } from '../core/prompt.js';
 import { Store } from '../persistence/store.js';
 import { fetchModels, OpenAICompatibleProvider, type Provider } from '../provider/openai.js';
@@ -124,7 +124,7 @@ export async function createApp(options: {
     }
   });
   app.setErrorHandler((error, _request, reply) => {
-    if (error instanceof AppError) return reply.code(error.status).send({ code: error.code, message: error.message });
+    if (error instanceof AppError) return reply.code(error.status).send({ code: error.code, message: error.message, ...(error instanceof BackupValidationError ? { details: error.details } : {}) });
     if (error instanceof ZodError) return reply.code(400).send({ code: 'invalid_input', message: error.issues.map((issue) => `${issue.path.join('.') || 'Input'}: ${issue.message}`).join('; ') });
     const status = (error as { statusCode?: number }).statusCode;
     return reply.code(status && status < 500 ? status : 500).send({ code: 'request_failed', message: 'The request could not be completed.' });

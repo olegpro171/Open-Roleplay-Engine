@@ -34,6 +34,32 @@ async function openChat(page: Page,title: string) {
   await expect(page.getByLabel('Your next turn')).toBeVisible();
 }
 
+for (const width of [1440,390]) test(`invalid backup details and recovery at ${width}px`,async ({ page },testInfo) => {
+  await page.setViewportSize({ width,height: 950 }); await login(page);
+  await page.getByRole('button',{ name: 'Settings',exact: true }).click();
+  const input = page.getByLabel('Inspect & import backup');
+  await input.setInputFiles({ name: 'invalid.sqlite',mimeType: 'application/octet-stream',buffer: Buffer.alloc(100) });
+  const alert = page.getByRole('alert').filter({ hasText: 'This file is not a valid ORE backup.' });
+  await expect(alert).toBeVisible();
+  await expect(alert.locator('pre')).toBeHidden();
+  await alert.locator('summary').click();
+  await expect(alert.locator('pre')).toHaveText('File does not have the SQLite 3 header signature.');
+  await expect(page.locator('body')).toHaveJSProperty('scrollWidth',width);
+  await page.screenshot({ path: testInfo.outputPath('backup-error-details.png') });
+  await alert.locator('summary').focus(); await page.keyboard.press('Enter');
+  await expect(alert.locator('pre')).toBeHidden();
+  // A new failed attempt starts collapsed and replaces the previous diagnostic.
+  await input.setInputFiles({ name: 'empty.sqlite',mimeType: 'application/octet-stream',buffer: Buffer.alloc(0) });
+  await expect(alert.locator('pre')).toHaveText('File is shorter than a SQLite database header (100 bytes).');
+  await expect(alert.locator('pre')).toBeHidden();
+  const backup = await page.request.get('/api/data/backup'); expect(backup.ok()).toBe(true);
+  await input.setInputFiles({ name: 'valid.sqlite',mimeType: 'application/octet-stream',buffer: await backup.body() });
+  await expect(page.getByRole('heading',{ name: 'Import review',exact: true })).toBeVisible();
+  await expect(alert).toHaveCount(0);
+  await page.getByRole('button',{ name: 'Cancel inspection',exact: true }).click();
+  await expect(page.getByRole('heading',{ name: 'Import review',exact: true })).toHaveCount(0);
+});
+
 // Runs after the existing suites because import/wipe intentionally invalidate every old client command.
 for (const width of [1440,390]) test(`backup inspection, cancel, overwrite retry, wipe and second-tab recovery at ${width}px`,async ({ page,context }) => {
   await page.setViewportSize({ width,height: 950 }); await login(page); const chatId = await fixture(page,width);

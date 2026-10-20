@@ -9,7 +9,7 @@ import { Store } from '../persistence/store.js';
 import { BackupStore, insertRow, sanitizePortable } from '../persistence/backup-store.js';
 import { invalidBackup, rows, rowSchema, validateContent } from '../persistence/backup-validation.js';
 import { backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type BackupMetadata, type DataOutcome } from '../shared/backups.js';
-import { AppError } from '../core/errors.js';
+import { AppError, BackupValidationError } from '../core/errors.js';
 
 const masterSchema = z.array(z.object({ type: z.string(), name: z.string(), tbl_name: z.string(), sql: z.string().nullable() }));
 const schemaEntries = (db: Database.Database) => masterSchema.parse(db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name").all());
@@ -54,31 +54,45 @@ export class BackupService {
   }
   private validateSchema(db: Database.Database) {
     const version = db.pragma('user_version',{ simple: true });
-    if (version !== 12 && version !== 13) throw new AppError(422,'backup_schema','Only ORE schema 12 and 13 are supported. Future and older unsupported schemas cannot be imported.');
+    if (version !== 12 && version !== 13) throw invalidBackup(`Unsupported database schema version ${String(version)}; supported versions are 12 and 13.`);
     const expected = this.schema.filter(entry => version === 13 || !['dataset_state','data_commands'].includes(entry.tbl_name));
     const actual = schemaEntries(db);
     const portableMetadata = actual.find(entry => entry.name === 'backup_metadata');
-    if (portableMetadata && portableMetadata.sql !== metadataSql) throw invalidBackup();
-    if (JSON.stringify(actual.filter(entry => entry.name !== 'backup_metadata')) !== JSON.stringify(expected)) throw invalidBackup();
+    if (portableMetadata && portableMetadata.sql !== metadataSql) throw invalidBackup('Backup metadata table definition differs from the shipped definition.');
+    const content = actual.filter(entry => entry.name !== 'backup_metadata');
+    for (const entry of expected) {
+      const found = content.find(candidate => candidate.name === entry.name);
+      if (!found) throw invalidBackup(`Schema object ${entry.name} is missing.`);
+      if (JSON.stringify(found) !== JSON.stringify(entry)) {
+        const lineEndingsOnly = found.type === entry.type && found.tbl_name === entry.tbl_name
+          && found.sql?.replace(/\r\n/g, '\n') === entry.sql?.replace(/\r\n/g, '\n');
+        throw invalidBackup(`Schema object ${entry.name} differs from the shipped definition.${lineEndingsOnly ? ' The SQL differs only in CRLF/LF line endings.' : ''}`);
+      }
+    }
+    if (content.length !== expected.length) throw invalidBackup('The database contains unexpected schema objects (tables, indexes, views or triggers).');
     if (!portableMetadata) return null;
     const records = db.prepare('SELECT data FROM backup_metadata').all();
-    if (records.length !== 1) throw invalidBackup();
+    if (records.length !== 1) throw invalidBackup('Expected exactly one backup metadata record.');
     const metadata = metadataSchema.parse(JSON.parse(z.object({ data: z.string().max(1000) }).parse(records[0]).data));
-    if (metadata.schema !== version) throw invalidBackup();
+    if (metadata.schema !== version) throw invalidBackup('Backup metadata schema version does not match the database version.');
     return metadata;
   }
   upload(bytes: Buffer, owner: string): BackupReview {
     this.expire();
     if (this.closed) throw new AppError(503,'server_stopping','The server is stopping.');
     if (this.stages.size >= 3) throw new AppError(429,'backup_staging_full','Cancel an existing backup inspection before selecting another file.');
-    if (bytes.length > backupLimits.bytes || bytes.length < 100 || bytes.subarray(0,16).toString('binary') !== 'SQLite format 3\0') throw invalidBackup();
+    if (bytes.length > backupLimits.bytes) throw invalidBackup('File exceeds the 128 MiB backup limit.');
+    if (bytes.length < 100) throw invalidBackup('File is shorter than a SQLite database header (100 bytes).');
+    if (bytes.subarray(0,16).toString('binary') !== 'SQLite format 3\0') throw invalidBackup('File does not have the SQLite 3 header signature.');
     this.space(bytes.length);
     const id = randomUUID(), directory = mkdtempSync(join(this.directory,'stage-'));
     const original = join(directory,'upload.sqlite'), path = join(directory,'content.sqlite');
     let source: Database.Database | undefined, trusted: Database.Database | undefined;
+    let phase = 'Opening uploaded SQLite database';
     try {
       writeFileSync(original,bytes,{ mode: 0o600, flag: 'wx' });
       source = new Database(original,{ readonly: true, fileMustExist: true }); source.pragma('trusted_schema = OFF');
+      phase = 'Validating database schema and backup metadata';
       const metadata = this.validateSchema(source);
       // Never migrate/open the upload with Store. Rebuild rows using only the shipped trusted schema.
       writeFileSync(path,this.template,{ mode: 0o600, flag: 'wx' });
@@ -88,14 +102,22 @@ export class BackupService {
         trusted?.exec('DELETE FROM chats; DELETE FROM library;');
         let count = 0;
         for (const table of backupTables) {
+          phase = `Reading table ${table}`;
+          let ordinal = 0;
           for (const row of rows(sourceDatabase(),table)) {
-            if (++count > backupLimits.rows || Object.values(row).some(value => typeof value === 'string' && Buffer.byteLength(value) > backupLimits.textBytes)) throw invalidBackup();
+            phase = `Reconstructing table ${table}, record ${++ordinal}`;
+            if (++count > backupLimits.rows) throw invalidBackup('Portable content exceeds the 100,000-row limit.');
+            if (Object.values(row).some(value => typeof value === 'string' && Buffer.byteLength(value) > backupLimits.textBytes)) throw invalidBackup(`Table ${table}, record ${ordinal}: a text field exceeds the 16 MiB limit.`);
             insertRow(trustedDatabase(),table,row);
           }
         }
+        phase = 'Committing reconstructed backup tables';
       })();
+      phase = 'Validating reconstructed backup content';
       validateContent(trusted);
+      phase = 'Removing runtime authority from staged content';
       sanitizePortable(trusted);
+      phase = 'Validating sanitized backup content';
       validateContent(trusted);
       trusted.close(); trusted = undefined; source.close(); source = undefined;
       rmSync(original);
@@ -104,13 +126,18 @@ export class BackupService {
     } catch (error) {
       if (trusted?.open) trusted.close(); if (source?.open) source.close();
       this.stages.delete(id); rmSync(directory,{ recursive: true, force: true });
+      if (error instanceof BackupValidationError) throw invalidBackup(`${phase}: ${error.details}`);
       if (error instanceof AppError) throw error;
       if (error instanceof Error && 'code' in error && ['ENOSPC','SQLITE_FULL'].includes(String(error.code))) throw new AppError(507,'backup_disk_space','Backup staging ran out of disk space. Free space and select the file again.');
-      // SQLite/Zod errors may include source values. Never send those messages to the browser.
-      throw invalidBackup();
+      // SQLite/Zod messages, paths and received values can contain secrets from the upload.
+      let reason = 'Unexpected staging or content-validation failure.';
+      if (error instanceof z.ZodError) reason = `Record validation failed (${[...new Set(error.issues.map(issue => issue.code))].join(', ')}).`;
+      else if (error instanceof SyntaxError) reason = 'Malformed JSON.';
+      else if (error instanceof Error && 'code' in error && typeof error.code === 'string' && /^SQLITE_[A-Z_]+$/.test(error.code)) reason = `SQLite rejected the backup (${error.code}).`;
+      throw invalidBackup(`${phase}: ${reason}`);
     }
-    function sourceDatabase() { if (!source) throw invalidBackup(); return source; }
-    function trustedDatabase() { if (!trusted) throw invalidBackup(); return trusted; }
+    function sourceDatabase() { if (!source) throw invalidBackup('Uploaded database is unavailable.'); return source; }
+    function trustedDatabase() { if (!trusted) throw invalidBackup('Trusted staging database is unavailable.'); return trusted; }
   }
   review(id: string, owner: string, offset = 0): BackupReview {
     const stage = this.stage(id,owner), db = new Database(stage.path,{ readonly: true });

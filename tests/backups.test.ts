@@ -144,6 +144,10 @@ it('protects authenticated routes and rejects old-tab commands even when restore
     const revision = app.store.snapshot().revision;
     const downloaded = await app.app.inject({ method: 'GET',url: '/api/data/backup',headers: { host: 'localhost',cookie } });
     expect(downloaded.statusCode).toBe(200); expect(downloaded.headers['content-disposition']).toContain('ORE-backup');
+    const rejected = await app.app.inject({ method: 'POST',url: '/api/data/stages',headers: { host: 'localhost',origin: 'http://localhost','content-type': 'application/octet-stream',cookie },payload: Buffer.alloc(100) });
+    expect(rejected.statusCode).toBe(422);
+    expect(rejected.json()).toEqual({ code: 'invalid_backup',message: 'This file is not a valid ORE backup.',details: 'File does not have the SQLite 3 header signature.' });
+    expect(app.store.snapshot().revision).toBe(revision);
     const staged = await app.app.inject({ method: 'POST',url: '/api/data/stages',headers: { host: 'localhost',origin: 'http://localhost','content-type': 'application/octet-stream',cookie },payload: downloaded.rawPayload });
     expect(staged.statusCode,staged.body).toBe(200);
     const review = staged.json<BackupReview>(), input = receipt(review);
