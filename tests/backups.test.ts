@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
@@ -14,8 +15,8 @@ import { defaultPrompt } from '../src/shared/library.js';
 let directory: string;
 const stores: Store[] = [], services: BackupService[] = [];
 const owner = 'synthetic-session';
-function store(name: string) { const result = new Store(join(directory,`${name}.sqlite`)); stores.push(result); return result; }
-function service(db: Store,name: string) { const result = new BackupService(db,join(directory,`${name}.sqlite`)); services.push(result); return result; }
+function store(name: string, migrationsDirectory?: string) { const result = new Store(join(directory,`${name}.sqlite`),migrationsDirectory); stores.push(result); return result; }
+function service(db: Store,name: string, migrationsDirectory?: string) { const result = new BackupService(db,join(directory,`${name}.sqlite`),migrationsDirectory); services.push(result); return result; }
 function receipt(review: BackupReview,overwrite = true) { return { requestId: randomUUID(),digest: review.digest,token: review.token,overwrite }; }
 async function bytes(backups: BackupService) { const file = await backups.export(); try { return readFileSync(file.path); } finally { file.cleanup(); } }
 function character(db: Store,name: string,id?: string) { return db.saveLibrary(db.libraryRevision(),'characters',{ name, description: 'A patient guide',personality: '',scenario: '',first_mes: 'Welcome, traveler.',mes_example: '' },id); }
@@ -24,6 +25,54 @@ beforeEach(() => { directory = mkdtempSync(join(tmpdir(),'ore-backup-test-')); }
 afterEach(() => { for (const value of services.splice(0)) value.close(); for (const value of stores.splice(0)) if (value.sqlite.open) value.close(); rmSync(directory,{ recursive: true,force: true }); });
 
 describe('portable backup persistence',() => {
+  it.each([
+    { sourceEnding: 'LF', targetEnding: 'CRLF', version: 13 },
+    { sourceEnding: 'CRLF', targetEnding: 'LF', version: 13 },
+    { sourceEnding: 'LF', targetEnding: 'CRLF', version: 12 },
+    { sourceEnding: 'CRLF', targetEnding: 'LF', version: 12 },
+  ])('imports populated schema-$version backups from $sourceEnding migrations into $targetEnding migrations',async ({ sourceEnding,targetEnding,version }) => {
+    const shippedMigrations = fileURLToPath(new URL('../migrations/',import.meta.url));
+    function migrations(name: string, ending: string) {
+      const path = join(directory,name);
+      mkdirSync(path);
+      for (const file of readdirSync(shippedMigrations).filter(file => file.endsWith('.sql'))) {
+        const sql = readFileSync(join(shippedMigrations,file),'utf8').replace(/\r\n/g,'\n');
+        writeFileSync(join(path,file),ending === 'CRLF' ? sql.replace(/\n/g,'\r\n') : sql);
+      }
+      return path;
+    }
+    const sourceMigrations = migrations('source-migrations',sourceEnding);
+    const targetMigrations = migrations('target-migrations',targetEnding);
+    const source = store('source',sourceMigrations), sourceBackups = service(source,'source',sourceMigrations);
+    const cid = character(source,'Cross-platform guide'), chatId = chat(source,cid,'Cross-platform story');
+    source.replaceHistory(source.snapshot(chatId).revision,chatId,[
+      { user: 'First line\r\nSecond line',assistant: 'First paragraph\n\nSecond paragraph',complete: true },
+      { user: 'Pending input\r\ncontinued',assistant: '',complete: false },
+    ]);
+    const expectedTurns = source.snapshot(chatId).turns;
+    const path = join(directory,'input.sqlite');
+    writeFileSync(path,await bytes(sourceBackups));
+    if (version === 12) {
+      const legacy = new Database(path);
+      try { legacy.exec('DROP TABLE backup_metadata; DROP TABLE dataset_state; DROP TABLE data_commands; PRAGMA user_version = 12'); }
+      finally { legacy.close(); }
+    }
+    const input = readFileSync(path);
+    const destination = store('destination',targetMigrations), target = service(destination,'destination',targetMigrations);
+    const retained = character(destination,'Local guide');
+    const pictureSchema = "SELECT sql FROM sqlite_master WHERE name = 'character_pictures'";
+    expect(source.sqlite.prepare(pictureSchema).get()).not.toEqual(destination.sqlite.prepare(pictureSchema).get());
+    const before = target.persistence.token;
+    const review = target.upload(input,owner);
+    expect(review.blockers).toEqual([]);
+    expect(review.metadata?.schema ?? null).toBe(version === 13 ? 13 : null);
+    expect(target.page(review.stageId,owner,'turns',0,chatId).total).toBe(2);
+    expect(target.persistence.token).toBe(before);
+    target.commit(review.stageId,owner,receipt(review));
+    expect(destination.snapshot(chatId).turns).toEqual(expectedTurns);
+    expect(destination.libraries().characters.map(item => item.id)).toEqual(expect.arrayContaining([cid,retained]));
+    expect(readFileSync(path)).toEqual(input);
+  });
   it('downloads a consistent portable SQLite snapshot and inspects/imports it without leaking credentials or owner authentication',async () => {
     const source = store('source'), backups = service(source,'source');
     const cid = character(source,'Mara'), chatId = chat(source,cid,'A saved story');

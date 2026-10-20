@@ -13,6 +13,9 @@ import { AppError, BackupValidationError } from '../core/errors.js';
 
 const masterSchema = z.array(z.object({ type: z.string(), name: z.string(), tbl_name: z.string(), sql: z.string().nullable() }));
 const schemaEntries = (db: Database.Database) => masterSchema.parse(db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name").all());
+// SQLite retains migration-file line endings; platform checkout settings can differ.
+// Keep every other character significant when checking the shipped definitions.
+const normalizeSchemaSql = (sql: string | null) => sql?.replace(/\r\n/g,'\n') ?? null;
 const metadataSchema = z.object({ format: z.literal('ore-sqlite'), version: z.literal(1), schema: z.number().int(), build: z.string().max(100), createdAt: z.string().datetime() }).strict();
 const metadataSql = 'CREATE TABLE backup_metadata (id INTEGER PRIMARY KEY CHECK(id = 1), data TEXT NOT NULL)';
 const hidden = new Set(['credentials']);
@@ -58,15 +61,14 @@ export class BackupService {
     const expected = this.schema.filter(entry => version === 13 || !['dataset_state','data_commands'].includes(entry.tbl_name));
     const actual = schemaEntries(db);
     const portableMetadata = actual.find(entry => entry.name === 'backup_metadata');
-    if (portableMetadata && portableMetadata.sql !== metadataSql) throw invalidBackup('Backup metadata table definition differs from the shipped definition.');
+    if (portableMetadata && normalizeSchemaSql(portableMetadata.sql) !== normalizeSchemaSql(metadataSql)) throw invalidBackup('Backup metadata table definition differs from the shipped definition.');
     const content = actual.filter(entry => entry.name !== 'backup_metadata');
     for (const entry of expected) {
       const found = content.find(candidate => candidate.name === entry.name);
       if (!found) throw invalidBackup(`Schema object ${entry.name} is missing.`);
-      if (JSON.stringify(found) !== JSON.stringify(entry)) {
-        const lineEndingsOnly = found.type === entry.type && found.tbl_name === entry.tbl_name
-          && found.sql?.replace(/\r\n/g, '\n') === entry.sql?.replace(/\r\n/g, '\n');
-        throw invalidBackup(`Schema object ${entry.name} differs from the shipped definition.${lineEndingsOnly ? ' The SQL differs only in CRLF/LF line endings.' : ''}`);
+      if (found.type !== entry.type || found.tbl_name !== entry.tbl_name
+        || normalizeSchemaSql(found.sql) !== normalizeSchemaSql(entry.sql)) {
+        throw invalidBackup(`Schema object ${entry.name} differs from the shipped definition.`);
       }
     }
     if (content.length !== expected.length) throw invalidBackup('The database contains unexpected schema objects (tables, indexes, views or triggers).');

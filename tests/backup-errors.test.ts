@@ -56,7 +56,10 @@ it('explains schema, content and reconstruction failures without exposing upload
     const cases = [
       { sql: 'PRAGMA user_version = 999', reason: 'Unsupported database schema version 999' },
       { sql: "CREATE TABLE private_uploaded_secret (value TEXT)", reason: 'unexpected schema objects' },
-      { sql: "PRAGMA writable_schema = ON; UPDATE sqlite_master SET sql = replace(sql, char(10), char(13) || char(10)) WHERE name = 'turns'", reason: 'CRLF/LF line endings' },
+      { sql: "PRAGMA writable_schema = ON; UPDATE sqlite_master SET sql = replace(replace(sql, char(10), char(13) || char(10)), '600000', '600001') WHERE name = 'character_pictures'", reason: 'Schema object character_pictures differs from the shipped definition' },
+      { sql: "PRAGMA writable_schema = ON; UPDATE sqlite_master SET sql = replace(replace(sql, char(10), char(13) || char(10)), 'Pictures belong to characters', 'private_uploaded_secret') WHERE name = 'character_pictures_kind'", reason: 'Schema object character_pictures_kind differs from the shipped definition' },
+      { sql: 'DROP INDEX character_pictures_asset', reason: 'Schema object character_pictures_asset is missing' },
+      { sql: "PRAGMA writable_schema = ON; UPDATE sqlite_master SET sql = replace(sql, 'CHECK(id = 1)', 'CHECK(id > 0)') WHERE name = 'backup_metadata'", reason: 'Backup metadata table definition differs from the shipped definition' },
       { sql: "UPDATE turns SET user_text = X'616263'", reason: 'Table turns, column user_text: expected TEXT' },
       { sql: "UPDATE turns SET selected_variant_id = 'private_uploaded_secret'", reason: 'missing or inconsistent selected response variant' },
       { sql: "UPDATE turns SET chat_id = 'private_uploaded_secret'", reason: 'SQLITE_CONSTRAINT_FOREIGNKEY' },
