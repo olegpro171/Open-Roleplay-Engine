@@ -159,7 +159,15 @@ See [release/build/update/recovery instructions](docs/RELEASES.md), [actual plat
 
 ## Installation and development
 
-Use **Node.js 24 LTS**, or Node.js 22.12+, with npm. Exact package versions are recorded in `package.json` and `package-lock.json`. Do not share `node_modules` between different Node major versions: better-sqlite3 is a native dependency. This workspace was built and tested with Node.js 24.19.0.
+To build and launch your current working tree, including uncommitted changes, use:
+
+```sh
+./start-dev.command
+```
+
+This always rebuilds with ORE's pinned private Node 24, then launches with repository updates disabled. It works even when your terminal selects unsupported Node 26. It uses a separate ignored `ore-development/` installation and the repository's `data/roleplay.sqlite` by default; `ROLEPLAY_DATABASE` can select a separate development database. Stop the normal app before using that same database. Build failure stops without launching a stale version. Dependencies/runtime may need downloading; there is no remote-main check, pull or fetch. Rebuilding uses the locked staging procedure, including dependency installation and startup verification. Normal `start-app.command` continues to follow committed remote main.
+
+For live reload or direct npm commands, use **Node.js 24 LTS**, or Node.js 22.x (22.12 or newer), with npm. Exact package versions are recorded in `package.json` and `package-lock.json`. Do not share `node_modules` between different Node major versions: better-sqlite3 is a native dependency. This workspace was built and tested with Node.js 24.19.0.
 
 ```sh
 npm ci

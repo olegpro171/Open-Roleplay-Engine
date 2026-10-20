@@ -26,6 +26,12 @@ Legacy `database-path.txt` is migrated only when it exactly matches the current 
 
 The immutable `v0.1.0-test.1` archive has the earlier launch-only behavior. Existing external installations are not moved or deleted by the fixed-path source launcher. Use an explicit absolute `ROLEPLAY_DATABASE` or backup/import to retain their saved content when starting the repository installation. Advanced exact-commit builds can still target a chosen directory with `build-portable.sh --release FULL_COMMIT DIRECTORY`. Never move/rewrite the published tag.
 
+## Local development launch
+
+Run `./start-dev.command` from the source checkout (or double-click it on Mac) to rebuild and launch current local edits. This uses the same private Node 24 and staged development builder, independent of the terminal's Node. It always rebuilds into ignored `ore-development/` and starts with update checks disabled; it never fetches/pulls main or activates that build in `ore-portable/`. Dependency/runtime downloads may still be required. A failed build stops without launching the prior build. This is a built snapshot, without live reload; see README for the two-terminal watch workflow.
+
+The default database is the same repository-relative `data/roleplay.sqlite` as source daily startup. Stop the normal app first, or set an explicit `ROLEPLAY_DATABASE` to use separate development data. Schema upgrades and recovery safeguards still apply. The development installation has its own `recover.command`; source `recover-app.command` continues to address `ore-portable/`.
+
 ## Layout and updates
 
 ```text
