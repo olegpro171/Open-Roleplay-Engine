@@ -19,7 +19,7 @@ function fixture() {
   writeFileSync(join(work, 'dist/server/server/main.js'), releaseServer); writeFileSync(join(work, 'dist/server/server/picture-worker.js'), '');
   writeFileSync(join(work, 'dist/client/index.html'), '<title>ORE</title>'); writeFileSync(join(work, 'dist/client/assets/app.js'), 'Synthetic asset');
   writeFileSync(join(work, 'migrations/0013_data_management.sql'), '-- Synthetic migration');
-  for (const file of ['RELEASES.md', 'RELEASE_IMPLEMENTATION_BRIEF.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'TEST_RELEASE.md']) writeFileSync(join(work, 'docs', file), 'Synthetic instructions');
+  for (const file of ['RELEASES.md', 'RELEASE_IMPLEMENTATION_BRIEF.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'WINDOWS_RELEASE_VERIFICATION.md', 'TEST_RELEASE.md']) writeFileSync(join(work, 'docs', file), 'Synthetic instructions');
   writeFileSync(join(work, 'node_modules/pkg/bin.js'), ''); symlinkSync('../pkg/bin.js', join(work, 'node_modules/.bin/example'));
   for (const directory of ['data', 'languages', 'tests']) { mkdirSync(join(work, directory)); writeFileSync(join(work, directory, 'PRIVATE'), 'synthetic private fixture'); }
   writeFileSync(join(work, '.env'), 'synthetic private environment');

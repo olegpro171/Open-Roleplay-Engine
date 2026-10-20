@@ -11,7 +11,7 @@ const [homeArgument, outputArgument] = process.argv.slice(2);
 if (!homeArgument || !outputArgument) throw new Error('Usage: node package-portable.mjs INSTALL_DIRECTORY OUTPUT_DIRECTORY');
 const home = resolve(homeArgument), output = resolve(outputArgument);
 const [id, runtime] = readFileSync(join(home, 'current'), 'utf8').trim().split('\n');
-if (!/^(release|dev)-[a-z0-9-]+$/.test(id) || !/^node-v[0-9.]+-(darwin|linux)-(arm64|x64)$/.test(runtime)) throw new Error('Invalid installed pointer.');
+if (!/^(release|dev)-[a-z0-9-]+$/.test(id) || !/^node-v[0-9.]+-(darwin|linux|win32)-(arm64|x64)$/.test(runtime)) throw new Error('Invalid installed pointer.');
 const application = join(home, 'app', id);
 const manifest = JSON.parse(readFileSync(join(application, 'manifest.json'), 'utf8'));
 const actual = inventory(application).filter(file => file.path !== 'manifest.json');
@@ -19,27 +19,33 @@ if (JSON.stringify(actual) !== JSON.stringify(manifest.files)) throw new Error('
 mkdirSync(output, { recursive: true });
 const temporary = mkdtempSync(join(home, 'cache', 'export-'));
 const name = `ORE-${manifest.version}-${manifest.kind}-${manifest.commit.slice(0,12)}-${manifest.platform}-${manifest.arch}`;
-const payload = join(temporary, name), archive = join(output, `${name}.tar.gz`);
+const windows = process.platform === 'win32';
+const extension = windows ? 'zip' : 'tar.gz';
+const payload = join(temporary, name), archive = join(output, `${name}.${extension}`);
 try {
   mkdirSync(join(payload, 'app'), { recursive: true });
   mkdirSync(join(payload, 'runtime'));
   cpSync(application, join(payload, 'app', id), { recursive: true, verbatimSymlinks: true });
   cpSync(join(home, 'runtime', runtime), join(payload, 'runtime', runtime), { recursive: true, verbatimSymlinks: true });
   for (const file of ['start.command', 'current', 'recover.command']) cpSync(join(home, file), join(payload, file));
+  if (windows) for (const file of ['start-app.bat', 'recover-app.bat', 'start-windows.ps1', 'recover-windows.ps1', 'windows-common.ps1']) cpSync(join(home, file), join(payload, file));
   // Export only the active recovery toolkit, never saved selections/DB paths.
   const toolkitPointer = readFileSync(join(home, 'recovery/current'), 'utf8').trim().split('\n');
   if (!/^(release|dev)-[a-z0-9-]+$/u.test(toolkitPointer[0])) throw new Error('Invalid recovery toolkit pointer.');
   mkdirSync(join(payload, 'recovery'), { recursive: true });
   cpSync(join(home, 'recovery', toolkitPointer[0]), join(payload, 'recovery', toolkitPointer[0]), { recursive: true, verbatimSymlinks: true });
   writeFileSync(join(payload, 'recovery/current'), `${toolkitPointer[0]}\n${runtime}\n`);
-  for (const file of ['README.md', 'RELEASES.md', 'RELEASE_IMPLEMENTATION_BRIEF.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'TEST_RELEASE.md']) cpSync(join(application, file), join(payload, file));
+  for (const file of ['README.md', 'RELEASES.md', 'RELEASE_IMPLEMENTATION_BRIEF.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'WINDOWS_RELEASE_VERIFICATION.md', 'TEST_RELEASE.md']) cpSync(join(application, file), join(payload, file));
   for (const directory of ['data', 'cache', 'logs', 'languages']) mkdirSync(join(payload, directory));
   writeFileSync(join(payload, 'checksums.json'), JSON.stringify(inventory(payload), null, 2));
-  const result = spawnSync('tar', ['-czf', `${archive}.part`, '-C', temporary, name], { stdio: 'inherit' });
+  // Use the platform ZIP library, without cmd.exe or wildcard path expansion.
+  const result = windows
+    ? spawnSync('powershell.exe', ['-NoProfile', '-Command', 'Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory($env:ORE_EXPORT_SOURCE, $env:ORE_EXPORT_TARGET)'], { stdio: 'inherit', env: { ...process.env, ORE_EXPORT_SOURCE: temporary, ORE_EXPORT_TARGET: `${archive}.part` } })
+    : spawnSync('tar', ['-czf', `${archive}.part`, '-C', temporary, name], { stdio: 'inherit' });
   if (result.status !== 0) throw new Error('Artifact archive failed.');
   const { renameSync } = await import('node:fs');
   renameSync(`${archive}.part`, archive);
   const digest = createHash('sha256').update(readFileSync(archive)).digest('hex');
-  writeFileSync(`${archive}.sha256`, `${digest}  ${name}.tar.gz\n`);
+  writeFileSync(`${archive}.sha256`, `${digest}  ${name}.${extension}\n`);
   console.log(`${archive}\nSHA256 ${digest}`);
 } finally { rmSync(temporary, { recursive: true, force: true }); }

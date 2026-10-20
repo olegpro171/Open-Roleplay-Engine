@@ -45,7 +45,7 @@ let stopping = false;
 function stop() {
   if (stopping) return;
   stopping = true;
-  child?.kill('SIGTERM');
+  if (child?.connected) child.disconnect();
 }
 // These cover a terminal close as well as Ctrl+C. Never kill a foreign PID.
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, stop);
@@ -67,8 +67,9 @@ child.on('message', message => {
     process.send?.({ type: 'ready', url: message.url }, error => { if (error) stop(); });
   } catch (error) { failed = true; console.error(`Could not record successful startup: ${error.message}`); stop(); return; }
   if (process.env.ORE_OPEN_BROWSER === '0') return;
-  const command = process.platform === 'darwin' ? 'open' : 'xdg-open';
-  const browser = spawn(command, [message.url], { stdio: 'ignore' });
+  // Avoid cmd.exe parsing of a provider-independent URL on Windows.
+  const command = process.platform === 'win32' ? 'rundll32.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+  const browser = spawn(command, process.platform === 'win32' ? ['url.dll,FileProtocolHandler', message.url] : [message.url], { stdio: 'ignore' });
   browser.on('error', () => console.log(`Open ${message.url} in your browser.`));
   browser.unref();
 });

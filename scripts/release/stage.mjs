@@ -4,9 +4,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { verifyStartup } from './startup-smoke.mjs';
-import { readSelection, writeSelection } from './selection.mjs';
+import { readSelection, writeSelection, runtimeExecutable } from './selection.mjs';
 
-const recoveryFiles = ['recover.mjs', 'database-location.mjs', 'selection.mjs', 'startup-smoke.mjs', 'check-database.mjs', 'portable-launch.mjs', 'update-and-start.sh', 'launcher-protocol'];
+const recoveryFiles = ['recover.mjs', 'database-location.mjs', 'selection.mjs', 'startup-smoke.mjs', 'check-database.mjs', 'portable-launch.mjs', 'update-and-start.sh', 'launcher-protocol', 'windows-common.ps1', 'update-and-start.ps1', 'recover-windows.ps1', 'start-windows.ps1'];
 
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 export function inventory(root, directory = root) {
@@ -64,7 +64,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     for (const name of ['native-smoke.mjs', 'package-portable.mjs', 'stage.mjs', ...recoveryFiles]) cpSync(join(work, 'scripts/release', name), join(staging, 'scripts/release', name));
     cpSync(noticeDirectory, join(staging, 'notices'), { recursive: true, verbatimSymlinks: true });
     cpSync(join(work, 'docs/RELEASES.md'), join(staging, 'README.md'));
-    for (const name of ['RELEASES.md', 'RELEASE_IMPLEMENTATION_BRIEF.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'TEST_RELEASE.md']) cpSync(join(work, 'docs', name), join(staging, name));
+    for (const name of ['RELEASES.md', 'RELEASE_IMPLEMENTATION_BRIEF.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'WINDOWS_RELEASE_VERIFICATION.md', 'TEST_RELEASE.md']) cpSync(join(work, 'docs', name), join(staging, name));
     const metadata = { kind: mode === '--release' ? 'release' : 'development', version: pkg.version, commit, schema: databaseSchemaVersion, node: process.versions.node, platform: process.platform, arch: process.arch };
     writeFileSync(join(staging, 'build-info.json'), JSON.stringify(metadata, null, 2));
     const smoke = spawnSync(process.execPath, [join(staging, 'scripts/release/native-smoke.mjs')], { cwd: home, stdio: 'inherit' });
@@ -78,7 +78,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
       const current = readSelection(home);
       if (current) {
         try {
-          await verifyStartup(join(home, 'app', current.id), join(home, 'runtime', current.runtime, 'bin/node'), join(home, 'cache'), join(staging, 'scripts/release/portable-launch.mjs'));
+          await verifyStartup(join(home, 'app', current.id), runtimeExecutable(home, current.runtime), join(home, 'cache'), join(staging, 'scripts/release/portable-launch.mjs'));
           previous = current;
         } catch (error) { console.warn(`Previous selected application could not be verified; it was not marked working: ${error.message}`); }
       }
@@ -95,6 +95,13 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     const launcher = join(home, `start-${randomUUID()}.tmp`);
     cpSync(join(work, 'scripts/release/start.command'), launcher);
     renameSync(launcher, join(home, 'start.command'));
+    if (process.platform === 'win32') {
+      for (const name of ['start-app.bat', 'recover-app.bat', 'start-windows.ps1', 'recover-windows.ps1', 'windows-common.ps1']) {
+        const temporary = join(home, `${name}-${randomUUID()}.tmp`);
+        cpSync(join(work, 'scripts/release', name), temporary);
+        renameSync(temporary, join(home, name));
+      }
+    }
     if (previous) writeSelection(home, 'previous', previous);
     writeSelection(home, 'current', { id, runtime });
     console.log(`Activated ${metadata.kind} ${commit}; schema ${metadata.schema}; manifest ${join(application, 'manifest.json')}`);

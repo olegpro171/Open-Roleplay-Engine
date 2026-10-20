@@ -1,8 +1,37 @@
 # Portable ORE builds and releases
 
-The shared portable tooling targets macOS arm64/x64 and glibc Linux arm64/x64. Actual qualification is recorded in [RELEASE_VERIFICATION.md](RELEASE_VERIFICATION.md). A successful Mac build does not establish Linux or Windows support. Windows executable work remains in [WINDOWS_RELEASE_HANDOFF.md](WINDOWS_RELEASE_HANDOFF.md). No binaries, commits, tags or releases are published by these commands.
+The shared portable tooling targets macOS arm64/x64, glibc Linux arm64/x64 and Windows x64. Actual qualification is recorded in [RELEASE_VERIFICATION.md](RELEASE_VERIFICATION.md). A successful Mac build does not establish Linux or Windows support. Windows uses `start-app.bat` and Windows PowerShell 5.1 with ordinary bundled Node and supporting files. See [Windows evidence and remaining gates](WINDOWS_RELEASE_VERIFICATION.md). No binaries, commits, tags or releases are published by these commands.
 
 The first workflow prerelease is described in [TEST_RELEASE.md](TEST_RELEASE.md).
+
+## Windows x64
+
+From a source checkout, double-click `start-app.bat` or invoke it from any terminal directory, without arguments. The fixed installation is `<repository>/ore-portable/`; reparse points/junctions at that location are refused. Existing configured Git and its authentication are needed to check private remote `main`. No Bash, global Node/npm, compiler, Python or administrator elevation is required. Windows PowerShell 5.1 and x64 Windows are targeted; ARM64 is unqualified. The pinned native binaries must load successfully before a build proceeds. Actual system-library evidence and remaining manual checks are in [Windows verification](WINDOWS_RELEASE_VERIFICATION.md).
+
+The batch entry uses `powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File`, preserves exit codes and pauses on failure so double-click errors stay readable. `ORE_NO_PAUSE=1` suppresses that pause for automation. The execution-policy selection applies to this process and descendants only; no persistent policy, profile, PATH or registry startup setting changes. Organization Group Policy still takes precedence. Scripts are unsigned: downloaded scripts may require a normal trust decision under RemoteSigned. Do not disable machine security to run them. See [Microsoft's execution-policy guidance](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1).
+
+PowerShell orchestration implements the same managed-checkout, unchanged-commit, fast-forward, staged activation and visible failure/offline fallback policy below. A kill-on-close Windows Job Object owns the controller and inherited tools before any Git/npm/server spawn. Closing/killing the controller terminates its owned descendants. Ctrl+C is the normal stop control; abrupt termination may leave actionable stale locks, which must only be removed after verifying all owned work stopped. The actual Node launcher owns its server through IPC and a temporary-database startup probe requires clean shutdown. Browser opening uses the ready URL. Relative explicit database overrides resolve against the invoking directory.
+
+To deliberately launch an installed development/recovery build offline in PowerShell:
+
+```powershell
+$env:ORE_SKIP_UPDATE = '1'
+.\start-app.bat
+```
+
+Recovery uses `recover-app.bat --list`, `recover-app.bat --previous`, `recover-app.bat --select APP_ID`, `recover-app.bat --database repository` (source), `recover-app.bat --database external "C:\path\existing.sqlite"`, and `recover-app.bat --resume-updates`. Installed bundles use the same `recover-app.bat` name. Schema/live-owner checks, independent toolkit, temporary-database probe and paused updates follow the recovery policy below. Restoring data remains a separate explicit operation.
+
+Advanced builds use these native commands from the source root (no daily destination argument):
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\build-portable.ps1 -Mode Release -Commit FULL_40_CHARACTER_COMMIT -Destination C:\ORE-release
+# Explicit working-tree snapshot, visibly labelled development:
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\build-portable.ps1 -Mode Development -Destination C:\ORE-development
+```
+
+Release mode requires a clean exact commit reachable on local `main`; the source ZIP comes from Git's allowlisted archive. Private Node/npm install the lockfile with scripts disabled, build, collect notices, reinstall production packages and smoke-test before activation. No compiler fallback is performed. The app and two-line pointer share the existing portable layout; Windows runtime IDs use `node-v24.19.0-win32-x64/node.exe`.
+
+Export from the installed private runtime using `node.exe APP\scripts\release\package-portable.mjs INSTALL_DIRECTORY OUTPUT_DIRECTORY`. On Windows this produces a ZIP, adjacent SHA-256 and internal `checksums.json` using the OS .NET ZIP library. The selected app/runtime and recovery toolkit are allowlisted; data, credentials, remembered paths, user languages and caches are excluded. Extract into a user-writable folder and double-click its `start-app.bat`. Keep the entire supporting folder together. Root directory ACL inheritance is restricted to the current user before application startup, so new installation data/snapshots inherit user-owned access; POSIX chmod is not treated as Windows privacy evidence.
 
 ## Daily startup and automatic updates
 
@@ -119,6 +148,6 @@ In-app Save backup and import remain available for supported backup schemas. The
 
 Candidate Linux baseline: Ubuntu 22.04/24.04 glibc x64, then arm64 separately. Require glibc >= 2.28, kernel >= 4.18, and SSE4.2 on x64 for the pinned native stack. Alpine/musl and other architectures are not targeted by this Bash procedure. macOS candidates: macOS 13.5+ arm64 and x64, tested independently. These are candidate baselines, not claims of verification; see the evidence report. Native requirements derive from [Node's platform matrix](https://github.com/nodejs/node/blob/v24.19.0/BUILDING.md) and [sharp's prebuilt requirements](https://sharp.pixelplumbing.com/install/).
 
-On each actual target: build without global Node/npm, run `npm run check`, extract and launch from a different directory with spaces/Unicode, create owner and synthetic Connection, import/crop pictured cards, generate with the local mock, run lore regex, prepare and repair memory, inspect historical requests, back up/import, stop/restart and verify saved state. Exercise port collision, second launch/database owner, interruption and child cleanup. Test populated upgrade, snapshot restoration to a new database, failed download, bad checksum, failed build, non-writable paths and offline repeat startup. Record exact OS/CPU/Node/native versions and output checksums. Windows additionally requires Explorer-launched ORE.exe and actual native packaging checks.
+On each actual target: build without global Node/npm, run `npm run check`, extract and launch from a different directory with spaces/Unicode, create owner and synthetic Connection, import/crop pictured cards, generate with the local mock, run lore regex, prepare and repair memory, inspect historical requests, back up/import, stop/restart and verify saved state. Exercise port collision, second launch/database owner, interruption and child cleanup. Test populated upgrade, snapshot restoration to a new database, failed download, bad checksum, failed build, non-writable paths and offline repeat startup. Record exact OS/CPU/Node/native versions and output checksums. Windows additionally requires Explorer-launched start-app.bat and actual native packaging checks.
 
 To remove caches, stop builds and remove only `cache/` (it is recreated). To remove old apps/runtimes, stop ORE first and preserve the selected versions unless intentionally uninstalling. Keep the apps/runtimes referenced by `previous`, `working` and `recovery/current` if their recovery path is still needed. Preserve `data/`, `languages/`, external database overrides and private upgrade snapshots. Deleting the entire ORE directory deletes its default user data and language packs; export/retain backups first. No global runtime or package-manager changes need removal.

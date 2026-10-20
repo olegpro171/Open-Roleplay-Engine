@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -23,13 +23,14 @@ function recoveryFixture() {
   mkdirSync(join(home, 'cache'), { recursive: true }); mkdirSync(join(home, 'data'));
   const runtime = `node-v${process.versions.node}-${process.platform}-${process.arch}`;
   mkdirSync(join(home, 'runtime', runtime, 'bin'), { recursive: true });
-  symlinkSync(process.execPath, join(home, 'runtime', runtime, 'bin/node'));
+  if (process.platform === 'win32') linkSync(process.execPath, join(home, 'runtime', runtime, 'node.exe'));
+  else symlinkSync(process.execPath, join(home, 'runtime', runtime, 'bin/node'));
   for (const id of ['release-current', 'release-previous']) {
     const app = join(home, 'app', id);
     for (const name of ['dist/client', 'dist/server/server', 'migrations', 'scripts']) mkdirSync(join(app, name), { recursive: true });
     cpSync(resolve('scripts/release'), join(app, 'scripts/release'), { recursive: true });
     // The target uses real native SQLite. Only its HTTP application is controlled.
-    symlinkSync(resolve('node_modules'), join(app, 'node_modules'));
+    symlinkSync(resolve('node_modules'), join(app, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
     writeFileSync(join(app, 'package.json'), '{"type":"module"}');
     const info = { kind: 'release', version: 'test', commit: 'a'.repeat(40), schema: 13, node: process.versions.node, platform: process.platform, arch: process.arch };
     writeFileSync(join(app, 'build-info.json'), JSON.stringify(info));
@@ -103,7 +104,7 @@ describe('database location identity and relocation', () => {
   });
 });
 
-describe.skipIf(process.platform === 'win32')('explicit application recovery', () => {
+describe('explicit application recovery', () => {
   it('selects the previous startup-verified version without changing saved data and pauses automatic updates', () => {
     const f = recoveryFixture(), before = readFileSync(f.path);
     const result = f.run(['--previous']); expect(result.status, result.stderr).toBe(0);
@@ -131,9 +132,12 @@ describe.skipIf(process.platform === 'win32')('explicit application recovery', (
     cpSync(resolve('scripts/release'), toolkit, { recursive: true });
     writeFileSync(join(f.home, 'recovery/current'), f.current);
     cpSync(resolve('scripts/release/start.command'), join(f.home, 'start.command'));
+    if (process.platform === 'win32') {
+      for (const name of ['start-windows.ps1', 'windows-common.ps1']) cpSync(resolve('scripts/release', name), join(f.home, name));
+    }
     const recovered = f.run(['--previous']); expect(recovered.status, recovered.stderr).toBe(0);
     const database = new Database(f.path); database.pragma('user_version=14'); database.close();
-    const launched = spawnSync('/bin/bash', [join(f.home, 'start.command')], { encoding: 'utf8', env: { ...process.env, ORE_SKIP_UPDATE: '1', ORE_OPEN_BROWSER: '0', ROLEPLAY_DATABASE: f.path }, timeout: 20000 });
+    const launched = spawnSync(process.platform === 'win32' ? 'powershell.exe' : '/bin/bash', process.platform === 'win32' ? ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-File', join(f.home, 'start-windows.ps1')] : [join(f.home, 'start.command')], { encoding: 'utf8', env: { ...process.env, ORE_SKIP_UPDATE: '1', ORE_OPEN_BROWSER: '0', ROLEPLAY_DATABASE: f.path }, timeout: 20000 });
     expect(launched.status).toBe(1); expect(launched.stderr).toContain('Database schema 14');
     expect(launched.stdout).not.toContain('Local:'); expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(f.previous);
   });

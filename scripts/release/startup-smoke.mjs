@@ -41,7 +41,7 @@ export async function verifyStartup(application, executable, cache, launcher = j
       await delay(25);
     }
     if (!ready) throw new Error(`Application startup check failed${exited ? ` (exit ${exitCode})` : ' (timeout)'}. Previous selection retained.\n${output}`);
-    child.kill('SIGTERM');
+    child.disconnect();
     const stopped = Date.now()+5000;
     while (!exited && Date.now()<stopped) await delay(20);
     if (!exited || exitCode !== 0) throw new Error(`Application startup check did not stop cleanly. Previous selection retained.\n${output}`);

@@ -13,6 +13,7 @@ import { newLorebook, newLoreEntry } from '../../src/shared/lorebook.js';
 import type { LibrarySnapshot } from '../../src/shared/library.js';
 import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts.js';
 import type { BackupReview } from '../../src/shared/backups.js';
+import { cropFromControls } from '../../src/shared/pictures.js';
 
 const home = resolve(process.argv[2] ?? '');
 assert(home.includes('ORE'), 'Pass an isolated synthetic ORE installation, never user data.');
@@ -25,9 +26,13 @@ const port = address.port;
 await new Promise<void>(resolve => reservation.close(() => resolve()));
 const origin = `http://127.0.0.1:${port}`;
 let cookie = '', epoch = 'initial', child: ChildProcess | undefined;
-const environment = { ...process.env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', ORE_OPEN_BROWSER: '0', ORE_SKIP_UPDATE: '1', ROLEPLAY_PORT: String(port), ROLEPLAY_HOST: '127.0.0.1', ROLEPLAY_DATABASE: join(home, 'data/roleplay.sqlite'), ROLEPLAY_TLS_CERT: '', ROLEPLAY_TLS_KEY: '' };
+const windows = process.platform === 'win32';
+const environment = { ...process.env, PATH: windows ? `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}\\System32\\WindowsPowerShell\\v1.0` : '/usr/bin:/bin:/usr/sbin:/sbin', ORE_OPEN_BROWSER: '0', ORE_SKIP_UPDATE: '1', ROLEPLAY_PORT: String(port), ROLEPLAY_HOST: '127.0.0.1', ROLEPLAY_DATABASE: join(home, 'data/roleplay.sqlite'), ROLEPLAY_TLS_CERT: '', ROLEPLAY_TLS_KEY: '' };
+function launchEntry(extra: NodeJS.ProcessEnv) {
+  return spawn(windows ? 'powershell.exe' : '/bin/bash', windows ? ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-File', join(home, 'start-windows.ps1')] : [join(home, 'start.command')], { cwd: windows ? process.env.SystemRoot : '/', env: { ...environment, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
+}
 async function launch(extra: NodeJS.ProcessEnv = {}) {
-  const processChild = spawn('/bin/bash', [join(home, 'start.command')], { cwd: '/', env: { ...environment, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const processChild = launchEntry(extra);
   let output = '';
   processChild.stdout.on('data', bytes => { output += String(bytes); });
   processChild.stderr.on('data', bytes => { output += String(bytes); });
@@ -63,7 +68,7 @@ async function eventually<T>(read: () => Promise<T>, matches: (value: T) => bool
   throw new Error('Packaged workflow did not reach its expected state.');
 }
 async function rejectedStart(message: RegExp, extra: NodeJS.ProcessEnv = {}) {
-  const processChild = spawn('/bin/bash', [join(home, 'start.command')], { cwd: '/', env: { ...environment, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const processChild = launchEntry(extra);
   let output = ''; processChild.stdout.on('data', bytes => { output += String(bytes); }); processChild.stderr.on('data', bytes => { output += String(bytes); });
   const status = await new Promise<number | null>((resolve, reject) => { const timer = setTimeout(() => { processChild.kill('SIGTERM'); reject(new Error('Duplicate start hung.')); }, 10000); processChild.once('exit', code => { clearTimeout(timer); resolve(code); }); });
   assert.notEqual(status, 0); assert.match(output, message);
@@ -80,6 +85,15 @@ try {
   const image = cardPng(await quadrantPicture(), { name: 'Portable Mira', description: 'A synthetic keeper.', personality: '', scenario: '', first_mes: '', mes_example: '' });
   const imported = await request<{ ids: string[] }>('/api/library/import', 'POST', { revision: (await libraries()).revision, requestId: randomUUID(), kind: 'characters', base64: image.toString('base64'), pictureMode: 'retain' });
   const library = await libraries(); assert(library.characterPictures.some(picture => picture.characterId === imported.ids[0]));
+  for (const format of ['jpeg', 'webp'] as const) {
+    const currentLibrary = await libraries(), character = currentLibrary.characters.find(value => value.id === imported.ids[0]); assert(character);
+    const { id, revision: _revision, ...data } = character;
+    const previousPicture = currentLibrary.characterPictures.find(value => value.characterId === id); assert(previousPicture);
+    const crop = cropFromControls({ width: 400, height: 200 }, 2, 0, 0);
+    await request(`/api/library/${id}`, 'PUT', { kind: 'characters', revision: currentLibrary.revision, requestId: randomUUID(), data, tagIds: [], expectedPicture: previousPicture.key, picture: { mode: 'replace', base64: (await quadrantPicture(format)).toString('base64'), crop } });
+    const picture = (await libraries()).characterPictures.find(value => value.characterId === id); assert(picture); assert.deepEqual(picture.crop, crop);
+    const resource = await fetch(origin + picture.thumbnailUrl, { headers: { cookie } }); assert(resource.ok); assert((await resource.arrayBuffer()).byteLength > 0);
+  }
   const lorebook = await save('lorebooks', { ...newLorebook(), entries: [{ ...newLoreEntry(randomUUID()), keys: ['/lantern/i'], useRegex: true, content: 'PACKAGED REGEX LORE', placement: 'history' }] });
   const context = await save('contexts', { ...defaultContextPreset, connectionId: connection.id, batchSize: 2, minTail: 2, promotionGroup: 2, retainedPerLevel: 1 });
   const chat = await request<{ id: string }>('/api/chats', 'POST', { title: 'Portable synthetic story', targetInputTokens: 700, connectionId: connection.id, promptId: 'default', characterId: imported.ids[0], personaId: null, lorebookId: lorebook.id, contextPresetId: context.id });
@@ -101,6 +115,18 @@ try {
   await request(`${base}/turns`, 'POST', { revision: saved.revision, requestId: randomUUID(), text: 'I raise the lantern.' });
   saved = await eventually(state, snapshot => snapshot.generations[0]?.status !== 'running');
   assert.equal(saved.generations[0]?.status, 'succeeded');
+  const turn = saved.turns.at(-1); assert(turn);
+  mock.setMode('reasoning');
+  await request(`${base}/turns/${turn.id}/regenerate`, 'POST', { revision: saved.revision, requestId: randomUUID() });
+  saved = await eventually(state, snapshot => Boolean(snapshot.generations[0]?.reasoningText));
+  mock.finishAll();
+  await eventually(state, snapshot => Boolean(snapshot.generations[0]?.reasoningText?.includes('newest thought')));
+  mock.finishAll();
+  await eventually(state, snapshot => Boolean(snapshot.generations[0]?.partialText));
+  mock.finishAll();
+  saved = await eventually(state, snapshot => snapshot.generations[0]?.status !== 'running');
+  assert.equal(saved.generations[0]?.status, 'succeeded'); assert(saved.generations[0]?.reasoningText); assert.equal(saved.turns.at(-1)?.variants?.length, 2);
+  mock.setMode('normal');
   const generation = saved.generations[0]; assert(generation);
   const historical = await request<RequestPreview>(`${base}/generations/${generation.id}/request`);
   assert(historical.body.messages.some(message => message.content.includes('PACKAGED REGEX LORE')));
@@ -123,6 +149,6 @@ try {
   child = await launch();
   assert.deepEqual((await state()).turns, saved.turns);
   await stop();
-  writeFileSync(join(home, 'logs/acceptance.json'), JSON.stringify({ about, platform: process.platform, arch: process.arch, checks: ['installed UI', 'owner', 'Connection', 'pictured PNG card and native child', 'lore regex worker', 'prepare', 'reviewed repair', 'generation', 'immutable request', 'backup/import', 'port collision', 'duplicate database owner', 'graceful restart', 'launcher interruption and restart', 'repeat start without Node/npm PATH'] }, null, 2));
+  writeFileSync(join(home, 'logs/acceptance.json'), JSON.stringify({ about, platform: process.platform, arch: process.arch, checks: ['installed UI', 'owner', 'Connection', 'pictured PNG card and native child', 'JPEG/WebP replacement and crop', 'lore regex worker', 'prepare', 'reviewed repair', 'generation', 'reasoning and response variant', 'immutable request', 'backup/import', 'port collision', 'duplicate database owner', windows ? 'controller termination and restart' : 'graceful restart', 'launcher interruption and restart', 'repeat start without Node/npm PATH'] }, null, 2));
   console.log(`Packaged acceptance passed. Evidence: ${join(home, 'logs/acceptance.json')}`);
 } finally { await stop(); await mock.close(); }

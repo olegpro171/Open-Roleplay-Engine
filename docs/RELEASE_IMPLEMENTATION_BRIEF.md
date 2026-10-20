@@ -6,7 +6,7 @@ Status: shared portable implementation completed for local Mac validation on 202
 
 Latest startup refinement (2026-10-20): normal use starts a platform-specific launcher which checks latest `main`, builds when the installed commit changes, and launches. The daily source installation is fixed to `ore-portable/` inside the repository, with no destination argument. This supersedes the separate manual build/start workflow described in the initial assignment. Preserve staged activation, contained dependencies, data and explicit offline/failure recovery. The original immutable first prerelease remains a historical workflow snapshot.
 
-Implement a repeatable release procedure for the existing React/Fastify application. A release is an exact commit on `main`. Windows delivery must launch through `ORE.exe`; a supporting folder is explicitly acceptable. macOS/Linux delivery uses a Bash script to build the app. Contain dependencies within ORE-owned locations instead of installing them throughout the user's OS.
+Implement a repeatable release procedure for the existing React/Fastify application. A release is an exact commit on `main`. The accepted 2026-10-20 refinement uses `start-app.bat`, Windows PowerShell 5.1 and ordinary bundled Node with supporting files; a custom executable is not required. macOS/Linux delivery uses a Bash script to build the app. Contain dependencies within ORE-owned locations instead of installing them throughout the user's OS.
 
 Read AGENTS.md, CONCEPTS.md, IMPLEMENTATION.md, README.md, package.json and the current launch/server/worker code. Keep the accepted stack and browser interface. No Electron/Tauri rewrite, hosted service, mandatory container runtime or automatic OS package-manager installation is authorized. Implement the shared release/runtime work and validate the locally available platforms; leave a concrete handoff for actual Windows execution. Do not claim Windows/Linux support from a Mac build.
 
@@ -38,14 +38,14 @@ Provide a clear stop mechanism and useful startup errors/log location. Handle oc
 
 Keep existing source-development commands working. Audit `main.ts`'s working-directory assumptions, `Store`'s migration paths, native SQLite loading, `pictures.ts` child-process launch, `lore-regex.ts` worker threads and tokenizer assets. The Windows launcher must be able to start the image worker using the intended bundled runtime; `process.execPath` cannot accidentally launch the GUI/bootstrap again recursively.
 
-For Windows, a native executable launcher with bundled Node/supporting files is sufficient. Select the smallest maintainable packaging approach compatible with pinned LTS after an end-to-end spike. Do not promise a single-file SEA or compile TypeScript to native machine code. A new packaging dependency/toolchain must be explained and approved before being added; prefer existing/runtime-provided capabilities where practical.
+For Windows, the accepted refinement uses a small batch entry and Windows PowerShell 5.1 with bundled ordinary Node/supporting files. No custom executable, SEA, desktop framework or compiler toolchain is required. New packaging dependencies require agreement; use existing OS/runtime capabilities.
 
 ## Implementation stages and handoff contract
 
 1. Establish the shared portable filesystem contract, path resolution and build/version metadata. Add focused regression tests for relevant path/startup behavior.
 2. Implement macOS/Linux Bash build/start/update procedure using app-local dependencies. Validate on Mac and define the exact Linux target/test matrix. Keep shell compatibility conservative, including macOS's available Bash.
 3. Prepare artifact staging/manifests/checksums/notices and release documentation. Test a clean environment with no globally installed Node, npm, SQLite or sharp dependencies, including offline repeat startup.
-4. Supply the Windows agent with an exact commit, dependency/runtime versions, artifact layout, launcher entry contract and build/check commands. Use [WINDOWS_RELEASE_HANDOFF.md](WINDOWS_RELEASE_HANDOFF.md); the Windows agent owns executable packaging and native validation, not product redesign.
+4. Supply the Windows agent with an exact commit, dependency/runtime versions, artifact layout, launcher entry contract and build/check commands. Use [WINDOWS_RELEASE_HANDOFF.md](WINDOWS_RELEASE_HANDOFF.md); the Windows agent owns batch/PowerShell delivery and native validation, not product redesign.
 5. Integrate platform findings, rerun affected checks, and record supported versus unverified combinations. Coordinate shared-file changes rather than allowing two agents to rewrite launcher/runtime code independently.
 
 ## Acceptance evidence

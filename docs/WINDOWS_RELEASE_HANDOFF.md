@@ -1,6 +1,6 @@
 # Windows handoff for Task 2 — PowerShell and double-click launcher
 
-Status: ready for implementation and native validation on the user's Windows machine using current main, including the startup/recovery fixes. This is a platform subtask of [RELEASE_IMPLEMENTATION_BRIEF.md](RELEASE_IMPLEMENTATION_BRIEF.md), not a third product feature.
+Status: batch/PowerShell implementation and automated Windows x64 validation are recorded in [WINDOWS_RELEASE_VERIFICATION.md](WINDOWS_RELEASE_VERIFICATION.md); remaining manual/external gates are explicit there. The assignment below is retained as the acceptance contract. This is a platform subtask of [RELEASE_IMPLEMENTATION_BRIEF.md](RELEASE_IMPLEMENTATION_BRIEF.md), not a third product feature.
 
 Accepted Windows delivery refinement: use a double-clickable `start-app.bat` entry and Windows PowerShell 5.1 scripts, with ordinary bundled `node.exe` as the application runtime. A custom `ORE.exe` is not required for the private beta. This supersedes the earlier executable requirement in CONCEPTS.md, IMPLEMENTATION.md and RELEASE_IMPLEMENTATION_BRIEF.md; do not introduce an executable packaging toolchain to satisfy that older wording. Update those documents consistently when implementing Windows delivery.
 
