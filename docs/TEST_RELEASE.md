@@ -1,5 +1,7 @@
 # ORE v0.1.0-test.1 — portable workflow test
 
+These instructions describe the immutable first prerelease. Current main adds automatic check/build/start launchers; see [the current startup workflow](RELEASES.md). Upgrade an existing first-prerelease installation once with the current source `start-app.command EXISTING_INSTALL_DIRECTORY`.
+
 This is an early prerelease for checking installation, offline startup and the app-owned data layout. The built download is for **Mac arm64 (Apple Silicon)**. macOS x64, Linux and Windows executable delivery remain unqualified. It is unsigned and not notarized. This is not the completed private beta or a claim of real-model memory quality.
 
 ## Test the built archive

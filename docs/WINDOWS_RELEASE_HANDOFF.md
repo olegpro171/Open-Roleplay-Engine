@@ -2,6 +2,8 @@
 
 Status: ready as an assignment template; run on the user's Windows machine after the shared release/runtime contract is implemented. This is a platform subtask of [RELEASE_IMPLEMENTATION_BRIEF.md](RELEASE_IMPLEMENTATION_BRIEF.md), not a third product feature.
 
+Latest startup decision (2026-10-20): users start a platform-specific entry script which checks latest remote `main`, builds only when needed, then launches. Windows must provide a native `.cmd`/PowerShell entry for this workflow, with the executable/runtime as supporting implementation. Separate manual build and launch are no longer the normal flow. The Mac/Linux policy is implemented by `scripts/release/update-and-start.sh`; do not require Bash on Windows. Reuse its committed-main comparison, private managed checkout, fast-forward-only updates, preserved user edits/data/languages, update lock, visible offline/build-failure fallback and explicit no-check recovery mode. Use Git authentication without embedding credentials or installing global toolchains. Test the same first-start, unchanged, update, failure, cancellation and recovery cases natively.
+
 ## Prompt for the Windows Codex agent
 
 Implement and validate Windows delivery of ORE as `ORE.exe` plus its supporting folder. Read AGENTS.md and the release brief first. Use the exact shared-work commit supplied by the user/coordinating agent; record it in your report. If that commit or filesystem/launcher contract is not available, inspect the branch and prepare Windows tooling observations, but do not invent a competing package layout. Work on a `codex/` branch and preserve existing changes. Do not publish, merge or upload artifacts without user instruction.
@@ -35,7 +37,7 @@ Windows delivery is not complete merely because an executable is produced: the p
 
 ## Shared contract available after the 2026-10-20 implementation
 
-The shared portable work is committed with the early test release `v0.1.0-test.1` on main. Resolve the exact full implementation commit with `git rev-parse 'v0.1.0-test.1^{commit}'`, and compare it with the release artifact's manifest/About view. The earlier parent `e43b56bdc8439c0e3b432aee2f52aea2aaebd27a` does not contain the portable implementation. Use the tagged commit for the Windows work.
+The first shared portable work is committed with `v0.1.0-test.1` on main. That immutable tag predates automatic startup updates. Use a clean current main commit for Windows work, record its full SHA with `git rev-parse HEAD`, and compare built manifests/About with that identity. The earlier parent `e43b56bdc8439c0e3b432aee2f52aea2aaebd27a` lacks portable delivery entirely. Do not move the old tag.
 
 Use [RELEASES.md](RELEASES.md) for layout and [RELEASE_VERIFICATION.md](RELEASE_VERIFICATION.md) for Mac evidence. The immutable build information schema is `src/shared/build-info.ts`; current database schema is 13. Runtime pin: Node 24.19.0; official Windows x64 zip SHA-256 `57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73`, arm64 zip `8502f4a50b458d4cc38ed8f2001556c2cd239d464920f74017926ccb1e1c157f` (arm64 remains a separate unqualified target). Pins are in `scripts/release/node-SHASUMS256.txt`. Lockfile versions include better-sqlite3 13.0.3, sharp 0.35.5 and gpt-tokenizer 4.0.3. Use `npm ci --include=dev --include=optional --ignore-scripts`, `npm run check`, collect notices, then a second `npm ci --omit=dev --include=optional --ignore-scripts` for production. Never run a compiler fallback silently.
 

@@ -8,13 +8,13 @@ Generated summaries are checked for obvious refusals, placeholders, empty output
 
 ## Start on this Mac
 
-Dependencies are installed in this workspace. Double-click **start-app.command**, or run:
+Double-click **start-app.command**, or run:
 
 ```sh
 ./start-app.command
 ```
 
-This source launcher requires supported Node.js on the invoking terminal's PATH, builds the interface and server, and prints the local address (normally `http://localhost:3000`). For an installation with its own runtime, use the [contained installation procedure](#contained-installation-and-release-tooling). Leave its terminal open. Stop it with Control-C.
+This launcher checks the latest `main`, builds only when the installed commit changes, and starts ORE with its private Node runtime. It keeps a managed source checkout and replaceable application files under `ore-portable/`; your source checkout is left intact. Existing source-launcher data remains in this checkout's `data/roleplay.sqlite`; its path is remembered so the installed entry opens the same database. No global Node/npm is required. Leave its terminal open and stop with Control-C. Linux uses `./start.sh`; actual Linux qualification remains pending.
 
 In Safari on the Mac, open that address and choose **File → Add to Dock**. The tab favicon and Dock icon use the current ORE header mark. If ORE was already added to the Dock with an older icon, remove that web app and add it again to pick up the new artwork. Icon PNGs are generated from `artwork/ore-mark.svg` with `node scripts/generate-icons.mjs` using the supported Node runtime.
 
@@ -143,14 +143,15 @@ Completed generated turns show endpoint-reported input/output tokens beside the 
 
 For the early portable workflow prerelease, see [v0.1.0-test.1 testing instructions](docs/TEST_RELEASE.md).
 
-Use the Bash bootstrap for a private Node/runtime/dependency installation:
+For a separate installation, use the same daily source launcher with its directory:
 
 ```sh
-./build-portable.sh --development "$HOME/ORE"
-"$HOME/ORE/start.command"
+./start-app.command "$HOME/ORE"
 ```
 
-Builds stage before activation; installed startup works without rebuilding or downloading. Data defaults to `ORE/data/roleplay.sqlite`, with external language packs in `ORE/languages/`; explicit `ROLEPLAY_DATABASE` overrides remain supported. Settings → About ORE shows build identity. Existing older databases receive a private consistent pre-upgrade snapshot; future schemas are refused. App-file rollback and database restoration are separate operations.
+Use `"$HOME/ORE/start.command"` for later starts. Every normal startup checks `main`; unchanged commits reuse the installed app. Failed/offline updates report the error and start the previous app; first installation requires network access. `ORE_SKIP_UPDATE=1` explicitly skips checking for an installed app. Builds stage before activation, preserving data/languages. The separate installation defaults to `ORE/data/roleplay.sqlite`; explicit `ROLEPLAY_DATABASE` overrides remain supported. Settings → About ORE shows build identity. Older databases receive a private consistent pre-upgrade snapshot; future schemas are refused. App-file rollback and database restoration remain separate operations.
+
+Git, Bash, curl, tar and SHA-256 tools must already exist. This repository is private: configure Git authentication for updates; credentials are not bundled. The source launcher follows its checkout's `origin` through a separate managed checkout; installed downloads default to this repository. Local source edits are preserved and do not become automatic releases. For development snapshots use `./build-portable.sh --development DIRECTORY` explicitly. The published `v0.1.0-test.1` archive predates automatic startup updates: use the current source launcher once with your existing installation directory to upgrade it.
 
 See [release/build/update/recovery instructions](docs/RELEASES.md), [actual platform evidence](docs/RELEASE_VERIFICATION.md) and the [Windows executable handoff](docs/WINDOWS_RELEASE_HANDOFF.md). macOS arm64 was exercised locally; Linux, macOS x64, Windows executable delivery and signing remain unqualified. Clean release mode requires a committed clean main-reachable revision. Nothing is published automatically.
 
@@ -173,7 +174,7 @@ npm run dev:ui
 
 The first command watches the server on port 3000; the second serves the interface on port 5173 and forwards API requests. Normal use runs the built interface and API together through Fastify. The Mac must remain awake for generation and phone access.
 
-The source convenience launcher uses supported Node from the invoking terminal's PATH. It does not select a Codex-managed runtime. For normal use without a global Node installation, use the contained procedure above.
+The daily launcher uses its own private runtime. The npm development/build/test commands above require supported Node on the terminal's PATH. No Codex-managed runtime is selected.
 
 ## Verification
 

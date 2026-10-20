@@ -4,6 +4,8 @@ Status: shared portable implementation completed for local Mac validation on 202
 
 ## Assignment and user decisions
 
+Latest startup refinement (2026-10-20): normal use starts a platform-specific launcher which checks latest `main`, builds when the installed commit changes, and launches. This supersedes the separate manual build/start workflow described in the initial assignment. Preserve staged activation, contained dependencies, data and explicit offline/failure recovery. The original immutable first prerelease remains a historical workflow snapshot.
+
 Implement a repeatable release procedure for the existing React/Fastify application. A release is an exact commit on `main`. Windows delivery must launch through `ORE.exe`; a supporting folder is explicitly acceptable. macOS/Linux delivery uses a Bash script to build the app. Contain dependencies within ORE-owned locations instead of installing them throughout the user's OS.
 
 Read AGENTS.md, CONCEPTS.md, IMPLEMENTATION.md, README.md, package.json and the current launch/server/worker code. Keep the accepted stack and browser interface. No Electron/Tauri rewrite, hosted service, mandatory container runtime or automatic OS package-manager installation is authorized. Implement the shared release/runtime work and validate the locally available platforms; leave a concrete handoff for actual Windows execution. Do not claim Windows/Linux support from a Mac build.

@@ -23,6 +23,8 @@ function fixture() {
   for (const directory of ['data', 'languages', 'tests']) { mkdirSync(join(work, directory)); writeFileSync(join(work, directory, 'PRIVATE'), 'synthetic private fixture'); }
   writeFileSync(join(work, '.env'), 'synthetic private environment');
   mkdirSync(join(home, 'data')); writeFileSync(join(home, 'data/PRIVATE'), 'synthetic installed private data');
+  writeFileSync(join(home, 'database-path.txt'), '/synthetic/private/original-data.sqlite');
+  writeFileSync(join(home, 'update-source.txt'), '/synthetic/private/source-checkout');
   const runtime = `node-v24.19.0-${process.platform}-${process.arch}`;
   mkdirSync(join(home, 'runtime', runtime), { recursive: true }); writeFileSync(join(home, 'runtime', runtime, 'LICENSE'), 'Synthetic runtime license');
   const install = () => spawnSync(process.execPath, [resolve('scripts/release/stage.mjs'), 'install', work, home, '--development', 'a'.repeat(40), runtime, 'b'.repeat(64), notices], { encoding: 'utf8' });
@@ -40,6 +42,7 @@ describe.skipIf(process.platform === 'win32')('portable artifact boundaries', ()
     if (!archive) throw new Error('Missing test artifact');
     const listing = spawnSync('tar', ['-tzf', join(output, archive)], { encoding: 'utf8' }); expect(listing.status).toBe(0);
     expect(listing.stdout).not.toContain('PRIVATE'); expect(listing.stdout).not.toContain('.env'); expect(listing.stdout).not.toContain('/tests/');
+    expect(listing.stdout).not.toContain('/database-path.txt'); expect(listing.stdout).not.toContain('/update-source.txt');
     expect(listing.stdout).toContain('/checksums.json'); expect(listing.stdout).toContain('/notices/LICENSE');
     const extracted = join(f.root, 'extracted'); mkdirSync(extracted);
     expect(spawnSync('tar', ['-xzf', join(output, archive), '-C', extracted]).status).toBe(0);

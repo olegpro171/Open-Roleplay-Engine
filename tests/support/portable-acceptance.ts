@@ -25,7 +25,7 @@ const port = address.port;
 await new Promise<void>(resolve => reservation.close(() => resolve()));
 const origin = `http://127.0.0.1:${port}`;
 let cookie = '', epoch = 'initial', child: ChildProcess | undefined;
-const environment = { ...process.env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', ORE_OPEN_BROWSER: '0', ROLEPLAY_PORT: String(port) };
+const environment = { ...process.env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', ORE_OPEN_BROWSER: '0', ORE_SKIP_UPDATE: '1', ROLEPLAY_PORT: String(port), ROLEPLAY_HOST: '127.0.0.1', ROLEPLAY_DATABASE: join(home, 'data/roleplay.sqlite'), ROLEPLAY_TLS_CERT: '', ROLEPLAY_TLS_KEY: '' };
 async function launch(extra: NodeJS.ProcessEnv = {}) {
   const processChild = spawn('/bin/bash', [join(home, 'start.command')], { cwd: '/', env: { ...environment, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';

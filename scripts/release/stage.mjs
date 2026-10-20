@@ -57,7 +57,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
   try {
     for (const input of ['dist', 'migrations', 'package.json', 'package-lock.json', 'node_modules']) cpSync(join(work, input), join(staging, input), { recursive: true, verbatimSymlinks: true });
     mkdirSync(join(staging, 'scripts/release'), { recursive: true });
-    for (const name of ['portable-launch.mjs', 'native-smoke.mjs', 'package-portable.mjs', 'stage.mjs']) cpSync(join(work, 'scripts/release', name), join(staging, 'scripts/release', name));
+    for (const name of ['portable-launch.mjs', 'update-and-start.sh', 'native-smoke.mjs', 'package-portable.mjs', 'stage.mjs']) cpSync(join(work, 'scripts/release', name), join(staging, 'scripts/release', name));
     cpSync(noticeDirectory, join(staging, 'notices'), { recursive: true, verbatimSymlinks: true });
     cpSync(join(work, 'docs/RELEASES.md'), join(staging, 'README.md'));
     for (const name of ['RELEASES.md', 'RELEASE_IMPLEMENTATION_BRIEF.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'TEST_RELEASE.md']) cpSync(join(work, 'docs', name), join(staging, name));

@@ -4,20 +4,25 @@ The shared portable tooling targets macOS arm64/x64 and glibc Linux arm64/x64. A
 
 The first workflow prerelease is described in [TEST_RELEASE.md](TEST_RELEASE.md).
 
-## Build and start
+## Daily startup and automatic updates
 
 From a source checkout, using Bash (including macOS Bash 3.2), curl, tar, Git and shasum/sha256sum:
 
 ```sh
-./build-portable.sh --development "$HOME/ORE"
-"$HOME/ORE/start.command"
+./start-app.command "$HOME/ORE"
 ```
 
-The build downloads official Node **24.19.0** into ORE, verifies the committed SHA-256 pin, installs the lockfile with the private npm, builds, reinstalls production packages from that same lockfile and tests production native loading. It uses no globally installed Node/npm, compiler, Python, SQLite or libvips. Package lifecycle scripts are disabled; these locked SQLite/sharp versions supply prebuilt native binaries. Unsupported native loading fails explicitly. Nothing installs system packages or modifies profiles, persistent PATH, startup entries or global npm settings. Existing source `npm run dev`, `dev:ui`, `build`, `start` and verification commands remain available with supported Node 24 or 22.12+.
+Use this script for the first and later launches; Linux source users can use `./start.sh DIRECTORY`. It checks the latest remote `main`, builds only when the complete installed release commit differs, then launches. Later launches can also use `"$HOME/ORE/start.command"`. Git authentication must already be configured for this private repository; no credential is stored in the bundle. The source launcher uses its checkout's `origin`, recorded as a credential-free URL in `ORE/update-source.txt`; portable downloads default to the project's GitHub repository. A managed checkout under `cache/update-source` is used instead of modifying the user's source checkout. Update logs are under `logs/`.
 
-Start never downloads, installs or rebuilds. After installation it works offline, except explicitly requested model calls. It starts the real Fastify server/UI and opens the browser only after listen succeeds. Keep its terminal open; **Ctrl+C** stops gracefully. Logs are private files in `logs/`. `ORE_OPEN_BROWSER=0` suppresses browser opening. If a browser opener is unavailable, use the printed URL. A busy port or database reports an error without killing another process. Repeat launch does not take over an existing server. Terminal close signals stop its child; losing the launcher IPC also closes the server. Hard power loss cannot guarantee graceful checkpointing.
+The build downloads official Node **24.19.0** into ORE, verifies the committed SHA-256 pin, installs the lockfile with the private npm, builds, reinstalls production packages from that same lockfile and tests production native loading. It uses no globally installed Node/npm, compiler, Python, SQLite or libvips. Package lifecycle scripts are disabled; these locked SQLite/sharp versions supply prebuilt native binaries. Unsupported native loading fails explicitly. Nothing installs system packages or modifies profiles, persistent PATH, startup entries or global npm settings. Existing source `npm run dev`, `dev:ui`, `build`, `start` and verification commands remain available with supported Node 24 or 22.12+. `build-portable.sh --development DIRECTORY` remains an explicit developer snapshot command; daily startup consumes committed remote main, preserving local source edits.
 
-The existing `ROLEPLAY_PORT`, `ROLEPLAY_HOST`, `ROLEPLAY_DATABASE`, `ROLEPLAY_TLS_CERT` and `ROLEPLAY_TLS_KEY` settings remain supported. Port defaults to 3000 and must be 1–65535. HTTP remains loopback-only; LAN requires certificates and prior local owner setup. Paths with spaces/Unicode are supported. An explicit relative database override is resolved against the invoking terminal directory before launch; use an absolute path for repeatability. The default database always resolves under this ORE installation, independently of shell working directory. Non-writable installations fail with an actionable error; there is no silent alternate database.
+If a check/download/build fails, startup explains the failure and runs the previously selected app. First installation fails clearly when no app exists. An unchanged commit does not reinstall/rebuild. `ORE_SKIP_UPDATE=1 ./start.command` explicitly starts an installed version without checking; use this for deliberate offline operation, a development snapshot, or database recovery. Git checks disable interactive password prompts, use existing credential helpers/keys, and reject URLs with embedded HTTP credentials. Slow HTTP transfers and SSH connections have conservative failure settings; unavailable credentials must be configured outside the launcher.
+
+The launcher starts the real Fastify server/UI and opens the browser only after listen succeeds. Keep its terminal open; **Ctrl+C** stops gracefully. Logs are private files in `logs/`. `ORE_OPEN_BROWSER=0` suppresses browser opening. If a browser opener is unavailable, use the printed URL. A busy port or database reports an error without killing another process. Repeat launch does not take over an existing server. Terminal close signals stop its child; losing the launcher IPC also closes the server. Hard power loss cannot guarantee graceful checkpointing.
+
+The existing `ROLEPLAY_PORT`, `ROLEPLAY_HOST`, `ROLEPLAY_DATABASE`, `ROLEPLAY_TLS_CERT` and `ROLEPLAY_TLS_KEY` settings remain supported. Port defaults to 3000 and must be 1–65535. HTTP remains loopback-only; LAN requires certificates and prior local owner setup. Paths with spaces/Unicode are supported. An explicit relative database override is resolved against the invoking terminal directory before launch; use an absolute path for repeatability. A separate installation normally uses its own `data/roleplay.sqlite`. Source startup with no directory keeps application/cache files in `ore-portable/` and remembers the existing checkout's `data/roleplay.sqlite` in `database-path.txt`. Both launch entries then open that same saved location; an explicit `ROLEPLAY_DATABASE` always wins. A saved path is validated, never silently replaced with a new empty database. Non-writable installations fail with an actionable error; there is no silent alternate database.
+
+The immutable `v0.1.0-test.1` archive has the earlier launch-only behavior. Upgrade it once by running the current source `start-app.command EXISTING_INSTALL_DIRECTORY`. No database or language directory needs to be moved. Never move/rewrite its published tag.
 
 ## Layout and updates
 
@@ -25,6 +30,8 @@ The existing `ROLEPLAY_PORT`, `ROLEPLAY_HOST`, `ROLEPLAY_DATABASE`, `ROLEPLAY_TL
 ORE/
   start.command                stable Bash entry
   current                      atomic two-line app/runtime selection
+  update-source.txt            configured repository URL; no credentials
+  database-path.txt            optional remembered source database path; not exported
   runtime/node-v24.19.0-OS-CPU/  private official Node + npm + LICENSE
   app/<build-id>/               replaceable application
     dist/client/               Vite UI
@@ -41,13 +48,13 @@ ORE/
   logs/                        startup/error output
 ```
 
-Run the same build command with the same installation directory to update. Download/build/production-smoke work completes in `cache/` before `current` switches atomically. Failure preserves the selected application and all data/language files. A newly downloaded runtime can remain unused and is safe to retain. Existing servers keep running their original app until explicitly stopped. Never remove an application/runtime used by a running server. Concurrent builds fail using `cache/build.lock`; after a crash, verify no build is running before removing only that lock directory. Interrupted temporary directories may be removed while stopped. Previous app versions remain for explicit recovery; there is no automatic pruning.
+Normal startup performs updating. Download/build/production-smoke work completes in `cache/` before `current` switches atomically. Failure preserves the selected application and all data/language files. The managed checkout advances by fast-forward only; edits/untracked files, local commits or rewritten main history are preserved and reported instead of reset. Stop the app and preserve/move that cache checkout aside before intentionally switching repositories. A newly downloaded runtime can remain unused and is safe to retain. Existing servers keep running their original app until explicitly stopped. Never remove an application/runtime used by a running server. Concurrent startup updates fail using `cache/update.lock` without launching another server; manual builds use `cache/build.lock`. After a hard interruption, verify no Git/build/startup process remains before removing only the stale lock directories. Interrupted temporary directories may be removed while stopped. Previous app versions remain for explicit recovery; there is no automatic pruning.
 
 ## Exact release procedure
 
 A release is an exact clean commit reachable on local `main`. The checkout must be that full commit; tracked changes and untracked inputs reject release mode. Ignored build/data directories are never included. Release source is exported with Git from that commit, rather than from mutable working files. Developer artifacts are visibly labelled **Development build** in Settings → About ORE and in their manifests.
 
-1. Review, commit and place the intended changes on `main` through the user's normal workflow. Run `npm run check` against that commit with supported Node. This tooling does not commit or merge.
+1. Review, commit and place the intended changes on `main` through the user's normal workflow. Run `npm run check` against that commit with supported Node. Startup does not commit/publish user changes; it fast-forwards only its private managed checkout.
 2. Obtain the full commit with `git rev-parse HEAD`, then run:
 
    ```sh
@@ -75,7 +82,7 @@ Before opening an existing older schema, Store acquires database ownership and w
 A newer schema fails before WAL setup, ownership mutation or migration. App-file rollback alone is safe only if the old app supports the database's current schema. Do not downgrade the version pragma or delete tables. For recovery:
 
 1. Stop **all** ORE processes using that database. Preserve the failed/upgraded database and any `-wal`/`-shm` companions together in a private recovery folder while stopped.
-2. Restore the consistent pre-upgrade snapshot to a **new filename**; keep the original snapshot. Launch the compatible older application using an absolute `ROLEPLAY_DATABASE` pointing at that restored copy. No stale WAL companions may exist at that new filename.
+2. Restore the consistent pre-upgrade snapshot to a **new filename**; keep the original snapshot. Launch the compatible older application with `ORE_SKIP_UPDATE=1` and an absolute `ROLEPLAY_DATABASE` pointing at that restored copy. No stale WAL companions may exist at that new filename.
 3. Verify owner login, synthetic/expected content, pictures, memory and historical requests. Changes saved after the snapshot are absent from it. Restore is explicit and does not overwrite a user's live database automatically.
 
 In-app Save backup and import remain available for supported backup schemas. They are distinct from a pre-upgrade full snapshot: portable exports exclude login/runtime authority. Cross-platform backup qualification is pending native platform runs.
