@@ -83,7 +83,10 @@ export type ContextState = { revision: number; archivedTurnIds: string[]; select
 export const emptyContextState = (): ContextState => ({ revision: 0, archivedTurnIds: [], selected: [], summaries: [] });
 export type ContextOperation = { level: number; turnIds: string[]; children: SummaryRef[]; repair?: SummaryRef; reconcile?: SummaryRef[] };
 export type ContextJobStatus = 'running' | 'awaiting_review' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
+export const summaryRetrySchema = z.object({ maxRetries: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }).strict();
+export type SummaryRetry = z.infer<typeof summaryRetrySchema>;
 export type ContextJob = {
+  retry?: SummaryRetry;
   id: string; chatId: string; status: ContextJobStatus; mode: 'prepare' | 'step' | 'repair' | 'refresh'; generationId: string | null;
   sourceRevision: number; config: ContextPreset & SummaryRef; stepCount: number; error: string | null; createdAt: string; updatedAt: string;
   historyTurnIds: string[];

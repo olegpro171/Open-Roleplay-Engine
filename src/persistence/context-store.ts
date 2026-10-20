@@ -8,7 +8,7 @@ import { nextRepair, nodeFor, repairQueue, replaceSelection, selectedContext, so
 import { repairInputs } from '../core/context-repair.js';
 import { assembleRequest } from '../core/prompt.js';
 import { validateSummary } from '../core/summary-validation.js';
-import { emptyContextState, refKey, type ContextJob, type ContextJobDetails, type ContextOperation, type ContextSnapshot, type ContextState, type ContextStep, type SummaryNode, type SummaryRef, type RepairAction, type RepairChange } from '../shared/context.js';
+import { emptyContextState, refKey, type SummaryRetry, type ContextJob, type ContextJobDetails, type ContextOperation, type ContextSnapshot, type ContextState, type ContextStep, type SummaryNode, type SummaryRef, type RepairAction, type RepairChange } from '../shared/context.js';
 import type { ChatSnapshot, RequestPreview } from '../shared/contracts.js';
 import { hasPromptMarker } from '../shared/library.js';
 import type { LoreResolution } from '../shared/lorebook.js';
@@ -31,10 +31,10 @@ export class ContextStore {
     if (!row) throw new AppError(404, 'context_job_not_found', 'Memory preparation not found.');
     return JSON.parse(row.data) as ContextJob;
   }
-  commandJob(chatId: string, requestId: string, mode: ContextJob['mode']): ContextJob | null {
+  commandJob(chatId: string, requestId: string, mode: ContextJob['mode'], retry?: SummaryRetry): ContextJob | null {
     const row = this.sqlite.prepare('SELECT data, chat_id, command FROM context_jobs WHERE request_id = ?').get(requestId) as (JsonRow & { chat_id: string; command: string }) | undefined;
     if (!row) return null;
-    if (row.chat_id !== chatId || row.command !== JSON.stringify({ mode, generationId: null })) throw new AppError(409, 'request_id_conflict', 'This request identity was used for another memory command.');
+    if (row.chat_id !== chatId || row.command !== JSON.stringify({ mode, generationId: null, ...(retry ? { retry } : {}) })) throw new AppError(409, 'request_id_conflict', 'This request identity was used for another memory command.');
     return JSON.parse(row.data) as ContextJob;
   }
   steps(id: string): ContextStep[] {
@@ -133,9 +133,9 @@ export class ContextStore {
       return { jobId: job.id, report };
     })();
   }
-  begin(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>, generationId: string | null = null, loreResolution?: LoreResolution | null): { job: ContextJob; fresh: boolean } {
+  begin(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>, generationId: string | null = null, loreResolution?: LoreResolution | null, retry?: SummaryRetry): { job: ContextJob; fresh: boolean } {
     return this.sqlite.transaction(() => {
-      const command = JSON.stringify({ mode, generationId });
+      const command = JSON.stringify({ mode, generationId, ...(retry ? { retry } : {}) });
       const existing = this.sqlite.prepare('SELECT data, chat_id, command FROM context_jobs WHERE request_id = ?').get(requestId) as (JsonRow & { chat_id: string; command: string }) | undefined;
       if (existing) {
         if (existing.chat_id !== chatId || existing.command !== command) throw new AppError(409, 'request_id_conflict', 'This request identity was used for another memory command.');
@@ -155,7 +155,7 @@ export class ContextStore {
       const reselection = mode === 'prepare' && !generationId ? refreshContext(snapshot, { allowOverflowFallback: true }) : null;
       const now = new Date().toISOString();
       const before = new Set(snapshot.context.selected.map(refKey));
-      const job: ContextJob = this.bump({ id: randomUUID(), chatId, status: 'running', mode, generationId, config: preset, sourceRevision: revision, historyTurnIds: snapshot.turns.map(turn => turn.id), stepCount: 0, error: null, createdAt: now, updatedAt: now,
+      const job: ContextJob = this.bump({ ...(retry ? { retry } : {}), id: randomUUID(), chatId, status: 'running', mode, generationId, config: preset, sourceRevision: revision, historyTurnIds: snapshot.turns.map(turn => turn.id), stepCount: 0, error: null, createdAt: now, updatedAt: now,
         ...(reselection ? { refresh: reselection.report } : {}), reusedCount: reselection?.state.selected.filter(ref => !before.has(refKey(ref))).length ?? 0, generatedCount: 0 });
       this.store.saveLoreOperation(chatId, job.id, snapshot.loreResolution ?? null);
       if (reselection?.report.changed) this.saveState(chatId, reselection.state);
@@ -213,6 +213,16 @@ export class ContextStore {
       this.sqlite.prepare('INSERT INTO context_steps (id, job_id, data) VALUES (?, ?, ?)').run(step.id, jobId, JSON.stringify(step));
       this.saveJob({ ...job, stepCount: job.stepCount + 1 });
       return step;
+    })();
+  }
+  failAttempt(step: ContextStep, error: string) {
+    this.sqlite.transaction(() => {
+      const job = this.job(step.jobId);
+      this.current(job);
+      const row = this.sqlite.prepare('SELECT data FROM context_steps WHERE id = ? AND job_id = ?').get(step.id, job.id) as JsonRow | undefined;
+      const saved = row ? JSON.parse(row.data) as ContextStep : null;
+      if (!saved || saved.status !== 'running') throw new AppError(409, 'duplicate_context_result', 'This summary step has already been resolved.');
+      this.saveStep({ ...saved, status: 'failed', error });
     })();
   }
   completeStep(step: ContextStep, text: string, prior: SummaryRef[]): SummaryNode {

@@ -1,3 +1,4 @@
+import { summaryRetrySchema } from '../src/shared/context.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { validateSummary } from '../src/core/summary-validation.js';
 import { assembleRequest } from '../src/core/prompt.js';
@@ -20,6 +21,9 @@ describe('summary output validation', () => {
 
   it.each([
     "I'm sorry, but I can't help with this request.",
+    "I can't continue with this task.",
+    'I can’t continue with this task. Please try something else.',
+    'Sorry, but I cannot continue with this request.',
     'I cannot summarize this content.',
     'I’m unable to summarize this passage.',
     'Unfortunately, I cannot comply with this request.',
@@ -43,6 +47,7 @@ describe('summary output validation', () => {
     'Mira says, “I cannot help with this request.” Leon accepts her refusal.',
     '“I cannot summarize this content,” the broken automaton repeats.',
     'I cannot open the gate; Mira brings the key.',
+    '“I can’t continue with this task,” Mira says before leaving.',
     'Mira and Leon find a note labeled TODO inside the cellar.',
     'Summary: Mira entrusts Leon with her only key after he promises to avoid the cellar.',
     '{"events":["Leon leaves"],"location":"cellar"}',
@@ -128,5 +133,15 @@ describe('summarization request gate', () => {
       return { finishReason: 'stop' };
     } };
     await expect(generateSummary(provider, request, '', controller.signal)).rejects.toMatchObject({ code: 'summary_cancelled' });
+  });
+});
+
+
+describe('summary retry policy boundary', () => {
+  it.each([-1, 1.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1, '10', null])('rejects invalid retry counts: %j', maxRetries => {
+    expect(summaryRetrySchema.safeParse({ maxRetries }).success).toBe(false);
+  });
+  it.each([0, 1, 10])('accepts whole retry counts including unlimited: %j', maxRetries => {
+    expect(summaryRetrySchema.parse({ maxRetries })).toEqual({ maxRetries });
   });
 });

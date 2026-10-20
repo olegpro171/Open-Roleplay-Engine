@@ -1,5 +1,5 @@
 import { useConfirmation } from './Confirmation';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { ChatSnapshot } from '../shared/contracts';
 import { hasPromptMarker, type LibrarySnapshot } from '../shared/library';
 import { refKey, type ContextJob, type ContextPlan, type ContextStep, type SummaryNode } from '../shared/context';
@@ -15,6 +15,9 @@ type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 type JobDetails = { job: ContextJob; steps: ContextStep[] };
 export function Memory({ snapshot, library, busy, run }: { snapshot: ChatSnapshot; library: LibrarySnapshot; busy: boolean; run: Run }) {
   const confirmAction = useConfirmation(snapshot.id);
+  const retryControls = useRef<HTMLFieldSetElement>(null);
+  const [autoRetry, setAutoRetry] = useState(true);
+  const [maxRetries, setMaxRetries] = useState(10);
   const [planError, setPlanError] = useState('');
   const [calculation, setCalculation] = useState<{ key: string; plan: ContextPlan | null; error: string }>({ key: '', plan: null, error: '' });
   const planKey = `${snapshot.id}:${snapshot.revision}:${snapshot.context.revision}`;
@@ -74,7 +77,8 @@ export function Memory({ snapshot, library, busy, run }: { snapshot: ChatSnapsho
   const repairJob = snapshot.context.jobs.find(job => job.mode === 'repair' && (job.status === 'running' || job.status === 'awaiting_review' || job.id === repairSession && ['failed', 'interrupted'].includes(job.status)));
   const latestJob = snapshot.context.jobs[0];
   const start = (mode: Exclude<ContextJob['mode'], 'refresh'>) => run(async () => {
-    const result = await api<{ jobId: string }>(`/chats/${snapshot.id}/context/prepare`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID(), mode });
+    if (autoRetry && mode !== 'repair' && !retryControls.current?.querySelector<HTMLInputElement>('[aria-label="Maximum retries"]')?.reportValidity()) return;
+    const result = await api<{ jobId: string }>(`/chats/${snapshot.id}/context/prepare`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID(), mode, ...(autoRetry && mode !== 'repair' ? { retry: { maxRetries } } : {}) });
     if (mode === 'repair') setRepairSession(result.jobId);
     setHistoryId(''); setDetails(null); setInspected(null); setPlanError('');
   });
@@ -96,6 +100,10 @@ export function Memory({ snapshot, library, busy, run }: { snapshot: ChatSnapsho
       <button className="secondary" disabled={!summariesEnabled || locked || !planCurrent || !plan?.repairCount || Boolean(awaiting)} onClick={() => void start('repair')}>Repair summaries</button>
       {active && <button className="secondary" disabled={busy} onClick={() => void run(() => active.generationId ? api(`/generations/${active.generationId}/cancel`, 'POST', {}) : api(`/context/jobs/${active.id}/cancel`, 'POST', {}))}>Stop preparation</button>}
     </div>
+    {summariesEnabled && <fieldset ref={retryControls} disabled={locked} className="summary-retry-controls"><legend className="sr-only">Preparation retries</legend>
+      <label className="checkbox"><input type="checkbox" checked={autoRetry} onChange={event => setAutoRetry(event.target.checked)} />Auto retry failed or refused requests</label>
+      {autoRetry && <label>Maximum retries<NumberInput required aria-label="Maximum retries" min={0} max={Number.MAX_SAFE_INTEGER} value={maxRetries} onChange={setMaxRetries} /><small>Retries after the initial attempt, per request. 0 means retry until you stop preparation. Applies to Prepare chat and Save next summary.</small></label>}
+    </fieldset>}
     {summariesEnabled && <p className="small muted">Prepare chat reconsiders memory for the saved budget, reuses valid summaries first, and generates missing summaries only if needed. Recent history regains detail first. Saved corrections are protected independently of selection. Stale or conflicting corrections require reviewed reconciliation; fresh compatible corrections can be selected here. Save settings and review any affected memory first.</p>}
     {summariesEnabled && prepared && <p role="status" data-testid="memory-prepare-result">{prepared.mode === 'step' ? 'Summary step saved.' : 'Memory prepared.'} {prepared.reusedCount ?? 0} saved summaries reused; {prepared.generatedCount ?? 0} new summaries generated.{prepared.refresh ? <> Verbatim turns: {prepared.refresh.verbatimBefore} → {prepared.outcome!.verbatimTurns}. Estimated input: {prepared.refresh.inputBefore.toLocaleString()} → {prepared.outcome!.inputTokens.toLocaleString()}.{selectionReport?.protectedSummaries ? ` ${selectionReport.protectedSummaries} manually edited summaries remain represented.` : ''}{selectionReport?.limitation ? ` ${selectionReport.limitation}` : selectionReport?.limited && !prepared.stepCount ? ' No different fitting selection was available in saved memory.' : ''}</> : null}</p>}
     {latestJob?.mode === 'repair' && latestJob.status === 'succeeded' && latestJob.sourceRevision === snapshot.revision && <p role="status" data-testid="memory-repair-result">Repair complete. {latestJob.reviewedCount ?? 0} approved; {latestJob.unchangedCount ?? 0} unchanged after model check; {latestJob.revalidatedCount ?? 0} reused without a model request.</p>}

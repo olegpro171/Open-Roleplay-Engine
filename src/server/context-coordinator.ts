@@ -1,10 +1,11 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { AppError } from '../core/errors.js';
 import { contextPlan, summaryRequest } from '../core/context-plan.js';
 import { nextRepair } from '../core/context.js';
 import { generateSummary } from './summarizer.js';
 import type { Store } from '../persistence/store.js';
 import type { Provider } from '../provider/openai.js';
-import type { ContextJob, RepairAction } from '../shared/context.js';
+import type { ContextJob, RepairAction, SummaryRetry, SummaryNode } from '../shared/context.js';
 import { hasPromptMarker } from '../shared/library.js';
 import type { LoreRegexPool } from './lore-regex.js';
 import { resolveRequestLore } from './lore-resolution.js';
@@ -16,17 +17,17 @@ export class ContextCoordinator {
   private preflights = new Set<AbortController>();
   constructor(private store: Store, private provider: Provider, private changed: () => void, private loreRegex: LoreRegexPool) {}
   hasActiveWork() { return this.active.size > 0 || this.preflights.size > 0; }
-  async startResolved(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>) {
+  async startResolved(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>, retry?: SummaryRetry) {
     if (this.stopping) throw new AppError(503, 'server_stopping', 'The server is stopping. Retry after it restarts.');
-    const existing = this.store.contexts.commandJob(chatId, requestId, mode);
+    const existing = this.store.contexts.commandJob(chatId, requestId, mode, retry);
     if (existing) return { jobId: existing.id };
     this.store.checkRevision(revision, chatId);
     const lore = await this.resolveLore(chatId);
-    return this.start(chatId, revision, requestId, mode, lore);
+    return this.start(chatId, revision, requestId, mode, lore, retry);
   }
-  start(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>, lore?: LoreResolution | null) {
+  start(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>, lore?: LoreResolution | null, retry?: SummaryRetry) {
     if (this.stopping) throw new AppError(503, 'server_stopping', 'The server is stopping. Retry after it restarts.');
-    const { job, fresh } = this.store.contexts.begin(chatId, revision, requestId, mode, null, lore);
+    const { job, fresh } = this.store.contexts.begin(chatId, revision, requestId, mode, null, lore, retry);
     if (fresh) this.dispatch(job.id);
     return { jobId: job.id };
   }
@@ -93,11 +94,29 @@ export class ContextCoordinator {
         if (operation.turnIds.length && !job.config.connectionId) throw new AppError(422, 'summary_connection_required', 'Select a summarization Connection in the context preset to generate missing summaries.');
         const connection = operation.turnIds.length ? this.store.connection(job.config.connectionId!) : null;
         const prepared = connection ? summaryRequest(snapshot, operation, connection, replacements, operation.repair ? this.store.contexts.sourceRequest(job.chatId, operation.repair) : null) : { request: null, prior: [] };
-        const step = this.store.contexts.beginStep(id, operation, prepared.request, plan.inputTokens);
-        this.changed();
-        const text = prepared.request ? await generateSummary(this.provider, prepared.request, this.store.connectionApiKey(job.config.connectionId!), signal) : '';
-        if (signal.aborted || this.stopping) break;
-        const saved = this.store.contexts.completeStep(step, text, prepared.prior);
+        let retries = 0;
+        let saved: SummaryNode | undefined;
+        while (true) {
+          const step = this.store.contexts.beginStep(id, operation, prepared.request, plan.inputTokens);
+          this.changed();
+          let text: string;
+          try {
+            text = prepared.request ? await generateSummary(this.provider, prepared.request, this.store.connectionApiKey(job.config.connectionId!), signal) : '';
+          } catch (error) {
+            // Retry only provider/output failures. Planning and commit failures need user action.
+            if (signal.aborted || this.stopping || !(error instanceof AppError) || error.status !== 502) throw error;
+            this.store.contexts.failAttempt(step, error.message);
+            this.changed();
+            if (!job.retry || job.retry.maxRetries !== 0 && retries >= job.retry.maxRetries) throw error;
+            retries++;
+            await delay(1000, undefined, { signal });
+            continue;
+          }
+          if (signal.aborted || this.stopping) break;
+          saved = this.store.contexts.completeStep(step, text, prepared.prior);
+          break;
+        }
+        if (!saved) break;
         this.changed();
         if (job.mode === 'repair') {
           if (saved.approved) { await new Promise<void>(resolve => setImmediate(resolve)); continue; }

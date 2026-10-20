@@ -411,3 +411,7 @@ button:has(> .ui-icon):has(> .sr-only), .block-actions button { min-width:36px; 
 @media(max-width:600px) {
   .character-list .actions button:has(> .ui-icon) { flex-direction:column; gap:2px; padding:4px 5px; font-size:11px; }
 }
+
+.summary-retry-controls { margin: -16px 0 24px; }
+.summary-retry-controls>label:not(.checkbox) { margin-top: 12px; }
+.summary-retry-controls input[aria-label="Maximum retries"] { width: 7rem; max-width: 100%; }

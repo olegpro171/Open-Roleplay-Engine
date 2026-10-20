@@ -1,3 +1,4 @@
+import { summaryRetrySchema } from '../shared/context.js';
 import { buildInfo } from './installation.js';
 import { BackupService } from './backups.js';
 import { backupLimits, backupTableSchema, dataCommandSchema } from '../shared/backups.js';
@@ -433,8 +434,8 @@ export async function createApp(options: {
     return { text: generation.status === 'running' ? coordinator.reasoningText(id) : generation.reasoningText };
   });
   app.post('/api/chats/:chatId/context/prepare', async (request, reply) => {
-    const input = z.object({ revision: revisionSchema, requestId: z.string().uuid(), mode: z.enum(['prepare', 'step', 'repair']) }).strict().parse(request.body);
-    return reply.code(202).send(await coordinator.context.startResolved(chatId(request.params), input.revision, input.requestId, input.mode));
+    const input = z.object({ revision: revisionSchema, requestId: z.string().uuid(), mode: z.enum(['prepare', 'step', 'repair']), retry: summaryRetrySchema.optional() }).strict().refine(input => input.mode !== 'repair' || !input.retry, 'Retry controls apply to preparation only').parse(request.body);
+    return reply.code(202).send(await coordinator.context.startResolved(chatId(request.params), input.revision, input.requestId, input.mode, input.retry));
   });
   app.post('/api/chats/:chatId/context/clear', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);

@@ -1,3 +1,4 @@
+import { validateContent } from '../src/persistence/backup-validation.js';
 import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
 import legacyContextPrompts from './fixtures/legacy-context-prompts.json';
 import { assembleRequest } from '../src/core/prompt.js';
@@ -10,7 +11,7 @@ import { Store } from '../src/persistence/store.js';
 import { GenerationCoordinator } from '../src/server/coordinator.js';
 import type { Provider } from '../src/provider/openai.js';
 import type { RequestPreview } from '../src/shared/contracts.js';
-import { defaultContextPreset, refKey, type ContextJob, type SummaryNode } from '../src/shared/context.js';
+import { defaultContextPreset, refKey, type ContextJob, type SummaryRetry, type SummaryNode } from '../src/shared/context.js';
 import { contextPlan } from '../src/core/context-plan.js';
 import { repairQueue, selectedContext } from '../src/core/context.js';
 import { correctionProtection } from '../src/core/context-corrections.js';
@@ -22,16 +23,19 @@ function fixture(count = 48, target = 500) {
   const filename = join(directory, 'chat.sqlite');
   let store = new Store(filename);
   const calls: { request: RequestPreview; apiKey: string }[] = [];
-  let mode: 'normal' | 'unchanged' | 'near' | 'placeholder' | 'refusal' | 'length' | 'huge' = 'normal';
+  type OutputMode = 'normal' | 'unchanged' | 'near' | 'placeholder' | 'refusal' | 'length' | 'huge' | 'transport';
+  let mode: OutputMode = 'normal';
+  let nextModes: OutputMode[] = [];
   let holdAt = -1, release: (() => void) | null = null;
   const provider: Provider = { async stream(request, apiKey, _signal, onText) {
     calls.push({ request, apiKey });
     const summary = request.body.model === 'summary-model';
-    const outcome = mode;
+    const outcome = nextModes.shift() ?? mode;
+    if (summary && outcome === 'transport') throw new Error('private-upstream-body');
     let old: string | undefined;
     try { old = JSON.parse(request.body.messages.at(-1)!.content).previous_summary; } catch { /* Roleplay input is plain text. */ }
     if (summary && calls.length === holdAt) await new Promise<void>(resolve => { release = resolve; });
-    onText(!summary ? 'Leon pockets the brass key.' : outcome === 'placeholder' ? 'placeholder' : outcome === 'refusal' ? 'I cannot summarize this content.' : outcome === 'huge' ? Array.from({ length: 2_000 }, (_, i) => `detail${i}`).join(' ') : old !== undefined && (outcome === 'unchanged' || outcome === 'near') ? old + (outcome === 'near' ? '!' : '') : `Mira entrusted Leon with her brass key; he promised to avoid the cellar.${calls.length % 3 === 0 ? ' She still distrusts him.' : ''}${old !== undefined ? ` Repaired candidate ${calls.length}.` : ''}`);
+    onText(!summary ? 'Leon pockets the brass key.' : outcome === 'placeholder' ? 'placeholder' : outcome === 'refusal' ? "I can't continue with this task." : outcome === 'huge' ? Array.from({ length: 2_000 }, (_, i) => `detail${i}`).join(' ') : old !== undefined && (outcome === 'unchanged' || outcome === 'near') ? old + (outcome === 'near' ? '!' : '') : `Mira entrusted Leon with her brass key; he promised to avoid the cellar.${calls.length % 3 === 0 ? ' She still distrusts him.' : ''}${old !== undefined ? ` Repaired candidate ${calls.length}.` : ''}`);
     return { finishReason: outcome === 'length' && summary ? 'length' : 'stop' };
   } };
   const connection = { name: 'Story', endpoint: 'http://localhost:1234/v1', model: 'story-model', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} };
@@ -43,7 +47,7 @@ function fixture(count = 48, target = 500) {
   store.replaceHistory(store.snapshot(chatId).revision, chatId, imported);
   let coordinator = new GenerationCoordinator(store, provider);
   const state = () => store.snapshot(chatId);
-  const start = (mode: Exclude<ContextJob['mode'], 'refresh'> = 'prepare') => coordinator.context.start(chatId, state().revision, randomUUID(), mode).jobId;
+  const start = (mode: Exclude<ContextJob['mode'], 'refresh'> = 'prepare', retry?: SummaryRetry) => coordinator.context.start(chatId, state().revision, randomUUID(), mode, undefined, retry).jobId;
   const idle = async (id: string) => { await expect.poll(() => store.contexts.job(id).status, { timeout: 5_000 }).not.toBe('running'); return store.contexts.job(id); };
   const resume = async () => {
     release?.(); release = null; await coordinator.shutdown(); store.close();
@@ -51,6 +55,7 @@ function fixture(count = 48, target = 500) {
   };
   cleanup.push(async () => { release?.(); await coordinator.shutdown(); store.close(); rmSync(directory, { recursive: true, force: true }); });
   return { get store() { return store; }, get coordinator() { return coordinator; }, state, start, idle, resume, calls, imported, chatId, contextId,
+    setNextModes(values: typeof nextModes) { nextModes = [...values]; },
     setMode(value: typeof mode) { mode = value; }, holdNext(offset = 1) { holdAt = calls.length + offset; }, release() { release?.(); release = null; holdAt = -1; },
   };
 }
@@ -1027,5 +1032,105 @@ describe('targeted repair with review', () => {
     expect(f.calls).toHaveLength(calls);
     f.store.contexts.review(id, f.state().revision, true);
     expect(f.state().context.selected).toEqual([]); expect(f.state().context.archivedTurnIds).toEqual([]);
+  });
+});
+
+
+describe('opt-in summary request retries', () => {
+  it('limits retries per request and retains every failed attempt without changing coverage', async () => {
+    const f = fixture(8); f.setMode('refusal');
+    const before = f.state();
+    const id = f.start('prepare', { maxRetries: 2 });
+    expect((await f.idle(id)).status).toBe('failed');
+    expect(f.calls).toHaveLength(3);
+    expect(f.state().context.selected).toEqual(before.context.selected);
+    expect(f.state().context.archivedTurnIds).toEqual([]);
+    expect(f.state().context.summaries).toEqual([]);
+    const steps = f.store.contexts.steps(id);
+    expect(steps).toHaveLength(3);
+    expect(steps.every(step => step.status === 'failed' && step.error?.includes('refused'))).toBe(true);
+    expect(steps.map(step => step.request)).toEqual([steps[0].request, steps[0].request, steps[0].request]);
+    expect(JSON.stringify(steps)).not.toContain('summary-secret');
+  });
+
+  it('resets the retry allowance for the next source batch and saves each replacement once', async () => {
+    const f = fixture(8);
+    f.setNextModes(['refusal', 'normal', 'placeholder', 'normal']);
+    const id = f.start('prepare', { maxRetries: 1 });
+    expect((await f.idle(id)).status).toBe('succeeded');
+    const steps = f.store.contexts.steps(id);
+    expect(steps.filter(step => step.status === 'failed')).toHaveLength(2);
+    expect(steps.filter(step => step.status === 'saved').length).toBeGreaterThanOrEqual(2);
+    expect(steps[0].operation).toEqual(steps[1].operation);
+    expect(steps[2].operation).toEqual(steps[3].operation);
+    expect(steps[0].operation.turnIds).not.toEqual(steps[2].operation.turnIds);
+    expect(new Set(f.state().context.archivedTurnIds).size).toBe(f.state().context.archivedTurnIds.length);
+    expect(contextPlan(f.state()).ready).toBe(true);
+  });
+
+  it('stops unlimited retries during the delay and rejects further calls after restart', async () => {
+    const f = fixture(8); f.setMode('refusal');
+    const id = f.start('step', { maxRetries: 0 });
+    await expect.poll(() => f.store.contexts.steps(id)[0]?.status).toBe('failed');
+    f.coordinator.context.cancel(id);
+    await f.resume();
+    expect(f.calls).toHaveLength(1);
+    expect(f.store.contexts.job(id).status).toBe('cancelled');
+    expect(f.state().context.archivedTurnIds).toEqual([]);
+  });
+
+  it('interrupts unlimited retries on shutdown without resuming paid work on restart', async () => {
+    const f = fixture(8); f.setMode('refusal');
+    const id = f.start('step', { maxRetries: 0 });
+    await expect.poll(() => f.store.contexts.steps(id)[0]?.status).toBe('failed');
+    await f.resume();
+    expect(f.calls).toHaveLength(1);
+    expect(f.store.contexts.job(id)).toMatchObject({ status: 'interrupted', retry: { maxRetries: 0 } });
+    expect(f.state().context.summaries).toEqual([]);
+  });
+
+  it('retries transport failures without exposing upstream details, then commits one summary', async () => {
+    const f = fixture(8); f.setNextModes(['transport', 'normal']);
+    const id = f.start('step', { maxRetries: 1 });
+    expect((await f.idle(id)).status).toBe('succeeded');
+    expect(f.calls).toHaveLength(2);
+    expect(f.state().context.summaries).toHaveLength(1);
+    const steps = f.store.contexts.steps(id);
+    expect(steps.map(step => step.status)).toEqual(['failed', 'saved']);
+    expect(steps[0].error).toContain('failed or timed out');
+    expect(JSON.stringify(steps)).not.toContain('private-upstream-body');
+  });
+
+  it('retains a saved batch when retries for a later batch are exhausted', async () => {
+    const f = fixture(8); f.setMode('refusal'); f.setNextModes(['normal']);
+    const id = f.start('prepare', { maxRetries: 1 });
+    expect((await f.idle(id)).status).toBe('failed');
+    expect(f.calls).toHaveLength(3);
+    expect(f.store.contexts.steps(id).map(step => step.status)).toEqual(['saved', 'failed', 'failed']);
+    expect(f.state().context.summaries).toHaveLength(1);
+    expect(f.state().context.archivedTurnIds).toEqual(f.state().turns.slice(0, 2).map(turn => turn.id));
+  });
+
+  it('validates saved retry settings at the backup import boundary while accepting older jobs', async () => {
+    const f = fixture(8);
+    const id = f.start('step', { maxRetries: 10 });
+    await f.idle(id);
+    expect(() => validateContent(f.store.sqlite)).not.toThrow();
+    f.store.sqlite.prepare("UPDATE context_jobs SET data = json_set(data, '$.retry.maxRetries', -1) WHERE id = ?").run(id);
+    expect(() => validateContent(f.store.sqlite)).toThrow();
+    f.store.sqlite.prepare("UPDATE context_jobs SET data = json_remove(data, '$.retry') WHERE id = ?").run(id);
+    expect(() => validateContent(f.store.sqlite)).not.toThrow();
+  });
+
+  it('includes retry settings in command idempotency', async () => {
+    const f = fixture(8); f.holdNext();
+    const requestId = randomUUID();
+    const revision = f.state().revision;
+    const id = f.coordinator.context.start(f.chatId, revision, requestId, 'step', undefined, { maxRetries: 10 }).jobId;
+    expect(f.coordinator.context.start(f.chatId, revision, requestId, 'step', undefined, { maxRetries: 10 }).jobId).toBe(id);
+    expect(() => f.coordinator.context.start(f.chatId, revision, requestId, 'step', undefined, { maxRetries: 1 })).toThrow(/identity/);
+    f.release();
+    expect((await f.idle(id)).status).toBe('succeeded');
+    expect(f.calls).toHaveLength(1);
   });
 });
