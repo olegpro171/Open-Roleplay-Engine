@@ -9,8 +9,7 @@ import { ChatSetup, Libraries, type LibraryTarget } from './Libraries';
 import { Dropdown } from './Controls';
 import { trimBoundaryNewlines } from '../shared/text';
 import { Memory } from './Memory';
-import { staleSummaries } from '../core/context';
-import { refKey } from '../shared/context';
+import { transcriptInitialSize, transcriptBatchSize, transcriptWindowLimit, type StorySnapshot } from '../shared/transcript';
 import { BudgetBreakdown, InputMeter, PromptPeek, LoreInspection } from './PromptPeek';
 import { useTranscriptScroll } from './useTranscriptScroll';
 import { useChatDraft } from './useChatDraft';
@@ -41,7 +40,18 @@ export function App() {
   const [chatId, setChatId] = useState<string | null>(lastChat);
   const [library, setLibrary] = useState<LibrarySnapshot | null>(null);
   const libraryCache = useRef<LibrarySnapshot | null>(null);
-  const [snapshot, setSnapshot] = useState<ChatSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<StorySnapshot | null>(null);
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const [toolSnapshot, setToolSnapshot] = useState<ChatSnapshot | null>(null);
+  const [toolError, setToolError] = useState('');
+  const [toolRetry, setToolRetry] = useState(0);
+  const [pageLoading, setPageLoading] = useState(false);
+  const pageBusy = useRef(false);
+  const pageRequest = useRef<AbortController | null>(null);
+  const refreshPending = useRef(false);
+  const forceLatest = useRef(false);
+  const [pageError, setPageError] = useState('');
   const [error, setError] = useState('');
   const [online, setOnline] = useState(false);
   const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory' | 'data'>('story');
@@ -57,12 +67,15 @@ export function App() {
   const [chatDetailsTarget, setChatDetailsTarget] = useState<HTMLDivElement | null>(null);
   const [generationId, setGenerationId] = useState('');
   const loadId = useRef(0);
-  const { transcript, awayFromLatest, scrollToLatest } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot, edit);
+  const { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot, edit);
   const clearServerError = useCallback(() => setError(current => current === serverUnavailable ? '' : current), []);
   const refreshSession = useCallback(async () => {
     try { setSession(await api<Session>('/session')); clearServerError(); } catch { setError(serverUnavailable); }
   }, [clearServerError]);
+  const editRef = useRef(edit);
+  editRef.current = edit;
   const refresh = useCallback(async () => {
+    if (pageBusy.current) { refreshPending.current = true; return; }
     const id = ++loadId.current;
     try {
       const cached = libraryCache.current;
@@ -75,10 +88,32 @@ export function App() {
         items = { ...cached, chats: update.chats };
       } else items = update;
       const selected = items.chats.find(chat => chat.id === chatId)?.id ?? items.chats[0]?.id ?? null;
-      const state = selected ? await api<ChatSnapshot>(`/chats/${selected}`) : null;
+      const current = forceLatest.current ? null : snapshotRef.current;
+      const keepWindow = current?.id === selected && (current.page.hasNewer || !followingLatest() || Boolean(editRef.current));
+      const parameters = new URLSearchParams({ limit: String(current?.id === selected ? Math.max(transcriptInitialSize, current.page.turns.length) : transcriptInitialSize) });
+      const first = current?.page.turns[0];
+      if (keepWindow && first) parameters.set('anchor', first.id);
+      let state: StorySnapshot | null;
+      let windowReset = false;
+      try { state = selected ? await api<StorySnapshot>(`/chats/${selected}/story?${parameters}`) : null; }
+      catch (error) {
+        if (id !== loadId.current) return;
+        if (!(error instanceof ApiError) || error.status !== 409 || !selected) throw error;
+        state = await api<StorySnapshot>(`/chats/${selected}/story`);
+        windowReset = true;
+      }
       if (id === loadId.current && !datasetChanged()) {
         libraryCache.current = items;
-        setSnapshot(state); setLibrary(items); clearServerError();
+        forceLatest.current = false;
+        preservePosition(Boolean(current?.page.hasNewer));
+        if (windowReset) {
+          scrollToLatest();
+          setPageError('The displayed history was removed or replaced. Showing the latest turns.');
+        }
+        snapshotRef.current = state;
+        setSnapshot(state);
+        setLibrary(items);
+        clearServerError();
         if (selected !== chatId) {
           setChatId(selected); setEdit(null); setPeek(false); setGenerationId('');
           rememberChat(selected);
@@ -86,6 +121,7 @@ export function App() {
         if (!selected) setTab(current => current === 'data' ? current : 'library');
       }
     } catch (error) {
+      if (id !== loadId.current) return;
       if (error instanceof ApiError && error.status === 401) void refreshSession();
       else if (error instanceof ApiError && error.status === 404) { setChatId(null); }
       else setError(error instanceof ApiError ? error.message : serverUnavailable);
@@ -122,17 +158,102 @@ export function App() {
   }, [draft]);
 
   useEffect(() => { setPeek(false); setGenerationId(''); }, [snapshot?.id]);
-  const active = snapshot?.generations.find((generation) => generation.status === 'running');
-  const preparing = snapshot?.context.jobs.find(job => job.status === 'running');
+  useEffect(() => {
+    if (!snapshot || !['settings', 'memory', 'request'].includes(tab)) {
+      setToolSnapshot(null);
+      setToolError('');
+      return;
+    }
+    const controller = new AbortController();
+    setToolError('');
+    void api<ChatSnapshot>(`/chats/${snapshot.id}`, 'GET', undefined, controller.signal).then(value => {
+      if (!controller.signal.aborted && !datasetChanged()) setToolSnapshot(value);
+    }).catch(error => { if (!controller.signal.aborted) setToolError(error instanceof Error ? error.message : 'Cannot load chat tools.'); });
+    return () => controller.abort();
+  }, [tab, snapshot, toolRetry]);
+
+  useEffect(() => {
+    return () => { pageRequest.current?.abort(); };
+  }, [chatId, tab, session?.authenticated]);
+  useEffect(() => { if (dataChanged) pageRequest.current?.abort(); }, [dataChanged]);
+
+  async function moveTranscript(direction: 'older' | 'newer' | 'latest', automatic = false) {
+    const current = snapshotRef.current;
+    if (!current || pageBusy.current || editRef.current || datasetChanged()) return;
+    if (automatic && (document.activeElement?.closest('[data-turn-id]') || document.querySelector('dialog[open]'))) return;
+    if (direction === 'older' && !current.page.hasOlder || direction === 'newer' && !current.page.hasNewer) return;
+    const parameters = new URLSearchParams();
+    if (direction !== 'latest') {
+      const first = current.page.turns[0];
+      if (!first) return;
+      parameters.set('anchor', first.id);
+      parameters.set('shift', String(direction === 'older' ? -transcriptBatchSize : transcriptBatchSize));
+      parameters.set('limit', String(Math.min(transcriptWindowLimit, current.page.turns.length + transcriptBatchSize)));
+      parameters.set('revision', String(current.revision));
+    }
+    const id = ++loadId.current;
+    const controller = new AbortController();
+    pageRequest.current = controller;
+    pageBusy.current = true;
+    setPageLoading(true);
+    setPageError('');
+    try {
+      let state = await api<StorySnapshot>(`/chats/${current.id}/story?${parameters}`, 'GET', undefined, controller.signal);
+      // Notifications received during a page load may invalidate its captured revision.
+      // Recheck that same revision before presenting a delayed page; stream-only
+      // notifications remain compatible and reconcile the latest partial output.
+      if (refreshPending.current && direction !== 'latest') {
+        state = await api<StorySnapshot>(`/chats/${current.id}/story?${parameters}`, 'GET', undefined, controller.signal);
+      }
+      if (id !== loadId.current || controller.signal.aborted || datasetChanged() || editRef.current) return;
+      const focusedTurnId = document.activeElement?.closest<HTMLElement>('[data-turn-id]')?.dataset.turnId;
+      if (document.querySelector('dialog[open]') || (focusedTurnId && !state.page.turns.some(turn => turn.id === focusedTurnId))) return;
+      preservePosition(direction !== 'latest');
+      if (direction === 'latest') scrollToLatest();
+      snapshotRef.current = state;
+      setSnapshot(state);
+    } catch (error) {
+      if (id !== loadId.current || controller.signal.aborted) return;
+      setPageError(error instanceof Error ? error.message : 'Cannot load this part of the story. Try again.');
+      if (error instanceof ApiError && error.status === 409) refreshPending.current = true;
+      if (error instanceof ApiError && error.status === 401) void refreshSession();
+    } finally {
+      if (id === loadId.current) {
+        pageBusy.current = false;
+        setPageLoading(false);
+        if (refreshPending.current) {
+          refreshPending.current = false;
+          void latestRefresh.current();
+        }
+      }
+    }
+  }
+  const moveRef = useRef(moveTranscript);
+  moveRef.current = moveTranscript;
+  useEffect(() => {
+    const root = transcript.current;
+    if (!root || tab !== 'story' || !snapshot || edit || pageError) return;
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) if (entry.isIntersecting) {
+        const direction = entry.target.getAttribute('data-history-direction');
+        if (direction === 'older' || direction === 'newer') void moveRef.current(direction, true);
+      }
+    }, { root, rootMargin: '160px 0px' });
+    for (const sentinel of root.querySelectorAll('[data-history-direction]')) observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [tab, snapshot?.id, snapshot?.page, edit, pageError]);
+
+  const active = snapshot?.latestGeneration?.status === 'running' ? snapshot.latestGeneration : undefined;
+  const preparing = snapshot?.preparing;
   const working = Boolean(active || preparing);
-  const outdated = snapshot ? staleSummaries(snapshot.turns, snapshot.context) : new Set<string>();
   const summariesEnabled = hasPromptMarker(snapshot?.sources.prompt, 'summary');
-  const memoryStale = summariesEnabled && (snapshot?.context.selected.some(ref => outdated.has(refKey(ref))) ?? false);
-  const pending = snapshot?.turns.at(-1)?.complete === false;
-  const latest = snapshot?.generations[0];
-  const shownGeneration = snapshot?.generations.find((generation) => generation.id === generationId);
+  const memoryStale = summariesEnabled && Boolean(snapshot?.memory.stale);
+  const pending = snapshot?.latestTurn?.complete === false;
+  const latest = snapshot?.latestGeneration;
+  const currentToolSnapshot = toolSnapshot?.id === snapshot?.id ? toolSnapshot : null;
+  const shownGeneration = currentToolSnapshot?.generations.find((generation) => generation.id === generationId);
   const [inspection, setInspection] = useState<{ chatId: string | null; key: string; request: RequestPreview | null; error: string }>({ chatId: null, key: '', request: null, error: '' });
-  const inspectionKey = JSON.stringify([snapshot?.id, snapshot?.revision, snapshot?.context.revision, snapshot?.connection, draft, pending]);
+  const inspectionKey = JSON.stringify([snapshot?.id, snapshot?.revision, snapshot?.memory.revision, snapshot?.connection, draft, pending]);
   useEffect(() => {
     if (!snapshot?.connection || (!pending && draft !== settledDraft)) return;
     let current = true;
@@ -156,11 +277,10 @@ export function App() {
   }, [snapshot?.id, generationId, savedRequestPresent]);
   const matchingSavedInspection = savedInspection?.chatId === snapshot?.id && savedInspection?.generationId === generationId ? savedInspection : null;
   const shownRequest = generationId ? matchingSavedInspection?.request ?? shownGeneration?.request : currentRequest;
-  const archivedIds = new Set(snapshot?.context.archivedTurnIds);
-  const activeTurns = currentRequest?.history?.verbatimTurnIds.filter(id => id !== 'draft').length ?? (snapshot?.turns.filter(turn => !archivedIds.has(turn.id)).length ?? 0);
+  const activeTurns = currentRequest?.history?.verbatimTurnIds.filter(id => id !== 'draft').length ?? (snapshot ? snapshot.totalTurns - snapshot.memory.archivedCount : 0);
   const inputLimit = currentRequest ? Math.min(currentRequest.budget.targetInputTokens, currentRequest.budget.contextWindow - currentRequest.budget.reservedOutputTokens) : 0;
-  const generationById = new Map(snapshot?.generations.map(generation => [generation.id, generation]));
-  const turnUsage = new Map(snapshot?.turns.flatMap(turn => {
+  const generationById = new Map(snapshot?.page.generations.map(generation => [generation.id, generation]));
+  const turnUsage = new Map(snapshot?.page.turns.flatMap(turn => {
     const variant = turn.variants?.find(item => item.id === turn.assistant.variantId);
     const generation = variant?.generationId ? generationById.get(variant.generationId) : undefined;
     return generation ? [[turn.id, generation.usage] as const] : [];
@@ -185,7 +305,7 @@ export function App() {
     try {
       await api(`/chats/${id}/turns`, 'POST', sent.submission);
       drafts.acknowledge(id, sent);
-      if (selectedChat.current === id) { setPeek(false); scrollToLatest(); }
+      if (selectedChat.current === id) { setPeek(false); scrollToLatest(); forceLatest.current = true; }
     } catch (error) {
       // A server rejection is definite; a lost response is ambiguous, so retain its request identity.
       if (error instanceof ApiError && error.status < 500) drafts.reject(id, sent);
@@ -205,7 +325,22 @@ export function App() {
   if (!session) return <main className="login"><p>Opening ORE…</p>{error && <p role="alert">{error}</p>}</main>;
   if (!session.authenticated) return <Login session={session} onLogin={async () => { setError(''); await refreshSession(); }} />;
   function openChat(id: string, destination: 'story' | 'settings' = 'story') {
-    loadId.current++; rememberChat(id); setChatId(id); setTab(destination); setEdit(null); setPeek(false); setGenerationId(''); if (id !== chatId) setSnapshot(null);
+    loadId.current++;
+    pageRequest.current?.abort();
+    pageBusy.current = false;
+    setPageLoading(false);
+    setPageError('');
+    rememberChat(id);
+    setChatId(id);
+    setTab(destination);
+    setEdit(null);
+    setPeek(false);
+    setGenerationId('');
+    if (id !== chatId) {
+      snapshotRef.current = null;
+      setSnapshot(null);
+      setToolSnapshot(null);
+    }
   }
   if (!library) return <main className="login"><p>Loading your story…</p>{error && <p role="alert">{error}</p>}</main>;
   const selectedCharacterLabel = characterLabel(library.characters.find(character => character.id === snapshot?.settings.characterId) ?? snapshot?.sources.character ?? { name: 'Character' });
@@ -214,8 +349,8 @@ export function App() {
   const sidebar = snapshot && <>
         <p className="eyebrow">CURRENT CHAT</p><h1>{snapshot.settings.title}</h1>
         <p>{snapshot.connection ? `${snapshot.connection.name} · ${snapshot.connection.model}` : 'Set up a Connection to begin.'}</p>
-        <dl><div><dt>Total turns</dt><dd>{snapshot.turns.length}</dd></div><div title="Saved turns kept verbatim in the current input, including a pending turn"><dt>Active turns</dt><dd>{activeTurns}</dd></div><div><dt>Input target</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString()}</dd></div><div><dt>Estimated input</dt><dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>{currentRequest?.budget.inputTokens.toLocaleString() ?? '—'}</dd></div></dl>
-        <details className="context-dropdown" open={contextExpanded} onToggle={event => setContextExpanded(event.currentTarget.open)}><summary>Context <span>{!summariesEnabled ? 'Summaries are disabled' : snapshot.context.selected.length ? `${snapshot.context.selected.length} summaries` : 'Full history'}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></> : <p className="small muted">{inspectionError || 'Select a Connection to inspect input.'}</p>}</details>
+        <dl><div><dt>Total turns</dt><dd>{snapshot.totalTurns}</dd></div><div title="Saved turns kept verbatim in the current input, including a pending turn"><dt>Active turns</dt><dd>{activeTurns}</dd></div><div><dt>Input target</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString()}</dd></div><div><dt>Estimated input</dt><dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>{currentRequest?.budget.inputTokens.toLocaleString() ?? '—'}</dd></div></dl>
+        <details className="context-dropdown" open={contextExpanded} onToggle={event => setContextExpanded(event.currentTarget.open)}><summary>Context <span>{!summariesEnabled ? 'Summaries are disabled' : snapshot.memory.selectedCount ? `${snapshot.memory.selectedCount} summaries` : 'Full history'}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></> : <p className="small muted">{inspectionError || 'Select a Connection to inspect input.'}</p>}</details>
   </>;
   const returnToChat = () => { setTab('story'); setPeek(false); setGenerationId(''); };
 
@@ -234,6 +369,8 @@ export function App() {
     {dataChanged && <div className="error-banner" role="alert"><span>Application data was imported or wiped in another tab. Old edits cannot be saved. Copy any unsaved editor text, then reload to review the current data. Browser composer drafts remain recoverable.</span><button onClick={() => window.location.reload()}>Reload current data</button></div>}
     {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" onClick={() => setError('')}>Dismiss</button></div>}
     {tab === 'data' && <ApplicationSettings openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
+    {snapshot && ['settings', 'memory', 'request'].includes(tab) && toolError && <div className="error-banner" role="alert">{toolError}<button onClick={() => setToolRetry(value => value + 1)}>Retry loading</button></div>}
+    {snapshot && ['settings', 'memory'].includes(tab) && toolSnapshot?.id !== snapshot.id && <main className="document-panel"><p role="status">Loading chat tools…</p></main>}
     {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} navigation actions={<>
         <button className="quiet chat-navigation-action" aria-label="Chat settings" onClick={() => setTab('settings')}><Icon name="Settings" />Chat settings{snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : ''}</button>
         <button className="quiet chat-navigation-action" onClick={() => setTab('memory')}><Icon name="List" />Inspect memory</button>
@@ -241,9 +378,11 @@ export function App() {
       </>}>
       <section className="conversation" aria-label="Conversation">
         {memoryStale && <div className="recovery" role="status"><div><strong>Memory needs review.</strong><p>Archived history changed. Repair the affected summaries before continuing.</p></div><button className="secondary" onClick={() => setTab('memory')}>Review memory</button></div>}
+        {pageError && <div className="recovery" role="alert">{pageError}<button className="secondary" onClick={() => setPageError('')}>Dismiss</button></div>}
         <div className="transcript-frame"><div className="transcript" ref={transcript}>
-          {snapshot.turns.length === 0 && <div className="empty-state"><h2>Set up your story</h2><button className="secondary" onClick={() => setTab('settings')}>Open chat settings</button></div>}
-          {snapshot.turns.map((turn, index) => {
+          {snapshot.page.hasOlder && <div className="history-page-control" data-history-direction="older"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('older')}>{pageLoading ? 'Loading history…' : 'Load older turns'}</button></div>}
+          {snapshot.totalTurns === 0 && <div className="empty-state"><h2>Set up your story</h2><button className="secondary" onClick={() => setTab('settings')}>Open chat settings</button></div>}
+          {snapshot.page.turns.map((turn) => {
             const generating = active?.turnId === turn.id;
             const cancelled = !turn.complete && latest?.turnId === turn.id && latest.status === 'cancelled';
             const responseText = generating ? active.partialText : !turn.complete && latest?.turnId === turn.id ? latest.partialText : '';
@@ -256,8 +395,8 @@ export function App() {
             } : null;
             const inputVisible = !(turn.complete && turn.user.text === '' && turn.user.revision === 0)
               || (edit?.turnId === turn.id && edit.part === 'user');
-            return <article className="turn" key={turn.id} data-turn-id={turn.id} aria-label={`Turn ${index + 1}`}>
-            <div className="turn-heading"><span>TURN {index + 1} {turn.complete ? summariesEnabled && snapshot.context.archivedTurnIds.includes(turn.id) ? '· ARCHIVED' : '' : '· PENDING'}</span>{turn.complete && !generating && turnUsage.has(turn.id) && <span className="turn-usage" title="Provider-reported counts for the saved response, before any later edits. Output may include reasoning tokens.">{turnUsage.get(turn.id) ? `${turnUsage.get(turn.id)!.inputTokens.toLocaleString()} in · ${turnUsage.get(turn.id)!.outputTokens.toLocaleString()} out` : 'Usage unavailable'}</span>}</div>
+            return <article className="turn" key={turn.id} data-turn-id={turn.id} aria-label={`Turn ${turn.ordinal}`}>
+            <div className="turn-heading"><span>TURN {turn.ordinal} {turn.complete ? summariesEnabled && turn.archived ? '· ARCHIVED' : '' : '· PENDING'}</span>{turn.complete && !generating && turnUsage.has(turn.id) && <span className="turn-usage" title="Provider-reported counts for the saved response, before any later edits. Output may include reasoning tokens.">{turnUsage.get(turn.id) ? `${turnUsage.get(turn.id)!.inputTokens.toLocaleString()} in · ${turnUsage.get(turn.id)!.outputTokens.toLocaleString()} out` : 'Usage unavailable'}</span>}</div>
             {(['user', 'assistant'] as const).filter(part => part !== 'user' || inputVisible).map((part) => <div className={`part ${part}`} key={part}>
               <div className="part-heading"><strong>{part === 'user' ? selectedPersonaLabel : selectedCharacterLabel}</strong></div>
               {part === 'assistant' && reasoning && generating && !responseText && <ReasoningPreview text={reasoning.text} />}
@@ -270,7 +409,7 @@ export function App() {
             <TurnControls turn={turn} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}
               action={generating
                 ? { kind: 'cancel', disabled: busy, run: () => void command(() => api(`/generations/${active.id}/cancel`, 'POST', {})) }
-                : turn.complete && index === snapshot.turns.length - 1 && snapshot.connection
+                : turn.complete && turn.id === snapshot.latestTurn?.id && snapshot.connection
                   ? { kind: 'regenerate', disabled: working || busy || Boolean(edit), run: () => void command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/regenerate`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID() })) }
                   : null}
               select={id => command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/variants/${id}/select`, 'POST', { revision: snapshot.revision }))}
@@ -280,7 +419,9 @@ export function App() {
               }} />
           </article>;
           })}
-        </div>{awayFromLatest && <button className="latest-turn secondary" onClick={scrollToLatest}>Latest turn <Icon name="ArrowLongBottom" /></button>}</div>
+          {snapshot.page.hasNewer && <div className="history-page-control" data-history-direction="newer"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('newer')}>{pageLoading ? 'Loading history…' : 'Load newer turns'}</button></div>}
+          {edit && !snapshot.page.turns.some(turn => turn.id === edit.turnId) && <div className="recovery" role="alert"><div><p>The edited turn was removed or replaced. Copy your unsaved text before closing.</p><ChatTextarea aria-label="Unsaved turn edit" value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><button onClick={() => setEdit(null)}>Close edit</button></div></div>}
+        </div>{(awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>Latest turn <Icon name="ArrowLongBottom" /></button>}</div>
         {!active && pending && <div className="recovery" role="status"><div><strong>Last turn is still pending.</strong><p>{latest?.status === 'cancelled' ? 'Response cancelled. Generate response before next turn.' : latest?.error ?? 'Generate response before next turn.'}</p>{partial && <small>Partial text is preserved for inspection. It has not been accepted as a response.</small>}</div><button className="secondary" disabled={busy} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID() }))}>Retry response</button></div>}
         {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{latest.error ?? 'Regeneration did not finish. Try again.'}</p>}
         {drafts.needsReview && <div className="recovery" role="alert"><p>This browser draft predates a backup import or wipe. Review its text and the restored story before sending. Its previous staged send has no retry authority.</p><button onClick={drafts.review}>Use recovered draft</button></div>}
@@ -293,9 +434,9 @@ export function App() {
       </section>
     </ChatWorkspace>}
     {tab === 'library' && <Libraries library={library} currentChatId={chatId} busy={busy} run={command} openChat={openChat} initialTarget={libraryTarget} />}
-    {tab === 'settings' && snapshot && <ChatSetup key={snapshot.id} snapshot={snapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
-    {tab === 'memory' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>Return to chat</button>}><Memory key={snapshot.id} snapshot={snapshot} library={library} busy={busy} run={command} /></ChatWorkspace>}
-    {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>Return to chat</button>}><section className="document-panel chat-panel" aria-label="Request inspector"><p className="eyebrow">REQUEST INSPECTOR</p><h1>See what the model receives.</h1><p className="muted">Current input follows your saved setup and composer. Saved attempts preserve the exact request and limits used at that time. Credentials stay on the server.</p><div className="inspector-controls"><label>Inspect request<Dropdown aria-label="Inspect request" value={generationId} onChange={setGenerationId} options={[{ value: '', label: 'Current request' }, ...snapshot.generations.map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString()} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!snapshot.connection || busy} onClick={() => { setGenerationId(''); setSettledDraft(draft); }}>Preview {pending ? 'pending turn' : 'next request'}</button><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></div>
+    {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
+    {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>Return to chat</button>}><Memory key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} /></ChatWorkspace>}
+    {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>Return to chat</button>}><section className="document-panel chat-panel" aria-label="Request inspector"><p className="eyebrow">REQUEST INSPECTOR</p><h1>See what the model receives.</h1><p className="muted">Current input follows your saved setup and composer. Saved attempts preserve the exact request and limits used at that time. Credentials stay on the server.</p><div className="inspector-controls"><label>Inspect request<Dropdown aria-label="Inspect request" value={generationId} onChange={setGenerationId} options={[{ value: '', label: 'Current request' }, ...(currentToolSnapshot?.generations ?? []).map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString()} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!snapshot.connection || busy} onClick={() => { setGenerationId(''); setSettledDraft(draft); }}>Preview {pending ? 'pending turn' : 'next request'}</button><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></div>
       <p className="small muted">{generationId ? `Saved attempt: ${shownGeneration?.status ?? 'unavailable'}. Its ceiling is historical. ${shownGeneration?.error ?? ''}` : 'Live preview of the current setup and composer, before any preparation. It becomes a saved request when generation starts.'}</p>
       {!generationId && memoryStale && <p role="status">Memory is out of date. This inspection includes stale summaries; repair and review them before sending.</p>}
       {!generationId && inspectionError && <p role="status">{inspectionError}</p>}{generationId && matchingSavedInspection?.error && <p role="alert">{matchingSavedInspection.error}</p>}

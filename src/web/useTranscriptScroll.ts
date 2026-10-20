@@ -9,6 +9,13 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, loc
   const following = useRef(true);
   const previousChat = useRef<string | null>(null);
   const [awayFromLatest, setAwayFromLatest] = useState(false);
+  const captureRef = useRef<() => void>(() => {});
+  const restoreRef = useRef<() => void>(() => {});
+  function preservePosition(holdAnchor = false) {
+    captureRef.current();
+    if (holdAnchor) following.current = false;
+  }
+  function followingLatest() { return following.current; }
 
   function scrollToLatest() {
     following.current = true;
@@ -30,9 +37,10 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, loc
     const capture = () => {
       const top = node.getBoundingClientRect().top;
       const turn = turns().find(turn => turn.getBoundingClientRect().bottom > top);
-      if (turn) {
+      const turnId = turn?.dataset.turnId;
+      if (turn && turnId) {
         const rect = turn.getBoundingClientRect();
-        anchor.current = { turnId: turn.dataset.turnId!, progress: (top - rect.top) / rect.height };
+        anchor.current = { turnId, progress: (top - rect.top) / rect.height };
       }
       following.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
       setAwayFromLatest(!following.current);
@@ -41,10 +49,11 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, loc
       width = node.clientWidth; height = node.clientHeight;
       if (following.current) node.scrollTop = node.scrollHeight;
       else if (anchor.current) {
-        const turn = turns().find(turn => turn.dataset.turnId === anchor.current!.turnId);
+        const savedAnchor = anchor.current;
+        const turn = turns().find(turn => turn.dataset.turnId === savedAnchor.turnId);
         if (turn) {
           const rect = turn.getBoundingClientRect();
-          node.scrollTop += rect.top - node.getBoundingClientRect().top + rect.height * anchor.current.progress;
+          node.scrollTop += rect.top - node.getBoundingClientRect().top + rect.height * savedAnchor.progress;
         }
       }
       setAwayFromLatest(node.scrollHeight - node.scrollTop - node.clientHeight >= 80);
@@ -54,18 +63,24 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, loc
       if (width !== node.clientWidth || height !== node.clientHeight) restore();
       else capture();
     };
+    captureRef.current = capture;
+    restoreRef.current = restore;
     restore();
     capture();
     const observer = new ResizeObserver(restore);
     observer.observe(node);
     node.addEventListener('scroll', onScroll, { passive: true });
-    return () => { observer.disconnect(); node.removeEventListener('scroll', onScroll); };
+    return () => {
+      observer.disconnect();
+      node.removeEventListener('scroll', onScroll);
+      captureRef.current = () => {};
+      restoreRef.current = () => {};
+    };
   }, [chatId]);
 
-  // Unsaved turn edits resize the transcript without changing the saved snapshot.
-  useLayoutEffect(() => {
-    if (following.current) scrollToLatest();
-  }, [content, localContent, chatId]);
+  // Restore against stable turn identities after a page is prepended or trimmed.
+  useLayoutEffect(() => { restoreRef.current(); }, [content, chatId]);
+  useLayoutEffect(() => { if (following.current) scrollToLatest(); }, [localContent]);
 
-  return { transcript, awayFromLatest, scrollToLatest };
+  return { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest };
 }

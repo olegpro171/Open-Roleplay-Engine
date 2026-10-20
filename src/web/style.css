@@ -135,9 +135,10 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .peek-content{padding-top:0}.peek-heading{position:sticky;top:0;background:#181e27;z-index:1;padding:22px 0 10px;border-bottom:1px solid var(--line);margin-bottom:18px}.peek-heading h2{margin-bottom:8px}
 @media(max-width:800px){.peek-content{padding-top:0}.peek-heading{padding-top:18px}}
 
-/* Keep scrolling under app control while the transcript reflows. */
+/* The scroll hook preserves the reading position during viewport resize. */
 .transcript-frame{position:relative;display:flex;flex:1;min-height:0;min-width:0}
 .transcript{min-height:0;overflow-anchor:none}
+.history-page-control{display:flex;justify-content:center;align-items:center;min-height:64px;padding:8px 0}
 .latest-turn{position:absolute;right:24px;bottom:14px;font-size:12px;box-shadow:0 4px 16px #0006}
 .composer{--composer-control-height:44px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:10px 14px}
 .composer textarea{min-height:var(--composer-control-height);line-height:22px;resize:none;overflow-y:auto}

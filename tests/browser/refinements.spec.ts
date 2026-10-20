@@ -182,8 +182,15 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
     await expect.poll(bottomGap).toBeLessThan(2);
   }
   await page.setViewportSize({ width: 1380, height: 900 });
+  // Story now mounts a bounded window; read backward to the turn under test.
+  while (await page.getByRole('article', { name: 'Turn 100', exact: true }).count() === 0) {
+    const first = await transcript.locator('.turn').first().getAttribute('aria-label');
+    await transcript.evaluate(node => { node.scrollTop = 0; });
+    await expect.poll(() => transcript.locator('.turn').first().getAttribute('aria-label')).not.toBe(first);
+  }
   await transcript.evaluate(node => {
-    const turn = node.querySelectorAll<HTMLElement>('.turn')[99];
+    const turn = node.querySelector<HTMLElement>('[aria-label="Turn 100"]');
+    if (!turn) throw new Error('Turn 100 was not loaded.');
     node.scrollTop += turn.getBoundingClientRect().top - node.getBoundingClientRect().top + turn.clientHeight * .35;
   });
   await expect(page.getByRole('button', { name: 'Latest turn', exact: false })).toBeVisible();

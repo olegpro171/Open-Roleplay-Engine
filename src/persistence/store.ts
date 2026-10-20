@@ -4,7 +4,7 @@ import type { PreparedPicture } from './picture-data.js';
 import type { CharacterSaveCommand } from '../shared/library.js';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -281,21 +281,34 @@ export class Store {
     if (note.success) result.depth_prompt = note.data;
     return result;
   }
-  snapshot(chatId = 'main'): ChatSnapshot {
+  chatHeader(chatId = 'main') {
     const chat = this.chat(chatId);
     const connectionId = chat.settings.connectionId === undefined ? 'main' : chat.settings.connectionId;
     const connection = connectionId ? this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get()?.settings ?? null : null;
     const hasApiKey = Boolean(connectionId && this.db.select().from(schema.credentials).where(eq(schema.credentials.id, connectionId)).get()?.apiKey);
+    return {
+      id: chatId, revision: chat.revision,
+      settings: { ...chat.settings, lorebookId: chat.settings.lorebookId ?? null }, connection, hasApiKey,
+      sources: {
+        prompt: this.selected<PromptPreset>(chat.settings.promptId, 'prompts'),
+        character: this.selected<Character>(chat.settings.characterId, 'characters'),
+        persona: this.selected<Persona>(chat.settings.personaId, 'personas'),
+        lorebook: this.selected<Lorebook>(chat.settings.lorebookId, 'lorebooks'),
+      },
+    };
+  }
+  readTurns(chatId: string, range?: { first: number; last: number }): Turn[] {
+    const condition = and(eq(schema.turns.chatId, chatId), range ? gte(schema.turns.position, range.first) : undefined, range ? lte(schema.turns.position, range.last) : undefined);
     const variants = new Map<string, ResponseVariant[]>();
     const savedVariants = this.db.select({ id: schema.responseVariants.id, turnId: schema.responseVariants.turnId, text: schema.responseVariants.text,
       sourceRevision: schema.responseVariants.sourceRevision, generationId: schema.responseVariants.generationId, createdAt: schema.responseVariants.createdAt })
-      .from(schema.responseVariants).innerJoin(schema.turns, eq(schema.turns.id, schema.responseVariants.turnId)).where(eq(schema.turns.chatId, chatId)).orderBy(asc(sql`${schema.responseVariants}.rowid`)).all();
+      .from(schema.responseVariants).innerJoin(schema.turns, eq(schema.turns.id, schema.responseVariants.turnId)).where(condition).orderBy(asc(sql`${schema.responseVariants}.rowid`)).all();
     for (const { turnId, ...variant } of savedVariants) {
       const group = variants.get(turnId);
       if (group) group.push(variant);
       else variants.set(turnId, [variant]);
     }
-    const turns: Turn[] = this.db.select().from(schema.turns).where(eq(schema.turns.chatId, chatId)).orderBy(asc(schema.turns.position)).all().map(row => {
+    return this.db.select().from(schema.turns).where(condition).orderBy(asc(schema.turns.position)).all().map(row => {
       const responses = variants.get(row.id) ?? [];
       const selected = responses.find(variant => variant.id === row.selectedVariantId);
       if (row.complete && (!selected || selected.text !== row.assistantText)) throw new AppError(500, 'invalid_response_variant', 'The saved response selection is inconsistent. The transcript has been preserved; inspect the database before continuing.');
@@ -307,6 +320,10 @@ export class Store {
         variants: responses,
       };
     });
+  }
+  snapshot(chatId = 'main'): ChatSnapshot {
+    const header = this.chatHeader(chatId);
+    const turns = this.readTurns(chatId);
     const generations: Generation[] = this.db.select({
       id: schema.generations.id, turnId: schema.generations.turnId, status: schema.generations.status,
       sourceRevision: schema.generations.sourceRevision, kind: schema.generations.kind,
@@ -317,11 +334,7 @@ export class Store {
       id: row.id, turnId: row.turnId, status: row.status, sourceRevision: row.sourceRevision, kind: row.kind,
       request: row.request, usage: row.usage, partialText: row.partialText, reasoningText: row.reasoningText, error: row.error, createdAt: row.createdAt, updatedAt: row.updatedAt,
     }));
-    return { id: chatId, revision: chat.revision, settings: { ...chat.settings, lorebookId: chat.settings.lorebookId ?? null }, connection, hasApiKey, turns, generations, loreState: this.loreState(chatId, chat.settings.lorebookId), context: this.contexts.snapshot(chatId, chat.settings.contextPresetId ?? null), sources: {
-      prompt: this.selected<PromptPreset>(chat.settings.promptId, 'prompts'),
-      character: this.selected<Character>(chat.settings.characterId, 'characters'), persona: this.selected<Persona>(chat.settings.personaId, 'personas'),
-      lorebook: this.selected<Lorebook>(chat.settings.lorebookId, 'lorebooks'),
-    } };
+    return { ...header, turns, generations, loreState: this.loreState(chatId, header.settings.lorebookId), context: this.contexts.snapshot(chatId, header.settings.contextPresetId ?? null) };
   }
   promptSources(input: ReturnType<typeof selectionsSchema.parse>): PromptSources {
     return {

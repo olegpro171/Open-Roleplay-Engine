@@ -1,6 +1,6 @@
 import { AppError } from './errors.js';
 import type { Turn } from '../shared/contracts.js';
-import { refKey, type ContextOperation, type ContextPreset, type ContextState, type SummaryNode, type SummaryRef } from '../shared/context.js';
+import { refKey, type ContextOperation, type ContextPreset, type ContextState, type SummaryNode, type SummaryRef, type TurnSource } from '../shared/context.js';
 
 import { correctionMessage, correctionProtection, latestApproved, summaryDependencies } from './context-corrections.js';
 
@@ -8,7 +8,11 @@ export const sourceOf = (turn: Turn) => ({ turnId: turn.id, userRevision: turn.u
 export const nodeFor = (state: ContextState, ref: SummaryRef) => state.summaries.find(node => refKey(node) === refKey(ref));
 
 export function staleSummaries(turns: Turn[], state: ContextState): Set<string> {
-  const sources = new Map(turns.map(turn => [turn.id, sourceOf(turn)]));
+  return staleSummarySources(turns.map(sourceOf), state);
+}
+
+export function staleSummarySources(turnSources: TurnSource[], state: ContextState): Set<string> {
+  const sources = new Map(turnSources.map(source => [source.turnId, source]));
   const nodes = new Map(state.summaries.map(node => [refKey(node), node]));
   const approvedRevision = new Map<string, number>();
   for (const node of state.summaries) if (node.approved) approvedRevision.set(node.id, Math.max(approvedRevision.get(node.id) ?? -1, node.revision));

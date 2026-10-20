@@ -22,6 +22,8 @@ import { readCardFile, readCharacterCardFile } from './card-import.js';
 import { AppError, BackupValidationError } from '../core/errors.js';
 import { assembleRequest } from '../core/prompt.js';
 import { Store } from '../persistence/store.js';
+import { StoryReader } from '../persistence/story-reader.js';
+import { transcriptQuerySchema } from '../shared/transcript.js';
 import { fetchModels, OpenAICompatibleProvider, type Provider } from '../provider/openai.js';
 import { connectionSchema, editSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema, type ChatSnapshot } from '../shared/contracts.js';
 import { trimBoundaryNewlines } from '../shared/text.js';
@@ -55,6 +57,7 @@ export async function createApp(options: {
       request: generation.request?.lore ? { ...generation.request, lore: { ...generation.request.lore, detailsAvailable: true, outcomes: [], diagnostics: [], scan: [], stateBefore: {}, stateDelta: {} } } : generation.request,
     })) };
   }
+  const storyReader = new StoryReader(store);
   const auth = new Auth(store);
   const secure = Boolean(options.https);
   const app = Fastify({ logger: false, bodyLimit: 1_000_000, ...(options.https ? { https: options.https } : {}) });
@@ -414,6 +417,14 @@ export async function createApp(options: {
   app.put('/api/chats/:chatId/history', { bodyLimit: 25_000_000 }, async request => {
     const input = replaceHistorySchema.parse(request.body);
     store.replaceHistory(input.revision, chatId(request.params), input.turns); coordinator.changed(); return { ok: true };
+  });
+  app.get('/api/chats/:chatId/story', async request => {
+    const snapshot = storyReader.read(chatId(request.params), transcriptQuerySchema.parse(request.query));
+    const live = (generation: NonNullable<typeof snapshot.latestGeneration>) => generation.status === 'running'
+      ? { ...generation, partialText: coordinator.partialText(generation.id), reasoningText: coordinator.reasoningText(generation.id).slice(-2000), reasoningLength: coordinator.reasoningText(generation.id).length }
+      : generation;
+    return { ...snapshot, latestGeneration: snapshot.latestGeneration ? live(snapshot.latestGeneration) : null,
+      page: { ...snapshot.page, generations: snapshot.page.generations.map(generation => live(generation)) } };
   });
   app.get('/api/chats/:chatId/context/plan', async request => {
     const snapshot = store.snapshot(chatId(request.params));
