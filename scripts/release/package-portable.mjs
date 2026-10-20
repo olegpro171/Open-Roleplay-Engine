@@ -26,7 +26,7 @@ try {
   cpSync(application, join(payload, 'app', id), { recursive: true, verbatimSymlinks: true });
   cpSync(join(home, 'runtime', runtime), join(payload, 'runtime', runtime), { recursive: true, verbatimSymlinks: true });
   for (const file of ['start.command', 'current']) cpSync(join(home, file), join(payload, file));
-  for (const file of ['README.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'TEST_RELEASE.md']) cpSync(join(application, file), join(payload, file));
+  for (const file of ['README.md', 'RELEASES.md', 'RELEASE_IMPLEMENTATION_BRIEF.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'TEST_RELEASE.md']) cpSync(join(application, file), join(payload, file));
   for (const directory of ['data', 'cache', 'logs', 'languages']) mkdirSync(join(payload, directory));
   writeFileSync(join(payload, 'checksums.json'), JSON.stringify(inventory(payload), null, 2));
   const result = spawnSync('tar', ['-czf', `${archive}.part`, '-C', temporary, name], { stdio: 'inherit' });
