@@ -16,6 +16,7 @@ function fixture() {
   writeFileSync(join(home, 'data/sentinel'), 'Saved synthetic story'); writeFileSync(join(home, 'languages/sentinel'), 'Saved language pack');
   for (const name of ['update-and-start.sh', 'start.command']) cpSync(resolve('scripts/release', name), join(source, 'scripts/release', name));
   cpSync(resolve('start-app.command'), join(source, 'start-app.command'));
+  cpSync(resolve('start.sh'), join(source, 'start.sh'));
   // This fixture replaces only compilation. Git selection, updater, pointer
   // reload and installed launcher are real; native/staging paths have own suites.
   writeFileSync(join(source, 'build-portable.sh'), `#!/bin/bash
@@ -120,16 +121,35 @@ describe.skipIf(process.platform === 'win32')('startup updates using real local 
     const f = fixture();
     const home = join(f.source, 'ore-portable');
     const run = (entry: string, explicit?: string) => {
-      const env: NodeJS.ProcessEnv = { ...process.env, ORE_SKIP_UPDATE: entry.endsWith('start-app.command') ? '0' : '1' };
+      const env: NodeJS.ProcessEnv = { ...process.env, ORE_SKIP_UPDATE: entry.endsWith('/start.command') ? '1' : '0' };
       delete env.ROLEPLAY_DATABASE;
       return spawnSync('/bin/bash', [entry], { cwd: f.root, encoding: 'utf8', env: { ...env, ...(explicit ? { ROLEPLAY_DATABASE: explicit } : {}) } });
     };
     const initial = run(join(f.source, 'start-app.command')); expect(initial.status, initial.stdout+initial.stderr).toBe(0);
     const legacy = join(f.source, 'data/roleplay.sqlite');
     expect(initial.stdout).toContain(JSON.stringify(legacy));
+    const repeat = run(join(f.source, 'start-app.command'));
+    expect(repeat.status, repeat.stdout+repeat.stderr).toBe(0); expect(repeat.stdout).toContain('No build needed');
+    const linux = run(join(f.source, 'start.sh'));
+    expect(linux.status, linux.stdout+linux.stderr).toBe(0); expect(linux.stdout).toContain(JSON.stringify(legacy));
+    expect(readFileSync(join(home, 'build-calls'), 'utf8').trim().split('\n')).toEqual([f.first]);
     expect(run(join(home, 'start.command')).stdout).toContain(JSON.stringify(legacy));
     const explicit = join(f.root, 'explicit.sqlite');
     expect(run(join(home, 'start.command'), explicit).stdout).toContain(JSON.stringify(explicit));
+  });
+  it('rejects installation arguments on both source entries before changing another installation', () => {
+    const f = fixture();
+    for (const name of ['start-app.command', 'start.sh']) {
+      const result = spawnSync('/bin/bash', [join(f.source, name), f.home], { cwd: f.root, encoding: 'utf8' });
+      expect(result.status).toBe(1); expect(result.stderr).toContain('no arguments');
+    }
+    expect(f.calls()).toEqual([]); expect(existsSync(join(f.source, 'ore-portable'))).toBe(false); f.preserved();
+  });
+  it('rejects a linked installation directory instead of building outside the repository', () => {
+    const f = fixture(); symlinkSync(f.home, join(f.source, 'ore-portable'));
+    const result = spawnSync('/bin/bash', [join(f.source, 'start-app.command')], { cwd: f.root, encoding: 'utf8' });
+    expect(result.status).toBe(1); expect(result.stderr).toContain('not a symbolic link');
+    expect(existsSync(join(f.home, 'database-path.txt'))).toBe(false); expect(f.calls()).toEqual([]); f.preserved();
   });
   it('rejects an invalid remembered database path instead of launching a different empty database', () => {
     const f = fixture(); expect(f.run().status).toBe(0);

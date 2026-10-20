@@ -143,15 +143,15 @@ Completed generated turns show endpoint-reported input/output tokens beside the 
 
 For the early portable workflow prerelease, see [v0.1.0-test.1 testing instructions](docs/TEST_RELEASE.md).
 
-For a separate installation, use the same daily source launcher with its directory:
+The daily launcher always installs inside this repository:
 
 ```sh
-./start-app.command "$HOME/ORE"
+./start-app.command
 ```
 
-Use `"$HOME/ORE/start.command"` for later starts. Every normal startup checks `main`; unchanged commits reuse the installed app. Failed/offline updates report the error and start the previous app; first installation requires network access. `ORE_SKIP_UPDATE=1` explicitly skips checking for an installed app. Builds stage before activation, preserving data/languages. The separate installation defaults to `ORE/data/roleplay.sqlite`; explicit `ROLEPLAY_DATABASE` overrides remain supported. Settings → About ORE shows build identity. Older databases receive a private consistent pre-upgrade snapshot; future schemas are refused. App-file rollback and database restoration remain separate operations.
+Run it without arguments: the first start builds into `ore-portable/`, and later starts check `main`, rebuild only when needed, and launch. Linux uses `./start.sh`. Installation-path arguments and a symlinked `ore-portable` directory are rejected. Failed/offline updates report the error and start the previous app; first installation requires network access. `ORE_SKIP_UPDATE=1` explicitly skips checking for an installed app. Builds stage before activation, preserving data/languages and the remembered database path; explicit `ROLEPLAY_DATABASE` overrides remain supported. Settings → About ORE shows build identity. Older databases receive a private consistent pre-upgrade snapshot; future schemas are refused. App-file rollback and database restoration remain separate operations.
 
-Git, Bash, curl, tar and SHA-256 tools must already exist. This repository is private: configure Git authentication for updates; credentials are not bundled. The source launcher follows its checkout's `origin` through a separate managed checkout; installed downloads default to this repository. Local source edits are preserved and do not become automatic releases. For development snapshots use `./build-portable.sh --development DIRECTORY` explicitly. The published `v0.1.0-test.1` archive predates automatic startup updates: use the current source launcher once with your existing installation directory to upgrade it.
+Git, Bash, curl, tar and SHA-256 tools must already exist. This repository is private: configure Git authentication for updates; credentials are not bundled. The source launcher follows its checkout's `origin` through a separate managed checkout; installed downloads default to this repository. Local source edits are preserved and do not become automatic releases. For development snapshots use `./build-portable.sh --development DIRECTORY` explicitly. The published `v0.1.0-test.1` archive predates automatic startup updates. Existing external installations are left intact; saved content can be retained through an explicit database override or backup/import.
 
 See [release/build/update/recovery instructions](docs/RELEASES.md), [actual platform evidence](docs/RELEASE_VERIFICATION.md) and the [Windows executable handoff](docs/WINDOWS_RELEASE_HANDOFF.md). macOS arm64 was exercised locally; Linux, macOS x64, Windows executable delivery and signing remain unqualified. Clean release mode requires a committed clean main-reachable revision. Nothing is published automatically.
 

@@ -4,7 +4,7 @@ Status: shared portable implementation completed for local Mac validation on 202
 
 ## Assignment and user decisions
 
-Latest startup refinement (2026-10-20): normal use starts a platform-specific launcher which checks latest `main`, builds when the installed commit changes, and launches. This supersedes the separate manual build/start workflow described in the initial assignment. Preserve staged activation, contained dependencies, data and explicit offline/failure recovery. The original immutable first prerelease remains a historical workflow snapshot.
+Latest startup refinement (2026-10-20): normal use starts a platform-specific launcher which checks latest `main`, builds when the installed commit changes, and launches. The daily source installation is fixed to `ore-portable/` inside the repository, with no destination argument. This supersedes the separate manual build/start workflow described in the initial assignment. Preserve staged activation, contained dependencies, data and explicit offline/failure recovery. The original immutable first prerelease remains a historical workflow snapshot.
 
 Implement a repeatable release procedure for the existing React/Fastify application. A release is an exact commit on `main`. Windows delivery must launch through `ORE.exe`; a supporting folder is explicitly acceptable. macOS/Linux delivery uses a Bash script to build the app. Contain dependencies within ORE-owned locations instead of installing them throughout the user's OS.
 
