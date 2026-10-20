@@ -8,7 +8,7 @@ async function login(page: Page) {
   const session = await page.request.get('/api/session').then(response => response.json());
   await page.goto('/'); await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button',{ name: session.setupRequired ? 'Create owner account' : 'Sign in',exact: true }).click();
-  await expect(page.getByRole('button',{ name: 'Data management',exact: true })).toBeVisible();
+  await expect(page.getByRole('button',{ name: 'Settings',exact: true })).toBeVisible();
 }
 async function headers(page: Page) {
   const response = await page.request.get('/api/session');
@@ -42,15 +42,19 @@ for (const width of [1440,390]) test(`backup inspection, cancel, overwrite retry
   const turn = other.getByRole('article',{ name: 'Turn 85',exact: true });
   await turn.getByRole('button',{ name: 'Edit response',exact: true }).click(); await other.getByLabel('Edit assistant text').fill('Recoverable stale editor text');
   await other.getByLabel('Your next turn').fill('Recoverable browser draft');
-  await page.getByRole('button',{ name: 'Data management',exact: true }).click();
+  await page.getByRole('button',{ name: 'Settings',exact: true }).click();
   await expect(page.getByText('saved API keys',{ exact: true })).toBeVisible();
   const downloadEvent = page.waitForEvent('download'); await page.getByRole('button',{ name: 'Save backup',exact: true }).click();
   const download = await downloadEvent, path = await download.path(); if (!path) throw new Error('Missing backup download');
   expect(download.suggestedFilename()).toMatch(/^ORE-backup-.*\.sqlite$/);
   const buffer = await readFile(path); expect(buffer.subarray(0,16).toString()).toBe('SQLite format 3\0');
-  const upload = () => page.getByLabel('Inspect backup',{ exact: true }).setInputFiles({ name: 'ORE-backup.sqlite',mimeType: 'application/octet-stream',buffer });
+  const upload = () => page.getByLabel('Inspect & import backup',{ exact: true }).setInputFiles({ name: 'ORE-backup.sqlite',mimeType: 'application/octet-stream',buffer });
   await upload(); await expect(page.getByRole('heading',{ name: 'Import review',exact: true })).toBeVisible();
-  await page.locator('.data-management').evaluate(element => { element.scrollTop = 0; });
+  const categories = page.getByRole('navigation', { name: 'Settings categories' });
+  await categories.getByRole('button', { name: 'Wipe application data', exact: true }).click();
+  await categories.getByRole('button', { name: 'Data backup', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Import review', exact: true })).toHaveCount(1);
+  await page.locator('.settings-panel').evaluate(element => { element.scrollTop = 0; });
   await page.screenshot({ path: `test-results/backups-overview-${width}.png`,fullPage: true });
   const requests: string[] = [];
   page.on('request',request => { if (request.url().includes('/records/')) requests.push(request.url()); });
@@ -75,16 +79,16 @@ for (const width of [1440,390]) test(`backup inspection, cancel, overwrite retry
   await expect(other.getByRole('alert').filter({ hasText: 'Application data was imported or wiped in another tab' })).toBeVisible();
   await other.getByRole('button',{ name: 'Save edit',exact: true }).click();
   await expect(other.getByRole('alert').filter({ hasText: 'Application data was imported or wiped in another tab' })).toBeVisible(); await expect(other.getByLabel('Edit assistant text')).toHaveValue('Recoverable stale editor text');
-  await page.reload(); await page.getByRole('button',{ name: 'Data management',exact: true }).click();
+  await page.reload(); await page.getByRole('button',{ name: 'Settings',exact: true }).click();
   await page.getByRole('button',{ name: 'Retry data command',exact: true }).click(); await expect(page.getByRole('button',{ name: 'Retry data command',exact: true })).toHaveCount(0);
   const restored = await page.request.get(`/api/chats/${chatId}`).then(response => response.json()); expect(restored.turns[84].assistant.text).toBe('Backup response 85.');
   await other.getByRole('button',{ name: 'Reload current data',exact: true }).click(); await expect(other.getByLabel('Your next turn')).toHaveValue('Recoverable browser draft');
   await expect(other.getByRole('button',{ name: 'Use recovered draft',exact: true })).toBeVisible(); await other.getByRole('button',{ name: 'Use recovered draft',exact: true }).click(); await expect(other.getByRole('button',{ name: 'Use recovered draft',exact: true })).toHaveCount(0); await other.close();
-  await page.getByRole('button',{ name: 'Data management',exact: true }).click(); await page.getByRole('button',{ name: 'Wipe application data',exact: true }).click();
+  await page.getByRole('button',{ name: 'Settings',exact: true }).click(); await page.getByRole('region',{ name: 'Wipe application data',exact: true }).getByRole('button',{ name: 'Wipe application data',exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Your local owner login'); await page.getByRole('dialog').getByRole('button',{ name: 'Wipe application data',exact: true }).click();
   await expect.poll(async () => (await page.request.get('/api/library').then(response => response.json())).chats.length).toBe(0);
   await expect(page.getByRole('button',{ name: 'Libraries',exact: true })).toBeVisible();
-  await page.getByRole('button',{ name: 'Data management',exact: true }).click(); await upload(); await expect(page.getByRole('heading',{ name: 'Import review',exact: true })).toBeVisible();
+  await page.getByRole('button',{ name: 'Settings',exact: true }).click(); await upload(); await expect(page.getByRole('heading',{ name: 'Import review',exact: true })).toBeVisible();
   await page.getByRole('button',{ name: 'Import entire backup',exact: true }).click(); await page.getByRole('dialog').getByRole('button',{ name: 'Overwrite and import',exact: true }).click();
   await expect.poll(async () => (await page.request.get(`/api/chats/${chatId}`).then(response => response.json())).turns.length).toBe(85);
   await openChat(page,`Backup story ${width}`); await expect(page.getByRole('article',{ name: 'Turn 85',exact: true })).toContainText('Backup response 85.');

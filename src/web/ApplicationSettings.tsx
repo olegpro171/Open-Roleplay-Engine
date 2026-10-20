@@ -19,7 +19,7 @@ function recoveredCommand(): Command | null {
   try { const saved = localStorage.getItem(commandKey); return saved ? commandSchema.parse(JSON.parse(saved)) : null; }
   catch { return null; }
 }
-export function DataManagement({ openLibraries }: { openLibraries: () => void }) {
+export function ApplicationSettings({ openLibraries }: { openLibraries: () => void }) {
   const [review,setReview] = useState<BackupReview|null>(null);
   const [offset,setOffset] = useState(0);
   const [busy,setBusy] = useState(false), [error,setError] = useState(''), [message,setMessage] = useState('');
@@ -27,6 +27,11 @@ export function DataManagement({ openLibraries }: { openLibraries: () => void })
   const [loading,setLoading] = useState(false);
   const mounted = useRef(true), pending = useRef(false), stage = useRef<string|null>(null);
   const confirm = useConfirmation();
+  function scrollToCategory(id: string) {
+    const heading = document.getElementById(id);
+    heading?.focus({ preventScroll: true });
+    heading?.scrollIntoView({ block: 'start' });
+  }
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; if (stage.current && !pending.current) void api(`/data/stages/${stage.current}`,'DELETE',{}).catch(() => {}); }; },[]);
   async function run(action: () => Promise<void>) {
     if (pending.current) return;
@@ -81,35 +86,47 @@ export function DataManagement({ openLibraries }: { openLibraries: () => void })
       window.location.reload();
     }
   }
-  return <main className="data-management"><section className="panel">
-    <p className="eyebrow">APPLICATION</p><h1>Data management</h1>
-    <p>Backups include saved stories, memory, libraries, pictures and <strong>saved API keys</strong>. Keep the downloaded file private. Browser-local drafts are not included.</p>
-    <div className="actions"><button disabled={busy} onClick={() => void download()}>Save backup</button><label className="backup-file">Inspect backup<input type="file" accept=".sqlite,.db,application/octet-stream" disabled={busy || Boolean(uncertain)} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void select(file); }} /></label></div>
+  return <main className="library-layout application-settings">
+    <aside className="library-sidebar">
+      <p className="eyebrow" id="application-settings-heading">APPLICATION SETTINGS</p>
+      <nav className="library-tabs" aria-label="Settings categories">
+        <button type="button" onClick={() => scrollToCategory('data-backup-heading')}>Data backup</button>
+        <button type="button" onClick={() => scrollToCategory('wipe-data-heading')}>Wipe application data</button>
+      </nav>
+    </aside>
+    <div className="document-panel library-panel settings-panel" aria-labelledby="application-settings-heading">
     {busy && <p role="status">Working… Upload, validation and snapshot work must finish before a result is shown.</p>}
     {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
     {uncertain && <div className="recovery"><p>The command may have committed. Retry this exact command to retrieve its saved outcome. Do not start a different import or wipe.</p><button disabled={busy} onClick={() => void run(() => execute(uncertain))}>Retry data command</button></div>}
-  </section>
-  {review && <section className="panel" aria-label="Backup inspection"><h2>Inspect backup</h2>
+    <section className="settings-section" aria-labelledby="data-backup-heading">
+    <h2 id="data-backup-heading" tabIndex={-1}>Data backup</h2>
+    <p>Backups include saved stories, memory, libraries, pictures and <strong>saved API keys</strong>. Keep the downloaded file private. Browser-local drafts are not included.</p>
+    <button disabled={busy} onClick={() => void download()}>Save backup</button>
+    <section className="settings-subsection" aria-labelledby="import-backup-heading">
+    <h3 id="import-backup-heading">Import backup</h3>
+    <label className="backup-file">Inspect &amp; import backup<input type="file" accept=".sqlite,.db,application/octet-stream" disabled={busy || Boolean(uncertain)} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void select(file); }} /></label>
+  {review && <section className="backup-inspection" aria-label="Backup inspection"><h4>Backup inspection</h4>
     <p>{review.metadata ? `ORE ${review.metadata.build} · schema ${review.metadata.schema} · ${new Date(review.metadata.createdAt).toLocaleString()}` : 'Legacy ORE schema 12/13 database; no backup creation metadata.'}</p>
     <p>Inspection changes no application content. This private inspection expires at {new Date(review.expiresAt).toLocaleTimeString()}.</p>
     <BackupTree key={review.stageId} stageId={review.stageId} />
-    <h2>Import review</h2><p>{review.additions} additions · {review.overlaps} overlapping identities. Names do not determine identity.</p>
+    <h4>Import review</h4><p>{review.additions} additions · {review.overlaps} overlapping identities. Names do not determine identity.</p>
     <p>Overlapping chats are replaced completely, removing their current-only turns, variants, memory and request/preparation history. Incoming records also replace keys, tags, pictures and links, including clearing absent values.</p>
     <ul>{review.units.map(unit => <li key={`${unit.kind}:${unit.id}`}><strong>{unit.name}</strong> · {unit.kind} · {unit.overlap ? 'Overwrite' : 'Add'} <code>{unit.id}</code>{unit.children > 0 ? ` · ${unit.children} current dependent records in the replaced chat aggregate` : ''}</li>)}</ul>
     <div className="actions"><button className="secondary" disabled={busy || loading || offset === 0} onClick={() => void refresh(Math.max(0,offset-backupLimits.page))}>Previous review page</button><span>{offset+1}–{Math.min(offset+backupLimits.page,review.totalUnits)} of {review.totalUnits}</span><button className="secondary" disabled={busy || loading || offset+backupLimits.page >= Math.max(review.totalUnits,review.totalEffects)} onClick={() => void refresh(offset+backupLimits.page)}>Next review page</button></div>
-    {review.totalEffects > 0 && <><h3>Retained chats using incoming shared records ({review.totalEffects})</h3><ul>{review.effects.map(effect => <li key={effect.id}><strong>{effect.title}</strong>: {effect.reason}</li>)}</ul></>}
+    {review.totalEffects > 0 && <><h5>Retained chats using incoming shared records ({review.totalEffects})</h5><ul>{review.effects.map(effect => <li key={effect.id}><strong>{effect.title}</strong>: {effect.reason}</li>)}</ul></>}
     {review.blockers.map((blocker,index) => <p role="alert" key={index}>{blocker}</p>)}
     <p>To preserve another copy, cancel and use existing library copy/edit actions in <a href="#" onClick={event => { event.preventDefault(); openLibraries(); }}>Libraries</a>, or Save backup first. Library copies may share a lorebook; a complete independent chat-copy workflow is not available.</p>
     <div className="actions"><button disabled={busy || loading || Boolean(uncertain)} className="secondary" onClick={() => void refresh()}>Refresh import review</button><button disabled={busy || loading || Boolean(uncertain)} className="secondary" onClick={() => void run(async () => { await api(`/data/stages/${review.stageId}`,'DELETE',{}); stage.current = null; setReview(null); })}>Cancel inspection</button>
     <button disabled={busy || loading || Boolean(uncertain) || review.blockers.length > 0} onClick={() => confirm({ title: review.overlaps ? 'Overwrite overlapping records?' : 'Import backup?',message: `${review.additions} additions and ${review.overlaps} overwrites. Overlapping chats lose all current-only children. Other chats remain saved. This imports the entire backup.`,actionLabel: review.overlaps ? 'Overwrite and import' : 'Import backup',onConfirm: () => void run(() => execute({ path: `/data/stages/${review.stageId}/import`,body: { requestId: crypto.randomUUID(),digest: review.digest,token: review.token,overwrite: review.overlaps > 0 } })) })}>Import entire backup</button></div>
   </section>}
-  <section className="panel"><h2>Wipe application data</h2><p>Deletes all chats, turns, variants, memory, request and preparation history, libraries, API keys, pictures, tags and content command receipts. Retains the local owner login, this session, mandatory factory prompt/context presets and data-management retry receipts. Other sessions are revoked. This is not an account reset.</p>
-    <p>Save backup above before continuing. The app remains ready for import or new content.</p>
+  </section></section>
+  <section className="settings-section" aria-labelledby="wipe-data-heading"><h2 id="wipe-data-heading" tabIndex={-1}>Wipe application data</h2><p>Delete all chats, memory, libraries, API keys, tags and other content. Retain the local owner login.</p>
+    <p>Save backup above before continuing.</p>
     <button className="danger" disabled={busy || Boolean(uncertain)} onClick={() => void run(async () => {
       const preview = await api<{ token: string; digest: string }>('/data/wipe-preview');
       confirm({ title: 'Wipe application data?',message: 'All saved story content, libraries, API keys and pictures will be deleted. Your local owner login and mandatory factory presets remain. Other sessions are revoked.',actionLabel: 'Wipe application data',onConfirm: () => void run(() => execute({ path: '/data/wipe',body: { ...preview,requestId: crypto.randomUUID(),overwrite: true } })) });
     })}>Wipe application data</button>
-  </section></main>;
+  </section></div></main>;
 }
 
 function BackupTree({ stageId }: { stageId: string }) {

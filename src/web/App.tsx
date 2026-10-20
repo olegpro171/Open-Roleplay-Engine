@@ -1,4 +1,4 @@
-import { DataManagement } from './DataManagement';
+import { ApplicationSettings } from './ApplicationSettings';
 import { useConfirmation } from './Confirmation';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ChatSnapshot, RequestPreview } from '../shared/contracts';
@@ -223,14 +223,14 @@ export function App() {
       <nav className="tabs" aria-label="Workspace">
         <button disabled={!snapshot} aria-current={tab !== 'library' && tab !== 'data' ? 'page' : undefined} onClick={() => setTab('story')}>Story</button>
         <button aria-current={tab === 'library' ? 'page' : undefined} onClick={() => { setLibraryTarget(null); setTab('library'); }}>Libraries</button>
-        <button aria-current={tab === 'data' ? 'page' : undefined} onClick={() => setTab('data')}>Data management</button>
+        <button aria-current={tab === 'data' ? 'page' : undefined} onClick={() => setTab('data')}>Settings</button>
       </nav>
       <div className="connection-status"><span className={online ? 'dot online' : 'dot'} />{online ? 'Connected' : 'Reconnecting'}</div>
       <button className="quiet signout" onClick={() => void command(async () => { await api('/logout', 'POST', {}); setSnapshot(null); await refreshSession(); })}>Sign out</button>
     </header>
     {dataChanged && <div className="error-banner" role="alert"><span>Application data was imported or wiped in another tab. Old edits cannot be saved. Copy any unsaved editor text, then reload to review the current data. Browser composer drafts remain recoverable.</span><button onClick={() => window.location.reload()}>Reload current data</button></div>}
-    {tab === 'data' && <DataManagement openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
     {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" onClick={() => setError('')}>Dismiss</button></div>}
+    {tab === 'data' && <ApplicationSettings openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
     {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<>
         <button className="secondary" aria-label="Chat settings" onClick={() => setTab('settings')}>Chat settings{snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : ''}</button>
         <button className="secondary" onClick={() => setTab('memory')}>Inspect memory</button>

@@ -1,6 +1,6 @@
 # Database backup and data management
 
-ORE's **Data management** page is independent of the selected chat. It saves a portable SQLite snapshot, inspects a selected file, imports its entire content into the current installation, and wipes application content. These operations use the same format on each platform; actual Windows/Linux execution and actual phone interaction still need platform testing.
+Open **Settings** in the header for the **Application settings** page, independent of the selected chat. It shares Story and Libraries’ two-column layout: categories on the left scroll to headings in one settings page on the right, with categories above the content on narrow screens. **Data backup** contains **Save backup** followed by **Import backup → Inspect & import backup**; **Wipe application data** follows on the same page. Application warnings appear directly below the header. It saves a portable SQLite snapshot, inspects a selected file, imports its entire content into the current installation, and wipes application content. These operations use the same format on each platform; actual Windows/Linux execution and actual phone interaction still need platform testing.
 
 ## Save and inspect
 
@@ -8,7 +8,7 @@ ORE's **Data management** page is independent of the selected chat. It saves a p
 
 The artifact excludes owner password hashes, login sessions, process ownership, library command receipts and data-management command receipts. Removed data is securely deleted from the private snapshot and its pages are rebuilt before download. Runtime state is never removed from the live database by exporting.
 
-Select **Inspect backup** to upload the file to private server staging. The source file remains unchanged. An inspection is bound to the uploading login session and expires after 30 minutes, even while open. Cancel, completed import, application shutdown and restart remove staging. Uncertain commands retain staging until explicit retry or expiry; successful command receipts survive restart even when staging no longer exists.
+Select **Inspect & import backup** to upload the file to private server staging. The source file remains unchanged. An inspection is bound to the uploading login session and expires after 30 minutes, even while open. Cancel, completed import, application shutdown and restart remove staging. Uncertain commands retain staging until explicit retry or expiry; successful command receipts survive restart even when staging no longer exists.
 
 Branches load only when expanded. Chats have nested branches for their turns, variants, requests, memory, preparation and lore records. Global categories expose libraries, Connections, pictures and tag relations. Records are paged in groups of 40; branches fetch labels without loading text or image BLOBs. Leaf text fields are selected individually and fetched in 8,192-character pieces. API key nodes reveal only presence. Images come from authenticated local PNG resources. Text is displayed literally; remote URLs, HTML and instructions in a backup are never executed.
 
@@ -40,7 +40,7 @@ Running generation/preparation becomes interrupted in the portable artifact, ret
 
 ## Wipe scope
 
-Wipe deletes all chats and their children, user libraries, Connections and API keys, pictures, tags, and content command receipts. It retains the local owner password/login, the requesting session, factory `default` prompt and `default-context` preset, dataset epoch and data-management retry receipts. Other sessions are revoked. It empties tables transactionally without deleting the open database file, and does not recreate a starter chat. Libraries and Data management remain usable for import or creating new content. This is not account reset, password reset or uninstall.
+Wipe deletes all chats and their children, user libraries, Connections and API keys, pictures, tags, and content command receipts. It retains the local owner password/login, the requesting session, factory `default` prompt and `default-context` preset, dataset epoch and data-management retry receipts. Other sessions are revoked. It empties tables transactionally without deleting the open database file, and does not recreate a starter chat. Libraries and Settings remain usable for import or creating new content. This is not account reset, password reset or uninstall.
 
 ## Format and bounds
 

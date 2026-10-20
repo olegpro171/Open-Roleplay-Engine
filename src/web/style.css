@@ -362,10 +362,13 @@ button.danger{background:#b74e48;color:#fff;border-color:#d16b64}
   .inspector-controls{flex-direction:column;align-items:stretch}
 }
 
-.data-management { overflow: auto; padding: 1.5rem; display: grid; gap: 1.5rem; align-content: start; }
-.data-management > .panel { width: min(100%, 1050px); margin-inline: auto; padding: 1.5rem; }
-.data-management p, .data-management li { overflow-wrap: anywhere; }
-.data-management .actions { flex-wrap: wrap; }
+.error-banner { flex-shrink: 0; }
+.settings-panel p, .settings-panel li { overflow-wrap: anywhere; }
+.settings-section + .settings-section { margin-top: 40px; padding-top: 28px; border-top: 1px solid var(--line); }
+.settings-section > h2 { scroll-margin-top: 24px; }
+.settings-subsection { margin-top: 32px; }
+.settings-panel h3, .settings-panel h4, .settings-panel h5 { font-size: 16px; font-weight: 550; }
+.backup-inspection { margin-top: 28px; }
 .backup-file { display: grid; gap: .4rem; max-width: 100%; }
 .backup-file input { max-width: 100%; }
 .backup-tree { border: 1px solid var(--border, #354040); border-radius: .5rem; padding: .75rem; max-height: 65dvh; overflow: auto; }
@@ -373,4 +376,4 @@ button.danger{background:#b74e48;color:#fff;border-color:#d16b64}
 .backup-record { margin-left: 1rem; border-left: 2px solid var(--border, #354040); padding-left: .5rem; }
 .backup-record pre { max-height: 22rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; }
 .backup-record img { max-width: min(100%, 320px); max-height: 320px; object-fit: contain; }
-@media(max-width: 650px) { .data-management { padding: .5rem; } .data-management > .panel { padding: 1rem; } .backup-record { margin-left: .3rem; } .topbar .tabs { flex-wrap: wrap; } }
+@media(max-width: 650px) { .backup-record { margin-left: .3rem; } .topbar .tabs { flex-wrap: wrap; } }

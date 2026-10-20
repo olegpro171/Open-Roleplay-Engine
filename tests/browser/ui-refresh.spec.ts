@@ -99,7 +99,8 @@ test('keeps chat and memory budget panels mounted during debounced and delayed r
   expect(snapshot.context.archivedTurnIds.length).toBeGreaterThan(0);
 });
 
-test('automatically clears the server warning after initial and active-session outages', async ({ page, request }) => {
+for (const width of [1280, 390]) test(`automatically clears the server warning after initial and active-session outages at ${width}px`, async ({ page, request }) => {
+  await page.setViewportSize({ width, height: 700 });
   const session = await request.get('/api/session').then(response => response.json());
   const warning = 'Cannot reach the server. Check that it is running.';
   await page.route('**/api/session', route => route.abort('failed'));
@@ -111,9 +112,17 @@ test('automatically clears the server warning after initial and active-session o
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Settings', exact: true }).click();
   await page.context().setOffline(true);
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
   await expect(page.locator('.error-banner')).toContainText(warning);
+  const header = await page.locator('.topbar').boundingBox();
+  const banner = await page.locator('.error-banner').boundingBox();
+  const content = await page.getByRole('main').boundingBox();
+  if (!header || !banner || !content) throw new Error('Missing workspace or server warning');
+  expect(banner.y).toBeGreaterThanOrEqual(header.y + header.height);
+  expect(banner.y + banner.height).toBeLessThanOrEqual(content.y);
+  await expect(page.locator('.error-banner')).toBeInViewport();
   await page.context().setOffline(false);
   await expect(page.locator('.error-banner')).toHaveCount(0, { timeout: 10_000 });
   await expect(page.locator('.connection-status')).toHaveText('Connected', { timeout: 10_000 });
