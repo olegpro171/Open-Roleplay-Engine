@@ -273,7 +273,8 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .turn-actions { display: flex; align-items: center; justify-content: flex-end; flex: 1; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: #3b4654 transparent; padding: 4px; }
 .turn-actions .turn-action { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 6px; min-width: 44px; height: 44px; padding: 8px; white-space: nowrap; }
 .turn-action svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
-.turn-actions .turn-action:hover:enabled { background: #252e38; color: #eee; }
+.turn-actions .turn-action:hover:enabled,
+.chat-page-actions .chat-navigation-action:is(:hover, :focus-visible):enabled { background: #252e38; color: #eee; }
 .turn-actions .turn-action-delete:hover:enabled { color: #f1b8b8; }
 .turn-actions .turn-action-cancel { color: var(--accent); }
 .variant-selector { display: inline-flex; flex-shrink: 0; align-items: center; gap: .35rem; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -340,6 +341,7 @@ button.danger{background:#b74e48;color:#fff;border-color:#d16b64}
 .chat-details>p{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
 .chat-details>.eyebrow{color:var(--accent)}
 .chat-page-actions{display:flex;flex-direction:column;gap:10px}
+.chat-page-actions .chat-navigation-action{justify-content:flex-start}
 .chat-page-actions button{width:100%;font-size:13px;min-height:44px;padding:10px 12px}
 .chat-details-toggle{display:none}
 .chat-panel{min-width:0;min-height:0;padding:34px 42px 70px;scrollbar-color:#3b4654 transparent;overscroll-behavior:contain}

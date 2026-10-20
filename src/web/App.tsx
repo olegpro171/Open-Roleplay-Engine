@@ -233,9 +233,9 @@ export function App() {
     {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" onClick={() => setError('')}>Dismiss</button></div>}
     {tab === 'data' && <ApplicationSettings openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
     {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<>
-        <button className="secondary" aria-label="Chat settings" onClick={() => setTab('settings')}>Chat settings{snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : ''}</button>
-        <button className="secondary" onClick={() => setTab('memory')}>Inspect memory</button>
-        <button className="secondary" onClick={() => setTab('request')}>Request inspector</button>
+        <button className="quiet chat-navigation-action" aria-label="Chat settings" onClick={() => setTab('settings')}><Icon name="Settings" />Chat settings{snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : ''}</button>
+        <button className="quiet chat-navigation-action" onClick={() => setTab('memory')}><Icon name="List" />Inspect memory</button>
+        <button className="quiet chat-navigation-action" onClick={() => setTab('request')}><Icon name="Menu" />Request inspector</button>
       </>}>
       <section className="conversation" aria-label="Conversation">
         {memoryStale && <div className="recovery" role="status"><div><strong>Memory needs review.</strong><p>Archived history changed. Repair the affected summaries before continuing.</p></div><button className="secondary" onClick={() => setTab('memory')}>Review memory</button></div>}
