@@ -6,11 +6,7 @@ umask 077
 ore_source=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
 ore_home="$ore_source/ore-portable"
 [ ! -L "$ore_home" ] || { echo 'ORE: ore-portable must be a real directory inside this repository, not a symbolic link.' >&2; exit 1; }
-# Remember the legacy default so the source and installed entries open the
-# same saved database. Explicit per-launch overrides still take precedence.
-if [ ! -f "$ore_home/database-path.txt" ]; then
-  mkdir -p -- "$ore_home"
-  printf '%s\n' "$ore_source/data/roleplay.sqlite" > "$ore_home/database-path-$$.tmp"
-  mv -- "$ore_home/database-path-$$.tmp" "$ore_home/database-path.txt"
-fi
+# Persist a relative default in the launcher after a private runtime is available.
+# Existing legacy absolute metadata is migrated conservatively there.
+export ORE_DATABASE_DEFAULT=repository
 exec /bin/bash "$ore_source/scripts/release/update-and-start.sh" "$ore_home" "$ore_source"

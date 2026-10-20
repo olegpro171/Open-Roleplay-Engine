@@ -40,10 +40,10 @@ function loreImport<T>(parse: () => T): T {
 }
 
 export async function createApp(options: {
-  database: string; staticDirectory?: string; migrationsDirectory?: string;
+  database: string; databaseMustExist?: boolean; staticDirectory?: string; migrationsDirectory?: string;
   provider?: Provider; https?: ServerOptions;
 }) {
-  const store = new Store(options.database, options.migrationsDirectory);
+  const store = new Store(options.database, options.migrationsDirectory, { mustExist: options.databaseMustExist });
   const pictures = new PictureProcessor();
   const provider = options.provider ?? new OpenAICompatibleProvider();
   const coordinator = new GenerationCoordinator(store, provider);

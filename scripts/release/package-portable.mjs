@@ -25,7 +25,13 @@ try {
   mkdirSync(join(payload, 'runtime'));
   cpSync(application, join(payload, 'app', id), { recursive: true, verbatimSymlinks: true });
   cpSync(join(home, 'runtime', runtime), join(payload, 'runtime', runtime), { recursive: true, verbatimSymlinks: true });
-  for (const file of ['start.command', 'current']) cpSync(join(home, file), join(payload, file));
+  for (const file of ['start.command', 'current', 'recover.command']) cpSync(join(home, file), join(payload, file));
+  // Export only the active recovery toolkit, never saved selections/DB paths.
+  const toolkitPointer = readFileSync(join(home, 'recovery/current'), 'utf8').trim().split('\n');
+  if (!/^(release|dev)-[a-z0-9-]+$/u.test(toolkitPointer[0])) throw new Error('Invalid recovery toolkit pointer.');
+  mkdirSync(join(payload, 'recovery'), { recursive: true });
+  cpSync(join(home, 'recovery', toolkitPointer[0]), join(payload, 'recovery', toolkitPointer[0]), { recursive: true, verbatimSymlinks: true });
+  writeFileSync(join(payload, 'recovery/current'), `${toolkitPointer[0]}\n${runtime}\n`);
   for (const file of ['README.md', 'RELEASES.md', 'RELEASE_IMPLEMENTATION_BRIEF.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'TEST_RELEASE.md']) cpSync(join(application, file), join(payload, file));
   for (const directory of ['data', 'cache', 'logs', 'languages']) mkdirSync(join(payload, directory));
   writeFileSync(join(payload, 'checksums.json'), JSON.stringify(inventory(payload), null, 2));

@@ -17,9 +17,11 @@ export function buildInfo(): BuildInfo {
 export function startupPaths(env: NodeJS.ProcessEnv = process.env) {
   const root = env.ORE_HOME ? resolve(env.ORE_HOME) : applicationRoot;
   if (env.ROLEPLAY_DATABASE !== undefined && !env.ROLEPLAY_DATABASE.trim()) throw new Error('ROLEPLAY_DATABASE must name a database file. Unset it to use the installation default.');
+  if (env.ORE_DATABASE_MUST_EXIST !== undefined && !['0', '1'].includes(env.ORE_DATABASE_MUST_EXIST)) throw new Error('Invalid internal database existence requirement.');
   return {
     root,
     database: env.ROLEPLAY_DATABASE ? resolve(env.ROLEPLAY_DATABASE) : resolve(root, 'data/roleplay.sqlite'),
+    databaseMustExist: env.ORE_DATABASE_MUST_EXIST === '1',
     staticDirectory: resolve(applicationRoot, 'dist/client'),
     migrationsDirectory,
   };

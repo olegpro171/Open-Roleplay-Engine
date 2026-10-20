@@ -358,6 +358,8 @@ A release is a commit on `main`. Windows delivery should use an executable with 
 
 Startup workflow refined on 2026-10-20: the user starts a platform-specific launcher which automatically checks the latest commit on `main`, builds when needed, and launches. Separate manual build and launch are no longer the normal workflow. Preserve contained dependencies, staged activation and saved data. A failed/offline update may launch the last installed version with a visible explanation; first installation needs a successful build. Actual Windows implementation remains a native handoff. The user subsequently fixed the daily source installation to `ore-portable/` inside the repository: first launch builds there, subsequent launches update and reuse it, with no path argument. Existing saved database choices remain preserved.
 
+Startup safety refined after review: activation requires actual server/UI readiness on an isolated temporary database, retaining an explicit previous working selection. Later startup failure must never automatically run older code against an upgraded saved database. Explicit recovery checks compatibility and pauses updates. Source-default database identity is repository-relative; established missing external databases stop rather than silently becoming empty replacements. Legacy ambiguous absolute paths require explicit selection of an existing database.
+
 ### Decisions still open
 
 - Distribution identity beyond the accepted in-app name “ORE”; repository renaming is deferred.

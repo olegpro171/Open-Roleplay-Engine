@@ -1,11 +1,15 @@
 import { createHash } from 'node:crypto';
 import { fork, spawn } from 'node:child_process';
-import { createWriteStream, mkdirSync, accessSync, constants, readFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, accessSync, constants, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveDatabase, recordDatabaseReady } from './database-location.mjs';
+import { markWorking } from './selection.mjs';
+import { inspectDatabase } from './check-database.mjs';
 
-const application = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const application = resolve(process.argv[3] ?? resolve(dirname(fileURLToPath(import.meta.url)), '../..'));
 const home = resolve(process.argv[2] ?? '');
+let database;
 try {
   if (process.env.ROLEPLAY_DATABASE !== undefined && !process.env.ROLEPLAY_DATABASE.trim()) throw new Error('ROLEPLAY_DATABASE must name a database file. Unset it to use the installation default.');
   for (const directory of ['data', 'cache', 'logs', 'languages']) {
@@ -21,16 +25,20 @@ try {
     const actual = createHash('sha256').update(readFileSync(resolve(application, file.path))).digest('hex');
     if (actual !== file.sha256) throw new Error(`Application asset differs from its manifest: ${file.path}. Rebuild before starting.`);
   }
+  database = resolveDatabase(home);
   const info = JSON.parse(readFileSync(resolve(application, 'build-info.json'), 'utf8'));
   if (info.node !== process.versions.node || info.platform !== process.platform || info.arch !== process.arch) throw new Error('Bundled runtime/OS/CPU does not match this application. Rebuild for this machine.');
+  if (!Number.isInteger(info.schema) || info.schema < 1) throw new Error('Invalid application schema metadata.');
+  if (existsSync(database.path)) inspectDatabase(application, database.path, info.schema);
 } catch (error) {
-  console.error(`ORE cannot start: ${error.message}\nUse a writable ORE directory or repair the installation. No alternative database was selected.`);
+  console.error(`ORE cannot start: ${error.message}\nNo alternative database was selected. Use recover.command --list / --previous (recover-app.command from source) to inspect and recover retained versions safely.`);
   process.exit(1);
 }
 const logPath = resolve(home, 'logs', `startup-${Date.now()}-${process.pid}.log`);
 const log = createWriteStream(logPath, { flags: 'wx', mode: 0o600 });
 console.log(`ORE log: ${logPath}`);
 let failed = false;
+let ready = false;
 log.on('error', error => { failed = true; console.error(`Cannot write ORE log: ${error.message}`); child?.kill('SIGTERM'); });
 let child;
 let stopping = false;
@@ -41,16 +49,23 @@ function stop() {
 }
 // These cover a terminal close as well as Ctrl+C. Never kill a foreign PID.
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, stop);
+if (typeof process.send === 'function') process.once('disconnect', stop);
 child = fork(resolve(application, 'dist/server/server/main.js'), [], {
   execPath: process.execPath, execArgv: [], cwd: application,
   stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-  env: { ...process.env, ORE_PARENT_IPC: '1', ORE_HOME: home, ROLEPLAY_DATABASE: process.env.ROLEPLAY_DATABASE ? resolve(process.env.ROLEPLAY_DATABASE) : resolve(home, 'data/roleplay.sqlite'), TMPDIR: resolve(home, 'cache'), TMP: resolve(home, 'cache'), TEMP: resolve(home, 'cache') },
+  env: { ...process.env, ORE_PARENT_IPC: '1', ORE_HOME: home, ROLEPLAY_DATABASE: database.path, ORE_DATABASE_MUST_EXIST: database.mustExist ? '1' : '0', TMPDIR: resolve(home, 'cache'), TMP: resolve(home, 'cache'), TEMP: resolve(home, 'cache') },
 });
 child.stdout.on('data', bytes => { process.stdout.write(bytes); log.write(bytes); });
 child.stderr.on('data', bytes => { process.stderr.write(bytes); log.write(bytes); });
-child.once('error', error => { failed = true; console.error(`ORE could not launch: ${error.message}`); log.end(); process.exitCode = 1; });
+child.once('error', error => { failed = true; console.error(`ORE could not launch: ${error.message}`); log.end(); process.exitCode = 1; if (process.connected) process.disconnect(); });
 child.on('message', message => {
   if (stopping || message?.type !== 'ready' || typeof message.url !== 'string') return;
+  try {
+    recordDatabaseReady(home, database);
+    markWorking(home, application);
+    ready = true;
+    process.send?.({ type: 'ready', url: message.url }, error => { if (error) stop(); });
+  } catch (error) { failed = true; console.error(`Could not record successful startup: ${error.message}`); stop(); return; }
   if (process.env.ORE_OPEN_BROWSER === '0') return;
   const command = process.platform === 'darwin' ? 'open' : 'xdg-open';
   const browser = spawn(command, [message.url], { stdio: 'ignore' });
@@ -58,6 +73,8 @@ child.on('message', message => {
   browser.unref();
 });
 child.once('exit', (code, signal) => {
-  process.exitCode = failed ? 1 : code ?? (signal ? 1 : 0);
+  process.exitCode = failed || !ready ? 1 : code ?? (signal ? 1 : 0);
+  if (!ready) console.error('ORE did not become ready. No older code was launched automatically. Use recover.command --list / --previous (or recover-app.command from source); recovery checks the saved database schema first.');
   log.end();
+  if (process.connected) process.disconnect();
 });

@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { releaseServer } from './support/release-server.js';
 
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
@@ -15,8 +16,8 @@ function fixture() {
   writeFileSync(join(work, 'scripts/release/native-smoke.mjs'), '// Native loading is covered by the real packaged smoke; this isolates staging.');
   writeFileSync(join(work, 'package.json'), JSON.stringify({ type: 'module', version: '0.1.0' })); writeFileSync(join(work, 'package-lock.json'), '{}');
   writeFileSync(join(work, 'dist/server/shared/build-info.js'), 'export const databaseSchemaVersion = 13;');
-  writeFileSync(join(work, 'dist/server/server/main.js'), 'process.exit(0);'); writeFileSync(join(work, 'dist/server/server/picture-worker.js'), '');
-  writeFileSync(join(work, 'dist/client/index.html'), 'Synthetic UI'); writeFileSync(join(work, 'dist/client/assets/app.js'), 'Synthetic asset');
+  writeFileSync(join(work, 'dist/server/server/main.js'), releaseServer); writeFileSync(join(work, 'dist/server/server/picture-worker.js'), '');
+  writeFileSync(join(work, 'dist/client/index.html'), '<title>ORE</title>'); writeFileSync(join(work, 'dist/client/assets/app.js'), 'Synthetic asset');
   writeFileSync(join(work, 'migrations/0013_data_management.sql'), '-- Synthetic migration');
   for (const file of ['RELEASES.md', 'RELEASE_IMPLEMENTATION_BRIEF.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'TEST_RELEASE.md']) writeFileSync(join(work, 'docs', file), 'Synthetic instructions');
   writeFileSync(join(work, 'node_modules/pkg/bin.js'), ''); symlinkSync('../pkg/bin.js', join(work, 'node_modules/.bin/example'));
@@ -27,14 +28,38 @@ function fixture() {
   writeFileSync(join(home, 'update-source.txt'), '/synthetic/private/source-checkout');
   const runtime = `node-v24.19.0-${process.platform}-${process.arch}`;
   mkdirSync(join(home, 'runtime', runtime), { recursive: true }); writeFileSync(join(home, 'runtime', runtime, 'LICENSE'), 'Synthetic runtime license');
-  const install = () => spawnSync(process.execPath, [resolve('scripts/release/stage.mjs'), 'install', work, home, '--development', 'a'.repeat(40), runtime, 'b'.repeat(64), notices], { encoding: 'utf8' });
+  const install = (commit = 'a'.repeat(40)) => spawnSync(process.execPath, [resolve('scripts/release/stage.mjs'), 'install', work, home, '--development', commit, runtime, 'b'.repeat(64), notices], { encoding: 'utf8' });
   const installed = install(); expect(installed.status, installed.stderr).toBe(0);
   const id = readFileSync(join(home, 'current'), 'utf8').split('\n')[0];
   const application = join(home, 'app', id);
-  return { root, work, home, application };
+  return { root, work, home, application, install };
 }
 
 describe.skipIf(process.platform === 'win32')('portable artifact boundaries', () => {
+  it('rejects server and launcher startup failures after a successful native smoke without activating or touching saved data', () => {
+    const f = fixture(), previous = readFileSync(join(f.home, 'current'), 'utf8');
+    writeFileSync(join(f.work, 'dist/server/server/main.js'), 'throw new Error("Synthetic server startup failure");');
+    const server = f.install('c'.repeat(40));
+    expect(server.status).not.toBe(0); expect(server.stderr).toContain('Application startup check failed');
+    expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(previous);
+    writeFileSync(join(f.work, 'dist/server/server/main.js'), releaseServer);
+    writeFileSync(join(f.work, 'scripts/release/portable-launch.mjs'), 'process.exit(0);');
+    const launcher = f.install('d'.repeat(40));
+    expect(launcher.status).not.toBe(0); expect(launcher.stderr).toContain('Application startup check failed');
+    expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(previous);
+    expect(readdirSync(join(f.home, 'data'))).toEqual(['PRIVATE']);
+    expect(readFileSync(join(f.home, 'data/PRIVATE'), 'utf8')).toBe('synthetic installed private data');
+    expect(readdirSync(join(f.home, 'cache')).filter(name => name.startsWith('startup-check-'))).toEqual([]);
+  });
+  it('retains an explicit previous working selection when activating a startup-verified replacement', () => {
+    const f = fixture(), previous = readFileSync(join(f.home, 'current'), 'utf8');
+    writeFileSync(join(f.home, 'working'), previous);
+    const next = f.install('c'.repeat(40)); expect(next.status, next.stderr).toBe(0);
+    expect(readFileSync(join(f.home, 'previous'), 'utf8')).toBe(previous);
+    expect(readFileSync(join(f.home, 'working'), 'utf8')).toBe(previous);
+    expect(readFileSync(join(f.home, 'current'), 'utf8')).not.toBe(previous);
+    expect(existsSync(join(f.home, 'recover.command'))).toBe(true);
+  });
   it('preserves internal npm symlinks and ships only app/runtime files with empty mutable directories', () => {
     const f = fixture(), output = join(f.root, 'output');
     const packaged = spawnSync(process.execPath, [resolve('scripts/release/package-portable.mjs'), f.home, output], { encoding: 'utf8' }); expect(packaged.status, packaged.stderr).toBe(0);

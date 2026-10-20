@@ -14,7 +14,9 @@ Double-click **start-app.command**, or run:
 ./start-app.command
 ```
 
-This launcher checks the latest `main`, builds only when the installed commit changes, and starts ORE with its private Node runtime. It keeps a managed source checkout and replaceable application files under `ore-portable/`; your source checkout is left intact. Existing source-launcher data remains in this checkout's `data/roleplay.sqlite`; its path is remembered so the installed entry opens the same database. No global Node/npm is required. Leave its terminal open and stop with Control-C. Linux uses `./start.sh`; actual Linux qualification remains pending.
+This launcher checks the latest `main`, builds only when the installed commit changes, and starts ORE with its private Node runtime. It keeps a managed source checkout and replaceable application files under `ore-portable/`; your source checkout is left intact. Existing source-launcher data remains in this checkout's `data/roleplay.sqlite`; the default is stored relative to the repository so moving or renaming the whole folder keeps the same saved chats. Established external databases that disappear cause a recovery error instead of an empty replacement. No global Node/npm is required. Leave its terminal open and stop with Control-C. Linux uses `./start.sh`; actual Linux qualification remains pending.
+
+New builds must start the real server/UI against a temporary database before activation. Retained versions can be inspected with `./recover-app.command --list` and selected with `./recover-app.command --previous`; recovery checks schema compatibility and pauses automatic updates. See [safe version/database recovery](docs/RELEASES.md#database-upgrades-and-recovery) for restored snapshots and legacy paths after moving a folder.
 
 In Safari on the Mac, open that address and choose **File → Add to Dock**. The tab favicon and Dock icon use the current ORE header mark. If ORE was already added to the Dock with an older icon, remove that web app and add it again to pick up the new artwork. Icon PNGs are generated from `artwork/ore-mark.svg` with `node scripts/generate-icons.mjs` using the supported Node runtime.
 

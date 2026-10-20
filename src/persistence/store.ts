@@ -58,9 +58,9 @@ export class Store {
   readonly pictures: PictureStore;
   private readonly ownerToken = randomUUID();
 
-  constructor(filename: string, migrationsDirectory = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? '../../migrations/' : '../../../migrations/', import.meta.url))) {
-    if (filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true, mode: 0o700 });
-    this.sqlite = new Database(filename);
+  constructor(filename: string, migrationsDirectory = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? '../../migrations/' : '../../../migrations/', import.meta.url)), options: { mustExist?: boolean } = {}) {
+    if (filename !== ':memory:' && !options.mustExist) mkdirSync(dirname(filename), { recursive: true, mode: 0o700 });
+    this.sqlite = new Database(filename, { fileMustExist: options.mustExist ?? false });
     if (filename !== ':memory:') chmodSync(filename, 0o600);
     const storedVersion: unknown = this.sqlite.pragma('user_version', { simple: true });
     if (typeof storedVersion !== 'number' || storedVersion < 0 || storedVersion > databaseSchemaVersion) {

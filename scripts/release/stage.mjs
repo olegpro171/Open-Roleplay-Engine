@@ -3,6 +3,10 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { verifyStartup } from './startup-smoke.mjs';
+import { readSelection, writeSelection } from './selection.mjs';
+
+const recoveryFiles = ['recover.mjs', 'database-location.mjs', 'selection.mjs', 'startup-smoke.mjs', 'check-database.mjs', 'portable-launch.mjs', 'update-and-start.sh', 'launcher-protocol'];
 
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 export function inventory(root, directory = root) {
@@ -57,7 +61,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
   try {
     for (const input of ['dist', 'migrations', 'package.json', 'package-lock.json', 'node_modules']) cpSync(join(work, input), join(staging, input), { recursive: true, verbatimSymlinks: true });
     mkdirSync(join(staging, 'scripts/release'), { recursive: true });
-    for (const name of ['portable-launch.mjs', 'update-and-start.sh', 'native-smoke.mjs', 'package-portable.mjs', 'stage.mjs']) cpSync(join(work, 'scripts/release', name), join(staging, 'scripts/release', name));
+    for (const name of ['native-smoke.mjs', 'package-portable.mjs', 'stage.mjs', ...recoveryFiles]) cpSync(join(work, 'scripts/release', name), join(staging, 'scripts/release', name));
     cpSync(noticeDirectory, join(staging, 'notices'), { recursive: true, verbatimSymlinks: true });
     cpSync(join(work, 'docs/RELEASES.md'), join(staging, 'README.md'));
     for (const name of ['RELEASES.md', 'RELEASE_IMPLEMENTATION_BRIEF.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'TEST_RELEASE.md']) cpSync(join(work, 'docs', name), join(staging, name));
@@ -67,14 +71,32 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     if (smoke.status !== 0) throw new Error('Production dependency smoke failed; previous application remains selected.');
     const manifest = { ...metadata, runtime, runtimeArchiveSha256: runtimeChecksum, lockfileSha256: hash(join(staging, 'package-lock.json')), files: inventory(staging) };
     writeFileSync(join(staging, 'manifest.json'), JSON.stringify(manifest, null, 2));
+    await verifyStartup(staging, process.execPath, join(home, 'cache'));
+    let previous = readSelection(home, 'working');
+    if (previous && !existsSync(join(home, 'app', previous.id, 'scripts/release/portable-launch.mjs'))) previous = null;
+    if (!previous) {
+      const current = readSelection(home);
+      if (current) {
+        try {
+          await verifyStartup(join(home, 'app', current.id), join(home, 'runtime', current.runtime, 'bin/node'), join(home, 'cache'), join(staging, 'scripts/release/portable-launch.mjs'));
+          previous = current;
+        } catch (error) { console.warn(`Previous selected application could not be verified; it was not marked working: ${error.message}`); }
+      }
+    }
     renameSync(staging, application);
+    const toolkit = join(home, 'recovery', id);
+    mkdirSync(toolkit, { recursive: true });
+    for (const name of recoveryFiles) cpSync(join(application, 'scripts/release', name), join(toolkit, name));
+    writeSelection(join(home, 'recovery'), 'current', { id, runtime });
+    const recoveryLauncher = join(home, `recover-${randomUUID()}.tmp`);
+    cpSync(join(work, 'scripts/release/recover.command'), recoveryLauncher);
+    renameSync(recoveryLauncher, join(home, 'recover.command'));
     // Root launcher contract is stable; all evolving logic belongs to the versioned app.
     const launcher = join(home, `start-${randomUUID()}.tmp`);
     cpSync(join(work, 'scripts/release/start.command'), launcher);
     renameSync(launcher, join(home, 'start.command'));
-    const pointer = join(home, `current-${randomUUID()}.tmp`);
-    writeFileSync(pointer, `${id}\n${runtime}\n`, { flag: 'wx', mode: 0o600 });
-    renameSync(pointer, join(home, 'current'));
+    if (previous) writeSelection(home, 'previous', previous);
+    writeSelection(home, 'current', { id, runtime });
     console.log(`Activated ${metadata.kind} ${commit}; schema ${metadata.schema}; manifest ${join(application, 'manifest.json')}`);
   } finally { rmSync(staging, { recursive: true, force: true }); }
 }

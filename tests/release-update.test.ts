@@ -14,9 +14,11 @@ function fixture() {
   mkdirSync(join(source, 'scripts/release'), { recursive: true });
   mkdirSync(join(home, 'data'), { recursive: true }); mkdirSync(join(home, 'languages'));
   writeFileSync(join(home, 'data/sentinel'), 'Saved synthetic story'); writeFileSync(join(home, 'languages/sentinel'), 'Saved language pack');
-  for (const name of ['update-and-start.sh', 'start.command']) cpSync(resolve('scripts/release', name), join(source, 'scripts/release', name));
+  for (const name of ['update-and-start.sh', 'start.command', 'database-location.mjs', 'launcher-protocol']) cpSync(resolve('scripts/release', name), join(source, 'scripts/release', name));
   cpSync(resolve('start-app.command'), join(source, 'start-app.command'));
   cpSync(resolve('start.sh'), join(source, 'start.sh'));
+  writeFileSync(join(source, 'scripts/release/portable-launch.mjs'), `import {readFileSync,existsSync,mkdirSync,writeFileSync} from 'node:fs'; import {dirname} from 'node:path'; import {resolveDatabase,recordDatabaseReady} from './database-location.mjs'; const home=process.argv[2]; const database=resolveDatabase(home); if(!existsSync(database.path)){mkdirSync(dirname(database.path),{recursive:true});writeFileSync(database.path,'Synthetic test database');} recordDatabaseReady(home,database); console.log(JSON.stringify({launchedCommit:readFileSync(home+'/current','utf8').split('\\n')[0].slice(8),database:database.path}));`);
+
   // This fixture replaces only compilation. Git selection, updater, pointer
   // reload and installed launcher are real; native/staging paths have own suites.
   writeFileSync(join(source, 'build-portable.sh'), `#!/bin/bash
@@ -31,9 +33,9 @@ id="release-$commit"
 mkdir -p "$home/app/$id/scripts/release" "$home/runtime/node-v24.19.0-darwin-arm64/bin"
 ln -sf ${quote(process.execPath)} "$home/runtime/node-v24.19.0-darwin-arm64/bin/node"
 printf '{"kind":"release","commit":"%s"}' "$commit" > "$home/app/$id/build-info.json"
-cp scripts/release/update-and-start.sh "$home/app/$id/scripts/release/"
+cp scripts/release/update-and-start.sh scripts/release/database-location.mjs scripts/release/launcher-protocol scripts/release/portable-launch.mjs "$home/app/$id/scripts/release/"
 cp scripts/release/start.command "$home/start.command"
-printf 'import {readFileSync} from "node:fs"; console.log(JSON.stringify({launchedCommit:readFileSync(process.argv[2]+"/current","utf8").split("\\\\n")[0].slice(8),database:process.env.ROLEPLAY_DATABASE}));' > "$home/app/$id/scripts/release/portable-launch.mjs"
+
 printf '%s\\nnode-v24.19.0-darwin-arm64\\n' "$id" > "$home/current"
 `);
   const git = (directory: string, args: string[]) => execFileSync('git', ['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', '-C', directory, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -44,7 +46,7 @@ printf '%s\\nnode-v24.19.0-darwin-arm64\\n' "$id" > "$home/current"
   const run = (skip = false, installed = false) => {
     const env: NodeJS.ProcessEnv = { ...process.env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', ORE_SKIP_UPDATE: skip ? '1' : '0', GIT_CONFIG_NOSYSTEM: '1' };
     delete env.ROLEPLAY_DATABASE;
-    return spawnSync('/bin/bash', installed ? [join(home, 'start.command')] : [resolve('scripts/release/update-and-start.sh'), home], { cwd: root, encoding: 'utf8', timeout: 15000, env });
+    return spawnSync('/bin/bash', installed ? [join(home, 'start.command')] : [join(source, 'scripts/release/update-and-start.sh'), home], { cwd: root, encoding: 'utf8', timeout: 15000, env });
   };
   const advance = (name = 'change') => { writeFileSync(join(source, name), name); git(source, ['add', '.']); git(source, ['commit', '-m', 'Next synthetic release']); git(source, ['push', 'origin', 'main']); return git(source, ['rev-parse', 'HEAD']); };
   const calls = () => existsSync(join(home, 'build-calls')) ? readFileSync(join(home, 'build-calls'), 'utf8').trim().split('\n') : [];
@@ -114,7 +116,7 @@ describe.skipIf(process.platform === 'win32')('startup updates using real local 
     const f = fixture(); expect(f.run().status).toBe(0);
     const id = readFileSync(join(f.home, 'current'), 'utf8').split('\n')[0];
     writeFileSync(join(f.home, 'app', id, 'scripts/release/update-and-start.sh'), '#!/bin/bash\necho "Installed updater invoked"\n');
-    const result = spawnSync('/bin/bash', [resolve('scripts/release/update-and-start.sh'), f.home, f.source], { encoding: 'utf8' });
+    const result = spawnSync('/bin/bash', [join(f.source, 'scripts/release/update-and-start.sh'), f.home, f.source], { encoding: 'utf8' });
     expect(result.status, result.stderr).toBe(0); expect(result.stdout).toContain('Installed updater invoked');
   });
   it('preserves the legacy source database through both startup entries without overriding an explicit database', () => {
@@ -153,16 +155,17 @@ describe.skipIf(process.platform === 'win32')('startup updates using real local 
   });
   it('rejects an invalid remembered database path instead of launching a different empty database', () => {
     const f = fixture(); expect(f.run().status).toBe(0);
+    rmSync(join(f.home, 'database-location.json'));
     for (const path of ['', 'relative.sqlite']) {
       writeFileSync(join(f.home, 'database-path.txt'), path);
-      const result = f.run(true, true); expect(result.status).not.toBe(0); expect(result.stderr).toContain('Invalid saved database path'); expect(result.stdout).not.toContain('launchedCommit');
+      const result = f.run(true, true); expect(result.status).not.toBe(0); expect(result.stderr).toContain('Invalid legacy database path'); expect(result.stdout).not.toContain('launchedCommit');
     }
     expect(f.calls()).toEqual([f.first]); f.preserved();
   });
   it('retains the committed app and releases the lock after a terminal signal interrupts a build', async () => {
     const f = fixture(); expect(f.run().status).toBe(0); f.advance('WAIT_BUILD');
     const before = readFileSync(join(f.home, 'current'), 'utf8');
-    const child = spawn('/bin/bash', [resolve('scripts/release/update-and-start.sh'), f.home], { cwd: f.root, detached: true, stdio: 'ignore', env: { ...process.env, ORE_SKIP_UPDATE: '0' } });
+    const child = spawn('/bin/bash', [join(f.source, 'scripts/release/update-and-start.sh'), f.home], { cwd: f.root, detached: true, stdio: 'ignore', env: { ...process.env, ORE_SKIP_UPDATE: '0' } });
     if (!child.pid) throw new Error('No test launcher process.');
     const pid = child.pid;
     const exited = new Promise<void>((resolve, reject) => { child.once('exit', () => resolve()); child.once('error', reject); });

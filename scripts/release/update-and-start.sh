@@ -12,12 +12,6 @@ ore_home=${1:?Expected installation directory}
 ore_source_hint=${2:-}
 mkdir -p -- "$ore_home/cache" "$ore_home/logs" || { echo 'ORE: select a writable installation directory.' >&2; exit 1; }
 ore_home=$(CDPATH='' cd -- "$ore_home" && pwd -P)
-if [ "${ROLEPLAY_DATABASE+x}" != x ] && [ -f "$ore_home/database-path.txt" ]; then
-  ROLEPLAY_DATABASE=$(cat "$ore_home/database-path.txt")
-  case "$ROLEPLAY_DATABASE" in /*) ;; *) echo 'Invalid saved database path. Supply an absolute ROLEPLAY_DATABASE or repair database-path.txt.' >&2; exit 1;; esac
-  case "$ROLEPLAY_DATABASE" in *$'\n'*) echo 'Invalid saved database path.' >&2; exit 1;; esac
-  export ROLEPLAY_DATABASE
-fi
 case "${ORE_SKIP_UPDATE:-0}" in 0|1) ;; *) echo 'ORE_SKIP_UPDATE must be 0 or 1.' >&2; exit 1;; esac
 
 read_selection() {
@@ -35,7 +29,7 @@ read_selection() {
 # Source checkouts need a stable bootstrap, while the installed updater must
 # receive future fixes too. Delegate before taking a lock, never recursively.
 ore_entry=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)/$(basename -- "$0")
-if [ -n "$ore_source_hint" ] && read_selection && [ -f "$ore_application/scripts/release/update-and-start.sh" ] && [ "$ore_entry" != "$ore_application/scripts/release/update-and-start.sh" ]; then
+if [ -n "$ore_source_hint" ] && read_selection && [ -f "$ore_application/scripts/release/launcher-protocol" ] && [ "$(cat "$ore_application/scripts/release/launcher-protocol")" = 2 ] && [ "$ore_entry" != "$ore_application/scripts/release/update-and-start.sh" ]; then
   exec /bin/bash "$ore_application/scripts/release/update-and-start.sh" "$ore_home" "$ore_source_hint"
 fi
 
@@ -97,7 +91,7 @@ update_application() (
   /bin/bash "$source/build-portable.sh" --release "$target" "$ore_home"
 )
 
-if [ "${ORE_SKIP_UPDATE:-0}" = 0 ]; then
+if [ "${ORE_SKIP_UPDATE:-0}" = 0 ] && [ ! -f "$ore_home/updates-paused" ]; then
   log="$ore_home/logs/update-$(date +%Y%m%d-%H%M%S)-$$.log"
   echo "ORE update log: $log"
   set +e
@@ -112,7 +106,11 @@ if [ "${ORE_SKIP_UPDATE:-0}" = 0 ]; then
     echo 'Update unavailable or failed. Starting the last installed version; the next launch will retry.' >&2
   fi
 else
-  echo 'ORE update check skipped (ORE_SKIP_UPDATE=1).'
+  echo 'ORE update check skipped (explicit skip or recovery pause; recover.command --resume-updates resumes checks).'
 fi
 read_selection || { echo 'ORE has no usable installed application/runtime. Start again online, or repair the installation.' >&2; exit 1; }
-exec "$ore_node" "$ore_application/scripts/release/portable-launch.mjs" "$ore_home"
+ore_controller="$(dirname -- "$ore_entry")/portable-launch.mjs"
+if [ -f "$ore_application/scripts/release/launcher-protocol" ] && [ "$(cat "$ore_application/scripts/release/launcher-protocol")" = 2 ]; then
+  ore_controller="$ore_application/scripts/release/portable-launch.mjs"
+fi
+exec "$ore_node" "$ore_controller" "$ore_home" "$ore_application"

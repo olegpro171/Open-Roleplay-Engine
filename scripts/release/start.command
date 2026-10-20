@@ -6,8 +6,13 @@ ore_root=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
 ore_release=$(sed -n '1p' "$ore_root/current")
 case "$ore_release" in ''|.|..|*[!a-zA-Z0-9._-]*) echo 'Invalid ORE current release pointer.' >&2; exit 1;; esac
 ore_application="$ore_root/app/$ore_release"
-if [ -f "$ore_application/scripts/release/update-and-start.sh" ]; then
+if [ -f "$ore_application/scripts/release/update-and-start.sh" ] && [ -f "$ore_application/scripts/release/launcher-protocol" ] && [ "$(cat "$ore_application/scripts/release/launcher-protocol")" = 2 ]; then
   exec /bin/bash "$ore_application/scripts/release/update-and-start.sh" "$ore_root"
+fi
+if [ -f "$ore_root/recovery/current" ]; then
+  ore_tool=$(sed -n '1p' "$ore_root/recovery/current")
+  case "$ore_tool" in ''|.|..|*[!a-zA-Z0-9._-]*) echo 'Invalid recovery toolkit pointer.' >&2; exit 1;; esac
+  exec /bin/bash "$ore_root/recovery/$ore_tool/update-and-start.sh" "$ore_root"
 fi
 # The root launcher may be replaced before the atomic pointer switch. Retain
 # compatibility with the previous release if activation is interrupted there.
