@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { verifyStartup } from './startup-smoke.mjs';
 import { readSelection, writeSelection } from './selection.mjs';
 
-const recoveryFiles = ['recover.mjs', 'database-location.mjs', 'selection.mjs', 'startup-smoke.mjs', 'check-database.mjs', 'portable-launch.mjs', 'update-and-start.sh', 'launcher-protocol'];
+const recoveryFiles = ['load-env.sh', 'recover.mjs', 'database-location.mjs', 'selection.mjs', 'startup-smoke.mjs', 'check-database.mjs', 'portable-launch.mjs', 'update-and-start.sh', 'launcher-protocol'];
 
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 export function inventory(root, directory = root) {

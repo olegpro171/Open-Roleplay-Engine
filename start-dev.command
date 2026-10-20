@@ -5,6 +5,9 @@ umask 077
 [ "$#" -eq 0 ] || { echo 'Usage: start-dev.command (no arguments)' >&2; exit 1; }
 unset NODE_OPTIONS NODE_PATH || true
 ore_source=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+. "$ore_source/scripts/release/load-env.sh"
+ore_load_env "$ore_source/.env"
+unset NODE_OPTIONS NODE_PATH || true
 ore_home="$ore_source/ore-development"
 [ ! -L "$ore_home" ] || { echo 'ORE: ore-development must be a real directory inside this repository, not a symbolic link.' >&2; exit 1; }
 export ORE_DATABASE_DEFAULT=repository

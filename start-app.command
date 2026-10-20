@@ -4,6 +4,9 @@ set -euo pipefail
 umask 077
 [ "$#" -eq 0 ] || { echo 'Usage: start-app.command (no arguments; installation is repository/ore-portable)' >&2; exit 1; }
 ore_source=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+. "$ore_source/scripts/release/load-env.sh"
+ore_load_env "$ore_source/.env"
+unset NODE_OPTIONS NODE_PATH || true
 ore_home="$ore_source/ore-portable"
 [ ! -L "$ore_home" ] || { echo 'ORE: ore-portable must be a real directory inside this repository, not a symbolic link.' >&2; exit 1; }
 # Persist a relative default in the launcher after a private runtime is available.

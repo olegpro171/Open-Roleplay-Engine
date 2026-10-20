@@ -6,6 +6,11 @@ ore_root=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
 ore_release=$(sed -n '1p' "$ore_root/current")
 case "$ore_release" in ''|.|..|*[!a-zA-Z0-9._-]*) echo 'Invalid ORE current release pointer.' >&2; exit 1;; esac
 ore_application="$ore_root/app/$ore_release"
+if [ -f "$ore_application/scripts/release/load-env.sh" ]; then
+  . "$ore_application/scripts/release/load-env.sh"
+  ore_load_env "$ore_root/.env"
+  unset NODE_OPTIONS NODE_PATH || true
+fi
 if [ -f "$ore_application/scripts/release/update-and-start.sh" ] && [ -f "$ore_application/scripts/release/launcher-protocol" ] && [ "$(cat "$ore_application/scripts/release/launcher-protocol")" = 2 ]; then
   exec /bin/bash "$ore_application/scripts/release/update-and-start.sh" "$ore_root"
 fi

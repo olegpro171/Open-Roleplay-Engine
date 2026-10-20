@@ -9,6 +9,8 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'ORE dev-история-')); roots.push(root);
   cpSync(resolve('start-dev.command'), join(root, 'start-dev.command'));
+  mkdirSync(join(root, 'scripts/release'), { recursive: true });
+  cpSync(resolve('scripts/release/load-env.sh'), join(root, 'scripts/release/load-env.sh'));
   writeFileSync(join(root, 'local-edit'), 'Uncommitted working tree');
   writeFileSync(join(root, 'build-portable.sh'), `#!/bin/bash
 set -euo pipefail
@@ -22,6 +24,7 @@ cat > "$2/start.command" <<'LAUNCH'
 #!/bin/bash
 set -euo pipefail
 home=$(dirname -- "$0")
+printf '%s\\n' "\${ORE_OPEN_BROWSER-unset}" > "$home/browser-setting"
 printf '%s\\n' "$ORE_SKIP_UPDATE" "$ORE_DATABASE_DEFAULT" "\${ROLEPLAY_DATABASE-unset}" > "$home/launched"
 LAUNCH
 `);
@@ -42,6 +45,16 @@ describe.skipIf(process.platform === 'win32')('current-checkout development laun
     expect(readFileSync(join(f.home, 'built-edit'), 'utf8')).toBe('Next local edit');
     expect(readFileSync(join(f.home, 'launched'), 'utf8')).toBe('1\nrepository\n/synthetic/explicit.sqlite\n');
     expect(existsSync(join(f.root, 'ore-portable'))).toBe(false);
+  });
+  it('loads repository .env before building, while preserving explicit overrides', () => {
+    const f = fixture();
+    writeFileSync(join(f.root, '.env'), 'ROLEPLAY_DATABASE="/synthetic/from file.sqlite"\nORE_OPEN_BROWSER=0\n');
+    expect(f.run().status).toBe(0);
+    expect(readFileSync(join(f.home, 'launched'), 'utf8')).toContain('/synthetic/from file.sqlite');
+    expect(readFileSync(join(f.home, 'browser-setting'), 'utf8')).toBe('0\n');
+    expect(f.run([], { ROLEPLAY_DATABASE: '/synthetic/override.sqlite', ORE_OPEN_BROWSER: '1' }).status).toBe(0);
+    expect(readFileSync(join(f.home, 'launched'), 'utf8')).toContain('/synthetic/override.sqlite');
+    expect(readFileSync(join(f.home, 'browser-setting'), 'utf8')).toBe('1\n');
   });
   it('does not launch a stale build after compilation fails', () => {
     const f = fixture(); expect(f.run().status).toBe(0); rmSync(join(f.home, 'launched'));

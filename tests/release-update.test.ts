@@ -14,7 +14,7 @@ function fixture() {
   mkdirSync(join(source, 'scripts/release'), { recursive: true });
   mkdirSync(join(home, 'data'), { recursive: true }); mkdirSync(join(home, 'languages'));
   writeFileSync(join(home, 'data/sentinel'), 'Saved synthetic story'); writeFileSync(join(home, 'languages/sentinel'), 'Saved language pack');
-  for (const name of ['update-and-start.sh', 'start.command', 'database-location.mjs', 'launcher-protocol']) cpSync(resolve('scripts/release', name), join(source, 'scripts/release', name));
+  for (const name of ['load-env.sh', 'update-and-start.sh', 'start.command', 'database-location.mjs', 'launcher-protocol']) cpSync(resolve('scripts/release', name), join(source, 'scripts/release', name));
   cpSync(resolve('start-app.command'), join(source, 'start-app.command'));
   cpSync(resolve('start.sh'), join(source, 'start.sh'));
   writeFileSync(join(source, 'scripts/release/portable-launch.mjs'), `import {readFileSync,existsSync,mkdirSync,writeFileSync} from 'node:fs'; import {dirname} from 'node:path'; import {resolveDatabase,recordDatabaseReady} from './database-location.mjs'; const home=process.argv[2]; const database=resolveDatabase(home); if(!existsSync(database.path)){mkdirSync(dirname(database.path),{recursive:true});writeFileSync(database.path,'Synthetic test database');} recordDatabaseReady(home,database); console.log(JSON.stringify({launchedCommit:readFileSync(home+'/current','utf8').split('\\n')[0].slice(8),database:database.path}));`);
@@ -33,7 +33,7 @@ id="release-$commit"
 mkdir -p "$home/app/$id/scripts/release" "$home/runtime/node-v24.19.0-darwin-arm64/bin"
 ln -sf ${quote(process.execPath)} "$home/runtime/node-v24.19.0-darwin-arm64/bin/node"
 printf '{"kind":"release","commit":"%s"}' "$commit" > "$home/app/$id/build-info.json"
-cp scripts/release/update-and-start.sh scripts/release/database-location.mjs scripts/release/launcher-protocol scripts/release/portable-launch.mjs "$home/app/$id/scripts/release/"
+cp scripts/release/load-env.sh scripts/release/update-and-start.sh scripts/release/database-location.mjs scripts/release/launcher-protocol scripts/release/portable-launch.mjs "$home/app/$id/scripts/release/"
 cp scripts/release/start.command "$home/start.command"
 
 printf '%s\\nnode-v24.19.0-darwin-arm64\\n' "$id" > "$home/current"
@@ -60,6 +60,16 @@ describe.skipIf(process.platform === 'win32')('startup updates using real local 
     const first = f.run(); expect(first.status, first.stdout+first.stderr).toBe(0); expect(first.stdout).toContain(`"launchedCommit":"${f.first}"`);
     const repeat = f.run(false, true); expect(repeat.status, repeat.stdout+repeat.stderr).toBe(0); expect(repeat.stdout).toContain('No build needed');
     expect(f.calls()).toEqual([f.first]); f.preserved();
+  });
+  it('loads installed .env independently of the working directory', () => {
+    const f = fixture(); expect(f.run().status).toBe(0);
+    const database = join(f.home, 'data', 'configured.sqlite');
+    writeFileSync(join(f.home, '.env'), `ROLEPLAY_DATABASE="${database}"\nORE_OPEN_BROWSER=0\n`);
+    const result = f.run(true, true);
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout).toContain(JSON.stringify(database));
+    expect(readFileSync(join(f.home, '.env'), 'utf8')).toContain('ORE_OPEN_BROWSER=0');
+    f.preserved();
   });
   it('builds a newer main commit, reloads the new selection and leaves the original checkout untouched', () => {
     const f = fixture(); expect(f.run().status).toBe(0);

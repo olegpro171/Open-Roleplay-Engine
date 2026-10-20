@@ -3,6 +3,9 @@
 set -euo pipefail
 unset NODE_OPTIONS NODE_PATH || true
 ore_source=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+. "$ore_source/scripts/release/load-env.sh"
+ore_load_env "$ore_source/.env"
+unset NODE_OPTIONS NODE_PATH || true
 ore_home="$ore_source/ore-portable"
 for ore_pointer in recovery/current current previous working; do
   [ -f "$ore_home/$ore_pointer" ] || continue

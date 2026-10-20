@@ -4,6 +4,10 @@
 set -euo pipefail
 umask 077
 unset NODE_OPTIONS NODE_PATH || true
+ore_env_tools=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+. "$ore_env_tools/load-env.sh"
+ore_load_env "${2:-${1:?Expected installation directory}}/.env"
+unset NODE_OPTIONS NODE_PATH || true
 if [ "${ROLEPLAY_DATABASE+x}" = x ] && [ -z "${ROLEPLAY_DATABASE//[[:space:]]/}" ]; then
   echo 'ROLEPLAY_DATABASE must name a database file. Unset it to use the installation default.' >&2
   exit 1
