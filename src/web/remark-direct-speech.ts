@@ -28,20 +28,6 @@ function formatInline(children: PhrasingContent[], options: SpeechOptions): Phra
     ]);
   }
 
-  function speechNodes(value: string): PhrasingContent[] {
-    const nodes: PhrasingContent[] = [];
-    // Detection still uses dashes as boundaries; presentation never applies speech styling to them.
-    for (const [index, part] of value.split('—').entries()) {
-      if (index) nodes.push({ type: 'text', value: '—' });
-      if (part) nodes.push({
-        type: 'strong',
-        data: { hProperties: { className: ['direct-speech'] } },
-        children: textNodes(part),
-      });
-    }
-    return nodes;
-  }
-
   function rewrite(nodes: PhrasingContent[]): PhrasingContent[] {
     return nodes.flatMap((node): PhrasingContent[] => {
       if ('children' in node) return [{ ...node, children: rewrite(node.children) }];
@@ -57,7 +43,11 @@ function formatInline(children: PhrasingContent[], options: SpeechOptions): Phra
         const speechStart = Math.max(start, range.start);
         const speechEnd = Math.min(end, range.end);
         result.push(...textNodes(node.value.slice(cursor - start, speechStart - start)));
-        for (const speechNode of speechNodes(node.value.slice(speechStart - start, speechEnd - start))) result.push(speechNode);
+        result.push({
+          type: 'strong',
+          data: { hProperties: { className: ['direct-speech'] } },
+          children: textNodes(node.value.slice(speechStart - start, speechEnd - start)),
+        });
         cursor = speechEnd;
       }
       result.push(...textNodes(node.value.slice(cursor - start)));

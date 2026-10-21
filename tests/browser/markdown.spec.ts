@@ -19,7 +19,7 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
   };
   const { endpoint } = await request.get('/__test/endpoint').then(response => response.json());
   const connection = await command('/api/library', { revision: (await library()).revision, kind: 'connections', data: { name: `Markdown ${width}`, endpoint, model: 'synthetic-roleplay', contextWindow: 100000, maxOutputTokens: 1000, customParameters: {} } });
-  const greeting = '*Mara smiles.*\n\nMara asked "How are **you**?"\n\n— Здесь мне лучше, — сказала девушка.\n\n- A lantern\n- A key\n\n> Keep the gate closed.\n\n| Place | Keeper |\n| --- | --- |\n| Tower | Mara |\n\n```text\n' + 'long-code-'.repeat(25) + '\n"literal quote"\n```\n\n[Map](https://example.com/map) [unsafe](javascript:alert%281%29)\n\n![portrait](https://example.com/tracker.png)\n\n<img src="https://example.com/hidden.png" onerror="alert(1)">';
+  const greeting = '*Mara smiles.*\n\nMara asked "How are **you** — really?"\n\n— Здесь мне лучше, — сказала девушка.\n\n- A lantern\n- A key\n\n> Keep the gate closed.\n\n| Place | Keeper |\n| --- | --- |\n| Tower | Mara |\n\n```text\n' + 'long-code-'.repeat(25) + '\n"literal quote"\n```\n\n[Map](https://example.com/map) [unsafe](javascript:alert%281%29)\n\n![portrait](https://example.com/tracker.png)\n\n<img src="https://example.com/hidden.png" onerror="alert(1)">';
   const characterData: LibraryCharacter = { name: `Mara ${width}`, description: '', personality: '', scenario: '', first_mes: greeting, mes_example: '', alternate_greetings: ['**Another opening.** «Добро пожаловать».', ...russianDialogueRegressions.map(fixture => fixture.text)], lorebookId: null, titleComment: '', speechColor: '#eeaa88' };
   const character = await command('/api/library', { revision: (await library()).revision, kind: 'characters', data: characterData });
   const persona = await command('/api/library', { revision: (await library()).revision, kind: 'personas', data: { name: `Alex ${width}`, description: '', speechColor: '#88cc99' } });
@@ -32,7 +32,7 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
   const opening = page.getByRole('article', { name: 'Turn 1', exact: true });
   const prose = opening.locator('.part.assistant .prose');
   await expect(prose.locator('em')).toHaveText('Mara smiles.');
-  await expect(prose.locator('.direct-speech')).toHaveText(['"How are ', 'you', '?"', ' Здесь мне лучше,']);
+  await expect(prose.locator('.direct-speech')).toHaveText(['"How are ', 'you', ' — really?"', '— Здесь мне лучше,']);
   await expect(prose).toContainText(' — сказала девушка.');
   await expect(prose.getByRole('listitem')).toHaveCount(2);
   await expect(prose.getByRole('table')).toBeVisible();
@@ -64,14 +64,13 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
   await expect(prose.locator('.direct-speech')).toHaveText('«Добро пожаловать»');
   for (const [index, fixture] of russianDialogueRegressions.entries()) {
     await opening.getByRole('button', { name: 'Next response', exact: true }).click();
-    await expect(prose.locator('.direct-speech')).toHaveText(fixture.speech.map(speech => speech.slice(1)));
-    expect(await prose.locator('.direct-speech').allTextContents()).not.toEqual(expect.arrayContaining([expect.stringContaining('—')]));
+    await expect(prose.locator('.direct-speech')).toHaveText(fixture.speech);
     await expect(prose).toContainText(fixture.narration);
     await expect(prose).toHaveText(fixture.text);
     await page.screenshot({ path: testInfo.outputPath(`russian-dialogue-${index + 1}.png`), fullPage: true });
   }
   await page.reload();
-  await expect(prose.locator('.direct-speech')).toHaveText([' А ты чего тут делаешь?']);
+  await expect(prose.locator('.direct-speech')).toHaveText(['— А ты чего тут делаешь?']);
   await opening.getByLabel('Response version', { exact: true }).fill('1');
   await opening.getByLabel('Response version', { exact: true }).press('Enter');
   await expect(prose.locator('em')).toHaveText('Mara smiles.');
@@ -91,7 +90,7 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
     await request.post('/__test/finish', { data: {} });
     await expect(reply.locator('em')).toHaveText('Stay close');
     await expect(reply.locator('.direct-speech').first()).toHaveCSS('color', 'rgb(238, 170, 136)');
-    await expect(reply.locator('.direct-speech')).toHaveText(['"', 'Stay close', ', traveler."', ' Послушайте!', ' Я ведь не знал.']);
+    await expect(reply.locator('.direct-speech')).toHaveText(['"', 'Stay close', ', traveler."', '— Послушайте!', '— Я ведь не знал.']);
     await expect(turn.getByLabel('Generating', { exact: true })).toHaveCount(0);
     await page.reload();
     await expect(reply.locator('em')).toHaveText('Stay close');

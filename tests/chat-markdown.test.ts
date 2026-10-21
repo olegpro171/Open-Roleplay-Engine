@@ -9,24 +9,24 @@ function render(text: string, speech?: Parameters<typeof ChatMarkdown>[0]['speec
 }
 
 describe('chat Markdown presentation', () => {
-  it('leaves opening, resuming and internal em dashes outside speech styling', () => {
+  it('styles opening, resuming and internal em dashes within detected speech', () => {
     const html = render('— Привет, — сказала Мара. — «Стой — подожди».');
     const highlighted = Array.from(html.matchAll(/<strong class="direct-speech">([^<]*)<\/strong>/gu), match => match[1]);
-    expect(highlighted).toEqual([' Привет,', ' «Стой ', ' подожди».']);
-    expect(html).toContain('—<strong class="direct-speech"> Привет,</strong> — сказала Мара. —');
-    expect(html).toContain('«Стой </strong>—<strong class="direct-speech"> подожди»');
+    expect(highlighted).toEqual(['— Привет,', '— «Стой — подожди».']);
+    expect(html).toContain('<strong class="direct-speech">— Привет,</strong> — сказала Мара. ');
+    expect(html).toContain('<strong class="direct-speech">— «Стой — подожди».</strong>');
   });
 
-  it('excludes em dashes inside quotations when Russian detection is disabled', () => {
+  it('styles em dashes inside quotations when Russian detection is disabled', () => {
     const html = render('Mara said "*Wait — please*."', { russianDialogue: false });
-    expect(html).toContain('<em><strong class="direct-speech">Wait </strong>—<strong class="direct-speech"> please</strong></em>');
+    expect(html).toContain('<em><strong class="direct-speech">Wait — please</strong></em>');
     expect(html).toContain('<strong class="direct-speech">.&quot;</strong>');
   });
 
   it.each(russianDialogueRegressions)('renders the reported author clause as plain prose: $narration', fixture => {
     const html = render(fixture.text);
     const highlighted = Array.from(html.matchAll(/<strong class="direct-speech">([^<]*)<\/strong>/gu), match => match[1]);
-    expect(highlighted).toEqual(fixture.speech.map(speech => speech.slice(1)));
+    expect(highlighted).toEqual(fixture.speech);
     expect(html).toContain(fixture.narration);
   });
 
@@ -57,8 +57,8 @@ describe('chat Markdown presentation', () => {
   it('styles speech on separate soft lines and can disable only the Russian heuristic', () => {
     const text = '— Привет, — сказала Мара.\n— Останься.\n«До встречи».';
     const html = render(text);
-    expect(html).toContain('—<strong class="direct-speech"> Привет,</strong> — сказала Мара.<br/>');
-    expect(html).toContain('—<strong class="direct-speech"> Останься.</strong><br/>');
+    expect(html).toContain('<strong class="direct-speech">— Привет,</strong> — сказала Мара.<br/>');
+    expect(html).toContain('<strong class="direct-speech">— Останься.</strong><br/>');
     const disabled = render(text, { russianDialogue: false });
     expect(disabled).not.toContain('class="direct-speech">—');
     expect(disabled).toContain('<strong class="direct-speech">«До встречи»</strong>');
