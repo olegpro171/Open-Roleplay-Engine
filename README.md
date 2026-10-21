@@ -30,7 +30,7 @@ Story renders Markdown in greetings, both turn parts and streaming replies: emph
 
 ## Interface language
 
-Use the header language selector or **Settings → Language**. English is the built-in fallback; Russian is available with English fallback while its translation is prepared. **Download translation template**, edit the JSON values, then **Import language file**. You can also place `<locale>.json` in the installation's preserved `languages/` directory and choose **Reload languages**. No rebuild or restart is required. The choice is remembered separately in each browser; live switching preserves open editor/composer drafts. Story text and model prompts remain unchanged. See [language-pack format and localization boundaries](docs/LOCALIZATION.md).
+Use **Settings → Language → Interface language**. English is the built-in fallback; Russian is available with English fallback while its translation is prepared. **Download translation template**, edit the JSON values, then **Import language file**. You can also place `<locale>.json` in the installation's preserved `languages/` directory and choose **Reload languages**. No rebuild or restart is required. The choice is remembered separately in each browser; switching language updates mounted controls and preserves the composer draft. Story text and model prompts remain unchanged. See [language-pack format and localization boundaries](docs/LOCALIZATION.md).
 
 ## Libraries, prompts and chat import
 

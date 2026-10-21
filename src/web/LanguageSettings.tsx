@@ -1,21 +1,9 @@
-import { errorText, loadLanguages, locale, message, publishLanguages, selectLanguage, t, useLanguages, useLocale, useTextState, type MessageText } from './localization';
+import { errorText, loadLanguages, locale, message, publishLanguages, selectLanguage, t, useLanguages, useLocale, useTextState } from './localization';
 import { useEffect, useRef, useState } from 'react';
 import { languageLimits, languagePackSchema, languageStatusSchema, translationTemplate, validateTranslations } from '../shared/localization';
 import { api } from './api';
 import { Dropdown } from './Controls';
 import { useConfirmation } from './Confirmation';
-
-export function LanguageSwitcher({ onError }: { onError: (error: MessageText) => void }) {
-  useLocale();
-  const status = useLanguages();
-  const [busy, setBusy] = useState(false);
-  return <select className="language-switcher" aria-label={t('language.switch')} title={t('language.select')} value={locale()} disabled={busy} onChange={event => {
-    const language = event.target.value;
-    setBusy(true);
-    void selectLanguage(language).then(saved => { if (!saved) onError(message('language.storageFailed')); })
-      .catch(error => onError(errorText(error, message('language.unavailable')))).finally(() => setBusy(false));
-  }}>{(status?.languages ?? [{ locale: 'en', nativeName: 'English' }, { locale: 'ru', nativeName: 'Русский' }]).map(item => <option key={item.locale} value={item.locale}>{item.nativeName}</option>)}</select>;
-}
 
 export function LanguageSettings() {
   useLocale();

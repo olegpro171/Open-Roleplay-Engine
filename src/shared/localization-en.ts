@@ -1165,7 +1165,6 @@ export const englishMessages = {
   "diagnostics.regeneration_cancelled_the_selected_response_was_kept": "Regeneration cancelled. The selected response was kept.",
   "diagnostics.memory_preparation_failed_check_the_connection_and_retry": "Memory preparation failed. Check the Connection and retry; selected sources remain available.",
   "diagnostics.the_server_stopped_during_this_response_retry_explicitly": "The server stopped during this response. Retry explicitly to start a new model request.",
-  "language.switch": "Change interface language",
   "interface.archived": "· ARCHIVED",
   "interface.pending": "· PENDING",
   "interface.lore_activation_history_for_this_chat_will_start": " Lore activation history for this chat will start fresh.",

@@ -17,7 +17,12 @@ async function signIn(page: Page) {
   await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
 }
 
-for (const width of [1440, 390, 320]) test(`runtime packs localize live controls, preserve drafts and fall back safely at ${width}px`, async ({ page }, testInfo) => {
+async function chooseLanguage(page: Page, label: string, language: string) {
+  await page.getByRole('combobox', { name: label, exact: true }).click();
+  await page.getByRole('option', { name: language, exact: true }).click();
+}
+
+for (const width of [1440, 390, 320]) test(`runtime packs localize live controls, preserve the composer draft and fall back safely at ${width}px`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 900 });
   await signIn(page);
   const library = await page.request.get('/api/library').then(response => response.json());
@@ -40,13 +45,20 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
     return result.json();
   };
   const inputBefore = await preview();
+  await expect(page.locator('.topbar').getByRole('combobox')).toHaveCount(0);
+  if (width <= 800) {
+    await page.getByRole('button', { name: 'Chat details', exact: true }).click();
+    await expect(page.getByRole('combobox', { name: /interface language/i })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Chat details', exact: true }).click();
+  }
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Language', exact: true }).click();
   await page.getByLabel('Import language file', { exact: true }).setInputFiles({ name: 'ru.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(russian)) });
   const replace = page.getByRole('button', { name: 'Replace language file', exact: true });
   await expect(replace.or(page.getByRole('status').filter({ hasText: 'Language file saved.' }))).toBeVisible();
   if (await replace.isVisible()) await replace.click();
   await expect(page.getByRole('status').filter({ hasText: 'Language file saved.' })).toBeVisible();
-  await page.getByRole('combobox', { name: 'Change interface language', exact: true }).selectOption('ru');
+  await chooseLanguage(page, 'Interface language', 'Русский');
   await expect(page.locator('html')).toHaveAttribute('lang', 'ru');
   await expect(page.getByRole('heading', { name: 'Язык', exact: true })).toBeVisible();
   // Missing translation is a readable English fallback, not an internal key.
@@ -59,32 +71,35 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
   await page.getByRole('button', { name: 'Personas', exact: true }).click();
   await page.getByRole('button', { name: 'New persona', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Unsaved persona name');
-  await page.getByRole('combobox', { name: 'Change interface language', exact: true }).selectOption('en');
-  await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Unsaved persona name');
-  await page.getByRole('combobox', { name: 'Change interface language', exact: true }).selectOption('ru');
-  await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Unsaved persona name');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath(`localized-${width}.png`) });
   await page.reload();
   await expect(page.getByRole('button', { name: 'Библиотеки', exact: true })).toBeVisible();
-  if (width <= 800) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Change interface language', exact: true }).selectOption('en');
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
+  await page.getByRole('button', { name: 'Язык', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Язык интерфейса', exact: true })).toHaveText('Русский');
+  await chooseLanguage(page, 'Язык интерфейса', 'English');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
 });
 
 test('failed language requests preserve the previous selection and stored errors translate when the language changes', async ({ page }) => {
   await signIn(page);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Language', exact: true }).click();
   await page.route('**/api/localization/ru', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }), { times: 1 });
-  await page.getByRole('combobox', { name: 'Change interface language', exact: true }).selectOption('ru');
+  await chooseLanguage(page, 'Interface language', 'Русский');
   await expect(page.getByRole('alert')).toContainText('Languages could not be loaded');
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-  await expect(page.getByRole('combobox', { name: 'Change interface language', exact: true })).toHaveValue('en');
+  await expect(page.getByRole('combobox', { name: 'Interface language', exact: true })).toHaveText('English');
   const status = languageStatusSchema.parse(await page.request.get('/api/localization').then(response => response.json()));
   const installed = status.languages.find(item => item.locale === 'ru');
   const saved = await page.request.post('/api/localization/import', { headers: { Origin: 'http://127.0.0.1:4173' }, data: { pack: russian, expectedRevision: installed?.custom ? installed.revision : null } });
   expect(saved.ok()).toBe(true);
+  await page.getByRole('button', { name: 'Reload languages', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
   await page.route('**/api/logout', route => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: 'This response is no longer active.', localized: { key: 'errors.this_response_is_no_longer_active', fallback: 'This response is no longer active.' } }) }), { times: 1 });
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('This response is no longer active.');
-  await page.getByRole('combobox', { name: 'Change interface language', exact: true }).selectOption('ru');
+  await chooseLanguage(page, 'Interface language', 'Русский');
   await expect(page.getByRole('alert')).toContainText('Этот ответ уже завершён.');
 });
