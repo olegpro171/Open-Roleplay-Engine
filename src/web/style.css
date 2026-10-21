@@ -317,6 +317,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
   .variant-selector .variant-number { width: 32px; height: 44px; font-size: 16px; padding-inline: 2px; }
   .variant-total { font-size: 13px; padding: 0; }
   .turn-actions { justify-content: flex-start; padding-inline: 2px; }
+  .turn-actions > :first-child { margin-inline-start: auto; }
   .turn-actions .turn-action { min-width: 40px; width: 40px; padding: 8px; }
 }
 .speech-color-label { font-size: 14px; font-weight: 550; }
