@@ -1,9 +1,9 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, devices } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
 
-test('switches response versions with arrows and a textbox, restores summarized variants and survives reload on desktop and phone', async ({ page, request }) => {
+test('switches response versions with arrows and a textbox, restores summarized variants and survives reload on desktop and phone', async ({ page, browser, request }) => {
   test.setTimeout(60000);
   const session = await request.get('/api/session').then(response => response.json());
   await request.post('/__test/mode', { data: { mode: 'normal' } });
@@ -26,6 +26,8 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Variant proof', exact: true }) }).click();
   await expect(page.getByText('Original A.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Regenerate response', exact: true }).hover();
+  await expect(page.getByRole('button', { name: 'Regenerate response', exact: true })).toHaveCSS('background-color', 'rgb(37, 46, 56)');
   await page.getByRole('button', { name: 'Regenerate response', exact: true }).click();
   await expect.poll(async () => (await state()).turns[0].variants?.length).toBe(2);
   const generated = await state(), originalId = generated.turns[0].variants?.[0].id;
@@ -134,6 +136,34 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await expect(page.getByRole('status').filter({ hasText: 'Regeneration cancelled' })).toHaveCount(0);
   await expect(page.getByLabel('Your next turn')).toHaveValue('Unsent draft stays here');
   expect((await state()).turns[0].variants).toHaveLength(2);
+  // Touch browsers can retain :hover when Regenerate changes into Cancel.
+  const phoneContext = await browser.newContext({ ...devices['iPhone 13'] });
+  try {
+    const phone = await phoneContext.newPage();
+    await phone.goto('/');
+    await phone.getByLabel('Owner password').fill('browser-synthetic-password');
+    await phone.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await phone.getByRole('button', { name: 'Libraries', exact: true }).click();
+    await phone.getByRole('button', { name: 'Chats', exact: true }).click();
+    await phone.getByRole('article').filter({ has: phone.getByRole('heading', { name: 'Variant proof', exact: true }) }).tap();
+    await phone.getByRole('button', { name: 'Regenerate response', exact: true }).tap();
+    const stop = phone.getByRole('button', { name: 'Cancel', exact: true });
+    await expect(stop).toBeEnabled();
+    await expect(phone.getByText('Waiting for first token…', { exact: true })).toBeVisible();
+    // Chromium clears touch hover here; retain it explicitly to model sticky-hover phone browsers.
+    await stop.hover();
+    await expect(stop).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(stop).toHaveCSS('filter', 'none');
+    await expect(stop).toHaveCSS('-webkit-tap-highlight-color', 'rgba(0, 0, 0, 0)');
+    await expect(stop).toHaveCSS('color', 'rgb(228, 170, 127)');
+    await phone.screenshot({ path: 'test-results/phone-regeneration-touch.png', fullPage: true });
+    await stop.tap();
+    await expect(phone.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
+    await expect(phone.getByRole('article', { name: 'Turn 1', exact: true }).locator('.part.assistant .prose')).toHaveText('Original A.');
+  } finally {
+    await phoneContext.close();
+  }
+  await expect(turn.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
   // A completed replacement stays in the same container and becomes a variant.
   const callsBeforeSuccess = await request.get('/__test/requests').then(response => response.json()).then(calls => calls.length);
   await page.getByRole('button', { name: 'Regenerate response', exact: true }).click();
