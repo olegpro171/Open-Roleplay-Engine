@@ -159,7 +159,7 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   await expect(page.getByRole('button', { name: 'Latest turn', exact: false })).toHaveCount(0);
   const composerPositions = () => page.locator('.composer').evaluate(node => {
     const input = node.querySelector('textarea')!.getBoundingClientRect(), send = node.querySelector('button')!.getBoundingClientRect();
-    return { right: send.left >= input.right, below: send.top >= input.bottom };
+    return { right: send.left >= input.right, bottomAligned: Math.abs(send.bottom - input.bottom) < 1 };
   });
   expect((await composerPositions()).right).toBe(true);
   const composer = page.getByLabel('Your next turn');
@@ -218,7 +218,8 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
     await expect.poll(async () => Math.abs((await readingPosition()).progress - before.progress)).toBeLessThan(.02);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const positions = await composerPositions();
-    expect(viewport.width <= 800 ? positions.below : positions.right).toBe(true);
+    expect(positions.right).toBe(true);
+    expect(positions.bottomAligned).toBe(true);
   }
   await page.getByRole('button', { name: 'Latest turn', exact: false }).click();
   await expect.poll(() => transcript.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);

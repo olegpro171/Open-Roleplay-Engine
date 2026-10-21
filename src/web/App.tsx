@@ -428,7 +428,7 @@ export function App() {
         {drafts.needsReview && <div className="recovery" role="alert"><p>This browser draft predates a backup import or wipe. Review its text and the restored story before sending. Its previous staged send has no retry authority.</p><button onClick={drafts.review}>Use recovered draft</button></div>}
         <form className="composer" onSubmit={(event) => void send(event)}>
           <ChatTextarea autoSize rows={1} aria-label="Your next turn" id="turn-input" placeholder="What happens next?" value={draft} disabled={pending || busy || working} onValueChange={text => { drafts.change(text); setPeek(false); }} />
-          <button className="send-turn" title={busy ? 'Saving changes…' : undefined} disabled={pending || busy || working || memoryStale || dataChanged || drafts.needsReview || !snapshot.connection || !draft.trim()}>Send <Icon name="ArrowShortForward" /></button>
+          <button className="send-turn" aria-label="Send" title={busy ? 'Saving changes…' : undefined} disabled={pending || busy || working || memoryStale || dataChanged || drafts.needsReview || !snapshot.connection || !draft.trim()}><span className="send-label">Send</span><Icon name="ArrowShortForward" /></button>
           {drafts.storageError && <span className="composer-status" role="alert">Draft could not be saved in this browser. Keep this page open and copy your text before leaving.</span>}
           {preparing && <span className="composer-status">Preparing memory…</span>}
         </form>

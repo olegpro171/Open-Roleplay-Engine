@@ -42,13 +42,31 @@ for (const width of [1440, 390]) test(`composer fits its content at ${width}px`,
   const height = () => composer.evaluate(field => field.getBoundingClientRect().height);
   const fits = () => composer.evaluate(field => field.scrollHeight <= field.clientHeight + 1);
   const minimum = await send.evaluate(button => button.getBoundingClientRect().height);
+  const expectSendLayout = async (viewportWidth: number) => {
+    await expect.poll(async () => {
+      const inputBounds = await composer.boundingBox();
+      const sendBounds = await send.boundingBox();
+      if (!inputBounds || !sendBounds) return false;
+      return sendBounds.x >= inputBounds.x + inputBounds.width
+        && Math.abs(sendBounds.y + sendBounds.height - inputBounds.y - inputBounds.height) < 1
+        && sendBounds.x + sendBounds.width <= viewportWidth;
+    }).toBe(true);
+    await expect(send.locator('svg')).toBeVisible();
+    if (viewportWidth <= 800) {
+      await expect(send.getByText('Send', { exact: true })).toBeHidden();
+    } else {
+      await expect(send.getByText('Send', { exact: true })).toBeVisible();
+    }
+  };
   await expect.poll(height).toBe(minimum);
+  await expectSendLayout(width);
 
   await composer.pressSequentially('Mira waits.');
   await composer.press('Enter');
   await composer.pressSequentially('Leon returns the key.');
   await expect.poll(height).toBeGreaterThan(minimum);
   await expect.poll(fits).toBe(true);
+  await expectSendLayout(width);
   const multilineHeight = await height();
   await page.reload();
   await expect(composer).toHaveValue('Mira waits.\nLeon returns the key.');
@@ -62,12 +80,14 @@ for (const width of [1440, 390]) test(`composer fits its content at ${width}px`,
   await page.setViewportSize({ width: width === 1440 ? 390 : 1440, height: 900 });
   await expect.poll(async () => width === 1440 ? (await height()) > originalHeight : (await height()) < originalHeight).toBe(true);
   await expect.poll(fits).toBe(true);
+  await expectSendLayout(width === 1440 ? 390 : 1440);
   await page.setViewportSize({ width, height: 900 });
   await expect.poll(height).toBe(originalHeight);
 
   await composer.fill('A long draft line.\n'.repeat(60));
   await expect.poll(height).toBeLessThanOrEqual(270);
   await expect.poll(fits).toBe(false);
+  await expectSendLayout(width);
   await composer.press('ControlOrMeta+End');
   expect(await composer.evaluate(field => field.scrollTop)).toBeGreaterThan(0);
   await composer.pressSequentially('The story continues.');
