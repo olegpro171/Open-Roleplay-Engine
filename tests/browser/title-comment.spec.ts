@@ -96,14 +96,14 @@ for (const width of [1440, 390]) {
     await choose(page, university);
     await page.getByRole('button', { name: 'Save and return', exact: true }).click();
     await page.getByRole('button', { name: 'Story', exact: true }).click();
-    await expect(page.locator('.part.assistant .part-heading')).toContainText(university);
+    await expect(page.locator('.part.assistant .part-heading strong')).toHaveText(name);
     await expect(page.locator('.part.assistant .prose')).toHaveText(`I am ${name}.`);
     await page.reload();
-    await expect(page.locator('.part.assistant .part-heading')).toContainText(university);
+    await expect(page.locator('.part.assistant .part-heading strong')).toHaveText(name);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('title-story.png'), fullPage: true });
 
-    // Clearing only the metadata refreshes Story labels without rewriting the copied greeting.
+    // Clearing only the metadata leaves Story names and the copied greeting unchanged.
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
     await page.getByRole('button', { name: 'Characters', exact: true }).click();
     await page.getByRole('button', { name: `Edit ${university}`, exact: true }).click();

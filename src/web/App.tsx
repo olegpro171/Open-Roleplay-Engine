@@ -6,7 +6,7 @@ import { useConfirmation } from './Confirmation';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ChatSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError, datasetChanged } from './api';
-import { characterLabel, personaLabel, hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
+import { hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
 import { ChatSetup, Libraries, type LibraryTarget } from './Libraries';
 import { Dropdown } from './Controls';
 import { trimBoundaryNewlines } from '../shared/text';
@@ -360,8 +360,8 @@ export function App() {
   if (!library) return <main className="login"><p>Loading your story…</p>{error && <p role="alert">{error}</p>}</main>;
   const selectedCharacter = library.characters.find(character => character.id === snapshot?.settings.characterId);
   const selectedPersona = library.personas.find(persona => persona.id === snapshot?.settings.personaId);
-  const selectedCharacterLabel = characterLabel(selectedCharacter ?? snapshot?.sources.character ?? { name: 'Character' });
-  const selectedPersonaLabel = personaLabel(selectedPersona ?? snapshot?.sources.persona ?? { name: 'You' });
+  const selectedCharacterName = selectedCharacter?.name ?? snapshot?.sources.character?.name ?? 'Character';
+  const selectedPersonaName = selectedPersona?.name ?? snapshot?.sources.persona?.name ?? 'You';
 
   const sidebar = snapshot && <>
         <p className="eyebrow">CURRENT CHAT</p><h1>{snapshot.settings.title}</h1>
@@ -416,7 +416,7 @@ export function App() {
             return <article className="turn" key={turn.id} data-turn-id={turn.id} aria-label={`Turn ${turn.ordinal}`}>
             <div className="turn-heading"><span>TURN {turn.ordinal} {turn.complete ? summariesEnabled && turn.archived ? '· ARCHIVED' : '' : '· PENDING'}</span>{turn.complete && !generating && turnUsage.has(turn.id) && <span className="turn-usage" title="Provider-reported counts for the saved response, before any later edits. Output may include reasoning tokens.">{turnUsage.get(turn.id) ? `${turnUsage.get(turn.id)!.inputTokens.toLocaleString()} in · ${turnUsage.get(turn.id)!.outputTokens.toLocaleString()} out` : 'Usage unavailable'}</span>}</div>
             {(['user', 'assistant'] as const).filter(part => part !== 'user' || inputVisible).map((part) => <div className={`part ${part}`} key={part}>
-              <div className="part-heading"><strong>{part === 'user' ? selectedPersonaLabel : selectedCharacterLabel}</strong></div>
+              <div className="part-heading"><strong>{part === 'user' ? selectedPersonaName : selectedCharacterName}</strong></div>
               {part === 'assistant' && reasoning && generating && !responseText && <ReasoningPreview text={reasoning.text} />}
               {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><ChatTextarea autoSize aria-label={`Edit ${part} text`} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><p className="small muted">{snapshot.settings.lorebookId ? "Saving a history edit starts fresh lore activation history for this chat." : ""}</p><div className="actions"><button disabled={busy}>Save edit</button><button type="button" className="quiet" onClick={() => setEdit(null)}>Cancel edit</button></div></form> : <div className="prose">
                 {part === 'assistant' && (!turn.complete || generating)

@@ -70,10 +70,10 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: 'Save and return', exact: true }).click();
     await page.getByLabel('Your next turn').fill('Hello.');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect(page.locator('.part.user .part-heading strong')).toHaveText(university);
+    await expect(page.locator('.part.user .part-heading strong')).toHaveText(name);
     await expect(page.getByLabel('Your next turn')).toBeEnabled();
     await page.reload();
-    await expect(page.locator('.part.user .part-heading strong')).toHaveText(university);
+    await expect(page.locator('.part.user .part-heading strong')).toHaveText(name);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
