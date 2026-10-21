@@ -26,6 +26,7 @@ try {
             Start-Transcript -LiteralPath $log | Out-Null
             $transcriptStarted = $true
             Write-Host ('ORE update log: ' + $log)
+            Write-Host ('Installation folder: ' + $installation)
             try {
                 if (!(Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git is required for updates. Install/configure Git separately; no global tools were installed.' }
                 $repository = 'https://github.com/olegpro171/Roleplay-Engine.git'
@@ -49,6 +50,7 @@ try {
                 $env:GIT_TERMINAL_PROMPT = '0'
                 $env:GCM_INTERACTIVE = 'never'
                 if (!$env:GIT_SSH_COMMAND) { $env:GIT_SSH_COMMAND = 'ssh -o BatchMode=yes -o ConnectTimeout=10' }
+                Write-Host '[Update] Checking ORE main for updates (internet access required)...'
                 Invoke-Native git @('-c','gc.auto=0','-c','http.lowSpeedLimit=1024','-c','http.lowSpeedTime=15','-C',$source,'fetch','--quiet','--no-tags','origin','main')
                 $target = (Invoke-Native git @('-C',$source,'rev-parse','--verify','FETCH_HEAD^{commit}')).Trim()
                 $installed = Read-Installed
@@ -66,12 +68,16 @@ try {
                 Move-Item -LiteralPath ($sourceFile + '.part') -Destination $sourceFile -Force
                 if ($info -and $info.kind -eq 'release' -and $info.commit -eq $target) { Write-Host ('ORE is up to date (' + $target + '). No build needed.') }
                 else {
-                    Write-Host ('Building ORE ' + $target)
+                    if (!$info) { Write-Host '[Update] No installed app found. Preparing the first installation.' }
+                    else { Write-Host '[Update] A different build is needed. Preparing it before switching versions.' }
+                    Write-Host ('[Update] Building ORE commit ' + $target + '...')
+                    Write-Host '[Update] Downloads and building may take several minutes; detailed progress follows.'
                     Invoke-Native powershell.exe @('-NoProfile','-ExecutionPolicy','RemoteSigned','-File',(Join-Path $source 'build-portable.ps1'),'-Mode','Release','-Commit',$target,'-Destination',$installation)
                 }
             } catch {
                 if (!(Read-Installed)) { throw ('No usable installed version. Resolve Git/authentication/download/build error: ' + $_.Exception.Message) }
                 Write-Warning ('Update unavailable or failed: ' + $_.Exception.Message + '. Starting last installed version; next launch retries.')
+                Write-Host ('For details, see the error above or the update log: ' + $log)
             }
         } finally {
             try { if ($transcriptStarted) { Stop-Transcript | Out-Null } }
@@ -80,6 +86,7 @@ try {
     } else { Write-Host 'ORE update check skipped (explicit skip or recovery pause).' }
     $installed = Read-Installed
     if (!$installed) { throw 'No usable installed application/runtime. Start online or repair the installation.' }
+    Write-Host '[Start] Preparing to launch the installed app. Waiting for its ready address...'
     $controller = Join-Path $PSScriptRoot 'portable-launch.mjs'
     $protocol = Join-Path $installed.App 'scripts/release/launcher-protocol'
     if ((Test-Path -LiteralPath $protocol) -and [IO.File]::ReadAllText($protocol).Trim() -eq '2') { $controller = Join-Path $installed.App 'scripts/release/portable-launch.mjs' }

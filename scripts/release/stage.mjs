@@ -70,13 +70,16 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     if (smoke.status !== 0) throw new Error('Production dependency smoke failed; previous application remains selected.');
     const manifest = { ...metadata, runtime, runtimeArchiveSha256: runtimeChecksum, lockfileSha256: hash(join(staging, 'package-lock.json')), files: inventory(staging) };
     writeFileSync(join(staging, 'manifest.json'), JSON.stringify(manifest, null, 2));
+    console.log('[Verify] Starting the new app with a temporary test database and checking that its interface loads...');
     await verifyStartup(staging, process.execPath, join(home, 'cache'));
+    console.log('[Verify] New app passed its startup check. Preparing activation...');
     let previous = readSelection(home, 'working');
     if (previous && !existsSync(join(home, 'app', previous.id, 'scripts/release/portable-launch.mjs'))) previous = null;
     if (!previous) {
       const current = readSelection(home);
       if (current) {
         try {
+          console.log('[Verify] Checking the previous app with a temporary test database for version recovery...');
           await verifyStartup(join(home, 'app', current.id), runtimeExecutable(home, current.runtime), join(home, 'cache'), join(staging, 'scripts/release/portable-launch.mjs'));
           previous = current;
         } catch (error) { console.warn(`Previous selected application could not be verified; it was not marked working: ${error.message}`); }
@@ -103,6 +106,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     }
     if (previous) writeSelection(home, 'previous', previous);
     writeSelection(home, 'current', { id, runtime });
+    console.log('[Build] New app activated successfully.');
     console.log(`Activated ${metadata.kind} ${commit}; schema ${metadata.schema}; manifest ${join(application, 'manifest.json')}`);
   } finally { rmSync(staging, { recursive: true, force: true }); }
 }

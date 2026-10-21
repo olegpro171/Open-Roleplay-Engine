@@ -29,19 +29,23 @@ try {
         if (@($pin).Count -ne 1) { throw 'Pinned Windows runtime checksum is missing.' }
         $expected = ($pin -split '\s+')[0]
         $download = Join-Path $installation ('cache/' + $archive)
+        Write-Host ("[Build 1/6] Preparing ORE's private Node.js " + $version + ' runtime...')
         if (!(Test-Path -LiteralPath $download)) {
+            Write-Host '[Build 1/6] Downloading the official runtime. This may take a few minutes...'
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
             Invoke-WebRequest -UseBasicParsing -Uri ('https://nodejs.org/dist/v' + $version + '/' + $archive) -OutFile (Join-Path $stage 'runtime.part') -TimeoutSec 600
             if ((Get-OreHash (Join-Path $stage 'runtime.part')) -ne $expected) { throw 'Runtime checksum mismatch; nothing activated.' }
             Move-Item -LiteralPath (Join-Path $stage 'runtime.part') -Destination $download
         }
+        Write-Host '[Build 1/6] Verifying the runtime download...'
         if ((Get-OreHash $download) -ne $expected) { throw 'Cached runtime checksum mismatch. Remove only that archive and retry.' }
         $runtimeDirectory = Join-Path $installation ('runtime/' + $runtimeId)
         if (!(Test-Path -LiteralPath $runtimeDirectory)) {
+            Write-Host '[Build 1/6] Unpacking the private runtime...'
             Add-Type -AssemblyName System.IO.Compression.FileSystem
             [IO.Compression.ZipFile]::ExtractToDirectory($download, $stage)
             Move-Item -LiteralPath (Join-Path $stage $runtime) -Destination $runtimeDirectory
-        }
+        } else { Write-Host '[Build 1/6] Reusing the runtime already installed for ORE.' }
         $node = Join-Path $runtimeDirectory 'node.exe'
         $npm = Join-Path $runtimeDirectory 'node_modules/npm/bin/npm-cli.js'
         if ((Invoke-Native $node @('--version')).Trim() -ne ('v' + $version)) { throw 'Private runtime version differs; restore it from the verified archive.' }
@@ -74,13 +78,18 @@ try {
         }
         Push-Location -LiteralPath $work
         try {
+            Write-Host '[Build 2/6] Installing the packages needed to build ORE. Downloads may take a few minutes...'
             Invoke-Native $node @($npm,'ci','--include=dev','--include=optional','--ignore-scripts')
+            Write-Host '[Build 3/6] Checking database/image support, then building the interface and server...'
             Invoke-Native $node @('scripts/release/native-smoke.mjs')
             Invoke-Native $node @($npm,'--silent','run','build')
+            Write-Host '[Build 4/6] Collecting third-party licenses and notices...'
             $notices = Join-Path $stage 'notices'
             Invoke-Native $node @('scripts/release/stage.mjs','notices',$work,$notices)
+            Write-Host '[Build 5/6] Preparing the packages needed to run the finished app...'
             Invoke-Native $node @($npm,'ci','--omit=dev','--include=optional','--ignore-scripts','--prefer-offline')
             $stageMode = if ($Mode -eq 'Release') { '--release' } else { '--development' }
+            Write-Host '[Build 6/6] Staging and verifying the new app before activation...'
             Invoke-Native $node @('scripts/release/stage.mjs','install',$work,$installation,$stageMode,$Commit,$runtimeId,$expected,$notices)
         } finally { Pop-Location }
         Write-Host ('ORE installed: ' + $installation + '. Start start-app.bat; Ctrl+C stops ORE.')

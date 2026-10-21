@@ -61,6 +61,7 @@ checksum() {
   elif command -v sha256sum >/dev/null; then sha256sum "$1" | awk '{print $1}';
   else fail 'shasum or sha256sum is required to verify downloads.'; fi
 }
+echo "[Build 1/6] Preparing ORE's private Node.js $ORE_NODE_VERSION runtime..."
 if [ ! -d "$ore_home/runtime/$runtime" ]; then
   download="$ore_home/cache/$archive"
   if [ ! -f "$download" ]; then
@@ -70,9 +71,12 @@ if [ ! -d "$ore_home/runtime/$runtime" ]; then
     mv -- "$stage/runtime.part" "$download"
   fi
   [ "$(checksum "$download")" = "$expected" ] || fail 'Cached runtime checksum mismatch. Remove only that archive from cache and retry.'
+  echo '[Build 1/6] Download verified. Unpacking the private runtime...'
   tar -xzf "$download" -C "$stage"
   [ -x "$stage/$runtime/bin/node" ] || fail 'Runtime archive is incomplete.'
   mv -- "$stage/$runtime" "$ore_home/runtime/$runtime"
+else
+  echo '[Build 1/6] Reusing the runtime already installed for ORE.'
 fi
 export PATH="$ore_home/runtime/$runtime/bin:$PATH"
 node="$ore_home/runtime/$runtime/bin/node"
@@ -89,12 +93,17 @@ else
   done
 fi
 cd -- "$work"
+echo '[Build 2/6] Installing the packages needed to build ORE. Downloads may take a few minutes...'
 "$node" "$npm" ci --include=dev --include=optional --ignore-scripts
 # Fail before build if prebuilt native dependencies cannot load. Never compile.
+echo '[Build 3/6] Checking database/image support, then building the interface and server...'
 "$node" scripts/release/native-smoke.mjs || fail 'Locked prebuilt SQLite/sharp dependencies do not work on this OS/CPU/libc. No compiler or global image library was installed.'
 "$node" "$npm" --silent run build
+echo '[Build 4/6] Collecting third-party licenses and notices...'
 "$node" scripts/release/stage.mjs notices "$work" "$stage/notices"
+echo '[Build 5/6] Preparing the packages needed to run the finished app...'
 "$node" "$npm" ci --omit=dev --ignore-scripts --include=optional --prefer-offline
+echo '[Build 6/6] Staging and verifying the new app before activation...'
 "$node" scripts/release/stage.mjs install "$work" "$ore_home" "$mode" "$commit" "$runtime" "$expected" "$stage/notices"
 echo "ORE installed in $ore_home"
 echo "Start (also offline): $ore_home/start.command"

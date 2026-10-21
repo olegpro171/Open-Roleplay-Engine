@@ -66,7 +66,7 @@ update_application() (
   # helpers/SSH keys still work; failures leave the installed version available.
   export GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never
   export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes -o ConnectTimeout=10}"
-  echo 'Checking ORE main for updates…'
+  echo '[Update] Checking ORE main for updates (internet access required)...'
   git -c gc.auto=0 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=15 -C "$source" fetch --quiet --no-tags origin main
   target=$(git -C "$source" rev-parse --verify 'FETCH_HEAD^{commit}')
   installed_commit=''
@@ -91,13 +91,20 @@ update_application() (
     echo "ORE is up to date ($target). No build needed."
     exit 0
   fi
-  echo "Building ORE ${target}…"
+  if [ -z "$installed_commit" ]; then
+    echo '[Update] No installed app found. Preparing the first installation.'
+  else
+    echo '[Update] A different build is needed. Preparing it before switching versions.'
+  fi
+  echo "[Update] Building ORE commit $target..."
+  echo '[Update] Downloads and building may take several minutes; detailed progress follows.'
   /bin/bash "$source/build-portable.sh" --release "$target" "$ore_home"
 )
 
 if [ "${ORE_SKIP_UPDATE:-0}" = 0 ] && [ ! -f "$ore_home/updates-paused" ]; then
   log="$ore_home/logs/update-$(date +%Y%m%d-%H%M%S)-$$.log"
   echo "ORE update log: $log"
+  echo "Installation folder: $ore_home"
   set +e
   update_application 2>&1 | tee "$log"
   statuses=("${PIPESTATUS[@]}")
@@ -108,11 +115,13 @@ if [ "${ORE_SKIP_UPDATE:-0}" = 0 ] && [ ! -f "$ore_home/updates-paused" ]; then
   if [ "$update_status" -ne 0 ]; then
     read_selection || { echo "ORE has no usable installed version. Resolve the update error in $log and start again." >&2; exit 1; }
     echo 'Update unavailable or failed. Starting the last installed version; the next launch will retry.' >&2
+    echo "For details, see the error above or the update log: $log" >&2
   fi
 else
   echo 'ORE update check skipped (explicit skip or recovery pause; recover.command --resume-updates resumes checks).'
 fi
 read_selection || { echo 'ORE has no usable installed application/runtime. Start again online, or repair the installation.' >&2; exit 1; }
+echo '[Start] Preparing to launch the installed app. Waiting for its ready address...'
 ore_controller="$(dirname -- "$ore_entry")/portable-launch.mjs"
 if [ -f "$ore_application/scripts/release/launcher-protocol" ] && [ "$(cat "$ore_application/scripts/release/launcher-protocol")" = 2 ]; then
   ore_controller="$ore_application/scripts/release/portable-launch.mjs"

@@ -11,6 +11,7 @@ const application = resolve(process.argv[3] ?? resolve(dirname(fileURLToPath(imp
 const home = resolve(process.argv[2] ?? '');
 const recoveryCommand = process.platform === 'win32' ? 'recover-app.bat' : 'recover.command (recover-app.command from source)';
 let database;
+console.log('[Start] Checking application files, runtime compatibility and saved database compatibility...');
 try {
   if (process.env.ROLEPLAY_DATABASE !== undefined && !process.env.ROLEPLAY_DATABASE.trim()) throw new Error('ROLEPLAY_DATABASE must name a database file. Unset it to use the installation default.');
   for (const directory of ['data', 'cache', 'logs', 'languages']) {
@@ -69,7 +70,10 @@ child.on('message', message => {
     ready = true;
     process.send?.({ type: 'ready', url: message.url }, error => { if (error) stop(); });
   } catch (error) { failed = true; console.error(`Could not record successful startup: ${error.message}`); stop(); return; }
+  console.log(`ORE is ready. Open ${message.url} in your browser.`);
+  console.log('Keep this terminal window open while using ORE. Press Ctrl+C here to stop the app.');
   if (process.env.ORE_OPEN_BROWSER === '0') return;
+  console.log('Opening your browser...');
   // Avoid cmd.exe parsing of a provider-independent URL on Windows.
   const command = process.platform === 'win32' ? 'rundll32.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
   const browser = spawn(command, process.platform === 'win32' ? ['url.dll,FileProtocolHandler', message.url] : [message.url], { stdio: 'ignore' });
