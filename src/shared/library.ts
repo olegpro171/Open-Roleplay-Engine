@@ -1,3 +1,4 @@
+import { message, type LocalizedMessage } from './localization.js';
 import { pictureMutationSchema, type CharacterPicture } from './pictures.js';
 import { tagIdsSchema, type Tag, type CharacterTag } from './tags.js';
 import { z } from 'zod';
@@ -106,17 +107,19 @@ export function hasPromptMarker(prompt: PromptPreset | null | undefined, marker:
 }
 
 /** Reusable presets have no chat-specific sources or turn counts. */
-export function promptWarnings(prompt: PromptPreset): string[] {
-  const warnings: string[] = [];
-  if (!hasPromptMarker(prompt, 'summary')) warnings.push('Summary marker is absent or disabled. Summaries will not be sent.');
-  if (!hasPromptMarker(prompt, 'messages')) warnings.push('Messages marker is absent or disabled. Conversation turns will not be sent.');
-  if (!hasPromptMarker(prompt, 'persona')) warnings.push('Persona marker is absent or disabled. Persona content will not be sent.');
+export function promptWarningMessages(prompt: PromptPreset): LocalizedMessage[] {
+  const warnings: LocalizedMessage[] = [];
+  if (!hasPromptMarker(prompt, 'summary')) warnings.push(message('warnings.noSummary'));
+  if (!hasPromptMarker(prompt, 'messages')) warnings.push(message('warnings.noMessages'));
+  if (!hasPromptMarker(prompt, 'persona')) warnings.push(message('warnings.noPersona'));
   const characterEnabled = prompt.blocks.some(block => block.enabled && block.kind === 'marker' && (
     block.marker === 'character' ? (block.fields ?? characterFields).length > 0 : characterFields.some(field => field === block.marker)
   ));
-  if (!characterEnabled) warnings.push('Character field markers are absent, disabled or have no selected fields. Character definition fields will not be sent.');
+  if (!characterEnabled) warnings.push(message('warnings.noCharacter'));
   return warnings;
 }
+export function promptWarnings(prompt: PromptPreset): string[] { return promptWarningMessages(prompt).map(value => value.fallback); }
+
 export const selectionsSchema = z.object({
   title: name, targetInputTokens: z.number().int().positive().max(10_000_000),
   connectionId: z.string().min(1).max(100).nullable(), promptId: z.string().min(1).max(100),

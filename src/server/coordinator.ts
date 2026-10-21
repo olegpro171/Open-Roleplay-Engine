@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import { EventEmitter } from 'node:events';
 import { AppError } from '../core/errors.js';
 import { assembleRequest } from '../core/prompt.js';
@@ -24,12 +25,12 @@ export class GenerationCoordinator {
   partialText(id: string) { return this.active.get(id)?.text ?? ''; }
 
   start(revision: number, requestId: string, text?: string, chatId = 'main') {
-    if (this.stopping) throw new AppError(503, 'server_stopping', 'The server is stopping. Retry after it restarts.');
+    if (this.stopping) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
     const result = this.store.begin(revision, requestId, text, chatId);
     return this.dispatch(result, chatId);
   }
   regenerate(revision: number, requestId: string, turnId: string, chatId: string) {
-    if (this.stopping) throw new AppError(503, 'server_stopping', 'The server is stopping. Retry after it restarts.');
+    if (this.stopping) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
     return this.dispatch(this.store.beginRegeneration(revision, requestId, turnId, chatId), chatId);
   }
   private dispatch(result: { id: string; fresh: boolean }, chatId: string) {
@@ -87,8 +88,8 @@ export class GenerationCoordinator {
     } catch (error) {
       if (this.stopping) return;
       // Never persist upstream response bodies or raw transport errors: they may contain secrets.
-      const message = error instanceof AppError ? error.message : 'The model request failed or timed out. Check the Connection and retry.';
-      this.store.finish(id, 'failed', operation.text, message, null, operation.reasoning);
+      const diagnostic = error instanceof AppError ? error.localized ?? error.message : message("diagnostics.the_model_request_failed_or_timed_out_check");
+      this.store.finish(id, 'failed', operation.text, diagnostic, null, operation.reasoning);
       this.changed();
     } finally {
       clearUpdateTimer();
@@ -97,8 +98,8 @@ export class GenerationCoordinator {
   }
   cancel(id: string) {
     const operation = this.active.get(id);
-    if (!operation || this.store.generation(id)?.status !== 'running') throw new AppError(409, 'inactive_generation', 'This response is no longer active.');
-    this.store.finish(id, 'cancelled', operation.text, this.store.generation(id)?.kind === 'regeneration' ? 'Regeneration cancelled. The selected response was kept.' : 'Response cancelled. Generate response before next turn.', null, operation.reasoning);
+    if (!operation || this.store.generation(id)?.status !== 'running') throw new AppError(409, 'inactive_generation', message("errors.this_response_is_no_longer_active"));
+    this.store.finish(id, 'cancelled', operation.text, this.store.generation(id)?.kind === 'regeneration' ? message("diagnostics.regeneration_cancelled_the_selected_response_was_kept") : message("app.response_cancelled_generate_response_before_next_turn"), null, operation.reasoning);
     operation.controller.abort();
     this.context.cancelForGeneration(id);
     this.changed();

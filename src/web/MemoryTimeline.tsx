@@ -1,3 +1,4 @@
+import { t, useLocale } from './localization';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { refKey, type ContextOperation, type SummaryNode } from '../shared/context';
@@ -11,6 +12,7 @@ type Props = {
 };
 
 export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, operation, levels, zoom, inspectedId, inspect, deleting, restoring }: Props) {
+  useLocale();
   const plot = useRef<HTMLDivElement>(null);
   const [plotWidth, setPlotWidth] = useState(0);
   const [hint, setHint] = useState<{ text: string; left: number; top: number } | null>(null);
@@ -66,23 +68,23 @@ export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, oper
     else bands.push({ start: i, end: i, archived: isArchived, restoring: Boolean(restoring?.has(id)) });
   }
   return <div className="timeline-layout">
-    <div className="timeline-labels" aria-hidden="true">{Array.from({ length: levels }, (_, i) => <span key={i} style={{ bottom: rowBottom.get(i + 1) }}>L{i + 1}</span>)}<span className="turn-layer-label">Turns</span></div>
-    <div className="timeline-scroll" tabIndex={0} aria-label="Layered memory timeline" onScroll={() => setHint(null)}><div ref={plot} className="timeline" style={{ width: zoom ? Math.max(720, Math.min(count * 40, 200_000)) : '100%', height }}>
+    <div className="timeline-labels" aria-hidden="true">{Array.from({ length: levels }, (_, i) => <span key={i} style={{ bottom: rowBottom.get(i + 1) }}>{t("memory_timeline.l", { value: i + 1 })}</span>)}<span className="turn-layer-label">{t("memory_timeline.turns")}</span></div>
+    <div className="timeline-scroll" tabIndex={0} aria-label={t("memory_timeline.layered_memory_timeline")} onScroll={() => setHint(null)}><div ref={plot} className="timeline" style={{ width: zoom ? Math.max(720, Math.min(count * 40, 200_000)) : '100%', height }}>
       {Array.from({ length: levels }, (_, i) => <div className="timeline-row" key={i} style={{ bottom: rowBottom.get(i + 1) }} />)}
       {nodes.map(node => {
         const range = sourceSpan(node.turns.map(source => source.turnId));
         if (!range) return null;
         const status = selected.has(refKey(node)) ? 'active' : 'retained';
-        const freshness = stale.has(refKey(node)) ? ' · stale' : ' · fresh';
-        const label = `${range.start + 1}–${range.end + 1}`, text = `L${node.level} · turns ${label} · ${status}${freshness}${node.manual ? ' · Manually edited' : ''} · revision ${node.revision}`;
+        const freshness = stale.has(refKey(node)) ? t("memory_timeline.stale") : t("memory_timeline.fresh");
+        const label = `${range.start + 1}–${range.end + 1}`, text = t("memory_timeline.l_turns_revision", { level: node.level, label: label, status: status, freshness: freshness, value: node.manual ? t("interface.manually_edited") : '', revision: node.revision });
         const fits = (range.end - range.start + 1) / count * plotWidth >= label.length * 6 + 14;
-        return <button key={refKey(node)} data-summary-id={node.id} className={`summary-span ${status}${stale.has(refKey(node)) ? ' stale' : ''}${node.manual ? ' manual' : ''}${inspectedId === node.id ? ' inspected' : ''}${deleting?.has(node.id) ? ' deleting' : ''}`} style={{ ...span(range.start, range.end), bottom: bottom(node.level, refKey(node)) }} aria-pressed={inspectedId === node.id} aria-label={`Level ${node.level} summary, turns ${range.start + 1} to ${range.end + 1}, ${status}${deleting?.has(node.id) ? ', will be deleted' : ''}${node.manual ? ', manually edited' : ''}${freshness}, revision ${node.revision}`} aria-describedby={hint?.text === text ? tooltipId : undefined} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)} onFocus={e => showHint(e.currentTarget, text)} onBlur={() => setHint(null)} onClick={() => { setHint(null); inspect(node); }}>{fits ? label : ''}</button>;
+        return <button key={refKey(node)} data-summary-id={node.id} className={`summary-span ${status}${stale.has(refKey(node)) ? ' stale' : ''}${node.manual ? ' manual' : ''}${inspectedId === node.id ? ' inspected' : ''}${deleting?.has(node.id) ? ' deleting' : ''}`} style={{ ...span(range.start, range.end), bottom: bottom(node.level, refKey(node)) }} aria-pressed={inspectedId === node.id} aria-label={t("memory_timeline.level_summary_turns_to_revision", { level: node.level, value: range.start + 1, value2: range.end + 1, status: status, value3: deleting?.has(node.id) ? t("interface.will_be_deleted") : '', value4: node.manual ? t("interface.manually_edited_2") : '', freshness: freshness, revision: node.revision })} aria-describedby={hint?.text === text ? tooltipId : undefined} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)} onFocus={e => showHint(e.currentTarget, text)} onBlur={() => setHint(null)} onClick={() => { setHint(null); inspect(node); }}>{fits ? label : ''}</button>;
       })}
-      {operation && (() => { const range = sourceSpan(operation.turnIds); return range && <div className="summary-span preparing" style={{ ...span(range.start, range.end), bottom: bottom(operation.level, 'next') }} aria-label="Next source batch; no replacement is active">{(range.end - range.start + 1) / count * plotWidth >= 40 ? 'next' : ''}</div>; })()}
+      {operation && (() => { const range = sourceSpan(operation.turnIds); return range && <div className="summary-span preparing" style={{ ...span(range.start, range.end), bottom: bottom(operation.level, 'next') }} aria-label={t("memory_timeline.next_source_batch_no_replacement_is_active")}>{(range.end - range.start + 1) / count * plotWidth >= 40 ? 'next' : ''}</div>; })()}
       {compact ? bands.map(band => {
-        const text = `Turns ${band.start + 1}–${band.end + 1} · ${band.archived ? 'archived' : 'verbatim'}${band.restoring ? ' · returns to verbatim' : ''}`;
+        const text = t("memory_timeline.turns_2", { value: band.start + 1, value2: band.end + 1, value3: band.archived ? t("interface.archived_2") : t("interface.verbatim"), value4: band.restoring ? t("interface.returns_to_verbatim") : '' });
         return <div key={band.start} className={`turn-tick turn-band ${band.archived ? 'retained' : 'active'}${band.restoring ? ' restoring' : ''}`} role="img" aria-label={text} style={span(band.start, band.end)} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)} />;
-      }) : turnIds.map((id, i) => <div key={id} title={`Turn ${i + 1} · ${archived.has(id) ? 'archived' : 'verbatim'}${restoring?.has(id) ? ' · returns to verbatim' : ''}`} className={`turn-tick ${archived.has(id) ? 'retained' : 'active'}${restoring?.has(id) ? ' restoring' : ''}`} style={span(i, i)}>{zoom && plotWidth / count >= String(i + 1).length * 6 + 4 ? i + 1 : ''}</div>)}
+      }) : turnIds.map((id, i) => <div key={id} title={t("memory_timeline.turn", { value: i + 1, value2: archived.has(id) ? t("interface.archived_2") : t("interface.verbatim"), value3: restoring?.has(id) ? t("interface.returns_to_verbatim") : '' })} className={`turn-tick ${archived.has(id) ? 'retained' : 'active'}${restoring?.has(id) ? ' restoring' : ''}`} style={span(i, i)}>{zoom && plotWidth / count >= String(i + 1).length * 6 + 4 ? i + 1 : ''}</div>)}
     </div></div>
     {hint && createPortal(<div id={tooltipId} role="tooltip" className="timeline-tooltip" style={{ left: hint.left, top: hint.top }}>{hint.text}</div>, document.body)}
   </div>;

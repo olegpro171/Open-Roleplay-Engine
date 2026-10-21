@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import { summaryRetrySchema } from '../shared/context.js';
 import { buildInfo } from './installation.js';
 import { BackupService } from './backups.js';
@@ -36,18 +37,22 @@ import { LanAccess } from './lan.js';
 import { isLoopback } from './lan-policy.js';
 import type { LanInterface } from '../shared/lan.js';
 import { AppearanceSettings } from './appearance.js';
+import { Languages } from './languages.js';
+import { dirname } from 'node:path';
+import { languageLimits, localeSchema, MessageError } from '../shared/localization.js';
+import { validationMessage } from '../shared/localization-validation.js';
 
 const contentSecurityPolicy = (styleNonce?: string) => `default-src 'self'; script-src 'self'; style-src 'self'${styleNonce ? ` 'nonce-${styleNonce}'` : ''}; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`;
 function loreImport<T>(parse: () => T): T {
   try { return parse(); }
   catch (error) {
     if (error instanceof ZodError || error instanceof AppError) throw error;
-    throw new AppError(400, 'invalid_lorebook', error instanceof Error ? error.message : 'The lorebook could not be read.');
+    throw new AppError(400, 'invalid_lorebook', error instanceof MessageError ? error.localized : error instanceof Error ? error.message : message("errors.the_lorebook_could_not_be_read"));
   }
 }
 
 export async function createApp(options: {
-  database: string; databaseMustExist?: boolean; staticDirectory?: string; migrationsDirectory?: string;
+  database: string; databaseMustExist?: boolean; staticDirectory?: string; migrationsDirectory?: string; languagesDirectory?: string;
   provider?: Provider; https?: ServerOptions;
   lan?: { interfaces?: () => LanInterface[]; hostname?: () => Promise<string>; settingsFile?: string };
 }) {
@@ -64,6 +69,7 @@ export async function createApp(options: {
   }
   const storyReader = new StoryReader(store);
   const appearance = new AppearanceSettings(`${options.database}.appearance.json`);
+  const languages = new Languages(options.languagesDirectory ?? join(dirname(options.database), 'languages'));
   const auth = new Auth(store);
   const secure = Boolean(options.https);
   const app = Fastify({ logger: false, bodyLimit: 1_000_000, ...(options.https ? { https: options.https } : {}) });
@@ -82,7 +88,7 @@ export async function createApp(options: {
     && !['/api/setup','/api/login','/api/logout'].includes(request.url.split('?')[0]);
   const checkEpoch = (request: FastifyRequest) => {
     if (!request.url.startsWith('/api/data/') && (request.headers['x-ore-epoch'] ?? 'initial') !== backups.persistence.epoch) {
-      throw new AppError(409,'dataset_changed','Application data was imported or wiped. Reopen the editor and review recovered draft text before sending.');
+      throw new AppError(409,'dataset_changed',message("errors.application_data_was_imported_or_wiped_reopen_the"));
     }
   };
   const releaseIngress = (id: string) => {
@@ -113,7 +119,7 @@ export async function createApp(options: {
     };
   });
   const requireExclusive = (id: string) => {
-    if ([...mutations].some(active => active !== id) || coordinator.hasActiveWork()) throw new AppError(409, 'data_management_busy', 'Wait for other saves, uploads, responses and memory work to finish before importing or wiping data.');
+    if ([...mutations].some(active => active !== id) || coordinator.hasActiveWork()) throw new AppError(409, 'data_management_busy', message("errors.wait_for_other_saves_uploads_responses_and_memory"));
     store.ensureIdle();
   };
 
@@ -123,23 +129,24 @@ export async function createApp(options: {
     reply.header('Content-Security-Policy', contentSecurityPolicy());
     const hostname = request.hostname;
     if (!secure && !['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname) && !lan.isLanRequest(request.raw)) {
-      throw new AppError(403, 'lan_access_denied', 'Open the local address on the server computer, or enable LAN access in Application Settings.');
+      throw new AppError(403, 'lan_access_denied', message("errors.open_the_local_address_on_the_server_computer"));
     }
     if (!request.url.startsWith('/api/')) return;
     reply.header('Cache-Control', 'no-store');
     if (!['GET', 'HEAD'].includes(request.method)) {
       const expectedOrigin = `${secure ? 'https' : 'http'}://${request.host}`;
       if (request.headers.origin !== expectedOrigin || !(request.headers['content-type']?.startsWith('application/json') || (request.url === '/api/data/stages' && request.method === 'POST' && request.headers['content-type'] === 'application/octet-stream'))) {
-        throw new AppError(403, 'invalid_origin', 'Commands must come from this application with a JSON body.');
+        throw new AppError(403, 'invalid_origin', message("errors.commands_must_come_from_this_application_with_a"));
       }
     }
-    if (!['/api/session', '/api/setup', '/api/login'].includes(request.url.split('?')[0]) && !auth.authenticated(request.cookies.session)) {
-      throw new AppError(401, 'login_required', 'Sign in to continue.');
+    const publicLanguageRead = request.method === 'GET' && /^\/api\/localization(?:\/[A-Za-z0-9-]+)?$/.test(request.url.split('?')[0]);
+    if (!publicLanguageRead && !['/api/session', '/api/setup', '/api/login'].includes(request.url.split('?')[0]) && !auth.authenticated(request.cookies.session)) {
+      throw new AppError(401, 'login_required', message("errors.sign_in_to_continue"));
     }
   });
   app.setErrorHandler((error, _request, reply) => {
-    if (error instanceof AppError) return reply.code(error.status).send({ code: error.code, message: error.message, ...(error instanceof BackupValidationError ? { details: error.details } : {}) });
-    if (error instanceof ZodError) return reply.code(400).send({ code: 'invalid_input', message: error.issues.map((issue) => `${issue.path.join('.') || 'Input'}: ${issue.message}`).join('; ') });
+    if (error instanceof AppError) return reply.code(error.status).send({ code: error.code, message: error.message, ...(error.localized ? { localized: error.localized } : {}), ...(error instanceof BackupValidationError ? { details: error.details } : {}) });
+    if (error instanceof ZodError) return reply.code(400).send({ code: 'invalid_input', message: error.issues.map((issue) => `${issue.path.join('.') || 'Input'}: ${issue.message}`).join('; '), issues: error.issues.slice(0, 100).map(issue => ({ path: issue.path.join('.') || 'Input', localized: validationMessage(issue) })) });
     const status = (error as { statusCode?: number }).statusCode;
     return reply.code(status && status < 500 ? status : 500).send({ code: 'request_failed', message: 'The request could not be completed.' });
   });
@@ -147,6 +154,16 @@ export async function createApp(options: {
     reply.setCookie('session', token, { httpOnly: true, secure, sameSite: 'strict', path: '/', maxAge: sessionSeconds });
   };
   app.get('/api/about', async () => buildInfo());
+  app.get('/api/localization', async (_request, reply) => { reply.header('Cache-Control', 'no-store'); return languages.status(); });
+  app.get('/api/localization/:locale', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return languages.get(localeSchema.parse(z.object({ locale: z.string() }).parse(request.params).locale));
+  });
+  app.post('/api/localization/reload', async () => languages.reload());
+  app.post('/api/localization/import', { bodyLimit: languageLimits.bytes + 100_000 }, async request => {
+    const input = z.object({ pack: z.unknown(), expectedRevision: z.string().regex(/^[0-9a-f]{64}$/).nullable() }).strict().parse(request.body);
+    return languages.save(input.pack, input.expectedRevision);
+  });
   app.get('/api/application/appearance', async () => appearance.status());
   app.put('/api/application/appearance', async request => {
     const result = appearance.save(request.body);
@@ -156,13 +173,13 @@ export async function createApp(options: {
   const localNetworkAdmin = (request: FastifyRequest) => isLoopback(request.ip) && !lan.isLanRequest(request.raw);
   app.get('/api/application/lan', async request => lan.status(localNetworkAdmin(request)));
   app.put('/api/application/lan', async request => {
-    if (!localNetworkAdmin(request)) throw new AppError(403, 'local_settings_only', 'Change LAN settings from the local address on the server computer.');
-    if (auth.setupRequired()) throw new AppError(409, 'owner_required', 'Create the owner account locally before enabling LAN access.');
+    if (!localNetworkAdmin(request)) throw new AppError(403, 'local_settings_only', message("errors.change_lan_settings_from_the_local_address_on"));
+    if (auth.setupRequired()) throw new AppError(409, 'owner_required', message("errors.create_the_owner_account_locally_before_enabling_lan"));
     return lan.save(request.body);
   });
   app.get('/api/session', async (request) => ({ setupRequired: auth.setupRequired(), authenticated: auth.authenticated(request.cookies.session) }));
   app.post('/api/setup', async (request, reply) => {
-    if (!isLoopback(request.ip) || lan.isLanRequest(request.raw)) throw new AppError(403, 'local_setup_only', 'Create the owner account from the server computer first.');
+    if (!isLoopback(request.ip) || lan.isLanRequest(request.raw)) throw new AppError(403, 'local_setup_only', message("errors.create_the_owner_account_from_the_server_computer"));
     const { password } = passwordSchema.parse(request.body);
     setSession(reply, await auth.setup(password));
     return { ok: true };
@@ -228,7 +245,7 @@ export async function createApp(options: {
     const replay = backups.persistence.replay(input.requestId,`wipe:${input.digest}:${input.token}:${input.overwrite}`);
     if (replay) return replay;
     requireExclusive(request.id);
-    if (!input.overwrite) throw new AppError(409,'wipe_confirmation','Confirm the wipe before continuing.');
+    if (!input.overwrite) throw new AppError(409,'wipe_confirmation',message("errors.confirm_the_wipe_before_continuing"));
     const outcome = backups.persistence.commit(input,undefined,owner(request.cookies.session)); coordinator.changed(); return outcome;
   });
 
@@ -240,7 +257,7 @@ export async function createApp(options: {
     const savedKey = store.connectionApiKey(input.connectionId);
     if (!savedKey) return '';
     const saved = store.libraries().connections.find(connection => connection.id === input.connectionId);
-    if (!saved || saved.endpoint.replace(/\/+$/, '') !== input.endpoint.replace(/\/+$/, '')) throw new AppError(422, 'saved_key_endpoint_changed', 'Enter an API key for the changed endpoint. The saved key is only used with its saved API base URL.');
+    if (!saved || saved.endpoint.replace(/\/+$/, '') !== input.endpoint.replace(/\/+$/, '')) throw new AppError(422, 'saved_key_endpoint_changed', message("errors.enter_an_api_key_for_the_changed_endpoint"));
     return savedKey;
   };
   app.post('/api/models', async request => {
@@ -259,13 +276,13 @@ export async function createApp(options: {
     let response = '';
     try {
       const completion = await provider.stream(preview, apiKey, AbortSignal.timeout(30_000), text => { response += text; });
-      if (!response.trim()) throw new AppError(502, 'empty_response', 'The model returned no text.');
+      if (!response.trim()) throw new AppError(502, 'empty_response', message("errors.the_model_returned_no_text"));
       return { message: 'Test completed.', request: preview, response, usage: completion?.usage ?? null };
     } catch (error) {
       // Diagnostics have no saved turn to retry or delete.
       if (error instanceof AppError && ['empty_response', 'incomplete_stream'].includes(error.code)) {
         const reason = error.code === 'empty_response' ? 'The model returned no text for the test message.' : 'The test response stream ended before completion.';
-        throw new AppError(502, error.code, `${reason} Nothing was saved. Click “Send test message” to try again.`);
+        throw new AppError(502, error.code, message("errors.nothing_was_saved_click_send_test_message_to", { reason: String(reason) }));
       }
       throw error;
     }
@@ -283,7 +300,7 @@ export async function createApp(options: {
     let prepared;
     if (input.picture?.mode === 'replace') prepared = await pictures.process(pictureBytes(input.picture.base64), input.picture.crop);
     if (input.picture?.mode === 'keep') {
-      if (!id) throw new AppError(400, 'missing_picture', 'A new character has no saved picture to crop.');
+      if (!id) throw new AppError(400, 'missing_picture', message("errors.a_new_character_has_no_saved_picture_to"));
       prepared = await pictures.process(store.pictures.originalForCrop(id, input.picture.key), input.picture.crop);
     }
     return store.saveCharacter(input, id, prepared);
@@ -345,7 +362,7 @@ export async function createApp(options: {
     const value = readCardFile(input.base64);
     let items;
     try { items = importPersonas(value); }
-    catch (error) { if (error instanceof ZodError) throw error; throw new AppError(400, 'invalid_card', error instanceof Error ? error.message : 'Invalid card.'); }
+    catch (error) { if (error instanceof ZodError) throw error; throw new AppError(400, 'invalid_card', error instanceof MessageError ? error.localized : error instanceof Error ? error.message : message("errors.invalid_card")); }
     const ids = store.importLibrary(input.revision, input.kind, items); coordinator.changed(); return { ids };
   });
   app.post('/api/library/characters/preview', { bodyLimit: pictureBase64Limit + 1000 }, async (request, reply) => {
@@ -409,7 +426,7 @@ export async function createApp(options: {
   app.get('/api/library/:kind/:id/export', async request => {
     const { kind, id } = z.object({ kind: z.enum(['personas', 'characters', 'prompts', 'contexts', 'lorebooks']), id: identity }).parse(request.params);
     const item = store.libraries()[kind].find(item => item.id === id);
-    if (!item) throw new AppError(404, 'item_not_found', 'Library item not found.');
+    if (!item) throw new AppError(404, 'item_not_found', message("errors.library_item_not_found"));
     const { id: _id, revision: _revision, ...data } = item;
     if (kind === 'characters') {
       const card = data as Parameters<typeof exportCharacter>[0];
@@ -459,13 +476,13 @@ export async function createApp(options: {
   app.get('/api/chats/:chatId/generations/:id/request', async request => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const generation = store.generation(id);
-    if (!generation || generation.chatId !== chatId(request.params)) throw new AppError(404, 'generation_not_found', 'Saved response request not found.');
+    if (!generation || generation.chatId !== chatId(request.params)) throw new AppError(404, 'generation_not_found', message("errors.saved_response_request_not_found"));
     return generation.request;
   });
   app.get('/api/chats/:chatId/generations/:id/reasoning', async request => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const generation = store.generation(id);
-    if (!generation || generation.chatId !== chatId(request.params)) throw new AppError(404, 'generation_not_found', 'Response reasoning not found.');
+    if (!generation || generation.chatId !== chatId(request.params)) throw new AppError(404, 'generation_not_found', message("errors.response_reasoning_not_found"));
     return { text: generation.status === 'running' ? coordinator.reasoningText(id) : generation.reasoningText };
   });
   app.post('/api/chats/:chatId/context/prepare', async (request, reply) => {
@@ -527,11 +544,11 @@ export async function createApp(options: {
       const input = z.object({ revision: revisionSchema, text: z.string().max(100_000).optional(), inspection: z.boolean().optional() }).strict().parse(request.body);
       if (input.text !== undefined) input.text = trimBoundaryNewlines(input.text);
       const snapshot = store.snapshot(chatId(request.params));
-      if (snapshot.revision !== input.revision) throw new AppError(409, 'revision_conflict', 'The chat changed. Refresh the preview.');
-      if (!snapshot.connection) throw new AppError(422, 'connection_required', 'Save a Connection first.');
+      if (snapshot.revision !== input.revision) throw new AppError(409, 'revision_conflict', message("errors.the_chat_changed_refresh_the_preview"));
+      if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.save_a_connection_first"));
       const turns = [...snapshot.turns];
       if (input.text !== undefined && input.text !== '') {
-        if (turns.at(-1)?.complete === false) throw new AppError(409, 'pending_turn', 'Resolve the pending turn before previewing a new one.');
+        if (turns.at(-1)?.complete === false) throw new AppError(409, 'pending_turn', message("errors.resolve_the_pending_turn_before_previewing_a_new"));
         turns.push({ id: 'draft', position: (turns.at(-1)?.position ?? 0) + 1, complete: false, user: { id: 'draft-user', revision: 0, text: input.text }, assistant: { id: 'draft-assistant', revision: 0, text: '' } });
       }
       const controller = new AbortController();

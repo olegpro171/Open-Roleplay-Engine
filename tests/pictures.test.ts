@@ -155,7 +155,7 @@ describe('migration 10', () => {
       expect(() => new Store(path)).toThrow('synthetic upgrade failure'); const db = new Database(path);
       expect(db.pragma('user_version', { simple: true })).toBe(9); expect(db.prepare("SELECT name FROM sqlite_master WHERE name='picture_assets'").get()).toBeUndefined(); expect(db.prepare('SELECT revision FROM library_state').get()).toEqual({ revision }); db.exec('DROP TRIGGER reject_picture_migration'); db.close();
     }
-    store = open(path); expect(store.sqlite.pragma('user_version', { simple: true })).toBe(14); expect(rows(store, undefined, true)).toEqual(before); expect(store.pictures.list()).toEqual([]); expect(store.libraryRevision()).toBe(revision + 2);
+    store = open(path); expect(store.sqlite.pragma('user_version', { simple: true })).toBe(15); expect(rows(store, undefined, true)).toEqual(before); expect(store.pictures.list()).toEqual([]); expect(store.libraryRevision()).toBe(revision + 2);
     const saved = store.libraries(); store.close(); store = open(path); expect(store.libraries()).toEqual(saved);
   });
 });

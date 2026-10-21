@@ -54,6 +54,7 @@ export const generations = sqliteTable('generations', {
   request: text('request', { mode: 'json' }).$type<RequestPreview | null>(),
   usage: text('usage', { mode: 'json' }).$type<TokenUsage | null>(),
   partialText: text('partial_text').notNull(), reasoningText: text('reasoning_text').notNull().default(''), error: text('error'),
+  errorMessage: text('error_message', { mode: 'json' }).$type<import('../shared/localization.js').LocalizedMessage | null>(),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 });
 

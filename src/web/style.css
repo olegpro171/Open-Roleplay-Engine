@@ -464,3 +464,13 @@ button:has(> .ui-icon):has(> .sr-only), .block-actions button { min-width:36px; 
 .chat-text-scale-labels span { text-align: center; }
 .chat-text-scale-labels small { display: block; font-size: 10px; }
 .chat-text-preview { border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: #131921; }
+.language-switcher{width:100px;flex-shrink:0;font-size:12px;padding:7px 4px}
+@media(max-width:800px){.language-switcher{width:52px;font-size:11px}}
+.mobile-chat-language{display:none}
+@media(max-width:800px){
+  .topbar:has(.chat-details-slot:not(:empty)) .language-switcher{display:none}
+  .mobile-chat-language{display:block;margin-top:18px}
+  .mobile-chat-language .language-switcher{width:100%;font-size:14px}
+}
+[dir=rtl] .story-meta{border-right:0;border-left:1px solid var(--line)}
+[dir=rtl] .part.assistant{border-left:0;border-right:2px solid #5e4b3c;padding-left:0;padding-right:18px}

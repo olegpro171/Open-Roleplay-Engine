@@ -1,3 +1,4 @@
+import { t, useLocale } from './localization';
 import { Icon } from './Icon';
 import { useEffect, useRef, useState } from 'react';
 import type { Turn } from '../shared/contracts';
@@ -6,6 +7,7 @@ export function ResponseVariants({ turn, locked, select }: {
   turn: Turn; locked: boolean;
   select: (id: string) => Promise<boolean>;
 }) {
+  useLocale();
   const [draft, setDraft] = useState<string | null>(null);
   const selecting = useRef(false);
   const variants = turn.variants ?? [];
@@ -34,13 +36,13 @@ export function ResponseVariants({ turn, locked, select }: {
     else setDraft(null);
   }
 
-  return <div className="variant-selector" role="group" aria-label="Response versions">
-    <button type="button" className="quiet variant-arrow" aria-label="Previous response" title="Previous response"
+  return <div className="variant-selector" role="group" aria-label={t("response_variants.response_versions")}>
+    <button type="button" className="quiet variant-arrow" aria-label={t("response_variants.previous_response")} title={t("response_variants.previous_response")}
       disabled={selectionLocked || activeIndex <= 0} onPointerDown={event => event.preventDefault()} onClick={() => void choose(activeIndex - 1)}>
       <Icon name="ArrowShortBack" />
     </button>
-    <input className="variant-number" type="text" inputMode="numeric" aria-label="Response version"
-      title={`Response version, 1 to ${versionCount}. Press Enter to jump.`}
+    <input className="variant-number" type="text" inputMode="numeric" aria-label={t("response_variants.response_version")}
+      title={t("response_variants.response_version_1_to_press_enter_to", { versionCount: versionCount })}
       autoComplete="off" spellCheck={false} disabled={selectionLocked} aria-invalid={!validDraft || undefined}
       value={draft ?? String(activeNumber)} onChange={event => setDraft(event.target.value)}
       onFocus={event => event.currentTarget.select()}
@@ -49,8 +51,8 @@ export function ResponseVariants({ turn, locked, select }: {
         else if (event.key === 'Escape') { event.preventDefault(); setDraft(null); }
       }}
       onBlur={commitDraft} />
-    <span className="variant-total" aria-label={`${versionCount} response versions`}>/ {versionCount}</span>
-    <button type="button" className="quiet variant-arrow" aria-label="Next response" title="Next response"
+    <span className="variant-total" aria-label={t("response_variants.response_versions_2", { versionCount: versionCount })}>/ {versionCount}</span>
+    <button type="button" className="quiet variant-arrow" aria-label={t("response_variants.next_response")} title={t("response_variants.next_response")}
       disabled={selectionLocked || activeIndex < 0 || activeIndex >= variants.length - 1} onPointerDown={event => event.preventDefault()} onClick={() => void choose(activeIndex + 1)}>
       <Icon name="ArrowShortForward" />
     </button>

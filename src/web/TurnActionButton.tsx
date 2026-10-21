@@ -1,3 +1,4 @@
+import { useLocale } from './localization';
 import { Icon } from './Icon';
 import type { ButtonHTMLAttributes } from 'react';
 
@@ -12,6 +13,7 @@ const icons: Record<Exclude<TurnAction, 'delete' | 'regenerate' | 'cancel'>, str
 export function TurnActionButton({ action, label, onFocus, ...props }: {
   action: TurnAction; label: string;
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'children'>) {
+  useLocale();
   return <button {...props} type="button" className={`quiet turn-action turn-action-${action}`} aria-label={label} title={label}
     onFocus={event => {
       // Native focus may leave a partly visible action clipped in the phone row.

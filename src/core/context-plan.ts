@@ -1,3 +1,5 @@
+import { blockedText, type LocalizedMessage } from '../shared/localization.js';
+import { message } from '../shared/localization.js';
 import type { ChatSnapshot, Message, RequestPreview } from '../shared/contracts.js';
 import { emptyContextState, refKey, type ContextOperation, type ContextPlan, type SummaryRef } from '../shared/context.js';
 import { AppError } from './errors.js';
@@ -6,18 +8,19 @@ import { hasPromptMarker } from '../shared/library.js';
 import { assembleRequest, estimateInputTokens, summaryText } from './prompt.js';
 import { countInput, countText } from './tokens.js';
 import { savedReplacement } from './context-reuse.js';
-import { correctionProtection, correctionMessage } from './context-corrections.js';
+import { correctionProtection, correctionMessage, correctionDiagnostic } from './context-corrections.js';
 import { repairInputs } from './context-repair.js';
 
 export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
-  if (!snapshot.connection) throw new AppError(422, 'connection_required', 'Select a roleplay Connection to measure the complete input.');
+  if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.select_a_roleplay_connection_to_measure_the_complete"));
   const state = snapshot.context;
   const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, state, { validateLimits: false, allowStale: true, lore: snapshot.loreResolution });
   const effectiveLimit = Math.min(snapshot.settings.targetInputTokens, snapshot.connection.contextWindow - snapshot.connection.maxOutputTokens);
   if (!hasPromptMarker(snapshot.sources.prompt, 'summary')) {
-    const blocked = request.budget.inputTokens > effectiveLimit ? 'The prompt and pending input exceed the input limit. Shorten them or increase the limit.' : null;
+    const blockedMessage = request.budget.inputTokens > effectiveLimit ? message('diagnostics.requiredInputTooLarge') : undefined;
+    const blocked = blockedMessage?.fallback ?? null;
     return { inputTokens: request.budget.inputTokens, method: request.budget.method, counting: request.budget.counting, targetInputTokens: snapshot.settings.targetInputTokens, effectiveLimit,
-      verbatimTurnIds: request.history!.verbatimTurnIds, next: null, ready: !blocked, blocked, stale: [] };
+      verbatimTurnIds: request.history!.verbatimTurnIds, next: null, ready: !blocked, blocked, blockedMessage, stale: [] };
   }
   const staleKeys = staleSummaries(snapshot.turns, state);
   const stale = state.selected.filter(ref => staleKeys.has(refKey(ref)));
@@ -28,24 +31,25 @@ export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
   // Only the complete assembled request determines whether the limit is met.
   const sizes = new Map(state.summaries.map(node => [refKey(node), countText(`${summaryText(node, snapshot.turns)}\n\n`)]));
   const changedMembership = JSON.stringify(snapshot.turns.slice(0, archived.size).map(turn => turn.id)) !== JSON.stringify(state.archivedTurnIds);
+  let blockedMessage: LocalizedMessage | undefined;
   let next: ContextOperation | null = null, blocked: string | null = null;
-  if (stale.length || changedMembership) blocked = 'Selected memory is out of date. Generate a targeted repair and review its replacements before continuing.';
-  else if (correctionProtection(snapshot.turns, state).unresolved.length) blocked = correctionMessage;
+  if (stale.length || changedMembership) ({ blocked, blockedMessage } = blockedText(message("diagnostics.selected_memory_is_out_of_date_generate_a")));
+  else if (correctionProtection(snapshot.turns, state).unresolved.length) ({ blocked, blockedMessage } = blockedText(correctionDiagnostic));
   else if (state.preset && !hasPromptMarker(snapshot.sources.prompt, 'messages')) {
     if (request.budget.inputTokens > effectiveLimit) {
       next = required <= effectiveLimit ? rankedPromotions(state.selected.map(ref => nodeFor(state, ref)!), state.preset, sizes)[0] ?? null : null;
-      if (!next) blocked = 'The selected summaries and prompt cannot fit the input limit with the current promotion settings.';
+      if (!next) ({ blocked, blockedMessage } = blockedText(message("diagnostics.the_selected_summaries_and_prompt_cannot_fit_the")));
     }
   }
-  else if (state.preset) ({ next, blocked } = nextCompaction(snapshot.turns, state, state.preset, request.budget.inputTokens, effectiveLimit, required, sizes));
-  else if (request.budget.inputTokens > effectiveLimit) blocked = 'Full history exceeds the input limit. Select a context preset to prepare it.';
+  else if (state.preset) ({ next, blocked, blockedMessage } = nextCompaction(snapshot.turns, state, state.preset, request.budget.inputTokens, effectiveLimit, required, sizes));
+  else if (request.budget.inputTokens > effectiveLimit) ({ blocked, blockedMessage } = blockedText(message("diagnostics.full_history_exceeds_the_input_limit_select_a")));
   const reusable = next ? savedReplacement(snapshot, next)?.node : null;
-  return { inputTokens: request.budget.inputTokens, method: request.budget.method, counting: request.budget.counting, targetInputTokens: snapshot.settings.targetInputTokens, effectiveLimit, verbatimTurnIds: request.history!.verbatimTurnIds, next, ready: !blocked && !next, blocked, stale, repairCount: repairQueue(snapshot.turns, state).length, ...(reusable ? { reusable: { id: reusable.id, revision: reusable.revision } } : {}) };
+  return { inputTokens: request.budget.inputTokens, method: request.budget.method, counting: request.budget.counting, targetInputTokens: snapshot.settings.targetInputTokens, effectiveLimit, verbatimTurnIds: request.history!.verbatimTurnIds, next, ready: !blocked && !next, blocked, blockedMessage, stale, repairCount: repairQueue(snapshot.turns, state).length, ...(reusable ? { reusable: { id: reusable.id, revision: reusable.revision } } : {}) };
 }
 
 export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperation, connection: NonNullable<ChatSnapshot['connection']>, replacements = new Map<string, SummaryRef | null>(), previousRequest: RequestPreview | null = null): { request: RequestPreview; prior: SummaryRef[] } {
   const config = snapshot.context.preset;
-  if (!config) throw new AppError(422, 'context_required', 'Select a context preset first.');
+  if (!config) throw new AppError(422, 'context_required', message("errors.select_a_context_preset_first"));
   const ids = new Set(operation.turnIds), turns = snapshot.turns.filter(turn => ids.has(turn.id));
   const template = operation.repair ? config.repairPrompt : operation.level === 1 ? config.extractionPrompt : config.promotionPrompt;
   const values: Record<string, string> = { target_tokens: String(config.summaryTokens), level: String(operation.level), user: snapshot.sources.persona?.name ?? 'You', char: snapshot.sources.character?.name ?? 'Character' };
@@ -61,7 +65,7 @@ export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperati
     }) }];
     const physicalInput = connection.contextWindow - connection.maxOutputTokens;
     const { contentTokens: _, ...measurement } = countInput(messages);
-    if (measurement.inputTokens > physicalInput) throw new AppError(422, 'summary_window_exceeded', 'The existing summary, repair instructions and complete input changes do not fit the summarization Connection. Use a larger window or shorter repair prompt. No changed inputs were omitted.');
+    if (measurement.inputTokens > physicalInput) throw new AppError(422, 'summary_window_exceeded', message("errors.the_existing_summary_repair_instructions_and_complete_input"));
     return { prior: inputs.prior, request: {
       endpoint: `${connection.endpoint.replace(/\/+$/, '')}/chat/completions`,
       body: { ...connection.customParameters, model: connection.model, messages, stream: true, max_tokens: connection.maxOutputTokens, ...(connection.requestUsage !== false ? { stream_options: { include_usage: true as const } } : {}) },
@@ -74,13 +78,13 @@ export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperati
   if (protection.missingFor(proposed).length) throw new AppError(422, 'correction_reconciliation_required', correctionMessage);
   const source = operation.level === 1 ? turns.map(turn => ({ turn: snapshot.turns.indexOf(turn) + 1, user: turn.user.text, assistant: turn.assistant.text })) : operation.children.map(ref => {
     const node = nodeFor(snapshot.context, ref);
-    if (!node) throw new AppError(422, 'invalid_context', 'A source summary is missing.');
+    if (!node) throw new AppError(422, 'invalid_context', message("errors.a_source_summary_is_missing"));
     return { level: node.level, text: node.text };
   });
   const sourceMessage: Message = { role: 'user', content: JSON.stringify({ task: 'Summarize only the supplied sources.', sources: source }) };
   const messages: Message[] = [{ role: 'system', content: instructions }, sourceMessage];
   const physicalInput = connection.contextWindow - connection.maxOutputTokens;
-  if (estimateInputTokens(messages) > physicalInput) throw new AppError(422, 'summary_window_exceeded', 'This fixed source batch and summary instructions do not fit the summarization Connection. Use a larger window, shorter prompts or explicitly change the batch setting.');
+  if (estimateInputTokens(messages) > physicalInput) throw new AppError(422, 'summary_window_exceeded', message("errors.this_fixed_source_batch_and_summary_instructions_do"));
   const first = snapshot.turns.findIndex(turn => turn.id === operation.turnIds[0]);
   const prior: SummaryRef[] = [];
   const currentRef = (ref: SummaryRef) => replacements.has(refKey(ref)) ? replacements.get(refKey(ref)) : snapshot.context.summaries.filter(node => node.id === ref.id && node.approved).sort((a, b) => b.revision - a.revision)[0] ?? ref;

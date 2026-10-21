@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AppError } from '../core/errors.js';
 import { promptDiagnostics } from '../core/prompt-diagnostics.js';
@@ -23,7 +24,7 @@ export class StoryReader {
       if (input.anchor) {
         const anchor = this.store.db.select({ position: schema.turns.position }).from(schema.turns)
           .where(and(eq(schema.turns.chatId, chatId), eq(schema.turns.id, input.anchor))).get();
-        if (!anchor) throw new AppError(409, 'transcript_changed', 'The displayed history changed. Reload the transcript to continue.');
+        if (!anchor) throw new AppError(409, 'transcript_changed', message("errors.the_displayed_history_changed_reload_the_transcript_to"));
         start = Math.min(Math.max(0, count(anchor.position) + input.shift), Math.max(0, totalTurns - input.limit));
       }
       const positions = this.store.db.select({ position: schema.turns.position }).from(schema.turns)
@@ -60,7 +61,7 @@ export class StoryReader {
       requestAvailable: sql<number>`${schema.generations.request} IS NOT NULL`, usage: schema.generations.usage,
       partialText: sql<string>`CASE WHEN ${schema.generations.status} = 'succeeded' THEN '' ELSE ${schema.generations.partialText} END`,
       reasoningText: sql<string>`substr(${schema.generations.reasoningText}, -2000)`,
-      error: schema.generations.error, createdAt: schema.generations.createdAt, updatedAt: schema.generations.updatedAt,
+      error: schema.generations.error, errorMessage: schema.generations.errorMessage, createdAt: schema.generations.createdAt, updatedAt: schema.generations.updatedAt,
     }).from(schema.generations).where(and(eq(schema.generations.chatId, chatId), turnIds ? inArray(schema.generations.turnId, turnIds) : undefined))
       .orderBy(desc(sql`${schema.generations}.rowid`));
     const rows = turnIds ? selection.all() : selection.limit(1).all();

@@ -20,7 +20,7 @@ it('anchors default installation paths independently of the invoking working dir
   const code = `import {Store} from ${JSON.stringify(pathToFileURL(resolve('src/persistence/store.ts')).href)}; import {createApp} from ${JSON.stringify(pathToFileURL(resolve('src/server/app.ts')).href)}; const {app}=await createApp({database: ${JSON.stringify(join(directory, 'saved.sqlite'))}}); await app.close();`;
   execFileSync(process.execPath, ['--import', pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href, '--input-type=module', '-e', code], { cwd: directory });
   const db = new Database(join(directory, 'saved.sqlite'), { readonly: true });
-  try { expect(db.pragma('user_version', { simple: true })).toBe(14); } finally { db.close(); }
+  try { expect(db.pragma('user_version', { simple: true })).toBe(15); } finally { db.close(); }
   expect(() => startupPaths({ ROLEPLAY_DATABASE: '' })).toThrow(/must name a database file/);
   expect(() => validateInstalledAssets({ ...startupPaths({}), staticDirectory: directory })).toThrow(/installation is incomplete/);
   expect(startupPaths({}).database).toBe(resolve(applicationRoot, 'data/roleplay.sqlite'));
@@ -132,14 +132,14 @@ it('publishes safe authenticated build identity and labels source builds honestl
     const about = await app.inject({ method: 'GET', url: '/api/about', headers: { host: 'localhost', cookie } });
     expect(about.statusCode).toBe(200);
     expect(about.json()).toEqual(buildInfo());
-    expect(about.json()).toMatchObject({ kind: 'development', schema: 14, commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() });
+    expect(about.json()).toMatchObject({ kind: 'development', schema: 15, commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() });
     expect(Object.keys(about.json()).sort()).toEqual(['arch', 'commit', 'kind', 'node', 'platform', 'schema']);
   } finally { await app.close(); }
 });
 
 it('reads commit-only installed metadata and tolerates the retired version on retained installations', () => {
   const root = temporary();
-  const info = { kind: 'release', commit: 'a'.repeat(40), schema: 14, node: process.versions.node, platform: process.platform, arch: process.arch };
+  const info = { kind: 'release', commit: 'a'.repeat(40), schema: 15, node: process.versions.node, platform: process.platform, arch: process.arch };
   writeFileSync(join(root, 'build-info.json'), JSON.stringify(info));
   expect(buildInfo(root)).toEqual(info);
   writeFileSync(join(root, 'build-info.json'), JSON.stringify({ ...info, version: 'retired-label' }));

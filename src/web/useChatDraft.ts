@@ -1,3 +1,4 @@
+import { LocalizedError, message as msg } from './localization';
 import { newId } from './uuid';
 import { useRef, useState } from 'react';
 import { z } from 'zod';
@@ -40,7 +41,7 @@ export function useChatDraft(chatId: string | null) {
   }
   function stage(id: string, revision: number) {
     const current = entry(id).draft;
-    if (current.epoch !== datasetEpoch()) throw new Error('Review this recovered draft before sending it to restored data.');
+    if (current.epoch !== datasetEpoch()) throw new LocalizedError(msg("use_chat_draft.review_this_recovered_draft_before_sending_it"));
     const text = trimBoundaryNewlines(current.text);
     const submission = current.submission ?? { requestId: newId(), revision, text };
     const draft = { ...current, submission };

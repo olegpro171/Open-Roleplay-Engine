@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { localizedMessageSchema } from './localization.js';
 
 export const LOREBOOK_FILE_LIMIT = 5_000_000;
 export const LOREBOOK_ENTRY_LIMIT = 2000;
@@ -28,7 +29,8 @@ export const lorebookSchema = z.object({
 export type LoreEntry = z.infer<typeof loreEntrySchema>;
 export type Lorebook = z.infer<typeof lorebookSchema>;
 export type LorePlacement = typeof lorePlacements[number];
-export type LoreDiagnostic = { code: string; message: string; entryId?: string; field?: string };
+export const loreDiagnosticSchema = z.object({ code: z.string(), message: z.string(), localized: localizedMessageSchema.optional(), entryId: z.string().optional(), field: z.string().optional() });
+export type LoreDiagnostic = z.infer<typeof loreDiagnosticSchema>;
 export type LoreImportPreview = { format: 'v2' | 'v3' | 'world_info'; book: Lorebook; diagnostics: LoreDiagnostic[] };
 export const newLorebook = (): Lorebook => ({ name: 'New lorebook', description: '', scanDepth: 4, tokenBudget: 2048, recursiveScanning: false, entries: [] });
 export const newLoreEntry = (id: string): LoreEntry => ({ id, name: 'New entry', comment: '', keys: [], secondaryKeys: [], content: '', enabled: true, constant: false, selective: false, useRegex: false, caseSensitive: false, insertionOrder: 0, priority: 0, placement: 'after_char', role: null, depth: 0, scanDepth: null });

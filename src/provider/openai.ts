@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import { AppError } from '../core/errors.js';
 import { z } from 'zod';
 import type { RequestPreview, TokenUsage } from '../shared/contracts.js';
@@ -76,7 +77,7 @@ export async function fetchModels(endpoint: string, apiKey: string): Promise<str
     return [...new Set(models as string[])].sort();
   } catch (error) {
     if (error instanceof AppError) throw error;
-    throw new AppError(502, 'model_list_unavailable', 'Could not read the provider’s model list. Check the API base URL and your network connection, then try again. If your provider does not support fetching models, enter its model identifier manually.');
+    throw new AppError(502, 'model_list_unavailable', message("errors.could_not_read_the_provider_s_model_list"));
   }
 }
 
@@ -93,7 +94,7 @@ export class OpenAICompatibleProvider implements Provider {
     }
     if (!response.body || !response.headers.get('content-type')?.includes('text/event-stream')) {
       await response.body?.cancel();
-      throw new AppError(502, 'invalid_stream', 'The endpoint did not return a Chat Completions event stream.');
+      throw new AppError(502, 'invalid_stream', message("errors.the_endpoint_did_not_return_a_chat_completions"));
     }
     let buffer = '';
     let finishReason: ProviderCompletion['finishReason'] | undefined;
@@ -116,7 +117,7 @@ export class OpenAICompatibleProvider implements Provider {
       const choice = choicesSchema.parse(rawChoices).find(item => item.index === 0);
       if (!choice) return;
       if (choice.delta?.refusal || choice.finish_reason === 'content_filter') {
-        throw new AppError(502, 'provider_refusal', 'The model refused or filtered the request. No completed response was accepted.');
+        throw new AppError(502, 'provider_refusal', message("errors.the_model_refused_or_filtered_the_request_no"));
       }
       if (choice.finish_reason != null) {
         if (!['stop', 'length'].includes(choice.finish_reason)) throw new Error('Unsupported completion outcome.');
@@ -157,8 +158,8 @@ export class OpenAICompatibleProvider implements Provider {
           if (done) break;
         }
       }
-      if (!done || !finishReason) throw new AppError(502, 'incomplete_stream', 'The model stream ended without a completed response. The turn remains pending.');
-      if (outputLength === 0) throw new AppError(502, 'empty_response', 'The model returned no text. The turn remains pending; retry or delete it.');
+      if (!done || !finishReason) throw new AppError(502, 'incomplete_stream', message("errors.the_model_stream_ended_without_a_completed_response"));
+      if (outputLength === 0) throw new AppError(502, 'empty_response', message("errors.the_model_returned_no_text_the_turn_remains"));
       return { finishReason, ...(usage ? { usage } : {}) };
     } finally {
       await reader.cancel().catch(() => {});

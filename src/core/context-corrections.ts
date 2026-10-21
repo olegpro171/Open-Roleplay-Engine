@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import type { Turn } from '../shared/contracts.js';
 import { refKey, type ContextState, type SummaryNode, type SummaryRef } from '../shared/context.js';
 import { AppError } from './errors.js';
@@ -40,10 +41,11 @@ export function correctionProtection(turns: Turn[], state: ContextState) {
   return { corrections, represented, overlaps, missingFor, unresolved };
 }
 
-export const correctionMessage = 'A saved manual correction is awaiting reconciliation. Use Repair summaries to review conflicting or stale memory, then Prepare chat to select compatible corrected memory. Committed memory is unchanged.';
+export const correctionDiagnostic = message('diagnostics.correctionRequired');
+export const correctionMessage = correctionDiagnostic.fallback;
 
 export function assertCorrectionSelection(turns: Turn[], state: ContextState): void {
-  if (correctionProtection(turns, state).unresolved.length) throw new AppError(422, 'correction_reconciliation_required', correctionMessage);
+  if (correctionProtection(turns, state).unresolved.length) throw new AppError(422, 'correction_reconciliation_required', correctionDiagnostic);
 }
 
 export const summaryDependencies = (node: SummaryNode): SummaryRef[] => [...node.children, ...node.prior, ...(node.corrections ?? [])];

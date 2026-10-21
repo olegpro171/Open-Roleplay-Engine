@@ -1,3 +1,4 @@
+import { LocalizedError, t, message as msg, useLocale } from './localization';
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -7,6 +8,7 @@ type ConfirmationControl = { open: (request: Request) => void; dismiss: (owner: 
 const ConfirmationContext = createContext<ConfirmationControl | null>(null);
 
 export function ConfirmationProvider({ children }: { children: ReactNode }) {
+  useLocale();
   const [request, setRequest] = useState<Request | null>(null);
   const active = useRef<Request | null>(null);
   const open = useCallback((next: Request) => {
@@ -31,12 +33,13 @@ export function ConfirmationProvider({ children }: { children: ReactNode }) {
 export function useConfirmation(scope?: string | null) {
   const control = useContext(ConfirmationContext);
   const owner = useId();
-  if (!control) throw new Error('ConfirmationProvider is missing.');
+  if (!control) throw new LocalizedError(msg("confirmation.confirmationprovider_is_missing"));
   useEffect(() => () => control.dismiss(owner), [control, owner, scope]);
   return (request: Confirmation) => control.open({ ...request, owner });
 }
 
 function ConfirmationDialog({ request, cancel, confirm }: { request: Confirmation; cancel: () => void; confirm: () => void }) {
+  useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const cancelButton = useRef<HTMLButtonElement>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
@@ -59,6 +62,6 @@ function ConfirmationDialog({ request, cancel, confirm }: { request: Confirmatio
     <span className="confirmation-symbol" aria-hidden="true">!</span>
     <h2 id={title}>{request.title}</h2>
     <p id={description}>{request.message}</p>
-    <div className="actions"><button type="button" ref={cancelButton} className="secondary" autoFocus onClick={cancel}>Cancel</button><button type="button" ref={confirmButton} className="danger" onClick={confirm}>{request.actionLabel}</button></div>
+    <div className="actions"><button type="button" ref={cancelButton} className="secondary" autoFocus onClick={cancel}>{t("character_import.cancel")}</button><button type="button" ref={confirmButton} className="danger" onClick={confirm}>{request.actionLabel}</button></div>
   </dialog>, document.body);
 }

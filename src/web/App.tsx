@@ -1,7 +1,10 @@
+import type { MessageText } from './localization';
+import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
 import { appearanceStatusSchema, defaultAppearance, type AppearanceStatus } from '../shared/appearance';
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { ApplicationSettings } from './ApplicationSettings';
+import { LanguageSwitcher } from './LanguageSettings';
 import { useConfirmation } from './Confirmation';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ChatSnapshot, RequestPreview } from '../shared/contracts';
@@ -23,7 +26,7 @@ import { ChatDetailsTarget, ChatWorkspace } from './ChatWorkspace';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
-const serverUnavailable = 'Cannot reach the server. Check that it is running.';
+const serverUnavailable = msg("app.cannot_reach_the_server_check_that_it");
 function lastChat() {
   try { return localStorage.getItem('roleplay-chat') ?? 'main'; }
   catch { return 'main'; }
@@ -36,27 +39,28 @@ function rememberChat(id: string | null) {
 }
 
 export function App() {
+  useLocale();
   const [dataChanged, setDataChanged] = useState(false);
   useEffect(() => { const changed = () => setDataChanged(true); window.addEventListener('ore-dataset-changed', changed); return () => window.removeEventListener('ore-dataset-changed', changed); }, []);
   const [session, setSession] = useState<Session | null>(null);
   const [chatId, setChatId] = useState<string | null>(lastChat);
   const [appearance, setAppearance] = useState<AppearanceStatus>({ revision: 0, settings: defaultAppearance });
-  const [appearanceError, setAppearanceError] = useState<string | null>(null);
+  const [appearanceError, setAppearanceError] = useTextState(null);
   const [library, setLibrary] = useState<LibrarySnapshot | null>(null);
   const libraryCache = useRef<LibrarySnapshot | null>(null);
   const [snapshot, setSnapshot] = useState<StorySnapshot | null>(null);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
   const [toolSnapshot, setToolSnapshot] = useState<ChatSnapshot | null>(null);
-  const [toolError, setToolError] = useState('');
+  const [toolError, setToolError] = useTextState('');
   const [toolRetry, setToolRetry] = useState(0);
   const [pageLoading, setPageLoading] = useState(false);
   const pageBusy = useRef(false);
   const pageRequest = useRef<AbortController | null>(null);
   const refreshPending = useRef(false);
   const forceLatest = useRef(false);
-  const [pageError, setPageError] = useState('');
-  const [error, setError] = useState('');
+  const [pageError, setPageError] = useTextState('');
+  const [error, setError] = useTextState('');
   const [online, setOnline] = useState(false);
   const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory' | 'data'>('story');
   const [libraryTarget, setLibraryTarget] = useState<LibraryTarget | null>(null);
@@ -72,7 +76,7 @@ export function App() {
   const [generationId, setGenerationId] = useState('');
   const loadId = useRef(0);
   const { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot, edit);
-  const clearServerError = useCallback(() => setError(current => current === serverUnavailable ? '' : current), []);
+  const clearServerError = useCallback(() => setError(current => formatMessage(current) === formatMessage(serverUnavailable) ? '' : current), []);
   const refreshSession = useCallback(async () => {
     try { setSession(await api<Session>('/session')); clearServerError(); } catch { setError(serverUnavailable); }
   }, [clearServerError]);
@@ -87,13 +91,13 @@ export function App() {
         api<LibrarySnapshot | UnchangedLibrary>(`/library${cached ? `?knownRevision=${cached.revision}` : ''}`),
         api<unknown>('/application/appearance')
           .then(value => ({ value: appearanceStatusSchema.parse(value), error: null }))
-          .catch(error => ({ value: null, error: error instanceof Error ? error.message : 'Chat appearance could not be loaded.' })),
+          .catch(error => ({ value: null, error: errorText(error, msg("app.chat_appearance_could_not_be_loaded")) })),
       ]);
       // Keep existing editors/transcript available to copy after a dataset replacement.
       if (datasetChanged()) return;
       let items: LibrarySnapshot;
       if ('unchanged' in update) {
-        if (!cached || cached.revision !== update.revision) throw new Error('Library refresh has no matching saved version. Reload this page.');
+        if (!cached || cached.revision !== update.revision) throw new LocalizedError(msg("app.library_refresh_has_no_matching_saved_version"));
         items = { ...cached, chats: update.chats };
       } else items = update;
       const selected = items.chats.find(chat => chat.id === chatId)?.id ?? items.chats[0]?.id ?? null;
@@ -117,7 +121,7 @@ export function App() {
         preservePosition(Boolean(current?.page.hasNewer));
         if (windowReset) {
           scrollToLatest();
-          setPageError('The displayed history was removed or replaced. Showing the latest turns.');
+          setPageError(msg("app.the_displayed_history_was_removed_or_replaced"));
         }
         snapshotRef.current = state;
         setSnapshot(state);
@@ -139,7 +143,7 @@ export function App() {
       if (id !== loadId.current) return;
       if (error instanceof ApiError && error.status === 401) void refreshSession();
       else if (error instanceof ApiError && error.status === 404) { setChatId(null); }
-      else setError(error instanceof ApiError ? error.message : serverUnavailable);
+      else setError(error instanceof ApiError ? errorText(error) : serverUnavailable);
     }
   }, [refreshSession, chatId, clearServerError]);
   const latestRefresh = useRef(refresh);
@@ -148,7 +152,7 @@ export function App() {
   selectedChat.current = chatId;
   useEffect(() => { void refreshSession(); }, [refreshSession]);
   useEffect(() => {
-    if (error !== serverUnavailable) return;
+    if (error !== formatMessage(serverUnavailable)) return;
     let checking = false;
     const timer = setInterval(() => {
       if (!checking) { checking = true; void refreshSession().finally(() => { checking = false; }); }
@@ -183,7 +187,7 @@ export function App() {
     setToolError('');
     void api<ChatSnapshot>(`/chats/${snapshot.id}`, 'GET', undefined, controller.signal).then(value => {
       if (!controller.signal.aborted && !datasetChanged()) setToolSnapshot(value);
-    }).catch(error => { if (!controller.signal.aborted) setToolError(error instanceof Error ? error.message : 'Cannot load chat tools.'); });
+    }).catch(error => { if (!controller.signal.aborted) setToolError(errorText(error, msg("app.cannot_load_chat_tools"))); });
     return () => controller.abort();
   }, [tab, snapshot, toolRetry]);
 
@@ -229,7 +233,7 @@ export function App() {
       setSnapshot(state);
     } catch (error) {
       if (id !== loadId.current || controller.signal.aborted) return;
-      setPageError(error instanceof Error ? error.message : 'Cannot load this part of the story. Try again.');
+      setPageError(errorText(error, msg("app.cannot_load_this_part_of_the_story")));
       if (error instanceof ApiError && error.status === 409) refreshPending.current = true;
       if (error instanceof ApiError && error.status === 401) void refreshSession();
     } finally {
@@ -267,27 +271,27 @@ export function App() {
   const latest = snapshot?.latestGeneration;
   const currentToolSnapshot = toolSnapshot?.id === snapshot?.id ? toolSnapshot : null;
   const shownGeneration = currentToolSnapshot?.generations.find((generation) => generation.id === generationId);
-  const [inspection, setInspection] = useState<{ chatId: string | null; key: string; request: RequestPreview | null; error: string }>({ chatId: null, key: '', request: null, error: '' });
+  const [inspection, setInspection] = useState<{ chatId: string | null; key: string; request: RequestPreview | null; error: MessageText }>({ chatId: null, key: '', request: null, error: '' });
   const inspectionKey = JSON.stringify([snapshot?.id, snapshot?.revision, snapshot?.memory.revision, snapshot?.connection, draft, pending]);
   useEffect(() => {
     if (!snapshot?.connection || (!pending && draft !== settledDraft)) return;
     let current = true;
     api<RequestPreview>(`/chats/${snapshot.id}/preview`, 'POST', { revision: snapshot.revision, inspection: true, ...(!pending ? { text: draft } : {}) })
       .then(request => { if (current) setInspection({ chatId: snapshot.id, key: inspectionKey, request, error: '' }); })
-      .catch(error => { if (current) setInspection(previous => ({ chatId: snapshot.id, key: inspectionKey, request: previous.chatId === snapshot.id ? previous.request : null, error: error.message })); });
+      .catch(error => { if (current) setInspection(previous => ({ chatId: snapshot.id, key: inspectionKey, request: previous.chatId === snapshot.id ? previous.request : null, error: errorText(error) })); });
     return () => { current = false; };
   }, [inspectionKey, settledDraft]);
   const currentRequest = snapshot?.connection && inspection.chatId === snapshot.id ? inspection.request : null;
   const inspectionCurrent = inspection.key === inspectionKey && !inspection.error;
-  const inspectionError = inspection.key === inspectionKey ? inspection.error : currentRequest ? '' : snapshot?.connection ? 'Counting current input…' : '';
-  const [savedInspection, setSavedInspection] = useState<{ chatId: string; generationId: string; request: RequestPreview | null; error: string } | null>(null);
+  const inspectionError = inspection.key === inspectionKey ? formatMessage(inspection.error) : currentRequest ? '' : snapshot?.connection ? t("app.counting_current_input") : '';
+  const [savedInspection, setSavedInspection] = useState<{ chatId: string; generationId: string; request: RequestPreview | null; error: MessageText } | null>(null);
   const savedRequestPresent = Boolean(shownGeneration?.request);
   useEffect(() => {
     if (!snapshot || !generationId || !savedRequestPresent) return;
     let current = true;
     api<RequestPreview | null>(`/chats/${snapshot.id}/generations/${generationId}/request`).then(request => {
       if (current) setSavedInspection({ chatId: snapshot.id, generationId, request, error: '' });
-    }).catch(error => { if (current) setSavedInspection({ chatId: snapshot.id, generationId, request: null, error: error.message }); });
+    }).catch(error => { if (current) setSavedInspection({ chatId: snapshot.id, generationId, request: null, error: errorText(error) }); });
     return () => { current = false; };
   }, [snapshot?.id, generationId, savedRequestPresent]);
   const matchingSavedInspection = savedInspection?.chatId === snapshot?.id && savedInspection?.generationId === generationId ? savedInspection : null;
@@ -306,7 +310,7 @@ export function App() {
     setBusy(true); setError('');
     try { await action(); await refresh(); return true; }
     catch (error) {
-      setError(error instanceof Error ? error.message : 'The request failed.');
+      setError(errorText(error, msg("app.the_request_failed")));
       await refresh(); return false;
     } finally { setBusy(false); }
   }
@@ -324,7 +328,7 @@ export function App() {
     } catch (error) {
       // A server rejection is definite; a lost response is ambiguous, so retain its request identity.
       if (error instanceof ApiError && error.status < 500) drafts.reject(id, sent);
-      setError(error instanceof Error ? error.message : 'The request failed.');
+      setError(errorText(error, msg("app.the_request_failed")));
     } finally {
       setBusy(false);
       await latestRefresh.current();
@@ -337,7 +341,7 @@ export function App() {
     if (await command(() => api(`/chats/${chatId}/turns/${edit.turnId}/${edit.part}`, 'PATCH', { revision: edit.revision, text: edit.text }))) setEdit(null);
   }
 
-  if (!session) return <main className="login"><p>Opening ORE…</p>{error && <p role="alert">{error}</p>}</main>;
+  if (!session) return <main className="login"><p>{t("app.opening_ore")}</p>{error && <p role="alert">{error}</p>}</main>;
   if (!session.authenticated) return <Login session={session} onLogin={async () => { setError(''); await refreshSession(); }} />;
   function openChat(id: string, destination: 'story' | 'settings' = 'story') {
     loadId.current++;
@@ -357,49 +361,51 @@ export function App() {
       setToolSnapshot(null);
     }
   }
-  if (!library) return <main className="login"><p>Loading your story…</p>{error && <p role="alert">{error}</p>}</main>;
+  if (!library) return <main className="login"><p>{t("app.loading_your_story")}</p>{error && <p role="alert">{error}</p>}</main>;
   const selectedCharacter = library.characters.find(character => character.id === snapshot?.settings.characterId);
   const selectedPersona = library.personas.find(persona => persona.id === snapshot?.settings.personaId);
-  const selectedCharacterName = selectedCharacter?.name ?? snapshot?.sources.character?.name ?? 'Character';
-  const selectedPersonaName = selectedPersona?.name ?? snapshot?.sources.persona?.name ?? 'You';
+  const selectedCharacterName = selectedCharacter?.name ?? snapshot?.sources.character?.name ?? t("app.character");
+  const selectedPersonaName = selectedPersona?.name ?? snapshot?.sources.persona?.name ?? t("app.you");
 
   const sidebar = snapshot && <>
-        <p className="eyebrow">CURRENT CHAT</p><h1>{snapshot.settings.title}</h1>
-        <p>{snapshot.connection ? `${snapshot.connection.name} · ${snapshot.connection.model}` : 'Set up a Connection to begin.'}</p>
-        <dl><div><dt>Total turns</dt><dd>{snapshot.totalTurns}</dd></div><div title="Saved turns kept verbatim in the current input, including a pending turn"><dt>Active turns</dt><dd>{activeTurns}</dd></div><div><dt>Input target</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString()}</dd></div><div><dt>Estimated input</dt><dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>{currentRequest?.budget.inputTokens.toLocaleString() ?? '—'}</dd></div></dl>
-        <details className="context-dropdown" open={contextExpanded} onToggle={event => setContextExpanded(event.currentTarget.open)}><summary>Context <span>{!summariesEnabled ? 'Summaries are disabled' : snapshot.memory.selectedCount ? `${snapshot.memory.selectedCount} summaries` : 'Full history'}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></> : <p className="small muted">{inspectionError || 'Select a Connection to inspect input.'}</p>}</details>
+        <p className="eyebrow">{t("app.current_chat")}</p><h1>{snapshot.settings.title}</h1>
+        <p>{snapshot.connection ? `${snapshot.connection.name} · ${snapshot.connection.model}` : t("app.set_up_a_connection_to_begin")}</p>
+        <dl><div><dt>{t("app.total_turns")}</dt><dd>{snapshot.totalTurns}</dd></div><div title={t("app.saved_turns_kept_verbatim_in_the_current")}><dt>{t("app.active_turns")}</dt><dd>{activeTurns}</dd></div><div><dt>{t("app.input_target")}</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString(locale())}</dd></div><div><dt>{t("app.estimated_input")}</dt><dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>{currentRequest?.budget.inputTokens.toLocaleString(locale()) ?? '—'}</dd></div></dl>
+        <details className="context-dropdown" open={contextExpanded} onToggle={event => setContextExpanded(event.currentTarget.open)}><summary>{t("app.context")}<span>{!summariesEnabled ? t("app.summaries_are_disabled") : snapshot.memory.selectedCount ? t('counts.summaries', { count: snapshot.memory.selectedCount }) : t("app.full_history")}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></> : <p className="small muted">{inspectionError || t("app.select_a_connection_to_inspect_input")}</p>}</details>
+        <div className="mobile-chat-language"><label>{t('language.select')}<LanguageSwitcher onError={setError} /></label></div>
   </>;
   const returnToChat = () => { setTab('story'); setPeek(false); setGenerationId(''); };
 
   return <ChatDetailsTarget.Provider value={chatDetailsTarget}><div className="app">
     <header className="topbar">
-      <div className="brand"><span className="brand-mark" aria-hidden="true">O</span><div><strong>ORE</strong><small>Your stories. Room to continue.</small></div></div>
-      <nav className="tabs" aria-label="Workspace">
-        <button disabled={!snapshot} aria-current={tab !== 'library' && tab !== 'data' ? 'page' : undefined} onClick={() => setTab('story')}>Story</button>
-        <button aria-current={tab === 'library' ? 'page' : undefined} onClick={() => { setLibraryTarget(null); setTab('library'); }}>Libraries</button>
-        <button aria-current={tab === 'data' ? 'page' : undefined} onClick={() => setTab('data')}>Settings</button>
+      <div className="brand"><span className="brand-mark" aria-hidden="true">{t("app.o")}</span><div><strong>{t("app.ore")}</strong><small>{t("app.your_stories_room_to_continue")}</small></div></div>
+      <nav className="tabs" aria-label={t("app.workspace")}>
+        <button disabled={!snapshot} aria-current={tab !== 'library' && tab !== 'data' ? 'page' : undefined} onClick={() => setTab('story')}>{t("app.story")}</button>
+        <button aria-current={tab === 'library' ? 'page' : undefined} onClick={() => { setLibraryTarget(null); setTab('library'); }}>{t("app.libraries")}</button>
+        <button aria-current={tab === 'data' ? 'page' : undefined} onClick={() => setTab('data')}>{t("app.settings")}</button>
       </nav>
+      <LanguageSwitcher onError={setError} />
       <div className="chat-details-slot" ref={setChatDetailsTarget} />
-      <div className="connection-status"><span className={online ? 'dot online' : 'dot'} />{online ? 'Connected' : 'Reconnecting'}</div>
-      <button className="quiet signout" onClick={() => void command(async () => { await api('/logout', 'POST', {}); setSnapshot(null); await refreshSession(); })}>Sign out</button>
+      <div className="connection-status"><span className={online ? 'dot online' : 'dot'} />{online ? t("app.connected") : t("app.reconnecting")}</div>
+      <button className="quiet signout" onClick={() => void command(async () => { await api('/logout', 'POST', {}); setSnapshot(null); await refreshSession(); })}>{t("app.sign_out")}</button>
     </header>
-    {dataChanged && <div className="error-banner" role="alert"><span>Application data was imported or wiped in another tab. Old edits cannot be saved. Copy any unsaved editor text, then reload to review the current data. Browser composer drafts remain recoverable.</span><button onClick={() => window.location.reload()}>Reload current data</button></div>}
-    {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" onClick={() => setError('')}>Dismiss</button></div>}
-    {appearanceError && <div className="error-banner" role="alert"><span>{appearanceError} Using the last loaded chat appearance, or the defaults if none have loaded.</span><button className="quiet" onClick={() => void refresh()}>Retry chat appearance</button></div>}
+    {dataChanged && <div className="error-banner" role="alert"><span>{t("app.application_data_was_imported_or_wiped_in")}</span><button onClick={() => window.location.reload()}>{t("app.reload_current_data")}</button></div>}
+    {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" onClick={() => setError('')}>{t("app.dismiss")}</button></div>}
+    {appearanceError && <div className="error-banner" role="alert"><span>{t("app.using_the_last_loaded_chat_appearance_or", { appearanceError: appearanceError })}</span><button className="quiet" onClick={() => void refresh()}>{t("app.retry_chat_appearance")}</button></div>}
     {tab === 'data' && <ApplicationSettings appearance={appearance} appearanceCommitted={value => { setAppearance(current => value.revision >= current.revision ? value : current); setAppearanceError(null); }} openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
-    {snapshot && ['settings', 'memory', 'request'].includes(tab) && toolError && <div className="error-banner" role="alert">{toolError}<button onClick={() => setToolRetry(value => value + 1)}>Retry loading</button></div>}
-    {snapshot && ['settings', 'memory'].includes(tab) && toolSnapshot?.id !== snapshot.id && <main className="document-panel"><p role="status">Loading chat tools…</p></main>}
+    {snapshot && ['settings', 'memory', 'request'].includes(tab) && toolError && <div className="error-banner" role="alert">{toolError}<button onClick={() => setToolRetry(value => value + 1)}>{t("app.retry_loading")}</button></div>}
+    {snapshot && ['settings', 'memory'].includes(tab) && toolSnapshot?.id !== snapshot.id && <main className="document-panel"><p role="status">{t("app.loading_chat_tools")}</p></main>}
     {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} navigation actions={<>
-        <button className="quiet chat-navigation-action" aria-label="Chat settings" onClick={() => setTab('settings')}><Icon name="Settings" />Chat settings{snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : ''}</button>
-        <button className="quiet chat-navigation-action" onClick={() => setTab('memory')}><Icon name="List" />Inspect memory</button>
-        <button className="quiet chat-navigation-action" onClick={() => setTab('request')}><Icon name="Menu" />Request inspector</button>
+        <button className="quiet chat-navigation-action" aria-label={t("app.chat_settings")} onClick={() => setTab('settings')}><Icon name="Settings" />{t("app.chat_settings_2", { value: snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : '' })}</button>
+        <button className="quiet chat-navigation-action" onClick={() => setTab('memory')}><Icon name="List" />{t("app.inspect_memory")}</button>
+        <button className="quiet chat-navigation-action" onClick={() => setTab('request')}><Icon name="Menu" />{t("app.request_inspector")}</button>
       </>}>
-      <section className="conversation" aria-label="Conversation">
-        {memoryStale && <div className="recovery" role="status"><div><strong>Memory needs review.</strong><p>Archived history changed. Repair the affected summaries before continuing.</p></div><button className="secondary" onClick={() => setTab('memory')}>Review memory</button></div>}
-        {pageError && <div className="recovery" role="alert">{pageError}<button className="secondary" onClick={() => setPageError('')}>Dismiss</button></div>}
+      <section className="conversation" aria-label={t("app.conversation")}>
+        {memoryStale && <div className="recovery" role="status"><div><strong>{t("app.memory_needs_review")}</strong><p>{t("app.archived_history_changed_repair_the_affected_summaries")}</p></div><button className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button></div>}
+        {pageError && <div className="recovery" role="alert">{pageError}<button className="secondary" onClick={() => setPageError('')}>{t("app.dismiss")}</button></div>}
         <div className="transcript-frame"><div className="transcript" ref={transcript}>
-          {snapshot.page.hasOlder && <div className="history-page-control" data-history-direction="older"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('older')}>{pageLoading ? 'Loading history…' : 'Load older turns'}</button></div>}
-          {snapshot.totalTurns === 0 && <div className="empty-state"><h2>Set up your story</h2><button className="secondary" onClick={() => setTab('settings')}>Open chat settings</button></div>}
+          {snapshot.page.hasOlder && <div className="history-page-control" data-history-direction="older"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('older')}>{pageLoading ? t("app.loading_history") : t("app.load_older_turns")}</button></div>}
+          {snapshot.totalTurns === 0 && <div className="empty-state"><h2>{t("app.set_up_your_story")}</h2><button className="secondary" onClick={() => setTab('settings')}>{t("app.open_chat_settings")}</button></div>}
           {snapshot.page.turns.map((turn) => {
             const generating = active?.turnId === turn.id;
             const cancelled = !turn.complete && latest?.turnId === turn.id && latest.status === 'cancelled';
@@ -413,15 +419,15 @@ export function App() {
             } : null;
             const inputVisible = !(turn.complete && turn.user.text === '' && turn.user.revision === 0)
               || (edit?.turnId === turn.id && edit.part === 'user');
-            return <article className="turn" key={turn.id} data-turn-id={turn.id} aria-label={`Turn ${turn.ordinal}`}>
-            <div className="turn-heading"><span>TURN {turn.ordinal} {turn.complete ? summariesEnabled && turn.archived ? '· ARCHIVED' : '' : '· PENDING'}</span>{turn.complete && !generating && turnUsage.has(turn.id) && <span className="turn-usage" title="Provider-reported counts for the saved response, before any later edits. Output may include reasoning tokens.">{turnUsage.get(turn.id) ? `${turnUsage.get(turn.id)!.inputTokens.toLocaleString()} in · ${turnUsage.get(turn.id)!.outputTokens.toLocaleString()} out` : 'Usage unavailable'}</span>}</div>
+            return <article className="turn" key={turn.id} data-turn-id={turn.id} aria-label={t("app.turn", { ordinal: turn.ordinal })}>
+            <div className="turn-heading"><span>{t("app.turn_2", { ordinal: turn.ordinal, value: turn.complete ? summariesEnabled && turn.archived ? t("interface.archived") : '' : t("interface.pending") })}</span>{turn.complete && !generating && turnUsage.has(turn.id) && <span className="turn-usage" title={t("app.provider_reported_counts_for_the_saved_response")}>{turnUsage.get(turn.id) ? t("app.in_out", { value: turnUsage.get(turn.id)!.inputTokens.toLocaleString(locale()), value2: turnUsage.get(turn.id)!.outputTokens.toLocaleString(locale()) }) : t("app.usage_unavailable")}</span>}</div>
             {(['user', 'assistant'] as const).filter(part => part !== 'user' || inputVisible).map((part) => <div className={`part ${part}`} key={part}>
               <div className="part-heading"><strong>{part === 'user' ? selectedPersonaName : selectedCharacterName}</strong></div>
               {part === 'assistant' && reasoning && generating && !responseText && <ReasoningPreview text={reasoning.text} />}
-              {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><ChatTextarea autoSize aria-label={`Edit ${part} text`} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><p className="small muted">{snapshot.settings.lorebookId ? "Saving a history edit starts fresh lore activation history for this chat." : ""}</p><div className="actions"><button disabled={busy}>Save edit</button><button type="button" className="quiet" onClick={() => setEdit(null)}>Cancel edit</button></div></form> : <div className="prose">
+              {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><ChatTextarea autoSize aria-label={t("app.edit_text", { part: part })} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><p className="small muted">{snapshot.settings.lorebookId ? t("app.saving_a_history_edit_starts_fresh_lore") : ""}</p><div className="actions"><button disabled={busy}>{t("app.save_edit")}</button><button type="button" className="quiet" onClick={() => setEdit(null)}>{t("app.cancel_edit")}</button></div></form> : <div className="prose">
                 {part === 'assistant' && (!turn.complete || generating)
-                  ? <>{trimBoundaryNewlines(responseText) ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={trimBoundaryNewlines(responseText)} speechColor={selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor} /> : <span className="muted">{generating ? 'Waiting for first token…' : cancelled ? 'Generation cancelled.' : 'Awaiting response.'}</span>}{generating && <span className="cursor" aria-label="Generating" />}</>
-                  : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor : selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor} /> : <span className="muted blank">blank</span>}
+                  ? <>{trimBoundaryNewlines(responseText) ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={trimBoundaryNewlines(responseText)} speechColor={selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor} /> : <span className="muted">{generating ? t("app.waiting_for_first_token") : cancelled ? t("app.generation_cancelled") : t("app.awaiting_response")}</span>}{generating && <span className="cursor" aria-label={t("app.generating")} />}</>
+                  : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor : selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor} /> : <span className="muted blank">{t("app.blank")}</span>}
               </div>}
             </div>)}
             <TurnControls turn={turn} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}
@@ -433,33 +439,33 @@ export function App() {
               select={id => command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/variants/${id}/select`, 'POST', { revision: snapshot.revision }))}
               edit={part => setEdit({ turnId: turn.id, part, text: turn[part].text, revision: snapshot.revision })}
               remove={() => {
-                confirmAction({ title: 'Delete turn?', message: `Delete this entire turn, including its saved request records?${snapshot.settings.lorebookId ? ' Lore activation history for this chat will start fresh.' : ''}`, actionLabel: 'Delete turn', onConfirm: () => { void command(() => api(`/chats/${chatId}/turns/${turn.id}`, 'DELETE', { revision: snapshot.revision })); } });
+                confirmAction({ title: t("app.delete_turn"), message: t("app.delete_this_entire_turn_including_its_saved", { value: snapshot.settings.lorebookId ? t("interface.lore_activation_history_for_this_chat_will_start") : '' }), actionLabel: t("app.delete_turn_2"), onConfirm: () => { void command(() => api(`/chats/${chatId}/turns/${turn.id}`, 'DELETE', { revision: snapshot.revision })); } });
               }} />
           </article>;
           })}
-          {snapshot.page.hasNewer && <div className="history-page-control" data-history-direction="newer"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('newer')}>{pageLoading ? 'Loading history…' : 'Load newer turns'}</button></div>}
-          {edit && !snapshot.page.turns.some(turn => turn.id === edit.turnId) && <div className="recovery" role="alert"><div><p>The edited turn was removed or replaced. Copy your unsaved text before closing.</p><ChatTextarea aria-label="Unsaved turn edit" value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><button onClick={() => setEdit(null)}>Close edit</button></div></div>}
-        </div>{(awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>Latest turn <Icon name="ArrowLongBottom" /></button>}</div>
-        {!active && pending && <div className="recovery" role="status"><div><strong>Last turn is still pending.</strong><p>{latest?.status === 'cancelled' ? 'Response cancelled. Generate response before next turn.' : latest?.error ?? 'Generate response before next turn.'}</p>{partial && <small>Partial text is preserved for inspection. It has not been accepted as a response.</small>}</div><button className="secondary" disabled={busy} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: newId() }))}>Retry response</button></div>}
-        {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{latest.error ?? 'Regeneration did not finish. Try again.'}</p>}
-        {drafts.needsReview && <div className="recovery" role="alert"><p>This browser draft predates a backup import or wipe. Review its text and the restored story before sending. Its previous staged send has no retry authority.</p><button onClick={drafts.review}>Use recovered draft</button></div>}
+          {snapshot.page.hasNewer && <div className="history-page-control" data-history-direction="newer"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('newer')}>{pageLoading ? t("app.loading_history") : t("app.load_newer_turns")}</button></div>}
+          {edit && !snapshot.page.turns.some(turn => turn.id === edit.turnId) && <div className="recovery" role="alert"><div><p>{t("app.the_edited_turn_was_removed_or_replaced")}</p><ChatTextarea aria-label={t("app.unsaved_turn_edit")} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><button onClick={() => setEdit(null)}>{t("app.close_edit")}</button></div></div>}
+        </div>{(awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}</div>
+        {!active && pending && <div className="recovery" role="status"><div><strong>{t("app.last_turn_is_still_pending")}</strong><p>{latest?.status === 'cancelled' ? t("app.response_cancelled_generate_response_before_next_turn") : (latest?.errorMessage ? formatMessage(latest.errorMessage) : latest?.error) ?? t("app.generate_response_before_next_turn")}</p>{partial && <small>{t("app.partial_text_is_preserved_for_inspection_it")}</small>}</div><button className="secondary" disabled={busy} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: newId() }))}>{t("app.retry_response")}</button></div>}
+        {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{(latest.errorMessage ? formatMessage(latest.errorMessage) : latest.error) ?? t("app.regeneration_did_not_finish_try_again")}</p>}
+        {drafts.needsReview && <div className="recovery" role="alert"><p>{t("app.this_browser_draft_predates_a_backup_import")}</p><button onClick={drafts.review}>{t("app.use_recovered_draft")}</button></div>}
         <form className="composer" onSubmit={(event) => void send(event)}>
-          <ChatTextarea autoSize rows={1} aria-label="Your next turn" id="turn-input" placeholder="What happens next?" value={draft} disabled={pending || busy || working} onValueChange={text => { drafts.change(text); setPeek(false); }} />
-          <button className="send-turn" aria-label="Send" title={busy ? 'Saving changes…' : undefined} disabled={pending || busy || working || memoryStale || dataChanged || drafts.needsReview || !snapshot.connection || !draft.trim()}><span className="send-label">Send</span><Icon name="ArrowShortForward" /></button>
-          {drafts.storageError && <span className="composer-status" role="alert">Draft could not be saved in this browser. Keep this page open and copy your text before leaving.</span>}
-          {preparing && <span className="composer-status">Preparing memory…</span>}
+          <ChatTextarea autoSize rows={1} aria-label={t("app.your_next_turn")} id="turn-input" placeholder={t("app.what_happens_next")} value={draft} disabled={pending || busy || working} onValueChange={text => { drafts.change(text); setPeek(false); }} />
+          <button className="send-turn" aria-label={t("app.send")} title={busy ? t("app.saving_changes") : undefined} disabled={pending || busy || working || memoryStale || dataChanged || drafts.needsReview || !snapshot.connection || !draft.trim()}><span className="send-label">{t("app.send")}</span><Icon name="ArrowShortForward" /></button>
+          {drafts.storageError && <span className="composer-status" role="alert">{t("app.draft_could_not_be_saved_in_this")}</span>}
+          {preparing && <span className="composer-status">{t("app.preparing_memory")}</span>}
         </form>
       </section>
     </ChatWorkspace>}
     {tab === 'library' && <Libraries library={library} currentChatId={chatId} busy={busy} run={command} openChat={openChat} initialTarget={libraryTarget} />}
     {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
-    {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>Return to chat</button>}><Memory key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} /></ChatWorkspace>}
-    {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>Return to chat</button>}><section className="document-panel chat-panel" aria-label="Request inspector"><p className="eyebrow">REQUEST INSPECTOR</p><h1>See what the model receives.</h1><p className="muted">Current input follows your saved setup and composer. Saved attempts preserve the exact request and limits used at that time. Credentials stay on the server.</p><div className="inspector-controls"><label>Inspect request<Dropdown aria-label="Inspect request" value={generationId} onChange={setGenerationId} options={[{ value: '', label: 'Current request' }, ...(currentToolSnapshot?.generations ?? []).map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString()} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!snapshot.connection || busy} onClick={() => { setGenerationId(''); setSettledDraft(draft); }}>Preview {pending ? 'pending turn' : 'next request'}</button><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>Prompt peek</button></div>
-      <p className="small muted">{generationId ? `Saved attempt: ${shownGeneration?.status ?? 'unavailable'}. Its ceiling is historical. ${shownGeneration?.error ?? ''}` : 'Live preview of the current setup and composer, before any preparation. It becomes a saved request when generation starts.'}</p>
-      {!generationId && memoryStale && <p role="status">Memory is out of date. This inspection includes stale summaries; repair and review them before sending.</p>}
-      {!generationId && inspectionError && <p role="status">{inspectionError}</p>}{generationId && matchingSavedInspection?.error && <p role="alert">{matchingSavedInspection.error}</p>}
-      {shownGeneration?.usage && <p className="small">Provider reported: {shownGeneration.usage.inputTokens.toLocaleString()} input · {shownGeneration.usage.outputTokens.toLocaleString()} output tokens.</p>}
-      {shownRequest && <>{shownRequest.warnings?.map(warning => <p role="status" key={warning}>{warning}</p>)}<div className="budget"><strong>Estimated input: {shownRequest.budget.inputTokens.toLocaleString()} / {shownRequest.budget.targetInputTokens.toLocaleString()}</strong><InputMeter input={shownRequest.budget.inputTokens} limit={Math.min(shownRequest.budget.targetInputTokens, shownRequest.budget.contextWindow - shownRequest.budget.reservedOutputTokens)} /><span>Reserved output: {shownRequest.budget.reservedOutputTokens.toLocaleString()} · Model window: {shownRequest.budget.contextWindow.toLocaleString()}</span></div>{shownRequest.layout && <BudgetBreakdown request={shownRequest} />}<LoreInspection request={shownRequest} historical={Boolean(generationId)} /><details className="request-details"><summary>Endpoint and request body</summary><h2>Endpoint</h2><pre>{shownRequest.endpoint}</pre><h2>Request body</h2><pre data-testid="request-body">{JSON.stringify(shownRequest.body, null, 2)}</pre></details><details><summary>Turn identities and source revisions</summary><pre>{JSON.stringify(shownRequest.coverage, null, 2)}</pre></details></>}
+    {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>{t("app.return_to_chat")}</button>}><Memory key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} /></ChatWorkspace>}
+    {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>{t("app.return_to_chat")}</button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...(currentToolSnapshot?.generations ?? []).map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString(locale())} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!snapshot.connection || busy} onClick={() => { setGenerationId(''); setSettledDraft(draft); }}>{t("app.preview", { value: pending ? t("interface.pending_turn") : t("interface.next_request") })}</button><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>
+      <p className="small muted">{generationId ? t("app.saved_attempt_its_ceiling_is_historical", { value: shownGeneration?.status ?? 'unavailable', value2: formatMessage(shownGeneration?.errorMessage ?? shownGeneration?.error) }) : t("app.live_preview_of_the_current_setup_and")}</p>
+      {!generationId && memoryStale && <p role="status">{t("app.memory_is_out_of_date_this_inspection")}</p>}
+      {!generationId && inspectionError && <p role="status">{inspectionError}</p>}{generationId && matchingSavedInspection?.error && <p role="alert">{formatMessage(matchingSavedInspection.error)}</p>}
+      {shownGeneration?.usage && <p className="small">{t("app.provider_reported_input_output_tokens", { value: shownGeneration.usage.inputTokens.toLocaleString(locale()), value2: shownGeneration.usage.outputTokens.toLocaleString(locale()) })}</p>}
+      {shownRequest && <>{shownRequest.warnings?.map((warning, index) => <p role="status" key={warning}>{formatMessage(shownRequest.warningMessages?.[index] ?? warning)}</p>)}<div className="budget"><strong>{t("app.estimated_input_2", { value: shownRequest.budget.inputTokens.toLocaleString(locale()), value2: shownRequest.budget.targetInputTokens.toLocaleString(locale()) })}</strong><InputMeter input={shownRequest.budget.inputTokens} limit={Math.min(shownRequest.budget.targetInputTokens, shownRequest.budget.contextWindow - shownRequest.budget.reservedOutputTokens)} /><span>{t("app.reserved_output_model_window", { value: shownRequest.budget.reservedOutputTokens.toLocaleString(locale()), value2: shownRequest.budget.contextWindow.toLocaleString(locale()) })}</span></div>{shownRequest.layout && <BudgetBreakdown request={shownRequest} />}<LoreInspection request={shownRequest} historical={Boolean(generationId)} /><details className="request-details"><summary>{t("app.endpoint_and_request_body")}</summary><h2>{t("app.endpoint")}</h2><pre>{shownRequest.endpoint}</pre><h2>{t("app.request_body")}</h2><pre data-testid="request-body">{JSON.stringify(shownRequest.body, null, 2)}</pre></details><details><summary>{t("app.turn_identities_and_source_revisions")}</summary><pre>{JSON.stringify(shownRequest.coverage, null, 2)}</pre></details></>}
     </section></ChatWorkspace>}
     {peek && currentRequest && <PromptPeek stale={memoryStale} request={currentRequest} close={() => setPeek(false)} />}
 
@@ -467,12 +473,13 @@ export function App() {
 }
 
 function Login({ session, onLogin }: { session: Session; onLogin: () => Promise<void> }) {
+  useLocale();
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useTextState('');
   const [busy, setBusy] = useState(false);
-  return <main className="login"><div className="login-card"><span className="brand-mark">O</span><p className="eyebrow">ORE</p><h1>{session.setupRequired ? 'Your stories start here.' : 'Welcome back.'}</h1><p>{session.setupRequired ? 'Create the owner password on the server computer. Use it to access your saved chat from your devices.' : 'Sign in to continue your story.'}</p><form onSubmit={async (event) => {
+  return <main className="login"><div className="login-card"><span className="brand-mark">{t("app.o")}</span><p className="eyebrow">{t("app.ore")}</p><h1>{session.setupRequired ? t("app.your_stories_start_here") : t("app.welcome_back")}</h1><p>{session.setupRequired ? t("app.create_the_owner_password_on_the_server") : t("app.sign_in_to_continue_your_story")}</p><form onSubmit={async (event) => {
     event.preventDefault(); setBusy(true); setError('');
     try { await api(session.setupRequired ? '/setup' : '/login', 'POST', { password }); setPassword(''); await onLogin(); }
-    catch (error) { setError(error instanceof Error ? error.message : 'Could not sign in.'); } finally { setBusy(false); }
-  }}><label>Owner password<input type="password" required minLength={12} maxLength={256} autoComplete={session.setupRequired ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} /></label><small className="muted">At least 12 characters.</small>{error && <p role="alert">{error}</p>}<button disabled={busy}>{busy ? 'Opening…' : session.setupRequired ? 'Create owner account' : 'Sign in'}</button></form><p className="small muted">Access from other devices requires HTTPS.</p></div></main>;
+    catch (error) { setError(errorText(error, msg("app.could_not_sign_in"))); } finally { setBusy(false); }
+  }}><label>{t("app.owner_password")}<input type="password" required minLength={12} maxLength={256} autoComplete={session.setupRequired ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} /></label><small className="muted">{t("app.at_least_12_characters")}</small>{error && <p role="alert">{error}</p>}<button disabled={busy}>{busy ? t("app.opening") : session.setupRequired ? t("app.create_owner_account") : t("app.sign_in")}</button></form><p className="small muted">{t("app.access_from_other_devices_requires_https")}</p></div></main>;
 }

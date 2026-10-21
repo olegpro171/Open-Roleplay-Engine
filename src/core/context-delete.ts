@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import { AppError } from './errors.js';
 import { summaryDependencies } from './context-corrections.js';
 import { refKey, type ContextState, type SummaryRef } from '../shared/context.js';
@@ -7,7 +8,7 @@ export function summaryDeletion(state: ContextState, ref: SummaryRef) {
   const current = state.summaries.filter(node => node.id === ref.id && node.approved)
     .sort((a, b) => b.revision - a.revision)[0];
   if (!current || current.revision !== ref.revision) {
-    throw new AppError(409, 'stale_summary', 'Reopen the current approved summary before deleting it.');
+    throw new AppError(409, 'stale_summary', message("errors.reopen_the_current_approved_summary_before_deleting_it"));
   }
   const consumers = new Map<string, Set<string>>();
   for (const node of state.summaries) {

@@ -43,7 +43,7 @@ it.each([false, true])('upgrades a populated schema 11 without rewriting existin
       } finally { old.close(); }
     }
     store = new Store(filename);
-    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(14);
+    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(15);
     expect(store.snapshot()).toEqual(before);
     expect(store.generation(completed.id)?.reasoningText).toBe('');
     expect(store.generation(pending.id)?.reasoningText).toBe('');

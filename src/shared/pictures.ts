@@ -1,3 +1,5 @@
+import { message } from './localization.js';
+import { MessageError } from './localization.js';
 import { z } from 'zod';
 
 export const pictureLimits = { bytes: 10_000_000, pixels: 40_000_000, edge: 16_384, frames: 256, previewEdge: 1600, thumbEdge: 320, previewBytes: 12_000_000, thumbBytes: 600_000, concurrent: 2, queued: 8, durationMs: 15_000 } as const;
@@ -20,7 +22,7 @@ export function cropPixels(image: PictureDimensions, input: PictureCrop): PixelC
   const crop = cropSchema.parse(input);
   const width = crop.width * image.width, height = crop.height * image.height;
   const side = Math.round(width), left = Math.round(crop.x * image.width), top = Math.round(crop.y * image.height);
-  if (Math.abs(width - height) > 0.00001 || side < Math.max(1, Math.round(Math.min(image.width, image.height) / 4)) || side > Math.min(image.width, image.height) || left + side > image.width || top + side > image.height || crop.x + crop.width > 1.000000001 || crop.y + crop.height > 1.000000001) throw new Error('Crop must be a bounded square between 1× and 4× zoom.');
+  if (Math.abs(width - height) > 0.00001 || side < Math.max(1, Math.round(Math.min(image.width, image.height) / 4)) || side > Math.min(image.width, image.height) || left + side > image.width || top + side > image.height || crop.x + crop.width > 1.000000001 || crop.y + crop.height > 1.000000001) throw new MessageError(message("importErrors.crop_must_be_a_bounded_square_between_1"));
   return { left, top, width: side, height: side };
 }
 export function cropControls(image: PictureDimensions, crop: PictureCrop) {

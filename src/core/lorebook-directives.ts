@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import type { LoreDiagnostic, LorePlacement } from '../shared/lorebook.js';
 import { AppError } from './errors.js';
 
@@ -96,7 +97,7 @@ export function parseLoreDirectives(content: string, entryId: string, placeable:
       prose.push(line);
       continue;
     }
-    if (++controlCount > 256) throw new AppError(422, 'lore_directive_limit', 'A lore entry exceeds the 256-directive safety limit. Reduce its control lines before sending.');
+    if (++controlCount > 256) throw new AppError(422, 'lore_directive_limit', message("errors.a_lore_entry_exceeds_the_256_directive_safety"));
     while (prose.length && prose.at(-1)?.trim() === '') prose.pop();
     afterControl = true;
     const body = control[2].trim();

@@ -345,6 +345,14 @@ Expand summary inspection/editing around the verified compaction flow and its in
 
 These are implementation priorities, not a delivery schedule. The application build and its core/server/browser tests now exist and pass; commands are documented in [README.md](README.md). Existing simulator validation commands remain in [VISUALIZER.md](docs/VISUALIZER.md), and that isolated experiment is unchanged.
 
+### Interface localization
+
+The browser uses i18next/react-i18next with a bundled English catalog and an initially empty Russian pack. Shared pack/diagnostic contracts and placeholder/plural validation live in `src/shared/localization.ts`; the pure engine builds English fallbacks with optional stable message descriptors, without accessing presentation locale. `src/web/localization.tsx` owns runtime resources, render-time formatting, browser preference, stale language/discovery response protection and React subscriptions. `LanguageSettings.tsx` provides pack import/template/reload and the header selector, preserving mounted editor/composer state. User text and provider request bodies remain literal.
+
+`src/server/languages.ts` owns bounded discovery, private atomic replacement, captured content-revision checks and last-valid recovery. Startup resolves the mutable directory from the installation root, independently of versioned app files and database overrides. Safe language metadata/resources are available before login; import/reload mutations retain owner, host, origin and dataset-epoch checks. Languages and browser preferences are outside SQLite content backups/import/wipe and survive staged application updates. No language code, arbitrary HTML or remote translation service is loaded.
+
+Migration 15 adds nullable `generations.error_message` beside the original error; preparation JSON and diagnostic contracts accept optional translation metadata. Historical outcomes are not guessed or rewritten. Receipt schemas retain metadata across exact retries, and backup validation/reconstruction supports schemas 12–15 while preserving historical requests. Details, extension guidance and verification limits are in [LOCALIZATION.md](docs/LOCALIZATION.md).
+
 ## 10. Decisions still to resolve
 
 The product questions in [CONCEPTS.md](CONCEPTS.md) remain authoritative. Stack approval specifically leaves these areas open:

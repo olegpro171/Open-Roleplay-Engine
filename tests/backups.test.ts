@@ -55,6 +55,8 @@ describe('portable backup persistence',() => {
   });
 
   it.each([
+    { sourceEnding: 'LF', targetEnding: 'CRLF', version: 15 },
+    { sourceEnding: 'CRLF', targetEnding: 'LF', version: 15 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 14 },
     { sourceEnding: 'CRLF', targetEnding: 'LF', version: 14 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 13 },
@@ -83,6 +85,12 @@ describe('portable backup persistence',() => {
     const expectedTurns = source.snapshot(chatId).turns;
     const path = join(directory,'input.sqlite');
     writeFileSync(path,await bytes(sourceBackups));
+    if (version === 14) {
+      const legacy = new Database(path);
+      legacy.exec('ALTER TABLE generations DROP COLUMN error_message; PRAGMA user_version = 14');
+      legacy.exec("UPDATE backup_metadata SET data = json_set(data, '$.schema', 14)");
+      legacy.close();
+    }
     if (version < 14) {
       const legacy = new Database(path);
       try {
@@ -101,13 +109,13 @@ describe('portable backup persistence',() => {
     const before = target.persistence.token;
     const review = target.upload(input,owner);
     expect(review.blockers).toEqual([]);
-    expect(review.metadata?.schema ?? null).toBe(version === 14 ? 14 : null);
+    expect(review.metadata?.schema ?? null).toBe(version >= 14 ? version : null);
     expect(target.page(review.stageId,owner,'turns',0,chatId).total).toBe(2);
     expect(target.persistence.token).toBe(before);
     target.commit(review.stageId,owner,receipt(review));
     expect(destination.snapshot(chatId).turns).toEqual(expectedTurns);
-    expect(destination.libraries().dates[cid]).toEqual(version === 14 ? source.libraries().dates[cid] : { createdAt: null, updatedAt: null });
-    expect(destination.libraries().chats.find(chat => chat.id === chatId)?.lastMessageAt).toBe(version === 14 ? source.libraries().chats.find(chat => chat.id === chatId)?.lastMessageAt : null);
+    expect(destination.libraries().dates[cid]).toEqual(version >= 14 ? source.libraries().dates[cid] : { createdAt: null, updatedAt: null });
+    expect(destination.libraries().chats.find(chat => chat.id === chatId)?.lastMessageAt).toBe(version >= 14 ? source.libraries().chats.find(chat => chat.id === chatId)?.lastMessageAt : null);
     expect(destination.libraries().characters.map(item => item.id)).toEqual(expect.arrayContaining([cid,retained]));
     expect(readFileSync(path)).toEqual(input);
   });
@@ -244,7 +252,7 @@ it('protects authenticated routes and rejects old-tab commands even when restore
     expect(downloaded.statusCode).toBe(200); expect(downloaded.headers['content-disposition']).toContain('ORE-backup');
     const rejected = await app.app.inject({ method: 'POST',url: '/api/data/stages',headers: { host: 'localhost',origin: 'http://localhost','content-type': 'application/octet-stream',cookie },payload: Buffer.alloc(100) });
     expect(rejected.statusCode).toBe(422);
-    expect(rejected.json()).toEqual({ code: 'invalid_backup',message: 'This file is not a valid ORE backup.',details: 'File does not have the SQLite 3 header signature.' });
+    expect(rejected.json()).toEqual({ code: 'invalid_backup',message: 'This file is not a valid ORE backup.',localized: { key: 'errors.invalidBackup', fallback: 'This file is not a valid ORE backup.' },details: 'File does not have the SQLite 3 header signature.' });
     expect(app.store.snapshot().revision).toBe(revision);
     const staged = await app.app.inject({ method: 'POST',url: '/api/data/stages',headers: { host: 'localhost',origin: 'http://localhost','content-type': 'application/octet-stream',cookie },payload: downloaded.rawPayload });
     expect(staged.statusCode,staged.body).toBe(200);

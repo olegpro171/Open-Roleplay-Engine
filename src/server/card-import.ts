@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import { inflateSync } from 'node:zlib';
 import { AppError } from '../core/errors.js';
 
@@ -6,7 +7,7 @@ export function readCardFile(base64: string): unknown {
 }
 export function readCharacterCardFile(base64: string, fileLimit = 10_000_000): { value: unknown; artwork?: Buffer } {
   const bytes = Buffer.from(base64, 'base64');
-  if (bytes.length > fileLimit) throw new AppError(400, 'card_too_large', `Card files are limited to ${fileLimit / 1_000_000} MB.`);
+  if (bytes.length > fileLimit) throw new AppError(400, 'card_too_large', message("errors.card_files_are_limited_to_mb", { value: String(fileLimit / 1_000_000) }));
   let artwork: Buffer | undefined;
   let json = '';
   if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
@@ -14,9 +15,9 @@ export function readCharacterCardFile(base64: string, fileLimit = 10_000_000): {
     let selected: { keyword: string; type: string; payload: Buffer } | undefined;
     let chunks = 0;
     for (let offset = 8; offset + 12 <= bytes.length;) {
-      if (++chunks > 20_000) throw new AppError(400, 'card_chunk_limit', 'This PNG has too many chunks. Export a simpler card PNG.');
+      if (++chunks > 20_000) throw new AppError(400, 'card_chunk_limit', message("errors.this_png_has_too_many_chunks_export_a"));
       const size = bytes.readUInt32BE(offset), type = bytes.toString('ascii', offset + 4, offset + 8);
-      if (offset + 12 + size > bytes.length) throw new AppError(400, 'invalid_png', 'The PNG card is truncated.');
+      if (offset + 12 + size > bytes.length) throw new AppError(400, 'invalid_png', message("errors.the_png_card_is_truncated"));
       if (['tEXt', 'zTXt', 'iTXt'].includes(type)) {
         const chunk = bytes.subarray(offset + 8, offset + 8 + size);
         // PNG keywords are at most 79 bytes. Never scan/convert compressed artwork
@@ -24,7 +25,7 @@ export function readCharacterCardFile(base64: string, fileLimit = 10_000_000): {
         const zero = chunk.subarray(0, 80).indexOf(0);
         const keyword = zero < 0 ? '' : chunk.toString('ascii', 0, zero);
         if (['chara', 'ccv3'].includes(keyword)) {
-          if (chunk.length > 2_000_000) throw new AppError(400, 'card_metadata_too_large', 'Embedded metadata text is limited to 2 MB before base64 decoding.');
+          if (chunk.length > 2_000_000) throw new AppError(400, 'card_metadata_too_large', message("errors.embedded_metadata_text_is_limited_to_2_mb"));
           if (!selected || keyword === 'ccv3' && selected.keyword !== 'ccv3') selected = { keyword, type, payload: chunk.subarray(zero + 1) };
         }
       }
@@ -47,14 +48,14 @@ export function readCharacterCardFile(base64: string, fileLimit = 10_000_000): {
         const decoded = Buffer.from(payload.toString('ascii'), 'base64');
         if (decoded.length > 2_000_000) throw new Error();
         json = new TextDecoder('utf-8', { fatal: true }).decode(decoded);
-      } catch { throw new AppError(400, 'invalid_png', 'The embedded character data could not be decoded.'); }
+      } catch { throw new AppError(400, 'invalid_png', message("errors.the_embedded_character_data_could_not_be_decoded")); }
     }
-    if (!json) throw new AppError(400, 'missing_card', 'This PNG has no embedded character card. Import a character JSON or card PNG.');
+    if (!json) throw new AppError(400, 'missing_card', message("errors.this_png_has_no_embedded_character_card_import"));
   }
-  if (!artwork && bytes.length > 2_000_000) throw new AppError(400, 'card_too_large', 'JSON cards are limited to 2 MB.');
+  if (!artwork && bytes.length > 2_000_000) throw new AppError(400, 'card_too_large', message("errors.json_cards_are_limited_to_2_mb"));
   try {
     if (!artwork) json = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     return { value: JSON.parse(json.replace(/^\uFEFF/, '')), artwork };
   }
-  catch { throw new AppError(400, 'invalid_card', 'The file does not contain valid card JSON.'); }
+  catch { throw new AppError(400, 'invalid_card', message("errors.the_file_does_not_contain_valid_card_json")); }
 }

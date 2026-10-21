@@ -1,3 +1,4 @@
+import { t, useLocale, locale } from './localization';
 import { Icon } from './Icon';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -9,6 +10,7 @@ type DropdownProps = {
 };
 
 export function Dropdown({ value, onChange, options, disabled, editable, required, 'aria-label': label }: DropdownProps) {
+  useLocale();
   const id = useId(), anchor = useRef<HTMLDivElement>(null), popup = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false), [active, setActive] = useState(0);
   const [position, setPosition] = useState({ left: 0, top: 0, width: 0, maxHeight: 280 });
@@ -62,17 +64,19 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   };
   return <div className="dropdown" ref={anchor}>
     {editable ? <input {...props} required={required} autoComplete="off" value={value} onFocus={show} onClick={show} onChange={event => { onChange(event.target.value); setActive(0); setOpen(true); }} />
-      : <button {...props} type="button" className="select-trigger" onClick={() => expanded ? setOpen(false) : show()}>{options.find(option => option.value === value)?.label ?? 'None selected'}<Icon name="ArrowShortBottom" /></button>}
+      : <button {...props} type="button" className="select-trigger" onClick={() => expanded ? setOpen(false) : show()}>{options.find(option => option.value === value)?.label ?? t("character_editor.none_selected")}<Icon name="ArrowShortBottom" /></button>}
     {expanded && createPortal(<div ref={popup} id={id} role="listbox" aria-label={label} className="select-menu" style={position} onMouseDown={event => event.preventDefault()}>{visible.map((option, index) => <div role="option" id={`${id}-${index}`} key={option.value} aria-selected={option.value === value} aria-disabled={option.disabled || undefined} data-active={index === activeIndex} onPointerMove={() => setActive(index)} onClick={() => choose(option)}>{option.label}{option.value === value && <Icon name="Check" />}</div>)}</div>, document.body)}
   </div>;
 }
 
 export function NumberInput({ value, onChange, min = 1, max = 10_000_000, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max' | 'type'> & { value: number; onChange: (value: number) => void; min?: number; max?: number }) {
+  useLocale();
+  const numberLocale = locale();
   const [text, setText] = useState(String(value));
   const input = useRef<HTMLInputElement>(null);
   const published = useRef(value);
   useEffect(() => { if (value !== published.current) { setText(String(value)); published.current = value; } }, [value]);
-  useEffect(() => { input.current?.setCustomValidity(text !== '' && (!/^\d+$/.test(text) || Number(text) < min || Number(text) > max) ? `Enter a whole number from ${min.toLocaleString()} to ${max.toLocaleString()}.` : ''); }, [text, min, max]);
+  useEffect(() => { input.current?.setCustomValidity(text !== '' && (!/^\d+$/.test(text) || Number(text) < min || Number(text) > max) ? t("controls.enter_a_whole_number_from_to", { value: min.toLocaleString(numberLocale), value2: max.toLocaleString(numberLocale) }) : ''); }, [text, min, max, numberLocale]);
   return <input {...props} ref={input} type="text" inputMode="numeric" pattern="[0-9]+" value={text} onChange={event => {
     const next = event.target.value; setText(next);
     if (/^\d+$/.test(next)) { published.current = Number(next); onChange(published.current); }

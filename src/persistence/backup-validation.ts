@@ -5,10 +5,11 @@ import { BackupValidationError } from '../core/errors.js';
 import { chatSettingsSchema, connectionSchema, type RequestPreview } from '../shared/contracts.js';
 import { libraryCharacterSchema, libraryPersonaSchema, promptSchema } from '../shared/library.js';
 import { summaryRetrySchema, contextPresetSchema, type SummaryNode, type ContextJob, type ContextStep } from '../shared/context.js';
-import { lorebookSchema, lorePlacements, loreRoleSchema } from '../shared/lorebook.js';
+import { lorebookSchema, loreDiagnosticSchema, lorePlacements, loreRoleSchema } from '../shared/lorebook.js';
 import { canonicalTagName, tagNameSchema } from '../shared/tags.js';
 import { cropPixels, cropSchema, pictureLimits } from '../shared/pictures.js';
 import { backupLimits, backupTables, type BackupTable } from '../shared/backups.js';
+import { localizedMessageSchema } from '../shared/localization.js';
 
 export type BackupRow = Record<string, string | number | null | Buffer>;
 export const rowSchema = z.record(z.string(), z.union([z.string(), z.number().finite(), z.null(), z.instanceof(Buffer)]));
@@ -64,7 +65,7 @@ const selection = z.object({ selected: refs, archivedTurnIds: z.array(id).max(ba
 const source = z.object({ turnId: id, userRevision: integer, assistantRevision: integer, complete: z.boolean() });
 const node = z.object({ id, revision: integer, level: integer.positive(), text: z.string().max(1_000_000), turns: z.array(source), children: refs, prior: refs, corrections: refs.optional(), basedOn: ref.optional(), approved: z.boolean(), manual: z.boolean(), createdAt: z.string() }) satisfies z.ZodType<SummaryNode>;
 const entryState = z.object({ fingerprint: z.string(), matches: integer });
-const diagnostic = z.object({ code: z.string(), message: z.string(), entryId: z.string().optional(), field: z.string().optional() });
+const diagnostic = loreDiagnosticSchema;
 const loreResolution = z.object({
   version: z.literal('ore-lore-v1'), detailsAvailable: z.boolean().optional(),
   book: ref.extend({ name: z.string() }), epoch: integer,
@@ -76,16 +77,16 @@ const loreResolution = z.object({
 });
 const usageSchema = z.object({ inputTokens: integer, outputTokens: integer, totalTokens: integer });
 const requestSchema = z.object({
-  layout: z.array(z.object({ messageIndex: integer, kind: z.enum(['prompt','character','persona','memory','history','draft','lore']), label: z.string(), tokens: integer, group: z.object({ id: z.string(), label: z.string() }).optional() })).optional(),
-  warnings: z.array(z.string()).optional(), context: selection.optional(), history: z.object({ mode: z.enum(['managed','recent']), verbatimTurnIds: z.array(id) }).optional(),
+  layout: z.array(z.object({ messageIndex: integer, kind: z.enum(['prompt','character','persona','memory','history','draft','lore']), label: z.string(), labelMessage: localizedMessageSchema.optional(), tokens: integer, group: z.object({ id: z.string(), label: z.string() }).optional() })).optional(),
+  warnings: z.array(z.string()).optional(), warningMessages: z.array(localizedMessageSchema).optional(), context: selection.optional(), history: z.object({ mode: z.enum(['managed','recent']), verbatimTurnIds: z.array(id) }).optional(),
   lore: loreResolution.nullable().optional(), summarySources: z.array(z.object({ turnId: id, user: z.string(), assistant: z.string() })).optional(),
   endpoint: z.string(), body: z.object({ model: z.string(), messages: z.array(z.object({ role: z.enum(['system','user','assistant']), content: z.string() })), stream: z.literal(true), max_tokens: integer.positive() }),
   coverage: z.array(source), budget: z.object({ inputTokens: integer, targetInputTokens: integer.positive(), reservedOutputTokens: integer.positive(), contextWindow: integer.positive(), method: z.string(), verified: z.literal(false), counting: z.object({ kind: z.enum(['reference','model','fallback']), tokenizer: z.string().nullable(), implementation: z.string().optional(), tokenizerRevision: z.string().optional(), framing: z.enum(['estimated-recipe','fallback']), fallbackReason: z.string().nullable(), limitations: z.string() }).optional() }),
 }) satisfies z.ZodType<RequestPreview>;
 const operation = z.object({ level: integer.positive(), turnIds: z.array(id), children: refs, repair: ref.optional(), reconcile: refs.optional() });
-const refreshSchema = z.object({ before: selection, after: selection, inputBefore: integer, inputAfter: integer, verbatimBefore: integer, verbatimAfter: integer, changed: z.boolean(), protectedSummaries: integer, limited: z.boolean(), limitation: z.string().optional() });
-const jobSchema = z.object({ retry: summaryRetrySchema.optional(), refresh: refreshSchema.optional(), finalRefresh: refreshSchema.optional(), repairCommands: z.record(z.string(),z.string()).optional(), outcome: z.object({ inputTokens: integer, verbatimTurns: integer }).optional(), reusedCount: integer.optional(), generatedCount: integer.optional(), reviewedCount: integer.optional(), unchangedCount: integer.optional(), revalidatedCount: integer.optional(), id, chatId: id, status: z.enum(['running','awaiting_review','succeeded','failed','cancelled','interrupted']), mode: z.enum(['prepare','step','repair','refresh']), generationId: id.nullable(), sourceRevision: integer, config: contextPresetSchema.extend({ id, revision: integer }), stepCount: integer, error: z.string().nullable(), historyTurnIds: z.array(id), createdAt: z.string(), updatedAt: z.string() }) satisfies z.ZodType<ContextJob>;
-const stepSchema = z.object({ resultDeleted: z.literal(true).optional(), reused: z.boolean().optional(), repairOutcome: z.enum(['model_unchanged','inputs_unchanged']).optional(), id, jobId: id, status: z.enum(['running','saved','candidate','discarded','failed','interrupted']), operation, request: requestSchema.nullable(), result: ref.nullable(), before: selection, after: selection.nullable(), inputBefore: integer, inputAfter: integer.nullable(), error: z.string().nullable(), createdAt: z.string() }) satisfies z.ZodType<ContextStep>;
+const refreshSchema = z.object({ before: selection, after: selection, inputBefore: integer, inputAfter: integer, verbatimBefore: integer, verbatimAfter: integer, changed: z.boolean(), protectedSummaries: integer, limited: z.boolean(), limitation: z.string().optional(), limitationMessage: localizedMessageSchema.optional() });
+const jobSchema = z.object({ errorMessage: localizedMessageSchema.optional(), retry: summaryRetrySchema.optional(), refresh: refreshSchema.optional(), finalRefresh: refreshSchema.optional(), repairCommands: z.record(z.string(),z.string()).optional(), outcome: z.object({ inputTokens: integer, verbatimTurns: integer }).optional(), reusedCount: integer.optional(), generatedCount: integer.optional(), reviewedCount: integer.optional(), unchangedCount: integer.optional(), revalidatedCount: integer.optional(), id, chatId: id, status: z.enum(['running','awaiting_review','succeeded','failed','cancelled','interrupted']), mode: z.enum(['prepare','step','repair','refresh']), generationId: id.nullable(), sourceRevision: integer, config: contextPresetSchema.extend({ id, revision: integer }), stepCount: integer, error: z.string().nullable(), historyTurnIds: z.array(id), createdAt: z.string(), updatedAt: z.string() }) satisfies z.ZodType<ContextJob>;
+const stepSchema = z.object({ errorMessage: localizedMessageSchema.optional(), resultDeleted: z.literal(true).optional(), reused: z.boolean().optional(), repairOutcome: z.enum(['model_unchanged','inputs_unchanged']).optional(), id, jobId: id, status: z.enum(['running','saved','candidate','discarded','failed','interrupted']), operation, request: requestSchema.nullable(), result: ref.nullable(), before: selection, after: selection.nullable(), inputBefore: integer, inputAfter: integer.nullable(), error: z.string().nullable(), createdAt: z.string() }) satisfies z.ZodType<ContextStep>;
 
 function validateRendition(bytes: Buffer, edge: number) {
   const signature = Buffer.from([137,80,78,71,13,10,26,10]);
@@ -157,6 +158,7 @@ export function validateContent(db: Database.Database) {
     if (turns.get(str(row, 'turn_id'))?.chat_id !== row.chat_id) throw invalidBackup('A generation references a turn in another chat or a missing turn.');
     if (row.request !== null) parseRecord(requestSchema,row,'generations','request');
     if (row.usage !== null) parseRecord(usageSchema,row,'generations','usage');
+    if (row.error_message !== null) parseRecord(localizedMessageSchema,row,'generations','error_message');
     if (row.context_selection !== null) selection.extend({ revision: integer }).parse(json(row, 'context_selection'));
   }
   const nodes = new Map<string, { chat: string; value: z.infer<typeof node> }>();

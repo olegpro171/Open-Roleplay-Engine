@@ -1,8 +1,10 @@
+import { blockedText } from '../shared/localization.js';
+import { message } from '../shared/localization.js';
 import { AppError } from './errors.js';
 import type { Turn } from '../shared/contracts.js';
 import { refKey, type ContextOperation, type ContextPreset, type ContextState, type SummaryNode, type SummaryRef, type TurnSource } from '../shared/context.js';
 
-import { correctionMessage, correctionProtection, latestApproved, summaryDependencies } from './context-corrections.js';
+import { correctionMessage, correctionDiagnostic, correctionProtection, latestApproved, summaryDependencies } from './context-corrections.js';
 
 export const sourceOf = (turn: Turn) => ({ turnId: turn.id, userRevision: turn.user.revision, assistantRevision: turn.assistant.sourceRevision ?? turn.assistant.revision, complete: turn.complete });
 export const nodeFor = (state: ContextState, ref: SummaryRef) => state.summaries.find(node => refKey(node) === refKey(ref));
@@ -42,37 +44,37 @@ export function selectedContext(turns: Turn[], state: ContextState, allowStale =
   const prefix = turns.slice(0, state.archivedTurnIds.length);
   const byRef = new Map(state.summaries.map(node => [refKey(node), node]));
   const nodes = state.selected.map(ref => byRef.get(refKey(ref)));
-  if (nodes.some(node => !node || !node.approved)) throw new AppError(422, 'invalid_context', 'The saved context selection contains a missing or unapproved summary.');
+  if (nodes.some(node => !node || !node.approved)) throw new AppError(422, 'invalid_context', message("errors.the_saved_context_selection_contains_a_missing_or"));
   const summaries = nodes as SummaryNode[];
   const coverage = summaries.flatMap(node => node.turns.map(source => source.turnId));
   const prefixIds = prefix.map(turn => turn.id);
   const complete = prefix.every(turn => turn.complete);
   if (!allowStale && (!complete || JSON.stringify(prefixIds) !== JSON.stringify(state.archivedTurnIds) || JSON.stringify(coverage) !== JSON.stringify(prefixIds))) {
-    throw new AppError(422, 'stale_context', 'Summary coverage changed. Repair and review the affected memory before continuing.');
+    throw new AppError(422, 'stale_context', message("errors.summary_coverage_changed_repair_and_review_the_affected"));
   }
   const stale = allowStale ? new Set<string>() : staleSummaries(turns, state);
   if (!allowStale && state.selected.some(ref => stale.has(refKey(ref)))) {
-    throw new AppError(422, 'stale_context', 'Selected memory is out of date. Repair and review it before continuing.');
+    throw new AppError(422, 'stale_context', message("errors.selected_memory_is_out_of_date_repair_and"));
   }
   const archived = new Set(state.archivedTurnIds);
   return { summaries, verbatim: turns.filter(turn => !archived.has(turn.id)) };
 }
 
 /** Budget-driven state transition; callers measure and commit the actual replacement. */
-export function nextCompaction(turns: Turn[], state: ContextState, config: ContextPreset, input: number, limit: number, required: number, summarySizes: Map<string, number>): { next: ContextOperation | null; blocked: string | null } {
+export function nextCompaction(turns: Turn[], state: ContextState, config: ContextPreset, input: number, limit: number, required: number, summarySizes: Map<string, number>): { next: ContextOperation | null; blocked: string | null; blockedMessage?: import('../shared/localization.js').LocalizedMessage } {
   const { summaries, verbatim } = selectedContext(turns, state);
-  if (correctionProtection(turns, state).unresolved.length) return { next: null, blocked: correctionMessage };
+  if (correctionProtection(turns, state).unresolved.length) return { next: null, ...blockedText(correctionDiagnostic) };
   const completed = verbatim.filter(turn => turn.complete);
-  if (state.archivedTurnIds.length && completed.length < config.minTail) return { next: null, blocked: 'The saved cutoff no longer leaves the configured minimum tail. Use Prepare chat to reconsider saved memory, or adjust the minimum tail or clear memory.' };
+  if (state.archivedTurnIds.length && completed.length < config.minTail) return { next: null, ...blockedText(message("diagnostics.the_saved_cutoff_no_longer_leaves_the_configured")) };
   if (input <= limit) return { next: null, blocked: null };
   if (completed.length >= config.minTail + config.batchSize) {
     return { next: { level: 1, turnIds: completed.slice(0, config.batchSize).map(turn => turn.id), children: [] }, blocked: null };
   }
-  if (required > limit) return { next: null, blocked: 'The required verbatim tail, pending input and prompt exceed the input limit. Adjust the target, Connection limits or minimum tail; no complete turn batch is eligible.' };
+  if (required > limit) return { next: null, ...blockedText(message("diagnostics.the_required_verbatim_tail_pending_input_and_prompt")) };
   const pool = limit - required;
-  if (pool <= 0) return { next: null, blocked: 'No input capacity remains for summaries covering archived history.' };
+  if (pool <= 0) return { next: null, ...blockedText(message("diagnostics.no_input_capacity_remains_for_summaries_covering_archived")) };
   const best = rankedPromotions(summaries, config, summarySizes)[0];
-  if (!best) return { next: null, blocked: 'No complete promotion group satisfies the retained-summary floor. Adjust the settings explicitly.' };
+  if (!best) return { next: null, ...blockedText(message("diagnostics.no_complete_promotion_group_satisfies_the_retained_summary")) };
   return { next: best, blocked: null };
 }
 
@@ -160,9 +162,9 @@ export function repairQueue(turns: Turn[], state: ContextState, replacements = n
     const current = currentRef(ref), key = refKey(current);
     if (refKey(ref) !== key) replacements.set(refKey(ref), nodeFor(state, current)?.turns.length ? current : null);
     if (visited.has(key)) return;
-    if (visiting.has(key)) throw new AppError(422, 'invalid_context', 'Memory dependencies form a cycle. Review the conflicting summaries before preparing memory.');
+    if (visiting.has(key)) throw new AppError(422, 'invalid_context', message("errors.memory_dependencies_form_a_cycle_review_the_conflicting"));
     const node = nodeFor(state, current);
-    if (!node) throw new AppError(422, 'invalid_context', 'A summary dependency is missing.');
+    if (!node) throw new AppError(422, 'invalid_context', message("errors.a_summary_dependency_is_missing"));
     const children = node.children.map(currentRef).filter(child => Boolean(nodeFor(state, child)?.turns.length));
     const incorporated = (node.corrections ?? []).map(currentRef);
     const projected = { ...node, children, corrections: incorporated };

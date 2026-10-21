@@ -202,7 +202,7 @@ it.each([false, true])('upgrades populated schema 10 atomically and preserves le
   }
   await f.reopen();
   const after = f.state();
-  expect(f.store.sqlite.pragma('user_version', { simple: true })).toBe(14);
+  expect(f.store.sqlite.pragma('user_version', { simple: true })).toBe(15);
   expect(Object.fromEntries(tables.map(table => [table, legacyRows(f.store.sqlite, table)]))).toEqual(records);
   expect(after.turns.map(turn => ({ id: turn.id, complete: turn.complete, user: turn.user, text: turn.assistant.text, revision: turn.assistant.revision })))
     .toEqual(before.turns.map(turn => ({ id: turn.id, complete: turn.complete, user: turn.user, text: turn.assistant.text, revision: turn.assistant.revision })));

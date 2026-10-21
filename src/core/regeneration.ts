@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import type { ChatSnapshot } from '../shared/contracts.js';
 import { refKey } from '../shared/context.js';
 import { hasPromptMarker } from '../shared/library.js';
@@ -7,7 +8,7 @@ import { summaryDependencies } from './context-corrections.js';
 /** A request-local endpoint. The stored turn remains complete throughout. */
 export function regenerationView(snapshot: ChatSnapshot): ChatSnapshot {
   const target = snapshot.turns.at(-1);
-  if (!target?.complete) throw new AppError(409, 'no_completed_turn', 'Only the latest completed turn can be regenerated.');
+  if (!target?.complete) throw new AppError(409, 'no_completed_turn', message("errors.only_the_latest_completed_turn_can_be_regenerated"));
   const turns = snapshot.turns.map(turn => turn.id === target.id
     ? { ...turn, complete: false, assistant: { ...turn.assistant, text: '' } } : turn);
   const earlier = new Set(turns.slice(0, -1).map(turn => turn.id));
@@ -30,7 +31,7 @@ export function regenerationView(snapshot: ChatSnapshot): ChatSnapshot {
     const latest = new Map<string, typeof snapshot.context.summaries[number]>();
     for (const node of snapshot.context.summaries) if (node.approved && node.revision > (latest.get(node.id)?.revision ?? -1)) latest.set(node.id, node);
     if ([...latest.values()].some(node => node.manual && node.turns.some(source => source.turnId === target.id))) {
-      throw new AppError(422, 'regeneration_correction_conflict', 'A manually corrected summary includes this response. Preserve that correction in the transcript and clear memory before regenerating this turn.');
+      throw new AppError(422, 'regeneration_correction_conflict', message("errors.a_manually_corrected_summary_includes_this_response_preserve"));
     }
   }
   // Keep only the valid selected prefix. A parent crossing the endpoint cannot

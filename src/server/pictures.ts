@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import { fork, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +12,7 @@ export type { PreparedPicture } from '../persistence/picture-data.js';
 import type { PreparedPicture } from '../persistence/picture-data.js';
 export function pictureBytes(base64: string) {
   const bytes = Buffer.from(pictureBase64Schema.parse(base64), 'base64');
-  if (bytes.length > pictureLimits.bytes) throw new AppError(400, 'picture_too_large', 'Pictures are limited to 10 MB.');
+  if (bytes.length > pictureLimits.bytes) throw new AppError(400, 'picture_too_large', message("pictures.pictures_are_limited_to_10_mb"));
   return bytes;
 }
 export function pictureDigest(bytes: Buffer) { return createHash('sha256').update(bytes).digest('hex'); }
@@ -26,22 +27,22 @@ export class PictureProcessor {
   private closed = false;
   constructor(private readonly durationMs: number = pictureLimits.durationMs) {}
   process(bytes: Buffer, crop?: PictureCrop, signal?: AbortSignal): Promise<PreparedPicture> {
-    if (bytes.length > pictureLimits.bytes) return Promise.reject(new AppError(400, 'picture_too_large', 'Pictures are limited to 10 MB.'));
+    if (bytes.length > pictureLimits.bytes) return Promise.reject(new AppError(400, 'picture_too_large', message("pictures.pictures_are_limited_to_10_mb")));
     return new Promise((resolve, reject) => {
-      if (this.closed || signal?.aborted) { reject(new AppError(409, 'picture_cancelled', 'Picture processing was cancelled.')); return; }
-      if (this.queue.length >= pictureLimits.queued) { reject(new AppError(503, 'pictures_busy', 'Picture processing is busy. Try again shortly.')); return; }
+      if (this.closed || signal?.aborted) { reject(new AppError(409, 'picture_cancelled', message("errors.picture_processing_was_cancelled"))); return; }
+      if (this.queue.length >= pictureLimits.queued) { reject(new AppError(503, 'pictures_busy', message("errors.picture_processing_is_busy_try_again_shortly"))); return; }
       const work: Work = { bytes, crop, signal, deadline: Date.now() + Math.min(pictureLimits.durationMs, Math.max(1, this.durationMs)), resolve, reject, abort: () => {} };
       work.abort = () => {
         const index = this.queue.indexOf(work);
         if (index < 0) return;
         this.queue.splice(index, 1); clearTimeout(work.timer); signal?.removeEventListener('abort', work.abort);
-        reject(new AppError(409, 'picture_cancelled', 'Picture processing was cancelled.'));
+        reject(new AppError(409, 'picture_cancelled', message("errors.picture_processing_was_cancelled")));
       };
       signal?.addEventListener('abort', work.abort, { once: true });
       work.timer = setTimeout(() => {
         const index = this.queue.indexOf(work);
         if (index < 0) return;
-        this.queue.splice(index, 1); signal?.removeEventListener('abort', work.abort); reject(new AppError(422, 'picture_timeout', 'Picture processing timed out. Choose a smaller picture and retry.'));
+        this.queue.splice(index, 1); signal?.removeEventListener('abort', work.abort); reject(new AppError(422, 'picture_timeout', message("errors.picture_processing_timed_out_choose_a_smaller_picture")));
       }, Math.max(1, work.deadline - Date.now()));
       this.queue.push(work); this.drain();
     });
@@ -64,17 +65,17 @@ export class PictureProcessor {
           if (result.success) work.resolve({ ...result.data, original: work.bytes, digest: pictureDigest(work.bytes), renditionVersion: 1 });
           else {
             const failure = z.object({ ok: z.literal(false), message: z.string().max(500) }).safeParse(value);
-            work.reject(new AppError(422, 'invalid_picture', failure.success ? failure.data.message : 'Picture processing failed. Choose another picture.'));
+            work.reject(new AppError(422, 'invalid_picture', failure.success ? failure.data.message : message("errors.picture_processing_failed_choose_another_picture")));
           }
         }
       };
-      const abort = () => finish(new AppError(409, 'picture_cancelled', 'Picture processing was cancelled.'));
+      const abort = () => finish(new AppError(409, 'picture_cancelled', message("errors.picture_processing_was_cancelled")));
       this.active.set(child, abort);
-      const timer = setTimeout(() => finish(new AppError(422, 'picture_timeout', 'Picture processing timed out. Choose a smaller picture and retry.')), Math.max(1, work.deadline - Date.now()));
+      const timer = setTimeout(() => finish(new AppError(422, 'picture_timeout', message("errors.picture_processing_timed_out_choose_a_smaller_picture"))), Math.max(1, work.deadline - Date.now()));
       work.signal?.addEventListener('abort', abort, { once: true });
       child.once('message', value => finish(undefined, value));
-      child.once('error', () => finish(new AppError(422, 'picture_failed', 'Picture processing could not start. Retry or choose another picture.')));
-      child.once('exit', () => { finish(new AppError(422, 'picture_failed', 'Picture processing stopped. Retry or choose a smaller picture.')); this.active.delete(child); this.drain(); });
+      child.once('error', () => finish(new AppError(422, 'picture_failed', message("errors.picture_processing_could_not_start_retry_or_choose"))));
+      child.once('exit', () => { finish(new AppError(422, 'picture_failed', message("errors.picture_processing_stopped_retry_or_choose_a_smaller"))); this.active.delete(child); this.drain(); });
       child.send({ bytes: work.bytes, crop: work.crop });
       if (work.signal?.aborted) abort();
     }

@@ -1,6 +1,8 @@
+import { promptLabel } from '../shared/localization.js';
+import { message } from '../shared/localization.js';
 import type { ChatSettings, Connection, Message, PromptEntry, RequestPreview, Turn } from '../shared/contracts.js';
 import { AppError } from './errors.js';
-import { characterFieldLabels, defaultPrompt, hasPromptMarker, promptSchema, promptWarnings, type PromptSources } from '../shared/library.js';
+import { characterFieldLabels, defaultPrompt, hasPromptMarker, promptSchema, promptWarnings, promptWarningMessages, type PromptSources } from '../shared/library.js';
 import type { ContextState, SummaryNode } from '../shared/context.js';
 import { assertCorrectionSelection } from './context-corrections.js';
 import { selectedContext, sourceOf } from './context.js';
@@ -33,7 +35,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   const resolved = summariesEnabled && context ? selectedContext(turns, context, options.allowStale) : { summaries: [], verbatim: turns };
   const summary = resolved.summaries.map(node => summaryText(node, turns)).join('\n\n');
   const positions = new Map(turns.map((turn, index) => [turn.id, index + 1]));
-  type Entry = { message: Message; kind: PromptEntry['kind']; label: string; group?: PromptEntry['group'] };
+  type Entry = { message: Message; kind: PromptEntry['kind']; label: string; labelMessage?: PromptEntry['labelMessage']; group?: PromptEntry['group'] };
   let entries: Entry[] = [];
   const warnings = promptWarnings(preset);
   let historyIndex: number | null = null;
@@ -43,17 +45,17 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   let depthNote: { depth: number; entry: Entry } | null = null;
   if (messagesBlock?.kind === 'marker' && messagesBlock.allowDepthPrompt) {
     const note = readCharacterDepthPrompt(card ?? {});
-    if (!note.success) throw new AppError(422, 'invalid_character_depth_prompt', 'This character’s depth note has invalid settings. Edit the character to clear or replace it before generating.');
+    if (!note.success) throw new AppError(422, 'invalid_character_depth_prompt', message("errors.this_character_s_depth_note_has_invalid_settings"));
     if (note.data.prompt.trim()) depthNote = {
       depth: note.data.depth,
-      entry: { message: { role: note.data.role, content: resolve(note.data.prompt) }, kind: 'character', label: `Character depth note · depth ${note.data.depth}` },
+      entry: { message: { role: note.data.role, content: resolve(note.data.prompt) }, kind: 'character', ...promptLabel(message("diagnostics.character_depth_note_depth", { depth: String(note.data.depth) })) },
     };
   }
-  if (sources?.lorebook && !options.lore) throw new AppError(422, 'lore_unresolved', 'Resolve the selected lorebook from the original transcript before planning this request.');
+  if (sources?.lorebook && !options.lore) throw new AppError(422, 'lore_unresolved', message("errors.resolve_the_selected_lorebook_from_the_original_transcript"));
   // Saved request inspection reads immutable bodies directly. An unfinished old
   // operation must explicitly resolve again instead of dropping retired anchors.
   if (options.lore?.outcomes.some(outcome => outcome.destination?.controlId !== undefined)) {
-    throw new AppError(409, 'lore_layout_changed', 'This operation captured lore with an older prompt layout. Regenerate the repair or start preparation again to use the current layout. Previously saved memory remains intact.');
+    throw new AppError(409, 'lore_layout_changed', message("errors.this_operation_captured_lore_with_an_older_prompt"));
   }
   const admitted = options.lore?.outcomes.filter(outcome => outcome.status === 'admitted' && outcome.destination) ?? [];
   const groups = new Map(preset.blocks.filter(block => block.enabled && block.kind === 'marker' && block.marker === 'character').map(block => [block.id, { id: block.id, label: block.name }]));
@@ -63,7 +65,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     const group = fieldRelative && destination.anchorId ? groups.get(destination.anchorId) : undefined;
     return {
       message: { role: destination?.role ?? 'system', content: entry.text },
-      kind: 'lore', label: `Lore · ${entry.name}`, ...(group ? { group } : {}),
+      kind: 'lore', ...promptLabel(message("prompt_peek.lore_2", { name: String(entry.name) })), ...(group ? { group } : {}),
     };
   };
   const historyLore = admitted.filter(entry => entry.destination?.placement === 'history');
@@ -79,7 +81,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     if (block.kind === 'marker' && (block.marker === 'card_system_prompt' || block.marker === 'card_post_history_instructions')) {
       const field = block.marker === 'card_system_prompt' ? 'system_prompt' : 'post_history_instructions';
       const instruction = resolveCardInstruction(card, field, block.fallback ?? '', sources?.persona?.name ?? 'You');
-      if (instruction.text.trim()) entries.push({ message: { role: block.role, content: instruction.text }, kind: instruction.fallback ? 'prompt' : 'character', label: `${block.name} · ${field} · ${instruction.fallback ? 'fallback' : 'card'}` });
+      if (instruction.text.trim()) entries.push({ message: { role: block.role, content: instruction.text }, kind: instruction.fallback ? 'prompt' : 'character', ...promptLabel(message("diagnostics.text", { name: String(block.name), field: String(field), value: String(instruction.fallback ? 'fallback' : 'card') })) });
       continue;
     }
     const parts = characterParts(block, card, settings.character);
@@ -109,7 +111,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   const turnEntries = (turn: Turn): Entry[] => {
     const result: Entry[] = [];
     if (turn.user.text !== '') result.push({ message: { role: 'user', content: turn.user.text }, kind: turn.id === 'draft' ? 'draft' : 'history', label: turn.id === 'draft' ? 'Unsent input' : `Turn ${positions.get(turn.id)} · input` });
-    if (turn.complete && turn.assistant.text !== '') result.push({ message: { role: 'assistant', content: turn.assistant.text }, kind: 'history', label: `Turn ${positions.get(turn.id)} · response` });
+    if (turn.complete && turn.assistant.text !== '') result.push({ message: { role: 'assistant', content: turn.assistant.text }, kind: 'history', ...promptLabel(message("diagnostics.turn_response", { value: String(positions.get(turn.id)) })) });
     return result;
   };
   let verbatim: Turn[] = [];
@@ -137,19 +139,19 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     entries = entries.slice(0, historyIndex).concat(expanded, entries.slice(historyIndex));
   }
   const messages = entries.map(entry => entry.message);
-  const layout: PromptEntry[] = entries.map((entry, messageIndex) => ({ messageIndex, kind: entry.kind, label: entry.label, tokens: 0, ...(entry.group ? { group: entry.group } : {}) }));
-  if (options.validateLimits !== false && !messages.length) throw new AppError(422, 'empty_prompt', 'The resolved prompt is empty. Enable a block or marker before sending.');
+  const layout: PromptEntry[] = entries.map((entry, messageIndex) => ({ messageIndex, kind: entry.kind, label: entry.label, ...(entry.labelMessage ? { labelMessage: entry.labelMessage } : {}), tokens: 0, ...(entry.group ? { group: entry.group } : {}) }));
+  if (options.validateLimits !== false && !messages.length) throw new AppError(422, 'empty_prompt', message("errors.the_resolved_prompt_is_empty_enable_a_block"));
   const { contentTokens, ...measurement } = countInput(messages);
   const { inputTokens } = measurement;
   layout.forEach((part, index) => { part.tokens = contentTokens[index]; });
   if (options.validateLimits !== false && inputTokens > settings.targetInputTokens) {
-    throw new AppError(422, 'input_budget_exceeded', 'The estimated input exceeds your target. Prepare context, shorten the prompt, or raise the target.');
+    throw new AppError(422, 'input_budget_exceeded', message("errors.the_estimated_input_exceeds_your_target_prepare_context"));
   }
   if (options.validateLimits !== false && inputTokens + connection.maxOutputTokens > connection.contextWindow) {
-    throw new AppError(422, 'context_window_exceeded', 'The estimated input plus reserved output exceeds the Connection context window.');
+    throw new AppError(422, 'context_window_exceeded', message("errors.the_estimated_input_plus_reserved_output_exceeds_the"));
   }
   return {
-    warnings, layout,
+    warnings, warningMessages: promptWarningMessages(preset), layout,
     ...(options.lore !== undefined ? { lore: options.lore } : {}),
     endpoint: `${connection.endpoint.replace(/\/+$/, '')}/chat/completions`,
     body: {

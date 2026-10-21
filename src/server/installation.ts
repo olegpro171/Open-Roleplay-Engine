@@ -37,6 +37,7 @@ export function startupPaths(env: NodeJS.ProcessEnv = process.env) {
   if (env.ORE_DATABASE_MUST_EXIST !== undefined && !['0', '1'].includes(env.ORE_DATABASE_MUST_EXIST)) throw new Error('Invalid internal database existence requirement.');
   return {
     root,
+    languagesDirectory: resolve(root, 'languages'),
     database: env.ROLEPLAY_DATABASE ? resolve(env.ROLEPLAY_DATABASE) : resolve(root, 'data/roleplay.sqlite'),
     databaseMustExist: env.ORE_DATABASE_MUST_EXIST === '1',
     staticDirectory: resolve(applicationRoot, 'dist/client'),
@@ -44,7 +45,7 @@ export function startupPaths(env: NodeJS.ProcessEnv = process.env) {
   };
 }
 export function validateInstalledAssets(paths: ReturnType<typeof startupPaths>) {
-  for (const path of [resolve(paths.staticDirectory, 'index.html'), resolve(paths.migrationsDirectory, '0001_initial.sql'), resolve(paths.migrationsDirectory, '0014_library_sorting.sql'), resolve(moduleDirectory, 'picture-worker.js')]) {
+  for (const path of [resolve(paths.staticDirectory, 'index.html'), resolve(paths.migrationsDirectory, '0001_initial.sql'), resolve(paths.migrationsDirectory, '0015_localized_outcomes.sql'), resolve(moduleDirectory, 'picture-worker.js')]) {
     if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`ORE installation is incomplete: missing ${path}. Build or reinstall the application before starting.`);
   }
   const info = buildInfo();

@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import type Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { eq, sql } from 'drizzle-orm';
@@ -24,19 +25,19 @@ export class TagStore {
   }
   private character(id: string) {
     const row = this.db.select().from(schema.library).where(eq(schema.library.id, id)).get();
-    if (!row || row.kind !== 'characters') throw new AppError(404, 'character_not_found', 'Character not found.');
+    if (!row || row.kind !== 'characters') throw new AppError(404, 'character_not_found', message("errors.character_not_found"));
     return libraryCharacterSchema.parse(row.data);
   }
   private byName() { return new Map(this.db.select().from(schema.tags).all().map(tag => [tag.canonicalKey, tag])); }
   private collision(key: string, ownId?: string) {
     const match = this.db.select().from(schema.tags).where(eq(schema.tags.canonicalKey, key)).get();
-    if (match && match.id !== ownId) throw new AppError(409, 'tag_name_conflict', `A tag named “${match.name}” already exists. Choose another name.`);
+    if (match && match.id !== ownId) throw new AppError(409, 'tag_name_conflict', message("errors.a_tag_named_already_exists_choose_another_name", { name: String(match.name) }));
   }
   create(expected: number, input: string) {
     const name = tagNameSchema.parse(input), key = canonicalTagName(name);
     return this.sqlite.transaction(() => {
       this.check(expected); this.collision(key);
-      if ((this.db.select({ count: sql<number>`count(*)` }).from(schema.tags).get()?.count ?? 0) >= tagLimits.catalog) throw new AppError(422, 'tag_catalog_limit', `The catalog is limited to ${tagLimits.catalog} tags. Delete an unused tag first.`);
+      if ((this.db.select({ count: sql<number>`count(*)` }).from(schema.tags).get()?.count ?? 0) >= tagLimits.catalog) throw new AppError(422, 'tag_catalog_limit', message("errors.the_catalog_is_limited_to_tags_delete_an", { catalog: String(tagLimits.catalog) }));
       const id = randomUUID();
       this.db.insert(schema.tags).values({ id, name, canonicalKey: key }).run(); this.bump();
       return id;
@@ -47,7 +48,7 @@ export class TagStore {
     this.sqlite.transaction(() => {
       this.check(expected);
       const old = this.db.select().from(schema.tags).where(eq(schema.tags.id, id)).get();
-      if (!old) throw new AppError(404, 'tag_not_found', 'Tag not found.');
+      if (!old) throw new AppError(404, 'tag_not_found', message("errors.tag_not_found"));
       this.collision(key, id);
       if (old.name === name) return;
       this.db.update(schema.tags).set({ name, canonicalKey: key, revision: old.revision + 1 }).where(eq(schema.tags.id, id)).run(); this.bump();
@@ -56,7 +57,7 @@ export class TagStore {
   delete(expected: number, id: string) {
     this.sqlite.transaction(() => {
       this.check(expected);
-      if (!this.db.delete(schema.tags).where(eq(schema.tags.id, id)).run().changes) throw new AppError(404, 'tag_not_found', 'Tag not found.');
+      if (!this.db.delete(schema.tags).where(eq(schema.tags.id, id)).run().changes) throw new AppError(404, 'tag_not_found', message("errors.tag_not_found"));
       this.bump();
     })();
   }
@@ -65,7 +66,7 @@ export class TagStore {
     if (!this.sqlite.inTransaction) throw new Error('Assignment writes require a checked transaction.');
     this.character(characterId);
     const ids = tagIdsSchema.parse(input), catalog = new Set(this.db.select({ id: schema.tags.id }).from(schema.tags).all().map(tag => tag.id));
-    for (const id of ids) if (!catalog.has(id)) throw new AppError(422, 'missing_tag', 'A selected tag no longer exists. Refresh the catalog and review your selection.');
+    for (const id of ids) if (!catalog.has(id)) throw new AppError(422, 'missing_tag', message("errors.a_selected_tag_no_longer_exists_refresh_the"));
     const previous = new Set(this.assigned(characterId));
     if (previous.size === ids.length && ids.every(id => previous.has(id))) return false;
     this.db.delete(schema.characterTags).where(eq(schema.characterTags.characterId, characterId)).run();

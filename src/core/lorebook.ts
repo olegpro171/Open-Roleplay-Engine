@@ -1,3 +1,5 @@
+import { diagnosticMessage } from '../shared/localization.js';
+import { message } from '../shared/localization.js';
 import type { Message, Turn } from '../shared/contracts.js';
 import { defaultPrompt, type PromptSources, type Saved } from '../shared/library.js';
 import type { Lorebook, LoreDestination, LoreDiagnostic, LoreEntry, LoreEntryState, LoreOutcome, LorePlacement, LoreResolution, LoreScanMessage, LoreState } from '../shared/lorebook.js';
@@ -170,10 +172,10 @@ export async function resolveLore(input: LoreInput, matchRegex: RegexMatcher): P
     for (const value of [parsed.text, ...entry.keys, ...entry.secondaryKeys, ...directives.additionalKeys.flat(), ...(directives.excludeKeys ?? [])]) {
       for (const macro of value.matchAll(/{{([^{}]*)}}/g)) if (!/^\s*(char|user)\s*$/i.test(macro[1])) unknownMacros.add(macro[0]);
     }
-    if (unknownMacros.size) diagnostics.push({ code: 'unsupported_macro', entryId: entry.id, message: `Only {{char}} and {{user}} resolve. ${unknownMacros.size} other macro${unknownMacros.size === 1 ? ' remains' : 's remain'} literal.` });
+    if (unknownMacros.size) diagnostics.push({ code: 'unsupported_macro', entryId: entry.id, ...diagnosticMessage(message("interface.only_and_resolve_other_macro_literal", { size: String(unknownMacros.size), value: String(unknownMacros.size === 1 ? ' remains' : 's remain') })) });
     const { placement, destination: resolvedDestination } = layout;
-    if (!resolvedDestination) diagnostics.push({ code: 'unavailable_destination', entryId: entry.id, message: `Lore destination ${placement} requires its enabled, nonempty character field or Messages source. Unchecked Character fields are unavailable.` });
-    if (directives.position && directives.depth !== undefined) diagnostics.push({ code: 'position_overrides_depth', entryId: entry.id, message: '@@position takes precedence over @@depth.' });
+    if (!resolvedDestination) diagnostics.push({ code: 'unavailable_destination', entryId: entry.id, ...diagnosticMessage(message("interface.lore_destination_requires_its_enabled_nonempty_character_field", { placement: String(placement) })) });
+    if (directives.position && directives.depth !== undefined) diagnostics.push({ code: 'position_overrides_depth', entryId: entry.id, ...diagnosticMessage(message("interface.position_takes_precedence_over_depth")) });
     const outcome: LoreOutcome = { id: entry.id, name: entry.name, status: 'excluded', reason: 'no_match', text, destination: resolvedDestination, tokens: 0, fingerprint };
     return { entry, sourceIndex, fingerprint, matches, text, directives, destination: resolvedDestination, scanDepth: directives.scanDepth ?? entry.scanDepth ?? book.scanDepth, keys, secondaryKeys, additionalKeys, excludeKeys, outcome, terminal: false };
   });
@@ -196,13 +198,13 @@ export async function resolveLore(input: LoreInput, matchRegex: RegexMatcher): P
   }, 0);
   const scan = loreScanMessages(turns, scanDepth);
   const scanTexts = scan.map(message => message.text);
-  if (scanTexts.reduce((total, text) => total + text.length, 0) > MAX_SCAN_CHARACTERS) throw new AppError(422, 'lore_scan_limit', 'The lore scan exceeds the 20 million character safety limit. Lower the book or entry scan depth before retrying.');
+  if (scanTexts.reduce((total, text) => total + text.length, 0) > MAX_SCAN_CHARACTERS) throw new AppError(422, 'lore_scan_limit', message("errors.the_lore_scan_exceeds_the_20_million_character"));
   const normalizedScan = scanTexts.map(text => normalizeLiteral(text, true));
   const foldedScan = normalizedScan.map(text => text.toLowerCase());
   let literalCharacterChecks = 0;
   const matchesLiteral = (keys: string[], normalizedTexts: string[], caseSensitive: boolean): boolean => {
     literalCharacterChecks += keys.length * normalizedTexts.reduce((total, text) => total + text.length, 0);
-    if (literalCharacterChecks > MAX_LITERAL_CHARACTER_CHECKS) throw new AppError(422, 'lore_match_work_limit', 'The lore keyword scan exceeds its bounded work limit. Reduce keys, scan depth or the recursive chain before retrying.');
+    if (literalCharacterChecks > MAX_LITERAL_CHARACTER_CHECKS) throw new AppError(422, 'lore_match_work_limit', message("errors.the_lore_keyword_scan_exceeds_its_bounded_work"));
     return literalMatch(keys, normalizedTexts, caseSensitive);
   };
   let regexCharacterChecks = 0;
@@ -211,12 +213,12 @@ export async function resolveLore(input: LoreInput, matchRegex: RegexMatcher): P
     if (!entry.entry.useRegex) return matchesLiteral(keys, normalizedTexts, entry.entry.caseSensitive);
     regexTasks++;
     regexCharacterChecks += keys.length * texts.reduce((total, text) => total + text.length, 0) + keys.reduce((total, key) => total + key.length, 0);
-    if (regexTasks > MAX_REGEX_TASKS || regexCharacterChecks > MAX_REGEX_CHARACTER_CHECKS) throw new AppError(422, 'lore_regex_work_limit', 'The lore regex scan exceeds its bounded work limit. Reduce regex keys, scan depth or the recursive chain before retrying.');
+    if (regexTasks > MAX_REGEX_TASKS || regexCharacterChecks > MAX_REGEX_CHARACTER_CHECKS) throw new AppError(422, 'lore_regex_work_limit', message("errors.the_lore_regex_scan_exceeds_its_bounded_work"));
     const result = await matchRegex(keys, texts, entry.entry.caseSensitive);
     if (result.invalid) {
       entry.outcome.reason = 'invalid_regex';
       entry.terminal = true;
-      diagnostics.push({ code: 'invalid_regex', entryId: entry.entry.id, message: `An activation pattern is invalid: ${result.invalid}` });
+      diagnostics.push({ code: 'invalid_regex', entryId: entry.entry.id, ...diagnosticMessage(message("interface.an_activation_pattern_is_invalid", { invalid: String(result.invalid) })) });
       return null;
     }
     return result.matched;
@@ -251,7 +253,7 @@ export async function resolveLore(input: LoreInput, matchRegex: RegexMatcher): P
         if (!entry.entry.useRegex && matchesLiteral(entry.excludeKeys, normalizedTexts, entry.entry.caseSensitive)) { entry.outcome.reason = 'exclude_keys'; continue; }
       }
       entry.outcome.reason = reason;
-      if (!entry.destination) throw new AppError(500, 'lore_destination_invariant', 'An eligible lore entry lost its destination.');
+      if (!entry.destination) throw new AppError(500, 'lore_destination_invariant', message("errors.an_eligible_lore_entry_lost_its_destination"));
       entry.outcome.tokens = countInput([{ role: entry.destination.role, content: entry.text }]).inputTokens - emptyMessageTokens;
       candidates.push(entry);
     }
@@ -262,7 +264,7 @@ export async function resolveLore(input: LoreInput, matchRegex: RegexMatcher): P
         entry.terminal = true;
         continue;
       }
-      if (round >= MAX_RECURSION_ROUNDS) throw new AppError(422, 'lore_recursion_limit', 'Lore activation exceeds the 32-round safety limit. Reduce the recursive chain or disable recursive scanning before retrying.');
+      if (round >= MAX_RECURSION_ROUNDS) throw new AppError(422, 'lore_recursion_limit', message("errors.lore_activation_exceeds_the_32_round_safety_limit"));
       entry.outcome.status = 'admitted';
       usedTokens += entry.outcome.tokens;
       admitted.push(entry);

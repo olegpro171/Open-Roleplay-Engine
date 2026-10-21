@@ -388,6 +388,12 @@ The user selected HTTP access limited to the local network, with its enable/disa
 
 Local access remains available independently of the optional LAN listener. Saves apply without restarting or cancelling generation; disabling access disconnects phone observers while server work continues. Network settings are machine-specific rather than chat content: they survive updates and import/wipe, and are excluded from portable backups. Configuration changes are made from the server computer's local page. Automatic mode retries unavailable networks and port 3000 without browser interaction. Manual mode retains its explicit binding and local recovery controls. Login, same-subnet peer checks, exact host admission and origin validation apply in both modes. Actual phone browser, keyboard and suspension behavior still requires hands-on verification.
 
+### Interface localization — accepted 2026-10-21
+
+The user approved runtime JSON language packs with i18next/react-i18next, with English and Russian as the primary languages. The localization system is the immediate priority; a complete Russian translation is deferred. English provides a complete bundled fallback, and the initial Russian pack can remain empty. Users can import packs or edit files in the installation's preserved `languages/` directory and reload them without rebuilding or restarting ORE. The selected interface language is remembered separately in each browser; a header selector allows switching without leaving an open editor.
+
+Application-authored interface text and structured diagnostics use stable keys, named placeholders and language-specific plurals. Missing entries fall back to English. Invalid files and failed replacement writes retain the previous valid pack. Number/date presentation follows the selected language. User content, editable prompts/model instructions and historical requests retain their original text; a language change does not affect context selection, budgeting, model input or summary language. Legacy saved diagnostics without translation identities retain their original wording. See [localization format and boundaries](docs/LOCALIZATION.md).
+
 ### Decisions still open
 
 - Distribution identity beyond the accepted in-app name “ORE”; repository renaming is deferred.

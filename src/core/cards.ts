@@ -1,14 +1,16 @@
+import { message } from '../shared/localization.js';
+import { MessageError } from '../shared/localization.js';
 import { readCharacterAlternateGreetings, characterSchema, libraryCharacterSchema, personaSchema, type Character, type LibraryCharacter, type Persona } from '../shared/library.js';
 import type { Lorebook } from '../shared/lorebook.js';
 import { exportLorebook } from './lorebook-formats.js';
 
 function object(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a card JSON object.');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new MessageError(message("importErrors.expected_a_card_json_object"));
   return value as Record<string, unknown>;
 }
 export function importCharacter(value: unknown): Character {
   const source = object(value);
-  if (source.spec !== undefined && !['chara_card_v2', 'chara_card_v3'].includes(source.spec as string)) throw new Error('Only legacy, Character Card V2 and V3 cards are supported.');
+  if (source.spec !== undefined && !['chara_card_v2', 'chara_card_v3'].includes(source.spec as string)) throw new MessageError(message("importErrors.only_legacy_character_card_v2_and_v3_cards"));
   const data = source.spec === 'chara_card_v2' || source.spec === 'chara_card_v3' ? object(source.data) : source;
   const fields = Object.fromEntries(['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'].map(key => [key, data[key] ?? '']));
   return characterSchema.parse({ ...fields, ...(data.alternate_greetings !== undefined ? { alternate_greetings: data.alternate_greetings } : {}), source });
@@ -46,7 +48,7 @@ export function importPersonas(value: unknown): Persona[] {
   if (data.personas !== undefined) {
     const names = object(data.personas), descriptions = object(data.persona_descriptions);
     const entries = Object.entries(names);
-    if (entries.length === 0 || entries.length > 1000) throw new Error('Import between 1 and 1000 personas at a time.');
+    if (entries.length === 0 || entries.length > 1000) throw new MessageError(message("importErrors.import_between_1_and_1000_personas_at_a"));
     return entries.map(([key, name]) => personaSchema.parse({ name, description: descriptions[key] ? object(descriptions[key]).description ?? '' : '' }));
   }
   const card = data.spec === 'chara_card_v2' || data.spec === 'chara_card_v3' ? object(data.data) : data;

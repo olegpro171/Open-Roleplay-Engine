@@ -1,3 +1,4 @@
+import { t, locale } from './localization';
 import { z } from 'zod';
 import type { LibraryDates, LibraryKind } from '../shared/library';
 
@@ -7,15 +8,15 @@ export type LibrarySort = z.infer<typeof librarySortSchema>;
 
 export function sortOptions(section: LibrarySection) {
   return [
-    { value: 'name-asc', label: 'Name A–Z' },
-    { value: 'name-desc', label: 'Name Z–A' },
-    { value: 'created-desc', label: 'Added: newest' },
-    { value: 'created-asc', label: 'Added: oldest' },
-    { value: 'updated-desc', label: 'Edited: newest' },
-    { value: 'updated-asc', label: 'Edited: oldest' },
+    { value: 'name-asc', label: t("library-sorting.name_a_z") },
+    { value: 'name-desc', label: t("library-sorting.name_z_a") },
+    { value: 'created-desc', label: t("library-sorting.added_newest") },
+    { value: 'created-asc', label: t("library-sorting.added_oldest") },
+    { value: 'updated-desc', label: t("library-sorting.edited_newest") },
+    { value: 'updated-asc', label: t("library-sorting.edited_oldest") },
     ...(section === 'chats' ? [
-      { value: 'message-desc', label: 'Message: recent' },
-      { value: 'message-asc', label: 'Message: oldest' },
+      { value: 'message-desc', label: t("library-sorting.message_recent") },
+      { value: 'message-asc', label: t("library-sorting.message_oldest") },
     ] : []),
   ];
 }
@@ -32,11 +33,11 @@ export function readLibrarySort(section: LibrarySection): LibrarySort {
   return defaultLibrarySort(section);
 }
 
-const names = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
 type ItemDates = LibraryDates & { lastMessageAt?: string | null };
 
 /** Presentation order only; never mutate the authoritative snapshot or editor data. */
 export function sortLibraryItems<T extends { id: string }>(items: readonly T[], method: LibrarySort, name: (item: T) => string, dates: (item: T) => ItemDates | undefined): T[] {
+  const names = new Intl.Collator(locale(), { sensitivity: 'base', numeric: true });
   const direction = method.endsWith('-asc') ? 1 : -1;
   function date(item: T): string | null {
     const value = dates(item);

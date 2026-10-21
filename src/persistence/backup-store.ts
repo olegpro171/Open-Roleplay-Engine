@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import { unchangedLoreEntries } from '../core/lorebook.js';
 import { lorebookSchema } from '../shared/lorebook.js';
 import Database from 'better-sqlite3';
@@ -38,13 +39,13 @@ export function sanitizePortable(db: Database.Database) {
   db.transaction(() => {
     db.exec('DELETE FROM sessions; DELETE FROM owners; DELETE FROM runtime_owner; DELETE FROM lore_commands; DELETE FROM data_commands;');
     db.prepare("UPDATE dataset_state SET epoch = 'initial' WHERE id = 1").run();
-    db.prepare("UPDATE generations SET status = 'interrupted', error = 'The saved operation was interrupted. Retry explicitly.' WHERE status = 'running'").run();
+    db.prepare("UPDATE generations SET status = 'interrupted', error = 'The saved operation was interrupted. Retry explicitly.', error_message = ? WHERE status = 'running'").run(JSON.stringify(message('outcome.backupInterrupted')));
     for (const row of rows(db,'generations')) db.prepare('UPDATE generations SET request_id = ? WHERE id = ?').run(randomUUID(), row.id);
     for (const row of rows(db,'context_steps')) {
       const value = z.record(z.string(),z.unknown()).parse(json(row));
       if (value.status === 'candidate' || value.status === 'running') {
         value.status = value.status === 'candidate' ? 'discarded' : 'interrupted'; value.result = null;
-        value.error = 'Backup excludes unapproved work. Start a new operation explicitly.';
+        value.error = message('outcome.backupUnapproved').fallback; value.errorMessage = message('outcome.backupUnapproved');
       }
       db.prepare('UPDATE context_steps SET data = ? WHERE id = ?').run(JSON.stringify(value),row.id);
     }
@@ -52,7 +53,7 @@ export function sanitizePortable(db: Database.Database) {
       const value = z.record(z.string(),z.unknown()).parse(json(row));
       delete value.repairCommands;
       if (value.status === 'running' || value.status === 'awaiting_review') {
-        value.status = 'interrupted'; value.error = 'Backup excludes unfinished work. Start a new operation explicitly.';
+        value.status = 'interrupted'; value.error = message('outcome.backupUnfinished').fallback; value.errorMessage = message('outcome.backupUnfinished');
       }
       db.prepare('UPDATE context_jobs SET request_id = ?, data = ? WHERE id = ?').run(randomUUID(),JSON.stringify(value),row.id);
     }
@@ -84,11 +85,11 @@ export function mergeContent(destination: Database.Database, incoming: Database.
   const incomingById = new Map(incomingLibrary.map(row => [str(row,'id'),row]));
   const libraries = new Map(rows(destination,'library').map(row => [str(row,'id'),row]));
   const connectionIds = new Set(rows(destination,'connections').map(row => str(row,'id')));
-  for (const row of incomingLibrary) if ((libraries.has(str(row,'id')) && libraries.get(str(row,'id'))?.kind !== row.kind) || connectionIds.has(str(row,'id'))) throw new AppError(422,'backup_collision','An incoming library identity belongs to another kind. Preserve a copy under a new identity before importing.');
-  for (const row of incomingConnections) if (libraries.has(str(row,'id'))) throw new AppError(422,'backup_collision','An incoming Connection identity belongs to another library kind.');
+  for (const row of incomingLibrary) if ((libraries.has(str(row,'id')) && libraries.get(str(row,'id'))?.kind !== row.kind) || connectionIds.has(str(row,'id'))) throw new AppError(422,'backup_collision',message("errors.an_incoming_library_identity_belongs_to_another_kind"));
+  for (const row of incomingConnections) if (libraries.has(str(row,'id'))) throw new AppError(422,'backup_collision',message("errors.an_incoming_connection_identity_belongs_to_another_library"));
   for (const row of rows(incoming,'tags')) {
     const conflict = destination.prepare('SELECT id FROM tags WHERE canonical_key = ? AND id != ?').get(row.canonical_key,row.id);
-    if (conflict) throw new AppError(422,'backup_tag_conflict','Different tag identities share a normalized name. Rename the destination tag or the source tag and save a new backup before importing.');
+    if (conflict) throw new AppError(422,'backup_tag_conflict',message("errors.different_tag_identities_share_a_normalized_name_rename"));
   }
   // Reject child identities owned by an unaffected chat, including tables without SQL ownership constraints.
   const ownershipQueries: Partial<Record<BackupTable,string>> = {
@@ -105,7 +106,7 @@ export function mergeContent(destination: Database.Database, incoming: Database.
       let chat = row.chat_id;
       if (table === 'response_variants') chat = rowSchema.parse(incoming.prepare('SELECT chat_id FROM turns WHERE id = ?').get(row.turn_id)).chat_id;
       if (table === 'context_steps') chat = rowSchema.parse(incoming.prepare('SELECT chat_id FROM context_jobs WHERE id = ?').get(row.job_id)).chat_id;
-      if (old.some(owner => owner.chat_id !== chat)) throw new AppError(422,'backup_ownership_conflict','A child identity belongs to a different chat. Import cannot reassign it.');
+      if (old.some(owner => owner.chat_id !== chat)) throw new AppError(422,'backup_ownership_conflict',message("errors.a_child_identity_belongs_to_a_different_chat"));
     }
   }
   const retainedEffects: { id: string; title: string; reason: string }[] = [];
@@ -157,7 +158,7 @@ export function mergeContent(destination: Database.Database, incoming: Database.
     assetMap.set(str(row,'id'),identity);
     const existing = destination.prepare('SELECT * FROM picture_assets WHERE id = ?').get(identity);
     const mapped = { ...row, id: identity };
-    if (existing && !isDeepStrictEqual(existing,mapped)) throw new AppError(422,'backup_asset_conflict','An immutable picture asset could not be mapped safely.');
+    if (existing && !isDeepStrictEqual(existing,mapped)) throw new AppError(422,'backup_asset_conflict',message("errors.an_immutable_picture_asset_could_not_be_mapped"));
     if (!existing) insertRow(destination,'picture_assets',mapped);
   }
   // Deferrable checks allow independent saved records to refer forward to one another.
@@ -181,14 +182,14 @@ export class BackupStore {
     const row = this.store.sqlite.prepare('SELECT digest,outcome FROM data_commands WHERE id = ?').get(requestId);
     if (!row) return null;
     const saved = z.object({ digest: z.string(), outcome: z.string() }).parse(row);
-    if (saved.digest !== digest) throw new AppError(409,'data_command_conflict','This command identity was already used for different data.');
+    if (saved.digest !== digest) throw new AppError(409,'data_command_conflict',message("errors.this_command_identity_was_already_used_for_different"));
     return z.object({ ok: z.literal(true), epoch: z.string(), kind: z.enum(['import','wipe']) }).parse(JSON.parse(saved.outcome));
   }
   preflight(incoming: Database.Database) {
     const current = this.store.sqlite;
     const units = importUnits(current,incoming), token = this.token;
     const snapshot = current.serialize();
-    if (snapshot.length > backupLimits.bytes) throw new AppError(413,'backup_too_large','The current database exceeds the supported 128 MiB preflight limit.');
+    if (snapshot.length > backupLimits.bytes) throw new AppError(413,'backup_too_large',message("errors.the_current_database_exceeds_the_supported_128_mib"));
     // SQLite deserialization into memory requires rollback-journal header bytes.
     // serialize() already contains committed WAL pages; this edits only the private copy.
     snapshot[18] = 1; snapshot[19] = 1;
@@ -205,17 +206,17 @@ export class BackupStore {
     const kind = incoming ? 'import' : 'wipe';
     const commandDigest = `${kind}:${input.digest}:${input.token}:${input.overwrite}`;
     const replay = this.replay(input.requestId,commandDigest); if (replay) return replay;
-    if (!incoming && !input.overwrite) throw new AppError(409,'wipe_confirmation','Confirm the wipe before continuing.');
+    if (!incoming && !input.overwrite) throw new AppError(409,'wipe_confirmation',message("errors.confirm_the_wipe_before_continuing"));
     if (incoming) {
       const plan = this.preflight(incoming);
       if (plan.blockers.length) throw new AppError(422,'backup_blocked',plan.blockers.join(' '));
     }
     return this.store.sqlite.transaction(() => {
       this.store.ensureIdle();
-      if (input.token !== this.token) throw new AppError(409,'stale_backup_review','Saved data changed since review. Refresh the preview before proceeding.');
+      if (input.token !== this.token) throw new AppError(409,'stale_backup_review',message("errors.saved_data_changed_since_review_refresh_the_preview"));
       this.store.sqlite.pragma('defer_foreign_keys = ON');
       if (incoming) {
-        if (!input.overwrite && importUnits(this.store.sqlite,incoming).some(unit => unit.overlap)) throw new AppError(409,'overwrite_required','Explicit overwrite approval is required for overlapping identities.');
+        if (!input.overwrite && importUnits(this.store.sqlite,incoming).some(unit => unit.overlap)) throw new AppError(409,'overwrite_required',message("errors.explicit_overwrite_approval_is_required_for_overlapping_identities"));
         mergeContent(this.store.sqlite,incoming);
       } else {
         this.store.sqlite.exec('DELETE FROM chats; DELETE FROM credentials; DELETE FROM character_tags; DELETE FROM character_pictures; DELETE FROM picture_assets; DELETE FROM tags; DELETE FROM library; DELETE FROM connections; DELETE FROM lore_commands;');

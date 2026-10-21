@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -22,11 +23,11 @@ export class PictureStore {
     return row ? this.descriptor(row) : null;
   }
   check(characterId: string | undefined, expected: string | null) {
-    if ((characterId ? this.get(characterId)?.key ?? null : null) !== expected) throw new AppError(409, 'picture_conflict', 'The saved picture changed. Review the current character before reapplying your picture draft.');
+    if ((characterId ? this.get(characterId)?.key ?? null : null) !== expected) throw new AppError(409, 'picture_conflict', message("errors.the_saved_picture_changed_review_the_current_character"));
   }
   resource(characterId: string, key: string, kind: 'original' | 'preview' | 'thumbnail') {
     const row = this.sqlite.prepare(`SELECT ${kind === 'thumbnail' ? 'p.thumbnail' : `a.${kind}`} AS bytes, a.mime FROM character_pictures p JOIN picture_assets a ON a.id = p.asset_id WHERE p.character_id = ? AND p.key = ?`).get(characterId, key);
-    if (!row) throw new AppError(404, 'picture_not_found', 'This picture is no longer available. Refresh the library.');
+    if (!row) throw new AppError(404, 'picture_not_found', message("errors.this_picture_is_no_longer_available_refresh_the"));
     const parsed = z.object({ bytes: z.instanceof(Buffer), mime: z.enum(['image/png', 'image/jpeg', 'image/webp']) }).parse(row);
     return { bytes: parsed.bytes, mime: kind === 'original' ? parsed.mime : 'image/png' };
   }
@@ -39,7 +40,7 @@ export class PictureStore {
       if (!previous) return false;
       this.sqlite.prepare('DELETE FROM character_pictures WHERE character_id = ?').run(characterId);
     } else {
-      if (mutation.mode === 'keep' && previous?.key !== mutation.key) throw new AppError(409, 'picture_conflict', 'The saved picture changed. Review it before applying this crop.');
+      if (mutation.mode === 'keep' && previous?.key !== mutation.key) throw new AppError(409, 'picture_conflict', message("errors.the_saved_picture_changed_review_it_before_applying"));
       if (!prepared) throw new Error('Picture renditions must be prepared before commit.');
       const oldAsset = this.sqlite.prepare('SELECT a.id, a.digest FROM picture_assets a JOIN character_pictures p ON p.asset_id = a.id WHERE p.character_id = ?').get(characterId);
       const old = oldAsset ? z.object({ id: z.string(), digest: z.string() }).parse(oldAsset) : null;

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const databaseSchemaVersion = 14;
+export const databaseSchemaVersion = 15;
 export const buildInfoSchema = z.object({
   kind: z.enum(['release', 'development']),
   commit: z.string().regex(/^[0-9a-f]{40}$/).nullable(),

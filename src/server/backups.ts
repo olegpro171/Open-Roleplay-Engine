@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import Database from 'better-sqlite3';
 import { databaseSchemaVersion } from '../shared/build-info.js';
 import { buildInfo } from './installation.js';
@@ -25,6 +26,7 @@ export class BackupService {
   private readonly directory: string;
   private readonly template: Buffer;
   private readonly schema: ReturnType<typeof schemaEntries>;
+  private readonly schema14: ReturnType<typeof schemaEntries>;
   private readonly legacySchema: ReturnType<typeof schemaEntries>;
   private readonly build = buildInfo().commit ?? 'unrecorded-development';
   private readonly stages = new Map<string, { path: string; owner: string; digest: string; expires: number; metadata: BackupMetadata | null; plan?: ReturnType<BackupStore['preflight']> }>();
@@ -42,6 +44,8 @@ export class BackupService {
     try {
       this.template = factory.sqlite.serialize();
       this.schema = schemaEntries(factory.sqlite);
+      factory.sqlite.exec('ALTER TABLE generations DROP COLUMN error_message');
+      this.schema14 = schemaEntries(factory.sqlite);
       // Reconstruct exact shipped older table definitions for strict upload validation.
       factory.sqlite.exec('DROP INDEX turn_message_date');
       for (const table of ['library', 'connections', 'chats']) {
@@ -59,18 +63,18 @@ export class BackupService {
   }
   private stage(id: string, owner: string) {
     this.expire(); const stage = this.stages.get(id);
-    if (!stage || stage.owner !== owner) throw new AppError(404,'backup_expired','This backup inspection expired or was cancelled. Select the file again.');
+    if (!stage || stage.owner !== owner) throw new AppError(404,'backup_expired',message("errors.this_backup_inspection_expired_or_was_cancelled_select"));
     return stage;
   }
   cancel(id: string, owner: string) { this.stage(id,owner); this.remove(id); }
   private space(bytes: number) {
     const space = statfsSync(this.directory);
-    if (space.bavail * space.bsize < bytes * 4 + 16 * 1024 * 1024) throw new AppError(507,'backup_disk_space','There is not enough free disk space to stage this backup safely. Free space and try again.');
+    if (space.bavail * space.bsize < bytes * 4 + 16 * 1024 * 1024) throw new AppError(507,'backup_disk_space',message("errors.there_is_not_enough_free_disk_space_to"));
   }
   private validateSchema(db: Database.Database) {
     const version = db.pragma('user_version',{ simple: true });
-    if (version !== 12 && version !== 13 && version !== databaseSchemaVersion) throw invalidBackup(`Unsupported database schema version ${String(version)}; supported versions are 12, 13 and ${databaseSchemaVersion}.`);
-    const expected = (version === databaseSchemaVersion ? this.schema : this.legacySchema).filter(entry => version !== 12 || !['dataset_state','data_commands'].includes(entry.tbl_name));
+    if (version !== 12 && version !== 13 && version !== 14 && version !== databaseSchemaVersion) throw invalidBackup(`Unsupported database schema version ${String(version)}; supported versions are 12, 13, 14 and ${databaseSchemaVersion}.`);
+    const expected = (version === databaseSchemaVersion ? this.schema : version === 14 ? this.schema14 : this.legacySchema).filter(entry => version !== 12 || !['dataset_state','data_commands'].includes(entry.tbl_name));
     const actual = schemaEntries(db);
     const portableMetadata = actual.find(entry => entry.name === 'backup_metadata');
     if (portableMetadata && normalizeSchemaSql(portableMetadata.sql) !== normalizeSchemaSql(metadataSql)) throw invalidBackup('Backup metadata table definition differs from the shipped definition.');
@@ -93,8 +97,8 @@ export class BackupService {
   }
   upload(bytes: Buffer, owner: string): BackupReview {
     this.expire();
-    if (this.closed) throw new AppError(503,'server_stopping','The server is stopping.');
-    if (this.stages.size >= 3) throw new AppError(429,'backup_staging_full','Cancel an existing backup inspection before selecting another file.');
+    if (this.closed) throw new AppError(503,'server_stopping',message("errors.the_server_is_stopping"));
+    if (this.stages.size >= 3) throw new AppError(429,'backup_staging_full',message("errors.cancel_an_existing_backup_inspection_before_selecting_another"));
     if (bytes.length > backupLimits.bytes) throw invalidBackup('File exceeds the 128 MiB backup limit.');
     if (bytes.length < 100) throw invalidBackup('File is shorter than a SQLite database header (100 bytes).');
     if (bytes.subarray(0,16).toString('binary') !== 'SQLite format 3\0') throw invalidBackup('File does not have the SQLite 3 header signature.');
@@ -142,7 +146,7 @@ export class BackupService {
       this.stages.delete(id); rmSync(directory,{ recursive: true, force: true });
       if (error instanceof BackupValidationError) throw invalidBackup(`${phase}: ${error.details}`);
       if (error instanceof AppError) throw error;
-      if (error instanceof Error && 'code' in error && ['ENOSPC','SQLITE_FULL'].includes(String(error.code))) throw new AppError(507,'backup_disk_space','Backup staging ran out of disk space. Free space and select the file again.');
+      if (error instanceof Error && 'code' in error && ['ENOSPC','SQLITE_FULL'].includes(String(error.code))) throw new AppError(507,'backup_disk_space',message("errors.backup_staging_ran_out_of_disk_space_free"));
       // SQLite/Zod messages, paths and received values can contain secrets from the upload.
       let reason = 'Unexpected staging or content-validation failure.';
       if (error instanceof z.ZodError) reason = `Record validation failed (${[...new Set(error.issues.map(issue => issue.code))].join(', ')}).`;
@@ -169,7 +173,7 @@ export class BackupService {
   commit(id: string, owner: string, input: { requestId: string; digest: string; token: string; overwrite: boolean }) {
     const replay = this.persistence.replay(input.requestId,`import:${input.digest}:${input.token}:${input.overwrite}`); if (replay) return replay;
     const stage = this.stage(id,owner);
-    if (stage.digest !== input.digest) throw new AppError(409,'backup_digest','The backup changed. Select and review it again.');
+    if (stage.digest !== input.digest) throw new AppError(409,'backup_digest',message("errors.the_backup_changed_select_and_review_it_again"));
     const db = new Database(stage.path,{ readonly: true });
     let outcome: DataOutcome;
     try { outcome = this.persistence.commit(input,db); }
@@ -210,7 +214,7 @@ export class BackupService {
       }
       const columns = z.array(z.object({ name: z.string(), type: z.string() })).parse(db.prepare(`PRAGMA table_info("${table}")`).all());
       const textFields = columns.filter(column => column.type === 'TEXT').map(column => column.name);
-      if (field && !textFields.includes(field)) throw new AppError(400,'backup_field','Select a text field belonging to this record.');
+      if (field && !textFields.includes(field)) throw new AppError(400,'backup_field',message("errors.select_a_text_field_belonging_to_this_record"));
       const preferred = ['data','settings','user_text','request','resolution','text'];
       const selectedField = field ?? preferred.find(name => textFields.includes(name)) ?? textFields[0];
       const expressions = columns.flatMap((column,index) => [
@@ -218,7 +222,7 @@ export class BackupService {
         `length(CAST("${column.name}" AS BLOB)) AS "bytes${index}"`,
       ]);
       const raw = db.prepare(`SELECT ${expressions.join(',')} FROM "${table}" WHERE rowid = ?`).get(key);
-      if (!raw) throw new AppError(404,'backup_record_missing','This backup record is unavailable.');
+      if (!raw) throw new AppError(404,'backup_record_missing',message("errors.this_backup_record_is_unavailable"));
       const summary = rowSchema.parse(raw);
       const fields = columns.map((column,index) => ({ name: column.name,value: summary[`value${index}`] !== null ? String(summary[`value${index}`]) : summary[`bytes${index}`] !== null ? `${summary[`bytes${index}`]} bytes` : 'None' }));
       let text: string | null = null;
@@ -236,12 +240,12 @@ export class BackupService {
   }
   async export() {
     const size = z.number().parse(this.store.sqlite.pragma('page_count',{ simple: true })) * z.number().parse(this.store.sqlite.pragma('page_size',{ simple: true }));
-    if (size > backupLimits.bytes) throw new AppError(413,'backup_too_large','The database exceeds the supported 128 MiB backup limit.');
+    if (size > backupLimits.bytes) throw new AppError(413,'backup_too_large',message("errors.the_database_exceeds_the_supported_128_mib_backup"));
     this.space(size);
     const directory = mkdtempSync(join(this.directory,'download-')), path = join(directory,'backup.sqlite');
     try {
       await this.store.sqlite.backup(path); chmodSync(path,0o600);
-      if (this.closed) throw new AppError(503,'server_stopping','The server is stopping. Try again after restart.');
+      if (this.closed) throw new AppError(503,'server_stopping',message("errors.the_server_is_stopping_try_again_after_restart"));
       const db = new Database(path);
       try {
         db.pragma('secure_delete = ON'); sanitizePortable(db);
@@ -252,7 +256,7 @@ export class BackupService {
         // Rebuild pages so removed login/repair secrets cannot remain in free pages or WAL frames.
         db.pragma('journal_mode = DELETE'); db.exec('VACUUM');
       } finally { db.close(); }
-      if (statSync(path).size > backupLimits.bytes) throw new AppError(413,'backup_too_large','The completed backup exceeds the supported 128 MiB limit.');
+      if (statSync(path).size > backupLimits.bytes) throw new AppError(413,'backup_too_large',message("errors.the_completed_backup_exceeds_the_supported_128_mib"));
       return { path,cleanup: () => rmSync(directory,{ recursive: true,force: true }) };
     } catch (error) { rmSync(directory,{ recursive: true,force: true }); throw error; }
   }

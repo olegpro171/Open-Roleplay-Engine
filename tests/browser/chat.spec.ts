@@ -283,7 +283,7 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await expect(page.getByRole('status')).toContainText('2 models available');
   const model = page.getByRole('combobox', { name: 'Model identifier', exact: true });
   await model.fill('roleplay');
-  await expect(page.getByRole('option')).toHaveCount(1);
+  await expect(page.getByRole('listbox', { name: 'Model identifier', exact: true }).getByRole('option')).toHaveCount(1);
   await model.press('ArrowDown');
   await model.press('Enter');
   await expect(model).toHaveValue('synthetic-roleplay');

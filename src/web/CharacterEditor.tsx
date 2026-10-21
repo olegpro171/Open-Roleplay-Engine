@@ -1,3 +1,5 @@
+import { useTextState, errorText, t, message as msg, useLocale } from './localization';
+import { cardInstructionLabel, stateLabel } from './localization-labels';
 import { SpeechColorSelector } from './SpeechColorSelector';
 import { newId } from './uuid';
 import { Icon } from './Icon';
@@ -27,6 +29,7 @@ function editableCharacter(data: LibraryCharacter): LibraryCharacter {
   return editable;
 }
 export function CharacterEditor({ initial, library, busy, run, close, openBook, extracted, saved }: { initial: Initial; library: LibrarySnapshot; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; close: () => void; openBook: (id: string) => void; extracted: (id: string) => void; saved: () => void }) {
+  useLocale();
   const formId = useId();
   const confirmAction = useConfirmation();
   const [baselineData, setBaselineData] = useState(() => editableCharacter(initial.data));
@@ -38,7 +41,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
   const [baseline, setBaseline] = useState(() => library.characterTags.filter(link => link.characterId === initial.id).map(link => link.tagId));
   const [tagIds, setTagIds] = useState(baseline), [manager, setManager] = useState(false);
   const [embedded, setEmbedded] = useState<{ revision: number; tags: TagReview } | null>(null), [policy, setPolicy] = useState<TagPolicy>('none');
-  const [error, setError] = useState(''), [pending, setPending] = useState(false);
+  const [error, setError] = useTextState(''), [pending, setPending] = useState(false);
   const originalRevision = useRef(library.characters.find(character => character.id === initial.id)?.revision);
   const alive = useRef(true), extractionId = useRef(newId());
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -72,7 +75,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
         const links = snapshot.characterTags.filter(link => link.characterId === initial.id).map(link => link.tagId);
         setTagIds(ids => [...new Set([...ids, ...links.filter(id => !baseline.includes(id))])]);
         setBaseline(links); setRevision(result.revision); setEmbedded(null);
-      } catch (error) { setError(error instanceof Error ? error.message : 'Could not apply embedded tags.'); throw error; }
+      } catch (error) { setError(errorText(error, msg("character_editor.could_not_apply_embedded_tags"))); throw error; }
     });
     setPending(false);
   }
@@ -85,8 +88,8 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
       try { await api(initial.id ? `/library/${initial.id}` : '/library', initial.id ? 'PUT' : 'POST', command); }
       catch (error) {
         if (alive.current) {
-          if (error instanceof ApiError && error.status >= 400 && error.status < 500) { setUncertain(null); setError(error.message); }
-          else setError('The acknowledgement is uncertain. Retry the same save to recover its recorded result.');
+          if (error instanceof ApiError && error.status >= 400 && error.status < 500) { setUncertain(null); setError(errorText(error)); }
+          else setError(msg("character_editor.the_acknowledgement_is_uncertain_retry_the_same"));
         }
         throw error;
       }
@@ -115,100 +118,99 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
     ? typeof nested === 'object' && nested !== null && 'character_book' in nested && nested.character_book != null
     : source.character_book != null;
   return <>
-    <form id={formId} onSubmit={event => { event.preventDefault(); void save(); }}><fieldset disabled={busy || pending || stale || Boolean(uncertain)}><legend>{initial.id ? 'Edit' : 'Create'} character</legend><div className="form-grid">
-      <label>Name<input required maxLength={100} value={data.name} onChange={event => setData({ ...data, name: event.target.value })} /></label>
-      <label>Title / comment<input aria-label="Title / comment" maxLength={200} value={data.titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>An optional label, useful for distinguishing between versions.</small></label>
+    <form id={formId} onSubmit={event => { event.preventDefault(); void save(); }}><fieldset disabled={busy || pending || stale || Boolean(uncertain)}><legend>{t("character_editor.character", { value: initial.id ? t("libraries.edit_2") : t("libraries.create") })}</legend><div className="form-grid">
+      <label>{t("character_editor.name")}<input required maxLength={100} value={data.name} onChange={event => setData({ ...data, name: event.target.value })} /></label>
+      <label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={data.titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("character_editor.an_optional_label_useful_for_distinguishing_between")}</small></label>
       <SpeechColorSelector value={data.speechColor} change={speechColor => setData({ ...data, speechColor })} />
       <PictureEditor value={picture} change={setPicture} original={baselinePicture} disabled={busy || pending || stale || Boolean(uncertain)} processing={setProcessing} />
-      {([['description', 'Character description'], ['personality', 'Personality'], ['scenario', 'Scenario'], ['first_mes', 'Greeting'], ['mes_example', 'Example dialogue']] as const).map(([field, label]) => <label key={field} className="full">{label}<EditorTextarea aria-label={label} maxLength={100_000} value={data[field]} onChange={event => setData({ ...data, [field]: event.target.value })} /></label>)}
+      {([['description', t("character_editor.character_description")], ['personality', t("character_editor.personality")], ['scenario', t("character_editor.scenario")], ['first_mes', t("character_editor.greeting")], ['mes_example', t("character_editor.example_dialogue")]] as const).map(([field, label]) => <label key={field} className="full">{label}<EditorTextarea aria-label={label} maxLength={100_000} value={data[field]} onChange={event => setData({ ...data, [field]: event.target.value })} /></label>)}
       <CardInstructions value={data} change={setData} />
-      <div className="full" role="group" aria-label="Alternate greetings">
-        <h3>Alternate greetings</h3>
-        {!greetings.success && <p role="alert">The preserved alternate greetings are invalid. They will be retained on save and export. Clear them before adding replacements or starting a new chat with this character.</p>}
+      <div className="full" role="group" aria-label={t("character_editor.alternate_greetings")}>
+        <h3>{t("character_editor.alternate_greetings")}</h3>
+        {!greetings.success && <p role="alert">{t("character_editor.the_preserved_alternate_greetings_are_invalid_they")}</p>}
         {alternatives.map((greeting, index) => <div className="alternate-greeting" key={index}>
-          <label>Alternate greeting {index + 1}<EditorTextarea aria-label={`Alternate greeting ${index + 1}`} maxLength={100_000} value={greeting} onChange={event => setData({ ...data, alternate_greetings: alternatives.map((text, position) => position === index ? event.target.value : text) })} /></label>
-          <button type="button" className="quiet" aria-label={`Remove alternate greeting ${index + 1}`} onClick={() => setData({ ...data, alternate_greetings: alternatives.filter((_, position) => position !== index) })}>Remove greeting</button>
+          <label>{t("character_editor.alternate_greeting", { value: index + 1 })}<EditorTextarea aria-label={t("character_editor.alternate_greeting", { value: index + 1 })} maxLength={100_000} value={greeting} onChange={event => setData({ ...data, alternate_greetings: alternatives.map((text, position) => position === index ? event.target.value : text) })} /></label>
+          <button type="button" className="quiet" aria-label={t("character_editor.remove_alternate_greeting", { value: index + 1 })} onClick={() => setData({ ...data, alternate_greetings: alternatives.filter((_, position) => position !== index) })}>{t("character_editor.remove_greeting")}</button>
         </div>)}
-        {greetings.success ? <button type="button" className="secondary add-alternate-greeting" disabled={alternatives.length >= maxAlternateGreetings} onClick={() => setData({ ...data, alternate_greetings: [...alternatives, ''] })}>Add alternate greeting</button>
-          : <button type="button" className="secondary" onClick={() => setData({ ...data, alternate_greetings: [] })}>Clear invalid alternate greetings</button>}
+        {greetings.success ? <button type="button" className="secondary add-alternate-greeting" disabled={alternatives.length >= maxAlternateGreetings} onClick={() => setData({ ...data, alternate_greetings: [...alternatives, ''] })}>{t("character_editor.add_alternate_greeting")}</button>
+          : <button type="button" className="secondary" onClick={() => setData({ ...data, alternate_greetings: [] })}>{t("character_editor.clear_invalid_alternate_greetings")}</button>}
       </div>
-      <label className="full">Default lorebook<Dropdown aria-label="Default lorebook" value={data.lorebookId ?? ''} options={[{ value: '', label: 'None selected' }, ...library.lorebooks.map(book => ({ value: book.id, label: book.name }))]} onChange={id => setData({ ...data, lorebookId: id || null })} /></label>
-      {data.lorebookId && <button type="button" className="secondary" onClick={() => { const bookId = data.lorebookId; if (!bookId) return; if (!characterChanged && !pictureChanged && tagIds.join() === baseline.join()) openBook(bookId); else confirmAction({ title: 'Discard character edits?', message: 'Open the book and discard unsaved character edits?', actionLabel: 'Discard edits', onConfirm: () => openBook(bookId) }); }}>Open book</button>}
-      {initial.id && !data.lorebookId && embeddedBook && <div className="full"><button type="button" className="secondary" disabled={characterChanged || pictureChanged || tagIds.join() !== baseline.join()} onClick={async () => { let bookId = ''; if (await run(async () => { bookId = (await api<{ bookId: string }>(`/library/characters/${initial.id}/extract`, 'POST', { revision, requestId: extractionId.current })).bookId; })) extracted(bookId); }}>Extract embedded lorebook</button><p className="small muted">Save character edits first. Extraction creates and links an independent library book.</p></div>}
-      <div className="full"><TagChooser label="Assign tags" tags={library.tags} selected={tagIds} change={setTagIds} /><button type="button" className="secondary" onClick={() => setManager(true)}>Manage tags</button>
-        {initial.id && <button type="button" className="quiet" onClick={async () => { setPending(true); await run(async () => { const preview = await api<{ revision: number; tags: TagReview }>(`/library/characters/${initial.id}/tags/preview`); if (alive.current) { setEmbedded(preview); setPolicy('none'); } }); setPending(false); }}>Review embedded tags</button>}
+      <label className="full">{t("character_editor.default_lorebook")}<Dropdown aria-label={t("character_editor.default_lorebook")} value={data.lorebookId ?? ''} options={[{ value: '', label: t("character_editor.none_selected") }, ...library.lorebooks.map(book => ({ value: book.id, label: book.name }))]} onChange={id => setData({ ...data, lorebookId: id || null })} /></label>
+      {data.lorebookId && <button type="button" className="secondary" onClick={() => { const bookId = data.lorebookId; if (!bookId) return; if (!characterChanged && !pictureChanged && tagIds.join() === baseline.join()) openBook(bookId); else confirmAction({ title: t("character_editor.discard_character_edits"), message: t("character_editor.open_the_book_and_discard_unsaved_character"), actionLabel: t("character_editor.discard_edits"), onConfirm: () => openBook(bookId) }); }}>{t("character_editor.open_book")}</button>}
+      {initial.id && !data.lorebookId && embeddedBook && <div className="full"><button type="button" className="secondary" disabled={characterChanged || pictureChanged || tagIds.join() !== baseline.join()} onClick={async () => { let bookId = ''; if (await run(async () => { bookId = (await api<{ bookId: string }>(`/library/characters/${initial.id}/extract`, 'POST', { revision, requestId: extractionId.current })).bookId; })) extracted(bookId); }}>{t("character_editor.extract_embedded_lorebook")}</button><p className="small muted">{t("character_editor.save_character_edits_first_extraction_creates_and")}</p></div>}
+      <div className="full"><TagChooser label={t("character_editor.assign_tags")} tags={library.tags} selected={tagIds} change={setTagIds} /><button type="button" className="secondary" onClick={() => setManager(true)}>{t("character_editor.manage_tags")}</button>
+        {initial.id && <button type="button" className="quiet" onClick={async () => { setPending(true); await run(async () => { const preview = await api<{ revision: number; tags: TagReview }>(`/library/characters/${initial.id}/tags/preview`); if (alive.current) { setEmbedded(preview); setPolicy('none'); } }); setPending(false); }}>{t("character_editor.review_embedded_tags")}</button>}
       </div>
-    </div></fieldset>{error && <p role="alert">{error}</p>}{uncertain && <p role="status">Acknowledgement uncertain. The save may have reached the server. Retry same save sends the frozen text, tags, file and crop. Closing does not undo a saved change.</p>}{stale && !uncertain && <CharacterReconciliation library={library} characterId={initial.id} disabled={busy || pending} reconcile={reconcile} />}<EditorActions><button type="submit" form={formId} disabled={busy || pending || processing || stale || Boolean(uncertain)}>Save character</button>{uncertain && <button type="button" disabled={busy || pending} onClick={() => void save(uncertain)}>Retry same save</button>}<button type="button" className="quiet" disabled={pending} onClick={safeClose} title="Close editor"><Icon name="Close" /><span className="sr-only">Close editor</span></button></EditorActions></form>
+    </div></fieldset>{error && <p role="alert">{error}</p>}{uncertain && <p role="status">{t("character_editor.acknowledgement_uncertain_the_save_may_have_reached")}</p>}{stale && !uncertain && <CharacterReconciliation library={library} characterId={initial.id} disabled={busy || pending} reconcile={reconcile} />}<EditorActions><button type="submit" form={formId} disabled={busy || pending || processing || stale || Boolean(uncertain)}>{t("character_editor.save_character")}</button>{uncertain && <button type="button" disabled={busy || pending} onClick={() => void save(uncertain)}>{t("character_editor.retry_same_save")}</button>}<button type="button" className="quiet" disabled={pending} onClick={safeClose} title={t("character_editor.close_editor")}><Icon name="Close" /><span className="sr-only">{t("character_editor.close_editor")}</span></button></EditorActions></form>
     {manager && <TagManager library={library} busy={busy || pending} run={run} committed={committed} close={() => setManager(false)} />}
-    {embedded && <section className="character-import-review"><h2>Review embedded tags</h2><p className="small">This saves only local tags, preserving your character draft. Existing local assignments are never removed.</p><TagImportOptions review={embedded.tags} policy={policy} change={setPolicy} disabled={busy || pending} /><button type="button" disabled={busy || pending || stale || embedded.revision !== revision || Boolean(embedded.tags.modes[policy].blocked)} onClick={() => void applyEmbedded()}>Apply reviewed tags</button><button type="button" className="quiet" onClick={() => setEmbedded(null)}>Cancel embedded tags</button></section>}
+    {embedded && <section className="character-import-review"><h2>{t("character_editor.review_embedded_tags")}</h2><p className="small">{t("character_editor.this_saves_only_local_tags_preserving_your")}</p><TagImportOptions review={embedded.tags} policy={policy} change={setPolicy} disabled={busy || pending} /><button type="button" disabled={busy || pending || stale || embedded.revision !== revision || Boolean(embedded.tags.modes[policy].blocked)} onClick={() => void applyEmbedded()}>{t("character_editor.apply_reviewed_tags")}</button><button type="button" className="quiet" onClick={() => setEmbedded(null)}>{t("character_editor.cancel_embedded_tags")}</button></section>}
   </>;
 }
 
 function CharacterReconciliation({ library, characterId, disabled, reconcile }: { library: LibrarySnapshot; characterId?: string; disabled: boolean; reconcile: () => void }) {
+  useLocale();
   const character = library.characters.find(card => card.id === characterId);
   const picture = library.characterPictures.find(picture => picture.characterId === characterId);
   const selectedTags = new Set(library.characterTags.filter(link => link.characterId === characterId).map(link => link.tagId));
   const greetings = character ? readCharacterAlternateGreetings(character) : null;
   const greetingTexts = greetings?.success ? greetings.data : null;
   return <section className="character-reconcile">
-    <p role="status">The library changed. Your unsaved edits and picture draft remain here.</p>
+    <p role="status">{t("character_editor.the_library_changed_your_unsaved_edits_and")}</p>
     {characterId && <>
-      <p className="small">Current saved character: {character ? characterLabel(character) : 'Deleted'} · {selectedTags.size} tags. Review current text and tags before reapplying your picture.</p>
+      <p className="small">{t("character_editor.current_saved_character_tags_review_current_text", { value: character ? characterLabel(character) : t("interface.deleted"), size: selectedTags.size })}</p>
       <PictureSquare url={picture?.thumbnailUrl} />
-      {character && <details><summary>Current saved text and tags</summary>
-        {(['name', 'titleComment', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'] as const).map((field, index) => <div key={field}><strong>{['Name', 'Title / comment', 'Description', 'Personality', 'Scenario', 'Greeting', 'Example dialogue'][index]}</strong><p className="prose small">{character[field] || 'Empty'}</p></div>)}
-        <strong>Speech color</strong><p>{character.speechColor ?? 'Not set'}</p>
+      {character && <details><summary>{t("character_editor.current_saved_text_and_tags")}</summary>
+        {(['name', 'titleComment', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'] as const).map((field, index) => <div key={field}><strong>{[t("character_editor.name"), t("character_editor.title_comment"), t("character_editor.description"), t("character_editor.personality"), t("character_editor.scenario"), t("character_editor.greeting"), t("character_editor.example_dialogue")][index]}</strong><p className="prose small">{character[field] || t("character_editor.empty")}</p></div>)}
+        <strong>{t("character_editor.speech_color")}</strong><p>{character.speechColor ?? t("character_editor.not_set")}</p>
         <CardInstructions value={character} />
-        <strong>Alternate greetings</strong>
-        {greetingTexts === null && <p>Invalid preserved alternate greetings; raw metadata is retained.</p>}
-        {greetingTexts?.length === 0 && <p>None</p>}
-        {greetingTexts?.map((text, index) => <div key={index}><strong>Alternate greeting {index + 1}</strong><p className="prose small">{text || 'Empty'}</p></div>)}
-        <strong>Default lorebook</strong><p>{library.lorebooks.find(book => book.id === character.lorebookId)?.name ?? 'None'}</p>
-        <strong>Tags</strong><p>{library.tags.filter(tag => selectedTags.has(tag.id)).map(tag => tag.name).join(', ') || 'None'}</p>
+        <strong>{t("character_editor.alternate_greetings")}</strong>
+        {greetingTexts === null && <p>{t("character_editor.invalid_preserved_alternate_greetings_raw_metadata_is")}</p>}
+        {greetingTexts?.length === 0 && <p>{t("character_editor.none")}</p>}
+        {greetingTexts?.map((text, index) => <div key={index}><strong>{t("character_editor.alternate_greeting", { value: index + 1 })}</strong><p className="prose small">{text || t("character_editor.empty")}</p></div>)}
+        <strong>{t("character_editor.default_lorebook")}</strong><p>{library.lorebooks.find(book => book.id === character.lorebookId)?.name ?? t("character_editor.none")}</p>
+        <strong>{t("character_editor.tags")}</strong><p>{library.tags.filter(tag => selectedTags.has(tag.id)).map(tag => tag.name).join(', ') || t("character_editor.none")}</p>
       </details>}
     </>}
-    <button type="button" className="secondary" disabled={disabled || Boolean(characterId && !character)} onClick={reconcile}>Use current text and tags; keep my picture draft</button>
-    <p className="small muted">This replaces local text/tag edits with the saved values shown above. Your picture and crop stay in the draft. Review them, then Save character.</p>
+    <button type="button" className="secondary" disabled={disabled || Boolean(characterId && !character)} onClick={reconcile}>{t("character_editor.use_current_text_and_tags_keep_my")}</button>
+    <p className="small muted">{t("character_editor.this_replaces_local_text_tag_edits_with")}</p>
   </section>;
 }
 
 function CardInstructions({ value, change }: { value: LibraryCharacter; change?: (value: LibraryCharacter) => void }) {
+  useLocale();
   const [open, setOpen] = useState(false);
   const note = readCharacterDepthPrompt(value);
   function instructionField(field: typeof cardInstructionFields[number]) {
     const instruction = readCardInstruction(value, field);
-    const label = cardInstructionLabels[field];
+    const label = cardInstructionLabel(field);
     if (!instruction.success) return <div className="full" key={field}>
-      <p role="alert">{label} is invalid. The preserved value will remain until explicitly cleared.</p>
-      {change && <button type="button" className="secondary" onClick={() => change({ ...value, [field]: '' })}>Clear invalid {label.toLowerCase()}</button>}
+      <p role="alert">{t("character_editor.is_invalid_the_preserved_value_will_remain", { label: label })}</p>
+      {change && <button type="button" className="secondary" onClick={() => change({ ...value, [field]: '' })}>{t("character_editor.clear_invalid", { value: label.toLowerCase() })}</button>}
     </div>;
-    if (!change) return <p className="prose small full" key={field}>{label}: {instruction.data || 'Empty'}</p>;
+    if (!change) return <p className="prose small full" key={field}>{label}: {instruction.data || t("character_editor.empty")}</p>;
     return <label className="full" key={field}>{label}
       <EditorTextarea aria-label={label} maxLength={100_000} value={instruction.data} onChange={event => change({ ...value, [field]: event.target.value })} />
     </label>;
   }
   return <details className="full card-instructions" onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary>Card instructions</summary>
+    <summary>{t("character_editor.card_instructions")}</summary>
     {open && <div className="form-grid">
-      <p className="small muted full">The Prompt preset controls whether these instructions are sent. Character notes use their configured depth and role when Messages permits injection.</p>
+      <p className="small muted full">{t("character_editor.the_prompt_preset_controls_whether_these_instructions")}</p>
       {cardInstructionFields.map(instructionField)}
       {!note.success ? <div className="full">
-        <p role="alert">The character depth note has invalid settings. The preserved value will remain until explicitly cleared. Clearing replaces malformed note metadata on export.</p>
-        {change && <button type="button" className="secondary" onClick={() => change({ ...value, depth_prompt: { prompt: '', depth: 2, role: 'system' } })}>Clear invalid character depth note</button>}
+        <p role="alert">{t("character_editor.the_character_depth_note_has_invalid_settings")}</p>
+        {change && <button type="button" className="secondary" onClick={() => change({ ...value, depth_prompt: { prompt: '', depth: 2, role: 'system' } })}>{t("character_editor.clear_invalid_character_depth_note")}</button>}
       </div> : change ? <>
-        <label className="full">Character depth note
-          <EditorTextarea aria-label="Character depth note" maxLength={100_000} value={note.data.prompt} onChange={event => change({ ...value, depth_prompt: { ...note.data, prompt: event.target.value } })} />
+        <label className="full">{t("character_editor.character_depth_note")}<EditorTextarea aria-label={t("character_editor.character_depth_note_2")} maxLength={100_000} value={note.data.prompt} onChange={event => change({ ...value, depth_prompt: { ...note.data, prompt: event.target.value } })} />
         </label>
-        <label>Character note depth
-          <NumberInput aria-label="Character note depth" required min={0} max={1000} value={note.data.depth} onChange={depth => change({ ...value, depth_prompt: { ...note.data, depth } })} />
+        <label>{t("character_editor.character_note_depth")}<NumberInput aria-label={t("character_editor.character_note_depth_2")} required min={0} max={1000} value={note.data.depth} onChange={depth => change({ ...value, depth_prompt: { ...note.data, depth } })} />
         </label>
-        <label>Character note role
-          <Dropdown aria-label="Character note role" value={note.data.role} onChange={role => {
+        <label>{t("character_editor.character_note_role")}<Dropdown aria-label={t("character_editor.character_note_role_2")} value={note.data.role} onChange={role => {
             if (role === 'system' || role === 'user' || role === 'assistant') change({ ...value, depth_prompt: { ...note.data, role } });
-          }} options={['system', 'user', 'assistant'].map(role => ({ value: role, label: role }))} />
+          }} options={['system', 'user', 'assistant'].map(role => ({ value: role, label: stateLabel(role === 'system' || role === 'user' ? role : 'assistant') }))} />
         </label>
-        <p className="small muted full">Depth 0 follows the newest history message; depth 1 precedes it. Depth counts nonblank outgoing history messages. Larger depths stop at the oldest included message.</p>
-      </> : <p className="prose small full">Character depth note ({note.data.role}, depth {note.data.depth}): {note.data.prompt || 'Empty'}</p>}
+        <p className="small muted full">{t("character_editor.depth_0_follows_the_newest_history_message")}</p>
+      </> : <p className="prose small full">{t("character_editor.character_depth_note_depth", { role: note.data.role, depth: note.data.depth, value: note.data.prompt || t("character_editor.empty") })}</p>}
     </div>}
   </details>;
 }

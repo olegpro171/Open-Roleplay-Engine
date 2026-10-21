@@ -54,7 +54,7 @@ export type RequestBody = {
   model: string; messages: Message[]; stream: true; max_tokens: number;
   stream_options?: { include_usage: true };
 } & z.infer<typeof customParametersSchema>;
-export type PromptEntry = { messageIndex: number; kind: 'prompt' | 'character' | 'persona' | 'memory' | 'history' | 'draft' | 'lore'; label: string; tokens: number; group?: { id: string; label: string } };
+export type PromptEntry = { messageIndex: number; kind: 'prompt' | 'character' | 'persona' | 'memory' | 'history' | 'draft' | 'lore'; label: string; labelMessage?: import('./localization.js').LocalizedMessage; tokens: number; group?: { id: string; label: string } };
 export type TokenUsage = { inputTokens: number; outputTokens: number; totalTokens: number };
 export type ConnectionDiagnostic = { message: string; request?: RequestPreview; usage?: TokenUsage | null; response?: string };
 export type TokenCounting = {
@@ -65,6 +65,7 @@ export type TokenCounting = {
 export type RequestPreview = {
   layout?: PromptEntry[];
   warnings?: string[];
+  warningMessages?: import('./localization.js').LocalizedMessage[];
   endpoint: string;
   body: RequestBody;
   coverage: { turnId: string; userRevision: number; assistantRevision: number; complete: boolean }[];
@@ -81,6 +82,7 @@ export type RequestPreview = {
 };
 export type GenerationStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export type Generation = {
+  errorMessage?: import('./localization.js').LocalizedMessage | null;
   id: string; turnId: string; status: GenerationStatus; sourceRevision: number;
   kind?: 'response' | 'regeneration';
   request: RequestPreview | null; partialText: string; error: string | null; usage: TokenUsage | null;

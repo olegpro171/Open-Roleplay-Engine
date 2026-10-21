@@ -1,3 +1,4 @@
+import { t, useLocale } from './localization';
 import { memo, type CSSProperties } from 'react';
 import Markdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -13,8 +14,8 @@ const components: Components = {
     ? <a {...props} href={href} target={href.startsWith('#') ? undefined : '_blank'} rel="noopener noreferrer">{children}</a>
     : <span>{children}</span>,
   // Model/card content must not initiate remote image requests as a side effect of reading a chat.
-  img: ({ alt }) => <span className="markdown-image">[Image: {alt || 'image'}]</span>,
-  table: ({ node: _node, ...props }) => <div className="markdown-table" tabIndex={0} role="region" aria-label="Table"><table {...props} /></div>,
+  img: ({ alt }) => <span className="markdown-image">{t("chat_markdown.image", { value: alt || t("interface.image") })}</span>,
+  table: ({ node: _node, ...props }) => <div className="markdown-table" tabIndex={0} role="region" aria-label={t("chat_markdown.table")}><table {...props} /></div>,
 };
 
 function safeUrl(url: string): string {
@@ -22,6 +23,7 @@ function safeUrl(url: string): string {
 }
 
 export const ChatMarkdown = memo(function ChatMarkdown({ text, speech = defaultSpeechOptions, speechColor = defaultSpeechColor, textScale = 100 }: { text: string; speech?: SpeechOptions; speechColor?: string; textScale?: ChatTextScale }) {
+  useLocale();
   const style: CSSProperties & { '--direct-speech-color': string } = { '--direct-speech-color': speechColor, fontSize: `${15 * textScale / 100}px` };
   return <div className="chat-markdown" style={style}><Markdown
     remarkPlugins={[remarkGfm, [remarkDirectSpeech, speech]]}

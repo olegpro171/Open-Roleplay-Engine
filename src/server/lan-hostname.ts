@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import { execFile } from 'node:child_process';
 import { hostname } from 'node:os';
 import { promisify } from 'node:util';
@@ -17,8 +18,8 @@ export async function localLanHostname(): Promise<string> {
     value = process.platform === 'darwin'
       ? (await execute('/usr/sbin/scutil', ['--get', 'LocalHostName'], { timeout: 1000, maxBuffer: 4096 })).stdout
       : hostname();
-  } catch { throw new AppError(503, 'lan_hostname_unavailable', 'The computer’s local hostname could not be read.'); }
+  } catch { throw new AppError(503, 'lan_hostname_unavailable', message("errors.the_computer_s_local_hostname_could_not_be")); }
   const local = normalizeLocalHostname(value);
-  if (!local) throw new AppError(503, 'lan_hostname_invalid', 'The computer needs a valid local hostname before LAN access can start.');
+  if (!local) throw new AppError(503, 'lan_hostname_invalid', message("errors.the_computer_needs_a_valid_local_hostname_before"));
   return local;
 }

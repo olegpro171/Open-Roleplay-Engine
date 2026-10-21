@@ -1,3 +1,5 @@
+import { formatMessage } from './localization';
+import { useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { useEffect, useRef, useState } from 'react';
@@ -9,17 +11,18 @@ import { TextComparison } from './TextComparison';
 export function RepairReview({ snapshot, job, busy, run, dismissed }: {
   snapshot: ChatSnapshot; job: ContextJob; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; dismissed: () => void;
 }) {
+  useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const pending = useRef(false);
   const retry = useRef<{ key: string; requestId: string } | null>(null);
   const [details, setDetails] = useState<ContextJobDetails | null>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useTextState('');
   const [sourcesOpen, setSourcesOpen] = useState(false), [priorOpen, setPriorOpen] = useState(false);
   const [draft, setDraft] = useState<{ key: string; text: string }>({ key: '', text: '' });
   useEffect(() => { dialog.current?.showModal(); }, []);
   useEffect(() => {
     let current = true;
-    api<ContextJobDetails>(`/context/jobs/${job.id}`).then(value => { if (current) { setDetails(value); setError(''); } }).catch(error => { if (current) setError(error.message); });
+    api<ContextJobDetails>(`/context/jobs/${job.id}`).then(value => { if (current) { setDetails(value); setError(''); } }).catch(error => { if (current) setError(errorText(error)); });
     return () => { current = false; };
   }, [job.id, snapshot.revision]);
   const step = details?.steps.slice().reverse().find(step => step.status === 'candidate');
@@ -44,28 +47,28 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
         await api(`/context/jobs/${job.id}/repair`, 'POST', { ...body, requestId: retry.current!.requestId });
         retry.current = null;
         if (action === 'close') dismissed();
-      } catch (error) { setError(error instanceof Error ? error.message : 'Repair could not continue.'); throw error; }
+      } catch (error) { setError(errorText(error, msg("repair_review.repair_could_not_continue"))); throw error; }
     });
     pending.current = false;
   }
   return <dialog ref={dialog} className="repair-dialog" aria-labelledby="repair-title" onCancel={e => { e.preventDefault(); if (!busy) void act('close'); }}>
-    <div className="repair-heading"><div><p className="eyebrow">REPAIR REVIEW</p><h2 id="repair-title">Review the proposed replacement</h2><p className="small muted" role="status">{job.reviewedCount ?? 0} approved · {job.unchangedCount ?? 0} unchanged after model check · {job.revalidatedCount ?? 0} reused without a request{remaining !== undefined ? ` · ${remaining} remaining` : ''}{running ? ' · Checking affected memory…' : ''}</p></div></div>
+    <div className="repair-heading"><div><p className="eyebrow">{t("repair_review.repair_review")}</p><h2 id="repair-title">{t("repair_review.review_the_proposed_replacement")}</h2><p className="small muted" role="status">{t("repair_review.approved_unchanged_after_model_check_reused_without", { value: job.reviewedCount ?? 0, value2: job.unchangedCount ?? 0, value3: job.revalidatedCount ?? 0, value4: remaining !== undefined ? ` · ${remaining} remaining` : '', value5: running ? t("interface.checking_affected_memory") : '' })}</p></div></div>
     <div className="repair-body">
-      {candidate && previous && <><p className="small muted">Level {candidate.level} · {positions.length ? `Turns ${Math.min(...positions)}–${Math.max(...positions)}` : 'All covered turns deleted'}{previous.manual ? ' · Previous summary includes manual corrections' : ''}. Approve this replacement before its dependents are repaired.</p>
-        {!snapshot.context.selected.some(ref => ref.id === candidate.id) && <p className="small muted">This summary is retained. Approval saves the repair; use Prepare chat afterward to select compatible corrected memory.</p>}
-        {Boolean(step?.operation.reconcile?.length) && <p className="small muted">This proposal reconciles overlapping manual corrections. Compare their full texts under “Why this needs repair” before approving how they are represented.</p>}
-        {!candidate.turns.length && <p>All source turns were deleted. Approval removes this summary’s coverage.</p>}
+      {candidate && previous && <><p className="small muted">{t("repair_review.level_approve_this_replacement_before_its_dependents", { level: candidate.level, value: positions.length ? t("interface.turns", { value: String(Math.min(...positions)), value2: String(Math.max(...positions)) }) : t("interface.all_covered_turns_deleted"), value2: previous.manual ? t("interface.previous_summary_includes_manual_corrections") : '' })}</p>
+        {!snapshot.context.selected.some(ref => ref.id === candidate.id) && <p className="small muted">{t("repair_review.this_summary_is_retained_approval_saves_the")}</p>}
+        {Boolean(step?.operation.reconcile?.length) && <p className="small muted">{t("repair_review.this_proposal_reconciles_overlapping_manual_corrections_compare")}</p>}
+        {!candidate.turns.length && <p>{t("repair_review.all_source_turns_were_deleted_approval_removes")}</p>}
         <TextComparison key={key} original={previous.text} value={text} onChange={value => setDraft({ key, text: value })} disabled={locked || !candidate.turns.length} />
-        {details?.repair && <details className="repair-sources" open={sourcesOpen} onToggle={e => setSourcesOpen(e.currentTarget.open)}><summary>Why this needs repair · compare sources</summary><p className="small muted">Compare the sources used previously with those supplied for this candidate. Earlier memory used for interpretation is also a dependency.</p>
-          {details.repair.previousSources === null && <p>Previous source text is unavailable in the saved request.</p>}
-          {sourcesOpen && <TextComparison original={details.repair.previousSources ?? ''} value={details.repair.currentSources} originalLabel="Previous sources" modifiedLabel="Current sources" />}
-          {(details.repair.previousPrior || details.repair.currentPrior) && <details open={priorOpen} onToggle={e => { e.stopPropagation(); setPriorOpen(e.currentTarget.open); }}><summary>Earlier memory used for interpretation</summary>{sourcesOpen && priorOpen && <TextComparison original={details.repair.previousPrior} value={details.repair.currentPrior} originalLabel="Previous earlier memory" modifiedLabel="Current earlier memory" />}</details>}
+        {details?.repair && <details className="repair-sources" open={sourcesOpen} onToggle={e => setSourcesOpen(e.currentTarget.open)}><summary>{t("repair_review.why_this_needs_repair_compare_sources")}</summary><p className="small muted">{t("repair_review.compare_the_sources_used_previously_with_those")}</p>
+          {details.repair.previousSources === null && <p>{t("repair_review.previous_source_text_is_unavailable_in_the")}</p>}
+          {sourcesOpen && <TextComparison original={details.repair.previousSources ?? ''} value={details.repair.currentSources} originalLabel={t("repair_review.previous_sources")} modifiedLabel={t("repair_review.current_sources")} />}
+          {(details.repair.previousPrior || details.repair.currentPrior) && <details open={priorOpen} onToggle={e => { e.stopPropagation(); setPriorOpen(e.currentTarget.open); }}><summary>{t("repair_review.earlier_memory_used_for_interpretation")}</summary>{sourcesOpen && priorOpen && <TextComparison original={details.repair.previousPrior} value={details.repair.currentPrior} originalLabel={t("repair_review.previous_earlier_memory")} modifiedLabel={t("repair_review.current_earlier_memory")} />}</details>}
         </details>}
       </>}
-      {!candidate && <p role="status">{running ? 'Generating a repair candidate. Approved repairs are already saved.' : 'No candidate is ready. Regenerate to continue from the saved repairs.'}</p>}
-      {(error || job.error) && <p className="repair-error" role="alert">{error || job.error}</p>}
-      {obsolete && !running && <p role="status">The chat or settings changed. Regenerate this candidate before approving.</p>}
+      {!candidate && <p role="status">{running ? t("repair_review.generating_a_repair_candidate_approved_repairs_are") : t("repair_review.no_candidate_is_ready_regenerate_to_continue")}</p>}
+      {(error || job.error) && <p className="repair-error" role="alert">{error || formatMessage(job.errorMessage ?? job.error)}</p>}
+      {obsolete && !running && <p role="status">{t("repair_review.the_chat_or_settings_changed_regenerate_this")}</p>}
     </div>
-    <div className="repair-footer"><div className="actions"><button disabled={locked || !current || obsolete || !candidate || Boolean(candidate.turns.length && !text.trim())} onClick={() => void act('approve')}>{remaining === 1 ? 'Approve & Finish' : 'Approve & Next'}</button><button className="secondary" disabled={locked} onClick={() => void act('regenerate')}>Regenerate</button><button className="secondary" disabled={busy} title="Close" onClick={() => void act('close')}><Icon name="Close" /><span className="sr-only">Close</span></button></div><small className="muted">Close discards this candidate and your unapproved edits. Approved repairs stay saved.</small></div>
+    <div className="repair-footer"><div className="actions"><button disabled={locked || !current || obsolete || !candidate || Boolean(candidate.turns.length && !text.trim())} onClick={() => void act('approve')}>{remaining === 1 ? t("repair_review.approve_finish") : t("repair_review.approve_next")}</button><button className="secondary" disabled={locked} onClick={() => void act('regenerate')}>{t("repair_review.regenerate")}</button><button className="secondary" disabled={busy} title={t("reasoning.close")} onClick={() => void act('close')}><Icon name="Close" /><span className="sr-only">{t("reasoning.close")}</span></button></div><small className="muted">{t("repair_review.close_discards_this_candidate_and_your_unapproved")}</small></div>
   </dialog>;
 }

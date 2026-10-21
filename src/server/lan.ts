@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import type { IncomingMessage } from 'node:http';
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -96,18 +97,18 @@ export class LanAccess {
     const settings: LanSettings = input.automatic ? { ...input, interfaceId: null, port: 3000 } : input;
     return this.exclusive(async () => {
       if (this.closed || !this.started || this.options.unavailable) throw new AppError(409, 'lan_unavailable', this.options.unavailable ?? 'LAN settings are unavailable while ORE is starting or stopping.');
-      if (revision !== this.saved.revision) throw new AppError(409, 'lan_conflict', 'LAN settings changed. Reload LAN settings before saving again.');
+      if (revision !== this.saved.revision) throw new AppError(409, 'lan_conflict', message("errors.lan_settings_changed_reload_lan_settings_before_saving"));
       this.checkNetwork();
       let prepared: Listener | null = null;
       try {
         const binding = settings.interfaceId ? this.interfaces().find(item => item.id === settings.interfaceId) ?? null : null;
         if (settings.enabled && !settings.automatic) {
-          if (!binding) throw new AppError(409, 'lan_network_missing', 'Select an available local network before enabling LAN access.');
+          if (!binding) throw new AppError(409, 'lan_network_missing', message("errors.select_an_available_local_network_before_enabling_lan"));
           const active = this.listener;
           if (!active || !sameInterface(binding, active.binding) || active.port !== settings.port) prepared = await this.open(binding, settings.port);
-          if (!this.current(binding)) throw new AppError(409, 'lan_network_changed', 'The local network changed while saving. Reload LAN settings and try again.');
+          if (!this.current(binding)) throw new AppError(409, 'lan_network_changed', message("errors.the_local_network_changed_while_saving_reload_lan"));
         }
-        if (this.closed) throw new AppError(409, 'lan_stopping', 'ORE is stopping. LAN settings were not saved.');
+        if (this.closed) throw new AppError(409, 'lan_stopping', message("errors.ore_is_stopping_lan_settings_were_not_saved"));
         const next: Saved = { version: 2, revision: revision + 1, settings, binding };
         this.write(next);
         const previous = this.listener;
@@ -153,14 +154,12 @@ export class LanAccess {
         ? interfaces.find(item => item.name === this.preferredInterface) ?? interfaces[0]
         : this.saved.binding;
       if (!binding || (!settings.automatic && binding.id !== settings.interfaceId) || !this.current(binding)) {
-        throw new AppError(409, 'lan_network_unavailable', settings.automatic
-          ? 'No local network is available.'
-          : 'The saved LAN address or subnet is unavailable. Select the current network and save settings from this computer.');
+        throw new AppError(409, 'lan_network_unavailable', settings.automatic ? message("errors.no_local_network_is_available") : message("errors.the_saved_lan_address_or_subnet_is_unavailable"));
       }
       const prepared = await this.open(binding, settings.automatic ? 3000 : settings.port);
       if (this.closed || !this.current(binding)) {
         await this.retire(prepared);
-        if (!this.closed) throw new AppError(409, 'lan_network_changed', 'The local network changed.');
+        if (!this.closed) throw new AppError(409, 'lan_network_changed', message("errors.the_local_network_changed"));
         return;
       }
       this.listener = prepared;
@@ -192,7 +191,7 @@ export class LanAccess {
   }
   private async open(binding: LanInterface, port: number): Promise<Listener> {
     const hostname = await this.hostname();
-    if (this.closed) throw new AppError(409, 'lan_stopping', 'ORE is stopping.');
+    if (this.closed) throw new AppError(409, 'lan_stopping', message("errors.ore_is_stopping"));
     const authority = Symbol('LAN listener');
     const transport = await this.listen(binding, port, (request, response) => {
       this.checkNetwork();

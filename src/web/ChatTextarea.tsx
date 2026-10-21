@@ -1,3 +1,4 @@
+import { useLocale } from './localization';
 import { useLayoutEffect, useRef, type TextareaHTMLAttributes } from 'react';
 
 type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'defaultValue' | 'onChange'> & {
@@ -8,6 +9,7 @@ type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'defaul
 
 /** Typographic substitution belongs to live typing, never to loading saved prose. */
 export function ChatTextarea({ value, onValueChange, autoSize = false, ...props }: Props) {
+  useLocale();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<number | null>(null);
 

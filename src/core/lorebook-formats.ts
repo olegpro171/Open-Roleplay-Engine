@@ -1,3 +1,6 @@
+import { MessageError } from '../shared/localization.js';
+import { message } from '../shared/localization.js';
+import { diagnosticMessage } from '../shared/localization.js';
 import { z } from 'zod';
 import {
   LOREBOOK_ENTRY_LIMIT, LOREBOOK_FILE_LIMIT, lorebookSchema, newLoreEntry,
@@ -62,22 +65,22 @@ function copyJson(value: unknown): JsonObject {
   while (pending.length > 0) {
     const current = pending.pop();
     if (!current) break;
-    if (current.depth > 100) throw new Error('Lorebook metadata exceeds the maximum nesting depth of 100.');
+    if (current.depth > 100) throw new MessageError(message("importErrors.lorebook_metadata_exceeds_the_maximum_nesting_depth_of"));
     const item = current.value;
     if (item === null || typeof item === 'string' || typeof item === 'boolean') continue;
     if (typeof item === 'number' && Number.isFinite(item)) continue;
-    if (typeof item !== 'object') throw new Error('Lorebooks must contain only valid JSON values.');
+    if (typeof item !== 'object') throw new MessageError(message("importErrors.lorebooks_must_contain_only_valid_json_values"));
     if (seen.has(item)) continue;
     seen.add(item);
     if (!Array.isArray(item) && Object.getPrototypeOf(item) !== Object.prototype && Object.getPrototypeOf(item) !== null) {
-      throw new Error('Lorebooks must contain only plain JSON objects.');
+      throw new MessageError(message("importErrors.lorebooks_must_contain_only_plain_json_objects"));
     }
     for (const child of Object.values(item)) pending.push({ value: child, depth: current.depth + 1 });
   }
   let serialized: string;
   try { serialized = JSON.stringify(source); }
-  catch { throw new Error('Lorebooks must contain valid, non-circular JSON.'); }
-  if (new TextEncoder().encode(serialized).byteLength > LOREBOOK_FILE_LIMIT) throw new Error('Lorebook files must be at most 5 MB.');
+  catch { throw new MessageError(message("importErrors.lorebooks_must_contain_valid_non_circular_json")); }
+  if (new TextEncoder().encode(serialized).byteLength > LOREBOOK_FILE_LIMIT) throw new MessageError(message("importErrors.lorebook_files_must_be_at_most_5_mb"));
   return object(JSON.parse(serialized));
 }
 
@@ -132,12 +135,12 @@ function standardBook(raw: JsonObject, format: 'v2' | 'v3', createId: () => stri
 }
 
 function rawEntries(raw: JsonObject): unknown[] {
-  if (!Array.isArray(raw.entries)) throw new Error('Lorebook entries must be an array.');
+  if (!Array.isArray(raw.entries)) throw new MessageError(message("importErrors.lorebook_entries_must_be_an_array"));
   return raw.entries;
 }
 
 function consistentAlias(raw: JsonObject, first: string, second: string) {
-  if (present(raw, first) && present(raw, second) && raw[first] !== raw[second]) throw new Error(`Conflicting lorebook fields: ${first} and ${second}.`);
+  if (present(raw, first) && present(raw, second) && raw[first] !== raw[second]) throw new MessageError(message("importErrors.conflicting_lorebook_fields_and", { first: String(first), second: String(second) }));
   return raw[first] ?? raw[second];
 }
 
@@ -146,7 +149,7 @@ function worldBook(raw: JsonObject, createId: () => string): Lorebook {
   const entryPairs: [string | undefined, unknown][] = Array.isArray(raw.entries)
     ? raw.entries.map(entry => [undefined, entry])
     : Object.entries(object(raw.entries, 'World Info entries must be an object map or a legacy entry array.'));
-  if (entryPairs.length > LOREBOOK_ENTRY_LIMIT) throw new Error('Lorebooks may contain at most 2000 entries.');
+  if (entryPairs.length > LOREBOOK_ENTRY_LIMIT) throw new MessageError(message("importErrors.lorebooks_may_contain_at_most_2000_entries"));
   return {
     name: label(settings.name, 'Imported lorebook', 100), description: settings.description ?? '',
     scanDepth: settings.scan_depth ?? 4, tokenBudget: settings.token_budget ?? 2048, recursiveScanning: settings.recursive_scanning ?? false,
@@ -178,9 +181,9 @@ export function importLorebook(value: unknown, createId: () => string, embeddedF
   let data = raw;
   let format: Format;
   if (present(raw, 'spec')) {
-    if (raw.spec !== 'lorebook_v3') throw new Error('Unsupported lorebook specification. Expected lorebook_v3.');
-    if (present(raw, 'entries')) throw new Error('Ambiguous lorebook: both envelope and root entries are present.');
-    if (embeddedFormat === 'v2') throw new Error('A V3 envelope cannot be imported as an embedded V2 book.');
+    if (raw.spec !== 'lorebook_v3') throw new MessageError(message("importErrors.unsupported_lorebook_specification_expected_lorebook_v3"));
+    if (present(raw, 'entries')) throw new MessageError(message("importErrors.ambiguous_lorebook_both_envelope_and_root_entries_are"));
+    if (embeddedFormat === 'v2') throw new MessageError(message("importErrors.a_v3_envelope_cannot_be_imported_as_an"));
     data = object(raw.data, 'The V3 lorebook envelope requires a data object.');
     format = 'v3';
   } else if (embeddedFormat) {
@@ -190,18 +193,18 @@ export function importLorebook(value: unknown, createId: () => string, embeddedF
       const entry = object(value, 'Every lorebook entry must be an object.');
       const standard = present(entry, 'keys') || present(entry, 'insertion_order') || present(entry, 'enabled');
       const legacy = present(entry, 'key') || present(entry, 'uid') || present(entry, 'disable') || present(entry, 'order');
-      if (standard && legacy) throw new Error('Ambiguous entry mixes standard and World Info field names.');
+      if (standard && legacy) throw new MessageError(message("importErrors.ambiguous_entry_mixes_standard_and_world_info_field"));
       return standard ? 'v2' : legacy ? 'world_info' : 'unknown';
     }));
-    if (styles.has('v2') && styles.has('world_info')) throw new Error('Ambiguous lorebook mixes standard and World Info entries.');
-    if (styles.has('world_info') && styles.has('unknown')) throw new Error('Legacy World Info array entries must identify their format unambiguously.');
+    if (styles.has('v2') && styles.has('world_info')) throw new MessageError(message("importErrors.ambiguous_lorebook_mixes_standard_and_world_info_entries"));
+    if (styles.has('world_info') && styles.has('unknown')) throw new MessageError(message("importErrors.legacy_world_info_array_entries_must_identify_their"));
     format = styles.has('world_info') ? 'world_info' : 'v2';
   } else {
     object(raw.entries, 'Lorebook entries must be an array or a World Info object map.');
     format = 'world_info';
   }
   if (present(raw, 'data') && objectSchema.safeParse(raw.data).success && present(object(raw.data), 'entries') && !present(raw, 'spec')) {
-    throw new Error('Ambiguous lorebook contains both nested and root book data.');
+    throw new MessageError(message("importErrors.ambiguous_lorebook_contains_both_nested_and_root_book"));
   }
   const parsed = format === 'world_info' ? worldBook(data, createId) : standardBook(data, format, createId);
   const book = lorebookSchema.parse({ ...parsed, source: { raw, format } });
@@ -224,34 +227,34 @@ export function loreCompatibility(book: Lorebook): LoreDiagnostic[] {
   let omitted = 0;
   const add = (diagnostic: LoreDiagnostic) => { if (diagnostics.length < 200) diagnostics.push(diagnostic); else omitted++; };
   const extras = (raw: JsonObject, fields: Set<string>, entryId?: string) => {
-    for (const field of Object.keys(raw)) if (!fields.has(field)) add({ code: 'unsupported_field', field, entryId, message: `${field} is preserved for export and has no activation behavior in ORE.` });
+    for (const field of Object.keys(raw)) if (!fields.has(field)) add({ code: 'unsupported_field', field, entryId, ...diagnosticMessage(message("interface.is_preserved_for_export_and_has_no_activation", { field: String(field) })) });
     if (raw.extensions !== undefined) {
       const extensions = objectSchema.safeParse(raw.extensions);
-      if (!extensions.success) add({ code: 'invalid_preserved_metadata', field: 'extensions', entryId, message: 'Preserved extension metadata is malformed. It stays inactive; export requires a valid extension object.' });
-      else for (const field of Object.keys(extensions.data)) add({ code: 'unsupported_extension', field: `extensions.${field}`, entryId, message: `Extension ${field} is preserved inactive.` });
+      if (!extensions.success) add({ code: 'invalid_preserved_metadata', field: 'extensions', entryId, ...diagnosticMessage(message("interface.preserved_extension_metadata_is_malformed_it_stays_inactive")) });
+      else for (const field of Object.keys(extensions.data)) add({ code: 'unsupported_extension', field: `extensions.${field}`, entryId, ...diagnosticMessage(message("interface.extension_is_preserved_inactive", { field: String(field) })) });
     }
   };
   const source = book.source?.raw ?? {};
   const rawBook = objectSchema.safeParse(source.spec === 'lorebook_v3' ? source.data : source);
-  if (!rawBook.success) add({ code: 'invalid_preserved_metadata', field: 'data', message: 'Preserved lorebook envelope data is malformed. It stays inactive; export requires a valid data object.' });
+  if (!rawBook.success) add({ code: 'invalid_preserved_metadata', field: 'data', ...diagnosticMessage(message("interface.preserved_lorebook_envelope_data_is_malformed_it_stays")) });
   else extras(rawBook.data, bookKnownFields);
   if (book.source?.raw.spec === 'lorebook_v3') {
-    for (const field of Object.keys(book.source.raw)) if (field !== 'spec' && field !== 'data') add({ code: 'preserved_envelope', field, message: `Envelope field ${field} is preserved and does not affect activation.` });
+    for (const field of Object.keys(book.source.raw)) if (field !== 'spec' && field !== 'data') add({ code: 'preserved_envelope', field, ...diagnosticMessage(message("interface.envelope_field_is_preserved_and_does_not_affect", { field: String(field) })) });
   }
   for (const entry of book.entries) {
     const raw = entry.source?.raw ?? {};
     extras(raw, book.source?.format === 'world_info' ? worldSupportedFields : standardKnownFields, entry.id);
     if (book.source?.format === 'world_info') {
-      if (raw.selectiveLogic !== undefined && raw.selectiveLogic !== 0) add({ code: 'unsupported_selective_logic', entryId: entry.id, field: 'selectiveLogic', message: 'This World Info selective logic is preserved inactive; ORE uses the standard primary plus any secondary key condition.' });
-      if (typeof raw.position === 'number' && ![0, 1, 4].includes(raw.position)) add({ code: 'unsupported_position', entryId: entry.id, field: 'position', message: 'This World Info position is preserved inactive. The entry uses after-character placement through the enabled Lore after Character control.' });
-      if (!entry.useRegex && entry.keys.some(key => /^\/.*\/[a-z]*$/s.test(key))) add({ code: 'literal_regex_text', entryId: entry.id, field: 'key', message: 'Regex-like keys remain literal because this entry has no explicit regex setting.' });
+      if (raw.selectiveLogic !== undefined && raw.selectiveLogic !== 0) add({ code: 'unsupported_selective_logic', entryId: entry.id, field: 'selectiveLogic', ...diagnosticMessage(message("interface.this_world_info_selective_logic_is_preserved_inactive")) });
+      if (typeof raw.position === 'number' && ![0, 1, 4].includes(raw.position)) add({ code: 'unsupported_position', entryId: entry.id, field: 'position', ...diagnosticMessage(message("interface.this_world_info_position_is_preserved_inactive_the")) });
+      if (!entry.useRegex && entry.keys.some(key => /^\/.*\/[a-z]*$/s.test(key))) add({ code: 'literal_regex_text', entryId: entry.id, field: 'key', ...diagnosticMessage(message("interface.regex_like_keys_remain_literal_because_this_entry")) });
     }
     for (const line of entry.content.split(/\r?\n/)) {
       const directive = /^\s*@{2,}([^\s]*)(?:\s|$)/.exec(line)?.[1];
-      if (directive !== undefined && !recognizedDecorators.has(directive)) add({ code: 'unsupported_decorator', entryId: entry.id, field: 'content', message: `Decorator ${directive || '(empty)'} is preserved inactive and removed from inserted prose; supported fallback lines remain eligible.` });
+      if (directive !== undefined && !recognizedDecorators.has(directive)) add({ code: 'unsupported_decorator', entryId: entry.id, field: 'content', ...diagnosticMessage(message("interface.decorator_is_preserved_inactive_and_removed_from_inserted", { value: String(directive || '(empty)') })) });
     }
   }
-  if (omitted > 0) diagnostics.push({ code: 'more_compatibility_notices', message: `${omitted} additional compatibility notices are omitted from this bounded preview.` });
+  if (omitted > 0) diagnostics.push({ code: 'more_compatibility_notices', ...diagnosticMessage(message("interface.additional_compatibility_notices_are_omitted_from_this_bounded", { omitted: String(omitted) })) });
   return diagnostics;
 }
 

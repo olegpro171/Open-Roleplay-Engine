@@ -1,3 +1,4 @@
+import { t, useLocale } from './localization';
 import { useEffect, useRef, useState } from 'react';
 import { Compartment, EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
@@ -18,9 +19,10 @@ const proseTheme = EditorView.theme({
 const nonce = () => EditorView.cspNonce.of(document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content ?? '');
 
 /** Plain text only: both panes use the same editor, typography and wrapping. */
-export function TextComparison({ original, value, onChange, disabled = false, originalLabel = 'Previous summary', modifiedLabel = 'Proposed summary' }: {
+export function TextComparison({ original, value, onChange, disabled = false, originalLabel = t("text_comparison.previous_summary"), modifiedLabel = t("text_comparison.proposed_summary") }: {
   original: string; value: string; onChange?: (value: string) => void; disabled?: boolean; originalLabel?: string; modifiedLabel?: string;
 }) {
+  useLocale();
   const container = useRef<HTMLDivElement>(null);
   const editors = useRef<{ modified: EditorView; merge?: MergeView; editable: Compartment; comparison: Compartment } | null>(null);
   const change = useRef(onChange); change.current = onChange;
@@ -74,9 +76,9 @@ export function TextComparison({ original, value, onChange, disabled = false, or
     if (view) { (forward ? goToNextChunk : goToPreviousChunk)(view); view.focus(); }
   }
   return <div className={`text-comparison${compact ? ' comparison-unified' : ''}`}>
-    <div className="comparison-toolbar"><div className="actions"><button type="button" className="quiet" onClick={() => navigate(false)}>Previous difference</button><button type="button" className="quiet" onClick={() => navigate(true)}>Next difference</button></div><label className="checkbox"><input type="checkbox" checked={collapse} onChange={e => setCollapse(e.target.checked)} />Collapse unchanged</label></div>
-    <div className="comparison-labels">{compact ? <span>{modifiedLabel} · removals above additions</span> : <><span>{originalLabel}</span><span>{modifiedLabel}</span></>}</div>
+    <div className="comparison-toolbar"><div className="actions"><button type="button" className="quiet" onClick={() => navigate(false)}>{t("text_comparison.previous_difference")}</button><button type="button" className="quiet" onClick={() => navigate(true)}>{t("text_comparison.next_difference")}</button></div><label className="checkbox"><input type="checkbox" checked={collapse} onChange={e => setCollapse(e.target.checked)} />{t("text_comparison.collapse_unchanged")}</label></div>
+    <div className="comparison-labels">{compact ? <span>{t("text_comparison.removals_above_additions", { modifiedLabel: modifiedLabel })}</span> : <><span>{originalLabel}</span><span>{modifiedLabel}</span></>}</div>
     <div className="comparison-editors" ref={container} />
-    <p className="comparison-legend"><span>− Removed text</span><span>+ Added text</span>{original === value && <span>No text differences.</span>}</p>
+    <p className="comparison-legend"><span>{t("text_comparison.removed_text")}</span><span>{t("text_comparison.added_text")}</span>{original === value && <span>{t("text_comparison.no_text_differences")}</span>}</p>
   </div>;
 }

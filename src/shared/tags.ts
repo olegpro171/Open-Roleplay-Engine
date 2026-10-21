@@ -1,5 +1,6 @@
 import type { PictureReview } from './pictures.js';
 import { z } from 'zod';
+import { loreDiagnosticSchema, type LoreDiagnostic } from './lorebook.js';
 
 export const tagLimits = { name: 100, catalog: 2000, assignments: 128, candidates: 1024, metadataEntries: 4096, metadataCharacters: 500_000, diagnostics: 50, page: 50 } as const;
 export function normalizeTagName(value: string): string { return value.trim().normalize('NFC'); }
@@ -21,14 +22,14 @@ export type TagReview = {
 export type CharacterImportReview = {
   picture?: PictureReview;
   revision: number; name: string; description: string; book: { name: string; entries: number } | null;
-  diagnostics: { code: string; message: string; entryId?: string; field?: string }[];
+  diagnostics: LoreDiagnostic[];
   tags: TagReview;
 };
 export type TagImportReport = { policy: TagPolicy; assigned: number; created: number };
 export const tagImportReportSchema = z.object({ policy: tagPolicySchema, assigned: z.number().int().nonnegative(), created: z.number().int().nonnegative() });
 export const characterImportResultSchema = z.object({
   ids: z.array(z.string()), books: z.array(z.object({ id: z.string(), name: z.string(), entries: z.number() })),
-  diagnostics: z.array(z.object({ code: z.string(), message: z.string(), entryId: z.string().optional(), field: z.string().optional() })),
+  diagnostics: z.array(loreDiagnosticSchema),
   tags: tagImportReportSchema.optional(),
   picture: z.object({ saved: z.boolean() }).optional(),
 });

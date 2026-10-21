@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import { PictureStore } from './picture-store.js';
 import type { PictureImportIntent } from '../shared/pictures.js';
 import type { PreparedPicture } from './picture-data.js';
@@ -12,11 +13,12 @@ import { fileURLToPath } from 'node:url';
 import { savePreUpgradeSnapshot } from './schema-backup.js';
 import { databaseSchemaVersion } from '../shared/build-info.js';
 import { AppError } from '../core/errors.js';
+import { MessageError, outcomeMessage, type LocalizedMessage } from '../shared/localization.js';
 import { replaceNameMacros } from '../core/prompt.js';
 import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStatus, RequestPreview, ResponseVariant, TokenUsage, Turn } from '../shared/contracts.js';
 import { regenerationView } from '../core/regeneration.js';
 import { readCharacterAlternateGreetings, characterLabel, characterSchema, libraryCharacterSchema, libraryPersonaSchema, personaSchema, defaultPrompt, defaultInstructions, selectionsSchema, type Character, type LibraryCharacter, type LibraryPersona, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary, type PromptSources } from '../shared/library.js';
-import { lorebookSchema, type Lorebook, type LoreImportPreview, type LoreResolution, type LoreState } from '../shared/lorebook.js';
+import { lorebookSchema, loreDiagnosticSchema, type Lorebook, type LoreImportPreview, type LoreResolution, type LoreState } from '../shared/lorebook.js';
 import { importLorebook, loreCompatibility, markLoreEdits } from '../core/lorebook-formats.js';
 import { importCharacter } from '../core/cards.js';
 import { semanticFingerprint, unchangedLoreEntries } from '../core/lorebook.js';
@@ -39,7 +41,7 @@ function parseImport<T>(parse: () => T): T {
   try { return parse(); }
   catch (error) {
     if (error instanceof z.ZodError || error instanceof AppError) throw error;
-    throw new AppError(400, 'invalid_lorebook', error instanceof Error ? error.message : 'The imported lorebook could not be read.');
+    throw new AppError(400, 'invalid_lorebook', error instanceof MessageError ? error.localized : error instanceof Error ? error.message : message("errors.the_imported_lorebook_could_not_be_read"));
   }
 }
 
@@ -248,7 +250,14 @@ export class Store {
         })();
         version = 14;
       }
-      if (version !== 14) throw new Error('Unsupported database schema version.');
+      if (version === 14) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0015_localized_outcomes.sql'), 'utf8'));
+          this.sqlite.pragma('user_version = 15');
+        })();
+        version = 15;
+      }
+      if (version !== 15) throw new Error('Unsupported database schema version.');
       this.pictures = new PictureStore(this.sqlite, () => this.bumpLibrary());
       this.contexts = new ContextStore(this);
       this.tags = new TagStore(this.sqlite, expected => this.checkLibrary(expected), () => this.bumpLibrary());
@@ -262,13 +271,13 @@ export class Store {
 
   private chat(chatId: string) {
     const row = this.db.select({ id: schema.chats.id, revision: schema.chats.revision, settings: schema.chats.settings }).from(schema.chats).where(eq(schema.chats.id, chatId)).get();
-    if (!row) throw new AppError(404, 'chat_not_found', 'Chat not found.');
+    if (!row) throw new AppError(404, 'chat_not_found', message("errors.chat_not_found"));
     return row;
   }
   private selected<T>(id: string | null | undefined, kind: LibraryKind): Saved<T> | null {
     if (!id) return null;
     const row = this.db.select().from(schema.library).where(and(eq(schema.library.id, id), eq(schema.library.kind, kind))).get();
-    if (!row) throw new AppError(422, 'missing_selection', 'A selected library item no longer exists.');
+    if (!row) throw new AppError(422, 'missing_selection', message("errors.a_selected_library_item_no_longer_exists"));
     // Organizational metadata must never enter PromptSources or source revisions.
     const data = kind === 'characters' ? this.promptCharacter(libraryCharacterSchema.parse(row.data))
       : kind === 'personas' ? this.promptPersona(libraryPersonaSchema.parse(row.data)) : row.data;
@@ -325,7 +334,7 @@ export class Store {
     return this.db.select().from(schema.turns).where(condition).orderBy(asc(schema.turns.position)).all().map(row => {
       const responses = variants.get(row.id) ?? [];
       const selected = responses.find(variant => variant.id === row.selectedVariantId);
-      if (row.complete && (!selected || selected.text !== row.assistantText)) throw new AppError(500, 'invalid_response_variant', 'The saved response selection is inconsistent. The transcript has been preserved; inspect the database before continuing.');
+      if (row.complete && (!selected || selected.text !== row.assistantText)) throw new AppError(500, 'invalid_response_variant', message("errors.the_saved_response_selection_is_inconsistent_the_transcript"));
       return {
         id: row.id, position: row.position, complete: row.complete,
         user: { id: row.userId, revision: row.userRevision, text: row.userText },
@@ -343,10 +352,10 @@ export class Store {
       sourceRevision: schema.generations.sourceRevision, kind: schema.generations.kind,
       request: schema.generations.request, usage: schema.generations.usage, partialText: schema.generations.partialText,
       reasoningText: sql<string>`substr(${schema.generations.reasoningText}, -2000)`,
-      error: schema.generations.error, createdAt: schema.generations.createdAt, updatedAt: schema.generations.updatedAt,
+      error: schema.generations.error, errorMessage: schema.generations.errorMessage, createdAt: schema.generations.createdAt, updatedAt: schema.generations.updatedAt,
     }).from(schema.generations).where(eq(schema.generations.chatId, chatId)).orderBy(desc(sql`rowid`)).all().map(row => ({
       id: row.id, turnId: row.turnId, status: row.status, sourceRevision: row.sourceRevision, kind: row.kind,
-      request: row.request, usage: row.usage, partialText: row.partialText, reasoningText: row.reasoningText, error: row.error, createdAt: row.createdAt, updatedAt: row.updatedAt,
+      request: row.request, usage: row.usage, partialText: row.partialText, reasoningText: row.reasoningText, error: row.error, errorMessage: row.errorMessage, createdAt: row.createdAt, updatedAt: row.updatedAt,
     }));
     return { ...header, turns, generations, loreState: this.loreState(chatId, header.settings.lorebookId), context: this.contexts.snapshot(chatId, header.settings.contextPresetId ?? null) };
   }
@@ -359,12 +368,12 @@ export class Store {
     };
   }
   checkRevision(expected: number, chatId = 'main') {
-    if (this.chat(chatId).revision !== expected) throw new AppError(409, 'revision_conflict', 'The chat changed on another device. Review the latest state and try again.');
+    if (this.chat(chatId).revision !== expected) throw new AppError(409, 'revision_conflict', message("errors.the_chat_changed_on_another_device_review_the"));
   }
   ensureIdle(chatId?: string) {
     const condition = chatId ? and(eq(schema.generations.status, 'running'), eq(schema.generations.chatId, chatId)) : eq(schema.generations.status, 'running');
-    if (this.db.select().from(schema.generations).where(condition).get()) throw new AppError(409, 'generation_running', 'Cancel or wait for the current response before editing shared items or this chat.');
-    if (this.contexts.running(chatId)) throw new AppError(409, 'context_running', 'Stop or wait for memory preparation before editing shared items or this chat.');
+    if (this.db.select().from(schema.generations).where(condition).get()) throw new AppError(409, 'generation_running', message("errors.cancel_or_wait_for_the_current_response_before"));
+    if (this.contexts.running(chatId)) throw new AppError(409, 'context_running', message("errors.stop_or_wait_for_memory_preparation_before_editing"));
   }
   bumpRevision(chatId = 'main') {
     const revision = this.chat(chatId).revision + 1;
@@ -373,7 +382,7 @@ export class Store {
   }
   libraryRevision() { return (this.sqlite.prepare('SELECT revision FROM library_state WHERE id = 1').get() as { revision: number }).revision; }
   private checkLibrary(expected: number) {
-    if (this.libraryRevision() !== expected) throw new AppError(409, 'revision_conflict', 'The library changed on another device. Reopen the editor before saving.');
+    if (this.libraryRevision() !== expected) throw new AppError(409, 'revision_conflict', message("errors.the_library_changed_on_another_device_reopen_the"));
     this.ensureIdle();
   }
   private bumpLibrary() { this.sqlite.prepare('UPDATE library_state SET revision = revision + 1 WHERE id = 1').run(); }
@@ -422,12 +431,12 @@ export class Store {
       if (kind === 'contexts' && (data as ContextPreset).connectionId) this.connection((data as ContextPreset).connectionId!);
       if (kind === 'connections') {
         const old = this.db.select().from(schema.connections).where(eq(schema.connections.id, identity)).get();
-        if (id && !old) throw new AppError(404, 'item_not_found', 'Connection not found.');
+        if (id && !old) throw new AppError(404, 'item_not_found', message("errors.connection_not_found"));
         this.db.insert(schema.connections).values({ id: identity, settings: data as Connection, revision: (old?.revision ?? -1) + 1 }).onConflictDoUpdate({ target: schema.connections.id, set: { updatedAt: new Date().toISOString(), settings: data as Connection, revision: (old?.revision ?? -1) + 1 } }).run();
         if (apiKey !== undefined) this.db.insert(schema.credentials).values({ id: identity, apiKey }).onConflictDoUpdate({ target: schema.credentials.id, set: { apiKey } }).run();
       } else {
         const old = this.db.select().from(schema.library).where(and(eq(schema.library.id, identity), eq(schema.library.kind, kind))).get();
-        if (id && !old) throw new AppError(404, 'item_not_found', 'Library item not found.');
+        if (id && !old) throw new AppError(404, 'item_not_found', message("errors.library_item_not_found"));
         if (kind === 'lorebooks') {
           const book = lorebookSchema.parse(data);
           const previous = old ? lorebookSchema.parse(old.data) : null;
@@ -506,7 +515,7 @@ export class Store {
   }
   replayCharacterSave(input: CharacterSaveCommand, id?: string) {
     if (!input.requestId) {
-      if (input.picture) throw new AppError(400, 'missing_command', 'Picture saves require a command identity.');
+      if (input.picture) throw new AppError(400, 'missing_command', message("errors.picture_saves_require_a_command_identity"));
       return { found: false as const };
     }
     return this.recordedLibraryCommand(input.requestId, this.libraryCommandFingerprint(this.characterSaveFingerprint(input, id)), value => z.object({ id: z.string() }).parse(value));
@@ -515,7 +524,7 @@ export class Store {
     this.checkLibrary(input.revision);
     if (id) this.selected<Character>(id, 'characters');
     if (input.picture) {
-      if (input.expectedPicture === undefined) throw new AppError(400, 'missing_picture_precondition', 'Picture saves require the reviewed picture identity.');
+      if (input.expectedPicture === undefined) throw new AppError(400, 'missing_picture_precondition', message("errors.picture_saves_require_the_reviewed_picture_identity"));
       this.pictures.check(id, input.expectedPicture);
     }
   }
@@ -543,7 +552,7 @@ export class Store {
   private recordedLibraryCommand<T>(requestId: string, fingerprint: string, parse: (value: unknown) => T, legacyFingerprint?: string | string[]): { found: false } | { found: true; result: T } {
     const existing = this.sqlite.prepare('SELECT command, result FROM lore_commands WHERE request_id = ?').get(requestId) as { command: string; result: string } | undefined;
     if (!existing) return { found: false };
-    if (existing.command !== fingerprint && !(Array.isArray(legacyFingerprint) ? legacyFingerprint : [legacyFingerprint]).includes(existing.command)) throw new AppError(409, 'request_id_conflict', 'This import identity was already used for a different command.');
+    if (existing.command !== fingerprint && !(Array.isArray(legacyFingerprint) ? legacyFingerprint : [legacyFingerprint]).includes(existing.command)) throw new AppError(409, 'request_id_conflict', message("errors.this_import_identity_was_already_used_for_a"));
     return { found: true, result: parse(JSON.parse(existing.result)) };
   }
   private libraryCommandFingerprint(command: unknown) {
@@ -563,7 +572,7 @@ export class Store {
   }
   importBook(expected: number, requestId: string, value: unknown) {
     const preview = parseImport(() => importLorebook(value, randomUUID));
-    const resultSchema = z.object({ id: z.string(), diagnostics: z.array(z.object({ code: z.string(), message: z.string(), entryId: z.string().optional(), field: z.string().optional() })) });
+    const resultSchema = z.object({ id: z.string(), diagnostics: z.array(loreDiagnosticSchema) });
     return this.loreCommand(expected, requestId, { kind: 'lorebook', value }, value => resultSchema.parse(value), () => {
       const id = this.saveLibrary(this.libraryRevision(), 'lorebooks', preview.book);
       return { id, diagnostics: this.savedLoreDiagnostics(preview, id) };
@@ -618,7 +627,7 @@ export class Store {
     return this.sqlite.transaction(() => {
       this.checkLibrary(expected);
       const original = this.db.select().from(schema.library).where(and(eq(schema.library.id, characterId), eq(schema.library.kind, 'characters'))).get();
-      if (!original) throw new AppError(404, 'character_not_found', 'Character not found.');
+      if (!original) throw new AppError(404, 'character_not_found', message("errors.character_not_found"));
       const data = libraryCharacterSchema.parse(original.data);
       const id = this.saveLibrary(expected, 'characters', { ...data, name: `${data.name.slice(0, 90)} copy` }, undefined, undefined, this.tags.assigned(characterId));
       this.pictures.duplicate(characterId, id);
@@ -626,16 +635,16 @@ export class Store {
     })();
   }
   extractBook(expected: number, requestId: string, characterId: string) {
-    const resultSchema = z.object({ bookId: z.string(), diagnostics: z.array(z.object({ code: z.string(), message: z.string(), entryId: z.string().optional(), field: z.string().optional() })) });
+    const resultSchema = z.object({ bookId: z.string(), diagnostics: z.array(loreDiagnosticSchema) });
     return this.loreCommand(expected, requestId, { kind: 'extract', characterId }, value => resultSchema.parse(value), () => {
       const card = this.selected<Character>(characterId, 'characters');
-      if (!card) throw new AppError(404, 'item_not_found', 'Character not found.');
+      if (!card) throw new AppError(404, 'item_not_found', message("errors.character_not_found"));
       if (card.lorebookId) {
         const book = this.selected<Lorebook>(card.lorebookId, 'lorebooks');
         return { bookId: card.lorebookId, diagnostics: book ? loreCompatibility(book) : [] };
       }
       const raw = card.source ?? {}, data = raw.spec === 'chara_card_v2' || raw.spec === 'chara_card_v3' ? z.record(z.string(), z.unknown()).parse(raw.data) : raw;
-      if (data.character_book == null) throw new AppError(422, 'no_embedded_book', 'This character has no preserved embedded lorebook.');
+      if (data.character_book == null) throw new AppError(422, 'no_embedded_book', message("errors.this_character_has_no_preserved_embedded_lorebook"));
       const preview = parseImport(() => importLorebook(data.character_book, randomUUID, raw.spec === 'chara_card_v3' ? 'v3' : 'v2'));
       const bookId = this.saveLibrary(this.libraryRevision(), 'lorebooks', preview.book);
       const { id: _id, revision: _revision, ...editable } = card;
@@ -656,7 +665,7 @@ export class Store {
   private assertLoreCurrent(chatId: string, resolution: LoreResolution) {
     const settings = this.chat(chatId).settings;
     const book = this.selected<Lorebook>(settings.lorebookId, 'lorebooks');
-    if (!book || book.id !== resolution.book.id || book.revision !== resolution.book.revision || this.loreState(chatId, book.id).epoch !== resolution.epoch) throw new AppError(409, 'stale_lore', 'The lorebook, selection or activation state changed. Retry from current saved state.');
+    if (!book || book.id !== resolution.book.id || book.revision !== resolution.book.revision || this.loreState(chatId, book.id).epoch !== resolution.epoch) throw new AppError(409, 'stale_lore', message("errors.the_lorebook_selection_or_activation_state_changed_retry"));
   }
   saveLoreOperation(chatId: string, operationId: string, resolution: LoreResolution | null) {
     if (!resolution) return;
@@ -678,30 +687,30 @@ export class Store {
   private commitLoreState(chatId: string, resolution: LoreResolution) {
     this.assertLoreCurrent(chatId, resolution);
     const state = this.loreState(chatId, resolution.book.id);
-    if (JSON.stringify(state.entries) !== JSON.stringify(resolution.stateBefore)) throw new AppError(409, 'stale_lore_state', 'Lore activation state changed before the response completed. Retry from the current state.');
+    if (JSON.stringify(state.entries) !== JSON.stringify(resolution.stateBefore)) throw new AppError(409, 'stale_lore_state', message("errors.lore_activation_state_changed_before_the_response_completed"));
     this.sqlite.prepare('INSERT INTO lore_states (chat_id, book_id, epoch, data) VALUES (?, ?, ?, ?) ON CONFLICT(chat_id, book_id) DO UPDATE SET epoch = excluded.epoch, data = excluded.data').run(chatId, resolution.book.id, resolution.epoch, JSON.stringify({ ...state.entries, ...resolution.stateDelta }));
   }
   deleteLibrary(expected: number, kind: LibraryKind, id: string) {
     this.sqlite.transaction(() => {
       this.checkLibrary(expected);
-      if (kind === 'prompts' && id === 'default') throw new AppError(409, 'default_prompt', 'The default prompt can be edited or restored, but cannot be deleted.');
+      if (kind === 'prompts' && id === 'default') throw new AppError(409, 'default_prompt', message("errors.the_default_prompt_can_be_edited_or_restored"));
       const key = kind === 'personas' ? 'personaId' : kind === 'characters' ? 'characterId' : kind === 'prompts' ? 'promptId' : kind === 'contexts' ? 'contextPresetId' : kind === 'lorebooks' ? 'lorebookId' : 'connectionId';
       if (kind === 'lorebooks') {
         const uses = this.libraries().lorebookUses.find(use => use.bookId === id);
-        if (uses && (uses.characters.length || uses.chats.length)) throw new AppError(409, 'item_in_use', `This lorebook is used by ${[...uses.characters.map(card => `character “${characterLabel(card)}”`), ...uses.chats.map(chat => `chat “${chat.title}”`)].join(', ')}. Choose None or another book there first.`);
+        if (uses && (uses.characters.length || uses.chats.length)) throw new AppError(409, 'item_in_use', message("errors.this_lorebook_is_used_by_choose_none_or", { value: String([...uses.characters.map(card => `character “${characterLabel(card)}”`), ...uses.chats.map(chat => `chat “${chat.title}”`)].join(', ')) }));
       }
-      if (this.db.select().from(schema.chats).all().some(c => c.settings[key] === id || (kind === 'connections' && id === 'main' && c.settings.connectionId === undefined))) throw new AppError(409, 'item_in_use', 'Select a different item in the chats using this one before deleting it.');
+      if (this.db.select().from(schema.chats).all().some(c => c.settings[key] === id || (kind === 'connections' && id === 'main' && c.settings.connectionId === undefined))) throw new AppError(409, 'item_in_use', message("errors.select_a_different_item_in_the_chats_using"));
       if (kind === 'connections') {
-        if (this.libraries().contexts.some(preset => preset.connectionId === id)) throw new AppError(409, 'item_in_use', 'A context preset uses this summarization Connection. Change that preset first.');
+        if (this.libraries().contexts.some(preset => preset.connectionId === id)) throw new AppError(409, 'item_in_use', message("errors.a_context_preset_uses_this_summarization_connection_change"));
         this.db.delete(schema.credentials).where(eq(schema.credentials.id, id)).run();
-        if (!this.db.delete(schema.connections).where(eq(schema.connections.id, id)).run().changes) throw new AppError(404, 'item_not_found', 'Connection not found.');
-      } else if (!this.db.delete(schema.library).where(and(eq(schema.library.id, id), eq(schema.library.kind, kind))).run().changes) throw new AppError(404, 'item_not_found', 'Library item not found.');
+        if (!this.db.delete(schema.connections).where(eq(schema.connections.id, id)).run().changes) throw new AppError(404, 'item_not_found', message("errors.connection_not_found"));
+      } else if (!this.db.delete(schema.library).where(and(eq(schema.library.id, id), eq(schema.library.kind, kind))).run().changes) throw new AppError(404, 'item_not_found', message("errors.library_item_not_found"));
       this.pictures.cleanup();
       this.bumpLibrary();
     })();
   }
   private validateSelections(settings: ReturnType<typeof selectionsSchema.parse>) {
-    if (settings.connectionId && !this.db.select().from(schema.connections).where(eq(schema.connections.id, settings.connectionId)).get()) throw new AppError(422, 'missing_connection', 'Selected Connection not found.');
+    if (settings.connectionId && !this.db.select().from(schema.connections).where(eq(schema.connections.id, settings.connectionId)).get()) throw new AppError(422, 'missing_connection', message("errors.selected_connection_not_found"));
     this.selected(settings.promptId, 'prompts'); this.selected(settings.characterId, 'characters'); this.selected(settings.personaId, 'personas');
     this.contextPreset(settings.contextPresetId);
     this.selected(settings.lorebookId, 'lorebooks');
@@ -716,7 +725,7 @@ export class Store {
       this.db.insert(schema.chats).values({ id, revision: 0, settings: { ...initialSettings, ...input, lorebookId } }).run();
       const persona = this.selected<Persona>(input.personaId, 'personas');
       const alternateGreetings = readCharacterAlternateGreetings(card ?? {});
-      if (!alternateGreetings.success) throw new AppError(422, 'invalid_alternate_greetings', 'This character has invalid preserved alternate greetings. Open the character editor to clear or replace them before starting a chat.');
+      if (!alternateGreetings.success) throw new AppError(422, 'invalid_alternate_greetings', message("errors.this_character_has_invalid_preserved_alternate_greetings_open"));
       const greetings = card ? [card.first_mes, ...alternateGreetings.data]
         .map(text => trimBoundaryNewlines(replaceNameMacros(text, persona?.name ?? 'You', card.name)))
         .filter(text => text.trim().length > 0) : [];
@@ -728,7 +737,7 @@ export class Store {
   updateChat(expected: number, chatId: string, input: ReturnType<typeof selectionsSchema.parse>) {
     this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId); this.ensureIdle(chatId); this.validateSelections(input);
-      if (input.contextPresetId === null && this.contexts.snapshot(chatId, null).archivedTurnIds.length) throw new AppError(409, 'restore_context_first', 'Clear memory in Memory before disabling the context preset.');
+      if (input.contextPresetId === null && this.contexts.snapshot(chatId, null).archivedTurnIds.length) throw new AppError(409, 'restore_context_first', message("errors.clear_memory_in_memory_before_disabling_the_context"));
       const previous = this.chat(chatId).settings;
       if (input.characterId !== previous.characterId || input.personaId !== previous.personaId) this.resetLoreEpoch(chatId);
       const settings = { ...previous, ...input, instructions: '', character: '', persona: '' };
@@ -778,7 +787,7 @@ export class Store {
       this.selected(settings.lorebookId, 'lorebooks');
       const previous = this.chat(chatId).settings;
       if (settings.characterId !== previous.characterId || settings.personaId !== previous.personaId) this.resetLoreEpoch(chatId);
-      if (settings.contextPresetId === null && this.contexts.snapshot(chatId, null).archivedTurnIds.length) throw new AppError(409, 'restore_context_first', 'Clear memory in Memory before disabling the context preset.');
+      if (settings.contextPresetId === null && this.contexts.snapshot(chatId, null).archivedTurnIds.length) throw new AppError(409, 'restore_context_first', message("errors.clear_memory_in_memory_before_disabling_the_context"));
       const connectionId = settings.connectionId ?? 'main';
       const old = this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get();
       this.db.insert(schema.connections).values({ id: connectionId, settings: connection, revision: (old?.revision ?? -1) + 1 }).onConflictDoUpdate({ target: schema.connections.id, set: { updatedAt: new Date().toISOString(), settings: connection, revision: (old?.revision ?? -1) + 1 } }).run();
@@ -790,24 +799,24 @@ export class Store {
   begin(expected: number, requestId: string, text?: string, chatId = 'main'): { id: string; fresh: boolean } {
     if (text !== undefined) {
       text = trimBoundaryNewlines(text);
-      if (!text.trim()) throw new AppError(400, 'blank_input', 'Write a turn before sending it.');
+      if (!text.trim()) throw new AppError(400, 'blank_input', message("errors.write_a_turn_before_sending_it"));
     }
     return this.sqlite.transaction(() => {
       const command = JSON.stringify({ kind: text === undefined ? 'retry' : 'submit', text });
       const existing = this.db.select().from(schema.generations).where(eq(schema.generations.requestId, requestId)).get();
       if (existing) {
-        if (existing.command !== command || existing.chatId !== chatId) throw new AppError(409, 'request_id_conflict', 'That request identity was already used for a different command.');
+        if (existing.command !== command || existing.chatId !== chatId) throw new AppError(409, 'request_id_conflict', message("errors.that_request_identity_was_already_used_for_a"));
         return { id: existing.id, fresh: false };
       }
       this.checkRevision(expected, chatId); this.ensureIdle(chatId);
       const snapshot = this.snapshot(chatId);
-      if (!snapshot.connection) throw new AppError(422, 'connection_required', 'Save a Connection before sending a turn.');
+      if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.save_a_connection_before_sending_a_turn"));
       let turn = snapshot.turns.at(-1);
       if (text !== undefined) {
-        if (turn && !turn.complete) throw new AppError(409, 'pending_turn', 'Resolve or delete the pending turn before submitting another.');
+        if (turn && !turn.complete) throw new AppError(409, 'pending_turn', message("errors.resolve_or_delete_the_pending_turn_before_submitting"));
         this.insertTurn(chatId, (turn?.position ?? 0) + 1, { user: text, assistant: '', complete: false });
         turn = this.snapshot(chatId).turns.at(-1);
-      } else if (!turn || turn.complete) throw new AppError(409, 'no_pending_turn', 'There is no pending turn to retry.');
+      } else if (!turn || turn.complete) throw new AppError(409, 'no_pending_turn', message("errors.there_is_no_pending_turn_to_retry"));
       const id = randomUUID(), now = new Date().toISOString();
       this.db.insert(schema.generations).values({ id, chatId, requestId, command, turnId: turn!.id, status: 'running', sourceRevision: this.bumpRevision(chatId), request: null, partialText: '', error: null, createdAt: now, updatedAt: now }).run();
       return { id, fresh: true };
@@ -819,14 +828,14 @@ export class Store {
       const command = JSON.stringify({ kind: 'regenerate', turnId });
       const existing = this.db.select().from(schema.generations).where(eq(schema.generations.requestId, requestId)).get();
       if (existing) {
-        if (existing.command !== command || existing.chatId !== chatId) throw new AppError(409, 'request_id_conflict', 'That request identity was already used for a different command.');
+        if (existing.command !== command || existing.chatId !== chatId) throw new AppError(409, 'request_id_conflict', message("errors.that_request_identity_was_already_used_for_a"));
         return { id: existing.id, fresh: false };
       }
       this.checkRevision(expected, chatId);
       this.ensureIdle(chatId);
       const snapshot = this.snapshot(chatId), target = snapshot.turns.at(-1);
-      if (!target?.complete || target.id !== turnId) throw new AppError(409, 'latest_turn_only', 'Only the latest completed turn can be regenerated.');
-      if (!snapshot.connection) throw new AppError(422, 'connection_required', 'Select a Connection before regenerating a response.');
+      if (!target?.complete || target.id !== turnId) throw new AppError(409, 'latest_turn_only', message("errors.only_the_latest_completed_turn_can_be_regenerated"));
+      if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.select_a_connection_before_regenerating_a_response"));
       const { context } = regenerationView(snapshot);
       const id = randomUUID(), now = new Date().toISOString();
       this.db.insert(schema.generations).values({ id, chatId, requestId, command, turnId, kind: 'regeneration', status: 'running',
@@ -837,15 +846,15 @@ export class Store {
   }
   generationSnapshot(id: string): ChatSnapshot {
     const generation = this.generation(id);
-    if (!generation) throw new AppError(404, 'generation_not_found', 'Response attempt not found.');
+    if (!generation) throw new AppError(404, 'generation_not_found', message("errors.response_attempt_not_found"));
     const snapshot = this.snapshot(generation.chatId);
     if (generation.kind !== 'regeneration') return snapshot;
-    if (snapshot.turns.at(-1)?.id !== generation.turnId || !generation.contextSelection) throw new AppError(409, 'stale_result', 'The regeneration endpoint is no longer available.');
+    if (snapshot.turns.at(-1)?.id !== generation.turnId || !generation.contextSelection) throw new AppError(409, 'stale_result', message("errors.the_regeneration_endpoint_is_no_longer_available"));
     return regenerationView({ ...snapshot, context: { ...snapshot.context, ...generation.contextSelection } });
   }
   saveGenerationContext(id: string, state: Pick<ChatSnapshot['context'], 'revision' | 'selected' | 'archivedTurnIds'>) {
     const generation = this.generation(id);
-    if (!generation || generation.kind !== 'regeneration' || generation.status !== 'running') throw new AppError(409, 'inactive_generation', 'This regeneration is no longer active.');
+    if (!generation || generation.kind !== 'regeneration' || generation.status !== 'running') throw new AppError(409, 'inactive_generation', message("errors.this_regeneration_is_no_longer_active"));
     this.checkRevision(generation.sourceRevision, generation.chatId);
     this.db.update(schema.generations).set({ contextSelection: { revision: state.revision, selected: state.selected, archivedTurnIds: state.archivedTurnIds } }).where(eq(schema.generations.id, id)).run();
   }
@@ -855,7 +864,7 @@ export class Store {
       this.ensureIdle(chatId);
       const turn = this.db.select().from(schema.turns).where(and(eq(schema.turns.id, turnId), eq(schema.turns.chatId, chatId))).get();
       const variant = this.db.select().from(schema.responseVariants).where(and(eq(schema.responseVariants.id, variantId), eq(schema.responseVariants.turnId, turnId))).get();
-      if (!turn?.complete || !variant) throw new AppError(404, 'variant_not_found', 'This saved response is not available for the selected turn.');
+      if (!turn?.complete || !variant) throw new AppError(404, 'variant_not_found', message("errors.this_saved_response_is_not_available_for_the"));
       if (turn.selectedVariantId === variant.id) return;
       this.db.update(schema.turns).set({ selectedVariantId: variant.id, assistantText: variant.text, assistantRevision: turn.assistantRevision + 1 }).where(eq(schema.turns.id, turnId)).run();
       this.resetLoreEpoch(chatId);
@@ -867,12 +876,12 @@ export class Store {
     return this.db.select().from(schema.credentials).where(eq(schema.credentials.id, id)).get()?.apiKey ?? '';
   }
   connectionApiKey(id: string): string {
-    if (!this.db.select().from(schema.connections).where(eq(schema.connections.id, id)).get()) throw new AppError(404, 'connection_not_found', 'Connection not found.');
+    if (!this.db.select().from(schema.connections).where(eq(schema.connections.id, id)).get()) throw new AppError(404, 'connection_not_found', message("errors.connection_not_found"));
     return this.db.select().from(schema.credentials).where(eq(schema.credentials.id, id)).get()?.apiKey ?? '';
   }
   connection(id: string): Connection {
     const row = this.db.select().from(schema.connections).where(eq(schema.connections.id, id)).get();
-    if (!row) throw new AppError(422, 'missing_connection', 'The summarization Connection is missing.');
+    if (!row) throw new AppError(422, 'missing_connection', message("errors.the_summarization_connection_is_missing"));
     return row.settings;
   }
   contextPreset(id: string | null | undefined) {
@@ -882,7 +891,7 @@ export class Store {
   saveRequest(id: string, request: RequestPreview) {
     this.sqlite.transaction(() => {
       const generation = this.generation(id);
-      if (!generation || generation.status !== 'running') throw new AppError(409, 'inactive_generation', 'The response is no longer active.');
+      if (!generation || generation.status !== 'running') throw new AppError(409, 'inactive_generation', message("errors.the_response_is_no_longer_active"));
       this.checkRevision(generation.sourceRevision, generation.chatId);
       if (request.lore) this.assertLoreCurrent(generation.chatId, request.lore);
       this.db.update(schema.generations).set({ request }).where(eq(schema.generations.id, id)).run();
@@ -892,19 +901,18 @@ export class Store {
     if (this.generation(id)?.status !== 'running') return false;
     this.db.update(schema.generations).set({ partialText, ...(reasoningText !== undefined ? { reasoningText } : {}), updatedAt: new Date().toISOString() }).where(eq(schema.generations.id, id)).run(); return true;
   }
-  finish(id: string, status: Exclude<GenerationStatus, 'running' | 'interrupted'>, text: string, error: string | null = null, usage: TokenUsage | null = null, reasoningText?: string) {
+  finish(id: string, status: Exclude<GenerationStatus, 'running' | 'interrupted'>, text: string, error: string | LocalizedMessage | null = null, usage: TokenUsage | null = null, reasoningText?: string) {
+    const outcome = outcomeMessage(error);
     return this.sqlite.transaction(() => {
       const generation = this.generation(id);
       if (!generation || generation.status !== 'running') return false;
       if (status === 'succeeded') {
         text = trimBoundaryNewlines(text);
-        if (!text.trim()) throw new AppError(502, 'empty_response', generation.kind === 'regeneration'
-          ? 'The model returned no text. The selected response was kept; regenerate explicitly to try again.'
-          : 'The model returned no text. The turn remains pending; retry or delete it.');
+        if (!text.trim()) throw new AppError(502, 'empty_response', generation.kind === 'regeneration' ? message("errors.the_model_returned_no_text_the_selected_response") : message("errors.the_model_returned_no_text_the_turn_remains"));
         this.checkRevision(generation.sourceRevision, generation.chatId);
         const turn = this.db.select().from(schema.turns).where(eq(schema.turns.id, generation.turnId)).get();
         const regeneration = generation.kind === 'regeneration';
-        if (!turn || turn.complete !== regeneration) throw new AppError(409, 'stale_result', 'The turn is no longer awaiting this response.');
+        if (!turn || turn.complete !== regeneration) throw new AppError(409, 'stale_result', message("errors.the_turn_is_no_longer_awaiting_this_response"));
         if (regeneration) {
           if (generation.request?.lore) this.assertLoreCurrent(generation.chatId, generation.request.lore);
           this.resetLoreEpoch(generation.chatId);
@@ -918,14 +926,14 @@ export class Store {
         this.db.insert(schema.responseVariants).values({ id: variantId, turnId: turn.id, text, sourceRevision: equivalent?.sourceRevision ?? turn.assistantRevision + 1, generationId: id, createdAt: generation.createdAt }).run();
         this.db.update(schema.turns).set({ messageAt: new Date().toISOString(), assistantText: text, assistantRevision: turn.assistantRevision + 1, complete: true, selectedVariantId: variantId }).where(eq(schema.turns.id, turn.id)).run();
       }
-      this.db.update(schema.generations).set({ status, partialText: text, reasoningText: reasoningText ?? generation.reasoningText, error, usage, updatedAt: new Date().toISOString() }).where(eq(schema.generations.id, id)).run();
+      this.db.update(schema.generations).set({ status, partialText: text, reasoningText: reasoningText ?? generation.reasoningText, error: outcome.error, errorMessage: outcome.errorMessage ?? null, usage, updatedAt: new Date().toISOString() }).where(eq(schema.generations.id, id)).run();
       this.bumpRevision(generation.chatId); return true;
     })();
   }
   recoverInterrupted() {
     this.sqlite.transaction(() => {
       const running = this.db.select().from(schema.generations).where(eq(schema.generations.status, 'running')).all();
-      this.db.update(schema.generations).set({ status: 'interrupted', error: 'The server stopped during this response. Retry explicitly to start a new model request.', updatedAt: new Date().toISOString() }).where(eq(schema.generations.status, 'running')).run();
+      this.db.update(schema.generations).set({ status: 'interrupted', error: message('outcome.generationInterrupted').fallback, errorMessage: message('outcome.generationInterrupted'), updatedAt: new Date().toISOString() }).where(eq(schema.generations.status, 'running')).run();
       for (const id of new Set(running.map(g => g.chatId))) this.bumpRevision(id);
       this.contexts.recover();
     })();
@@ -935,8 +943,8 @@ export class Store {
     this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId); this.ensureIdle(chatId);
       const turn = this.db.select().from(schema.turns).where(and(eq(schema.turns.id, turnId), eq(schema.turns.chatId, chatId))).get();
-      if (!turn) throw new AppError(404, 'turn_not_found', 'Turn not found.');
-      if (part === 'assistant' && !turn.complete) throw new AppError(409, 'pending_response', 'A pending response cannot be completed by editing. Retry or delete its turn.');
+      if (!turn) throw new AppError(404, 'turn_not_found', message("errors.turn_not_found"));
+      if (part === 'assistant' && !turn.complete) throw new AppError(409, 'pending_response', message("errors.a_pending_response_cannot_be_completed_by_editing"));
       this.db.update(schema.turns).set(part === 'user' ? { userText: text, userRevision: turn.userRevision + 1 } : { assistantText: text, assistantRevision: turn.assistantRevision + 1 }).where(eq(schema.turns.id, turnId)).run();
       if (part === 'assistant' && turn.selectedVariantId) this.db.update(schema.responseVariants).set({ text, sourceRevision: turn.assistantRevision + 1 }).where(eq(schema.responseVariants.id, turn.selectedVariantId)).run();
       this.resetLoreEpoch(chatId);
@@ -947,7 +955,7 @@ export class Store {
     this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId); this.ensureIdle(chatId);
       this.sqlite.prepare('DELETE FROM lore_operations WHERE chat_id = ? AND operation_id IN (SELECT id FROM generations WHERE chat_id = ? AND turn_id = ?)').run(chatId, chatId, turnId);
-      if (!this.db.delete(schema.turns).where(and(eq(schema.turns.id, turnId), eq(schema.turns.chatId, chatId))).run().changes) throw new AppError(404, 'turn_not_found', 'Turn not found.');
+      if (!this.db.delete(schema.turns).where(and(eq(schema.turns.id, turnId), eq(schema.turns.chatId, chatId))).run().changes) throw new AppError(404, 'turn_not_found', message("errors.turn_not_found"));
       this.resetLoreEpoch(chatId);
       this.bumpRevision(chatId);
     })();

@@ -1,9 +1,11 @@
+import { useLocale } from './localization';
 import { useLayoutEffect, useRef, type TextareaHTMLAttributes } from 'react';
 
 type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'defaultValue'> & { value: string };
 
 /** Fit loaded prose without continuously overriding typing or manual resizing. */
 export function EditorTextarea(props: Props) {
+  useLocale();
   const textarea = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     const field = textarea.current;

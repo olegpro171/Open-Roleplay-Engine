@@ -1,3 +1,4 @@
+import { message } from '../shared/localization.js';
 import type { ChatSnapshot, RequestPreview } from '../shared/contracts.js';
 import { refKey, type ContextOperation, type RepairChange, type SummaryRef } from '../shared/context.js';
 import { AppError } from './errors.js';
@@ -6,7 +7,7 @@ import { nodeFor, sourceOf, staleSummaries } from './context.js';
 /** Compare effective incorporated inputs, rather than treating all provenance edits as content changes. */
 export function repairInputs(snapshot: ChatSnapshot, operation: ContextOperation, previousRequest: RequestPreview | null) {
   const old = operation.repair && nodeFor(snapshot.context, operation.repair);
-  if (!old) throw new AppError(422, 'missing_summary', 'The summary being repaired is missing.');
+  if (!old) throw new AppError(422, 'missing_summary', message("errors.the_summary_being_repaired_is_missing"));
   const changes: RepairChange[] = [];
   const latest = new Map<string, SummaryRef>();
   for (const node of snapshot.context.summaries) if (node.approved && node.revision > (latest.get(node.id)?.revision ?? -1)) latest.set(node.id, { id: node.id, revision: node.revision });
@@ -48,8 +49,8 @@ export function repairInputs(snapshot: ChatSnapshot, operation: ContextOperation
     for (const id of new Set([...beforeRefs.map(ref => ref.id), ...afterRefs.map(ref => ref.id)])) {
       const beforeRef = beforeRefs.find(ref => ref.id === id), afterRef = afterRefs.find(ref => ref.id === id);
       const before = beforeRef && nodeFor(snapshot.context, beforeRef), after = afterRef && nodeFor(snapshot.context, afterRef);
-      if (beforeRef && !before || afterRef && !after) throw new AppError(422, 'invalid_context', 'A summary input revision is missing.');
-      if (afterRef && stale.has(refKey(afterRef))) throw new AppError(409, 'stale_dependency', 'Repair the changed input summary before repairing its dependents.');
+      if (beforeRef && !before || afterRef && !after) throw new AppError(422, 'invalid_context', message("errors.a_summary_input_revision_is_missing"));
+      if (afterRef && stale.has(refKey(afterRef))) throw new AppError(409, 'stale_dependency', message("errors.repair_the_changed_input_summary_before_repairing_its"));
       const coverageChanged = !same(before?.turns.map(source => source.turnId) ?? [], after?.turns.map(source => source.turnId) ?? []);
       if (coverageChanged) structureUnchanged = false;
       add({ kind, id, label: `${kind === 'prior' ? 'Earlier memory' : kind === 'correction' ? 'Manual correction requiring reconciliation' : 'Source summary'} · level ${(after ?? before)!.level} · ${id}${coverageChanged ? ' · coverage changed' : ''}`,

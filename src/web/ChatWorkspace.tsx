@@ -1,3 +1,4 @@
+import { t, useLocale } from './localization';
 import { createContext, useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
@@ -5,6 +6,7 @@ import { Icon } from './Icon';
 export const ChatDetailsTarget = createContext<HTMLDivElement | null>(null);
 
 export function ChatWorkspace({ sidebar, actions, navigation = false, children }: { sidebar: ReactNode; actions: ReactNode; navigation?: boolean; children: ReactNode }) {
+  useLocale();
   const [expanded, setExpanded] = useState(false);
   const detailsId = useId();
   const target = useContext(ChatDetailsTarget);
@@ -42,8 +44,8 @@ export function ChatWorkspace({ sidebar, actions, navigation = false, children }
         const first = details.current?.querySelector<HTMLElement>('summary, button:not(:disabled)');
         if (first) { event.preventDefault(); first.focus(); }
       }
-    }}>Chat details <Icon name={expanded ? 'ArrowShortTop' : 'ArrowShortBottom'} /></button>, target)}
-    <aside className={`story-meta${navigation ? ' story-navigation' : ''}`} aria-label="Current chat">
+    }}>{t("chat_workspace.chat_details")}<Icon name={expanded ? 'ArrowShortTop' : 'ArrowShortBottom'} /></button>, target)}
+    <aside className={`story-meta${navigation ? ' story-navigation' : ''}`} aria-label={t("chat_workspace.current_chat")}>
       <div ref={details} id={detailsId} className={`chat-details${expanded ? ' expanded' : ''}`} onKeyDown={event => {
         const first = details.current?.querySelector<HTMLElement>('summary, button:not(:disabled)');
         if (expanded && event.key === 'Tab' && event.shiftKey && event.target === first) {

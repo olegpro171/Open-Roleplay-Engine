@@ -86,6 +86,7 @@ export type ContextJobStatus = 'running' | 'awaiting_review' | 'succeeded' | 'fa
 export const summaryRetrySchema = z.object({ maxRetries: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }).strict();
 export type SummaryRetry = z.infer<typeof summaryRetrySchema>;
 export type ContextJob = {
+  errorMessage?: import('./localization.js').LocalizedMessage;
   retry?: SummaryRetry;
   id: string; chatId: string; status: ContextJobStatus; mode: 'prepare' | 'step' | 'repair' | 'refresh'; generationId: string | null;
   sourceRevision: number; config: ContextPreset & SummaryRef; stepCount: number; error: string | null; createdAt: string; updatedAt: string;
@@ -99,6 +100,7 @@ export type ContextJob = {
   outcome?: { inputTokens: number; verbatimTurns: number };
 };
 export type ContextRefresh = {
+  limitationMessage?: import('./localization.js').LocalizedMessage;
   before: Pick<ContextState, 'selected' | 'archivedTurnIds'>;
   after: Pick<ContextState, 'selected' | 'archivedTurnIds'>;
   inputBefore: number; inputAfter: number; verbatimBefore: number; verbatimAfter: number;
@@ -106,6 +108,7 @@ export type ContextRefresh = {
   limitation?: string;
 };
 export type ContextStep = {
+  errorMessage?: import('./localization.js').LocalizedMessage;
   id: string; jobId: string; operation: ContextOperation; request: RequestPreview | null;
   status: 'running' | 'saved' | 'candidate' | 'discarded' | 'failed' | 'interrupted'; result: SummaryRef | null;
   error: string | null; before: { archivedTurnIds: string[]; selected: SummaryRef[] }; after: { archivedTurnIds: string[]; selected: SummaryRef[] } | null;
@@ -123,6 +126,7 @@ export type ContextJobDetails = {
   repair?: { remaining: number; previousSources: string | null; currentSources: string; previousPrior: string; currentPrior: string };
 };
 export type ContextPlan = {
+  blockedMessage?: import('./localization.js').LocalizedMessage;
   method?: string; counting?: import('./contracts.js').TokenCounting;
   inputTokens: number; targetInputTokens: number; effectiveLimit: number; verbatimTurnIds: string[];
   next: ContextOperation | null; ready: boolean; blocked: string | null; stale: SummaryRef[];
