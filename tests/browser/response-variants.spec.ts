@@ -95,7 +95,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await expect(page.getByRole('alert')).toContainText('Synthetic selection conflict');
   await expect(version).toBeEnabled();
   await expect(sendButton).toBeEnabled();
-  await expect(sendButton).not.toHaveAttribute('title');
+  await expect(sendButton).toHaveAttribute('title', 'Send');
   await expect(composer).toHaveValue('Draft stays while switching responses.');
   await expect(version).toHaveValue('1');
   expect((await state()).revision).toBe(arrowRevision + 1);

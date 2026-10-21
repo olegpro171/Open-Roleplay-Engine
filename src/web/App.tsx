@@ -451,7 +451,7 @@ export function App() {
         {drafts.needsReview && <div className="recovery" role="alert"><p>{t("app.this_browser_draft_predates_a_backup_import")}</p><button onClick={drafts.review}>{t("app.use_recovered_draft")}</button></div>}
         <form className="composer" onSubmit={(event) => void send(event)}>
           <ChatTextarea autoSize rows={1} aria-label={t("app.your_next_turn")} id="turn-input" placeholder={t("app.what_happens_next")} value={draft} disabled={pending || busy || working} onValueChange={text => { drafts.change(text); setPeek(false); }} />
-          <button className="send-turn" aria-label={t("app.send")} title={busy ? t("app.saving_changes") : undefined} disabled={pending || busy || working || memoryStale || dataChanged || drafts.needsReview || !snapshot.connection || !draft.trim()}><span className="send-label">{t("app.send")}</span><Icon name="ArrowShortForward" /></button>
+          <button className="send-turn" aria-label={t("app.send")} title={busy ? t("app.saving_changes") : t("app.send")} disabled={pending || busy || working || memoryStale || dataChanged || drafts.needsReview || !snapshot.connection || !draft.trim()}><span className="send-icon" aria-hidden="true" /></button>
           {drafts.storageError && <span className="composer-status" role="alert">{t("app.draft_could_not_be_saved_in_this")}</span>}
           {preparing && <span className="composer-status">{t("app.preparing_memory")}</span>}
         </form>

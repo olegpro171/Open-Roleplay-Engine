@@ -51,12 +51,12 @@ for (const width of [1440, 390]) test(`composer fits its content at ${width}px`,
         && Math.abs(sendBounds.y + sendBounds.height - inputBounds.y - inputBounds.height) < 1
         && sendBounds.x + sendBounds.width <= viewportWidth;
     }).toBe(true);
-    await expect(send.locator('svg')).toBeVisible();
-    if (viewportWidth <= 800) {
-      await expect(send.getByText('Send', { exact: true })).toBeHidden();
-    } else {
-      await expect(send.getByText('Send', { exact: true })).toBeVisible();
-    }
+    await expect(send).toHaveText('');
+    await expect(send).toHaveAttribute('title', 'Send');
+    await expect.poll(() => send.evaluate(button => {
+      const bounds = button.getBoundingClientRect();
+      return bounds.width === bounds.height;
+    })).toBe(true);
   };
   await expect.poll(height).toBe(minimum);
   await expectSendLayout(width);
