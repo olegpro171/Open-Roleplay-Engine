@@ -11,15 +11,14 @@ export function About() {
     setError('');
     api<unknown>('/about', 'GET', undefined, controller.signal)
       .then(value => { if (!controller.signal.aborted) setInfo(buildInfoSchema.parse(value)); })
-      .catch(error => { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'Version information could not be loaded.'); });
+      .catch(error => { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'Build information could not be loaded.'); });
     return () => controller.abort();
   }, [attempt]);
   return <section className="settings-section" aria-labelledby="about-heading">
     <h2 id="about-heading" tabIndex={-1}>About ORE</h2>
-    {error ? <p role="alert">{error} <button onClick={() => setAttempt(value => value + 1)}>Retry version information</button></p>
-      : !info ? <p role="status">Loading version information…</p> : <dl className="about-version">
-        <dt>Version</dt><dd>{info.version} · {info.kind === 'release' ? 'Release' : 'Development build'}</dd>
-        <dt>Commit</dt><dd><code>{info.commit ?? 'Unrecorded development checkout'}</code></dd>
+    {error ? <p role="alert">{error} <button onClick={() => setAttempt(value => value + 1)}>Retry build information</button></p>
+      : !info ? <p role="status">Loading build information…</p> : <dl className="about-version">
+        <dt>Commit</dt><dd><code>{info.commit ?? 'Unavailable (source without Git metadata)'}</code></dd>
         <dt>Database schema</dt><dd>{info.schema}</dd>
         <dt>Node runtime</dt><dd>{info.node}</dd>
         <dt>Platform</dt><dd>{info.platform} / {info.arch}</dd>

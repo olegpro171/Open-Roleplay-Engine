@@ -2,7 +2,7 @@ import { removeSortingSchema } from './support/legacy-sorting.js';
 import { afterEach, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { execFileSync, fork } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -132,7 +132,32 @@ it('publishes safe authenticated build identity and labels source builds honestl
     const about = await app.inject({ method: 'GET', url: '/api/about', headers: { host: 'localhost', cookie } });
     expect(about.statusCode).toBe(200);
     expect(about.json()).toEqual(buildInfo());
-    expect(about.json()).toMatchObject({ kind: 'development', schema: 14, commit: null });
-    expect(Object.keys(about.json()).sort()).toEqual(['arch', 'commit', 'kind', 'node', 'platform', 'schema', 'version']);
+    expect(about.json()).toMatchObject({ kind: 'development', schema: 14, commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() });
+    expect(Object.keys(about.json()).sort()).toEqual(['arch', 'commit', 'kind', 'node', 'platform', 'schema']);
   } finally { await app.close(); }
+});
+
+it('reads commit-only installed metadata and tolerates the retired version on retained installations', () => {
+  const root = temporary();
+  const info = { kind: 'release', commit: 'a'.repeat(40), schema: 14, node: process.versions.node, platform: process.platform, arch: process.arch };
+  writeFileSync(join(root, 'build-info.json'), JSON.stringify(info));
+  expect(buildInfo(root)).toEqual(info);
+  writeFileSync(join(root, 'build-info.json'), JSON.stringify({ ...info, version: 'retired-label' }));
+  expect(buildInfo(root)).toEqual(info);
+  writeFileSync(join(root, 'build-info.json'), JSON.stringify({ ...info, commit: 'invalid' }));
+  expect(() => buildInfo(root)).toThrow();
+});
+
+it('does not borrow a parent repository commit for an exported source folder', () => {
+  const root = temporary();
+  execFileSync('git', ['init', '-b', 'main', root]);
+  writeFileSync(join(root, 'tracked.txt'), 'Synthetic source');
+  execFileSync('git', ['-C', root, 'add', '.']);
+  execFileSync('git', ['-C', root, '-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '-m', 'Synthetic commit']);
+  const commit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  expect(buildInfo(root).commit).toBe(commit);
+  const exported = join(root, 'exported');
+  mkdirSync(exported);
+  expect(buildInfo(exported).commit).toBeNull();
+  expect(buildInfo(temporary()).commit).toBeNull();
 });

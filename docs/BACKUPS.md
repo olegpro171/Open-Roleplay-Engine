@@ -46,7 +46,7 @@ Wipe deletes all chats and their children, user libraries, Connections and API k
 
 ## Format and bounds
 
-- Single SQLite file, portable format `ore-sqlite`, format version 1, current schema 14 and build metadata from the application package.
+- Single SQLite file, portable format `ore-sqlite`, format version 1, current schema 14 and the creating build’s full commit hash (or `unrecorded-development` when unavailable). Earlier backups with package-version build labels remain readable and retain those historical labels.
 - Supported older input: exact shipped ORE schemas 12 and 13, tested with populated databases. A private trusted copy rebuilds them into schema 14, leaving unavailable library/message timestamps NULL. Current backups preserve these timestamps. Exact full schema-14 databases are also accepted without portable metadata; owner/runtime records are ignored. Other schemas, future versions and arbitrary SQLite files are rejected.
 - Uploaded/downloaded database size: at most 128 MiB. At most 100,000 portable rows in the input and combined result; at most 16 MiB UTF-8 per text column; JSON nesting at most 100. Existing subsystem field limits still apply. Picture limits remain those in [PICTURES.md](PICTURES.md).
 - At most three staged inspections per server; each expires after 30 minutes. Staging reserves four times the input size plus 16 MiB of free disk headroom. Actual I/O errors still roll back/clean up rather than relying on the free-space estimate.

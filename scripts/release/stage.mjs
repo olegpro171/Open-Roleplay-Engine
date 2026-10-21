@@ -54,7 +54,6 @@ function notices(work, output) {
 }
 async function install(work, home, mode, commit, runtime, runtimeChecksum, noticeDirectory) {
   const { databaseSchemaVersion } = await import(pathToFileURL(join(work, 'dist/server/shared/build-info.js')).href);
-  const pkg = JSON.parse(readFileSync(join(work, 'package.json'), 'utf8'));
   const id = `${mode === '--release' ? 'release' : 'dev'}-${commit.slice(0, 12)}-${randomUUID()}`;
   const staging = join(home, 'cache', `payload-${id}`), application = join(home, 'app', id);
   mkdirSync(staging);
@@ -65,7 +64,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     cpSync(noticeDirectory, join(staging, 'notices'), { recursive: true, verbatimSymlinks: true });
     cpSync(join(work, 'docs/RELEASES.md'), join(staging, 'README.md'));
     for (const name of ['RELEASES.md', 'RELEASE_IMPLEMENTATION_BRIEF.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'WINDOWS_RELEASE_VERIFICATION.md', 'TEST_RELEASE.md']) cpSync(join(work, 'docs', name), join(staging, name));
-    const metadata = { kind: mode === '--release' ? 'release' : 'development', version: pkg.version, commit, schema: databaseSchemaVersion, node: process.versions.node, platform: process.platform, arch: process.arch };
+    const metadata = { kind: mode === '--release' ? 'release' : 'development', commit, schema: databaseSchemaVersion, node: process.versions.node, platform: process.platform, arch: process.arch };
     writeFileSync(join(staging, 'build-info.json'), JSON.stringify(metadata, null, 2));
     const smoke = spawnSync(process.execPath, [join(staging, 'scripts/release/native-smoke.mjs')], { cwd: home, stdio: 'inherit' });
     if (smoke.status !== 0) throw new Error('Production dependency smoke failed; previous application remains selected.');

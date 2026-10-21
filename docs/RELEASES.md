@@ -99,7 +99,7 @@ Normal startup performs updating. Download/build/native-smoke and temporary-data
 
 ## Exact release procedure
 
-A release is an exact clean commit reachable on local `main`. The checkout must be that full commit; tracked changes and untracked inputs reject release mode. Ignored build/data directories are never included. Release source is exported with Git from that commit, rather than from mutable working files. Developer artifacts are visibly labelled **Development build** in Settings → About ORE and in their manifests.
+A release is an exact clean commit reachable on local `main`. The checkout must be that full commit; tracked changes and untracked inputs reject release mode. Ignored build/data directories are never included. Release source is exported with Git from that commit, rather than from mutable working files. Build identity is the full commit hash, shown by the launcher and Settings → About ORE. Package-version labels are retired. Portable archive names use the first 12 commit characters; manifests retain the full commit and release/development kind. Development artifacts can include uncommitted changes, so their commit identifies the base checkout. Direct source runs without Git metadata report an unavailable commit.
 
 1. Review, commit and place the intended changes on `main` through the user's normal workflow. Run `npm run check` against that commit with supported Node. Startup does not commit/publish user changes; it fast-forwards only its private managed checkout.
 2. Obtain the full commit with `git rev-parse HEAD`, then run:
@@ -108,8 +108,8 @@ A release is an exact clean commit reachable on local `main`. The checkout must 
    ./build-portable.sh --release FULL_40_CHARACTER_COMMIT "$HOME/ORE-release"
    ```
 
-3. Inspect Settings → About ORE (version, full commit, schema, Node, OS/CPU), then complete the platform acceptance matrix below.
-4. Recommend an immutable version tag, for example `v0.1.0`, on that exact main commit. Choose a new version/tag for changed releases; never move a published tag. Creating/pushing tags or publishing artifacts requires explicit user instruction.
+3. Inspect Settings → About ORE (full commit, schema, Node, OS/CPU), then complete the platform acceptance matrix below.
+4. Record the full commit as the release identity. Existing published tags remain immutable historical references. Creating/pushing tags or publishing artifacts requires explicit user instruction.
 5. Package with the installed private runtime, substituting the two lines from `current`:
 
    ```sh

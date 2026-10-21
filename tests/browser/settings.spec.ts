@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
-import packageInfo from '../../package.json' with { type: 'json' };
+import { execFileSync } from 'node:child_process';
+
+const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 
 for (const width of [1440, 820, 390, 320]) {
   test(`application settings shares the workspace and scrolls categories at ${width}px`, async ({ page }, testInfo) => {
@@ -48,8 +50,8 @@ for (const width of [1440, 820, 390, 320]) {
     await expect(navigation).toBeInViewport();
     await categories.getByRole('button', { name: 'About ORE', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'About ORE', exact: true })).toBeFocused();
-    await expect(page.getByText(`${packageInfo.version} · Development build`, { exact: true })).toBeVisible();
-    await expect(page.getByText('Unrecorded development checkout', { exact: true })).toBeVisible();
+    await expect(page.getByText(commit, { exact: true })).toBeVisible();
+    await expect(page.locator('.about-version dt')).toHaveText(['Commit', 'Database schema', 'Node runtime', 'Platform']);
     expect(await content.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`about-${width}.png`) });
     await categories.getByRole('button', { name: 'Data backup', exact: true }).click();

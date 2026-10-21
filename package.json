@@ -1,6 +1,5 @@
 {
   "name": "roleplay-engine",
-  "version": "0.1.0-test.1",
   "private": true,
   "type": "module",
   "engines": {

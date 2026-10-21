@@ -18,7 +18,7 @@ const actual = inventory(application).filter(file => file.path !== 'manifest.jso
 if (JSON.stringify(actual) !== JSON.stringify(manifest.files)) throw new Error('Installed application differs from its manifest; rebuild before packaging.');
 mkdirSync(output, { recursive: true });
 const temporary = mkdtempSync(join(home, 'cache', 'export-'));
-const name = `ORE-${manifest.version}-${manifest.kind}-${manifest.commit.slice(0,12)}-${manifest.platform}-${manifest.arch}`;
+const name = `ORE-${manifest.commit.slice(0,12)}-${manifest.kind}-${manifest.platform}-${manifest.arch}`;
 const windows = process.platform === 'win32';
 const extension = windows ? 'zip' : 'tar.gz';
 const payload = join(temporary, name), archive = join(output, `${name}.${extension}`);

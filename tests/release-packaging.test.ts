@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { spawnSync } from 'node:child_process';
+import { fork, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -62,9 +62,15 @@ describe.skipIf(process.platform === 'win32')('portable artifact boundaries', ()
   });
   it('preserves internal npm symlinks and ships only app/runtime files with empty mutable directories', () => {
     const f = fixture(), output = join(f.root, 'output');
+    for (const file of ['build-info.json', 'manifest.json']) {
+      const metadata = JSON.parse(readFileSync(join(f.application, file), 'utf8'));
+      expect(metadata.commit).toBe('a'.repeat(40));
+      expect(metadata).not.toHaveProperty('version');
+    }
     const packaged = spawnSync(process.execPath, [resolve('scripts/release/package-portable.mjs'), f.home, output], { encoding: 'utf8' }); expect(packaged.status, packaged.stderr).toBe(0);
     const archive = readdirSync(output).find(file => file.endsWith('.tar.gz')); expect(archive).toBeDefined();
     if (!archive) throw new Error('Missing test artifact');
+    expect(archive).toBe(`ORE-${'a'.repeat(12)}-development-${process.platform}-${process.arch}.tar.gz`);
     const listing = spawnSync('tar', ['-tzf', join(output, archive)], { encoding: 'utf8' }); expect(listing.status).toBe(0);
     expect(listing.stdout).not.toContain('PRIVATE'); expect(listing.stdout).not.toContain('.env'); expect(listing.stdout).not.toContain('/tests/');
     expect(listing.stdout).not.toContain('/database-path.txt'); expect(listing.stdout).not.toContain('/update-source.txt');
@@ -78,6 +84,28 @@ describe.skipIf(process.platform === 'win32')('portable artifact boundaries', ()
     }
     expect(readFileSync(join(f.application, 'node_modules/.bin/example'), 'utf8')).toBe('');
     expect(readFileSync(join(payload, 'app', readFileSync(join(f.home, 'current'), 'utf8').split('\n')[0], 'node_modules/.bin/example'), 'utf8')).toBe('');
+  });
+  it('prints the selected installed commit at launch without npm package identity', async () => {
+    const f = fixture();
+    writeFileSync(join(f.home, 'database-location.json'), JSON.stringify({ version: 1, default: { kind: 'installation' }, established: [] }));
+    const child = fork(join(f.application, 'scripts/release/portable-launch.mjs'), [f.home, f.application], {
+      execArgv: [], stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      env: { ...process.env, ROLEPLAY_DATABASE: join(f.root, 'synthetic.sqlite'), ROLEPLAY_PORT: '0', ORE_OPEN_BROWSER: '0' },
+    });
+    let output = '';
+    child.stdout?.on('data', bytes => { output += String(bytes); });
+    child.stderr?.on('data', bytes => { output += String(bytes); });
+    child.on('message', message => {
+      if (typeof message === 'object' && message !== null && 'type' in message && message.type === 'ready') child.disconnect();
+    });
+    const code = await new Promise<number | null>((resolve, reject) => {
+      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`Launcher failed to stop: ${output}`)); }, 5000);
+      child.once('error', error => { clearTimeout(timer); reject(error); });
+      child.once('exit', code => { clearTimeout(timer); resolve(code); });
+    });
+    expect(code, output).toBe(0);
+    expect(output).toContain(`Starting ORE · commit ${'a'.repeat(40)}`);
+    expect(output).not.toContain('roleplay-engine@');
   });
   it('refuses modified assets during startup and artifact export, before starting a database', () => {
     const f = fixture(); writeFileSync(join(f.application, 'dist/client/assets/app.js'), 'unexpected modification');

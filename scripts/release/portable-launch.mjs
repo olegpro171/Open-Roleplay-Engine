@@ -29,8 +29,10 @@ try {
   database = resolveDatabase(home);
   const info = JSON.parse(readFileSync(resolve(application, 'build-info.json'), 'utf8'));
   if (info.node !== process.versions.node || info.platform !== process.platform || info.arch !== process.arch) throw new Error('Bundled runtime/OS/CPU does not match this application. Rebuild for this machine.');
+  if (typeof info.commit !== 'string' || !/^[0-9a-f]{40}$/.test(info.commit)) throw new Error('Invalid application commit metadata.');
   if (!Number.isInteger(info.schema) || info.schema < 1) throw new Error('Invalid application schema metadata.');
   if (existsSync(database.path)) inspectDatabase(application, database.path, info.schema);
+  console.log(`Starting ORE · commit ${info.commit}`);
 } catch (error) {
   console.error(`ORE cannot start: ${error.message}\nNo alternative database was selected. Use ${recoveryCommand} --list / --previous to inspect and recover retained versions safely.`);
   process.exit(1);

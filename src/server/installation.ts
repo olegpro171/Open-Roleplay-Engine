@@ -2,17 +2,34 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { spawnSync } from 'node:child_process';
 import { buildInfoSchema, databaseSchemaVersion, type BuildInfo } from '../shared/build-info.js';
 
 // Both source and tsc output have a stable path to their application root.
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 export const applicationRoot = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? '../../' : '../../../', import.meta.url));
 export const migrationsDirectory = resolve(applicationRoot, 'migrations');
-export function buildInfo(): BuildInfo {
-  const metadata = resolve(applicationRoot, 'build-info.json');
-  if (existsSync(metadata)) return buildInfoSchema.parse(JSON.parse(readFileSync(metadata, 'utf8')));
-  const { version } = z.object({ version: z.string() }).parse(JSON.parse(readFileSync(resolve(applicationRoot, 'package.json'), 'utf8')));
-  return { kind: 'development', version, commit: null, schema: databaseSchemaVersion, node: process.versions.node, platform: process.platform, arch: process.arch };
+// Retained installations may still carry the retired package version. Read it
+// only for compatibility; it is never part of the public build identity.
+const installedBuildSchema = buildInfoSchema.extend({ version: z.string().min(1).optional() })
+  .transform(({ version: _legacyVersion, ...info }) => info);
+export function buildInfo(root = applicationRoot): BuildInfo {
+  const metadata = resolve(root, 'build-info.json');
+  if (existsSync(metadata)) return installedBuildSchema.parse(JSON.parse(readFileSync(metadata, 'utf8')));
+  // Do not accidentally identify an exported source folder as its parent's repo.
+  const git = existsSync(resolve(root, '.git'))
+    ? spawnSync('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
+      cwd: root, encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'],
+    }) : null;
+  const commit = git?.status === 0 ? git.stdout.trim() : '';
+  return {
+    kind: 'development',
+    commit: /^[0-9a-f]{40}$/.test(commit) ? commit : null,
+    schema: databaseSchemaVersion,
+    node: process.versions.node,
+    platform: process.platform,
+    arch: process.arch,
+  };
 }
 export function startupPaths(env: NodeJS.ProcessEnv = process.env) {
   const root = env.ORE_HOME ? resolve(env.ORE_HOME) : applicationRoot;

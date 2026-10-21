@@ -3,7 +3,6 @@ import { z } from 'zod';
 export const databaseSchemaVersion = 14;
 export const buildInfoSchema = z.object({
   kind: z.enum(['release', 'development']),
-  version: z.string().min(1),
   commit: z.string().regex(/^[0-9a-f]{40}$/).nullable(),
   schema: z.literal(databaseSchemaVersion),
   node: z.string().min(1),

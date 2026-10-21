@@ -92,7 +92,7 @@ cd -- "$work"
 "$node" "$npm" ci --include=dev --include=optional --ignore-scripts
 # Fail before build if prebuilt native dependencies cannot load. Never compile.
 "$node" scripts/release/native-smoke.mjs || fail 'Locked prebuilt SQLite/sharp dependencies do not work on this OS/CPU/libc. No compiler or global image library was installed.'
-"$node" "$npm" run build
+"$node" "$npm" --silent run build
 "$node" scripts/release/stage.mjs notices "$work" "$stage/notices"
 "$node" "$npm" ci --omit=dev --ignore-scripts --include=optional --prefer-offline
 "$node" scripts/release/stage.mjs install "$work" "$ore_home" "$mode" "$commit" "$runtime" "$expected" "$stage/notices"

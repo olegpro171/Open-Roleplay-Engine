@@ -8,6 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { createApp } from '../src/server/app.js';
 import { Store } from '../src/persistence/store.js';
+import { execFileSync } from 'node:child_process';
 import { BackupService } from '../src/server/backups.js';
 import { BackupStore, datasetEpoch } from '../src/persistence/backup-store.js';
 import { backupLimits, type BackupReview } from '../src/shared/backups.js';
@@ -26,6 +27,19 @@ beforeEach(() => { directory = mkdtempSync(join(tmpdir(),'ore-backup-test-')); }
 afterEach(() => { for (const value of services.splice(0)) value.close(); for (const value of stores.splice(0)) if (value.sqlite.open) value.close(); rmSync(directory,{ recursive: true,force: true }); });
 
 describe('portable backup persistence',() => {
+  it('records the creating commit and still reads historical package-version metadata', async () => {
+    const source = store('identity'), backups = service(source, 'identity');
+    const snapshot = await bytes(backups);
+    const review = backups.upload(snapshot, owner);
+    expect(review.metadata?.build).toBe(execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
+    const path = join(directory, 'historical.sqlite');
+    writeFileSync(path, snapshot);
+    const historical = new Database(path);
+    try {
+      historical.prepare('UPDATE backup_metadata SET data = ? WHERE id = 1').run(JSON.stringify({ ...review.metadata, build: 'retired-package-version' }));
+    } finally { historical.close(); }
+    expect(backups.upload(readFileSync(path), owner).metadata?.build).toBe('retired-package-version');
+  });
   it('retains local character and persona speech colors through backup import', async () => {
     const source = store('colors-source'), backups = service(source, 'colors-source');
     const characterId = source.saveLibrary(source.libraryRevision(), 'characters', { name: 'Mara', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', speechColor: '#eeaa88' });

@@ -26,7 +26,7 @@ export class BackupService {
   private readonly template: Buffer;
   private readonly schema: ReturnType<typeof schemaEntries>;
   private readonly legacySchema: ReturnType<typeof schemaEntries>;
-  private readonly build = buildInfo().version;
+  private readonly build = buildInfo().commit ?? 'unrecorded-development';
   private readonly stages = new Map<string, { path: string; owner: string; digest: string; expires: number; metadata: BackupMetadata | null; plan?: ReturnType<BackupStore['preflight']> }>();
   private readonly timer: ReturnType<typeof setInterval>;
   private closed = false;

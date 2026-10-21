@@ -76,7 +76,7 @@ try {
         try {
             Invoke-Native $node @($npm,'ci','--include=dev','--include=optional','--ignore-scripts')
             Invoke-Native $node @('scripts/release/native-smoke.mjs')
-            Invoke-Native $node @($npm,'run','build')
+            Invoke-Native $node @($npm,'--silent','run','build')
             $notices = Join-Path $stage 'notices'
             Invoke-Native $node @('scripts/release/stage.mjs','notices',$work,$notices)
             Invoke-Native $node @($npm,'ci','--omit=dev','--include=optional','--ignore-scripts','--prefer-offline')

@@ -12,8 +12,8 @@ Read AGENTS.md, CONCEPTS.md, IMPLEMENTATION.md, README.md, package.json and the 
 
 ## Release identity and output
 
-- Build from an exact clean release commit reachable on `main`. Record full commit, application version, schema version, pinned Node runtime and target OS/CPU in artifact metadata and a visible read-only About/version view.
-- Recommend an immutable version tag on that commit so artifacts remain identifiable after `main` advances. Tags are labels, not an alternate release branch policy. Preparing scripts is authorized; pushing commits/tags, creating remote releases and publishing binaries require explicit user instruction.
+- Build from an exact clean release commit reachable on `main`. Record full commit, schema version, pinned Node runtime and target OS/CPU in artifact metadata and a visible read-only About view. The 2026-10-21 decision retires package-version identity; launchers and About identify the build by commit.
+- Record the full commit as the release identity so artifacts remain identifiable after `main` advances. Existing published tags remain immutable historical references. Preparing scripts is authorized; pushing commits/tags, creating remote releases and publishing binaries require explicit user instruction.
 - Release automation must check the real branch/commit and fail on a dirty source tree or missing required inputs. Developer builds may remain possible but must not masquerade as releases.
 - Produce deterministic inputs through the lockfile and pinned/checksummed runtime downloads. Record artifact checksums and third-party notices. Do not promise byte-identical output unless independently tested.
 - Include built server/UI, migration files, tokenizer/runtime assets, image-worker entry point, production dependencies/native binaries, language-pack location, launcher and concise instructions. Package from an allowlist so databases, keys, backups, environment files, certificates, caches, test fixtures and developer paths cannot leak.
