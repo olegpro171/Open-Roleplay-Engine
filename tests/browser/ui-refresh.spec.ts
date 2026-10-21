@@ -22,7 +22,7 @@ test('keeps chat and memory budget panels mounted during debounced and delayed r
   const { id: chatId } = await command('/api/chats', { title: 'Stable budget proof', targetInputTokens: 20_000, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId });
   await command(`/api/chats/${chatId}/history`, { revision: 0, turns: Array.from({ length: 8 }, () => ({ user: 'Mira offers Leon her brass key. '.repeat(12), assistant: 'Leon promises to avoid the cellar. '.repeat(12), complete: true })) }, 'PUT');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Stable budget proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Stable budget proof', exact: true }) }).click();
   const context = page.locator('.context-dropdown');
   await context.locator('summary').click();
   await expect(context.locator('.allocation-legend')).toBeVisible();

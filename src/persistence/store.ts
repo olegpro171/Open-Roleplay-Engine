@@ -382,7 +382,7 @@ export class Store {
     for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings[key] === id || (kind === 'connections' && (id === 'main' && chat.settings.connectionId === undefined || this.contextPreset(chat.settings.contextPresetId)?.connectionId === id))) this.bumpRevision(chat.id);
   }
   private chatSummaries(): ChatSummary[] {
-    return this.db.select().from(schema.chats).all().map(chat => ({ id: chat.id, title: chat.settings.title, revision: chat.revision,
+    return this.db.select().from(schema.chats).all().map(chat => ({ id: chat.id, title: chat.settings.title, characterId: chat.settings.characterId ?? null, revision: chat.revision,
       createdAt: chat.createdAt, updatedAt: chat.updatedAt,
       lastMessageAt: this.db.select({ date: sql<string | null>`max(${schema.turns.messageAt})` }).from(schema.turns).where(eq(schema.turns.chatId, chat.id)).get()?.date ?? null,
       turnCount: (this.sqlite.prepare('SELECT count(*) AS n FROM turns WHERE chat_id = ?').get(chat.id) as { n: number }).n,

@@ -69,6 +69,8 @@ A nonblank card instruction replaces its marker's fallback; `{{original}}` inclu
 
 ## Character pictures
 
+In **Libraries → Chats**, click a chat card to open Story, or focus its title and press Enter/Space. Cards highlight on hover and show a small round portrait of the assigned character beside the title, with a placeholder when unavailable. **Delete chat** remains separate and asks for confirmation; it shares the details row on narrow screens when space permits.
+
 Characters show square library pictures in compact rows, with bounded names and fading description previews directly below them. Tags remain available in the editor and filter controls. Open Edit → Picture to choose PNG/JPEG/WebP (up to 10 MB), Adjust crop by dragging or keyboard sliders, replace or remove. Use crop changes the draft; Save character commits it with text/tags. Cancel crop and Close editor preserve their existing separate discard meanings. Small sources show a resolution hint; animated sources display their first supported frame.
 
 Character imports show a centered picture beside a bounded, fading card description. Pictures are retained automatically; remove them in Edit character after import if needed. Invalid artwork retains the metadata review but blocks import; cancel and select a valid PNG or JSON card. Older saved characters have no recoverable image bytes; attach their original PNG using Choose picture without reimporting metadata. Duplication copies an independent crop/association. Picture changes do not affect model input or saved memory.

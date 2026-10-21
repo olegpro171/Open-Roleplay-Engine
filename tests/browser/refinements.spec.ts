@@ -26,7 +26,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   const state = () => page.request.get(`/api/chats/${chatId}`).then(response => response.json() as Promise<ChatSnapshot>);
   await command(`/api/chats/${chatId}/history`, { revision: (await state()).revision, turns: Array.from({ length: 8 }, (_, i) => ({ user: `Turn ${i + 1}. ${'Mira offers Leon her brass key. '.repeat(7)}`, assistant: 'Leon promises to stay out of the cellar. '.repeat(7), complete: true })) }, 'PUT');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Refinement proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Refinement proof', exact: true }) }).click();
   const meta = page.locator('.story-meta');
   await expect(meta.locator('dl div').filter({ hasText: 'Total turns' })).toHaveText('Total turns8');
   await expect(meta.locator('dl div').filter({ hasText: 'Active turns' })).toHaveText('Active turns8');
@@ -116,7 +116,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await phone.goto('http://127.0.0.1:4173/'); await phone.getByLabel('Owner password').fill(password);
   await phone.getByRole('button', { name: 'Sign in', exact: true }).click();
   await phone.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await phone.getByRole('article').filter({ has: phone.getByRole('heading', { name: 'Refinement proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await phone.getByRole('article').filter({ has: phone.getByRole('heading', { name: 'Refinement proof', exact: true }) }).click();
   await phone.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(phone, 'Request inspector');
   await phone.getByRole('button', { name: 'Prompt peek', exact: true }).click();
@@ -154,7 +154,7 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   const { id: chatId } = await command('/api/chats', { title: 'Resize and timeline proof', targetInputTokens: 1_000_000, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: null });
   await command(`/api/chats/${chatId}/history`, { revision: 0, turns: Array.from({ length: 220 }, (_, i) => ({ user: `Turn ${i + 1}. ${'Mira holds the brass key and listens for footsteps. '.repeat(12)}`, assistant: 'Leon watches the lantern cast shadows across the cellar door. '.repeat(18), complete: true })) }, 'PUT');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Resize and timeline proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Resize and timeline proof', exact: true }) }).click();
   const transcript = page.locator('.transcript');
   await expect(page.getByRole('button', { name: 'Latest turn', exact: false })).toHaveCount(0);
   const composerPositions = () => page.locator('.composer').evaluate(node => {

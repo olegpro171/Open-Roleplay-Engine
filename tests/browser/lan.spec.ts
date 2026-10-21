@@ -78,7 +78,7 @@ test('enables LAN from Application Settings and uses the app on an insecure phon
     await phone.getByLabel('Owner password').fill('browser-synthetic-password');
     await phone.getByRole('button', { name: 'Sign in', exact: true }).click();
     await phone.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await phone.getByRole('article').filter({ has: phone.getByRole('heading', { name: 'LAN browser proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+    await phone.getByRole('article').filter({ has: phone.getByRole('heading', { name: 'LAN browser proof', exact: true }) }).click();
     await phone.getByLabel('Your next turn').fill('I open the gate from my phone.');
     await phone.reload();
     await expect(phone.getByLabel('Your next turn')).toHaveValue('I open the gate from my phone.');

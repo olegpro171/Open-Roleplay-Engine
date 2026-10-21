@@ -176,7 +176,7 @@ test('rejects delayed stale pages, reconciles generation outside the window and 
   const other = await page.request.post('/api/chats', { headers, data: { title: 'Other paging story', targetInputTokens: 32_000, connectionId: null, promptId: 'default', characterId: null, personaId: null, contextPresetId: null } });
   expect(other.ok(), await other.text()).toBe(true);
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Other paging story', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Other paging story', exact: true }) }).click();
   await expect(page.getByRole('heading', { name: 'Other paging story', exact: true })).toBeVisible();
   release();
   await expect(page.getByRole('heading', { name: 'Set up your story', exact: true })).toBeVisible();

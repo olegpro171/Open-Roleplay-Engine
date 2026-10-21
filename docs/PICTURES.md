@@ -1,6 +1,6 @@
 # Character pictures
 
-Implemented for local testing following the [assignment](PICTURES_IMPLEMENTATION_BRIEF.md). On 2026-10-18 the user approved sharp and all proposed defaults. Pictures belong to the Characters library/editor; they do not enter model requests, chat headers/selectors, personas or backgrounds.
+Implemented for local testing following the [assignment](PICTURES_IMPLEMENTATION_BRIEF.md). On 2026-10-18 the user approved sharp and all proposed defaults. Pictures belong to the Characters library/editor and also appear as round avatars in the Chats library following the 2026-10-21 refinement. They do not enter model requests, chat headers/selectors, personas or backgrounds.
 
 ## Workflow
 
@@ -15,6 +15,8 @@ PNG character import reads embedded metadata before decoding artwork. The book/t
 Compact character rows reserve a 164px desktop or 88px narrow-screen square. The desktop picture fills the row’s inner height with equal top and bottom padding; actions align to that height. Narrow screens keep actions in a separate strip below the picture and text. Names occupy at most two lines; full names label actions. Descriptions sit directly below names without reserved empty lines and use all remaining height beside the picture. They retain their full text and fade at the bottom of that space only on overflow. Tags are shown in the editor and filter controls, rather than in list rows. Filters continue matching all assignments. Images load lazily with a stable placeholder on absence/failure. Other libraries retain their existing layout.
 
 Export JSON remains current card/book data with preserved external metadata and embedded tags. Local pictures/crops never enter Character JSON. The Original picture disclosure and download link were removed from the editor on 2026-10-19. Exact original bytes remain retained and available to the authenticated crop-loading path; they are not rewritten by text edits. Updated PNG-card export, remote asset resolution and animation UI remain deferred.
+
+`CharacterAvatar` in `src/web/Pictures.tsx` provides a reusable 40px circular picture with the same lazy loading and unavailable-image fallback as `PictureSquare`. Chats library cards use the assigned character's existing cropped thumbnail; absent assignments/pictures use a neutral silhouette. Full and incremental chat list responses include the current character identity so selection changes update the avatar without fetching per-chat snapshots or changing saved picture data.
 
 ## Geometry and processing
 

@@ -62,7 +62,7 @@ test('selects Character fields, groups resolved messages and sends exact automat
   expect(exported.blocks).toEqual(saved.blocks);
   const chat = await command('/api/chats', { title: 'Character field story', targetInputTokens: 5000, connectionId: connection.id, characterId: character.id, promptId: saved.id, personaId: null, lorebookId: book.id });
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Character field story', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Character field story', exact: true }) }).click();
   await page.getByLabel('Your next turn').fill('I enter the tower.');
   const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
   await page.setViewportSize({ width: 1280, height: 900 });

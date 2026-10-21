@@ -18,9 +18,15 @@ export async function fileBase64(file: File) {
   return btoa(binary);
 }
 export function PictureSquare({ url, label = 'No picture' }: { url?: string; label?: string }) {
+  return <Picture url={url} label={label} shape="square" />;
+}
+export function CharacterAvatar({ url }: { url?: string }) {
+  return <Picture url={url} label="No picture" shape="round" />;
+}
+function Picture({ url, label, shape }: { url?: string; label: string; shape: 'square' | 'round' }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [url]);
-  return <div className="picture-square" aria-hidden="true">{url && !failed ? <img key={url} src={url} alt="" loading="lazy" decoding="async" width="320" height="320" onError={() => setFailed(true)} /> : <span className="picture-placeholder"><svg viewBox="0 0 40 40" width="36" height="36" fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="20" cy="14" r="6" /><path d="M8 34c0-15 24-15 24 0" /></svg><span>{failed ? 'Picture unavailable' : label}</span></span>}</div>;
+  return <div className={shape === 'round' ? 'character-avatar' : 'picture-square'} aria-hidden="true">{url && !failed ? <img key={url} src={url} alt="" loading="lazy" decoding="async" width="320" height="320" onError={() => setFailed(true)} /> : <span className="picture-placeholder"><svg viewBox="0 0 40 40" width="36" height="36" fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="20" cy="14" r="6" /><path d="M8 34c0-15 24-15 24 0" /></svg><span>{failed ? 'Picture unavailable' : label}</span></span>}</div>;
 }
 export function CroppedPicture({ image, crop = image.crop }: { image: PictureDimensions & { preview: string; crop: PictureCrop }; crop?: PictureCrop }) {
   const region = cropPixels(image, crop);

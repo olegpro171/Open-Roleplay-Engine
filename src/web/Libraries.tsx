@@ -4,7 +4,7 @@ import { newId } from './uuid';
 import { Icon, type IconName } from './Icon';
 import type { PromptDiagnostic } from '../shared/prompt-diagnostics';
 import { useConfirmation } from './Confirmation';
-import { PictureSquare } from './Pictures';
+import { CharacterAvatar, PictureSquare } from './Pictures';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ChatWorkspace } from './ChatWorkspace';
 import type { ChatSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
@@ -281,7 +281,22 @@ export function Libraries({ library, currentChatId, busy, run, openChat, initial
       <div className="actions library-toolbar" role="group" aria-label="Library actions"><button disabled={busy || creatingChat} onClick={() => setCreatingChat(true)}><Icon name="AddToList" />New chat</button></div>
       {!creatingChat && <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort} />}
       {creatingChat && <NewChat library={library} busy={busy} run={run} created={id => { setCreatingChat(false); openChat(id, 'settings'); }} cancel={() => setCreatingChat(false)} />}
-      <div className="library-list">{visibleChats.map(item => <article key={item.id}><div><h2>{item.title}</h2><p>{item.turnCount} turns{item.running ? ' · Response running' : ''}{currentChatId === item.id ? ' · Current chat' : ''}</p></div><div className="actions"><button className="secondary" onClick={() => openChat(item.id)}>Open chat</button><button className="quiet" disabled={busy || item.running} onClick={() => { confirmAction({ title: 'Delete chat?', message: `Delete “${item.title}” and all its turns and requests?`, actionLabel: 'Delete chat', onConfirm: () => { void run(() => api(`/chats/${item.id}`, 'DELETE', { revision: item.revision })); } }); }}><Icon name="TrashOutline" />Delete chat</button></div></article>)}{library.chats.length === 0 && <p className="muted">Create a chat to start your next story.</p>}{query && visibleChats.length === 0 && library.chats.length > 0 && <p className="muted" role="status">No chats match your search.</p>}</div>
+      <div className="library-list chat-list">
+        {visibleChats.map(item => <article key={item.id} className="chat-card">
+          <div className="chat-card-details">
+            <CharacterAvatar url={item.characterId ? pictureIndex.get(item.characterId)?.thumbnailUrl : undefined} />
+            <div className="chat-card-text">
+              <h2><button type="button" className="chat-card-open" onClick={() => openChat(item.id)}>{item.title}</button></h2>
+              <p>{item.turnCount} turns{item.running ? ' · Response running' : ''}{currentChatId === item.id ? ' · Current chat' : ''}</p>
+            </div>
+          </div>
+          <button type="button" className="quiet chat-card-delete" disabled={busy || item.running} onClick={() => {
+            confirmAction({ title: 'Delete chat?', message: `Delete “${item.title}” and all its turns and requests?`, actionLabel: 'Delete chat', onConfirm: () => { void run(() => api(`/chats/${item.id}`, 'DELETE', { revision: item.revision })); } });
+          }}><Icon name="TrashOutline" />Delete chat</button>
+        </article>)}
+        {library.chats.length === 0 && <p className="muted">Create a chat to start your next story.</p>}
+        {query && visibleChats.length === 0 && library.chats.length > 0 && <p className="muted" role="status">No chats match your search.</p>}
+      </div>
     </> : <>
       {!editing && section !== 'characters' && section !== 'lorebooks' && <div className="actions library-toolbar" role="group" aria-label="Library actions"><button disabled={busy} onClick={create}><Icon name="AddToList" />New {section === 'personas' ? 'persona' : section === 'prompts' ? 'prompt' : section === 'contexts' ? 'context preset' : 'Connection'}</button>
         {(section === 'personas') && <label className="file-button"><Icon name="Import" />Import personas<input type="file" accept=".json" disabled={busy} onChange={async e => {

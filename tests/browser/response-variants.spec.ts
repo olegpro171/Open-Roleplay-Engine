@@ -24,7 +24,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await page.reload();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Variant proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Variant proof', exact: true }) }).click();
   await expect(page.getByText('Original A.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Regenerate response', exact: true }).click();
   await expect.poll(async () => (await state()).turns[0].variants?.length).toBe(2);

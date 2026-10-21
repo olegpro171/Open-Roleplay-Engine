@@ -37,7 +37,7 @@ test('edits card instructions, enables preset injection, explains unavailable so
   await command(`/api/chats/${chat.id}/history`, { revision: (await state()).revision, turns: [{ user: 'Old input', assistant: 'Old response', complete: true }] }, 'PUT');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Card instructions story', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Card instructions story', exact: true }) }).click();
   await expect(page.getByRole('button', { name: 'Chat settings', exact: true })).toHaveText('Chat settings (4)');
   await openChatTool(page, 'Chat settings');
   const warnings = page.getByRole('region', { name: 'Prompt configuration warnings', exact: true });

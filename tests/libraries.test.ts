@@ -27,6 +27,25 @@ async function* chunks(text: string) { for (let i = 0; i < text.length; i += 37)
 const card: Character = { name: 'Keeper', description: '{{char}} greets {{user}}.', personality: 'Patient', scenario: 'A tower', first_mes: 'Welcome, {{user}}.', mes_example: '' };
 const connection = { name: 'Synthetic', endpoint: 'http://localhost:1234/v1', model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 100, customParameters: {} };
 
+it('exposes current character assignments in full and incremental chat lists', () => {
+  const store = new Store(join(folder(), 'chat-characters.sqlite'));
+  try {
+    const characterId = store.saveLibrary(store.libraryRevision(), 'characters', card);
+    const settings = { title: 'Portrait story', targetInputTokens: 32_000, connectionId: null, promptId: 'default', characterId, personaId: null };
+    const id = store.createChat(settings);
+    const otherId = store.createChat({ ...settings, title: 'Unassigned story', characterId: null });
+    expect(store.libraries().chats.find(chat => chat.id === id)?.characterId).toBe(characterId);
+    expect(store.libraries().chats.find(chat => chat.id === otherId)?.characterId).toBeNull();
+    const revision = store.libraryRevision();
+    store.updateChat(store.snapshot(id).revision, id, { ...settings, characterId: null });
+    const update = store.libraryUpdate(revision);
+    expect(update).toMatchObject({ unchanged: true, revision });
+    expect(update.chats.find(chat => chat.id === id)?.characterId).toBeNull();
+    store.updateChat(store.snapshot(id).revision, id, settings);
+    expect(store.libraryUpdate(revision).chats.find(chat => chat.id === id)?.characterId).toBe(characterId);
+  } finally { store.close(); }
+});
+
 it('supplies the repair prompt for older saved and imported presets without rewriting stored versions', () => {
   const store = new Store(join(folder(), 'old-context.sqlite'));
   try {

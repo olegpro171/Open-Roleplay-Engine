@@ -30,7 +30,7 @@ async function fixture(page: Page,width: number) {
 }
 async function openChat(page: Page,title: string) {
   await page.getByRole('button',{ name: 'Libraries',exact: true }).click(); await page.getByRole('button',{ name: 'Chats',exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading',{ name: title,exact: true }) }).getByRole('button',{ name: 'Open chat',exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading',{ name: title,exact: true }) }).click();
   await expect(page.getByLabel('Your next turn')).toBeVisible();
 }
 

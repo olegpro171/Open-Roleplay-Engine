@@ -40,7 +40,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   expect((await libraries()).contexts.find(preset => preset.id === contextId)?.repairPrompt).toContain('Keep unaffected wording exactly');
   const chat = await post('/api/chats', { title: 'Imported compaction proof', targetInputTokens: 700, connectionId: roleplay.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId });
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported compaction proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported compaction proof', exact: true }) }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Chat settings');
   const messages = Array.from({ length: 48 }, (_, i) => [
@@ -99,7 +99,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   const phone = await phoneContext.newPage(); await phone.goto('/');
   await phone.getByLabel('Owner password').fill(password); await phone.getByRole('button', { name: 'Sign in', exact: true }).click();
   await phone.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await phone.getByRole('article').filter({ has: phone.getByRole('heading', { name: 'Imported compaction proof', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await phone.getByRole('article').filter({ has: phone.getByRole('heading', { name: 'Imported compaction proof', exact: true }) }).click();
   await phone.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(phone, 'Inspect memory');
   await expect(phone.getByTestId('memory-status')).toContainText('Ready:');

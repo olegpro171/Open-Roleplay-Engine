@@ -37,7 +37,7 @@ test('edits explicit markers, uses recent history, and enables preparation again
   await page.reload();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Explicit prompt chat', exact: true }) }).getByRole('button', { name: 'Open chat', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Explicit prompt chat', exact: true }) }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Inspect memory');
   await expect(page.getByTestId('memory-status')).toContainText('Summaries are disabled');
