@@ -340,7 +340,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .chat-markdown a { color: #a8c9f0; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
 .chat-markdown a:focus-visible, .markdown-table:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .chat-markdown code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .88em; background: #101720; border-radius: 4px; padding: .12em .3em; }
-.chat-markdown pre { white-space: pre; overflow-x: auto; overflow-wrap: normal; max-width: 100%; padding: 14px; margin: .8em 0; }
+.chat-markdown pre { font-size: .8em; white-space: pre; overflow-x: auto; overflow-wrap: normal; max-width: 100%; padding: 14px; margin: .8em 0; }
 .chat-markdown pre code { padding: 0; background: none; font-size: inherit; }
 .chat-markdown hr { border: 0; border-top: 1px solid var(--line); margin: 1em 0; }
 .markdown-table { max-width: 100%; overflow-x: auto; margin: .8em 0; }
@@ -451,3 +451,11 @@ button:has(> .ui-icon):has(> .sr-only), .block-actions button { min-width:36px; 
 .turn-tick.restoring{background:#8bc9ff;color:#12273c;border-color:#b6dfff}
 .summary-deletion{margin-top:20px;padding:16px;border:1px solid #c87979;border-radius:8px;overflow-wrap:anywhere}
 .summary-deletion ul{max-height:180px;overflow:auto;padding-left:22px}
+
+.chat-text-scale-control { max-width: 420px; }
+.chat-text-scale-control input[type=range] { padding: 0; margin: 0; height: 32px; accent-color: var(--accent); cursor: pointer; }
+.chat-text-scale-control input[type=range]:disabled { cursor: not-allowed; }
+.chat-text-scale-labels { display: flex; justify-content: space-between; margin: 0 0 20px; color: var(--muted); font-size: 12px; }
+.chat-text-scale-labels span { text-align: center; }
+.chat-text-scale-labels small { display: block; font-size: 10px; }
+.chat-text-preview { border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: #131921; }

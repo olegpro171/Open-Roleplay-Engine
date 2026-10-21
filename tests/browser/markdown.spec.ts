@@ -1,3 +1,4 @@
+import { appearanceStatusSchema } from '../../src/shared/appearance';
 import { test, expect } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibraryCharacter, LibrarySnapshot } from '../../src/shared/library';
@@ -77,7 +78,15 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
 
   const input = '*I enter.* "Is anyone there?"';
   await request.post('/__test/mode', { data: { mode: 'markdown' } });
+  const originalAppearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
   try {
+    const scaleSaved = await page.request.put('/api/application/appearance', {
+      headers: { Origin: 'http://127.0.0.1:4173' },
+      data: { revision: originalAppearance.revision, settings: { ...originalAppearance.settings, chatTextScale: 120 } },
+    });
+    expect(scaleSaved.ok()).toBe(true);
+    await expect(prose.locator('.chat-markdown')).toHaveCSS('font-size', '18px');
+    await expect(prose.locator('pre')).toHaveCSS('font-size', '14.4px');
     await page.getByLabel('Your next turn').fill(input);
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     const turn = page.getByRole('article', { name: 'Turn 2', exact: true });
@@ -85,15 +94,19 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
     await expect(turn.locator('.part.user em')).toHaveText('I enter.');
     await expect(turn.locator('.part.user .direct-speech')).toHaveCSS('color', 'rgb(136, 204, 153)');
     await expect(reply).toHaveText(markdownReplyStart);
+    await expect(reply.locator('.chat-markdown')).toHaveCSS('font-size', '18px');
+    await expect(turn.locator('.part.user .chat-markdown')).toHaveCSS('font-size', '18px');
     await expect(reply.locator('.direct-speech')).toHaveCount(0);
     await expect(turn.getByLabel('Generating', { exact: true })).toBeVisible();
     await request.post('/__test/finish', { data: {} });
     await expect(reply.locator('em')).toHaveText('Stay close');
+    await expect(reply.locator('.chat-markdown')).toHaveCSS('font-size', '18px');
     await expect(reply.locator('.direct-speech').first()).toHaveCSS('color', 'rgb(238, 170, 136)');
     await expect(reply.locator('.direct-speech')).toHaveText(['"', 'Stay close', ', traveler."', '— Послушайте!', '— Я ведь не знал.']);
     await expect(turn.getByLabel('Generating', { exact: true })).toHaveCount(0);
     await page.reload();
     await expect(reply.locator('em')).toHaveText('Stay close');
+    await expect(reply.locator('.chat-markdown')).toHaveCSS('font-size', '18px');
     await expect(reply.locator('.direct-speech').first()).toHaveCSS('color', 'rgb(238, 170, 136)');
     const saved = await state();
     expect(saved.turns[1].user.text).toBe(input);
@@ -106,6 +119,11 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
     await page.screenshot({ path: testInfo.outputPath('markdown-conversation.png'), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   } finally {
+    const currentAppearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+    const restored = await page.request.put('/api/application/appearance', {
+      headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: currentAppearance.revision, settings: originalAppearance.settings },
+    });
+    expect(restored.ok()).toBe(true);
     await request.post('/__test/finish', { data: {} });
     await request.post('/__test/mode', { data: { mode: 'normal' } });
   }

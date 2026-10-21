@@ -1,10 +1,15 @@
 import { readFileSync, writeFileSync, renameSync, existsSync, unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { appearanceStatusSchema, defaultAppearance, type AppearanceStatus } from '../shared/appearance.js';
+import { appearanceSchema, appearanceStatusSchema, defaultAppearance, type AppearanceStatus } from '../shared/appearance.js';
 import { AppError } from '../core/errors.js';
 
-const savedSchema = appearanceStatusSchema.extend({ version: z.literal(1) }).strict();
+const legacySavedSchema = appearanceStatusSchema.extend({
+  version: z.literal(1), settings: appearanceSchema.omit({ chatTextScale: true }),
+}).strict().transform(value => ({ ...value, settings: { ...value.settings, chatTextScale: defaultAppearance.chatTextScale } }));
+const savedSchema = z.union([legacySavedSchema, appearanceStatusSchema.extend({ version: z.literal(2) }).strict()]);
+// Older open clients can still save colors without resetting the saved text scale.
+const saveSchema = appearanceStatusSchema.extend({ settings: appearanceSchema.partial({ chatTextScale: true }) });
 
 export class AppearanceSettings {
   constructor(private file: string) {}
@@ -22,14 +27,14 @@ export class AppearanceSettings {
   }
 
   save(value: unknown): AppearanceStatus {
-    const input = appearanceStatusSchema.parse(value);
+    const input = saveSchema.parse(value);
     const current = this.status();
     if (input.revision !== current.revision) throw new AppError(409, 'appearance_conflict', 'Chat appearance changed in another window. Reload chat appearance before saving again.');
-    const next = { revision: current.revision + 1, settings: input.settings };
+    const next = { revision: current.revision + 1, settings: { ...input.settings, chatTextScale: input.settings.chatTextScale ?? current.settings.chatTextScale } };
     const temporary = `${this.file}.${randomUUID()}.tmp`;
     try {
       try {
-        writeFileSync(temporary, JSON.stringify({ version: 1, ...next }), { mode: 0o600, flag: 'wx' });
+        writeFileSync(temporary, JSON.stringify({ version: 2, ...next }), { mode: 0o600, flag: 'wx' });
         renameSync(temporary, this.file);
       } finally {
         if (existsSync(temporary)) unlinkSync(temporary);

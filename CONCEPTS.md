@@ -222,6 +222,8 @@ Accepted mobile chat refinement on 2026-10-20: **Chat details** lives in the hea
 
 Accepted on 2026-10-20: the application-level header item is **Settings**, opening **Application settings** for all application-wide settings. It shares the Story/Libraries two-column proportions, with categories on the left scrolling to section headings in one page on the right. Categories stack above content on narrow screens. The Application settings title appears only in the category sidebar. Data backup separates **Save backup** from **Import backup → Inspect & import backup**; **Wipe application data** remains on the same page. Global warnings appear directly below the header.
 
+Accepted on 2026-10-21: **Application Settings → Chat appearance** includes a ticked **Text scale** slider for chat message text, with 90%, 100% (default), 110% and 120% steps. An example below it previews the selected size immediately. Saving applies it to existing and live chat messages independently of interface controls, composer and source editors. This is server-wide appearance configuration with the same persistence and backup boundaries as default speech colors; it does not change saved prose or model input.
+
 ### Agent
 
 A task configured for a specific job, with its own instructions and selected Connection. It has read access to chat history, runs manually or automatically, and produces output available through a prompt marker.

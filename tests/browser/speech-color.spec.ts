@@ -116,6 +116,21 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     const settings = page.getByRole('region', { name: 'Chat appearance', exact: true });
     await page.getByRole('navigation', { name: 'Settings categories' }).getByRole('button', { name: 'Chat appearance', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Chat appearance', exact: true })).toBeFocused();
+    const slider = settings.getByRole('slider', { name: 'Text scale' });
+    const preview = settings.getByRole('region', { name: 'Chat text preview' }).locator('.chat-markdown');
+    const saveButton = settings.getByRole('button', { name: 'Save chat appearance', exact: true });
+    const buttonFontSize = await saveButton.evaluate(element => getComputedStyle(element).fontSize);
+    await expect(slider).toHaveValue('100');
+    await slider.focus();
+    await slider.press('Home');
+    for (const [scale, pixels] of [[90, 13.5], [100, 15], [110, 16.5], [120, 18]]) {
+      await expect(slider).toHaveValue(String(scale));
+      await expect(preview).toHaveCSS('font-size', `${pixels}px`);
+      await expect(preview).toHaveCSS('line-height', `${Number((pixels * 1.85).toFixed(3))}px`);
+      if (scale < 120) await slider.press('ArrowRight');
+    }
+    await expect(saveButton).toHaveCSS('font-size', buttonFontSize);
+    await expect(observer.locator('.part.user .chat-markdown')).toHaveCSS('font-size', '15px');
     await page.getByLabel('Default character speech color', { exact: true }).fill('#eeaa88');
     await page.getByLabel('Default persona speech color', { exact: true }).fill('#88cc99');
     await page.route('**/api/application/appearance', route => route.request().method() === 'PUT'
@@ -124,9 +139,13 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     await expect(settings.getByRole('alert')).toContainText('Synthetic appearance save failure.');
     await expect(page.getByLabel('Default persona speech color', { exact: true })).toHaveValue('#88cc99');
     expect((await appearance()).settings).toEqual(defaultAppearance);
+    await expect(slider).toHaveValue('120');
+    await expect(preview).toHaveCSS('font-size', '18px');
     await page.unroute('**/api/application/appearance');
     await settings.getByRole('button', { name: 'Save chat appearance', exact: true }).click();
     await expect(settings.getByRole('status')).toHaveText('Chat appearance saved.');
+    await expect(observer.locator('.part.user .chat-markdown')).toHaveCSS('font-size', '18px');
+    await expect(observer.locator('.part.assistant .chat-markdown')).toHaveCSS('font-size', '18px');
     await expect(observer.locator('.part.user .direct-speech')).toHaveCSS('color', 'rgb(136, 204, 153)');
     await expect(observer.locator('.part.assistant .direct-speech')).toHaveCSS('color', 'rgb(204, 153, 255)');
     await settings.scrollIntoViewIfNeeded();
@@ -168,6 +187,8 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     await page.reload();
     await expect(page.locator('.part.assistant .direct-speech')).toHaveCSS('color', 'rgb(238, 170, 136)');
     await expect(page.locator('.part.user .direct-speech')).toHaveCSS('color', 'rgb(153, 187, 221)');
+    await expect(page.locator('.part.user .chat-markdown')).toHaveCSS('font-size', '18px');
+    await expect(page.locator('.part.assistant .chat-markdown')).toHaveCSS('font-size', '18px');
     await page.screenshot({ path: testInfo.outputPath('default-speech-colors.png'), fullPage: true });
   } finally {
     await observer.close();
