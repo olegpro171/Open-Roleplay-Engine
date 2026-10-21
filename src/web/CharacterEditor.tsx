@@ -1,3 +1,4 @@
+import { newId } from './uuid';
 import { Icon } from './Icon';
 import { cardInstructionFields, cardInstructionLabels, readCardInstruction, readCharacterDepthPrompt } from '../shared/card-instructions';
 import { useConfirmation } from './Confirmation';
@@ -38,7 +39,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
   const [embedded, setEmbedded] = useState<{ revision: number; tags: TagReview } | null>(null), [policy, setPolicy] = useState<TagPolicy>('none');
   const [error, setError] = useState(''), [pending, setPending] = useState(false);
   const originalRevision = useRef(library.characters.find(character => character.id === initial.id)?.revision);
-  const alive = useRef(true), extractionId = useRef(crypto.randomUUID());
+  const alive = useRef(true), extractionId = useRef(newId());
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const stale = revision !== library.revision;
   const greetings = readCharacterAlternateGreetings(data);
@@ -77,7 +78,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
   async function save(frozen?: CharacterSaveCommand) {
     if (submitting.current || processing || (uncertain && !frozen)) return;
     submitting.current = true; setPending(true); setError('');
-    const command: CharacterSaveCommand = frozen ?? { kind: 'characters', requestId: crypto.randomUUID(), revision, data: structuredClone(data), tagIds: [...tagIds], expectedPicture: baselinePicture?.key ?? null, picture: pictureMutation(picture, baselinePicture) };
+    const command: CharacterSaveCommand = frozen ?? { kind: 'characters', requestId: newId(), revision, data: structuredClone(data), tagIds: [...tagIds], expectedPicture: baselinePicture?.key ?? null, picture: pictureMutation(picture, baselinePicture) };
     setUncertain(command);
     const ok = await run(async () => {
       try { await api(initial.id ? `/library/${initial.id}` : '/library', initial.id ? 'PUT' : 'POST', command); }

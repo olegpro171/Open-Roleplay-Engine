@@ -32,6 +32,9 @@ import { GenerationCoordinator } from './coordinator.js';
 import { contextPlan } from '../core/context-plan.js';
 import { importLorebook, exportLorebook } from '../core/lorebook-formats.js';
 import { resolveRequestLore } from './lore-resolution.js';
+import { LanAccess } from './lan.js';
+import { isLoopback } from './lan-policy.js';
+import type { LanInterface } from '../shared/lan.js';
 
 const contentSecurityPolicy = (styleNonce?: string) => `default-src 'self'; script-src 'self'; style-src 'self'${styleNonce ? ` 'nonce-${styleNonce}'` : ''}; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`;
 function loreImport<T>(parse: () => T): T {
@@ -45,6 +48,7 @@ function loreImport<T>(parse: () => T): T {
 export async function createApp(options: {
   database: string; databaseMustExist?: boolean; staticDirectory?: string; migrationsDirectory?: string;
   provider?: Provider; https?: ServerOptions;
+  lan?: { interfaces?: () => LanInterface[]; hostname?: () => Promise<string>; settingsFile?: string };
 }) {
   const store = new Store(options.database, options.migrationsDirectory, { mustExist: options.databaseMustExist });
   const pictures = new PictureProcessor();
@@ -61,6 +65,11 @@ export async function createApp(options: {
   const auth = new Auth(store);
   const secure = Boolean(options.https);
   const app = Fastify({ logger: false, bodyLimit: 1_000_000, ...(options.https ? { https: options.https } : {}) });
+  const lan = new LanAccess(options.lan?.settingsFile ?? `${options.database}.lan.json`, (request, response) => app.routing(request, response), {
+    interfaces: options.lan?.interfaces, hostname: options.lan?.hostname,
+    unavailable: secure ? 'HTTP LAN settings are unavailable while legacy HTTPS startup is configured.' : undefined,
+  });
+  app.addHook('onReady', async () => { await lan.start(); });
   await app.register(cookie);
   const backups = new BackupService(store, options.database, options.migrationsDirectory);
   app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: backupLimits.bytes }, (_request, body, done) => done(null, body));
@@ -111,8 +120,8 @@ export async function createApp(options: {
     reply.header('Referrer-Policy', 'no-referrer');
     reply.header('Content-Security-Policy', contentSecurityPolicy());
     const hostname = request.hostname;
-    if (!secure && !['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname)) {
-      throw new AppError(403, 'https_required', 'LAN access requires HTTPS. Open the local address on the server computer.');
+    if (!secure && !['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname) && !lan.isLanRequest(request.raw)) {
+      throw new AppError(403, 'lan_access_denied', 'Open the local address on the server computer, or enable LAN access in Application Settings.');
     }
     if (!request.url.startsWith('/api/')) return;
     reply.header('Cache-Control', 'no-store');
@@ -136,9 +145,16 @@ export async function createApp(options: {
     reply.setCookie('session', token, { httpOnly: true, secure, sameSite: 'strict', path: '/', maxAge: sessionSeconds });
   };
   app.get('/api/about', async () => buildInfo());
+  const localNetworkAdmin = (request: FastifyRequest) => isLoopback(request.ip) && !lan.isLanRequest(request.raw);
+  app.get('/api/application/lan', async request => lan.status(localNetworkAdmin(request)));
+  app.put('/api/application/lan', async request => {
+    if (!localNetworkAdmin(request)) throw new AppError(403, 'local_settings_only', 'Change LAN settings from the local address on the server computer.');
+    if (auth.setupRequired()) throw new AppError(409, 'owner_required', 'Create the owner account locally before enabling LAN access.');
+    return lan.save(request.body);
+  });
   app.get('/api/session', async (request) => ({ setupRequired: auth.setupRequired(), authenticated: auth.authenticated(request.cookies.session) }));
   app.post('/api/setup', async (request, reply) => {
-    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.ip)) throw new AppError(403, 'local_setup_only', 'Create the owner account from the server computer first.');
+    if (!isLoopback(request.ip) || lan.isLanRequest(request.raw)) throw new AppError(403, 'local_setup_only', 'Create the owner account from the server computer first.');
     const { password } = passwordSchema.parse(request.body);
     setSession(reply, await auth.setup(password));
     return { ok: true };
@@ -586,7 +602,7 @@ export async function createApp(options: {
     app.get('/index.html', async (_request, reply) => sendIndex(reply));
     app.setNotFoundHandler((request, reply) => request.url.startsWith('/api/') ? reply.code(404).send({ message: 'Not found.' }) : sendIndex(reply));
   }
-  app.addHook('preClose', async () => { await pictures.close(); await coordinator.shutdown(); });
+  app.addHook('preClose', async () => { await lan.close(); await pictures.close(); await coordinator.shutdown(); });
   app.addHook('onClose', async () => { try { backups.close(); } finally { store.close(); } });
-  return { app, store, coordinator };
+  return { app, store, coordinator, lan };
 }

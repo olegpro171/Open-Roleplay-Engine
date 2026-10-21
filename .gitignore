@@ -12,6 +12,7 @@ data/
 *.p12
 *.pfx
 *.log
+*.lan.json
 playwright-report/
 test-results/
 __pycache__/

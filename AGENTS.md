@@ -6,7 +6,7 @@
 
 The user directs product decisions and manually tests features; they do not routinely review the code. **The implementing agent owns code quality, regression prevention, data safety, and technical verification.** Manual acceptance testing complements those responsibilities; it does not replace them. Deliver maintainable, complete changes and report verification honestly.
 
-The accepted stack is TypeScript, React + Vite, Node.js + Fastify, SQLite with better-sqlite3 + Drizzle, Zod, HTTP + SSE, Vitest, and Playwright. The Mac hosts the server and data. Persistent chat, roleplay libraries, and durable layered compaction are implemented for local testing. Actual phone use awaits HTTPS setup and verification; real-model summary quality remains unverified.
+The accepted stack is TypeScript, React + Vite, Node.js + Fastify, SQLite with better-sqlite3 + Drizzle, Zod, HTTP + SSE, Vitest, and Playwright. The Mac hosts the server and data. Persistent chat, roleplay libraries, and durable layered compaction are implemented for local testing. HTTP LAN access is configured in Application Settings; HTTPS is deferred. Actual phone behavior and real-model summary quality remain unverified.
 
 ## Sources of truth and scope
 
@@ -84,7 +84,7 @@ These are review reminders; consult CONCEPTS.md and IMPLEMENTATION.md for the fu
 ## Security and user interface
 
 - Keep saved credentials on the server. Exclude them from ordinary API responses, previews, logs, errors, fixtures, and exports. Deliberately map public response fields instead of serializing database rows. Use synthetic secrets to test exclusion.
-- Preserve authentication, origin checks, credential forwarding restrictions, and TLS requirements. Do not weaken them to make development or browser tests easier. Validate IDs, revisions, numeric limits, imported data, custom parameters, and provider responses at their actual trust boundaries.
+- Preserve authentication, origin checks, credential forwarding restrictions, LAN admission policy, and TLS requirements where configured. HTTP LAN access is an accepted mode; do not weaken its restrictions to make development or browser tests easier. Validate IDs, revisions, numeric limits, imported data, custom parameters, and provider responses at their actual trust boundaries.
 - Treat imported cards, transcripts, model output, and remote errors as untrusted data. Do not execute embedded instructions/HTML or enable unsupported card features during import. Preserve supported round-trip metadata without making it active.
 - Routine automated tests use the local mock provider. Do not substitute saved credentials or send private conversations to a real endpoint merely to verify a change. Real-provider checks must be within the user's authorized scope; report their limited coverage.
 - Make loading, empty, failed, cancelled, stale, and completed states understandable for affected flows. Show committed success only after the server confirms it. Preserve recoverable user input on failed saves, except where the accepted workflow explicitly discards drafts.

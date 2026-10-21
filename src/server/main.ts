@@ -19,8 +19,8 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('ROLEPL
 const certificate = process.env.ROLEPLAY_TLS_CERT;
 const key = process.env.ROLEPLAY_TLS_KEY;
 if (Boolean(certificate) !== Boolean(key)) throw new Error('Set both ROLEPLAY_TLS_CERT and ROLEPLAY_TLS_KEY.');
-if (!['127.0.0.1', 'localhost', '::1'].includes(host) && !certificate) throw new Error('LAN access requires ROLEPLAY_TLS_CERT and ROLEPLAY_TLS_KEY. Start locally to set up the owner login first.');
-const { app } = await createApp({
+if (!['127.0.0.1', 'localhost', '::1'].includes(host) && !certificate) throw new Error('Keep ROLEPLAY_HOST on loopback for HTTP. Enable phone access in Application Settings after local owner setup. Legacy non-loopback startup requires ROLEPLAY_TLS_CERT and ROLEPLAY_TLS_KEY.');
+const { app, lan } = await createApp({
   ...paths,
   ...(certificate && key ? { https: { cert: readFileSync(certificate), key: readFileSync(key) } } : {}),
 });
@@ -44,7 +44,12 @@ if (!['127.0.0.1', 'localhost', '::1'].includes(host)) {
       if (address.family === 'IPv4' && !address.internal) console.log(`LAN: ${protocol}://${address.address}:${port}`);
     }
   }
-} else console.log('LAN access is off. Configure HTTPS to connect a phone.');
+} else {
+  const status = lan.status(true);
+  if (status.runtime.state === 'listening') console.log(`LAN: ${status.runtime.url}`);
+  else if (status.runtime.state === 'unavailable') console.log(`LAN: ${status.runtime.message}`);
+  else console.log('LAN access is off. Enable it in Application Settings → Phone / LAN access.');
+}
 function stop() {
   if (stopping) return;
   stopping = true;

@@ -1,3 +1,4 @@
+import { newId } from './uuid';
 import { Icon } from './Icon';
 import { useConfirmation } from './Confirmation';
 import { EditorActions } from './EditorActions';
@@ -37,7 +38,7 @@ export function LorebookImport({ leadingAction, revision, busy, run, imported }:
         if (file.size > LOREBOOK_FILE_LIMIT) throw new Error('Lorebook imports are limited to 5 MB.');
         const value: unknown = JSON.parse(await file.text());
         const preview = await api<LoreImportPreview>('/library/lorebooks/preview', 'POST', { value });
-        if (attempt.current === current) setReview({ preview, value, revision, requestId: crypto.randomUUID(), filename: file.name });
+        if (attempt.current === current) setReview({ preview, value, revision, requestId: newId(), filename: file.name });
       } catch (failure) { if (attempt.current === current) setError(failure instanceof Error ? failure.message : 'Could not read this lorebook.'); }
       finally { if (attempt.current === current) setReading(false); }
     }} />
@@ -83,7 +84,7 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
   function update(patch: Partial<Lorebook>) { setBook(value => markBook(value, patch)); }
   function updateEntry(patch: Partial<LoreEntry>) { update({ entries: book.entries.map(entry => entry.id === selectedId ? markEntry(entry, patch) : entry) }); }
   function add(duplicate?: LoreEntry) {
-    const id = crypto.randomUUID();
+    const id = newId();
     const entry = duplicate ? { ...structuredClone(duplicate), id, name: `${duplicate.name.slice(0, 190)} copy` } : { ...newLoreEntry(id), insertionOrder: Math.max(-1, ...book.entries.map(item => item.insertionOrder)) + 1 };
     update({ entries: [...book.entries, entry] }); setSelectedId(id); setQuery(''); setPage(Math.floor(book.entries.length / pageSize));
   }

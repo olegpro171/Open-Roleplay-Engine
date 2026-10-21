@@ -77,7 +77,9 @@ it('explains schema, content and reconstruction failures without exposing upload
       expect(failure).toMatchObject({ code: 'invalid_backup',message: 'This file is not a valid ORE backup.',details: expect.stringContaining(reason) });
       expect(JSON.stringify(failure)).not.toContain('private_uploaded_secret');
       expect(JSON.stringify(failure)).not.toContain('Private synthetic prose');
-      expect(fs.readFileSync(path)).toEqual(input);
+      // Compare every byte natively; per-byte matcher traversal of eleven SQLite
+      // fixtures otherwise consumes almost the entire five-second test budget.
+      expect(fs.readFileSync(path).equals(input)).toBe(true);
       expect(service.persistence.token).toBe(token);
       expect(fs.readdirSync(join(directory,'.ore-backups-live.sqlite'))).toEqual([]);
     }

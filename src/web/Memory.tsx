@@ -1,3 +1,4 @@
+import { newId } from './uuid';
 import { useConfirmation } from './Confirmation';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatSnapshot } from '../shared/contracts';
@@ -89,7 +90,7 @@ export function Memory({ snapshot, library, busy, run }: { snapshot: ChatSnapsho
   const latestJob = snapshot.context.jobs[0];
   const start = (mode: Exclude<ContextJob['mode'], 'refresh'>) => run(async () => {
     if (autoRetry && mode !== 'repair' && !retryControls.current?.querySelector<HTMLInputElement>('[aria-label="Maximum retries"]')?.reportValidity()) return;
-    const result = await api<{ jobId: string }>(`/chats/${snapshot.id}/context/prepare`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID(), mode, ...(autoRetry && mode !== 'repair' ? { retry: { maxRetries } } : {}) });
+    const result = await api<{ jobId: string }>(`/chats/${snapshot.id}/context/prepare`, 'POST', { revision: snapshot.revision, requestId: newId(), mode, ...(autoRetry && mode !== 'repair' ? { retry: { maxRetries } } : {}) });
     if (mode === 'repair') setRepairSession(result.jobId);
     setHistoryId(''); setDetails(null); setInspected(null); setPlanError('');
   });

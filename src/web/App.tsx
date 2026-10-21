@@ -1,3 +1,4 @@
+import { newId } from './uuid';
 import { Icon } from './Icon';
 import { ApplicationSettings } from './ApplicationSettings';
 import { useConfirmation } from './Confirmation';
@@ -410,7 +411,7 @@ export function App() {
               action={generating
                 ? { kind: 'cancel', disabled: busy, run: () => void command(() => api(`/generations/${active.id}/cancel`, 'POST', {})) }
                 : turn.complete && turn.id === snapshot.latestTurn?.id && snapshot.connection
-                  ? { kind: 'regenerate', disabled: working || busy || Boolean(edit), run: () => void command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/regenerate`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID() })) }
+                  ? { kind: 'regenerate', disabled: working || busy || Boolean(edit), run: () => void command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/regenerate`, 'POST', { revision: snapshot.revision, requestId: newId() })) }
                   : null}
               select={id => command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/variants/${id}/select`, 'POST', { revision: snapshot.revision }))}
               edit={part => setEdit({ turnId: turn.id, part, text: turn[part].text, revision: snapshot.revision })}
@@ -422,7 +423,7 @@ export function App() {
           {snapshot.page.hasNewer && <div className="history-page-control" data-history-direction="newer"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('newer')}>{pageLoading ? 'Loading history…' : 'Load newer turns'}</button></div>}
           {edit && !snapshot.page.turns.some(turn => turn.id === edit.turnId) && <div className="recovery" role="alert"><div><p>The edited turn was removed or replaced. Copy your unsaved text before closing.</p><ChatTextarea aria-label="Unsaved turn edit" value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><button onClick={() => setEdit(null)}>Close edit</button></div></div>}
         </div>{(awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>Latest turn <Icon name="ArrowLongBottom" /></button>}</div>
-        {!active && pending && <div className="recovery" role="status"><div><strong>Last turn is still pending.</strong><p>{latest?.status === 'cancelled' ? 'Response cancelled. Generate response before next turn.' : latest?.error ?? 'Generate response before next turn.'}</p>{partial && <small>Partial text is preserved for inspection. It has not been accepted as a response.</small>}</div><button className="secondary" disabled={busy} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: crypto.randomUUID() }))}>Retry response</button></div>}
+        {!active && pending && <div className="recovery" role="status"><div><strong>Last turn is still pending.</strong><p>{latest?.status === 'cancelled' ? 'Response cancelled. Generate response before next turn.' : latest?.error ?? 'Generate response before next turn.'}</p>{partial && <small>Partial text is preserved for inspection. It has not been accepted as a response.</small>}</div><button className="secondary" disabled={busy} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: newId() }))}>Retry response</button></div>}
         {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{latest.error ?? 'Regeneration did not finish. Try again.'}</p>}
         {drafts.needsReview && <div className="recovery" role="alert"><p>This browser draft predates a backup import or wipe. Review its text and the restored story before sending. Its previous staged send has no retry authority.</p><button onClick={drafts.review}>Use recovered draft</button></div>}
         <form className="composer" onSubmit={(event) => void send(event)}>

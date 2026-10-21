@@ -1,3 +1,4 @@
+import { newId } from './uuid';
 import { Icon } from './Icon';
 import { useEffect, useRef, useState } from 'react';
 import type { ChatSnapshot } from '../shared/contracts';
@@ -37,7 +38,7 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
     pending.current = true; setError('');
     const body = { revision: snapshot.revision, action, ...(action === 'approve' && text !== candidate?.text ? { text } : {}) };
     const commandKey = JSON.stringify(body);
-    if (retry.current?.key !== commandKey) retry.current = { key: commandKey, requestId: crypto.randomUUID() };
+    if (retry.current?.key !== commandKey) retry.current = { key: commandKey, requestId: newId() };
     await run(async () => {
       try {
         await api(`/context/jobs/${job.id}/repair`, 'POST', { ...body, requestId: retry.current!.requestId });

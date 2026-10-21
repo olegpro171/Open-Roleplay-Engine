@@ -1,3 +1,4 @@
+import { newId } from './uuid';
 import { useRef, useState } from 'react';
 import { z } from 'zod';
 import { datasetEpoch } from './api';
@@ -8,7 +9,7 @@ const draftSchema = z.object({ epoch: z.string().default('initial'), text: z.str
 type Draft = z.infer<typeof draftSchema>;
 type Entry = { draft: Draft; storageError: boolean };
 const key = (chatId: string) => `roleplay-draft:${chatId}`;
-const emptyDraft = (): Draft => ({ epoch: datasetEpoch(), text: '', editId: crypto.randomUUID(), submission: null });
+const emptyDraft = (): Draft => ({ epoch: datasetEpoch(), text: '', editId: newId(), submission: null });
 
 // Save during the input event: unload/debounce callbacks may never run on a suspended phone.
 export function useChatDraft(chatId: string | null) {
@@ -35,13 +36,13 @@ export function useChatDraft(chatId: string | null) {
     render(value => value + 1);
   }
   function change(text: string) {
-    if (chatId) save(chatId, { epoch: entry(chatId).draft.text || entry(chatId).draft.submission ? entry(chatId).draft.epoch : datasetEpoch(), text, editId: crypto.randomUUID(), submission: null });
+    if (chatId) save(chatId, { epoch: entry(chatId).draft.text || entry(chatId).draft.submission ? entry(chatId).draft.epoch : datasetEpoch(), text, editId: newId(), submission: null });
   }
   function stage(id: string, revision: number) {
     const current = entry(id).draft;
     if (current.epoch !== datasetEpoch()) throw new Error('Review this recovered draft before sending it to restored data.');
     const text = trimBoundaryNewlines(current.text);
-    const submission = current.submission ?? { requestId: crypto.randomUUID(), revision, text };
+    const submission = current.submission ?? { requestId: newId(), revision, text };
     const draft = { ...current, submission };
     save(id, draft);
     return draft;

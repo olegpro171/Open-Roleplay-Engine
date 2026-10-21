@@ -1,3 +1,4 @@
+import { newId } from './uuid';
 import { Icon } from './Icon';
 import { CroppedPicture, fileBase64, PictureSquare } from './Pictures';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -12,7 +13,7 @@ export function CharacterImport({ revision, busy, run, imported, leadingAction, 
   const [pending, setPending] = useState<Pending | null>(null), [working, setWorking] = useState(false), [error, setError] = useState('');
   const attempt = useRef(0), submitting = useRef(false), analysisAbort = useRef<AbortController | null>(null);
   useEffect(() => () => { attempt.current++; analysisAbort.current?.abort(); }, []);
-  async function analyze(base64: string, requestId: string = crypto.randomUUID()) {
+  async function analyze(base64: string, requestId: string = newId()) {
     const current = ++attempt.current; setWorking(true); setError('');
     analysisAbort.current?.abort(); const controller = new AbortController(); analysisAbort.current = controller;
     try {
@@ -67,7 +68,7 @@ export function CharacterImport({ revision, busy, run, imported, leadingAction, 
       </div>
       {pending.review.picture?.status === 'error' && <p role="alert">{pending.review.picture.message} Cancel and select a card with valid artwork or a JSON card.</p>}
       <LoreDiagnostics diagnostics={pending.review.diagnostics} />
-      <TagImportOptions review={pending.review.tags} policy={pending.policy} change={policy => setPending({ ...pending, policy, requestId: crypto.randomUUID() })} disabled={working || pending.uncertain} />
+      <TagImportOptions review={pending.review.tags} policy={pending.policy} change={policy => setPending({ ...pending, policy, requestId: newId() })} disabled={working || pending.uncertain} />
       {pending.review.revision !== revision && !pending.uncertain && <p role="status">The library changed. Cancel and select the card again to review before importing.</p>}
       {pending.uncertain && <p className="small">A command has been sent. Closing this page does not undo a saved import. Retry here to reconcile its acknowledgement.</p>}
       <div className="actions"><button type="button" disabled={busy || working || (!pending.uncertain && pending.review.revision !== revision) || Boolean(pending.review.tags.modes[pending.policy].blocked) || pending.review.picture?.status === 'error'} onClick={() => void commit()}>{pending.uncertain ? 'Retry reviewed character import' : 'Import'}</button>

@@ -1,4 +1,6 @@
+import { newId } from './uuid';
 import { About } from './About';
+import { LanSettings } from './LanSettings';
 import { Dropdown } from './Controls';
 import { useEffect, useRef, useState } from 'react';
 import { backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type DataOutcome } from '../shared/backups';
@@ -103,6 +105,7 @@ export function ApplicationSettings({ openLibraries }: { openLibraries: () => vo
     <aside className="library-sidebar">
       <p className="eyebrow" id="application-settings-heading">APPLICATION SETTINGS</p>
       <nav className="library-tabs" aria-label="Settings categories">
+        <button type="button" onClick={() => scrollToCategory('lan-heading')}>Phone / LAN access</button>
         <button type="button" onClick={() => scrollToCategory('data-backup-heading')}>Data backup</button>
         <button type="button" onClick={() => scrollToCategory('wipe-data-heading')}>Wipe application data</button>
         <button type="button" onClick={() => scrollToCategory('about-heading')}>About ORE</button>
@@ -112,6 +115,7 @@ export function ApplicationSettings({ openLibraries }: { openLibraries: () => vo
     {busy && <p role="status">Working… Upload, validation and snapshot work must finish before a result is shown.</p>}
     {message && <p role="status">{message}</p>}{error && <div role="alert"><p>{error}</p>{errorDetails && <details className="backup-error-details"><summary>Details</summary><pre>{errorDetails}</pre></details>}</div>}
     {uncertain && <div className="recovery"><p>The command may have committed. Retry this exact command to retrieve its saved outcome. Do not start a different import or wipe.</p><button disabled={busy} onClick={() => void run(() => execute(uncertain))}>Retry data command</button></div>}
+    <LanSettings />
     <section className="settings-section" aria-labelledby="data-backup-heading">
     <h2 id="data-backup-heading" tabIndex={-1}>Data backup</h2>
     <p>Backups include saved stories, memory, libraries, pictures and <strong>saved API keys</strong>. Keep the downloaded file private. Browser-local drafts are not included.</p>
@@ -131,14 +135,14 @@ export function ApplicationSettings({ openLibraries }: { openLibraries: () => vo
     {review.blockers.map((blocker,index) => <p role="alert" key={index}>{blocker}</p>)}
     <p>To preserve another copy, cancel and use existing library copy/edit actions in <a href="#" onClick={event => { event.preventDefault(); openLibraries(); }}>Libraries</a>, or Save backup first. Library copies may share a lorebook; a complete independent chat-copy workflow is not available.</p>
     <div className="actions"><button disabled={busy || loading || Boolean(uncertain)} className="secondary" onClick={() => void refresh()}>Refresh import review</button><button disabled={busy || loading || Boolean(uncertain)} className="secondary" onClick={() => void run(async () => { await api(`/data/stages/${review.stageId}`,'DELETE',{}); stage.current = null; setReview(null); })}>Cancel inspection</button>
-    <button disabled={busy || loading || Boolean(uncertain) || review.blockers.length > 0} onClick={() => confirm({ title: review.overlaps ? 'Overwrite overlapping records?' : 'Import backup?',message: `${review.additions} additions and ${review.overlaps} overwrites. Overlapping chats lose all current-only children. Other chats remain saved. This imports the entire backup.`,actionLabel: review.overlaps ? 'Overwrite and import' : 'Import backup',onConfirm: () => void run(() => execute({ path: `/data/stages/${review.stageId}/import`,body: { requestId: crypto.randomUUID(),digest: review.digest,token: review.token,overwrite: review.overlaps > 0 } })) })}>Import entire backup</button></div>
+    <button disabled={busy || loading || Boolean(uncertain) || review.blockers.length > 0} onClick={() => confirm({ title: review.overlaps ? 'Overwrite overlapping records?' : 'Import backup?',message: `${review.additions} additions and ${review.overlaps} overwrites. Overlapping chats lose all current-only children. Other chats remain saved. This imports the entire backup.`,actionLabel: review.overlaps ? 'Overwrite and import' : 'Import backup',onConfirm: () => void run(() => execute({ path: `/data/stages/${review.stageId}/import`,body: { requestId: newId(),digest: review.digest,token: review.token,overwrite: review.overlaps > 0 } })) })}>Import entire backup</button></div>
   </section>}
   </section></section>
   <section className="settings-section" aria-labelledby="wipe-data-heading"><h2 id="wipe-data-heading" tabIndex={-1}>Wipe application data</h2><p>Delete all chats, memory, libraries, API keys, tags and other content. Retain the local owner login.</p>
     <p>Save backup above before continuing.</p>
     <button className="danger" disabled={busy || Boolean(uncertain)} onClick={() => void run(async () => {
       const preview = await api<{ token: string; digest: string }>('/data/wipe-preview');
-      confirm({ title: 'Wipe application data?',message: 'All saved story content, libraries, API keys and pictures will be deleted. Your local owner login and mandatory factory presets remain. Other sessions are revoked.',actionLabel: 'Wipe application data',onConfirm: () => void run(() => execute({ path: '/data/wipe',body: { ...preview,requestId: crypto.randomUUID(),overwrite: true } })) });
+      confirm({ title: 'Wipe application data?',message: 'All saved story content, libraries, API keys and pictures will be deleted. Your local owner login and mandatory factory presets remain. Other sessions are revoked.',actionLabel: 'Wipe application data',onConfirm: () => void run(() => execute({ path: '/data/wipe',body: { ...preview,requestId: newId(),overwrite: true } })) });
     })}>Wipe application data</button>
   </section><About /></div></main>;
 }

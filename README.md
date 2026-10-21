@@ -239,18 +239,17 @@ Backups support ORE schemas 12 and 13, up to 128 MiB and 100,000 portable rows i
 
 ## Phone access
 
-The default server listens on loopback only. Plain HTTP LAN binding is refused. Create the owner account locally first, then provide a certificate and key trusted by your Mac and phone, covering the hostname or LAN address you will use:
+LAN access starts disabled. Start ORE normally, create the owner account on the server computer, then open **Settings → Phone / LAN access** from its local address. Enable **HTTP access from the local network** and choose **Save LAN settings**. **Select network automatically** starts checked: ORE chooses an available private IPv4 network, uses port 3000 and recovers network/address changes while the server runs. Uncheck it to reveal the network dropdown and port field for manual configuration. Copy the hostname URL from the read-only **Phone address** field and open it on your phone; sign in with the same owner password. No certificate, domain, router port forwarding or extra service is required.
 
-```sh
-ROLEPLAY_HOST=0.0.0.0 \
-ROLEPLAY_TLS_CERT=/absolute/path/to/certificate.pem \
-ROLEPLAY_TLS_KEY=/absolute/path/to/private-key.pem \
-"$HOME/ORE/start.command"
-```
+On macOS, the address uses the computer’s existing Bonjour name, such as `http://macbook-pro-oleg.local:3000`, so a bookmark survives DHCP address changes. The network and phone must support local mDNS/Bonjour resolution. ORE uses the OS-provided hostname service; it does not install a DNS daemon. Other host platforms require an existing local hostname responder and remain unqualified. Renaming the computer changes its hostname URL.
 
-The server then prints available LAN addresses. Use an address covered by the certificate and allow access through the Mac's firewall if required. Login sessions use Secure cookies with HTTPS. Certificate provisioning and trust installation have not been selected or tested on the actual phone; routine phone use remains pending that setup. No certificate or trust settings are installed by this project.
+Changes apply without restarting ORE. The local listener remains available; disabling LAN closes phone connections without cancelling server-owned responses or preparation. LAN settings can be viewed on the phone, but changed only through the server computer's local address. Keep the computer awake. If a phone cannot connect, check the computer's firewall and Wi-Fi client isolation. No firewall or router settings are changed automatically.
 
-Optional environment settings: `ROLEPLAY_PORT` (default 3000), `ROLEPLAY_HOST` (default 127.0.0.1), `ROLEPLAY_DATABASE` (default `data/roleplay.sqlite`), and the paired TLS certificate/key paths above. Source-development commands run from this project directory. Built startup resolves UI/migrations/package metadata from its installation, independently of the invoking directory. Relative explicit database overrides resolve from the invoking directory; prefer absolute paths.
+HTTP does not encrypt passwords, sessions, chat text or credentials entered between the phone and server. Use only a trusted local network. The separate listener binds the selected private IPv4 address, admits peers in that interface's current subnet (plus the local computer), validates the exact local hostname/port or bound IP/port Host, and preserves login/origin checks. It does not trust forwarded client addresses. IPv6-only networks are not supported; common tunnel/virtual adapters and /31–/32 addresses are excluded. Do not expose this listener through a port forward or tunnel: application subnet checks cannot establish a physical network boundary through an intermediary.
+
+Settings are saved in a private `<database>.lan.json` sidecar and survive application updates and data import/wipe. They are excluded from chat backups and release archives. Automatic mode keeps a working interface, prefers the same adapter after an IP change, and selects another eligible interface when necessary. It checks every three seconds, including while offline or waiting for port 3000 to become free. Manual mode keeps the explicit network/port and requires local recovery if that binding becomes unavailable. Failed configuration writes preserve saved settings. Local access remains available during LAN failures. HTTPS setup and certificate automation are deferred; existing explicit certificate/key startup remains a legacy option, and disables the HTTP LAN settings while in use. Actual phone keyboard/suspension behavior remains unverified. See [LAN implementation and verification](docs/LAN_ACCESS.md).
+
+Optional startup environment settings remain `ROLEPLAY_PORT` (local listener, default 3000), `ROLEPLAY_HOST` (default 127.0.0.1), `ROLEPLAY_DATABASE` (default `data/roleplay.sqlite`), and the paired legacy `ROLEPLAY_TLS_CERT`/`ROLEPLAY_TLS_KEY` paths. HTTP LAN access uses Application Settings, not a wildcard host override. Source-development commands run from this project directory. Built startup resolves UI/migrations/package metadata from its installation, independently of the invoking directory. Relative explicit database overrides resolve from the invoking directory; prefer absolute paths.
 
 ## Source boundaries
 
