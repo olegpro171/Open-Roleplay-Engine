@@ -25,6 +25,18 @@ beforeEach(() => { directory = mkdtempSync(join(tmpdir(),'ore-backup-test-')); }
 afterEach(() => { for (const value of services.splice(0)) value.close(); for (const value of stores.splice(0)) if (value.sqlite.open) value.close(); rmSync(directory,{ recursive: true,force: true }); });
 
 describe('portable backup persistence',() => {
+  it('retains local character and persona speech colors through backup import', async () => {
+    const source = store('colors-source'), backups = service(source, 'colors-source');
+    const characterId = source.saveLibrary(source.libraryRevision(), 'characters', { name: 'Mara', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', speechColor: '#eeaa88' });
+    const personaId = source.saveLibrary(source.libraryRevision(), 'personas', { name: 'Alex', description: '', speechColor: '#88cc99' });
+    const destination = store('colors-target'), target = service(destination, 'colors-target');
+    const review = target.upload(await bytes(backups), owner);
+    expect(review.blockers).toEqual([]);
+    target.commit(review.stageId, owner, receipt(review));
+    expect(destination.libraries().characters.find(item => item.id === characterId)?.speechColor).toBe('#eeaa88');
+    expect(destination.libraries().personas.find(item => item.id === personaId)?.speechColor).toBe('#88cc99');
+  });
+
   it.each([
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 13 },
     { sourceEnding: 'CRLF', targetEnding: 'LF', version: 13 },

@@ -1,3 +1,4 @@
+import { SpeechColorSelector } from './SpeechColorSelector';
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { cardInstructionFields, cardInstructionLabels, readCardInstruction, readCharacterDepthPrompt } from '../shared/card-instructions';
@@ -44,7 +45,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
   const stale = revision !== library.revision;
   const greetings = readCharacterAlternateGreetings(data);
   const alternatives = greetings.success ? greetings.data : [];
-  const characterChanged = (['name', 'titleComment', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'lorebookId', 'system_prompt', 'post_history_instructions'] as const).some(field => data[field] !== baselineData[field])
+  const characterChanged = (['name', 'titleComment', 'speechColor', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'lorebookId', 'system_prompt', 'post_history_instructions'] as const).some(field => data[field] !== baselineData[field])
     || JSON.stringify(data.alternate_greetings) !== JSON.stringify(baselineData.alternate_greetings)
     || JSON.stringify(data.depth_prompt) !== JSON.stringify(baselineData.depth_prompt);
   const pictureChanged = pictureMutation(picture, baselinePicture) !== undefined;
@@ -56,7 +57,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
     const expected = baseline.filter(id => id !== deletedId);
     // Advance only our own checked organizational mutation, with the editor's
     // actual character and assignment dependencies still unchanged.
-    if (initial.id && (character?.revision !== originalRevision.current || (character?.titleComment ?? '') !== (baselineData.titleComment ?? '') || (snapshot.characterPictures.find(picture => picture.characterId === initial.id)?.key ?? null) !== (baselinePicture?.key ?? null) || expected.length !== links.length || expected.some(id => !links.includes(id)))) return;
+    if (initial.id && (character?.revision !== originalRevision.current || (character?.titleComment ?? '') !== (baselineData.titleComment ?? '') || character?.speechColor !== baselineData.speechColor || (snapshot.characterPictures.find(picture => picture.characterId === initial.id)?.key ?? null) !== (baselinePicture?.key ?? null) || expected.length !== links.length || expected.some(id => !links.includes(id)))) return;
     setRevision(after); setBaseline(links); setEmbedded(null);
     if (deletedId) setTagIds(ids => ids.filter(id => id !== deletedId));
   };
@@ -67,7 +68,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
       try {
         const result = await api<{ revision: number }>(`/library/characters/${initial.id}/tags/apply`, 'POST', { revision: embedded.revision, tagPolicy: policy });
         const snapshot = await api<LibrarySnapshot>('/library');
-        if (!alive.current || embedded.revision !== revision || snapshot.revision !== result.revision || snapshot.characters.find(card => card.id === initial.id)?.revision !== originalRevision.current || (snapshot.characters.find(card => card.id === initial.id)?.titleComment ?? '') !== (baselineData.titleComment ?? '') || (snapshot.characterPictures.find(picture => picture.characterId === initial.id)?.key ?? null) !== (baselinePicture?.key ?? null)) return;
+        if (!alive.current || embedded.revision !== revision || snapshot.revision !== result.revision || snapshot.characters.find(card => card.id === initial.id)?.revision !== originalRevision.current || (snapshot.characters.find(card => card.id === initial.id)?.titleComment ?? '') !== (baselineData.titleComment ?? '') || snapshot.characters.find(card => card.id === initial.id)?.speechColor !== baselineData.speechColor || (snapshot.characterPictures.find(picture => picture.characterId === initial.id)?.key ?? null) !== (baselinePicture?.key ?? null)) return;
         const links = snapshot.characterTags.filter(link => link.characterId === initial.id).map(link => link.tagId);
         setTagIds(ids => [...new Set([...ids, ...links.filter(id => !baseline.includes(id))])]);
         setBaseline(links); setRevision(result.revision); setEmbedded(null);
@@ -117,6 +118,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
     <form id={formId} onSubmit={event => { event.preventDefault(); void save(); }}><fieldset disabled={busy || pending || stale || Boolean(uncertain)}><legend>{initial.id ? 'Edit' : 'Create'} character</legend><div className="form-grid">
       <label>Name<input required maxLength={100} value={data.name} onChange={event => setData({ ...data, name: event.target.value })} /></label>
       <label>Title / comment<input aria-label="Title / comment" maxLength={200} value={data.titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>An optional label, useful for distinguishing between versions.</small></label>
+      <SpeechColorSelector value={data.speechColor} change={speechColor => setData({ ...data, speechColor })} />
       <PictureEditor value={picture} change={setPicture} original={baselinePicture} disabled={busy || pending || stale || Boolean(uncertain)} processing={setProcessing} />
       {([['description', 'Character description'], ['personality', 'Personality'], ['scenario', 'Scenario'], ['first_mes', 'Greeting'], ['mes_example', 'Example dialogue']] as const).map(([field, label]) => <label key={field} className="full">{label}<EditorTextarea aria-label={label} maxLength={100_000} value={data[field]} onChange={event => setData({ ...data, [field]: event.target.value })} /></label>)}
       <CardInstructions value={data} change={setData} />
@@ -155,6 +157,7 @@ function CharacterReconciliation({ library, characterId, disabled, reconcile }: 
       <PictureSquare url={picture?.thumbnailUrl} />
       {character && <details><summary>Current saved text and tags</summary>
         {(['name', 'titleComment', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'] as const).map((field, index) => <div key={field}><strong>{['Name', 'Title / comment', 'Description', 'Personality', 'Scenario', 'Greeting', 'Example dialogue'][index]}</strong><p className="prose small">{character[field] || 'Empty'}</p></div>)}
+        <strong>Speech color</strong><p>{character.speechColor ?? 'Not set'}</p>
         <CardInstructions value={character} />
         <strong>Alternate greetings</strong>
         {greetingTexts === null && <p>Invalid preserved alternate greetings; raw metadata is retained.</p>}

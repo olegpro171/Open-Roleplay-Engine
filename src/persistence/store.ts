@@ -261,11 +261,11 @@ export class Store {
     return { ...data, id: row.id, revision: row.revision } as unknown as Saved<T>;
   }
   private promptCharacter(card: LibraryCharacter): Character {
-    const { titleComment: _titleComment, ...fields } = card;
+    const { titleComment: _titleComment, speechColor: _speechColor, ...fields } = card;
     return characterSchema.parse(fields);
   }
   private promptPersona(persona: LibraryPersona): Persona {
-    const { titleComment: _titleComment, ...fields } = persona;
+    const { titleComment: _titleComment, speechColor: _speechColor, ...fields } = persona;
     return personaSchema.parse(fields);
   }
   private comparableCharacter(card: LibraryCharacter): Character {
@@ -434,6 +434,7 @@ export class Store {
           this.selected(lorebookId, 'lorebooks');
           // Older clients and internal card-only writes preserve local metadata.
           const titleComment = card.titleComment ?? previous?.titleComment ?? '';
+          const speechColor = card.speechColor === undefined ? previous?.speechColor : card.speechColor;
           const alternate_greetings = card.alternate_greetings ?? previous?.alternate_greetings;
           const instructions: Pick<Character, 'system_prompt' | 'post_history_instructions' | 'depth_prompt'> = {};
           for (const field of cardInstructionFields) {
@@ -442,7 +443,7 @@ export class Store {
           }
           const depthPrompt = card.depth_prompt ?? previous?.depth_prompt;
           if (depthPrompt !== undefined) instructions.depth_prompt = depthPrompt;
-          const updated: LibraryCharacter = { ...this.promptCharacter(card), ...instructions, ...(alternate_greetings !== undefined ? { alternate_greetings } : {}), ...(lorebookId !== undefined ? { lorebookId } : {}), ...(titleComment ? { titleComment } : {}) };
+          const updated: LibraryCharacter = { ...this.promptCharacter(card), ...instructions, ...(alternate_greetings !== undefined ? { alternate_greetings } : {}), ...(lorebookId !== undefined ? { lorebookId } : {}), ...(titleComment ? { titleComment } : {}), ...(speechColor ? { speechColor } : {}) };
           data = updated;
           if (previous && previous.name !== card.name) for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.characterId === identity) this.resetLoreEpoch(chat.id);
           if (old && previous && isDeepStrictEqual(this.comparableCharacter(previous), this.comparableCharacter(updated))) {
@@ -457,7 +458,8 @@ export class Store {
           const persona = libraryPersonaSchema.parse(data);
           const previous = old ? libraryPersonaSchema.parse(old.data) : null;
           const titleComment = persona.titleComment ?? previous?.titleComment ?? '';
-          const updated: LibraryPersona = { ...this.promptPersona(persona), ...(titleComment ? { titleComment } : {}) };
+          const speechColor = persona.speechColor === undefined ? previous?.speechColor : persona.speechColor;
+          const updated: LibraryPersona = { ...this.promptPersona(persona), ...(titleComment ? { titleComment } : {}), ...(speechColor ? { speechColor } : {}) };
           data = updated;
           if (previous && previous.name !== updated.name) for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.personaId === identity) this.resetLoreEpoch(chat.id);
           if (old && previous && isDeepStrictEqual(this.promptPersona(previous), this.promptPersona(updated))) {

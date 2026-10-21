@@ -16,7 +16,7 @@ export function importCharacter(value: unknown): Character {
 export function exportCharacter(card: LibraryCharacter, linkedBook?: Lorebook | null): Record<string, unknown> {
   const original = card.source ?? {};
   const oldData = original.spec === 'chara_card_v2' || original.spec === 'chara_card_v3' ? object(original.data) : original;
-  const { source: _source, lorebookId: _lorebookId, titleComment: _titleComment, depth_prompt, ...fields } = libraryCharacterSchema.parse(card);
+  const { source: _source, lorebookId: _lorebookId, titleComment: _titleComment, speechColor: _speechColor, depth_prompt, ...fields } = libraryCharacterSchema.parse(card);
   const greetings = readCharacterAlternateGreetings(card);
   const result = { ...original, ...fields, spec: original.spec === 'chara_card_v3' ? 'chara_card_v3' : 'chara_card_v2', spec_version: original.spec === 'chara_card_v3' ? '3.0' : '2.0', data: {
     creator_notes: '', system_prompt: '', post_history_instructions: '', tags: [], creator: '', character_version: '', extensions: {},

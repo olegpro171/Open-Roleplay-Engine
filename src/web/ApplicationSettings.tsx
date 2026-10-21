@@ -1,6 +1,8 @@
 import { newId } from './uuid';
 import { About } from './About';
 import { LanSettings } from './LanSettings';
+import { ChatAppearanceSettings } from './ChatAppearanceSettings';
+import type { AppearanceStatus } from '../shared/appearance';
 import { Dropdown } from './Controls';
 import { useEffect, useRef, useState } from 'react';
 import { backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type DataOutcome } from '../shared/backups';
@@ -25,7 +27,7 @@ function recoveredCommand(): Command | null {
   try { const saved = localStorage.getItem(commandKey); return saved ? commandSchema.parse(JSON.parse(saved)) : null; }
   catch { return null; }
 }
-export function ApplicationSettings({ openLibraries }: { openLibraries: () => void }) {
+export function ApplicationSettings({ openLibraries, appearance, appearanceCommitted }: { openLibraries: () => void; appearance: AppearanceStatus; appearanceCommitted: (value: AppearanceStatus) => void }) {
   const [review,setReview] = useState<BackupReview|null>(null);
   const [offset,setOffset] = useState(0);
   const [busy,setBusy] = useState(false), [error,setError] = useState(''), [message,setMessage] = useState('');
@@ -105,6 +107,7 @@ export function ApplicationSettings({ openLibraries }: { openLibraries: () => vo
     <aside className="library-sidebar">
       <p className="eyebrow" id="application-settings-heading">APPLICATION SETTINGS</p>
       <nav className="library-tabs" aria-label="Settings categories">
+        <button type="button" onClick={() => scrollToCategory('chat-appearance-heading')}>Chat appearance</button>
         <button type="button" onClick={() => scrollToCategory('lan-heading')}>Phone / LAN access</button>
         <button type="button" onClick={() => scrollToCategory('data-backup-heading')}>Data backup</button>
         <button type="button" onClick={() => scrollToCategory('wipe-data-heading')}>Wipe application data</button>
@@ -115,6 +118,7 @@ export function ApplicationSettings({ openLibraries }: { openLibraries: () => vo
     {busy && <p role="status">Working… Upload, validation and snapshot work must finish before a result is shown.</p>}
     {message && <p role="status">{message}</p>}{error && <div role="alert"><p>{error}</p>{errorDetails && <details className="backup-error-details"><summary>Details</summary><pre>{errorDetails}</pre></details>}</div>}
     {uncertain && <div className="recovery"><p>The command may have committed. Retry this exact command to retrieve its saved outcome. Do not start a different import or wipe.</p><button disabled={busy} onClick={() => void run(() => execute(uncertain))}>Retry data command</button></div>}
+    <ChatAppearanceSettings status={appearance} committed={appearanceCommitted} />
     <LanSettings />
     <section className="settings-section" aria-labelledby="data-backup-heading">
     <h2 id="data-backup-heading" tabIndex={-1}>Data backup</h2>

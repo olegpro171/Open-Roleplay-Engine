@@ -35,6 +35,7 @@ import { resolveRequestLore } from './lore-resolution.js';
 import { LanAccess } from './lan.js';
 import { isLoopback } from './lan-policy.js';
 import type { LanInterface } from '../shared/lan.js';
+import { AppearanceSettings } from './appearance.js';
 
 const contentSecurityPolicy = (styleNonce?: string) => `default-src 'self'; script-src 'self'; style-src 'self'${styleNonce ? ` 'nonce-${styleNonce}'` : ''}; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`;
 function loreImport<T>(parse: () => T): T {
@@ -62,6 +63,7 @@ export async function createApp(options: {
     })) };
   }
   const storyReader = new StoryReader(store);
+  const appearance = new AppearanceSettings(`${options.database}.appearance.json`);
   const auth = new Auth(store);
   const secure = Boolean(options.https);
   const app = Fastify({ logger: false, bodyLimit: 1_000_000, ...(options.https ? { https: options.https } : {}) });
@@ -145,6 +147,12 @@ export async function createApp(options: {
     reply.setCookie('session', token, { httpOnly: true, secure, sameSite: 'strict', path: '/', maxAge: sessionSeconds });
   };
   app.get('/api/about', async () => buildInfo());
+  app.get('/api/application/appearance', async () => appearance.status());
+  app.put('/api/application/appearance', async request => {
+    const result = appearance.save(request.body);
+    coordinator.changed();
+    return result;
+  });
   const localNetworkAdmin = (request: FastifyRequest) => isLoopback(request.ip) && !lan.isLanRequest(request.raw);
   app.get('/api/application/lan', async request => lan.status(localNetworkAdmin(request)));
   app.put('/api/application/lan', async request => {

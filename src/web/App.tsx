@@ -1,3 +1,4 @@
+import { appearanceStatusSchema, defaultAppearance, type AppearanceStatus } from '../shared/appearance';
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { ApplicationSettings } from './ApplicationSettings';
@@ -39,6 +40,8 @@ export function App() {
   useEffect(() => { const changed = () => setDataChanged(true); window.addEventListener('ore-dataset-changed', changed); return () => window.removeEventListener('ore-dataset-changed', changed); }, []);
   const [session, setSession] = useState<Session | null>(null);
   const [chatId, setChatId] = useState<string | null>(lastChat);
+  const [appearance, setAppearance] = useState<AppearanceStatus>({ revision: 0, settings: defaultAppearance });
+  const [appearanceError, setAppearanceError] = useState<string | null>(null);
   const [library, setLibrary] = useState<LibrarySnapshot | null>(null);
   const libraryCache = useRef<LibrarySnapshot | null>(null);
   const [snapshot, setSnapshot] = useState<StorySnapshot | null>(null);
@@ -80,7 +83,12 @@ export function App() {
     const id = ++loadId.current;
     try {
       const cached = libraryCache.current;
-      const update = await api<LibrarySnapshot | UnchangedLibrary>(`/library${cached ? `?knownRevision=${cached.revision}` : ''}`);
+      const [update, appearanceResult] = await Promise.all([
+        api<LibrarySnapshot | UnchangedLibrary>(`/library${cached ? `?knownRevision=${cached.revision}` : ''}`),
+        api<unknown>('/application/appearance')
+          .then(value => ({ value: appearanceStatusSchema.parse(value), error: null }))
+          .catch(error => ({ value: null, error: error instanceof Error ? error.message : 'Chat appearance could not be loaded.' })),
+      ]);
       // Keep existing editors/transcript available to copy after a dataset replacement.
       if (datasetChanged()) return;
       let items: LibrarySnapshot;
@@ -114,6 +122,12 @@ export function App() {
         snapshotRef.current = state;
         setSnapshot(state);
         setLibrary(items);
+        // A settings save can commit while this refresh is waiting for chat state.
+        if (appearanceResult.value) {
+          const nextAppearance = appearanceResult.value;
+          setAppearance(current => nextAppearance.revision >= current.revision ? nextAppearance : current);
+        }
+        setAppearanceError(appearanceResult.error);
         clearServerError();
         if (selected !== chatId) {
           setChatId(selected); setEdit(null); setPeek(false); setGenerationId('');
@@ -344,8 +358,10 @@ export function App() {
     }
   }
   if (!library) return <main className="login"><p>Loading your story…</p>{error && <p role="alert">{error}</p>}</main>;
-  const selectedCharacterLabel = characterLabel(library.characters.find(character => character.id === snapshot?.settings.characterId) ?? snapshot?.sources.character ?? { name: 'Character' });
-  const selectedPersonaLabel = personaLabel(library.personas.find(persona => persona.id === snapshot?.settings.personaId) ?? snapshot?.sources.persona ?? { name: 'You' });
+  const selectedCharacter = library.characters.find(character => character.id === snapshot?.settings.characterId);
+  const selectedPersona = library.personas.find(persona => persona.id === snapshot?.settings.personaId);
+  const selectedCharacterLabel = characterLabel(selectedCharacter ?? snapshot?.sources.character ?? { name: 'Character' });
+  const selectedPersonaLabel = personaLabel(selectedPersona ?? snapshot?.sources.persona ?? { name: 'You' });
 
   const sidebar = snapshot && <>
         <p className="eyebrow">CURRENT CHAT</p><h1>{snapshot.settings.title}</h1>
@@ -369,7 +385,8 @@ export function App() {
     </header>
     {dataChanged && <div className="error-banner" role="alert"><span>Application data was imported or wiped in another tab. Old edits cannot be saved. Copy any unsaved editor text, then reload to review the current data. Browser composer drafts remain recoverable.</span><button onClick={() => window.location.reload()}>Reload current data</button></div>}
     {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" onClick={() => setError('')}>Dismiss</button></div>}
-    {tab === 'data' && <ApplicationSettings openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
+    {appearanceError && <div className="error-banner" role="alert"><span>{appearanceError} Using the last loaded speech colors, or the original blue if none have loaded.</span><button className="quiet" onClick={() => void refresh()}>Retry chat appearance</button></div>}
+    {tab === 'data' && <ApplicationSettings appearance={appearance} appearanceCommitted={value => { setAppearance(current => value.revision >= current.revision ? value : current); setAppearanceError(null); }} openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
     {snapshot && ['settings', 'memory', 'request'].includes(tab) && toolError && <div className="error-banner" role="alert">{toolError}<button onClick={() => setToolRetry(value => value + 1)}>Retry loading</button></div>}
     {snapshot && ['settings', 'memory'].includes(tab) && toolSnapshot?.id !== snapshot.id && <main className="document-panel"><p role="status">Loading chat tools…</p></main>}
     {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} navigation actions={<>
@@ -403,8 +420,8 @@ export function App() {
               {part === 'assistant' && reasoning && generating && !responseText && <ReasoningPreview text={reasoning.text} />}
               {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><ChatTextarea autoSize aria-label={`Edit ${part} text`} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><p className="small muted">{snapshot.settings.lorebookId ? "Saving a history edit starts fresh lore activation history for this chat." : ""}</p><div className="actions"><button disabled={busy}>Save edit</button><button type="button" className="quiet" onClick={() => setEdit(null)}>Cancel edit</button></div></form> : <div className="prose">
                 {part === 'assistant' && (!turn.complete || generating)
-                  ? <>{trimBoundaryNewlines(responseText) ? <ChatMarkdown text={trimBoundaryNewlines(responseText)} /> : <span className="muted">{generating ? 'Waiting for first token…' : cancelled ? 'Generation cancelled.' : 'Awaiting response.'}</span>}{generating && <span className="cursor" aria-label="Generating" />}</>
-                  : turn[part].text ? <ChatMarkdown text={turn[part].text} /> : <span className="muted blank">blank</span>}
+                  ? <>{trimBoundaryNewlines(responseText) ? <ChatMarkdown text={trimBoundaryNewlines(responseText)} speechColor={selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor} /> : <span className="muted">{generating ? 'Waiting for first token…' : cancelled ? 'Generation cancelled.' : 'Awaiting response.'}</span>}{generating && <span className="cursor" aria-label="Generating" />}</>
+                  : turn[part].text ? <ChatMarkdown text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor : selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor} /> : <span className="muted blank">blank</span>}
               </div>}
             </div>)}
             <TurnControls turn={turn} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}

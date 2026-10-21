@@ -298,7 +298,10 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
   .turn-actions { justify-content: flex-start; padding-inline: 2px; }
   .turn-actions .turn-action { min-width: 40px; width: 40px; padding: 8px; }
 }
-:root { --direct-speech-color: #a8c9f0; }
+.speech-color-label { font-size: 14px; font-weight: 550; }
+.speech-color-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-block: 7px; }
+.speech-color-controls button { min-height: 44px; }
+.speech-color-selector input { width: 72px; height: 44px; padding: 4px; cursor: pointer; }
 .conversation { min-width: 0; }
 .chat-markdown { white-space: normal; min-width: 0; }
 .chat-markdown > :first-child { margin-top: 0; }

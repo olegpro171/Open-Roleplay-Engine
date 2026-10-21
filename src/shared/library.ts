@@ -5,14 +5,17 @@ import { connectionSchema, revisionSchema, type Connection } from './contracts.j
 import { contextPresetSchema, type ContextPreset } from './context.js';
 import { lorebookSchema, type Lorebook } from './lorebook.js';
 import { cardInstructionTextSchema, characterDepthPromptSchema } from './card-instructions.js';
+import { speechColorSchema } from './appearance.js';
 
 const name = z.string().trim().min(1).max(100);
 const text = z.string().max(100_000);
 const titleComment = z.string().trim().max(200).refine(value => !/[\r\n]/.test(value), 'Use a single line.').optional();
+// Omission preserves existing metadata; null explicitly clears a saved color.
+const speechColor = speechColorSchema.nullable().optional();
 export const maxAlternateGreetings = 1000;
 const alternateGreetingsSchema = z.array(text).max(maxAlternateGreetings);
 export const personaSchema = z.object({ name, description: text }).strict();
-export const libraryPersonaSchema = personaSchema.extend({ titleComment });
+export const libraryPersonaSchema = personaSchema.extend({ titleComment, speechColor });
 export const characterSchema = z.object({
   name, description: text, personality: text, scenario: text, first_mes: text, mes_example: text,
   alternate_greetings: alternateGreetingsSchema.optional(),
@@ -24,7 +27,7 @@ export const characterSchema = z.object({
 }).strict();
 // Local library metadata is deliberately absent from prompt-bearing Character.
 export const libraryCharacterSchema = characterSchema.extend({
-  titleComment,
+  titleComment, speechColor,
 });
 export type LibraryCharacter = z.infer<typeof libraryCharacterSchema>;
 export function characterLabel(character: { name: string; titleComment?: string }): string {
