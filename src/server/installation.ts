@@ -27,7 +27,7 @@ export function startupPaths(env: NodeJS.ProcessEnv = process.env) {
   };
 }
 export function validateInstalledAssets(paths: ReturnType<typeof startupPaths>) {
-  for (const path of [resolve(paths.staticDirectory, 'index.html'), resolve(paths.migrationsDirectory, '0001_initial.sql'), resolve(paths.migrationsDirectory, '0013_data_management.sql'), resolve(moduleDirectory, 'picture-worker.js')]) {
+  for (const path of [resolve(paths.staticDirectory, 'index.html'), resolve(paths.migrationsDirectory, '0001_initial.sql'), resolve(paths.migrationsDirectory, '0014_library_sorting.sql'), resolve(moduleDirectory, 'picture-worker.js')]) {
     if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`ORE installation is incomplete: missing ${path}. Build or reinstall the application before starting.`);
   }
   const info = buildInfo();

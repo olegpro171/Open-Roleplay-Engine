@@ -12,9 +12,13 @@
 .library-tabs button:hover{background:var(--surface);color:#eee}
 .library-panel{min-width:0;padding:34px 42px 70px;scrollbar-color:#3b4654 transparent;overscroll-behavior:contain;container:library / inline-size}
 .library-panel>h1{margin-bottom:24px}
-.library-search{position:relative;margin-top:8px}
+.library-browse-controls{display:flex;align-items:center;gap:8px;margin-top:8px}
+.library-search{position:relative;flex:1;min-width:0}
+.library-sort{flex:0 0 165px;min-width:0}
+.library-sort .select-trigger{font-size:13px;padding:10px 12px;white-space:nowrap;min-height:44px}
+@container library (max-width:350px){.library-sort{flex-basis:128px}.library-sort .select-trigger{font-size:12px;padding:10px 8px}.library-search input{font-size:13px}}
 .library-search svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);width:18px;height:18px;fill:none;stroke:var(--muted);stroke-width:1.75;stroke-linecap:round;pointer-events:none}
-.library-search input{padding-left:42px}
+.library-search input{padding-left:42px;min-height:44px}
 .library-toolbar{align-items:center}
 .library-toolbar>.file-button{font-size:16px;font-weight:650;line-height:inherit}
 @media(max-width:600px){.library-toolbar>button,.library-toolbar>.file-button{font-size:12px;padding:9px 10px;min-height:44px}}

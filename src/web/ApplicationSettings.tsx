@@ -128,7 +128,7 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
     <h3 id="import-backup-heading">Import backup</h3>
     <label className="backup-file">Inspect &amp; import backup<input type="file" accept=".sqlite,.db,application/octet-stream" disabled={busy || Boolean(uncertain)} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void select(file); }} /></label>
   {review && <section className="backup-inspection" aria-label="Backup inspection"><h4>Backup inspection</h4>
-    <p>{review.metadata ? `ORE ${review.metadata.build} · schema ${review.metadata.schema} · ${new Date(review.metadata.createdAt).toLocaleString()}` : 'Legacy ORE schema 12/13 database; no backup creation metadata.'}</p>
+    <p>{review.metadata ? `ORE ${review.metadata.build} · schema ${review.metadata.schema} · ${new Date(review.metadata.createdAt).toLocaleString()}` : 'ORE database; no backup creation metadata.'}</p>
     <p>Inspection changes no application content. This private inspection expires at {new Date(review.expiresAt).toLocaleTimeString()}.</p>
     <BackupTree key={review.stageId} stageId={review.stageId} />
     <h4>Import review</h4><p>{review.additions} additions · {review.overlaps} overlapping identities. Names do not determine identity.</p>

@@ -1,3 +1,4 @@
+import { removeSortingSchema } from './support/legacy-sorting.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -33,11 +34,15 @@ describe('portable backup persistence',() => {
     const review = target.upload(await bytes(backups), owner);
     expect(review.blockers).toEqual([]);
     target.commit(review.stageId, owner, receipt(review));
+    expect(destination.libraries().dates[characterId]).toEqual(source.libraries().dates[characterId]);
+    expect(destination.libraries().dates[personaId]).toEqual(source.libraries().dates[personaId]);
     expect(destination.libraries().characters.find(item => item.id === characterId)?.speechColor).toBe('#eeaa88');
     expect(destination.libraries().personas.find(item => item.id === personaId)?.speechColor).toBe('#88cc99');
   });
 
   it.each([
+    { sourceEnding: 'LF', targetEnding: 'CRLF', version: 14 },
+    { sourceEnding: 'CRLF', targetEnding: 'LF', version: 14 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 13 },
     { sourceEnding: 'CRLF', targetEnding: 'LF', version: 13 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 12 },
@@ -64,9 +69,14 @@ describe('portable backup persistence',() => {
     const expectedTurns = source.snapshot(chatId).turns;
     const path = join(directory,'input.sqlite');
     writeFileSync(path,await bytes(sourceBackups));
-    if (version === 12) {
+    if (version < 14) {
       const legacy = new Database(path);
-      try { legacy.exec('DROP TABLE backup_metadata; DROP TABLE dataset_state; DROP TABLE data_commands; PRAGMA user_version = 12'); }
+      try {
+        removeSortingSchema(legacy);
+        legacy.exec('DROP TABLE backup_metadata');
+        if (version === 12) legacy.exec('DROP TABLE dataset_state; DROP TABLE data_commands');
+        legacy.pragma(`user_version = ${version}`);
+      }
       finally { legacy.close(); }
     }
     const input = readFileSync(path);
@@ -77,11 +87,13 @@ describe('portable backup persistence',() => {
     const before = target.persistence.token;
     const review = target.upload(input,owner);
     expect(review.blockers).toEqual([]);
-    expect(review.metadata?.schema ?? null).toBe(version === 13 ? 13 : null);
+    expect(review.metadata?.schema ?? null).toBe(version === 14 ? 14 : null);
     expect(target.page(review.stageId,owner,'turns',0,chatId).total).toBe(2);
     expect(target.persistence.token).toBe(before);
     target.commit(review.stageId,owner,receipt(review));
     expect(destination.snapshot(chatId).turns).toEqual(expectedTurns);
+    expect(destination.libraries().dates[cid]).toEqual(version === 14 ? source.libraries().dates[cid] : { createdAt: null, updatedAt: null });
+    expect(destination.libraries().chats.find(chat => chat.id === chatId)?.lastMessageAt).toBe(version === 14 ? source.libraries().chats.find(chat => chat.id === chatId)?.lastMessageAt : null);
     expect(destination.libraries().characters.map(item => item.id)).toEqual(expect.arrayContaining([cid,retained]));
     expect(readFileSync(path)).toEqual(input);
   });
@@ -136,8 +148,18 @@ describe('portable backup persistence',() => {
     db.sqlite.exec("INSERT INTO owners VALUES ('owner','salt','hash'); INSERT INTO sessions VALUES ('current',9999999999999); INSERT INTO sessions VALUES ('other',9999999999999)");
     const persistence = new BackupStore(db), initialEpoch = persistence.epoch;
     const command = { requestId: randomUUID(),digest: '0'.repeat(64),token: persistence.token,overwrite: true };
+    const wipeStarted = Date.now();
     const outcome = persistence.commit(command,undefined,'current');
+    const dates = db.libraries().dates;
+    for (const id of ['default', 'default-context']) {
+      const createdAt = dates[id]?.createdAt;
+      if (!createdAt) throw new Error('Missing creation date for a restored factory preset');
+      expect(Date.parse(createdAt)).toBeGreaterThanOrEqual(wipeStarted);
+      expect(Date.parse(createdAt)).toBeLessThanOrEqual(Date.now());
+      expect(dates[id]?.updatedAt).toBeNull();
+    }
     expect(persistence.epoch).not.toBe(initialEpoch); expect(persistence.commit(command,undefined,'current')).toEqual(outcome);
+    expect(db.libraries().dates).toEqual(dates);
     expect(db.libraries().chats).toEqual([]); expect(db.libraries().characters).toEqual([]);
     expect(db.sqlite.prepare('SELECT hash FROM sessions').all()).toEqual([{ hash: 'current' }]); expect(db.sqlite.prepare('SELECT id FROM owners').get()).toEqual({ id: 'owner' });
     const review = backups.upload(saved,owner); expect(review.blockers).toEqual([]); backups.commit(review.stageId,owner,receipt(review));
@@ -165,13 +187,13 @@ describe('portable backup persistence',() => {
     expect(() => sb.commit(review.stageId,owner,receipt(review))).toThrow(); expect(new BackupStore(b).token).toBe(before);
     sb.cancel(review.stageId,owner);
     const c = character(a,'Kind conflict');
-    b.sqlite.prepare('INSERT INTO library VALUES (?,\'prompts\',0,?)').run(c,JSON.stringify(defaultPrompt));
+    b.sqlite.prepare('INSERT INTO library (id,kind,revision,data) VALUES (?,\'prompts\',0,?)').run(c,JSON.stringify(defaultPrompt));
     const collision = sb.upload(await bytes(sa),owner); expect(collision.blockers.length).toBeGreaterThan(0);
   });
   it('rejects malicious schemas, future/corrupt files and dangling or inconsistent records, preserving the input bytes',async () => {
     const db = store('untrusted'), backups = service(db,'untrusted'), snapshot = await bytes(backups), before = new BackupStore(db).token;
     expect(() => backups.upload(Buffer.from('not a database'),owner)).toThrow();
-    for (const sql of ['PRAGMA user_version = 999','CREATE TRIGGER injected AFTER INSERT ON chats BEGIN DELETE FROM owners; END',"INSERT INTO library VALUES ('bad','unknown',0,'{}')", "INSERT INTO chats VALUES ('bad',0,'{}')"]) {
+    for (const sql of ["UPDATE library SET created_at = 'not-a-date'",'PRAGMA user_version = 999','CREATE TRIGGER injected AFTER INSERT ON chats BEGIN DELETE FROM owners; END',"INSERT INTO library (id,kind,revision,data) VALUES ('bad','unknown',0,'{}')", "INSERT INTO chats (id,revision,settings) VALUES ('bad',0,'{}')"]) {
       const path = join(directory,randomUUID()+'.sqlite'); writeFileSync(path,snapshot); const altered = new Database(path); altered.exec(sql); altered.close();
       const original = readFileSync(path); expect(() => backups.upload(original,owner)).toThrow(); expect(readFileSync(path)).toEqual(original);
     }
@@ -189,6 +211,7 @@ describe('portable backup persistence',() => {
   it('supports migration from a populated schema-12 input without modifying its source',async () => {
     const db = store('old'), backups = service(db,'old'); const cid = character(db,'Old guide'), chatId = chat(db,cid,'Old story');
     const path = join(directory,'old-input.sqlite'); writeFileSync(path,await bytes(backups)); const old = new Database(path);
+    removeSortingSchema(old);
     old.exec('DROP TABLE backup_metadata; DROP TABLE dataset_state; DROP TABLE data_commands; PRAGMA user_version = 12'); old.close(); const source = readFileSync(path);
     const review = backups.upload(source,owner); expect(review.metadata).toBeNull(); expect(review.blockers).toEqual([]);
     backups.commit(review.stageId,owner,receipt(review)); expect(db.snapshot(chatId).turns[0].assistant.text).toBe('Welcome, traveler.'); expect(readFileSync(path)).toEqual(source);

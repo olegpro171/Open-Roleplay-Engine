@@ -103,7 +103,15 @@ test('keeps search close to the actions on narrow screens and opens reviewed lor
       const search = content.getByRole('searchbox', { name: `Search ${category.toLowerCase()}`, exact: true });
       const actions = await content.getByRole('group', { name: 'Library actions', exact: true }).boundingBox();
       const bounds = await search.boundingBox();
-      if (!bounds || !actions) throw new Error('Missing library search or actions');
+      const sort = content.getByRole('combobox', { name: `Sort ${category.toLowerCase()}`, exact: true });
+      const sortBounds = await sort.boundingBox();
+      if (!bounds || !actions || !sortBounds) throw new Error('Missing library search, sort or actions');
+      expect(Math.abs(bounds.y - sortBounds.y)).toBeLessThanOrEqual(2);
+      expect(sortBounds.x).toBeGreaterThan(bounds.x + bounds.width);
+      await sort.focus();
+      await sort.press('Enter');
+      await expect(page.getByRole('listbox', { name: `Sort ${category.toLowerCase()}`, exact: true })).toBeVisible();
+      await sort.press('Escape');
       expect(bounds.y - actions.y - actions.height).toBeGreaterThanOrEqual(0);
       expect(bounds.y - actions.y - actions.height).toBeLessThanOrEqual(8);
       await search.fill('no-such-library-item-778');
@@ -130,4 +138,80 @@ test('keeps search close to the actions on narrow screens and opens reviewed lor
   await page.getByRole('button', { name: 'Cancel import', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Review Toolbar import book', exact: true })).toHaveCount(0);
   expect((await library(page)).lorebooks).toHaveLength(before);
+});
+
+test('sorts every library in both directions and remembers independent choices through editing and reload', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await login(page);
+  const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
+  const fixtures: { kind: LibraryKind; data: object }[] = [
+    { kind: 'personas', data: { description: '' } },
+    { kind: 'characters', data: { description: '', personality: '', scenario: '', first_mes: '', mes_example: '' } },
+    { kind: 'lorebooks', data: newLorebook() },
+    { kind: 'prompts', data: defaultPrompt },
+    { kind: 'connections', data: { endpoint, model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 1000, customParameters: {} } },
+    { kind: 'contexts', data: defaultContextPreset },
+  ];
+  const oldIds = new Map<LibraryKind | 'chats', string>();
+  for (const suffix of ['Zulu', 'Alpha']) {
+    const chat = await command(page, '/api/chats', { title: `Sorting fixture ${suffix}`, promptId: 'default', targetInputTokens: 32_000, connectionId: null, characterId: null, personaId: null });
+    if (suffix === 'Zulu') oldIds.set('chats', chat.id);
+    for (const { kind, data } of fixtures) {
+      const result = await command(page, '/api/library', { revision: (await library(page)).revision, kind, data: { ...data, name: `Sorting fixture ${suffix}` } });
+      if (suffix === 'Zulu') oldIds.set(kind, result.id);
+    }
+  }
+  for (const { kind, data } of fixtures) {
+    const response = await page.request.put(`/api/library/${oldIds.get(kind)}`, {
+      headers: { Origin: 'http://127.0.0.1:4173' },
+      data: { revision: (await library(page)).revision, kind, data: { ...data, name: 'Sorting fixture Zulu', ...(['characters', 'personas'].includes(kind) ? { description: 'Edited fixture' } : {}) } },
+    });
+    expect(response.ok(), await response.text()).toBe(true);
+  }
+  const snapshot = await page.request.get(`/api/chats/${oldIds.get('chats')}`).then(response => response.json());
+  const history = await page.request.put(`/api/chats/${oldIds.get('chats')}/history`, {
+    headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: snapshot.revision, turns: [{ user: 'A later message', assistant: 'Saved', complete: true }] },
+  });
+  expect(history.ok(), await history.text()).toBe(true);
+  await page.reload();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  const navigation = page.getByRole('navigation', { name: 'Library categories' });
+  for (const category of categories) {
+    await navigation.getByRole('button', { name: category, exact: true }).click();
+    const content = page.getByRole('region', { name: category, exact: true });
+    const search = content.getByRole('searchbox', { name: `Search ${category.toLowerCase()}`, exact: true });
+    await search.fill('Sorting fixture');
+    const headings = content.getByRole('article').getByRole('heading');
+    const sort = content.getByRole('combobox', { name: `Sort ${category.toLowerCase()}`, exact: true });
+    for (const [method, first] of [
+      ['Name A–Z', 'Alpha'], ['Name Z–A', 'Zulu'],
+      ['Added: newest', 'Alpha'], ['Added: oldest', 'Zulu'],
+      ...(category === 'Chats' ? [['Message: recent', 'Zulu'], ['Message: oldest', 'Alpha']] : [['Edited: newest', 'Zulu'], ['Edited: oldest', 'Alpha']]),
+    ]) {
+      await sort.click();
+      await page.getByRole('option', { name: method, exact: true }).click();
+      await expect(headings).toHaveCount(2);
+      await expect(headings.first()).toHaveText(`Sorting fixture ${first}`);
+    }
+    const savedMethod = category === 'Personas' ? 'Name A–Z' : 'Name Z–A';
+    await sort.click();
+    await page.getByRole('option', { name: savedMethod, exact: true }).click();
+    if (category !== 'Chats') {
+      await content.getByRole('article').first().getByRole('button', { name: /^Edit(?: |$)/ }).click();
+      await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Close editor', exact: true }).click();
+      await expect(headings.first()).toHaveText(`Sorting fixture ${category === 'Personas' ? 'Alpha' : 'Zulu'}`);
+      await expect(sort).toContainText(savedMethod);
+    }
+  }
+  await page.reload();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  for (const category of categories) {
+    await navigation.getByRole('button', { name: category, exact: true }).click();
+    const content = page.getByRole('region', { name: category, exact: true });
+    await expect(content.getByRole('combobox', { name: `Sort ${category.toLowerCase()}`, exact: true })).toContainText(category === 'Personas' ? 'Name A–Z' : 'Name Z–A');
+  }
+  const characters = page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Characters', exact: true });
+  await characters.click();
+  await page.getByRole('searchbox', { name: 'Search characters', exact: true }).fill('Sorting fixture');
+  await page.screenshot({ path: testInfo.outputPath('library-sort-desktop.png'), animations: 'disabled' });
 });

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const databaseSchemaVersion = 13;
+export const databaseSchemaVersion = 14;
 export const buildInfoSchema = z.object({
   kind: z.enum(['release', 'development']),
   version: z.string().min(1),

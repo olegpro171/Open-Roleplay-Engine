@@ -1,3 +1,4 @@
+import { removeSortingSchema } from './support/legacy-sorting.js';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync, cpSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,6 +26,7 @@ it.each([false, true])('upgrades a populated schema 11 without rewriting existin
     store.finish(pending.id, 'cancelled', 'Partial response.', 'Cancelled by user.');
     const before = store.snapshot();
     store.sqlite.exec('ALTER TABLE generations DROP COLUMN reasoning_text');
+    removeSortingSchema(store.sqlite);
     store.sqlite.pragma('user_version = 11');
     const tables = ['chats', 'turns', 'response_variants', 'generations', 'library', 'credentials'];
     const rows = Object.fromEntries(tables.map(table => [table, store.sqlite.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
@@ -41,7 +43,7 @@ it.each([false, true])('upgrades a populated schema 11 without rewriting existin
       } finally { old.close(); }
     }
     store = new Store(filename);
-    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(13);
+    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(14);
     expect(store.snapshot()).toEqual(before);
     expect(store.generation(completed.id)?.reasoningText).toBe('');
     expect(store.generation(pending.id)?.reasoningText).toBe('');

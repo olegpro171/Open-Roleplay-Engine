@@ -1,3 +1,4 @@
+import { librarySortSchema, readLibrarySort, sortLibraryItems, sortOptions, type LibrarySort } from './library-sorting';
 import { SpeechColorSelector } from './SpeechColorSelector';
 import { newId } from './uuid';
 import { Icon, type IconName } from './Icon';
@@ -167,11 +168,12 @@ function matchesLibraryRecord(record: LibraryRecord, query: string): boolean {
   if ('model' in record && matches(record.model)) return true;
   return 'entries' in record && record.entries.some(entry => matches(entry.name) || matches(entry.comment) || matches(entry.content) || entry.keys.some(matches) || entry.secondaryKeys.some(matches));
 }
-function LibrarySearch({ section, value, change }: { section: LibraryKind | 'chats'; value: string; change: (value: string) => void }) {
+function LibrarySearch({ section, value, change, sort, changeSort }: { section: LibraryKind | 'chats'; value: string; change: (value: string) => void; sort: LibrarySort; changeSort: (value: string) => void }) {
   const label = `Search ${libraryLabels[section].toLowerCase()}`;
-  return <div className="library-search">
+  return <div className="library-browse-controls"><div className="library-search">
     <Icon name="Search" />
     <input type="search" aria-label={label} placeholder={label} value={value} onChange={event => change(event.target.value)} />
+    </div><div className="library-sort"><Dropdown aria-label={`Sort ${libraryLabels[section].toLowerCase()}`} value={sort} onChange={changeSort} options={sortOptions(section)} /></div>
   </div>;
 }
 const libraryIcons: Record<LibraryKind | 'chats', IconName | null> = {
@@ -191,6 +193,18 @@ export function Libraries({ library, currentChatId, busy, run, openChat, initial
     try { localStorage.setItem('roleplay-library-section', section); }
     catch { /* Navigation still works when browser storage is unavailable. */ }
   }, [section]);
+  const [sorts, setSorts] = useState(() => ({
+    chats: readLibrarySort('chats'), personas: readLibrarySort('personas'), characters: readLibrarySort('characters'),
+    lorebooks: readLibrarySort('lorebooks'), prompts: readLibrarySort('prompts'), connections: readLibrarySort('connections'), contexts: readLibrarySort('contexts'),
+  }));
+  const sort = sorts[section];
+  function changeSort(value: string) {
+    const result = librarySortSchema.safeParse(value);
+    if (!result.success || !sortOptions(section).some(option => option.value === result.data)) return;
+    setSorts(previous => ({ ...previous, [section]: result.data }));
+    try { localStorage.setItem(`roleplay-library-sort-${section}`, result.data); }
+    catch { /* Keep the current choice for this visit if storage is unavailable. */ }
+  }
   const confirmAction = useConfirmation(section);
   const [editing, setEditing] = useState<{ kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean } | null>(() => {
     const record = initialTarget ? library[initialTarget.kind].find(record => record.id === initialTarget.id) : undefined;
@@ -215,12 +229,12 @@ export function Libraries({ library, currentChatId, busy, run, openChat, initial
   const tagIndex = useMemo(() => characterTagIndex(library.characterTags), [library.characterTags]);
   useEffect(() => { const ids = new Set(library.tags.map(tag => tag.id)); setFilters(previous => previous.filter(id => ids.has(id))); }, [library.tags]);
   const query = search.normalize('NFC').toLowerCase();
-  const visibleChats = useMemo(() => library.chats.filter(chat => matchesSearch(chat.title, query)), [library.chats, query]);
+  const visibleChats = useMemo(() => sortLibraryItems(library.chats.filter(chat => matchesSearch(chat.title, query)), sort, chat => chat.title, chat => chat), [library.chats, query, sort]);
   const visibleRecords = useMemo<Saved<LibraryRecord>[]>(() => {
     if (section === 'chats') return [];
-    return library[section].filter(record => matchesLibraryRecord(record, query)
-      && (section !== 'characters' || matchesCharacterTags(tagIndex.get(record.id), filters)));
-  }, [section, library, query, tagIndex, filters]);
+    return sortLibraryItems(library[section].filter(record => matchesLibraryRecord(record, query)
+      && (section !== 'characters' || matchesCharacterTags(tagIndex.get(record.id), filters))), sort, characterLabel, record => library.dates[record.id]);
+  }, [section, library, query, tagIndex, filters, sort]);
   useEffect(() => {
     if (!pendingBook) return;
     const book = library.lorebooks.find(item => item.id === pendingBook);
@@ -265,7 +279,7 @@ export function Libraries({ library, currentChatId, busy, run, openChat, initial
     {notice && <p role="status">{notice}</p>}<LoreDiagnostics diagnostics={diagnostics} />
     {section === 'chats' ? <>
       <div className="actions library-toolbar" role="group" aria-label="Library actions"><button disabled={busy || creatingChat} onClick={() => setCreatingChat(true)}><Icon name="AddToList" />New chat</button></div>
-      {!creatingChat && <LibrarySearch section={section} value={search} change={setSearch} />}
+      {!creatingChat && <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort} />}
       {creatingChat && <NewChat library={library} busy={busy} run={run} created={id => { setCreatingChat(false); openChat(id, 'settings'); }} cancel={() => setCreatingChat(false)} />}
       <div className="library-list">{visibleChats.map(item => <article key={item.id}><div><h2>{item.title}</h2><p>{item.turnCount} turns{item.running ? ' · Response running' : ''}{currentChatId === item.id ? ' · Current chat' : ''}</p></div><div className="actions"><button className="secondary" onClick={() => openChat(item.id)}>Open chat</button><button className="quiet" disabled={busy || item.running} onClick={() => { confirmAction({ title: 'Delete chat?', message: `Delete “${item.title}” and all its turns and requests?`, actionLabel: 'Delete chat', onConfirm: () => { void run(() => api(`/chats/${item.id}`, 'DELETE', { revision: item.revision })); } }); }}><Icon name="TrashOutline" />Delete chat</button></div></article>)}{library.chats.length === 0 && <p className="muted">Create a chat to start your next story.</p>}{query && visibleChats.length === 0 && library.chats.length > 0 && <p className="muted" role="status">No chats match your search.</p>}</div>
     </> : <>
@@ -284,7 +298,7 @@ export function Libraries({ library, currentChatId, busy, run, openChat, initial
       {!editing && section === 'lorebooks' && <LorebookImport leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />New lorebook</button>} revision={library.revision} busy={busy} run={run} imported={(_id, message) => setNotice(message)} />}
       {section === 'characters' && <CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />New character</button>} trailingAction={!editing && <TagFilterMenu library={library} busy={busy} run={run} selected={filters} change={setFilters} />} revision={library.revision} busy={busy} run={run} imported={(result, missing) => { setNotice(missing ? 'The original import was saved, but its character is no longer available. A deliberate new import requires selecting the file again.' : `Imported ${result.ids.length} character.${result.books.map(book => ` Lorebook “${book.name}”: ${book.entries} entries.`).join('')}${result.tags ? ` ${result.tags.assigned} local tags assigned; ${result.tags.created} created.` : ' Original tag report unavailable.'}${result.picture ? result.picture.saved ? ' Picture saved.' : ' No picture saved.' : ' Original picture report unavailable.'}${filters.length ? ' The character may be hidden by your tag filters.' : ''}`); setDiagnostics(result.diagnostics); }} />}
       {editing ? editing.kind === 'characters' && 'personality' in editing.data ? <CharacterEditor key={editing.id ?? 'new-character'} initial={{ ...editing, data: editing.data }} library={library} busy={busy} run={run} close={() => setEditing(null)} openBook={openBook} saved={() => setNotice(`Character saved.${filters.length ? ' It may be hidden by your tag filters.' : ''}`)} extracted={id => { setEditing(null); setFilters([]); setSection('lorebooks'); setNotice('Embedded lorebook extracted. Review its shared library entries.'); setPendingBook(id); }} /> : editing.kind === 'lorebooks' && 'entries' in editing.data ? <LorebookEditor key={editing.id ?? editing.kind} initial={{ ...editing, data: editing.data }} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <LibraryEditor key={editing.id ?? editing.kind} initial={editing} connections={library.connections} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <>
-      <LibrarySearch section={section} value={search} change={setSearch} />
+      <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort} />
       {section === 'characters' && filters.length > 0 && <div className="character-active-filters" aria-label="Active tag filters" role="group">
         <TagChips tags={library.tags} catalog={tagCatalog} selected={filters} remove={id => setFilters(filters.filter(value => value !== id))} />
         <button type="button" className="quiet" onClick={() => setFilters([])}>Clear filters</button>

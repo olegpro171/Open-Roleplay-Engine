@@ -37,8 +37,8 @@ function recoveryFixture() {
     writeFileSync(join(app, 'dist/client/index.html'), '<title>ORE</title>');
     writeFileSync(join(app, 'dist/server/server/main.js'), releaseServer);
     writeFileSync(join(app, 'dist/server/server/picture-worker.js'), '');
-    writeFileSync(join(app, 'migrations/0013_data_management.sql'), '');
-    const files = ['dist/client/index.html', 'dist/server/server/main.js', 'dist/server/server/picture-worker.js', 'migrations/0013_data_management.sql', 'build-info.json'].map(path => ({ path, sha256: createHash('sha256').update(readFileSync(join(app, path))).digest('hex') }));
+    writeFileSync(join(app, 'migrations/0014_library_sorting.sql'), '');
+    const files = ['dist/client/index.html', 'dist/server/server/main.js', 'dist/server/server/picture-worker.js', 'migrations/0014_library_sorting.sql', 'build-info.json'].map(path => ({ path, sha256: createHash('sha256').update(readFileSync(join(app, path))).digest('hex') }));
     writeFileSync(join(app, 'manifest.json'), JSON.stringify({ ...info, runtime, files }));
   }
   const current = `release-current\n${runtime}\n`, previous = `release-previous\n${runtime}\n`;

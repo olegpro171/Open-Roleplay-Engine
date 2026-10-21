@@ -109,6 +109,9 @@ export function validateContent(db: Database.Database) {
       }
       if (++count > backupLimits.rows) throw invalidBackup('Portable content exceeds the 100,000-row limit.');
       for (const value of Object.values(row)) if (typeof value === 'string' && Buffer.byteLength(value) > backupLimits.textBytes) throw invalidBackup('A text field exceeds the 16 MiB limit.');
+      for (const field of ['created_at', 'updated_at', 'message_at']) {
+        if (['library', 'connections', 'chats', 'turns'].includes(table) && row[field] !== undefined && row[field] !== null) z.iso.datetime({ precision: 3 }).parse(row[field]);
+      }
       for (const field of ['data','settings','request','usage','resolution','context_selection','crop']) if (typeof row[field] === 'string') json(row,field);
     }
   }

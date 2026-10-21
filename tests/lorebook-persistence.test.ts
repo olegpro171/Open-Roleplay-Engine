@@ -442,7 +442,7 @@ function populatedVersion6(customized: boolean) {
 describe('schema 7 lorebook migration', () => {
   it('creates fresh durable storage and explicit None without an activated placeholder book', () => {
     const store = open();
-    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(13);
+    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(14);
     expect(store.libraries().lorebooks).toEqual([]);
     expect(store.snapshot().settings.lorebookId).toBeNull();
     expect(store.snapshot().loreState).toEqual({ epoch: 0, entries: {} });
@@ -459,7 +459,7 @@ describe('schema 7 lorebook migration', () => {
     for (const table of ['turns', 'generations', 'connections', 'credentials', 'owners', 'sessions', 'summaries', 'context_states', 'context_jobs', 'context_steps']) expect(actual[table]).toEqual(seeded.records[table]);
     const saved = store.snapshot(seeded.chatId);
     expect(saved.revision).toBe(seeded.revisionBefore + Number(!customized) + 1);
-    expect(store.libraries().revision).toBe(seeded.libraryRevisionBefore + Number(!customized) + 3);
+    expect(store.libraries().revision).toBe(seeded.libraryRevisionBefore + Number(!customized) + 4);
     expect(saved.settings.lorebookId).toBeNull();
     expect(saved.sources.lorebook).toBeNull();
     expect(store.libraries().lorebooks).toEqual([]);
@@ -485,8 +485,8 @@ describe('schema 7 lorebook migration', () => {
     const customRaw = store.sqlite.prepare('SELECT * FROM chats WHERE id = ?').get(seeded.customChat);
     const previousCustom = previousChats.find(row => typeof row === 'object' && row !== null && 'id' in row && row.id === seeded.customChat);
     if (typeof previousCustom !== 'object' || previousCustom === null || !('revision' in previousCustom) || typeof previousCustom.revision !== 'number') throw new Error('Missing fixture chat.');
-    expect(customRaw).toEqual({ ...previousCustom, revision: previousCustom.revision + 1 });
-    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(13);
+    expect(customRaw).toEqual({ ...previousCustom, revision: previousCustom.revision + 1, created_at: null, updated_at: null });
+    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(14);
     const after = savedRows(store.sqlite), snapshotAfter = store.snapshot(seeded.chatId);
     store.close();
     store = open(seeded.filename);
@@ -510,7 +510,7 @@ describe('schema 7 lorebook migration', () => {
       failed.exec('DROP TRIGGER reject_lore_migration');
     } finally { failed.close(); }
     const recovered = open(seeded.filename);
-    expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(13);
+    expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(14);
     expect(withoutIdentity(required(recovered.libraries().prompts.find(prompt => prompt.id === 'default')))).toEqual(legacyRoleplayPrompt);
     expect(savedRows(recovered.sqlite, true).generations).toEqual(seeded.records.generations);
     expect(savedRows(recovered.sqlite).summaries).toEqual(seeded.records.summaries);

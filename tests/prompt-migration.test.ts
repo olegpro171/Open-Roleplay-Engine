@@ -59,9 +59,9 @@ describe('version 8 prompt migration', () => {
       expect(store.snapshot(f.chatId)).toEqual({ ...f.before, revision: f.before.revision + 1, sources: { ...f.before.sources, prompt: preset } });
       expect(rows(store.sqlite)).toEqual(f.preserved);
       expect(store.libraries().prompts.find(prompt => prompt.id === f.untouched)).toEqual(f.library.prompts.find(prompt => prompt.id === f.untouched));
-      expect(store.libraries().revision).toBe(f.library.revision + 3);
+      expect(store.libraries().revision).toBe(f.library.revision + 4);
       expect(() => store.checkRevision(f.before.revision, f.chatId)).toThrow('changed on another device');
-      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(13);
+      expect(store.sqlite.pragma('user_version', { simple: true })).toBe(14);
       const after = store.snapshot(f.chatId), libraryAfter = store.libraries();
       store.close(); store = new Store(f.path);
       expect(store.snapshot(f.chatId)).toEqual(after);
@@ -86,7 +86,7 @@ describe('version 8 prompt migration', () => {
       failed.exec('DROP TRIGGER reject_prompt_migration');
     } finally { failed.close(); }
     const recovered = new Store(f.path);
-    try { expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(13); expect(rows(recovered.sqlite)).toEqual(f.preserved); }
+    try { expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(14); expect(rows(recovered.sqlite)).toEqual(f.preserved); }
     finally { recovered.close(); }
   });
 

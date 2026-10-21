@@ -33,7 +33,7 @@ function card(store: Store, id: string) {
 }
 const command = (store: Store, data: Character): CharacterSaveCommand => ({ kind: 'characters', revision: store.libraryRevision(), requestId: randomUUID(), data });
 
-it('reads existing populated version-12 records without rewriting presets, requests, source data or revisions across restart', () => {
+it('reads existing populated records without rewriting presets, requests, source data or revisions across restart', () => {
   const folder = mkdtempSync(join(tmpdir(), 'ore-card-compatibility-'));
   disposers.push(() => rmSync(folder, { recursive: true, force: true }));
   const path = join(folder, 'chat.sqlite');
@@ -50,7 +50,7 @@ it('reads existing populated version-12 records without rewriting presets, reque
   f.store.close();
   const reopened = new Store(path);
   disposers.push(() => reopened.close());
-  expect(reopened.sqlite.pragma('user_version', { simple: true })).toBe(13);
+  expect(reopened.sqlite.pragma('user_version', { simple: true })).toBe(14);
   expect(reopened.snapshot(f.chatId)).toEqual(before);
   expect(reopened.libraries()).toEqual(library);
   expect(reopened.libraries().prompts.find(prompt => prompt.id === 'default')?.blocks).toEqual(legacyRoleplayPrompt.blocks);

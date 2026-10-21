@@ -228,6 +228,14 @@ Implementation behavior:
 
 Validation covers card preservation and PNG parsing, name substitution and prompt roles/order, protected history markers, greeting copy semantics, separate same-speaker turns, failed/stale replacement, database migration, credential exclusion, independent concurrent chat generations, and browser workflows on desktop/phone-sized screens. The supplied approximately 61 MB example was read-only normalized to 498 messages / 253 turns; no original conversation was used for destructive testing. Actual phone use and full provider/card ecosystem compatibility remain unverified.
 
+### Library sorting
+
+Migration 14 adds nullable `created_at` / `updated_at` to library, Connection and chat rows, plus indexed per-turn `message_at`. Creation dates are supplied by persistence on new inserts; existing dates remain NULL. A grouped update recovers known message activity from successful generation records without changing historical requests or source revisions. `legacy-library-schema.ts` freezes pre-14 Drizzle definitions for earlier migrations. Each migration transaction rolls back independently and ordinary pre-upgrade snapshots remain available.
+
+Library snapshots expose dates separately from editable data and prompt sources; chat summaries include dates even in unchanged-library refreshes. Successful library edits (including local character labels, colors, tags and changed pictures) update dates inside the checked transaction; no-op character/persona saves and exact-command replays retain dates. Chat settings edits have their own updated date. Turn insertion and successful response/regeneration completion stamp message activity. Retries, checkpoints, failures, transcript edits and response-version selection leave activity dates unchanged. Deleting turns naturally removes their activity; history replacement records local import time. Reads use the per-chat date index rather than scanning transcript text.
+
+`web/library-sorting.ts` owns presentation ordering, natural case-insensitive name comparisons, added-date fallbacks, unknown dates last in both directions and stable name/identity ties. Sort copied, filtered lists without mutating snapshots. Per-category browser preferences are validated and fall back to defaults when missing, invalid or unavailable. Sort failure cannot mutate server state or editor drafts. Backup schema validation accepts exact schemas 12, 13 and 14; current exports preserve dates, while older uploads rebuild missing dates as NULL in the trusted current schema. Portable launchers require the newest migration.
+
 ### Third milestone: durable layered compaction
 
 Port and validate the stateful core, then connect real summarization and transactional persistence using the established roleplay workflow and request inspector.

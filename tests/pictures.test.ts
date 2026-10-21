@@ -1,3 +1,4 @@
+import { rowSchema } from '../src/persistence/backup-validation.js';
 import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
@@ -69,7 +70,13 @@ describe('picture storage and atomic character commands', () => {
     const before = rows(store), beforeRequest = store.snapshot(chatId), revision = store.libraryRevision();
     const submitted = withPicture(command(store, fields, id), prepared);
     expect(store.saveCharacter(submitted, id, prepared)).toEqual({ id });
-    expect(store.libraryRevision()).toBe(revision + 1); expect(rows(store)).toEqual({ ...before, lore_commands: expect.any(Array) });
+    expect(store.libraryRevision()).toBe(revision + 1);
+    // Picture edits update organizational dates while preserving all source columns.
+    const libraryRows = before.library.map(value => {
+      const row = rowSchema.parse(value);
+      return row.id === id ? { ...row, updated_at: expect.any(String) } : row;
+    });
+    expect(rows(store)).toEqual({ ...before, library: libraryRows, lore_commands: expect.any(Array) });
     expect(store.snapshot(chatId)).toEqual(beforeRequest);
     expect(assembleRequest(required(beforeRequest.connection), beforeRequest.settings, beforeRequest.turns, beforeRequest.sources)).toEqual(assembleRequest(required(store.snapshot(chatId).connection), store.snapshot(chatId).settings, store.snapshot(chatId).turns, store.snapshot(chatId).sources));
     const picture = required(store.pictures.get(id)); expect(store.pictures.resource(id, picture.key, 'original').bytes).toEqual(prepared.original);
@@ -148,7 +155,7 @@ describe('migration 10', () => {
       expect(() => new Store(path)).toThrow('synthetic upgrade failure'); const db = new Database(path);
       expect(db.pragma('user_version', { simple: true })).toBe(9); expect(db.prepare("SELECT name FROM sqlite_master WHERE name='picture_assets'").get()).toBeUndefined(); expect(db.prepare('SELECT revision FROM library_state').get()).toEqual({ revision }); db.exec('DROP TRIGGER reject_picture_migration'); db.close();
     }
-    store = open(path); expect(store.sqlite.pragma('user_version', { simple: true })).toBe(13); expect(rows(store, undefined, true)).toEqual(before); expect(store.pictures.list()).toEqual([]); expect(store.libraryRevision()).toBe(revision + 1);
+    store = open(path); expect(store.sqlite.pragma('user_version', { simple: true })).toBe(14); expect(rows(store, undefined, true)).toEqual(before); expect(store.pictures.list()).toEqual([]); expect(store.libraryRevision()).toBe(revision + 2);
     const saved = store.libraries(); store.close(); store = open(path); expect(store.libraries()).toEqual(saved);
   });
 });

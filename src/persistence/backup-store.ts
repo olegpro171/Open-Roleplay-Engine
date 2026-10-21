@@ -219,8 +219,9 @@ export class BackupStore {
         mergeContent(this.store.sqlite,incoming);
       } else {
         this.store.sqlite.exec('DELETE FROM chats; DELETE FROM credentials; DELETE FROM character_tags; DELETE FROM character_pictures; DELETE FROM picture_assets; DELETE FROM tags; DELETE FROM library; DELETE FROM connections; DELETE FROM lore_commands;');
-        insertRow(this.store.sqlite,'library',{ id: 'default', kind: 'prompts', revision: 0, data: JSON.stringify(defaultPrompt) });
-        insertRow(this.store.sqlite,'library',{ id: 'default-context', kind: 'contexts', revision: 0, data: JSON.stringify(defaultContextPreset) });
+        const createdAt = new Date().toISOString();
+        insertRow(this.store.sqlite,'library',{ created_at: createdAt, id: 'default', kind: 'prompts', revision: 0, data: JSON.stringify(defaultPrompt) });
+        insertRow(this.store.sqlite,'library',{ created_at: createdAt, id: 'default-context', kind: 'contexts', revision: 0, data: JSON.stringify(defaultContextPreset) });
         this.store.sqlite.prepare('DELETE FROM sessions WHERE hash != ?').run(sessionHash ?? '');
         this.store.sqlite.exec('UPDATE library_state SET revision = revision + 1 WHERE id = 1');
       }

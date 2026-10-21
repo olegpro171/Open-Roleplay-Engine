@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { databaseSchemaVersion } from '../shared/build-info.js';
 import { buildInfo } from './installation.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statfsSync, statSync, readFileSync, writeFileSync } from 'node:fs';
@@ -24,6 +25,7 @@ export class BackupService {
   private readonly directory: string;
   private readonly template: Buffer;
   private readonly schema: ReturnType<typeof schemaEntries>;
+  private readonly legacySchema: ReturnType<typeof schemaEntries>;
   private readonly build = buildInfo().version;
   private readonly stages = new Map<string, { path: string; owner: string; digest: string; expires: number; metadata: BackupMetadata | null; plan?: ReturnType<BackupStore['preflight']> }>();
   private readonly timer: ReturnType<typeof setInterval>;
@@ -37,7 +39,17 @@ export class BackupService {
       rmSync(this.directory,{ recursive: true, force: true }); mkdirSync(this.directory,{ mode: 0o700 });
     }
     const factory = new Store(':memory:',migrationsDirectory);
-    this.template = factory.sqlite.serialize(); this.schema = schemaEntries(factory.sqlite); factory.close();
+    try {
+      this.template = factory.sqlite.serialize();
+      this.schema = schemaEntries(factory.sqlite);
+      // Reconstruct exact shipped older table definitions for strict upload validation.
+      factory.sqlite.exec('DROP INDEX turn_message_date');
+      for (const table of ['library', 'connections', 'chats']) {
+        factory.sqlite.exec(`ALTER TABLE ${table} DROP COLUMN created_at; ALTER TABLE ${table} DROP COLUMN updated_at;`);
+      }
+      factory.sqlite.exec('ALTER TABLE turns DROP COLUMN message_at');
+      this.legacySchema = schemaEntries(factory.sqlite);
+    } finally { factory.close(); }
     this.timer = setInterval(() => this.expire(),60_000); this.timer.unref();
   }
   private expire() { for (const [id, stage] of this.stages) if (stage.expires < Date.now()) this.remove(id); }
@@ -57,8 +69,8 @@ export class BackupService {
   }
   private validateSchema(db: Database.Database) {
     const version = db.pragma('user_version',{ simple: true });
-    if (version !== 12 && version !== 13) throw invalidBackup(`Unsupported database schema version ${String(version)}; supported versions are 12 and 13.`);
-    const expected = this.schema.filter(entry => version === 13 || !['dataset_state','data_commands'].includes(entry.tbl_name));
+    if (version !== 12 && version !== 13 && version !== databaseSchemaVersion) throw invalidBackup(`Unsupported database schema version ${String(version)}; supported versions are 12, 13 and ${databaseSchemaVersion}.`);
+    const expected = (version === databaseSchemaVersion ? this.schema : this.legacySchema).filter(entry => version !== 12 || !['dataset_state','data_commands'].includes(entry.tbl_name));
     const actual = schemaEntries(db);
     const portableMetadata = actual.find(entry => entry.name === 'backup_metadata');
     if (portableMetadata && normalizeSchemaSql(portableMetadata.sql) !== normalizeSchemaSql(metadataSql)) throw invalidBackup('Backup metadata table definition differs from the shipped definition.');
@@ -235,7 +247,7 @@ export class BackupService {
         db.pragma('secure_delete = ON'); sanitizePortable(db);
         validateContent(db);
         db.exec(metadataSql);
-        const metadata: BackupMetadata = { format: 'ore-sqlite',version: 1,schema: 13,build: this.build,createdAt: new Date().toISOString() };
+        const metadata: BackupMetadata = { format: 'ore-sqlite',version: 1,schema: databaseSchemaVersion,build: this.build,createdAt: new Date().toISOString() };
         db.prepare('INSERT INTO backup_metadata VALUES (1,?)').run(JSON.stringify(metadata));
         // Rebuild pages so removed login/repair secrets cannot remain in free pages or WAL frames.
         db.pragma('journal_mode = DELETE'); db.exec('VACUUM');

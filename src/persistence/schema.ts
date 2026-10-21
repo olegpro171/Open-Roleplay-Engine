@@ -4,15 +4,23 @@ import type { LibraryCharacter, Persona, PromptPreset } from '../shared/library.
 import type { ContextPreset } from '../shared/context.js';
 import type { Lorebook } from '../shared/lorebook.js';
 
+const libraryDates = () => ({
+  createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at'),
+});
+
 export const chats = sqliteTable('chats', {
   id: text('id').primaryKey(), revision: integer('revision').notNull(),
+  ...libraryDates(),
   settings: text('settings', { mode: 'json' }).$type<ChatSettings>().notNull(),
 });
 export const connections = sqliteTable('connections', {
+  ...libraryDates(),
   id: text('id').primaryKey(), settings: text('settings', { mode: 'json' }).$type<Connection>().notNull(),
   revision: integer('revision').notNull().default(0),
 });
 export const library = sqliteTable('library', {
+  ...libraryDates(),
   id: text('id').primaryKey(), kind: text('kind').notNull(), revision: integer('revision').notNull(),
   data: text('data', { mode: 'json' }).$type<LibraryCharacter | Persona | PromptPreset | ContextPreset | Lorebook>().notNull(),
 });
@@ -23,13 +31,14 @@ export const owners = sqliteTable('owners', {
 });
 export const sessions = sqliteTable('sessions', { hash: text('hash').primaryKey(), expiresAt: integer('expires_at').notNull() });
 export const turns = sqliteTable('turns', {
+  messageAt: text('message_at').$defaultFn(() => new Date().toISOString()),
   chatId: text('chat_id').notNull(),
   id: text('id').primaryKey(), position: integer('position').notNull(),
   complete: integer('complete', { mode: 'boolean' }).notNull(),
   userId: text('user_id').notNull(), userRevision: integer('user_revision').notNull(), userText: text('user_text').notNull(),
   assistantId: text('assistant_id').notNull(), assistantRevision: integer('assistant_revision').notNull(), assistantText: text('assistant_text').notNull(),
   selectedVariantId: text('selected_variant_id'),
-});
+}, table => [index('turn_message_date').on(table.chatId, table.messageAt)]);
 export const responseVariants = sqliteTable('response_variants', {
   id: text('id').primaryKey(), turnId: text('turn_id').notNull().references(() => turns.id, { onDelete: 'cascade' }),
   text: text('text').notNull(), sourceRevision: integer('source_revision').notNull(),

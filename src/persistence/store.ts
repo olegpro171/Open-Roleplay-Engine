@@ -21,6 +21,7 @@ import { importLorebook, loreCompatibility, markLoreEdits } from '../core/lorebo
 import { importCharacter } from '../core/cards.js';
 import { semanticFingerprint, unchangedLoreEntries } from '../core/lorebook.js';
 import * as schema from './schema.js';
+import * as legacyLibrarySchema from './legacy-library-schema.js';
 import { trimBoundaryNewlines } from '../shared/text.js';
 import { contextPresetSchema, defaultContextPreset, type ContextPreset } from '../shared/context.js';
 import { upgradedContextPrompts } from './context-prompt-upgrade.js';
@@ -95,23 +96,25 @@ export class Store {
       if (!newDatabase && version < databaseSchemaVersion && filename !== ':memory:') {
         savePreUpgradeSnapshot(this.sqlite, filename, version);
       }
+      const migrationSchema = { ...schema, ...legacyLibrarySchema };
+      const migrationDb = drizzle(this.sqlite, { schema: migrationSchema });
       if (version === 1) {
         this.sqlite.transaction(() => {
           this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0002_libraries.sql'), 'utf8'));
-          this.db.insert(schema.library).values({ id: 'default', kind: 'prompts', revision: 0, data: newDatabase ? defaultPrompt : legacyRoleplayPrompt }).run();
-          const chat = this.db.select().from(schema.chats).where(eq(schema.chats.id, 'main')).get();
+          migrationDb.insert(migrationSchema.library).values({ id: 'default', kind: 'prompts', revision: 0, data: newDatabase ? defaultPrompt : legacyRoleplayPrompt }).run();
+          const chat = migrationDb.select().from(migrationSchema.chats).where(eq(migrationSchema.chats.id, 'main')).get();
           if (chat) {
-            const settings = { ...chat.settings, connectionId: this.db.select().from(schema.connections).get()?.id ?? null, promptId: 'migrated-prompt', characterId: null as string | null, personaId: null as string | null };
-            this.db.insert(schema.library).values({ id: settings.promptId, kind: 'prompts', revision: 0, data: { name: 'Saved prompt', blocks: legacyRoleplayPrompt.blocks.map(b => b.kind === 'text' ? { ...b, text: chat.settings.instructions } : b) } }).run();
+            const settings = { ...chat.settings, connectionId: migrationDb.select().from(migrationSchema.connections).get()?.id ?? null, promptId: 'migrated-prompt', characterId: null as string | null, personaId: null as string | null };
+            migrationDb.insert(migrationSchema.library).values({ id: settings.promptId, kind: 'prompts', revision: 0, data: { name: 'Saved prompt', blocks: legacyRoleplayPrompt.blocks.map(b => b.kind === 'text' ? { ...b, text: chat.settings.instructions } : b) } }).run();
             if (settings.character !== '') {
               settings.characterId = 'migrated-character';
-              this.db.insert(schema.library).values({ id: settings.characterId, kind: 'characters', revision: 0, data: { name: 'Character', description: settings.character, personality: '', scenario: '', first_mes: '', mes_example: '' } }).run();
+              migrationDb.insert(migrationSchema.library).values({ id: settings.characterId, kind: 'characters', revision: 0, data: { name: 'Character', description: settings.character, personality: '', scenario: '', first_mes: '', mes_example: '' } }).run();
             }
             if (settings.persona !== '') {
               settings.personaId = 'migrated-persona';
-              this.db.insert(schema.library).values({ id: settings.personaId, kind: 'personas', revision: 0, data: { name: 'You', description: settings.persona } }).run();
+              migrationDb.insert(migrationSchema.library).values({ id: settings.personaId, kind: 'personas', revision: 0, data: { name: 'You', description: settings.persona } }).run();
             }
-            this.db.update(schema.chats).set({ settings }).where(eq(schema.chats.id, 'main')).run();
+            migrationDb.update(migrationSchema.chats).set({ settings }).where(eq(migrationSchema.chats.id, 'main')).run();
           }
           this.sqlite.pragma('user_version = 2');
         })();
@@ -120,7 +123,7 @@ export class Store {
       if (version === 2) {
         this.sqlite.transaction(() => {
           this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0003_context.sql'), 'utf8'));
-          this.db.insert(schema.library).values({ id: 'default-context', kind: 'contexts', revision: 0, data: defaultContextPreset }).run();
+          migrationDb.insert(migrationSchema.library).values({ id: 'default-context', kind: 'contexts', revision: 0, data: defaultContextPreset }).run();
           this.sqlite.prepare('UPDATE library_state SET revision = revision + 1 WHERE id = 1').run();
           this.sqlite.pragma('user_version = 3');
         })();
@@ -135,13 +138,13 @@ export class Store {
       }
       if (version === 4) {
         this.sqlite.transaction(() => {
-          const builtIn = this.db.select().from(schema.library).where(and(eq(schema.library.id, 'default'), eq(schema.library.kind, 'prompts'))).get();
+          const builtIn = migrationDb.select().from(migrationSchema.library).where(and(eq(migrationSchema.library.id, 'default'), eq(migrationSchema.library.kind, 'prompts'))).get();
           const previousDefault = { ...legacyLorePrompt, blocks: legacyLorePrompt.blocks.filter(block => block.id !== 'summary' && !block.marker?.startsWith('lore_')) };
           // Upgrade only the exact old factory preset. Edited defaults and all
           // user presets keep their deliberate marker choices.
           if (builtIn && isDeepStrictEqual(builtIn.data, previousDefault)) {
             this.sqlite.prepare('UPDATE library SET data = ?, revision = revision + 1 WHERE id = ?').run(JSON.stringify({ ...legacyLorePrompt, blocks: legacyLorePrompt.blocks.filter(block => !block.marker?.startsWith('lore_')) }), 'default');
-            for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.promptId === 'default') this.bumpRevision(chat.id);
+            for (const chat of migrationDb.select().from(migrationSchema.chats).all()) if (chat.settings.promptId === 'default') this.bumpRevision(chat.id);
             this.sqlite.prepare('UPDATE library_state SET revision = revision + 1 WHERE id = 1').run();
           }
           this.sqlite.pragma('user_version = 5');
@@ -151,14 +154,14 @@ export class Store {
       if (version === 5) {
         this.sqlite.transaction(() => {
           const changedIds = new Set<string>();
-          for (const preset of this.db.select().from(schema.library).where(eq(schema.library.kind, 'contexts')).all()) {
+          for (const preset of migrationDb.select().from(migrationSchema.library).where(eq(migrationSchema.library.kind, 'contexts')).all()) {
             const changes = upgradedContextPrompts(contextPresetSchema.parse(preset.data));
             if (!Object.keys(changes).length) continue;
-            this.db.update(schema.library).set({ data: { ...preset.data, ...changes }, revision: preset.revision + 1 }).where(eq(schema.library.id, preset.id)).run();
+            migrationDb.update(migrationSchema.library).set({ data: { ...preset.data, ...changes }, revision: preset.revision + 1 }).where(eq(migrationSchema.library.id, preset.id)).run();
             changedIds.add(preset.id);
           }
           if (changedIds.size) {
-            for (const chat of this.db.select().from(schema.chats).all()) {
+            for (const chat of migrationDb.select().from(migrationSchema.chats).all()) {
               if (chat.settings.contextPresetId && changedIds.has(chat.settings.contextPresetId)) this.bumpRevision(chat.id);
             }
             this.sqlite.prepare('UPDATE library_state SET revision = revision + 1 WHERE id = 1').run();
@@ -170,11 +173,11 @@ export class Store {
       if (version === 6) {
         this.sqlite.transaction(() => {
           this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0007_lorebooks.sql'), 'utf8'));
-          const builtIn = this.db.select().from(schema.library).where(and(eq(schema.library.id, 'default'), eq(schema.library.kind, 'prompts'))).get();
+          const builtIn = migrationDb.select().from(migrationSchema.library).where(and(eq(migrationSchema.library.id, 'default'), eq(migrationSchema.library.kind, 'prompts'))).get();
           const previousDefault = { ...legacyLorePrompt, blocks: legacyLorePrompt.blocks.filter(block => !block.marker?.startsWith('lore_')) };
           if (builtIn && isDeepStrictEqual(builtIn.data, previousDefault)) {
             this.sqlite.prepare('UPDATE library SET data = ?, revision = revision + 1 WHERE id = ?').run(JSON.stringify(legacyLorePrompt), 'default');
-            for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.promptId === 'default') this.bumpRevision(chat.id);
+            for (const chat of migrationDb.select().from(migrationSchema.chats).all()) if (chat.settings.promptId === 'default') this.bumpRevision(chat.id);
             this.bumpLibrary();
           }
           this.sqlite.pragma('user_version = 7');
@@ -184,13 +187,13 @@ export class Store {
       if (version === 7) {
         this.sqlite.transaction(() => {
           const changedIds = new Set<string>();
-          for (const preset of this.db.select().from(schema.library).where(eq(schema.library.kind, 'prompts')).all()) {
+          for (const preset of migrationDb.select().from(migrationSchema.library).where(eq(migrationSchema.library.kind, 'prompts')).all()) {
             const data = upgradePrompt(preset.data);
             if (isDeepStrictEqual(data, preset.data)) continue;
-            this.db.update(schema.library).set({ data, revision: preset.revision + 1 }).where(eq(schema.library.id, preset.id)).run();
+            migrationDb.update(migrationSchema.library).set({ data, revision: preset.revision + 1 }).where(eq(migrationSchema.library.id, preset.id)).run();
             changedIds.add(preset.id);
           }
-          for (const chat of this.db.select().from(schema.chats).all()) {
+          for (const chat of migrationDb.select().from(migrationSchema.chats).all()) {
             // A selected book now authorizes automatic insertion even in a
             // preset that previously omitted all lore controls.
             if (changedIds.has(chat.settings.promptId ?? '') || chat.settings.lorebookId) this.bumpRevision(chat.id);
@@ -235,10 +238,21 @@ export class Store {
           this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0013_data_management.sql'), 'utf8'));
           this.sqlite.pragma('user_version = 13');
         })();
-      } else if (version !== 13) throw new Error('Unsupported database schema version.');
+        version = 13;
+      }
+      if (version === 13) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0014_library_sorting.sql'), 'utf8'));
+          this.bumpLibrary();
+          this.sqlite.pragma('user_version = 14');
+        })();
+        version = 14;
+      }
+      if (version !== 14) throw new Error('Unsupported database schema version.');
       this.pictures = new PictureStore(this.sqlite, () => this.bumpLibrary());
       this.contexts = new ContextStore(this);
       this.tags = new TagStore(this.sqlite, expected => this.checkLibrary(expected), () => this.bumpLibrary());
+      if (newDatabase) this.db.update(schema.library).set({ createdAt: new Date().toISOString() }).run();
       if (newDatabase) this.db.insert(schema.chats).values({ id: 'main', revision: 0, settings: initialSettings }).onConflictDoNothing().run();
     } catch (error) {
       this.sqlite.prepare('DELETE FROM runtime_owner WHERE token = ?').run(this.ownerToken);
@@ -247,7 +261,7 @@ export class Store {
   }
 
   private chat(chatId: string) {
-    const row = this.db.select().from(schema.chats).where(eq(schema.chats.id, chatId)).get();
+    const row = this.db.select({ id: schema.chats.id, revision: schema.chats.revision, settings: schema.chats.settings }).from(schema.chats).where(eq(schema.chats.id, chatId)).get();
     if (!row) throw new AppError(404, 'chat_not_found', 'Chat not found.');
     return row;
   }
@@ -369,6 +383,8 @@ export class Store {
   }
   private chatSummaries(): ChatSummary[] {
     return this.db.select().from(schema.chats).all().map(chat => ({ id: chat.id, title: chat.settings.title, revision: chat.revision,
+      createdAt: chat.createdAt, updatedAt: chat.updatedAt,
+      lastMessageAt: this.db.select({ date: sql<string | null>`max(${schema.turns.messageAt})` }).from(schema.turns).where(eq(schema.turns.chatId, chat.id)).get()?.date ?? null,
       turnCount: (this.sqlite.prepare('SELECT count(*) AS n FROM turns WHERE chat_id = ?').get(chat.id) as { n: number }).n,
       running: Boolean(this.db.select().from(schema.generations).where(and(eq(schema.generations.chatId, chat.id), eq(schema.generations.status, 'running'))).get()) || this.contexts.running(chat.id),
     }));
@@ -383,6 +399,10 @@ export class Store {
     return {
       characterPictures: this.pictures.list(),
       tags: this.tags.catalog(), characterTags: this.tags.links(),
+      dates: Object.fromEntries([
+        ...rows.map(row => [row.id, { createdAt: row.createdAt, updatedAt: row.updatedAt }]),
+        ...this.db.select().from(schema.connections).all().map(row => [row.id, { createdAt: row.createdAt, updatedAt: row.updatedAt }]),
+      ]),
       revision: this.libraryRevision(), personas: list<LibraryPersona>('personas'), characters: list<LibraryCharacter>('characters'), prompts: list<PromptPreset>('prompts'),
       contexts: list<ContextPreset>('contexts').map(preset => ({ ...preset, repairPrompt: preset.repairPrompt ?? defaultContextPreset.repairPrompt })),
       lorebooks: list<Lorebook>('lorebooks'),
@@ -403,7 +423,7 @@ export class Store {
       if (kind === 'connections') {
         const old = this.db.select().from(schema.connections).where(eq(schema.connections.id, identity)).get();
         if (id && !old) throw new AppError(404, 'item_not_found', 'Connection not found.');
-        this.db.insert(schema.connections).values({ id: identity, settings: data as Connection, revision: (old?.revision ?? -1) + 1 }).onConflictDoUpdate({ target: schema.connections.id, set: { settings: data as Connection, revision: (old?.revision ?? -1) + 1 } }).run();
+        this.db.insert(schema.connections).values({ id: identity, settings: data as Connection, revision: (old?.revision ?? -1) + 1 }).onConflictDoUpdate({ target: schema.connections.id, set: { updatedAt: new Date().toISOString(), settings: data as Connection, revision: (old?.revision ?? -1) + 1 } }).run();
         if (apiKey !== undefined) this.db.insert(schema.credentials).values({ id: identity, apiKey }).onConflictDoUpdate({ target: schema.credentials.id, set: { apiKey } }).run();
       } else {
         const old = this.db.select().from(schema.library).where(and(eq(schema.library.id, identity), eq(schema.library.kind, kind))).get();
@@ -450,7 +470,10 @@ export class Store {
             const metadataChanged = !isDeepStrictEqual(old.data, data);
             if (metadataChanged) this.db.update(schema.library).set({ data }).where(eq(schema.library.id, identity)).run();
             const tagsChanged = tagIds !== undefined && this.tags.replaceInTransaction(identity, tagIds);
-            if (metadataChanged || tagsChanged) this.bumpLibrary();
+            if (metadataChanged || tagsChanged) {
+              this.db.update(schema.library).set({ updatedAt: new Date().toISOString() }).where(eq(schema.library.id, identity)).run();
+              this.bumpLibrary();
+            }
             return identity;
           }
         }
@@ -464,14 +487,14 @@ export class Store {
           if (previous && previous.name !== updated.name) for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.personaId === identity) this.resetLoreEpoch(chat.id);
           if (old && previous && isDeepStrictEqual(this.promptPersona(previous), this.promptPersona(updated))) {
             if (!isDeepStrictEqual(old.data, updated)) {
-              this.db.update(schema.library).set({ data: updated }).where(eq(schema.library.id, identity)).run();
+              this.db.update(schema.library).set({ data: updated, updatedAt: new Date().toISOString() }).where(eq(schema.library.id, identity)).run();
               this.bumpLibrary();
             }
             return identity;
           }
         }
         const saved = data as LibraryCharacter | LibraryPersona | PromptPreset | ContextPreset | Lorebook;
-        this.db.insert(schema.library).values({ id: identity, kind, revision: (old?.revision ?? -1) + 1, data: saved }).onConflictDoUpdate({ target: schema.library.id, set: { data: saved, revision: (old?.revision ?? -1) + 1 } }).run();
+        this.db.insert(schema.library).values({ id: identity, kind, revision: (old?.revision ?? -1) + 1, data: saved }).onConflictDoUpdate({ target: schema.library.id, set: { updatedAt: new Date().toISOString(), data: saved, revision: (old?.revision ?? -1) + 1 } }).run();
       }
       if (kind === 'characters' && tagIds !== undefined) this.tags.replaceInTransaction(identity, tagIds);
       this.bumpLibrary(); this.bumpAffected(kind, identity); return identity;
@@ -505,7 +528,8 @@ export class Store {
     const execute = () => {
       this.checkCharacterSave(input, id);
       const identity = this.saveLibrary(input.revision, 'characters', input.data, id, undefined, input.tagIds);
-      this.pictures.apply(identity, input.picture, prepared);
+      const pictureChanged = this.pictures.apply(identity, input.picture, prepared);
+      if (id && pictureChanged) this.db.update(schema.library).set({ updatedAt: new Date().toISOString() }).where(eq(schema.library.id, identity)).run();
       return { id: identity };
     };
     return input.requestId ? this.loreCommand(input.revision, input.requestId, this.characterSaveFingerprint(input, id), value => z.object({ id: z.string() }).parse(value), execute) : this.sqlite.transaction(execute)();
@@ -708,7 +732,7 @@ export class Store {
       const previous = this.chat(chatId).settings;
       if (input.characterId !== previous.characterId || input.personaId !== previous.personaId) this.resetLoreEpoch(chatId);
       const settings = { ...previous, ...input, instructions: '', character: '', persona: '' };
-      this.db.update(schema.chats).set({ settings }).where(eq(schema.chats.id, chatId)).run();
+      this.db.update(schema.chats).set({ settings, updatedAt: new Date().toISOString() }).where(eq(schema.chats.id, chatId)).run();
       this.bumpRevision(chatId);
       // Lorebook usage labels and links are cached with the library revision.
       if (settings.title !== previous.title || settings.lorebookId !== previous.lorebookId) this.bumpLibrary();
@@ -757,9 +781,9 @@ export class Store {
       if (settings.contextPresetId === null && this.contexts.snapshot(chatId, null).archivedTurnIds.length) throw new AppError(409, 'restore_context_first', 'Clear memory in Memory before disabling the context preset.');
       const connectionId = settings.connectionId ?? 'main';
       const old = this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get();
-      this.db.insert(schema.connections).values({ id: connectionId, settings: connection, revision: (old?.revision ?? -1) + 1 }).onConflictDoUpdate({ target: schema.connections.id, set: { settings: connection, revision: (old?.revision ?? -1) + 1 } }).run();
+      this.db.insert(schema.connections).values({ id: connectionId, settings: connection, revision: (old?.revision ?? -1) + 1 }).onConflictDoUpdate({ target: schema.connections.id, set: { updatedAt: new Date().toISOString(), settings: connection, revision: (old?.revision ?? -1) + 1 } }).run();
       if (apiKey !== undefined) this.db.insert(schema.credentials).values({ id: connectionId, apiKey }).onConflictDoUpdate({ target: schema.credentials.id, set: { apiKey } }).run();
-      this.db.update(schema.chats).set({ settings: { ...settings, connectionId, lorebookId: settings.lorebookId === undefined ? previous.lorebookId ?? null : settings.lorebookId, contextPresetId: settings.contextPresetId === undefined ? previous.contextPresetId ?? null : settings.contextPresetId } }).where(eq(schema.chats.id, chatId)).run();
+      this.db.update(schema.chats).set({ updatedAt: new Date().toISOString(), settings: { ...settings, connectionId, lorebookId: settings.lorebookId === undefined ? previous.lorebookId ?? null : settings.lorebookId, contextPresetId: settings.contextPresetId === undefined ? previous.contextPresetId ?? null : settings.contextPresetId } }).where(eq(schema.chats.id, chatId)).run();
       this.bumpAffected('connections', connectionId); this.bumpLibrary();
     })();
   }
@@ -892,7 +916,7 @@ export class Store {
         const variantId = turn.selectedVariantId ? randomUUID() : `original-${turn.id}`;
         const equivalent = this.db.select().from(schema.responseVariants).where(and(eq(schema.responseVariants.turnId, turn.id), eq(schema.responseVariants.text, text))).get();
         this.db.insert(schema.responseVariants).values({ id: variantId, turnId: turn.id, text, sourceRevision: equivalent?.sourceRevision ?? turn.assistantRevision + 1, generationId: id, createdAt: generation.createdAt }).run();
-        this.db.update(schema.turns).set({ assistantText: text, assistantRevision: turn.assistantRevision + 1, complete: true, selectedVariantId: variantId }).where(eq(schema.turns.id, turn.id)).run();
+        this.db.update(schema.turns).set({ messageAt: new Date().toISOString(), assistantText: text, assistantRevision: turn.assistantRevision + 1, complete: true, selectedVariantId: variantId }).where(eq(schema.turns.id, turn.id)).run();
       }
       this.db.update(schema.generations).set({ status, partialText: text, reasoningText: reasoningText ?? generation.reasoningText, error, usage, updatedAt: new Date().toISOString() }).where(eq(schema.generations.id, id)).run();
       this.bumpRevision(generation.chatId); return true;

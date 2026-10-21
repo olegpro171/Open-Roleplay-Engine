@@ -17,7 +17,7 @@ try {
     mkdirSync(resolve(home, directory), { recursive: true, mode: 0o700 });
     accessSync(resolve(home, directory), constants.W_OK);
   }
-  for (const file of ['dist/server/server/main.js', 'dist/server/server/picture-worker.js', 'dist/client/index.html', 'migrations/0013_data_management.sql', 'build-info.json']) accessSync(resolve(application, file), constants.R_OK);
+  for (const file of ['dist/server/server/main.js', 'dist/server/server/picture-worker.js', 'dist/client/index.html', 'migrations/0014_library_sorting.sql', 'build-info.json']) accessSync(resolve(application, file), constants.R_OK);
   const manifest = JSON.parse(readFileSync(resolve(application, 'manifest.json'), 'utf8'));
   if (!Array.isArray(manifest.files)) throw new Error('Installation manifest is missing its file list. Rebuild the application.');
   for (const file of manifest.files) {

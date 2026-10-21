@@ -1,3 +1,4 @@
+import { removeSortingSchema } from './support/legacy-sorting.js';
 import { afterEach, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { execFileSync, fork } from 'node:child_process';
@@ -19,7 +20,7 @@ it('anchors default installation paths independently of the invoking working dir
   const code = `import {Store} from ${JSON.stringify(pathToFileURL(resolve('src/persistence/store.ts')).href)}; import {createApp} from ${JSON.stringify(pathToFileURL(resolve('src/server/app.ts')).href)}; const {app}=await createApp({database: ${JSON.stringify(join(directory, 'saved.sqlite'))}}); await app.close();`;
   execFileSync(process.execPath, ['--import', pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href, '--input-type=module', '-e', code], { cwd: directory });
   const db = new Database(join(directory, 'saved.sqlite'), { readonly: true });
-  try { expect(db.pragma('user_version', { simple: true })).toBe(13); } finally { db.close(); }
+  try { expect(db.pragma('user_version', { simple: true })).toBe(14); } finally { db.close(); }
   expect(() => startupPaths({ ROLEPLAY_DATABASE: '' })).toThrow(/must name a database file/);
   expect(() => validateInstalledAssets({ ...startupPaths({}), staticDirectory: directory })).toThrow(/installation is incomplete/);
   expect(startupPaths({}).database).toBe(resolve(applicationRoot, 'data/roleplay.sqlite'));
@@ -75,6 +76,7 @@ function oldDatabase(path: string) {
   const legacy = new Database(path);
   legacy.pragma('journal_mode=WAL');
   legacy.pragma('wal_autocheckpoint=0');
+  removeSortingSchema(legacy);
   legacy.exec('DROP TABLE data_commands; DROP TABLE dataset_state; PRAGMA user_version=12;');
   return { legacy, snapshot };
 }
@@ -130,7 +132,7 @@ it('publishes safe authenticated build identity and labels source builds honestl
     const about = await app.inject({ method: 'GET', url: '/api/about', headers: { host: 'localhost', cookie } });
     expect(about.statusCode).toBe(200);
     expect(about.json()).toEqual(buildInfo());
-    expect(about.json()).toMatchObject({ kind: 'development', schema: 13, commit: null });
+    expect(about.json()).toMatchObject({ kind: 'development', schema: 14, commit: null });
     expect(Object.keys(about.json()).sort()).toEqual(['arch', 'commit', 'kind', 'node', 'platform', 'schema', 'version']);
   } finally { await app.close(); }
 });

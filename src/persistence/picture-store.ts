@@ -33,17 +33,17 @@ export class PictureStore {
   originalForCrop(characterId: string, key: string) { return this.resource(characterId, key, 'original').bytes; }
   apply(characterId: string, mutation: Exclude<PictureMutation, { mode: 'replace' }> | { mode: 'replace'; crop: import('../shared/pictures.js').PictureCrop } | undefined, prepared?: PreparedPicture) {
     if (!this.sqlite.inTransaction) throw new Error('Picture writes require a checked transaction.');
-    if (!mutation) return;
+    if (!mutation) return false;
     const previous = this.get(characterId);
     if (mutation.mode === 'remove') {
-      if (!previous) return;
+      if (!previous) return false;
       this.sqlite.prepare('DELETE FROM character_pictures WHERE character_id = ?').run(characterId);
     } else {
       if (mutation.mode === 'keep' && previous?.key !== mutation.key) throw new AppError(409, 'picture_conflict', 'The saved picture changed. Review it before applying this crop.');
       if (!prepared) throw new Error('Picture renditions must be prepared before commit.');
       const oldAsset = this.sqlite.prepare('SELECT a.id, a.digest FROM picture_assets a JOIN character_pictures p ON p.asset_id = a.id WHERE p.character_id = ?').get(characterId);
       const old = oldAsset ? z.object({ id: z.string(), digest: z.string() }).parse(oldAsset) : null;
-      if (previous && old?.digest === prepared.digest && isDeepStrictEqual(previous.crop, prepared.crop)) return;
+      if (previous && old?.digest === prepared.digest && isDeepStrictEqual(previous.crop, prepared.crop)) return false;
       let assetId = old?.digest === prepared.digest ? old.id : undefined;
       if (!assetId) {
         assetId = randomUUID();
@@ -52,6 +52,7 @@ export class PictureStore {
       this.sqlite.prepare('INSERT INTO character_pictures (character_id,asset_id,key,revision,crop,thumbnail) VALUES (?,?,?,?,?,?) ON CONFLICT(character_id) DO UPDATE SET asset_id=excluded.asset_id,key=excluded.key,revision=excluded.revision,crop=excluded.crop,thumbnail=excluded.thumbnail').run(characterId, assetId, randomUUID(), (previous?.revision ?? -1) + 1, JSON.stringify(prepared.crop), prepared.thumbnail);
     }
     this.cleanup(); this.bump();
+    return true;
   }
   duplicate(source: string, target: string) {
     if (!this.sqlite.inTransaction) throw new Error('Picture duplication requires a checked transaction.');

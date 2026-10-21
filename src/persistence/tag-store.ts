@@ -8,7 +8,7 @@ import { canonicalTagName, tagIdsSchema, tagLimits, tagNameSchema, tagPolicySche
 import { libraryCharacterSchema } from '../shared/library.js';
 import * as schema from './schema.js';
 
-/** Organization never writes a prompt-bearing library record or a chat revision. */
+/** Organization never changes prompt-bearing data or source/chat revisions. */
 export class TagStore {
   private readonly db;
   constructor(private readonly sqlite: Database.Database, private readonly check: (revision: number) => void, private readonly bump: () => void) {
@@ -75,7 +75,10 @@ export class TagStore {
   setAssignments(expected: number, characterId: string, ids: string[]) {
     this.sqlite.transaction(() => {
       this.check(expected);
-      if (this.replaceInTransaction(characterId, ids)) this.bump();
+      if (this.replaceInTransaction(characterId, ids)) {
+        this.db.update(schema.library).set({ updatedAt: new Date().toISOString() }).where(eq(schema.library.id, characterId)).run();
+        this.bump();
+      }
     })();
   }
   review(parsed: TagCandidates, assigned: string[] = []): TagReview {
@@ -129,6 +132,7 @@ export class TagStore {
       const parsed = readEmbeddedTags(this.character(characterId).source ?? {});
       const result = this.resolveInTransaction(parsed, policy, this.assigned(characterId));
       const changed = this.replaceInTransaction(characterId, result.ids);
+      if (changed) this.db.update(schema.library).set({ updatedAt: new Date().toISOString() }).where(eq(schema.library.id, characterId)).run();
       if (changed || result.report.created) this.bump();
       return result.report;
     })();
