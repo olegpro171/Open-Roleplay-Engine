@@ -90,6 +90,7 @@ These are review reminders; consult CONCEPTS.md and IMPLEMENTATION.md for the fu
 - Make loading, empty, failed, cancelled, stale, and completed states understandable for affected flows. Show committed success only after the server confirms it. Preserve recoverable user input on failed saves, except where the accepted workflow explicitly discards drafts.
 - Guard UI requests/subscriptions against stale responses after chat or selection changes. Clean up effects and prevent duplicate submissions without relying on that prevention for server integrity. Keep authoritative state distinct from unsaved editing drafts.
 - Reuse established controls and styling. Preserve labels, keyboard access, focus behavior, readable errors, and desktop/phone layouts. Keep implementation details out of ordinary product flows unless they help the user make a decision.
+- Before adding a visual or interaction style, inspect equivalent controls elsewhere in the app and reuse their shared CSS rule or component. For example, Library secondary actions and chat turn controls share hover styling; do not introduce separate colors or duplicate declarations for the same interaction unless the user requests a distinction.
 
 ## Verification requirements
 
