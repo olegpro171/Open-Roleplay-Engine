@@ -238,13 +238,13 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await expect(page.getByRole('article')).toHaveCount(3);
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
-  const builtIn = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Default roleplay · Built in' }) });
+  const builtIn = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Default prompt' }) });
   await builtIn.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
   await page.getByLabel('Fallback text').fill('Modified default');
   await page.getByRole('button', { name: 'Save prompt', exact: true }).click();
-  await builtIn.getByRole('button', { name: 'Restore original', exact: true }).click();
-  await page.locator('.confirmation-dialog').getByRole('button', { name: 'Restore original', exact: true }).click();
+  await builtIn.getByRole('button', { name: 'Restore', exact: true }).click();
+  await page.locator('.confirmation-dialog').getByRole('button', { name: 'Restore', exact: true }).click();
   await builtIn.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
   await expect(page.getByLabel('Fallback text')).toHaveValue('Write the next response in this roleplay. Stay consistent with the established story.');

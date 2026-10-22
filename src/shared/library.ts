@@ -93,7 +93,7 @@ export type LibrarySnapshot = {
 };
 export const defaultInstructions = 'Write the next response in this roleplay. Stay consistent with the established story.';
 export const defaultPrompt: PromptPreset = {
-  name: 'Default roleplay', blocks: [
+  name: 'Default prompt', blocks: [
     { id: 'instructions', name: 'Card system prompt', enabled: true, kind: 'marker', role: 'system', marker: 'card_system_prompt', fallback: defaultInstructions },
     { id: 'character', name: 'Character', enabled: true, kind: 'marker', role: 'system', marker: 'character', fields: [...characterFields] },
     { id: 'persona', name: 'Persona', enabled: true, kind: 'marker', role: 'system', marker: 'persona' },

@@ -487,3 +487,6 @@ button:has(> .ui-icon):has(> .sr-only), .block-actions button { min-width:36px; 
 .chat-text-preview { border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: #131921; }
 [dir=rtl] .story-meta{border-right:0;border-left:1px solid var(--line)}
 [dir=rtl] .part.assistant{border-left:0;border-right:2px solid #5e4b3c;padding-left:0;padding-right:18px}
+
+/* Keep the final prompt-card action aligned for Restore and Delete. */
+.prompt-list .prompt-reset-action{inline-size:100px;justify-content:center}

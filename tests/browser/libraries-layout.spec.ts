@@ -321,3 +321,33 @@ test('returns to the top of a scrollable prompt list after saving or closing a d
   await expect(panel.getByRole('button', { name: 'New prompt', exact: true })).toBeInViewport();
   expect(await panel.evaluate(element => element.scrollTop)).toBe(0);
 });
+
+
+test('aligns Restore and Delete across prompt cards at desktop and phone widths', async ({ page }, testInfo) => {
+  await login(page);
+  await addRecord(page, 'prompts', { ...defaultPrompt, name: 'Aligned prompt actions' });
+  await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'Prompts', exact: true });
+  const builtIn = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Default prompt', exact: true }) });
+  const custom = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Aligned prompt actions', exact: true }) });
+  for (const width of [1440, 820, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const restore = builtIn.getByRole('button', { name: 'Restore', exact: true });
+    const remove = custom.getByRole('button', { name: 'Delete', exact: true });
+    const restoreSize = await restore.evaluate(element => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height }));
+    const deleteSize = await remove.evaluate(element => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height }));
+    expect(restoreSize).toEqual(deleteSize);
+    const positions = await Promise.all([builtIn, custom].map(card => card.getByRole('button').evaluateAll(buttons => {
+      const origin = buttons[0].closest('article')?.getBoundingClientRect();
+      if (!origin) throw new Error('Missing prompt card');
+      return buttons.map(button => {
+        const rect = button.getBoundingClientRect();
+        return { x: rect.x - origin.x, y: rect.y - origin.y };
+      });
+    })));
+    expect(positions[0]).toEqual(positions[1]);
+    expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await builtIn.screenshot({ path: testInfo.outputPath(`default-prompt-${width}.png`) });
+    await custom.screenshot({ path: testInfo.outputPath(`prompt-actions-${width}.png`) });
+  }
+});
