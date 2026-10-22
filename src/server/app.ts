@@ -1,5 +1,5 @@
 import { message } from '../shared/localization.js';
-import { summaryRetrySchema } from '../shared/context.js';
+import { defaultContextPreset, summaryRetrySchema } from '../shared/context.js';
 import { buildInfo } from './installation.js';
 import { BackupService } from './backups.js';
 import { backupLimits, backupTableSchema, dataCommandSchema } from '../shared/backups.js';
@@ -345,6 +345,10 @@ export async function createApp(options: {
   app.post('/api/library/default/restore', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
     store.saveLibrary(revision, 'prompts', defaultPrompt, 'default'); coordinator.changed(); return { ok: true };
+  });
+  app.post('/api/library/default-context/reset', async request => {
+    const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
+    store.saveLibrary(revision, 'contexts', defaultContextPreset, 'default-context'); coordinator.changed(); return { ok: true };
   });
   app.post('/api/library/import', { bodyLimit: pictureBase64Limit + 2000 }, async request => {
     const input = z.object({ revision: revisionSchema, requestId: z.string().uuid().optional(), kind: z.enum(['personas', 'characters']), tagPolicy: tagPolicySchema.optional(), pictureMode: pictureModeSchema.optional(), base64: pictureBase64Schema }).strict().parse(request.body);

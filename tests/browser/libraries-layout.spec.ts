@@ -351,3 +351,40 @@ test('aligns Restore and Delete across prompt cards at desktop and phone widths'
     await custom.screenshot({ path: testInfo.outputPath(`prompt-actions-${width}.png`) });
   }
 });
+
+
+test('resets the built-in context and matches Delete width on desktop and phone', async ({ page }, testInfo) => {
+  await login(page);
+  await addRecord(page, 'contexts', { ...defaultContextPreset, name: 'Independent context actions' });
+  const saved = (await library(page)).contexts.find(item => item.id === 'default-context');
+  expect(saved).toBeDefined();
+  const update = await page.request.put('/api/library/default-context', {
+    headers: { Origin: 'http://127.0.0.1:4173' },
+    data: { kind: 'contexts', revision: (await library(page)).revision, data: { ...defaultContextPreset, name: 'Customized context', minTail: 23 } },
+  });
+  expect(update.ok()).toBe(true);
+  await page.getByRole('button', { name: 'Context presets', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'Context presets', exact: true });
+  const builtIn = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Customized context', exact: true }) });
+  const custom = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Independent context actions', exact: true }) });
+  await expect(builtIn.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0);
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const size = (card: typeof builtIn, name: string) => card.getByRole('button', { name, exact: true }).evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    });
+    expect(await size(builtIn, 'Reset')).toEqual(await size(custom, 'Delete'));
+    expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await builtIn.screenshot({ path: testInfo.outputPath(`context-reset-${width}.png`) });
+  }
+  await builtIn.getByRole('button', { name: 'Reset', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect((await library(page)).contexts.find(item => item.id === 'default-context')?.minTail).toBe(23);
+  await builtIn.getByRole('button', { name: 'Reset', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Reset', exact: true }).click();
+  await expect(panel.getByRole('heading', { name: 'Default context preset', exact: true })).toBeVisible();
+  const reset = (await library(page)).contexts.find(item => item.id === 'default-context');
+  expect(reset).toEqual({ ...defaultContextPreset, id: 'default-context', revision: reset?.revision });
+  await expect(custom).toBeVisible();
+});

@@ -27,6 +27,44 @@ async function* chunks(text: string) { for (let i = 0; i < text.length; i += 37)
 const card: Character = { name: 'Keeper', description: '{{char}} greets {{user}}.', personality: 'Patient', scenario: 'A tower', first_mes: 'Welcome, {{user}}.', mes_example: '' };
 const connection = { name: 'Synthetic', endpoint: 'http://localhost:1234/v1', model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 100, customParameters: {} };
 
+it('protects the built-in context and resets it atomically through the API', async () => {
+  const { app, store } = await createApp({ database: join(folder(), 'reset-context.sqlite') });
+  let cookie = '';
+  const command = (method: 'POST' | 'DELETE', url: string, payload: object) => app.inject({ method, url: '/api' + url,
+    headers: { host: 'localhost', origin: 'http://localhost', cookie }, payload });
+  try {
+    const setup = await command('POST', '/setup', { password: 'synthetic-context-password' });
+    cookie = String(setup.headers['set-cookie']).split(';')[0];
+    const initial = store.libraries();
+    const rejected = await command('DELETE', '/library/default-context', { revision: initial.revision, kind: 'contexts' });
+    expect(rejected.statusCode).toBe(409);
+    expect(store.libraries()).toEqual(initial);
+    store.saveLibrary(initial.revision, 'contexts', { ...defaultContextPreset, name: 'Customized default', minTail: 21,
+      extractionPrompt: 'Custom extraction', promotionPrompt: 'Custom promotion', repairPrompt: 'Custom repair' }, 'default-context');
+    const customId = store.saveLibrary(store.libraryRevision(), 'contexts', { ...defaultContextPreset, name: 'Independent context' });
+    const chatId = store.createChat({ title: 'Context reset story', targetInputTokens: 32000, connectionId: null,
+      promptId: 'default', characterId: null, personaId: null, contextPresetId: 'default-context' });
+    const before = store.snapshot(chatId);
+    if (!before.context.preset) throw new Error('Missing selected context');
+    const independent = store.contextPreset(customId);
+    const revision = store.libraryRevision();
+    const reset = () => command('POST', '/library/default-context/reset', { revision });
+    store.sqlite.exec("CREATE TRIGGER reject_context_reset BEFORE UPDATE ON library WHEN NEW.id = 'default-context' BEGIN SELECT RAISE(ABORT, 'synthetic reset failure'); END");
+    expect((await reset()).statusCode).toBe(500);
+    expect(store.libraryRevision()).toBe(revision);
+    expect(store.snapshot(chatId)).toEqual(before);
+    store.sqlite.exec('DROP TRIGGER reject_context_reset');
+    expect((await reset()).statusCode).toBe(200);
+    expect(store.contextPreset('default-context')).toEqual({ ...defaultContextPreset, id: 'default-context', revision: before.context.preset.revision + 1 });
+    expect(store.snapshot(chatId)).toEqual({ ...before, revision: before.revision + 1,
+      context: { ...before.context, preset: store.contextPreset('default-context') } });
+    expect(store.contextPreset(customId)).toEqual(independent);
+    expect((await reset()).statusCode).toBe(409);
+    expect(store.libraryRevision()).toBe(revision + 1);
+    expect((await command('DELETE', `/library/${customId}`, { revision: store.libraryRevision(), kind: 'contexts' })).statusCode).toBe(200);
+  } finally { await app.close(); }
+});
+
 it('duplicates Connection settings and credentials on the server without exposing the key', async () => {
   const { app, store } = await createApp({ database: join(folder(), 'duplicate-connection.sqlite') });
   let cookie = '';

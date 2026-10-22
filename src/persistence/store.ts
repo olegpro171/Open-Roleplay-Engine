@@ -705,6 +705,7 @@ export class Store {
     this.sqlite.transaction(() => {
       this.checkLibrary(expected);
       if (kind === 'prompts' && id === 'default') throw new AppError(409, 'default_prompt', message("errors.the_default_prompt_can_be_edited_or_restored"));
+      if (kind === 'contexts' && id === 'default-context') throw new AppError(409, 'default_context', message("errors.default_context_cannot_be_deleted"));
       const key = kind === 'personas' ? 'personaId' : kind === 'characters' ? 'characterId' : kind === 'prompts' ? 'promptId' : kind === 'contexts' ? 'contextPresetId' : kind === 'lorebooks' ? 'lorebookId' : 'connectionId';
       if (kind === 'lorebooks') {
         const uses = this.libraries().lorebookUses.find(use => use.bookId === id);

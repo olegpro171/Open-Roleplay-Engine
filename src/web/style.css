@@ -488,5 +488,5 @@ button:has(> .ui-icon):has(> .sr-only), .block-actions button { min-width:36px; 
 [dir=rtl] .story-meta{border-right:0;border-left:1px solid var(--line)}
 [dir=rtl] .part.assistant{border-left:0;border-right:2px solid #5e4b3c;padding-left:0;padding-right:18px}
 
-/* Keep the final prompt-card action aligned for Restore and Delete. */
+/* Keep the final preset-card action aligned for Restore, Reset and Delete. */
 .prompt-list .prompt-reset-action{inline-size:100px;justify-content:center}

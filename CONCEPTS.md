@@ -70,6 +70,8 @@ New factory templates and Restore original use Card system prompt (former Instru
 
 ### Context management system
 
+Accepted on 2026-10-22: Library includes an editable built-in **Default context preset**. It cannot be deleted; **Reset** restores all current factory values after confirmation. Chats selecting it use the reset configuration while saved memory and historical requests remain intact. Other context presets retain Delete.
+
 A system that compacts older messages during long-running conversations and supplies the resulting historical context at a prompt marker. It also manages which messages remain verbatim in the outgoing request.
 
 The initial desired approach is inspired by [Summaryception](https://github.com/Lodactio/Extension-Summaryception): retain recent conversation verbatim, summarize older batches, and progressively compact older summaries into deeper layers.

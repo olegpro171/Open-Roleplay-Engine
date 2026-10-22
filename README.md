@@ -4,6 +4,8 @@ A personal roleplay application with the in-app name **ORE**, currently hosted l
 
 The **third milestone**, durable layered compaction, is implemented for local testing: prepare imported sessions, inspect a layered timeline, edit summaries, and review targeted repairs. Context presets select a separate summarization Connection and editable extraction/compression prompts. Normal generation prepares context when needed. The standalone Python visualizer remains available; see [VISUALIZER.md](docs/VISUALIZER.md).
 
+In **Libraries → Context presets**, the built-in **Default context preset** can be edited or reset to factory values. **Reset** replaces Delete for this preset and asks for confirmation. It preserves saved memory and request history; selecting chats use the reset configuration.
+
 Generated summaries are checked for obvious refusals, placeholders, empty output, repetition loops and incomplete/truncated responses before they can replace source context. These are basic heuristics, not verification of summary facts. Real-model narrative quality and actual phone use remain unverified.
 
 ## Start on this Mac

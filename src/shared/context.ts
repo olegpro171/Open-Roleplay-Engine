@@ -13,7 +13,7 @@ export const contextPresetSchema = z.object({
 }).strict();
 export type ContextPreset = z.infer<typeof contextPresetSchema>;
 export const defaultContextPreset: ContextPreset = {
-  name: 'Layered narrative memory', connectionId: null, minTail: 8, batchSize: 3,
+  name: 'Default context preset', connectionId: null, minTail: 8, batchSize: 3,
   repairPrompt: defaultRepairPrompt,
   summaryTokens: 750, promotionGroup: 3, retainedPerLevel: 3,
   extractionPrompt: `You are ORE's conservative continuity editor for long-form roleplay. Extract one concise, standalone narrative memory from the ordered roleplay turns in the user message's sources array. This memory will replace that source batch in model context.

@@ -18,7 +18,7 @@ import { correctionProtection } from '../src/core/context-corrections.js';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const dispose of cleanup.splice(0)) await dispose(); });
-function fixture(count = 48, target = 500) {
+function fixture(count = 48, target = 500, builtInContext = false) {
   const directory = mkdtempSync(join(tmpdir(), 'roleplay-context-'));
   const filename = join(directory, 'chat.sqlite');
   let store = new Store(filename);
@@ -41,7 +41,7 @@ function fixture(count = 48, target = 500) {
   const connection = { name: 'Story', endpoint: 'http://localhost:1234/v1', model: 'story-model', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} };
   const connectionId = store.saveLibrary(store.libraries().revision, 'connections', connection, undefined, 'story-secret');
   const summaryId = store.saveLibrary(store.libraries().revision, 'connections', { ...connection, name: 'Summary', model: 'summary-model' }, undefined, 'summary-secret');
-  const contextId = store.saveLibrary(store.libraries().revision, 'contexts', { ...defaultContextPreset, connectionId: summaryId, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 });
+  const contextId = store.saveLibrary(store.libraries().revision, 'contexts', { ...defaultContextPreset, connectionId: summaryId, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 }, builtInContext ? 'default-context' : undefined);
   const chatId = store.createChat({ title: 'Imported', targetInputTokens: target, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId });
   const imported = Array.from({ length: count }, (_, i) => ({ user: `Turn ${i + 1}: Mira offers Leon the brass key, but warns him about the cellar. ${'Atmospheric detail. '.repeat(8)}`, assistant: `Leon promises not to enter the cellar. ${'The room remains quiet. '.repeat(7)}`, complete: true }));
   store.replaceHistory(store.snapshot(chatId).revision, chatId, imported);
@@ -66,6 +66,30 @@ function retainedAlternative(f: ReturnType<typeof fixture>, source: SummaryNode,
   f.store.sqlite.prepare('INSERT INTO summaries (id, revision, chat_id, data) VALUES (?, ?, ?, ?)').run(node.id, node.revision, f.chatId, JSON.stringify(node));
   return node;
 }
+
+it('resetting the built-in context preserves prepared memory and immutable request history across restart', async () => {
+  const f = fixture(24, 500, true);
+  f.holdNext();
+  const jobId = f.start();
+  await expect.poll(() => f.calls.length).toBe(1);
+  const running = f.state();
+  expect(() => f.store.saveLibrary(f.store.libraryRevision(), 'contexts', defaultContextPreset, 'default-context')).toThrow('memory preparation');
+  expect(f.state()).toEqual(running);
+  f.release();
+  expect((await f.idle(jobId)).status).toBe('succeeded');
+  const before = f.state();
+  expect(before.context.selected.length).toBeGreaterThan(0);
+  const details = before.context.jobs.map(job => f.store.contexts.details(job.id));
+  const calls = f.calls.length;
+  f.store.saveLibrary(f.store.libraryRevision(), 'contexts', defaultContextPreset, 'default-context');
+  const reset = f.state();
+  expect(reset).toEqual({ ...before, revision: before.revision + 1, context: { ...before.context, preset: reset.context.preset } });
+  expect(reset.context.preset).toMatchObject(defaultContextPreset);
+  expect(f.calls).toHaveLength(calls);
+  expect(reset.context.jobs.map(job => f.store.contexts.details(job.id))).toEqual(details);
+  await f.resume();
+  expect(f.state()).toEqual(reset);
+});
 
 describe('chat Connection for summarization', () => {
   it.each(['step', 'prepare', 'automatic'] as const)('uses the chat model and credentials for %s preparation when the preset has no explicit Connection', async mode => {
