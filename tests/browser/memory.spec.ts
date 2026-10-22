@@ -28,6 +28,10 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Context presets', exact: true }).click();
   await page.getByRole('button', { name: 'New context preset', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Summarization Connection', exact: true })).toContainText('Same as current chat connection');
+  await page.getByRole('combobox', { name: 'Summarization Connection', exact: true }).click();
+  await expect(page.getByRole('option', { name: 'Select a Connection', exact: true })).toHaveCount(0);
+  await page.getByRole('option', { name: 'Same as current chat connection', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Imported story memory');
   await choose(page, 'Summarization Connection', 'Memory summaries · synthetic-summary');
   await page.getByLabel('Minimum verbatim turns').fill('2'); await page.getByLabel('Turns per batch').fill('2');

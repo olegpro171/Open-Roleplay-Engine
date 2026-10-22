@@ -92,8 +92,9 @@ export class ContextCoordinator {
           if (job.mode === 'step') { this.store.contexts.finish(id, 'succeeded'); this.changed(); return; }
           continue;
         }
-        if (operation.turnIds.length && !job.config.connectionId) throw new AppError(422, 'summary_connection_required', message("errors.select_a_summarization_connection_in_the_context_preset"));
-        const connection = operation.turnIds.length ? this.store.connection(job.config.connectionId!) : null;
+        const connectionId = job.config.connectionId ?? (snapshot.settings.connectionId === undefined ? 'main' : snapshot.settings.connectionId);
+        if (operation.turnIds.length && !connectionId) throw new AppError(422, 'summary_connection_required', message("errors.select_a_roleplay_connection_to_measure_the_complete"));
+        const connection = operation.turnIds.length && connectionId ? this.store.connection(connectionId) : null;
         const prepared = connection ? summaryRequest(snapshot, operation, connection, replacements, operation.repair ? this.store.contexts.sourceRequest(job.chatId, operation.repair) : null) : { request: null, prior: [] };
         let retries = 0;
         let saved: SummaryNode | undefined;
@@ -102,7 +103,7 @@ export class ContextCoordinator {
           this.changed();
           let text: string;
           try {
-            text = prepared.request ? await generateSummary(this.provider, prepared.request, this.store.connectionApiKey(job.config.connectionId!), signal) : '';
+            text = prepared.request && connectionId ? await generateSummary(this.provider, prepared.request, this.store.connectionApiKey(connectionId), signal) : '';
           } catch (error) {
             // Retry only provider/output failures. Planning and commit failures need user action.
             if (signal.aborted || this.stopping || !(error instanceof AppError) || error.status !== 502) throw error;

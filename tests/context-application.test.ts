@@ -67,6 +67,30 @@ function retainedAlternative(f: ReturnType<typeof fixture>, source: SummaryNode,
   return node;
 }
 
+describe('chat Connection for summarization', () => {
+  it.each(['step', 'prepare', 'automatic'] as const)('uses the chat model and credentials for %s preparation when the preset has no explicit Connection', async mode => {
+    const f = fixture(12, 700);
+    const preset = f.state().context.preset!;
+    f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...defaultContextPreset, connectionId: null, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 }, preset.id);
+    if (mode === 'automatic') {
+      f.coordinator.start(f.state().revision, randomUUID(), 'Leon waits.', f.chatId);
+      await expect.poll(() => f.state().generations[0].status).toBe('succeeded');
+    } else {
+      expect((await f.idle(f.start(mode))).status).toBe('succeeded');
+    }
+    expect(f.state().context.archivedTurnIds.length).toBeGreaterThan(0);
+    expect(f.calls.length).toBeGreaterThan(0);
+    expect(f.calls.every(call => call.request.body.model === 'story-model' && call.apiKey === 'story-secret')).toBe(true);
+    const summary = f.state().context.summaries[0];
+    f.store.editPart(f.state().revision, summary.turns[0].turnId, 'user', 'Mira kept her key.', f.chatId);
+    const callCount = f.calls.length;
+    const repaired = await f.idle(f.start('repair'));
+    expect(['succeeded', 'awaiting_review']).toContain(repaired.status);
+    expect(f.calls.length).toBeGreaterThan(callCount);
+    expect(f.calls.slice(callCount).every(call => call.request.body.model === 'story-model' && call.apiKey === 'story-secret')).toBe(true);
+  });
+});
+
 describe('summary deletion', () => {
   it('deletes every version and consumer atomically, preserves requests and restores a contiguous tail across restart', async () => {
     const f = fixture(24); await f.idle(f.start());

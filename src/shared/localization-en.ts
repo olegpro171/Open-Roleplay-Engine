@@ -463,7 +463,7 @@ export const englishMessages = {
   "libraries.summaries_per_promotion": "Summaries per promotion",
   "libraries.retain_summaries_per_level": "Retain summaries per level",
   "libraries.summarization_connection": "Summarization Connection",
-  "libraries.select_a_connection": "Select a Connection",
+  "libraries.same_as_current_chat_connection": "Same as current chat connection",
   "libraries.the_input_target_belongs_to_each_chat": "The input target belongs to each chat. Summary size is a prompt target; the Connection reserves output separately. Preparation stops when input fits. Promotion uses actual layer sizes and protects the newest summaries at each level.",
   "libraries.first_layer_extraction_prompt": "First-layer extraction prompt",
   "libraries.higher_layer_compression_prompt": "Higher-layer compression prompt",
