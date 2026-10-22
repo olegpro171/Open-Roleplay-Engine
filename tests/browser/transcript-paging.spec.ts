@@ -157,7 +157,7 @@ test('rejects delayed stale pages, reconciles generation outside the window and 
   const current = await page.request.get(`/api/chats/${id}`).then(response => response.json());
   const started = await page.request.post(`/api/chats/${id}/turns`, { headers, data: { revision: current.revision, text: 'Remote next input.', requestId: crypto.randomUUID() } });
   expect(started.status()).toBe(202);
-  await expect(page.getByLabel('Your next turn')).toBeDisabled();
+  await expect(page.getByLabel('Your next turn')).toBeEnabled();
   await expect(transcript.locator('.turn').first()).toHaveAttribute('aria-label', 'Turn 66');
   await expect(page.getByRole('article', { name: 'Turn 201', exact: true })).toHaveCount(0);
   await page.reload();

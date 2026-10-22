@@ -54,9 +54,9 @@ test('filters with AND, preserves character drafts through catalog edits, and ma
   await row(page, 'Tag A copy').getByRole('button', { name: /^Edit(?: |$)/ }).click();
   await expect(chooser(page).getByRole('checkbox', { name: /tag-journey/ })).toBeChecked();
   await expect(chooser(page).getByRole('checkbox', { name: /tag-new, punctuation/ })).toBeChecked();
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await row(page, 'Tag A').getByRole('button', { name: /^Edit(?: |$)/ }).click();
-  await chooser(page).getByRole('button', { name: 'Remove tag-new, punctuation', exact: true }).click(); await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await chooser(page).getByRole('button', { name: 'Remove tag-new, punctuation', exact: true }).click(); await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await row(page, 'Tag A').getByRole('button', { name: /^Edit(?: |$)/ }).click(); await expect(chooser(page).getByRole('checkbox', { name: /tag-new, punctuation/ })).toBeChecked();
   await chooser(page).getByRole('button', { name: 'Remove tag-new, punctuation', exact: true }).click(); await page.getByRole('button', { name: 'Save character', exact: true }).click();
   await openFilters(page); await filters(page).getByRole('checkbox', { name: /tag-unused/ }).check(); await expect(page.getByRole('status').filter({ hasText: 'No characters match all selected tags' })).toBeVisible();
@@ -95,7 +95,7 @@ test('reviews every import mode before commit, cancels without writes and safely
       await page.unroute('**/api/library/import');
       await page.getByRole('button', { name: 'New character', exact: true }).click();
       await page.getByLabel('Name', { exact: true }).fill('Temporary draft during import recovery');
-      await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       await expect(page.getByRole('button', { name: 'Retry reviewed character import', exact: true })).toBeEnabled();
       await page.route('**/api/library/import', async route => { commands.push(route.request().postDataJSON()); await route.continue(); });
       await page.getByRole('button', { name: 'Retry reviewed character import', exact: true }).click(); await expect(row(page, 'Tag import all')).toBeVisible();
@@ -111,10 +111,10 @@ test('reviews every import mode before commit, cancels without writes and safely
   await row(page, 'Tag import none').getByRole('button', { name: /^Edit(?: |$)/ }).click(); await page.getByLabel('Character description').fill('Unsaved text during apply');
   await page.getByRole('button', { name: 'Review embedded tags', exact: true }).click(); await page.getByText('Review tags', { exact: true }).click(); await page.getByRole('radio', { name: 'Import all', exact: true }).check(); await page.getByRole('button', { name: 'Apply reviewed tags', exact: true }).click();
   await expect(page.getByLabel('Character description')).toHaveValue('Unsaved text during apply'); await expect(chooser(page).getByRole('checkbox', { name: /import-adventure/ })).toBeChecked();
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click(); await expect(row(page, 'Tag import none')).not.toContainText('import-adventure');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(row(page, 'Tag import none')).not.toContainText('import-adventure');
   await row(page, 'Tag import none').getByRole('button', { name: /^Edit(?: |$)/ }).click();
   await expect(chooser(page).getByRole('checkbox', { name: /import-adventure/ })).toBeChecked();
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click(); await expect(row(page, 'Tag import none')).toContainText('Saved character text');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(row(page, 'Tag import none')).toContainText('Saved character text');
 });
 
 test('previews descriptions, paginates bounded tag rows and imports all tags by default', async ({ page }) => {
@@ -219,7 +219,7 @@ test('refreshes another tab, prunes deleted filters, retains failed drafts and r
   await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(page.getByRole('alert').filter({ hasText: 'Synthetic tag save conflict' }).first()).toBeVisible(); await expect(page.getByLabel('Character description')).toHaveValue('Draft retained on conflict'); await page.unroute(`**/api/library/${character.id}`);
   await command(other, '/library/tags', { revision: (await library(other)).revision, name: 'concurrent-change' });
   await expect(page.getByRole('button', { name: 'Save character', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click(); await row(page, 'Tag concurrent').getByRole('button', { name: /^Edit(?: |$)/ }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click(); await row(page, 'Tag concurrent').getByRole('button', { name: /^Edit(?: |$)/ }).click();
   await openManager(page); await manager(page).getByLabel('New tag name').fill('CONCURRENT-CHANGE'); await manager(page).getByRole('button', { name: 'Create tag', exact: true }).click();
   await expect(manager(page).getByRole('alert')).toContainText('already exists'); await expect(manager(page).getByLabel('New tag name')).toHaveValue('CONCURRENT-CHANGE');
   await page.setViewportSize({ width: 1280, height: 900 }); await page.screenshot({ path: 'test-results/tags-desktop.png', fullPage: true }); await other.close();
@@ -322,7 +322,7 @@ test('keeps tag search from shrinking the editor or moving its reading position'
     await expect(tags.getByRole('checkbox')).toHaveCount(1);
     expect((await tags.boundingBox())?.height).toBeCloseTo(expanded.height, 0);
     await search.fill('');
-    await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await openFilters(page);
     const picker = filters(page), pickerBounds = await picker.boundingBox();
     if (!pickerBounds) throw new Error('Missing tag filter picker');

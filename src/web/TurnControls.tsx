@@ -17,7 +17,9 @@ export function TurnControls({ turn, locked, editing, inputVisible, action, reas
 }) {
   useLocale();
   return <div className="turn-controls" role="group" aria-label={t("turn_controls.turn_controls")}>
-    <ResponseVariants turn={turn} locked={locked || editing} select={select} />
+    <ResponseVariants turn={turn} locked={locked || editing} select={select}
+      regenerating={turn.complete && action?.kind === 'cancel'}
+      regenerate={action?.kind === 'regenerate' && !action.disabled ? action.run : undefined} />
     <div className="turn-actions">
       {action && <TurnActionButton action={action.kind} label={action.kind === 'cancel' ? t("character_import.cancel") : t("turn_controls.regenerate_response")} disabled={action.disabled} onClick={action.run} />}
       {inputVisible && <TurnActionButton action="input" label={t("turn_controls.edit_input")} disabled={locked} onClick={() => edit('user')} />}

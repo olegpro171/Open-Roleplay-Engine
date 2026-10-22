@@ -37,7 +37,9 @@ test('switches response versions with arrows and a textbox, restores summarized 
   const next = turn.getByRole('button', { name: 'Next response', exact: true });
   await expect(version).toHaveValue('2');
   await expect(turn.getByLabel('2 response versions', { exact: true })).toHaveText('/ 2');
-  await expect(next).toBeDisabled();
+  // The newest response now offers a new regeneration through the right arrow.
+  await expect(next).toBeEnabled();
+  await expect(next).toHaveAttribute('title', 'Regenerate response');
   await expect(page.getByRole('button', { name: 'Inspect response request', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Use this response', exact: true })).toHaveCount(0);
   await previous.click();
@@ -127,7 +129,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: `test-results/${width === 390 ? 'phone' : 'desktop'}-regeneration-inline.png`, fullPage: true });
   }
-  await expect(page.getByLabel('Your next turn')).toBeDisabled();
+  await expect(page.getByLabel('Your next turn')).toBeEnabled();
   await turn.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(turn.locator('.part.assistant .prose')).toHaveText('Original A.');
   await expect(page.getByLabel('Your next turn')).toBeEnabled();

@@ -59,7 +59,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByLabel('Name', { exact: true })).toHaveValue(name);
     await expect(page.getByLabel('Title / comment', { exact: true })).toHaveValue('University version');
     await page.getByLabel('Title / comment', { exact: true }).fill('Unsaved title');
-    await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(page.getByRole('heading', { name: university, exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: `Edit ${university}`, exact: true }).click();

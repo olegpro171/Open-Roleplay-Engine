@@ -405,6 +405,13 @@ export async function createApp(options: {
     const tags = store.tags.applyEmbedded(input.revision, id, input.tagPolicy); coordinator.changed();
     return { tags, revision: store.libraryRevision() };
   });
+  app.post('/api/library/connections/:id/duplicate', async request => {
+    const { id } = z.object({ id: identity }).parse(request.params);
+    const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
+    const copied = store.duplicateConnection(revision, id);
+    coordinator.changed();
+    return { id: copied };
+  });
   app.post('/api/library/characters/:id/duplicate', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
@@ -457,7 +464,9 @@ export async function createApp(options: {
   });
   app.put('/api/chats/:chatId/history', { bodyLimit: 25_000_000 }, async request => {
     const input = replaceHistorySchema.parse(request.body);
-    store.replaceHistory(input.revision, chatId(request.params), input.turns); coordinator.changed(); return { ok: true };
+    const revision = store.replaceHistory(input.revision, chatId(request.params), input.turns);
+    coordinator.changed();
+    return { ok: true, revision };
   });
   app.get('/api/chats/:chatId/story', async request => {
     const snapshot = storyReader.read(chatId(request.params), transcriptQuerySchema.parse(request.query));

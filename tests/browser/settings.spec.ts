@@ -39,6 +39,10 @@ for (const width of [1440, 820, 390, 320]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(await content.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`settings-${width}.png`) });
+    await categories.getByRole('button', { name: 'Chat appearance', exact: true }).click();
+    await expect(page.getByLabel('Default character speech color', { exact: true })).toBeVisible();
+    expect(await content.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`settings-appearance-${width}.png`) });
 
     const pageNode = await content.elementHandle();
     await categories.getByRole('button', { name: 'Wipe application data', exact: true }).click();

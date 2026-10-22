@@ -2,7 +2,7 @@
 
 2026-10-19 UI update: the Import without picture control and its metadata-only escape are superseded. Character import retains artwork automatically; invalid artwork blocks import and requires selecting a valid PNG or JSON card. The explicit API mode remains for compatibility. See [PICTURES.md](PICTURES.md) for the current workflow.
 
-2026-10-19 editor update: the original-picture download disclosure and separate Edit imported character / Adjust crop shortcut are removed from the interface. Retained originals still support recropping. Save and Close editor now use the shared library sidebar actions.
+2026-10-19 editor update: the original-picture download disclosure and separate Edit imported character / Adjust crop shortcut are removed from the interface. Retained originals still support recropping. Save and Cancel use shared library editor actions; the 2026-10-22 refinement places them together below the form.
 
 Prepared: 2026-10-18.
 

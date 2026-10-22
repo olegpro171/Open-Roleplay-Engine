@@ -39,7 +39,7 @@ test('selects Character fields, groups resolved messages and sends exact automat
   await expect(fields.getByRole('checkbox')).toHaveCount(5);
   for (const label of ['Name', 'Personality', 'Example dialogue']) await fields.getByRole('checkbox', { name: label, exact: true }).uncheck();
   await choose(page, 'Role for block 2', 'user');
-  await choose(page, 'Marker source for block 2', 'Character');
+  await choose(page, 'Marker source for block 2', 'Character — selected card fields');
   await expect(fields.getByRole('checkbox', { name: 'Personality', exact: true })).not.toBeChecked();
   await page.getByRole('combobox', { name: 'Marker source for block 2', exact: true }).click();
   await expect(page.getByRole('option', { name: /Lore/ })).toHaveCount(0);
@@ -57,7 +57,7 @@ test('selects Character fields, groups resolved messages and sends exact automat
   await page.getByRole('button', { name: 'Expand block 2', exact: true }).click();
   await expect(fields.getByRole('checkbox', { name: 'Name', exact: true })).not.toBeChecked();
   await expect(fields.getByRole('checkbox', { name: 'Description', exact: true })).toBeChecked();
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   const exported = await page.request.get(`/api/library/prompts/${saved.id}/export`).then(response => response.json() as Promise<PromptPreset>);
   expect(exported.blocks).toEqual(saved.blocks);
   const chat = await command('/api/chats', { title: 'Character field story', targetInputTokens: 5000, connectionId: connection.id, characterId: character.id, promptId: saved.id, personaId: null, lorebookId: book.id });

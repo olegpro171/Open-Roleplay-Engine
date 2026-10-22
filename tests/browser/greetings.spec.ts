@@ -41,10 +41,10 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: `Edit ${name}`, exact: true }).click();
     await expect(page.getByLabel('Alternate greeting 2', { exact: true })).toHaveValue('A third beginning.\n\nA second paragraph.');
     await page.getByLabel('Alternate greeting 1', { exact: true }).fill('Discard this draft.');
-    await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.getByRole('button', { name: `Edit ${name}`, exact: true }).click();
     await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue('Edited greeting for {{user}} from {{char}}.');
-    await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
     await page.getByRole('button', { name: 'Chats', exact: true }).click();
     await page.getByRole('button', { name: 'New chat', exact: true }).click();

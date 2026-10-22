@@ -69,7 +69,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await request.post('/__test/finish', { data: {} });
   await expect(page.getByLabel('Conversation')).toContainText('The lantern');
   await expect(phone.getByLabel('Conversation')).toContainText('I enter the tower.');
-  await expect(phone.getByLabel('Your next turn')).toBeDisabled();
+  await expect(phone.getByLabel('Your next turn')).toBeEnabled();
   await phone.goto('about:blank');
   await request.post('/__test/finish', { data: {} });
   await expect(page.getByLabel('Conversation')).toContainText('The lantern flickers.');
@@ -140,7 +140,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await expect(page.getByRole('button', { name: 'Retry response' })).toBeVisible();
   await expect(page.locator('.recovery')).toContainText('Last turn is still pending.');
   await expect(page.locator('.recovery')).toContainText('Response cancelled. Generate response before next turn.');
-  await expect(page.getByLabel('Your next turn')).toBeDisabled();
+  await expect(page.getByLabel('Your next turn')).toBeEnabled();
   await request.post('/__test/mode', { data: { mode: 'hold' } });
   await page.getByRole('button', { name: 'Retry response' }).click();
   await expect(pendingTurn.locator('.part.assistant .prose')).toHaveText('The lantern');
@@ -150,7 +150,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await page.reload();
   await expect(pendingTurn.locator('.part.assistant .prose')).toHaveText('The lantern');
   await expect(phonePendingTurn.locator('.part.assistant .prose')).toHaveText('The lantern');
-  await expect(page.getByLabel('Your next turn')).toBeDisabled();
+  await expect(page.getByLabel('Your next turn')).toBeEnabled();
   await request.post('/__test/mode', { data: { mode: 'normal' } });
   await page.getByRole('button', { name: 'Retry response' }).click();
   await expect(page.getByLabel('Your next turn')).toBeEnabled();
@@ -175,7 +175,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Personas', exact: true }).click();
   const persona = { personas: { 'visitor.png': 'Visitor' }, persona_descriptions: { 'visitor.png': { description: '{{user}} is visiting {{char}}.' } } };
-  await page.getByLabel('Import personas').setInputFiles({ name: 'personas.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(persona)) });
+  await page.getByLabel('Import persona').setInputFiles({ name: 'personas.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(persona)) });
   await expect(page.getByRole('heading', { name: 'Visitor', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Characters', exact: true }).click();
   const card = { spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'Moon', description: '{{char}} welcomes {{user}}.', personality: 'Kind', scenario: 'An observatory', first_mes: 'Hello, {{user}}. I am {{char}}.', mes_example: '', character_book: { extensions: {}, entries: [{ keys: [], content: 'INACTIVE LORE', enabled: false, insertion_order: 0, extensions: {} }] } } };
@@ -192,7 +192,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await page.getByLabel('Block text').fill('After history: {{char}} answers.');
   await page.getByRole('button', { name: 'Add marker', exact: true }).click();
   await page.getByRole('button', { name: 'Expand block 8', exact: true }).click();
-  await choose(page, 'Marker source for block 8', 'Scenario');
+  await choose(page, 'Marker source for block 8', 'Character scenario');
   await page.getByRole('button', { name: 'Move block 8 up', exact: true }).click();
   await page.getByRole('button', { name: 'Save prompt', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
@@ -248,7 +248,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await builtIn.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
   await expect(page.getByLabel('Fallback text')).toHaveValue('Write the next response in this roleplay. Stay consistent with the established story.');
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/phone-libraries.png', fullPage: true });
@@ -339,7 +339,7 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/phone-prompt.png', fullPage: true });
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
   await page.getByRole('button', { name: 'Create chat', exact: true }).click();

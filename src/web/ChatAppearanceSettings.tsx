@@ -64,8 +64,7 @@ export function ChatAppearanceSettings({ status, committed }: { status: Appearan
           <ChatMarkdown text={t("chat_appearance_settings.the_story_continues_hello")} textScale={draft.settings.chatTextScale} speechColor={draft.settings.characterSpeechColor} />
         </div>
       </fieldset>
-      <p>{t("chat_appearance_settings.default_direct_speech_colors_for_cards_with")}</p>
-      <fieldset disabled={busy || conflict}><legend>{t("chat_appearance_settings.default_speech_colors")}</legend><div className="form-grid">
+      <fieldset disabled={busy || conflict}><legend>{t("chat_appearance_settings.default_speech_colors")}</legend><div className="speech-color-defaults">
         <label className="speech-color-selector">{t("chat_appearance_settings.character_speech_color")}<input aria-label={t("chat_appearance_settings.default_character_speech_color")} type="color" value={draft.settings.characterSpeechColor} onChange={event => { setDraft({ ...draft, settings: { ...draft.settings, characterSpeechColor: event.target.value } }); setMessage(''); }} /></label>
         <label className="speech-color-selector">{t("chat_appearance_settings.persona_speech_color")}<input aria-label={t("chat_appearance_settings.default_persona_speech_color")} type="color" value={draft.settings.personaSpeechColor} onChange={event => { setDraft({ ...draft, settings: { ...draft.settings, personaSpeechColor: event.target.value } }); setMessage(''); }} /></label>
       </div></fieldset>

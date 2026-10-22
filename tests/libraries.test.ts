@@ -27,6 +27,44 @@ async function* chunks(text: string) { for (let i = 0; i < text.length; i += 37)
 const card: Character = { name: 'Keeper', description: '{{char}} greets {{user}}.', personality: 'Patient', scenario: 'A tower', first_mes: 'Welcome, {{user}}.', mes_example: '' };
 const connection = { name: 'Synthetic', endpoint: 'http://localhost:1234/v1', model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 100, customParameters: {} };
 
+it('duplicates Connection settings and credentials on the server without exposing the key', async () => {
+  const { app, store } = await createApp({ database: join(folder(), 'duplicate-connection.sqlite') });
+  let cookie = '';
+  const cmd = (url: string, data: unknown) => app.inject({ method: 'POST', url: '/api' + url,
+    headers: { host: 'localhost', origin: 'http://localhost', cookie, 'content-type': 'application/json' }, payload: JSON.stringify(data) });
+  try {
+    const setup = await cmd('/setup', { password: 'synthetic-library-password' });
+    cookie = String(setup.headers['set-cookie']).split(';')[0];
+    const original = store.saveLibrary(store.libraryRevision(), 'connections', { ...connection, requestUsage: false }, undefined, 'synthetic-copy-secret');
+    const revision = store.libraryRevision();
+    const copied = await cmd(`/library/connections/${original}/duplicate`, { revision });
+    expect(copied.statusCode).toBe(200);
+    const id: string = copied.json().id;
+    expect(id).not.toBe(original);
+    expect(store.connection(id)).toEqual({ ...connection, requestUsage: false, name: 'Synthetic copy' });
+    expect(store.connectionApiKey(id)).toBe('synthetic-copy-secret');
+    expect(store.libraryRevision()).toBe(revision + 1);
+    const publicLibrary = await app.inject({ method: 'GET', url: '/api/library', headers: { host: 'localhost', cookie } });
+    expect(publicLibrary.json().connections.find((item: { id: string }) => item.id === id).hasApiKey).toBe(true);
+    expect(publicLibrary.body + copied.body).not.toContain('synthetic-copy-secret');
+    expect((await cmd(`/library/connections/${original}/duplicate`, { revision })).statusCode).toBe(409);
+    expect(store.libraryRevision()).toBe(revision + 1);
+    expect((await cmd(`/library/connections/${randomUUID()}/duplicate`, { revision: store.libraryRevision() })).statusCode).toBe(404);
+    const beforeFailure = store.libraries();
+    store.sqlite.exec("CREATE TRIGGER reject_copied_key BEFORE INSERT ON credentials WHEN NEW.api_key = 'synthetic-copy-secret' BEGIN SELECT RAISE(ABORT, 'synthetic credential write failure'); END");
+    expect((await cmd(`/library/connections/${original}/duplicate`, { revision: store.libraryRevision() })).statusCode).toBe(500);
+    expect(store.libraries()).toEqual(beforeFailure);
+    store.sqlite.exec('DROP TRIGGER reject_copied_key');
+    const withoutKey = store.saveLibrary(store.libraryRevision(), 'connections', connection);
+    const emptyCopy = await cmd(`/library/connections/${withoutKey}/duplicate`, { revision: store.libraryRevision() });
+    expect(emptyCopy.statusCode).toBe(200);
+    expect(store.connectionApiKey(emptyCopy.json().id)).toBe('');
+    store.saveLibrary(store.libraryRevision(), 'connections', { ...connection, name: 'Changed original' }, original, 'changed-secret');
+    expect(store.connectionApiKey(id)).toBe('synthetic-copy-secret');
+    expect(store.connection(id).name).toBe('Synthetic copy');
+  } finally { await app.close(); }
+});
+
 it('exposes current character assignments in full and incremental chat lists', () => {
   const store = new Store(join(folder(), 'chat-characters.sqlite'));
   try {

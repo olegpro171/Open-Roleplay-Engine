@@ -79,7 +79,7 @@ test('lore entry deletion stays in the book draft until saved', async ({ page })
   await page.getByRole('button', { name: 'Delete entry', exact: true }).click();
   await dialog.getByRole('button', { name: 'Delete entry', exact: true }).click();
   await expect(entry).toHaveCount(0);
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await row.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(entry).toHaveValue('Keep the gate');
   await page.getByRole('button', { name: 'Delete entry', exact: true }).click();

@@ -185,7 +185,9 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   // Story now mounts a bounded window; read backward to the turn under test.
   while (await page.getByRole('article', { name: 'Turn 100', exact: true }).count() === 0) {
     const first = await transcript.locator('.turn').first().getAttribute('aria-label');
-    await transcript.evaluate(node => { node.scrollTop = 0; });
+    // A direct scroll immediately after setViewportSize can precede resize
+    // restoration. Use the normal control for setup; anchor assertions follow.
+    await page.getByRole('button', { name: 'Load older turns', exact: true }).click();
     await expect.poll(() => transcript.locator('.turn').first().getAttribute('aria-label')).not.toBe(first);
   }
   await transcript.evaluate(node => {

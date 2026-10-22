@@ -17,7 +17,7 @@ import { upgradePrompt } from '../core/prompt-upgrade';
 import { importChat } from '../core/chat-import';
 import { CharacterImport } from './CharacterImport';
 import { CharacterEditor } from './CharacterEditor';
-import { EditorActions, EditorActionsTarget } from './EditorActions';
+import { EditorActions } from './EditorActions';
 import { EditorTextarea } from './EditorTextarea';
 import { TagChips, TagFilterMenu } from './Tags';
 import { characterTagIndex, matchesCharacterTags } from '../shared/tags';
@@ -95,7 +95,7 @@ function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnap
 export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, returnToChat, openLibraryItem }: { snapshot: ChatSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; saved: () => void; sidebar: ReactNode; returnToChat: () => void; openLibraryItem: (target: LibraryTarget) => void }) {
   useLocale();
   const [value, setValue] = useState(() => selection(snapshot, library));
-  const [revision] = useState(snapshot.revision);
+  const [revision, setRevision] = useState(snapshot.revision);
   const confirmAction = useConfirmation(snapshot.id);
   const [diagnosticsRetry, setDiagnosticsRetry] = useState(0);
   const diagnosticsKey = JSON.stringify([snapshot.id, snapshot.revision, library.revision, value.promptId, value.characterId, value.personaId, value.lorebookId, diagnosticsRetry]);
@@ -138,7 +138,10 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
     </form><section className="import-panel" aria-label={t("libraries.prompt_configuration_warnings")}><h2>{t("libraries.prompt_configuration_warnings")}</h2>
       <p className="small muted">{t("libraries.checks_the_selections_shown_above_keyword_matches")}</p>
       {diagnostics?.key !== diagnosticsKey ? <p role="status">{t("libraries.checking_prompt_configuration")}</p> : diagnostics.error ? <><p role="alert">{formatMessage(diagnostics.error)}</p><button type="button" className="secondary" onClick={() => setDiagnosticsRetry(value => value + 1)}>{t("libraries.check_again")}</button></> : diagnostics.warnings.length ? <ul>{diagnostics.warnings.map(warning => <li key={warning.code}><p>{formatMessage(warning.localized ?? warning.message)}</p><button type="button" className="secondary" onClick={() => openWarning(warning)}><Icon name="EditOutline" />{t("libraries.edit", { value: warning.target === 'prompts' ? t("interface.prompt_preset") : warning.target === 'characters' ? 'character' : 'lorebook' })}</button></li>)}</ul> : <p>{t("libraries.no_prompt_configuration_warnings")}</p>}
-    </section><HistoryImport snapshot={snapshot} busy={busy} run={run} />
+    </section><HistoryImport snapshot={snapshot} busy={busy} run={run} committed={(before, after) => {
+      // Adopt only our own import, never a revision changed by another editor.
+      setRevision(current => current === before ? after : current);
+    }} />
   </section></ChatWorkspace>;
 }
 async function* fileChunks(file: File) {
@@ -146,10 +149,21 @@ async function* fileChunks(file: File) {
   try { while (true) { const { done, value } = await reader.read(); if (done) break; yield decoder.decode(value, { stream: true }); } yield decoder.decode(); }
   finally { reader.releaseLock(); }
 }
-function HistoryImport({ snapshot, busy, run }: { snapshot: ChatSnapshot; busy: boolean; run: Run }) {
+function HistoryImport({ snapshot, busy, run, committed }: { snapshot: ChatSnapshot; busy: boolean; run: Run; committed: (before: number, after: number) => void }) {
   useLocale();
   const [imported, setImported] = useState<Awaited<ReturnType<typeof importChat>> | null>(null);
   const [revision, setRevision] = useState(snapshot.revision), [error, setError] = useTextState(''), [reading, setReading] = useState(false), [filename, setFilename] = useState('');
+  async function replace() {
+    if (!imported || busy || revision !== snapshot.revision) return;
+    const saved = await run(async () => {
+      const result = await api<{ revision: number }>(`/chats/${snapshot.id}/history`, 'PUT', { revision, turns: imported.turns });
+      committed(revision, result.revision);
+    });
+    if (saved) {
+      setImported(null);
+      setFilename('');
+    }
+  }
   return <section className="import-panel"><h2>{t("libraries.replace_chat_messages_from_a_file")}</h2><p className="muted small">{t("libraries.choose_a_sillytavern_jsonl_export_the_file")}</p>
     <label>{t("libraries.chat_jsonl_file")}<input type="file" accept=".jsonl" disabled={busy || reading} onChange={async e => {
       const file = e.target.files?.[0]; setImported(null); setError(''); if (!file) return;
@@ -158,7 +172,7 @@ function HistoryImport({ snapshot, busy, run }: { snapshot: ChatSnapshot; busy: 
       catch (err) { setError(errorText(err, msg("libraries.could_not_read_this_file"))); } finally { setReading(false); }
     }} /></label>
     {reading && <p role="status">{t("libraries.reading_message_text")}</p>}{error && <p role="alert">{error}</p>}
-    {imported && <div className="budget"><strong>{t("libraries.messages_turns", { filename: filename, messages: imported.messages, length: imported.turns.length })}</strong><span>{t("libraries.additional_turns_preserve_consecutive_same_speaker_messages", { extraTurns: imported.extraTurns, value: imported.turns.at(-1)?.complete ? t("interface.all_turns_are_complete") : t("interface.the_final_user_turn_will_await_a_response") })}</span><small>{t("libraries.old_summaries_memory_state_alternate_swipes_and")}</small><p>{t("libraries.this_replaces_existing_turns_and_their_request", { length: snapshot.turns.length })}</p><button disabled={busy || revision !== snapshot.revision} onClick={async () => { if (await run(() => api(`/chats/${snapshot.id}/history`, 'PUT', { revision, turns: imported.turns }))) { setImported(null); setFilename(''); } }}>{t("libraries.replace_all_messages")}</button>{revision !== snapshot.revision && <span role="status">{t("libraries.the_chat_changed_select_the_file_again")}</span>}</div>}
+    {imported && <div className="budget"><strong>{t("libraries.messages_turns", { filename: filename, messages: imported.messages, length: imported.turns.length })}</strong><span>{t("libraries.additional_turns_preserve_consecutive_same_speaker_messages", { extraTurns: imported.extraTurns, value: imported.turns.at(-1)?.complete ? t("interface.all_turns_are_complete") : t("interface.the_final_user_turn_will_await_a_response") })}</span><small>{t("libraries.old_summaries_memory_state_alternate_swipes_and")}</small><p>{t("libraries.this_replaces_existing_turns_and_their_request", { length: snapshot.turns.length })}</p><button disabled={busy || revision !== snapshot.revision} onClick={() => void replace()}>{t("libraries.replace_all_messages")}</button>{revision !== snapshot.revision && <span role="status">{t("libraries.the_chat_changed_select_the_file_again")}</span>}</div>}
   </section>;
 }
 function download(value: unknown, name: string) {
@@ -234,7 +248,6 @@ export function Libraries({ library, currentChatId, busy, run, openChat, initial
   const [notice, setNotice] = useTextState(''), [diagnostics, setDiagnostics] = useState<LoreDiagnostic[]>([]), [search, setSearch] = useState('');
   const [pendingBook, setPendingBook] = useState<string | null>(null);
   const [filters, setFilters] = useState<string[]>([]);
-  const [editorActionsTarget, setEditorActionsTarget] = useState<HTMLDivElement | null>(null);
   const pictureIndex = useMemo(() => new Map(library.characterPictures.map(picture => [picture.characterId, picture])), [library.characterPictures]);
   const tagCatalog = useMemo(() => new Map(library.tags.map(tag => [tag.id, tag])), [library.tags]);
   const tagIndex = useMemo(() => characterTagIndex(library.characterTags), [library.characterTags]);
@@ -264,7 +277,22 @@ export function Libraries({ library, currentChatId, busy, run, openChat, initial
     const data = kind === 'lorebooks' ? newLorebook() : kind === 'connections' ? defaultConnection : kind === 'contexts' ? structuredClone(defaultContextPreset) : kind === 'prompts' ? { ...structuredClone(defaultPrompt), name: 'New prompt' } : kind === 'personas' ? { name: '', titleComment: '', description: '' } : { name: '', titleComment: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', lorebookId: null };
     setEditing({ kind, revision: library.revision, data });
   }
-  return <EditorActionsTarget value={editorActionsTarget}><main className="library-layout">
+  async function duplicate(item: Saved<LibraryRecord>) {
+    if (section === 'chats') return;
+    if (section === 'characters' || section === 'connections') {
+      await api(`/library/${section}/${item.id}/duplicate`, 'POST', { revision: library.revision });
+    } else {
+      const { id: _id, revision: _revision, ...data } = item;
+      await api('/library', 'POST', { kind: section, revision: library.revision, data: {
+        ...data, name: `${item.name.slice(0, 90)} copy`,
+        ...('entries' in data ? { entries: data.entries.map(entry => ({ ...entry, id: newId() })) } : {}),
+      } });
+    }
+    setNotice(section === 'connections' ? msg("libraries.connection_copied_add_its_api_key_in")
+      : section === 'characters' && 'lorebookId' in item && item.lorebookId ? msg("libraries.character_copied_its_default_lorebook_is_shared")
+      : section === 'lorebooks' ? msg("libraries.independent_lorebook_copy_saved") : msg("libraries.copy_saved"));
+  }
+  return <main className="library-layout">
     <aside className="library-sidebar">
       <p className="eyebrow">{t("libraries.your_libraries")}</p>
       <nav className="library-tabs" aria-label={t("libraries.library_categories")}>
@@ -283,7 +311,6 @@ export function Libraries({ library, currentChatId, busy, run, openChat, initial
           }}
         ><LibraryIcon kind={kind} />{libraryLabel(kind)}</button>)}
       </nav>
-      {editing && <div ref={setEditorActionsTarget} />}
     </aside>
     <section ref={panel} key={section} className="document-panel library-panel" aria-labelledby="library-heading">
     <h1 id="library-heading">{libraryLabel(section)}</h1>
@@ -332,7 +359,7 @@ export function Libraries({ library, currentChatId, busy, run, openChat, initial
       </div>}
       <div className={`library-list${section === 'characters' ? ' character-list' : ''}`}>{visibleRecords.map(item => <article key={item.id}>{section === 'characters' && <PictureSquare url={pictureIndex.get(item.id)?.thumbnailUrl} />}<div className={section === 'characters' ? 'character-row-content' : undefined}><h2 title={section === 'characters' || section === 'personas' ? characterLabel(item) : undefined}>{item.name}{(section === 'characters' || section === 'personas') && 'titleComment' in item && item.titleComment && <span className="character-comment"> · {item.titleComment}</span>}{item.id === 'default' ? t("libraries.built_in") : ''}</h2>{section === 'characters' && 'description' in item ? <CharacterDescription text={item.description} /> : <p>{section === 'connections' ? (item as Saved<Connection>).model : section === 'prompts' ? `${(item as Saved<PromptPreset>).blocks.length} blocks` : section === 'contexts' ? t("libraries.minimum_tail_batch", { minTail: (item as Saved<ContextPreset>).minTail, batchSize: (item as Saved<ContextPreset>).batchSize }) : 'description' in item ? item.description.slice(0, 140) : ''}</p>}{section === 'lorebooks' && 'entries' in item && <><p>{t("libraries.entries_enabled", { length: item.entries.length, length2: item.entries.filter(entry => entry.enabled).length })}</p><LorebookUses bookId={item.id} library={library} /></>}</div><div className="actions">
         <button className="secondary" aria-label={section === 'characters' ? t("libraries.edit", { value: characterLabel(item) }) : undefined} disabled={busy} onClick={() => { const { id, revision: _revision, ...record } = item; const { hasApiKey, ...data } = record as typeof record & { hasApiKey?: boolean }; setEditing({ kind: section, id, revision: library.revision, data, hasApiKey }); }}><Icon name="EditOutline" />{t("libraries.edit_2")}</button>
-        <button className="quiet" aria-label={section === 'characters' ? t("libraries.duplicate", { value: characterLabel(item) }) : undefined} disabled={busy} onClick={() => void run(async () => { const { id: _id, revision: _revision, ...record } = item; const { hasApiKey: _key, ...data } = record as typeof record & { hasApiKey?: boolean }; if (section === 'characters') await api(`/library/characters/${item.id}/duplicate`, 'POST', { revision: library.revision }); else await api('/library', 'POST', { kind: section, revision: library.revision, data: { ...data, name: `${item.name.slice(0, 90)} copy`, ...('entries' in data ? { entries: data.entries.map(entry => ({ ...entry, id: newId() })) } : {}) } }); setNotice(section === 'connections' ? msg("libraries.connection_copied_add_its_api_key_in") : section === 'characters' && 'lorebookId' in data && data.lorebookId ? msg("libraries.character_copied_its_default_lorebook_is_shared") : section === 'lorebooks' ? msg("libraries.independent_lorebook_copy_saved") : msg("libraries.copy_saved")); })}><Icon name="CopyOutline" />{t("libraries.duplicate_2")}</button>
+        <button className="quiet" aria-label={section === 'characters' ? t("libraries.duplicate", { value: characterLabel(item) }) : undefined} disabled={busy} onClick={() => void run(() => duplicate(item))}><Icon name="CopyOutline" />{t("libraries.duplicate_2")}</button>
         {section !== 'connections' && <button className="quiet" aria-label={section === 'characters' ? t("libraries.export_json", { value: characterLabel(item) }) : undefined} onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}><Icon name="Upload" />{section === 'characters' ? t("libraries.export_json_2") : t("libraries.export")}</button>}
         {item.id === 'default' && <button className="quiet" disabled={busy} onClick={() => { confirmAction({ title: t("libraries.restore_original_prompt"), message: t("libraries.restore_the_built_in_default_prompt_chats"), actionLabel: t("libraries.restore_original"), onConfirm: () => { void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); } }); }}>{t("libraries.restore_original")}</button>}
         {item.id !== 'default' && <button className="quiet" aria-label={section === 'characters' ? t("libraries.delete", { value: characterLabel(item) }) : undefined} disabled={busy || (section === 'lorebooks' && library.lorebookUses.some(use => use.bookId === item.id && (use.characters.length > 0 || use.chats.length > 0)))} onClick={() => { confirmAction({ title: t("libraries.delete_library_item"), message: t("libraries.delete_from_the_library", { value: section === 'characters' || section === 'personas' ? characterLabel(item) : item.name }), actionLabel: t("libraries.delete_2"), onConfirm: () => { void run(() => api(`/library/${item.id}`, 'DELETE', { kind: section, revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.delete_2")}</button>}
@@ -341,7 +368,7 @@ export function Libraries({ library, currentChatId, busy, run, openChat, initial
       </>}
     </>}
     </section>
-  </main></EditorActionsTarget>;
+  </main>;
 }
 function CharacterDescription({ text }: { text: string }) {
   useLocale();
@@ -400,7 +427,7 @@ function LibraryEditor({ initial, connections, currentRevision, busy, run, close
       <ConnectionTools connection={data as Connection} parameters={parameters} connectionId={initial.id} apiKey={removeKey ? '' : key || undefined} />
     </>}
     {initial.kind === 'prompts' && <div className="full"><p className="small muted">{t("libraries.enabled_blocks_and_markers_compose_the_base", { value: '{{user}}', value2: '{{char}}' })}</p><PromptEditor value={data as PromptPreset} change={setData} /></div>}
-  </div></fieldset>{error && <p role="alert">{error}</p>}{stale && <p role="status">{t("libraries.the_library_changed_close_this_editor_and")}</p>}<EditorActions><button type="submit" form={formId} disabled={busy || stale}>{saveLibraryLabel(initial.kind)}</button><button type="button" className="quiet" onClick={close} title={t("character_editor.close_editor")}><Icon name="Close" /><span className="sr-only">{t("character_editor.close_editor")}</span></button></EditorActions></form>;
+  </div></fieldset>{error && <p role="alert">{error}</p>}{stale && <p role="status">{t("libraries.the_library_changed_close_this_editor_and")}</p>}<EditorActions><button type="submit" form={formId} disabled={busy || stale}>{saveLibraryLabel(initial.kind)}</button><button type="button" className="secondary" onClick={close}>{t("character_import.cancel")}</button></EditorActions></form>;
 }
 function ConnectionTools({ connection, parameters, connectionId, apiKey }: { connection: Connection; parameters: string; connectionId?: string; apiKey?: string }) {
   useLocale();

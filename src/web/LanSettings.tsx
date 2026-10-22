@@ -77,9 +77,9 @@ export function LanSettings() {
         <label>{t("lan_settings.local_network")}<Dropdown aria-label={t("lan_settings.local_network")} value={draft.settings.interfaceId ?? ''} disabled={disabled} options={options} onChange={value => setDraft({ ...draft, settings: { ...draft.settings, interfaceId: value || null } })} /></label>
         <label>{t("lan_settings.lan_port")}<NumberInput min={1024} max={65535} required value={draft.settings.port} disabled={disabled} onChange={port => setDraft({ ...draft, settings: { ...draft.settings, port } })} /></label>
       </div>}
-      <div className="actions"><button disabled={disabled || Boolean(conflict)}>{busy ? t("lan_settings.saving_lan_settings") : t("lan_settings.save_lan_settings")}</button></div>
+      <div className="actions"><button disabled={disabled || Boolean(conflict)}>{busy ? t("lan_settings.saving_lan_settings") : t("lan_settings.save_lan_settings")}</button><button type="button" className="secondary" disabled={busy || loading} onClick={() => setAttempt(value => value + 1)}>{t("lan_settings.reload_lan_settings")}</button></div>
     </form>}
-    <button type="button" className="secondary" disabled={busy || loading} onClick={() => setAttempt(value => value + 1)}>{t("lan_settings.reload_lan_settings")}</button>
+    {!draft && <div className="actions"><button type="button" className="secondary" disabled={busy || loading} onClick={() => setAttempt(value => value + 1)}>{t("lan_settings.reload_lan_settings")}</button></div>}
     {status?.runtime.state === 'listening' && <label className="lan-address">{t("lan_settings.open_this_address_on_your_phone")}<input aria-label={t("lan_settings.phone_address")} type="text" readOnly spellCheck={false} value={status.runtime.url} /></label>}
     {status && !draft?.settings.automatic && status.interfaces.length === 0 && <p>{t("lan_settings.no_supported_private_ipv4_network_is_available")}</p>}
   </section>;

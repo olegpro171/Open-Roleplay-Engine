@@ -623,6 +623,17 @@ export class Store {
         diagnostics: preview && bookId ? this.savedLoreDiagnostics(preview, bookId) : [], tags: resolved.report };
     });
   }
+  duplicateConnection(expected: number, connectionId: string) {
+    return this.sqlite.transaction(() => {
+      this.checkLibrary(expected);
+      const original = this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get();
+      if (!original) throw new AppError(404, 'connection_not_found', message("errors.connection_not_found"));
+      const apiKey = this.connectionApiKey(connectionId);
+      return this.saveLibrary(expected, 'connections', {
+        ...original.settings, name: `${original.settings.name.slice(0, 90)} copy`,
+      }, undefined, apiKey);
+    })();
+  }
   duplicateCharacter(expected: number, characterId: string) {
     return this.sqlite.transaction(() => {
       this.checkLibrary(expected);
@@ -769,14 +780,14 @@ export class Store {
     }
   }
   replaceHistory(expected: number, chatId: string, turns: ImportedTurn[]) {
-    this.sqlite.transaction(() => {
+    return this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId); this.ensureIdle(chatId);
       this.contexts.clear(chatId);
       this.resetLoreEpoch(chatId);
       this.sqlite.prepare('DELETE FROM lore_operations WHERE chat_id = ?').run(chatId);
       this.db.delete(schema.turns).where(eq(schema.turns.chatId, chatId)).run();
       turns.forEach((turn, i) => this.insertTurn(chatId, i + 1, turn));
-      this.bumpRevision(chatId);
+      return this.bumpRevision(chatId);
     })();
   }
   saveSettings(expected: number, connection: Connection, settings: ChatSettings, apiKey?: string, chatId = 'main') {

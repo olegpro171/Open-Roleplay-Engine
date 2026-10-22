@@ -46,7 +46,7 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await expect(bookRow).toContainText('1 entries · 1 enabled');
   await bookRow.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page.getByLabel('Lore content', { exact: true })).toHaveValue('The Moon Gate is sealed with a silver crescent.');
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await bookRow.getByRole('button', { name: 'Duplicate', exact: true }).click();
   const copyRow = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Moon Gate atlas copy', exact: true }) });
   await expect(copyRow).toBeVisible();
@@ -158,7 +158,7 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   await page.getByRole('button', { name: 'Open book', exact: true }).click();
   await expect(page.getByLabel('Book name', { exact: true })).toHaveValue('Embedded harbor book');
   await expect(page.getByLabel('Lore content', { exact: true })).toHaveValue('The bell is bronze.');
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   const legacySource = { ...character, data: { ...character.data, name: 'Legacy harbor keeper' } };
   const legacy = await command(page, '/api/library', { kind: 'characters', revision: (await library(page)).revision, data: { name: 'Legacy harbor keeper', description: 'Existing editable description.', personality: '', scenario: '', first_mes: '', mes_example: '', source: legacySource } });
   const beforeExtraction = (await library(page)).lorebooks.length;
@@ -205,7 +205,7 @@ test('keeps unsaved entries on failures and revision conflicts, with bounded edi
   await expect(page.getByLabel('Lore content', { exact: true })).toHaveValue('Unsaved detail survives the failed write.');
   await expect(page.getByRole('button', { name: 'Save lorebook', exact: true })).toBeDisabled();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('button', { name: 'Close editor', exact: true }).scrollIntoViewIfNeeded();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).scrollIntoViewIfNeeded();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/lorebook-phone.png', fullPage: true });
 });

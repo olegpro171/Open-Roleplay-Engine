@@ -32,7 +32,7 @@ test('Libraries reopens the last category and new Connections reserve 8,196 outp
   await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Connections', exact: true }).click();
   await page.getByRole('button', { name: 'New Connection', exact: true }).click();
   await expect(page.getByLabel('Reserved output tokens', { exact: true })).toHaveValue('8196');
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await expect(page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Connections', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -42,7 +42,7 @@ test('Libraries reopens the last category and new Connections reserve 8,196 outp
 });
 
 for (const width of [1280, 390]) {
-  test(`saves and closes every library editor from stacked sidebar controls at ${width}px`, async ({ page }, testInfo) => {
+  test(`saves and closes every library editor with Save and Cancel side by side at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await login(page);
     const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
@@ -63,15 +63,15 @@ for (const width of [1280, 390]) {
       await article().getByRole('button', { name: /^Edit(?: |$)/ }).click();
       const actions = page.getByRole('group', { name: 'Editor actions', exact: true });
       const save = actions.getByRole('button', { name: fixture.save, exact: true });
-      const close = actions.getByRole('button', { name: 'Close editor', exact: true });
-      expect(await actions.evaluate(element => Boolean(element.closest('aside')))).toBe(true);
+      const close = actions.getByRole('button', { name: 'Cancel', exact: true });
+      await actions.scrollIntoViewIfNeeded();
       const saveBounds = await save.boundingBox(), closeBounds = await close.boundingBox();
       if (!saveBounds || !closeBounds) throw new Error('Missing editor actions');
-      expect(closeBounds.x).toBe(saveBounds.x);
-      expect(closeBounds.width).toBe(saveBounds.width);
-      expect(closeBounds.y).toBeGreaterThanOrEqual(saveBounds.y + saveBounds.height);
+      expect(closeBounds.x).toBeGreaterThanOrEqual(saveBounds.x + saveBounds.width);
+      expect(closeBounds.y).toBe(saveBounds.y);
+      expect(closeBounds.height).toBe(saveBounds.height);
       const nameInput = content.getByLabel(fixture.kind === 'lorebooks' ? 'Book name' : 'Name', { exact: true });
-      // External submit buttons must still use native required-field validation.
+      // Save retains native required-field validation.
       await nameInput.fill('');
       const before = await library(page);
       await save.click();
@@ -139,11 +139,11 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     expect((await measure()).height).toBe(510);
     await page.getByLabel('Name', { exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath(`character-editor-${width}.png`), animations: 'disabled' });
-    await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.getByRole('button', { name: 'Edit Sized character editor · Night watch', exact: true }).click();
     expect((await measure()).height).toBe(loaded.base * 4);
     await expect(description).toHaveValue(longText);
-    await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
     await page.getByRole('button', { name: 'Personas', exact: true }).click();
     await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Sized persona editor', exact: true }) }).getByRole('button', { name: 'Edit', exact: true }).click();
@@ -151,7 +151,7 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     expect(medium.height).toBeGreaterThan(medium.base);
     expect(medium.height).toBeLessThan(medium.base * 4);
     expect(medium.fits).toBe(true);
-    await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
     await page.getByRole('button', { name: 'Lorebooks', exact: true }).click();
     await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Sized lorebook editor', exact: true }) }).getByRole('button', { name: 'Edit', exact: true }).click();
@@ -161,13 +161,13 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     await page.getByRole('group', { name: 'Lorebook entries', exact: true }).getByRole('button', { name: /Short entry/ }).click();
     expect(await lore.evaluate(element => element.scrollHeight <= element.clientHeight)).toBe(true);
     expect(await lore.evaluate(element => element.getBoundingClientRect().height)).toBe(longLore.base);
-    await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
     await page.getByRole('button', { name: 'Prompts', exact: true }).click();
     await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Sized prompt editor', exact: true }) }).getByRole('button', { name: 'Edit', exact: true }).click();
     await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
     expect(await page.getByRole('textbox', { name: 'Block text', exact: true }).evaluate(element => element.getBoundingClientRect().height >= parseFloat(getComputedStyle(element).minHeight) * 4)).toBe(true);
-    await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   }
 });
 
@@ -270,7 +270,7 @@ test('keeps every category and the library editors usable on narrow screens', as
     await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Save persona', exact: true }).scrollIntoViewIfNeeded();
     await expect(page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Save persona', exact: true })).toBeInViewport();
     expect(await content.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
-    await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Close editor', exact: true }).click();
+    await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Cancel', exact: true }).click();
   }
 });
 
@@ -287,7 +287,7 @@ test('fits library editors within their forms at desktop and phone widths', asyn
       expect(await content.evaluate(element => element.scrollWidth <= element.clientWidth), `${name} editor at ${width}px`).toBe(true);
       expect(await content.locator('form').evaluate(element => element.scrollWidth <= element.clientWidth), `${name} form at ${width}px`).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`libraries-${name}-${width}.png`), animations: 'disabled' });
-      await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Close editor', exact: true }).click();
+      await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Cancel', exact: true }).click();
     }
   }
 });
@@ -317,7 +317,7 @@ test('returns to the top of a scrollable prompt list after saving or closing a d
     await panel.getByRole('button', { name: `Expand block ${index}`, exact: true }).click();
   }
   await panel.evaluate(element => { element.scrollTop = element.scrollHeight; });
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(panel.getByRole('button', { name: 'New prompt', exact: true })).toBeInViewport();
   expect(await panel.evaluate(element => element.scrollTop)).toBe(0);
 });

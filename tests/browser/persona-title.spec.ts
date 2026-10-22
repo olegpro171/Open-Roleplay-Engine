@@ -54,7 +54,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('article')).toHaveCount(2);
     await page.getByRole('article').filter({ has: page.getByRole('heading', { name: university, exact: true }) }).getByRole('button', { name: 'Edit', exact: true }).click();
     await page.getByLabel('Title / comment', { exact: true }).fill('Unsaved draft');
-    await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(page.getByRole('heading', { name: university, exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: 'Chats', exact: true }).click();

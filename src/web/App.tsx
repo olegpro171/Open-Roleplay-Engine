@@ -316,7 +316,7 @@ export function App() {
   async function send(event: FormEvent) {
     event.preventDefault();
     const text = trimBoundaryNewlines(draft);
-    if (!snapshot || busy || pending || dataChanged || drafts.needsReview || !text.trim()) return;
+    if (!snapshot || busy || pending || working || dataChanged || drafts.needsReview || !text.trim()) return;
     const id = snapshot.id;
     const sent = drafts.stage(id, snapshot.revision);
     setBusy(true); setError('');
@@ -447,7 +447,7 @@ export function App() {
         {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{(latest.errorMessage ? formatMessage(latest.errorMessage) : latest.error) ?? t("app.regeneration_did_not_finish_try_again")}</p>}
         {drafts.needsReview && <div className="recovery" role="alert"><p>{t("app.this_browser_draft_predates_a_backup_import")}</p><button onClick={drafts.review}>{t("app.use_recovered_draft")}</button></div>}
         <form className="composer" onSubmit={(event) => void send(event)}>
-          <ChatTextarea autoSize rows={1} aria-label={t("app.your_next_turn")} id="turn-input" placeholder={t("app.what_happens_next")} value={draft} disabled={pending || busy || working} onValueChange={text => { drafts.change(text); setPeek(false); }} />
+          <ChatTextarea autoSize rows={1} aria-label={t("app.your_next_turn")} id="turn-input" placeholder={t("app.what_happens_next")} value={draft} disabled={busy} onValueChange={text => { drafts.change(text); setPeek(false); }} />
           <button className="send-turn" aria-label={t("app.send")} title={busy ? t("app.saving_changes") : t("app.send")} disabled={pending || busy || working || memoryStale || dataChanged || drafts.needsReview || !snapshot.connection || !draft.trim()}><span className="send-icon" aria-hidden="true" /></button>
           {drafts.storageError && <span className="composer-status" role="alert">{t("app.draft_could_not_be_saved_in_this")}</span>}
           {preparing && <span className="composer-status">{t("app.preparing_memory")}</span>}
@@ -478,5 +478,5 @@ function Login({ session, onLogin }: { session: Session; onLogin: () => Promise<
     event.preventDefault(); setBusy(true); setError('');
     try { await api(session.setupRequired ? '/setup' : '/login', 'POST', { password }); setPassword(''); await onLogin(); }
     catch (error) { setError(errorText(error, msg("app.could_not_sign_in"))); } finally { setBusy(false); }
-  }}><label>{t("app.owner_password")}<input type="password" required minLength={12} maxLength={256} autoComplete={session.setupRequired ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} /></label><small className="muted">{t("app.at_least_12_characters")}</small>{error && <p role="alert">{error}</p>}<button disabled={busy}>{busy ? t("app.opening") : session.setupRequired ? t("app.create_owner_account") : t("app.sign_in")}</button></form><p className="small muted">{t("app.access_from_other_devices_requires_https")}</p></div></main>;
+  }}><label>{t("app.owner_password")}<input type="password" required minLength={12} maxLength={256} autoComplete={session.setupRequired ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} /></label><small className="muted">{t("app.at_least_12_characters")}</small>{error && <p role="alert">{error}</p>}<button disabled={busy}>{busy ? t("app.opening") : session.setupRequired ? t("app.create_owner_account") : t("app.sign_in")}</button></form></div></main>;
 }

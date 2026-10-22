@@ -70,7 +70,7 @@ test('keeps crop/editor save levels separate, recovers exact saves, and refreshe
   await expect(row(other, card.name).locator('img')).toHaveAttribute('src', picture.thumbnailUrl);
   await row(page, card.name).getByRole('button', { name: `Edit ${card.name}`, exact: true }).click();
   await upload(page, await sharp({ create: { width: 100, height: 300, channels: 4, background: 'teal' } }).png().toBuffer(), 'Replace picture');
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect((await library(page)).characterPictures.find(item => item.characterId === card.id)?.key).toBe(picture.key);
   await row(page, card.name).getByRole('button', { name: `Edit ${card.name}`, exact: true }).click();
   const cancelled = await corner(page); await cancelled.getByRole('button', { name: 'Reset crop', exact: true }).click(); await page.keyboard.press('Escape');
@@ -158,7 +158,16 @@ test('keeps mixed library rows bounded and crop controls usable at desktop, phon
       await expect(characterRow).not.toContainText('picture-visual-tag-');
     }
     const heights = await rows.evaluateAll(elements => elements.map(element => Math.round(element.getBoundingClientRect().height))); expect(new Set(heights).size).toBe(1);
-    expect(Math.max(...heights)).toBeLessThanOrEqual(200);
+    // Phone actions now use two rows to retain readable labels and 44px targets.
+    expect(Math.max(...heights)).toBeLessThanOrEqual(width > 800 ? 200 : 224);
+    if (width <= 800) {
+      const actions = await rows.first().getByRole('button').all();
+      const bounds = await Promise.all(actions.map(action => action.boundingBox()));
+      if (bounds.some(box => !box)) throw new Error('Missing character action');
+      const visible = bounds.filter(box => box !== null);
+      expect(new Set(visible.map(box => Math.round(box.y))).size).toBe(2);
+      for (const box of visible) expect(box.height).toBeGreaterThanOrEqual(44);
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await rows.first().scrollIntoViewIfNeeded(); await page.screenshot({ path: `test-results/pictures-library-${width}.png`, fullPage: true });
   }
@@ -172,7 +181,7 @@ test('keeps mixed library rows bounded and crop controls usable at desktop, phon
     await page.screenshot({ path: `test-results/pictures-crop-${viewport.width}.png`, fullPage: true }); await page.keyboard.press('Escape');
   }
   await page.emulateMedia({ forcedColors: 'active', reducedMotion: 'reduce' }); await page.getByRole('button', { name: 'Adjust crop', exact: true }).click(); await expect(page.getByRole('dialog').getByRole('button', { name: 'Use crop', exact: true })).toBeVisible(); await page.keyboard.press('Escape');
-  await page.emulateMedia({ forcedColors: 'none' }); await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await page.emulateMedia({ forcedColors: 'none' }); await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   // 1280×900 at 200% zoom has a 640×450 CSS viewport and doubled pixel ratio.
   await page.setViewportSize({ width: 640, height: 450 });
   const zoomSession = await page.context().newCDPSession(page);
@@ -198,7 +207,7 @@ test('ignores a closed editor’s delayed picture analysis and preserves the nex
   await page.getByLabel('Choose picture', { exact: true }).setInputFiles({ name: 'first.png', mimeType: 'image/png', buffer: image });
   await expect(page.getByText('Validating and preparing picture…', { exact: true })).toBeVisible();
   await expect.poll(() => Boolean(finish)).toBe(true);
-  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'New character', exact: true }).click(); await page.getByLabel('Name', { exact: true }).fill('Picture new delayed draft');
   if (!finish) throw new Error('Missing delayed analysis'); await finish(); await page.unroute('**/api/pictures/preview');
   await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Picture new delayed draft'); await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toHaveCount(0);
@@ -222,7 +231,7 @@ test('clamps a phone touch drag and keeps the crop footer reachable', async ({ b
     await expect(horizontal).toHaveValue('0'); await expect(vertical).toHaveValue('0');
     await expect(dialog.getByRole('button', { name: 'Use crop', exact: true })).toBeInViewport();
     await dialog.getByRole('button', { name: 'Use crop', exact: true }).click();
-    await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     expect((await library(page)).characters.some(card => card.name === 'Picture touch draft')).toBe(false);
     await session.detach();
   } finally { await context.close(); }

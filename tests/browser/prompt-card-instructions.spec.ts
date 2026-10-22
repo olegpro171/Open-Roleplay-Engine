@@ -60,12 +60,12 @@ test('edits card instructions, enables preset injection, explains unavailable so
   await page.getByLabel('Allow character depth prompt injection').check();
   await page.getByRole('button', { name: 'Add marker', exact: true }).click();
   await page.getByRole('button', { name: 'Expand block 6', exact: true }).click();
-  await choose(page, 'Marker source for block 6', 'Card system prompt');
+  await choose(page, 'Marker source for block 6', 'Card system prompt — card text or fallback');
   await page.getByLabel('Fallback text').fill('Base {{char}}.');
   for (let index = 6; index > 1; index--) await page.getByRole('button', { name: `Move block ${index} up`, exact: true }).click();
   await page.getByRole('button', { name: 'Add marker', exact: true }).click();
   await page.getByRole('button', { name: 'Expand block 7', exact: true }).click();
-  await choose(page, 'Marker source for block 7', 'Card post-history instructions');
+  await choose(page, 'Marker source for block 7', 'Card post-history instructions — card text or fallback');
   await page.getByRole('button', { name: 'Save prompt', exact: true }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await page.getByRole('button', { name: 'Chat details', exact: true }).click();

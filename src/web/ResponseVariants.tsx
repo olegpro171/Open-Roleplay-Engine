@@ -3,8 +3,10 @@ import { Icon } from './Icon';
 import { useEffect, useRef, useState } from 'react';
 import type { Turn } from '../shared/contracts';
 
-export function ResponseVariants({ turn, locked, select }: {
+export function ResponseVariants({ turn, locked, regenerating, regenerate, select }: {
   turn: Turn; locked: boolean;
+  regenerating: boolean;
+  regenerate?: () => void;
   select: (id: string) => Promise<boolean>;
 }) {
   useLocale();
@@ -12,12 +14,15 @@ export function ResponseVariants({ turn, locked, select }: {
   const selecting = useRef(false);
   const variants = turn.variants ?? [];
   const activeIndex = variants.findIndex(variant => variant.id === turn.assistant.variantId);
-  // Reserve the first response's slot without creating a saved variant before success.
-  const versionCount = turn.complete ? variants.length : 1;
-  const activeNumber = turn.complete ? activeIndex + 1 : 1;
+  // Reserve a display slot; a response variant is saved only after success.
+  const versionCount = turn.complete ? variants.length + Number(regenerating) : 1;
+  const activeNumber = regenerating ? versionCount : turn.complete ? activeIndex + 1 : 1;
+  const atNewest = activeIndex === variants.length - 1;
+  const canRegenerate = Boolean(regenerate && atNewest);
+  const nextLabel = canRegenerate ? t("turn_controls.regenerate_response") : t("response_variants.next_response");
   const selectionLocked = locked || !turn.complete;
   const validDraft = draft === null || (/^\d+$/.test(draft) && Number(draft) >= 1 && Number(draft) <= versionCount);
-  useEffect(() => setDraft(null), [turn.assistant.variantId, turn.assistant.revision]);
+  useEffect(() => setDraft(null), [turn.assistant.variantId, turn.assistant.revision, regenerating]);
 
   async function choose(index: number) {
     if (selectionLocked || selecting.current) return;
@@ -52,8 +57,12 @@ export function ResponseVariants({ turn, locked, select }: {
       }}
       onBlur={commitDraft} />
     <span className="variant-total" aria-label={t("response_variants.response_versions_2", { versionCount: versionCount })}>/ {versionCount}</span>
-    <button type="button" className="quiet variant-arrow" aria-label={t("response_variants.next_response")} title={t("response_variants.next_response")}
-      disabled={selectionLocked || activeIndex < 0 || activeIndex >= variants.length - 1} onPointerDown={event => event.preventDefault()} onClick={() => void choose(activeIndex + 1)}>
+    <button type="button" className="quiet variant-arrow" aria-label={t("response_variants.next_response")} aria-description={canRegenerate ? nextLabel : undefined} title={nextLabel}
+      disabled={selectionLocked || activeIndex < 0 || (atNewest && !canRegenerate)} onPointerDown={event => event.preventDefault()} onClick={() => {
+        if (selectionLocked || selecting.current) return;
+        if (canRegenerate) { setDraft(null); regenerate?.(); }
+        else void choose(activeIndex + 1);
+      }}>
       <Icon name="ArrowShortForward" />
     </button>
   </div>;
