@@ -1,6 +1,7 @@
 import type { MessageText } from './localization';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
 import { appearanceStatusSchema, defaultAppearance, type AppearanceStatus } from '../shared/appearance';
+import { chatDefaultsStatusSchema, initialChatDefaults, type ChatDefaultsStatus } from '../shared/chat-defaults';
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { ApplicationSettings } from './ApplicationSettings';
@@ -45,6 +46,7 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [chatId, setChatId] = useState<string | null>(lastChat);
   const [appearance, setAppearance] = useState<AppearanceStatus>({ revision: 0, settings: defaultAppearance });
+  const [chatDefaults, setChatDefaults] = useState<ChatDefaultsStatus>(initialChatDefaults);
   const [appearanceError, setAppearanceError] = useTextState(null);
   const [library, setLibrary] = useState<LibrarySnapshot | null>(null);
   const libraryCache = useRef<LibrarySnapshot | null>(null);
@@ -87,11 +89,12 @@ export function App() {
     const id = ++loadId.current;
     try {
       const cached = libraryCache.current;
-      const [update, appearanceResult] = await Promise.all([
+      const [update, appearanceResult, defaults] = await Promise.all([
         api<LibrarySnapshot | UnchangedLibrary>(`/library${cached ? `?knownRevision=${cached.revision}` : ''}`),
         api<unknown>('/application/appearance')
           .then(value => ({ value: appearanceStatusSchema.parse(value), error: null }))
           .catch(error => ({ value: null, error: errorText(error, msg("app.chat_appearance_could_not_be_loaded")) })),
+        api<unknown>('/application/chat-defaults').then(value => chatDefaultsStatusSchema.parse(value)),
       ]);
       // Keep existing editors/transcript available to copy after a dataset replacement.
       if (datasetChanged()) return;
@@ -126,6 +129,7 @@ export function App() {
         snapshotRef.current = state;
         setSnapshot(state);
         setLibrary(items);
+        setChatDefaults(current => defaults.revision >= current.revision ? defaults : current);
         // A settings save can commit while this refresh is waiting for chat state.
         if (appearanceResult.value) {
           const nextAppearance = appearanceResult.value;
@@ -458,7 +462,7 @@ export function App() {
         </form>
       </section>
     </ChatWorkspace>}
-    {tab === 'library' && <Libraries library={library} currentChatId={chatId} busy={busy} run={command} openChat={openChat} initialTarget={libraryTarget} />}
+    {tab === 'library' && <Libraries library={library} defaults={chatDefaults} currentChatId={chatId} busy={busy} run={command} openChat={openChat} initialTarget={libraryTarget} />}
     {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
     {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>{t("app.return_to_chat")}</button>}><Memory key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} /></ChatWorkspace>}
     {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>{t("app.return_to_chat")}</button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...(currentToolSnapshot?.generations ?? []).map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString(locale())} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!snapshot.connection || busy} onClick={() => { setGenerationId(''); setSettledDraft(draft); }}>{t("app.preview", { value: pending ? t("interface.pending_turn") : t("interface.next_request") })}</button><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>

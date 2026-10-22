@@ -6,6 +6,7 @@ import { librarySortSchema, readLibrarySort, sortLibraryItems, sortOptions, type
 import { SpeechColorSelector } from './SpeechColorSelector';
 import { newId } from './uuid';
 import { Icon, type IconName } from './Icon';
+import type { ChatDefaultsStatus, ChatDefaultKind } from '../shared/chat-defaults';
 import type { PromptDiagnostic } from '../shared/prompt-diagnostics';
 import { useConfirmation } from './Confirmation';
 import { CharacterAvatar, PictureSquare } from './Pictures';
@@ -46,10 +47,10 @@ function lastLibrarySection(): LibraryKind | 'chats' {
     return value && Object.hasOwn(libraryLabels, value) ? value as LibraryKind | 'chats' : 'chats';
   } catch { return 'chats'; }
 }
-function selection(snapshot?: ChatSnapshot, library?: LibrarySnapshot): Selection {
-  return { title: snapshot?.settings.title ?? t("libraries.a_new_story"), targetInputTokens: snapshot?.settings.targetInputTokens ?? 32_000,
-    connectionId: snapshot ? snapshot.settings.connectionId ?? null : library?.connections[0]?.id ?? null, promptId: snapshot?.settings.promptId ?? 'default',
-    characterId: snapshot?.settings.characterId ?? null, personaId: snapshot?.settings.personaId ?? null, contextPresetId: snapshot?.settings.contextPresetId ?? null, lorebookId: snapshot?.settings.lorebookId ?? null };
+function selection(snapshot: ChatSnapshot): Selection {
+  return { title: snapshot.settings.title, targetInputTokens: snapshot.settings.targetInputTokens,
+    connectionId: snapshot.settings.connectionId ?? null, promptId: snapshot.settings.promptId ?? 'default',
+    characterId: snapshot.settings.characterId ?? null, personaId: snapshot.settings.personaId ?? null, contextPresetId: snapshot.settings.contextPresetId ?? null, lorebookId: snapshot.settings.lorebookId ?? null };
 }
 function SelectionFields({ value, change, library }: { value: Selection; change: (value: Selection) => void; library: LibrarySnapshot }) {
   useLocale();
@@ -77,7 +78,7 @@ function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnap
       // Keep the Roleplay suffix within the existing 100-character chat-title limit.
       const suffix = t("libraries.roleplay");
       const title = character ? `${characterLabel(character).slice(0, 100 - suffix.length)}${suffix}` : t("libraries.a_new_story");
-      const settings = { ...selection(undefined, library), title, characterId, personaId, lorebookId: character?.lorebookId ?? null };
+      const settings = { title, targetInputTokens: 32_000, characterId, personaId, lorebookId: character?.lorebookId ?? null };
       let id = '';
       if (await run(async () => { id = (await api<{ id: string }>('/chats', 'POST', settings)).id; })) created(id);
     } finally {
@@ -94,7 +95,7 @@ function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnap
 }
 export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, returnToChat, openLibraryItem }: { snapshot: ChatSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; saved: () => void; sidebar: ReactNode; returnToChat: () => void; openLibraryItem: (target: LibraryTarget) => void }) {
   useLocale();
-  const [value, setValue] = useState(() => selection(snapshot, library));
+  const [value, setValue] = useState(() => selection(snapshot));
   const [revision, setRevision] = useState(snapshot.revision);
   const confirmAction = useConfirmation(snapshot.id);
   const [diagnosticsRetry, setDiagnosticsRetry] = useState(0);
@@ -102,7 +103,7 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
   const [diagnostics, setDiagnostics] = useState<{ key: string; warnings: PromptDiagnostic[]; error?: MessageText } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    void api<PromptDiagnostic[]>(`/chats/${snapshot.id}/prompt-diagnostics`, 'POST', { revision: snapshot.revision, settings: { ...selection(snapshot, library), promptId: value.promptId, characterId: value.characterId, personaId: value.personaId, lorebookId: value.lorebookId } }, controller.signal).then(warnings => {
+    void api<PromptDiagnostic[]>(`/chats/${snapshot.id}/prompt-diagnostics`, 'POST', { revision: snapshot.revision, settings: { ...selection(snapshot), promptId: value.promptId, characterId: value.characterId, personaId: value.personaId, lorebookId: value.lorebookId } }, controller.signal).then(warnings => {
       if (!controller.signal.aborted) setDiagnostics({ key: diagnosticsKey, warnings });
     }).catch(error => {
       if (!controller.signal.aborted) setDiagnostics({ key: diagnosticsKey, warnings: [], error: errorText(error, msg("libraries.could_not_check_prompt_configuration")) });
@@ -111,7 +112,7 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
   }, [snapshot.id, snapshot.revision, diagnosticsKey]);
   function openWarning(warning: PromptDiagnostic) {
     const target = { kind: warning.target, id: warning.itemId };
-    if (JSON.stringify(value) === JSON.stringify(selection(snapshot, library))) openLibraryItem(target);
+    if (JSON.stringify(value) === JSON.stringify(selection(snapshot))) openLibraryItem(target);
     else confirmAction({ title: t("libraries.discard_chat_settings_changes"), message: t("libraries.open_the_library_editor_and_discard_unsaved"), actionLabel: t("libraries.discard_changes"), onConfirm: () => openLibraryItem(target) });
   }
   const formId = useId();
@@ -211,7 +212,7 @@ function LibraryIcon({ kind }: { kind: LibraryKind | 'chats' }) {
 }
 
 export type LibraryTarget = { kind: 'prompts' | 'characters' | 'lorebooks'; id: string };
-export function Libraries({ library, currentChatId, busy, run, openChat, initialTarget }: { library: LibrarySnapshot; currentChatId: string | null; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void; initialTarget?: LibraryTarget | null }) {
+export function Libraries({ library, defaults, currentChatId, busy, run, openChat, initialTarget }: { library: LibrarySnapshot; defaults: ChatDefaultsStatus; currentChatId: string | null; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void; initialTarget?: LibraryTarget | null }) {
   useLocale();
   const [section, setSection] = useState<LibraryKind | 'chats'>(initialTarget?.kind ?? lastLibrarySection);
   useEffect(() => {
@@ -361,6 +362,7 @@ export function Libraries({ library, currentChatId, busy, run, openChat, initial
         <span className="small muted" role="status">{t("libraries.of_characters", { length: visibleRecords.length, length2: library.characters.length })}</span>
       </div>}
       <div className={`library-list${section === 'characters' ? ' character-list' : section === 'prompts' || section === 'contexts' ? ' prompt-list' : ''}`}>{visibleRecords.map(item => <article key={item.id}>{section === 'characters' && <PictureSquare url={pictureIndex.get(item.id)?.thumbnailUrl} />}<div className={section === 'characters' ? 'character-row-content' : undefined}><h2 title={section === 'characters' || section === 'personas' ? characterLabel(item) : undefined}>{item.id === 'default' && item.name === 'Default roleplay' ? t("libraries.default_prompt") : item.id === 'default-context' && item.name === 'Layered narrative memory' ? defaultContextLabel : item.name}{(section === 'characters' || section === 'personas') && 'titleComment' in item && item.titleComment && <span className="character-comment"> · {item.titleComment}</span>}</h2>{section === 'characters' && 'description' in item ? <CharacterDescription text={item.description} /> : <p>{section === 'connections' ? (item as Saved<Connection>).model : section === 'prompts' ? `${(item as Saved<PromptPreset>).blocks.length} blocks` : section === 'contexts' ? t("libraries.minimum_tail_batch", { minTail: (item as Saved<ContextPreset>).minTail, batchSize: (item as Saved<ContextPreset>).batchSize }) : 'description' in item ? item.description.slice(0, 140) : ''}</p>}{section === 'lorebooks' && 'entries' in item && <><p>{t("libraries.entries_enabled", { length: item.entries.length, length2: item.entries.filter(entry => entry.enabled).length })}</p><LorebookUses bookId={item.id} library={library} /></>}</div><div className="actions">
+        {(section === 'prompts' || section === 'connections' || section === 'contexts') && <DefaultBookmark kind={section} item={item} defaults={defaults} libraryRevision={library.revision} busy={busy} run={run} />}
         <button className="secondary" aria-label={section === 'characters' ? t("libraries.edit", { value: characterLabel(item) }) : undefined} disabled={busy} onClick={() => { const { id, revision: _revision, ...record } = item; const { hasApiKey, ...data } = record as typeof record & { hasApiKey?: boolean }; setEditing({ kind: section, id, revision: library.revision, data, hasApiKey }); }}><Icon name="EditOutline" />{t("libraries.edit_2")}</button>
         <button className="quiet" aria-label={section === 'characters' ? t("libraries.duplicate", { value: characterLabel(item) }) : undefined} disabled={busy} onClick={() => void run(() => duplicate(item))}><Icon name="CopyOutline" />{t("libraries.duplicate_2")}</button>
         {section !== 'connections' && <button className="quiet" aria-label={section === 'characters' ? t("libraries.export_json", { value: characterLabel(item) }) : undefined} onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}><Icon name="Upload" />{section === 'characters' ? t("libraries.export_json_2") : t("libraries.export")}</button>}
@@ -385,6 +387,19 @@ function CharacterDescription({ text }: { text: string }) {
   }, [text]);
   return <p ref={node} className={`character-description${overflow ? ' overflows' : ''}`}>{text}</p>;
 }
+function DefaultBookmark({ kind, item, defaults, libraryRevision, busy, run }: {
+  kind: ChatDefaultKind; item: { id: string; name: string }; defaults: ChatDefaultsStatus;
+  libraryRevision: number; busy: boolean; run: Run;
+}) {
+  useLocale();
+  const selected = defaults.settings[kind] === item.id;
+  const label = t(selected ? 'libraries.clear_default' : 'libraries.set_default', { name: item.name });
+  return <button type="button" className="quiet" aria-label={label} title={label} aria-pressed={selected} disabled={busy}
+    onClick={() => void run(() => api('/application/chat-defaults', 'PUT', {
+      revision: defaults.revision, libraryRevision, kind, id: selected ? null : item.id,
+    }))}><Icon name={selected ? 'Bookmark' : 'BookmarkOutline'} /></button>;
+}
+
 function LorebookUses({ bookId, library }: { bookId: string; library: LibrarySnapshot }) {
   useLocale();
   const use = library.lorebookUses.find(item => item.bookId === bookId);

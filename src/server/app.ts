@@ -18,7 +18,9 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { ServerOptions } from 'node:https';
 import { importPersonas, exportCharacter, exportPersona } from '../core/cards.js';
 import { tagIdsSchema, tagNameSchema, tagPolicySchema } from '../shared/tags.js';
-import { defaultPrompt, libraryCommandSchema, selectionsSchema, replaceHistorySchema } from '../shared/library.js';
+import { defaultPrompt, libraryCommandSchema, selectionsSchema, createChatSchema, replaceHistorySchema } from '../shared/library.js';
+import { resolveChatDefaults } from '../shared/chat-defaults.js';
+import { ChatDefaultsSettings } from './chat-defaults.js';
 import { readCardFile, readCharacterCardFile } from './card-import.js';
 import { AppError, BackupValidationError } from '../core/errors.js';
 import { assembleRequest } from '../core/prompt.js';
@@ -69,6 +71,7 @@ export async function createApp(options: {
   }
   const storyReader = new StoryReader(store);
   const appearance = new AppearanceSettings(`${options.database}.appearance.json`);
+  const chatDefaults = new ChatDefaultsSettings(`${options.database}.chat-defaults.json`);
   const languages = new Languages(options.languagesDirectory ?? join(dirname(options.database), 'languages'));
   const auth = new Auth(store);
   const secure = Boolean(options.https);
@@ -165,6 +168,12 @@ export async function createApp(options: {
     return languages.save(input.pack, input.expectedRevision);
   });
   app.get('/api/application/appearance', async () => appearance.status());
+  app.get('/api/application/chat-defaults', async () => chatDefaults.status());
+  app.put('/api/application/chat-defaults', async request => {
+    const result = chatDefaults.save(request.body, store);
+    coordinator.changed();
+    return result;
+  });
   app.put('/api/application/appearance', async request => {
     const result = appearance.save(request.body);
     coordinator.changed();
@@ -450,8 +459,15 @@ export async function createApp(options: {
     return data;
   });
   app.post('/api/chats', async request => {
-    const input = selectionsSchema.parse(request.body);
-    const id = store.createChat(input); coordinator.changed(); return { id };
+    const input = createChatSchema.parse(request.body);
+    const defaults = resolveChatDefaults(chatDefaults.status().settings, store.libraries());
+    const settings = {
+      ...input,
+      promptId: input.promptId ?? defaults.promptId,
+      connectionId: input.connectionId === undefined ? defaults.connectionId : input.connectionId,
+      contextPresetId: input.contextPresetId === undefined ? defaults.contextPresetId : input.contextPresetId,
+    };
+    const id = store.createChat(settings); coordinator.changed(); return { id };
   });
   app.put('/api/chats/:chatId/selections', async request => {
     const input = z.object({ revision: revisionSchema, settings: selectionsSchema }).strict().parse(request.body);

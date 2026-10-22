@@ -8,6 +8,8 @@ Open **Settings** in the header for the **Application settings** page, independe
 
 The artifact excludes owner password hashes, login sessions, process ownership, library command receipts and data-management command receipts. Removed data is securely deleted from the private snapshot and its pages are rebuilt before download. Runtime state is never removed from the live database by exporting.
 
+New-chat default bookmarks are application preferences stored beside the database, like Chat appearance settings. SQLite backups do not include them; import/wipe leaves the local preferences file intact. If a chosen record no longer exists, new chats use the original creation fallback for that category.
+
 Select **Inspect & import backup** to upload the file to private server staging. The source file remains unchanged. An inspection is bound to the uploading login session and expires after 30 minutes, even while open. Cancel, completed import, application shutdown and restart remove staging. Uncertain commands retain staging until explicit retry or expiry; successful command receipts survive restart even when staging no longer exists.
 
 Invalid files show “This file is not a valid ORE backup.” with a collapsed **Details** control. Expand it for the failed validation phase and a specific structural reason, including schema-object differences, record fields, constraint codes or coverage/dependency failures. Diagnostics omit uploaded values, API keys, arbitrary schema names and raw SQLite/Zod messages. Failed inspection leaves the source file and current saved data unchanged; select another file to retry.

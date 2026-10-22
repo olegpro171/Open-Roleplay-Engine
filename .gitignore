@@ -14,6 +14,7 @@ data/
 *.log
 *.lan.json
 *.appearance.json*
+*.chat-defaults.json*
 playwright-report/
 test-results/
 __pycache__/

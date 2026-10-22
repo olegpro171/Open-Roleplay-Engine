@@ -1,5 +1,10 @@
 // Stable presentation keys. Editable model prompts and user content do not belong here.
 export const englishMessages = {
+  "libraries.set_default": "Set {{name}} as default",
+  "libraries.clear_default": "Clear {{name}} as default",
+  "errors.chat_defaults_unavailable": "Saved new-chat defaults could not be read. Check the settings file and try again.",
+  "errors.chat_defaults_conflict": "The library or new-chat defaults changed in another window. Refresh and try again.",
+  "errors.chat_defaults_save_failed": "New-chat defaults could not be saved. Previous defaults were retained. Check free disk space and try again.",
   "language.heading": "Language",
   "language.select": "Interface language",
   "language.import": "Import language file",

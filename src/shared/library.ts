@@ -127,6 +127,8 @@ export const selectionsSchema = z.object({
   contextPresetId: z.string().min(1).max(100).nullable().optional(),
   lorebookId: z.string().min(1).max(100).nullable().optional(),
 }).strict();
+// Omitted selections use current server defaults; explicit selections remain authoritative.
+export const createChatSchema = selectionsSchema.partial({ connectionId: true, promptId: true });
 export const libraryCommandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('personas'), revision: revisionSchema, data: libraryPersonaSchema }).strict(),
   z.object({ kind: z.literal('characters'), revision: revisionSchema, data: libraryCharacterSchema, tagIds: tagIdsSchema.optional(), requestId: z.string().uuid().optional(), expectedPicture: z.string().uuid().nullable().optional(), picture: pictureMutationSchema.optional() }).strict(),
