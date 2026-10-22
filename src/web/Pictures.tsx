@@ -1,5 +1,7 @@
 import { LocalizedError, useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Icon } from './Icon';
 import { cropControls, cropFromControls, cropPixels, pictureLimits, type CharacterPicture, type PictureAnalysis, type PictureCrop, type PictureDimensions, type PictureMutation } from '../shared/pictures';
 import { api } from './api';
 
@@ -25,6 +27,34 @@ export function PictureSquare({ url, label = t("pictures.no_picture") }: { url?:
 export function CharacterAvatar({ url }: { url?: string }) {
   useLocale();
   return <Picture url={url} label={t("pictures.no_picture")} shape="round" />;
+}
+export function ChatCharacterPortrait({ picture }: { picture?: CharacterPicture }) {
+  useLocale();
+  const [open, setOpen] = useState(false);
+  if (!picture) return null;
+  return <div className="chat-character-portrait">
+    <button type="button" className="portrait-button" aria-label={t("pictures.view_original")} onClick={() => setOpen(true)}><CharacterAvatar url={picture.thumbnailUrl} /></button>
+    {open && <OriginalPictureViewer picture={picture} close={() => setOpen(false)} />}
+  </div>;
+}
+function OriginalPictureViewer({ picture, close }: { picture: CharacterPicture; close: () => void }) {
+  useLocale();
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'failed'>('loading');
+  useEffect(() => {
+    const opener = document.activeElement;
+    const node = dialog.current;
+    node?.showModal();
+    return () => {
+      node?.close();
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    };
+  }, []);
+  return createPortal(<dialog ref={dialog} className="original-picture-viewer" aria-label={t("pictures.original_picture")} onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }}>
+    <button type="button" className="quiet" aria-label={t("reasoning.close")} title={t("reasoning.close")} autoFocus onClick={close}><Icon name="Close" /></button>
+    {status === 'loading' && <p role="status">{t("pictures.loading_original")}</p>}
+    {status === 'failed' ? <p role="alert">{t("pictures.original_unavailable")}</p> : <img src={picture.originalUrl} alt={t("pictures.original_picture")} style={{ width: `min(100%, calc((100dvh - 32px) * ${picture.width / picture.height}))` }} onLoad={() => setStatus('loaded')} onError={() => setStatus('failed')} />}
+  </dialog>, document.body);
 }
 function Picture({ url, label, shape }: { url?: string; label: string; shape: 'square' | 'round' }) {
   useLocale();

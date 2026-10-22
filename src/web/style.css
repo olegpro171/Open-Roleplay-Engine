@@ -258,6 +258,16 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .picture-square img,.cropped-picture{display:block;width:100%;height:100%;object-fit:contain}
 .character-avatar{width:40px;height:40px;flex:none;overflow:hidden;border-radius:50%;background:#222a34;border:1px solid #39424f}
 .character-avatar img{display:block;width:100%;height:100%;object-fit:cover}
+.chat-character-portrait{width:80%;margin:0 auto 20px}
+.chat-character-portrait .character-avatar{width:100%;height:auto;aspect-ratio:1}
+.portrait-button{display:block;width:100%;padding:0;border:0;border-radius:50%;background:none}
+@media(hover:hover){.portrait-button:hover{filter:none}.portrait-button:hover .character-avatar{border-color:var(--accent)}}
+.original-picture-viewer{position:fixed;inset:0;margin:0;width:100vw;height:100dvh;max-width:none;max-height:none;padding:16px;border:0;border-radius:0;background:#080c12f5;color:inherit;overflow:hidden}
+.original-picture-viewer[open]{display:flex;align-items:center;justify-content:center}
+.original-picture-viewer::backdrop{background:#080c12}
+.original-picture-viewer>button{position:absolute;z-index:1;top:max(12px,env(safe-area-inset-top));right:max(16px,env(safe-area-inset-right));display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:8px}
+.original-picture-viewer>img{display:block;height:auto;max-width:100%;max-height:100%;object-fit:contain}
+.original-picture-viewer>[role=status]{position:absolute;inset:50% 16px auto;text-align:center;pointer-events:none}
 .character-avatar .picture-placeholder{padding:6px;gap:0}
 .character-avatar .picture-placeholder svg{width:100%;height:100%}
 .character-avatar .picture-placeholder span{display:none}
@@ -300,6 +310,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 /* Touch browsers may retain :hover while Regenerate changes into Cancel. */
 @media (hover: hover) {
   .turn-actions .turn-action:hover:enabled,
+  .original-picture-viewer>button:hover:enabled,
   .library-layout button:is(.quiet, .secondary):hover:enabled,
   .chat-page-actions .chat-navigation-action:hover:enabled { background: #252e38; color: #eee; }
   .turn-actions .turn-action-delete:hover:enabled { color: #f1b8b8; }
@@ -380,6 +391,7 @@ button.danger{background:#b74e48;color:#fff;border-color:#d16b64}
 .chat-details-slot{display:none}
 .chat-panel{min-width:0;min-height:0;padding:34px 42px 70px;scrollbar-color:#3b4654 transparent;overscroll-behavior:contain}
 @media(max-width:800px){
+  .chat-character-portrait{width:50%}
   .story-layout{grid-template-rows:auto minmax(0,1fr)}
   .story-meta{position:relative;display:block;overflow:visible;padding:10px 18px;border-right:0;border-bottom:1px solid var(--line)}
   .story-meta.story-navigation{padding:0;border:0}

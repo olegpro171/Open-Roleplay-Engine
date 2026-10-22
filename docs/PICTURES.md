@@ -1,6 +1,6 @@
 # Character pictures
 
-Implemented for local testing following the [assignment](PICTURES_IMPLEMENTATION_BRIEF.md). On 2026-10-18 the user approved sharp and all proposed defaults. Pictures belong to the Characters library/editor and also appear as round avatars in the Chats library following the 2026-10-21 refinement. They do not enter model requests, chat headers/selectors, personas or backgrounds.
+Implemented for local testing following the [assignment](PICTURES_IMPLEMENTATION_BRIEF.md). On 2026-10-18 the user approved sharp and all proposed defaults. Pictures belong to the Characters library/editor and also appear as round avatars in the Chats library following the 2026-10-21 refinement. The current chat sidebar also shows a round portrait below Current chat and above the title. Clicking it opens the original uncropped image fitted to a full-screen modal; Close, Escape or the surrounding background dismisses it. The circle spans 80% of the sidebar content width in the two-column layout and 50% in Chat details at widths up to 800px. Missing pictures render no portrait container on the chat page; other library placeholders stay available. The viewer’s transparent Close icon shares turn-action hover styling. Pictures do not enter model requests, selectors, personas or backgrounds.
 
 ## Workflow
 

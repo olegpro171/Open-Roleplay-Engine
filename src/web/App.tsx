@@ -22,6 +22,7 @@ import { ReasoningPreview } from './Reasoning';
 import { ChatMarkdown } from './ChatMarkdown';
 import { ChatTextarea } from './ChatTextarea';
 import { ChatDetailsTarget, ChatWorkspace } from './ChatWorkspace';
+import { ChatCharacterPortrait } from './Pictures';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
@@ -362,12 +363,15 @@ export function App() {
   }
   if (!library) return <main className="login"><p>{t("app.loading_your_story")}</p>{error && <p role="alert">{error}</p>}</main>;
   const selectedCharacter = library.characters.find(character => character.id === snapshot?.settings.characterId);
+  const selectedCharacterPicture = library.characterPictures.find(picture => picture.characterId === snapshot?.settings.characterId);
   const selectedPersona = library.personas.find(persona => persona.id === snapshot?.settings.personaId);
   const selectedCharacterName = selectedCharacter?.name ?? snapshot?.sources.character?.name ?? t("app.character");
   const selectedPersonaName = selectedPersona?.name ?? snapshot?.sources.persona?.name ?? t("app.you");
 
   const sidebar = snapshot && <>
-        <p className="eyebrow">{t("app.current_chat")}</p><h1>{snapshot.settings.title}</h1>
+        <p className="eyebrow">{t("app.current_chat")}</p>
+        <ChatCharacterPortrait key={`${snapshot.id}:${selectedCharacterPicture?.key ?? ''}`} picture={selectedCharacterPicture} />
+        <h1>{snapshot.settings.title}</h1>
         <p>{snapshot.connection ? `${snapshot.connection.name} · ${snapshot.connection.model}` : t("app.set_up_a_connection_to_begin")}</p>
         <dl><div><dt>{t("app.total_turns")}</dt><dd>{snapshot.totalTurns}</dd></div><div title={t("app.saved_turns_kept_verbatim_in_the_current")}><dt>{t("app.active_turns")}</dt><dd>{activeTurns}</dd></div><div><dt>{t("app.input_target")}</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString(locale())}</dd></div><div><dt>{t("app.estimated_input")}</dt><dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>{currentRequest?.budget.inputTokens.toLocaleString(locale()) ?? '—'}</dd></div></dl>
         <details className="context-dropdown" open={contextExpanded} onToggle={event => setContextExpanded(event.currentTarget.open)}><summary>{t("app.context")}<span>{!summariesEnabled ? t("app.summaries_are_disabled") : snapshot.memory.selectedCount ? t('counts.summaries', { count: snapshot.memory.selectedCount }) : t("app.full_history")}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></> : <p className="small muted">{inspectionError || t("app.select_a_connection_to_inspect_input")}</p>}</details>

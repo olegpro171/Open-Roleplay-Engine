@@ -5,7 +5,7 @@ import { quadrantPicture } from '../support/pictures';
 
 const row = (page: Page, title: string) => page.getByRole('article').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
 
-test('opens chat cards by pointer and keyboard, keeps deletion separate and shows reusable character avatars', async ({ page }) => {
+test('opens chat cards by pointer and keyboard, keeps deletion separate and shows reusable character avatars', async ({ page, browser }) => {
   test.setTimeout(60_000);
   const session = await page.request.get('/api/session').then(response => response.json());
   await page.goto('/');
@@ -81,10 +81,100 @@ test('opens chat cards by pointer and keyboard, keeps deletion separate and show
   await page.mouse.click(portraitBounds.x + portraitBounds.width / 2, portraitBounds.y + portraitBounds.height / 2);
   await expect(page.getByLabel('Your next turn')).toBeVisible();
   await expect(page.locator('.story-meta h1')).toHaveText(titles[0]);
+  const sidebar = page.locator('.chat-details');
+  await expect(sidebar.locator('img')).toHaveAttribute('src', portrait.thumbnailUrl);
+  await page.route(`**${portrait.originalUrl}`, route => route.abort());
+  await sidebar.getByRole('button', { name: 'View original picture', exact: true }).click();
+  const failedViewer = page.getByRole('dialog', { name: 'Original character picture', exact: true });
+  await expect(failedViewer.getByRole('alert')).toContainText('Could not load the original picture');
+  await page.unroute(`**${portrait.originalUrl}`);
+  await failedViewer.click({ position: { x: 5, y: 5 } });
+  await expect(failedViewer).toHaveCount(0);
+  await sidebar.getByRole('button', { name: 'View original picture', exact: true }).click();
+  await expect.poll(() => failedViewer.locator('img').evaluate(image => image instanceof HTMLImageElement && image.naturalWidth === 400)).toBe(true);
+  await page.keyboard.press('Escape');
+  for (const width of [1280, 801, 800, 390, 320]) {
+    await page.setViewportSize({ width, height: 850 });
+    if (width <= 800) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
+    const avatar = sidebar.locator('.character-avatar');
+    await expect.poll(() => avatar.locator('img').evaluate(image => image instanceof HTMLImageElement && image.naturalWidth > 0)).toBe(true);
+    const bounds = await avatar.boundingBox();
+    const heading = await sidebar.locator('h1').boundingBox();
+    if (!bounds || !heading) throw new Error('Missing sidebar portrait geometry');
+    const content = await sidebar.evaluate(element => {
+      const style = getComputedStyle(element);
+      return element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    });
+    expect(Math.abs(bounds.width - content * (width <= 800 ? .5 : .8))).toBeLessThanOrEqual(1);
+    expect(Math.abs(bounds.width - bounds.height)).toBeLessThanOrEqual(1);
+    const label = await sidebar.locator('.eyebrow').boundingBox();
+    if (!label) throw new Error('Missing current chat label');
+    expect(label.y + label.height).toBeLessThan(bounds.y);
+    expect(bounds.y + bounds.height).toBeLessThan(heading.y);
+    await expect(avatar).toHaveCSS('border-radius', '50%');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `test-results/chat-sidebar-portrait-${width}.png`, fullPage: true });
+    const openPicture = sidebar.getByRole('button', { name: 'View original picture', exact: true });
+    await openPicture.click();
+    const viewer = page.getByRole('dialog', { name: 'Original character picture', exact: true });
+    await expect(viewer).toBeVisible();
+    await expect(viewer.locator('img')).toHaveAttribute('src', portrait.originalUrl);
+    await expect.poll(() => viewer.locator('img').evaluate(image => image instanceof HTMLImageElement ? [image.naturalWidth, image.naturalHeight] : [])).toEqual([400, 200]);
+    await expect(viewer.getByRole('status')).toHaveCount(0);
+    const viewerBounds = await viewer.boundingBox();
+    expect(viewerBounds).toMatchObject({ x: 0, y: 0, width, height: 850 });
+    const imageBounds = await viewer.locator('img').boundingBox();
+    if (!imageBounds) throw new Error('Missing original picture');
+    expect(Math.abs(imageBounds.x + imageBounds.width / 2 - width / 2)).toBeLessThanOrEqual(1);
+    expect(Math.abs(imageBounds.y + imageBounds.height / 2 - 425)).toBeLessThanOrEqual(1);
+    expect(Math.abs(imageBounds.width / imageBounds.height - 2)).toBeLessThan(.01);
+    await viewer.locator('img').click();
+    await expect(viewer).toBeVisible();
+    await page.screenshot({ path: `test-results/chat-original-picture-${width}.png`, fullPage: true });
+    await page.keyboard.press('Escape');
+    await expect(viewer).toHaveCount(0);
+    await expect(openPicture).toBeFocused();
+    await openPicture.press('Enter');
+    await viewer.click({ position: { x: width / 2, y: imageBounds.y / 2 } });
+    await expect(viewer).toHaveCount(0);
+    await expect(openPicture).toBeFocused();
+    await openPicture.click();
+    await viewer.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(openPicture).toBeFocused();
+    if (width <= 800) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
+  }
+  await page.setViewportSize({ width: 1280, height: 850 });
+  const touchContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 390, height: 850 }, isMobile: true, hasTouch: true });
+  try {
+    const phone = await touchContext.newPage();
+    await phone.goto('/');
+    await phone.getByRole('button', { name: 'Chat details', exact: true }).tap();
+    await phone.getByRole('button', { name: 'View original picture', exact: true }).tap();
+    const viewer = phone.getByRole('dialog', { name: 'Original character picture', exact: true });
+    await expect(viewer.getByRole('status')).toHaveCount(0);
+    await viewer.locator('img').tap();
+    await expect(viewer).toBeVisible();
+    const bounds = await viewer.locator('img').boundingBox();
+    if (!bounds) throw new Error('Missing touch viewer picture');
+    await phone.touchscreen.tap(195, bounds.y / 2);
+    await expect(viewer).toHaveCount(0);
+  } finally {
+    await touchContext.close();
+  }
+  await browse();
+  await row(page, titles[1]).getByRole('button', { name: titles[1], exact: true }).click();
+  await expect(sidebar.locator('.picture-placeholder')).toContainText('Picture unavailable');
   await browse();
   await row(page, titles[2]).click({ position: { x: 6, y: 6 } });
   await expect(page.getByLabel('Your next turn')).toBeVisible();
   await expect(page.locator('.story-meta h1')).toHaveText(titles[2]);
+  await expect(sidebar.locator('img')).toHaveCount(0);
+  await expect(sidebar.locator('.chat-character-portrait')).toHaveCount(0);
+  await expect(sidebar.getByRole('button', { name: 'View original picture', exact: true })).toHaveCount(0);
+  await browse();
+  await row(page, titles[3]).getByRole('button', { name: titles[3], exact: true }).click();
+  await expect(page.locator('.story-meta h1')).toHaveText(titles[3]);
+  await expect(sidebar.locator('.chat-character-portrait')).toHaveCount(0);
   for (const key of ['Enter', 'Space']) {
     await browse();
     const open = row(page, titles[0]).getByRole('button', { name: titles[0], exact: true });
