@@ -109,7 +109,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
   const callsBeforeWait = await request.get('/__test/requests').then(response => response.json()).then(calls => calls.length);
   await page.getByLabel('Your next turn').fill('Unsent draft stays here');
   await page.getByRole('button', { name: 'Regenerate response', exact: true }).click();
-  await expect(turn.locator('.part.assistant .prose')).toHaveText('Waiting for first token…');
+  await expect(turn.locator('.part.assistant .prose')).toHaveText('Connecting…');
   await expect(page.getByLabel('Regeneration preview')).toHaveCount(0);
   await expect(turn.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
   await expect(turn.getByRole('button', { name: 'Regenerate response', exact: true })).toHaveCount(0);
@@ -151,7 +151,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
     await phone.getByRole('button', { name: 'Regenerate response', exact: true }).tap();
     const stop = phone.getByRole('button', { name: 'Cancel', exact: true });
     await expect(stop).toBeEnabled();
-    await expect(phone.getByText('Waiting for first token…', { exact: true })).toBeVisible();
+    await expect(phone.getByText('Connecting…', { exact: true })).toBeVisible();
     // Chromium clears touch hover here; retain it explicitly to model sticky-hover phone browsers.
     await stop.hover();
     await expect(stop).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
@@ -169,7 +169,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
   // A completed replacement stays in the same container and becomes a variant.
   const callsBeforeSuccess = await request.get('/__test/requests').then(response => response.json()).then(calls => calls.length);
   await page.getByRole('button', { name: 'Regenerate response', exact: true }).click();
-  await expect(turn.locator('.part.assistant .prose')).toHaveText('Waiting for first token…');
+  await expect(turn.locator('.part.assistant .prose')).toHaveText('Connecting…');
   await expect.poll(() => request.get('/__test/requests').then(response => response.json()).then(calls => calls.length)).toBe(callsBeforeSuccess + 1);
   await request.post('/__test/finish', { data: {} });
   await expect(turn.locator('.part.assistant .prose')).toHaveText('The lantern');

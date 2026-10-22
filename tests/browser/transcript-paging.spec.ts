@@ -163,7 +163,7 @@ test('rejects delayed stale pages, reconciles generation outside the window and 
   await page.reload();
   const pending = page.getByRole('article', { name: 'Turn 201', exact: true });
   await expect(pending).toBeInViewport();
-  await expect(pending).toContainText('Waiting for first token…');
+  await expect(pending).toContainText('Connecting…');
   await pending.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(pending).toContainText('Generation cancelled.');
   await page.request.post('/__test/mode', { data: { mode: 'normal' } });

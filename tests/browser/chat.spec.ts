@@ -59,7 +59,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   const firstTurn = page.getByRole('article', { name: 'Turn 1', exact: true });
-  await expect(firstTurn.locator('.part.assistant .prose')).toHaveText('Waiting for first token…');
+  await expect(firstTurn.locator('.part.assistant .prose')).toHaveText('Connecting…');
   await expect(firstTurn.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
   await expect(firstTurn.getByRole('textbox', { name: 'Response version', exact: true })).toHaveValue('1');
   await expect(firstTurn.getByRole('textbox', { name: 'Response version', exact: true })).toBeDisabled();
@@ -112,7 +112,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   const pendingTurn = page.getByRole('article', { name: 'Turn 2', exact: true });
   const phonePendingTurn = phone.getByRole('article', { name: 'Turn 2', exact: true });
-  await expect(pendingTurn.locator('.part.assistant .prose')).toHaveText('Waiting for first token…');
+  await expect(pendingTurn.locator('.part.assistant .prose')).toHaveText('Connecting…');
   await expect(pendingTurn.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
   await expect(phonePendingTurn.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
   for (const visibleTurn of [pendingTurn, phonePendingTurn]) {

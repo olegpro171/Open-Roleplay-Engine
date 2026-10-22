@@ -36,7 +36,7 @@ for (const width of [1280, 390, 320]) test(`streams and saves separate turn reas
   const showReasoning = controls.getByRole('button', { name: 'Show reasoning', exact: true });
   const reply = turn.locator('.part.assistant > .prose');
   await expect(preview).toContainText('Reasoning line 80');
-  await expect(reply).toHaveText('Waiting for first token…');
+  await expect(reply).toHaveText('Reasoning…');
   const previewBox = await preview.boundingBox(), replyBox = await reply.boundingBox();
   expect(previewBox && replyBox && previewBox.y + previewBox.height <= replyBox.y).toBe(true);
   expect(previewBox?.height).toBeLessThan(110);
@@ -63,7 +63,7 @@ for (const width of [1280, 390, 320]) test(`streams and saves separate turn reas
   expect((await state()).generations[0].status).toBe('running');
   await page.reload();
   await expect(preview).toContainText('The newest thought');
-  await expect(reply).toHaveText('Waiting for first token…');
+  await expect(reply).toHaveText('Reasoning…');
   await showReasoning.click();
   await expect(stream).toHaveText(syntheticReasoningStart + syntheticReasoningTail);
   await request.post('/__test/finish', { data: {} });
@@ -117,7 +117,7 @@ for (const width of [1280, 390, 320]) test(`streams and saves separate turn reas
 
   // Cancelling a replacement restores the selected response and its own reasoning.
   await turn.getByRole('button', { name: 'Regenerate response', exact: true }).click();
-  await expect(reply).toHaveText('Waiting for first token…');
+  await expect(reply).toHaveText('Reasoning…');
   await expect(preview).toContainText('Reasoning line 80');
   await expect(preview).not.toContainText('The newest thought');
   await showReasoning.click();
