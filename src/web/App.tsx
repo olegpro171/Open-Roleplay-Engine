@@ -24,10 +24,14 @@ import { ChatMarkdown } from './ChatMarkdown';
 import { ChatTextarea } from './ChatTextarea';
 import { ChatDetailsTarget, ChatWorkspace } from './ChatWorkspace';
 import { ChatCharacterPortrait } from './Pictures';
+import { useComposerKeyboard } from './useComposerKeyboard';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
 const serverUnavailable = msg("app.cannot_reach_the_server_check_that_it");
+// iPadOS can advertise a Mac when requesting desktop sites.
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function lastChat() {
   try { return localStorage.getItem('roleplay-chat') ?? 'main'; }
   catch { return 'main'; }
@@ -65,6 +69,7 @@ export function App() {
   const [error, setError] = useTextState('');
   const [online, setOnline] = useState(false);
   const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory' | 'data'>('story');
+  const composerKeyboard = useComposerKeyboard(isIOS && tab === 'story');
   const [libraryTarget, setLibraryTarget] = useState<LibraryTarget | null>(null);
   const confirmAction = useConfirmation(`${chatId}:${tab}:${session?.authenticated}`);
   const drafts = useChatDraft(chatId);
@@ -454,7 +459,7 @@ export function App() {
         {!active && pending && <div className="recovery" role="status"><div><strong>{t("app.last_turn_is_still_pending")}</strong><p>{latest?.status === 'cancelled' ? t("app.response_cancelled_generate_response_before_next_turn") : (latest?.errorMessage ? formatMessage(latest.errorMessage) : latest?.error) ?? t("app.generate_response_before_next_turn")}</p>{partial && <small>{t("app.partial_text_is_preserved_for_inspection_it")}</small>}</div><button className="secondary" disabled={busy} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: newId() }))}>{t("app.retry_response")}</button></div>}
         {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{(latest.errorMessage ? formatMessage(latest.errorMessage) : latest.error) ?? t("app.regeneration_did_not_finish_try_again")}</p>}
         {drafts.needsReview && <div className="recovery" role="alert"><p>{t("app.this_browser_draft_predates_a_backup_import")}</p><button onClick={drafts.review}>{t("app.use_recovered_draft")}</button></div>}
-        <form className="composer" onSubmit={(event) => void send(event)}>
+        <form className={isIOS ? 'composer composer-ios' : 'composer'} data-keyboard-visible={composerKeyboard || undefined} onSubmit={(event) => void send(event)}>
           <ChatTextarea autoSize rows={1} aria-label={t("app.your_next_turn")} id="turn-input" placeholder={t("app.what_happens_next")} value={draft} disabled={busy} onValueChange={text => { drafts.change(text); setPeek(false); }} />
           <button className="send-turn" aria-label={t("app.send")} title={busy ? t("app.saving_changes") : t("app.send")} disabled={pending || busy || working || memoryStale || dataChanged || drafts.needsReview || !snapshot.connection || !draft.trim()}><span className="send-icon" aria-hidden="true" /></button>
           {drafts.storageError && <span className="composer-status" role="alert">{t("app.draft_could_not_be_saved_in_this")}</span>}

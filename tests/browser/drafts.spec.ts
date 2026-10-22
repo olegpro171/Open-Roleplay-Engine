@@ -1,5 +1,5 @@
 import { openChatTool } from './chat-tools';
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, devices, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
 
 async function setup(page: Page) {
@@ -33,6 +33,114 @@ async function open(page: Page, title: string) {
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: `${title} ${test.info().testId}`, exact: true }) }).last().click();
   await expect(page.getByLabel('Your next turn')).toBeVisible();
 }
+
+for (const platform of ['iPhone', 'iPad desktop mode', 'Android'] as const) test.describe(platform, () => {
+  const device = platform === 'iPhone' ? devices['iPhone 13']
+    : platform === 'Android' ? devices['Pixel 7']
+      : { ...devices['Desktop Safari'], viewport: { width: 1024, height: 1366 } };
+  test.use({ userAgent: device.userAgent, viewport: device.viewport,
+    isMobile: device.isMobile, hasTouch: device.hasTouch, deviceScaleFactor: device.deviceScaleFactor });
+
+  test('composer shape, expansion and sending', async ({ page }) => {
+    if (platform === 'iPad desktop mode') {
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' });
+        Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 5 });
+      });
+    }
+    await setup(page);
+    const composer = page.getByLabel('Your next turn');
+    const send = page.getByRole('button', { name: 'Send', exact: true });
+    const rounded = platform !== 'Android';
+    await expect(composer).toHaveCSS('border-top-left-radius', rounded ? '22px' : '7px');
+    await expect(send).toHaveCSS('border-top-left-radius', rounded ? '50%' : '8px');
+    const initialHeight = await composer.evaluate(field => field.getBoundingClientRect().height);
+    expect(initialHeight).toBe(44);
+    const expectPhoneInsets = async () => {
+      if (platform !== 'iPhone') return;
+      const inputBounds = await composer.boundingBox();
+      const sendBounds = await send.boundingBox();
+      const viewport = page.viewportSize();
+      if (!inputBounds || !sendBounds || !viewport) throw new Error('Phone composer must be visible');
+      expect(inputBounds.x).toBeGreaterThanOrEqual(26);
+      expect(viewport.width - sendBounds.x - sendBounds.width).toBeGreaterThanOrEqual(26);
+      expect(viewport.height - sendBounds.y - sendBounds.height).toBeGreaterThanOrEqual(28);
+    };
+    await expectPhoneInsets();
+    await page.screenshot({ path: `test-results/composer-${platform.replaceAll(' ', '-')}-compact.png`, fullPage: true });
+    await composer.fill('Mira waits by the lantern.\nLeon returns the key.\nThey open the door.');
+    await expect.poll(() => composer.evaluate(field => field.getBoundingClientRect().height)).toBeGreaterThan(initialHeight);
+    await expect.poll(() => composer.evaluate(field => field.scrollHeight <= field.clientHeight + 1)).toBe(true);
+    const inputBounds = await composer.boundingBox();
+    const sendBounds = await send.boundingBox();
+    if (!inputBounds || !sendBounds) throw new Error('Composer controls must be visible');
+    expect(sendBounds.width).toBe(44);
+    expect(sendBounds.height).toBe(44);
+    expect(sendBounds.x).toBeGreaterThan(inputBounds.x + inputBounds.width);
+    expect(Math.abs(sendBounds.y + sendBounds.height - inputBounds.y - inputBounds.height)).toBeLessThan(1);
+    await expectPhoneInsets();
+    await page.screenshot({ path: `test-results/composer-${platform.replaceAll(' ', '-')}.png`, fullPage: true });
+    await send.click();
+    await expect(composer).toHaveValue('');
+    await expect.poll(() => composer.evaluate(field => field.getBoundingClientRect().height)).toBe(initialHeight);
+  });
+
+  if (platform !== 'iPad desktop mode') test('keyboard spacing follows viewport loss and restores after dismissal', async ({ page }) => {
+    // Chromium emulation cannot open the iOS keyboard. Drive its viewport
+    // signals explicitly, exercising the real hook and composer rendering.
+    await page.addInitScript(() => {
+      const viewport = window.visualViewport;
+      if (!viewport) throw new Error('Visual viewport is required for this test');
+      const expandedHeight = viewport.height;
+      let height = expandedHeight;
+      let scale = 1;
+      Object.defineProperty(viewport, 'height', { get: () => height });
+      Object.defineProperty(viewport, 'scale', { get: () => scale });
+      window.addEventListener('test-keyboard-viewport', event => {
+        if (!(event instanceof CustomEvent)) return;
+        height = expandedHeight - event.detail.loss;
+        scale = event.detail.scale;
+        viewport.dispatchEvent(new Event('resize'));
+      });
+    });
+    await setup(page);
+    const input = page.getByLabel('Your next turn');
+    const panel = page.locator('form.composer');
+    const normalBottom = platform === 'iPhone' ? '28px' : '14px';
+    const viewport = (loss: number, scale = 1) => page.evaluate(({ loss, scale }) => {
+      window.dispatchEvent(new CustomEvent('test-keyboard-viewport', { detail: { loss, scale } }));
+    }, { loss, scale });
+
+    await viewport(300);
+    await expect(panel).toHaveCSS('padding-bottom', normalBottom);
+    await viewport(0);
+    await input.focus();
+    await expect(panel).toHaveCSS('padding-bottom', normalBottom);
+    await viewport(60); // Browser chrome is not a keyboard.
+    await expect(panel).toHaveCSS('padding-bottom', normalBottom);
+    await viewport(300, 2); // Pinch zoom must not masquerade as a keyboard.
+    await expect(panel).toHaveCSS('padding-bottom', normalBottom);
+    await viewport(300);
+    await expect(panel).toHaveCSS('padding-bottom', platform === 'iPhone' ? '8px' : normalBottom);
+    await expect(panel).toHaveCSS('padding-left', '16px');
+    const draft = 'Mira waits.\nLeon opens the door.\nThe story continues.';
+    await input.fill(draft);
+    await expect.poll(() => input.evaluate(field => field.scrollHeight <= field.clientHeight + 1)).toBe(true);
+    await page.screenshot({ path: `test-results/composer-${platform}-keyboard-signals.png`, fullPage: true });
+
+    await viewport(0); // iOS can dismiss its keyboard without blurring the field.
+    await expect(input).toBeFocused();
+    await expect(panel).toHaveCSS('padding-bottom', normalBottom);
+    await expect(panel).toHaveCSS('padding-left', platform === 'iPhone' ? '26px' : '16px');
+    await viewport(300);
+    await page.getByRole('button', { name: 'Story', exact: true }).focus();
+    await expect(panel).toHaveCSS('padding-bottom', normalBottom);
+    await expect(input).toHaveValue(draft);
+    await viewport(0);
+    await input.focus();
+    await expect(panel).toHaveCSS('padding-bottom', normalBottom);
+  });
+});
 
 for (const width of [1440, 390]) test(`composer fits its content at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 });
