@@ -6,6 +6,7 @@ const russian = { formatVersion: 1, locale: 'ru', nativeName: 'Русский', 
   'language.heading': 'Язык', 'language.select': 'Язык интерфейса',
   'app.story': 'История', 'app.libraries': 'Библиотеки', 'app.settings': 'Настройки',
   'libraries.chat_title': 'Название истории',
+  'color_picker.title': 'Выбор цвета', 'color_picker.hue': 'Оттенок',
   'errors.this_response_is_no_longer_active': 'Этот ответ уже завершён.',
 } };
 
@@ -71,6 +72,11 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
   await page.getByRole('button', { name: 'Personas', exact: true }).click();
   await page.getByRole('button', { name: 'New persona', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Unsaved persona name');
+  await page.getByRole('button', { name: 'Set color', exact: true }).click();
+  await page.getByRole('button', { name: 'Speech color', exact: true }).click();
+  const colorPicker = page.getByRole('dialog', { name: 'Выбор цвета', exact: true });
+  await expect(colorPicker.getByRole('slider', { name: 'Оттенок', exact: true })).toBeVisible();
+  await colorPicker.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath(`localized-${width}.png`) });
   await page.reload();

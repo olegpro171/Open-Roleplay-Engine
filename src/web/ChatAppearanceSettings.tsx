@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { appearanceStatusSchema, chatTextScales, chatTextScaleSchema, type AppearanceStatus } from '../shared/appearance';
 import { api } from './api';
 import { ChatMarkdown } from './ChatMarkdown';
+import { ColorPicker } from './ColorPicker';
 
 export function ChatAppearanceSettings({ status, committed }: { status: AppearanceStatus; committed: (value: AppearanceStatus) => void }) {
   useLocale();
@@ -65,8 +66,8 @@ export function ChatAppearanceSettings({ status, committed }: { status: Appearan
         </div>
       </fieldset>
       <fieldset disabled={busy || conflict}><legend>{t("chat_appearance_settings.default_speech_colors")}</legend><div className="speech-color-defaults">
-        <label className="speech-color-selector">{t("chat_appearance_settings.character_speech_color")}<input aria-label={t("chat_appearance_settings.default_character_speech_color")} type="color" value={draft.settings.characterSpeechColor} onChange={event => { setDraft({ ...draft, settings: { ...draft.settings, characterSpeechColor: event.target.value } }); setMessage(''); }} /></label>
-        <label className="speech-color-selector">{t("chat_appearance_settings.persona_speech_color")}<input aria-label={t("chat_appearance_settings.default_persona_speech_color")} type="color" value={draft.settings.personaSpeechColor} onChange={event => { setDraft({ ...draft, settings: { ...draft.settings, personaSpeechColor: event.target.value } }); setMessage(''); }} /></label>
+        <div className="speech-color-selector"><span className="speech-color-label">{t("chat_appearance_settings.character_speech_color")}</span><ColorPicker label={t("chat_appearance_settings.default_character_speech_color")} value={draft.settings.characterSpeechColor} disabled={busy || conflict} onChange={characterSpeechColor => { setDraft({ ...draft, settings: { ...draft.settings, characterSpeechColor } }); setMessage(''); }} /></div>
+        <div className="speech-color-selector"><span className="speech-color-label">{t("chat_appearance_settings.persona_speech_color")}</span><ColorPicker label={t("chat_appearance_settings.default_persona_speech_color")} value={draft.settings.personaSpeechColor} disabled={busy || conflict} onChange={personaSpeechColor => { setDraft({ ...draft, settings: { ...draft.settings, personaSpeechColor } }); setMessage(''); }} /></div>
       </div></fieldset>
       <div className="actions"><button disabled={busy || conflict}>{t("chat_appearance_settings.save_chat_appearance")}</button><button type="button" className="secondary" disabled={busy} onClick={() => void reload()}>{t("chat_appearance_settings.reload_chat_appearance")}</button></div>
     </form>

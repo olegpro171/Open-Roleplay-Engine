@@ -1,13 +1,14 @@
 import { t, useLocale } from './localization';
 import { defaultSpeechColor } from '../shared/appearance';
+import { ColorPicker } from './ColorPicker';
 
-export function SpeechColorSelector({ value, change }: { value?: string | null; change: (value: string | null) => void }) {
+export function SpeechColorSelector({ value, change, disabled = false }: { value?: string | null; change: (value: string | null) => void; disabled?: boolean }) {
   useLocale();
   return <div className="full speech-color-selector" role="group" aria-label={t("speech_color_selector.speech_color_selection")}>
     <span className="speech-color-label">{t("character_editor.speech_color")}</span>
     <div className="speech-color-controls">
       {value ? <>
-        <input type="color" aria-label={t("character_editor.speech_color")} value={value} onChange={event => change(event.target.value)} />
+        <ColorPicker label={t("character_editor.speech_color")} value={value} onChange={change} disabled={disabled} />
         <button type="button" className="secondary" onClick={() => change(null)}>{t("speech_color_selector.clear_color")}</button>
       </> : <>
         <span>{t("character_editor.not_set")}</span>

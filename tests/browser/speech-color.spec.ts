@@ -1,7 +1,15 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultAppearance, type AppearanceStatus } from '../../src/shared/appearance';
+
+async function chooseColor(page: Page, label: string, color: string) {
+  await page.getByRole('button', { name: label, exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Choose color', exact: true });
+  await picker.getByRole('textbox', { name: 'Hex color', exact: true }).fill(color);
+  await picker.getByRole('button', { name: 'Apply color', exact: true }).click();
+  await expect(picker).toHaveCount(0);
+}
 
 for (const width of [1440, 390]) test(`saves speech colors from both editors and updates existing chat presentation at ${width}px`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 900 });
@@ -16,11 +24,11 @@ for (const width of [1440, 390]) test(`saves speech colors from both editors and
     await page.getByRole('button', { name: kind === 'character' ? 'Characters' : 'Personas', exact: true }).click();
     await page.getByRole('button', { name: `New ${kind}`, exact: true }).click();
     await page.getByLabel('Name', { exact: true }).fill(name);
-    const color = page.getByLabel('Speech color', { exact: true });
+    const color = page.getByRole('button', { name: 'Speech color', exact: true });
     await expect(page.getByText('Not set', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Set color', exact: true }).click();
-    await expect(color).toHaveValue('#a8c9f0');
-    await color.fill(kind === 'character' ? '#eeaa88' : '#88cc99');
+    await expect(color).toContainText('#A8C9F0');
+    await chooseColor(page, 'Speech color', kind === 'character' ? '#eeaa88' : '#88cc99');
     await color.scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath(`${kind}-color-editor.png`), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -51,12 +59,12 @@ for (const width of [1440, 390]) test(`saves speech colors from both editors and
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Characters', exact: true }).click();
   await page.getByRole('button', { name: `Edit ${name}`, exact: true }).click();
-  await expect(page.getByLabel('Speech color', { exact: true })).toHaveValue('#eeaa88');
-  await page.getByLabel('Speech color', { exact: true }).fill('#cc99ff');
+  await expect(page.getByRole('button', { name: 'Speech color', exact: true })).toContainText('#EEAA88');
+  await chooseColor(page, 'Speech color', '#cc99ff');
   await page.route(`**/api/library/${character.id}`, route => route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic save rejection.' }) }), { times: 1 });
   await page.getByRole('button', { name: 'Save character', exact: true }).click();
   await expect(page.getByRole('alert').first()).toContainText('Synthetic save rejection.');
-  await expect(page.getByLabel('Speech color', { exact: true })).toHaveValue('#cc99ff');
+  await expect(page.getByRole('button', { name: 'Speech color', exact: true })).toContainText('#CC99FF');
   expect((await library()).characters.find(item => item.id === character.id)?.speechColor).toBe('#eeaa88');
   await page.getByRole('button', { name: 'Save character', exact: true }).click();
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
@@ -131,13 +139,13 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     }
     await expect(saveButton).toHaveCSS('font-size', buttonFontSize);
     await expect(observer.locator('.part.user .chat-markdown')).toHaveCSS('font-size', '15px');
-    await page.getByLabel('Default character speech color', { exact: true }).fill('#eeaa88');
-    await page.getByLabel('Default persona speech color', { exact: true }).fill('#88cc99');
+    await chooseColor(page, 'Default character speech color', '#eeaa88');
+    await chooseColor(page, 'Default persona speech color', '#88cc99');
     await page.route('**/api/application/appearance', route => route.request().method() === 'PUT'
       ? route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic appearance save failure.' }) }) : route.continue());
     await settings.getByRole('button', { name: 'Save chat appearance', exact: true }).click();
     await expect(settings.getByRole('alert')).toContainText('Synthetic appearance save failure.');
-    await expect(page.getByLabel('Default persona speech color', { exact: true })).toHaveValue('#88cc99');
+    await expect(page.getByRole('button', { name: 'Default persona speech color', exact: true })).toContainText('#88CC99');
     expect((await appearance()).settings).toEqual(defaultAppearance);
     await expect(slider).toHaveValue('120');
     await expect(preview).toHaveCSS('font-size', '18px');
@@ -153,15 +161,19 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
     // An external save must retain local drafts and reject stale writes.
-    await page.getByLabel('Default persona speech color', { exact: true }).fill('#ffffff');
+    await chooseColor(page, 'Default persona speech color', '#ffffff');
+    await page.getByRole('button', { name: 'Default persona speech color', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Choose color', exact: true }).getByRole('textbox', { name: 'Hex color', exact: true }).fill('#f2b8c6');
     const currentAppearance = await appearance();
     const external = await page.request.put('/api/application/appearance', { headers, data: { revision: currentAppearance.revision, settings: { characterSpeechColor: '#eeaa88', personaSpeechColor: '#99bbdd' } } });
     expect(external.ok()).toBe(true);
+    await expect(page.getByRole('dialog', { name: 'Choose color', exact: true })).toHaveCount(0);
     await expect(settings.getByRole('alert')).toContainText('another window');
-    await expect(page.getByLabel('Default persona speech color', { exact: true })).toHaveValue('#ffffff');
+    await expect(page.getByRole('button', { name: 'Default persona speech color', exact: true })).toContainText('#FFFFFF');
     await expect(settings.getByRole('button', { name: 'Save chat appearance', exact: true })).toBeDisabled();
     await settings.getByRole('button', { name: 'Reload chat appearance', exact: true }).click();
-    await expect(page.getByLabel('Default persona speech color', { exact: true })).toHaveValue('#99bbdd');
+    await expect(page.getByRole('dialog', { name: 'Choose color', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Default persona speech color', exact: true })).toContainText('#99BBDD');
     await expect(observer.locator('.part.user .direct-speech')).toHaveCSS('color', 'rgb(153, 187, 221)');
 
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Libraries', exact: true }).click();
@@ -172,7 +184,7 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
       if (kind === 'persona') {
         await expect(page.getByText('Not set', { exact: true })).toBeVisible();
         await page.getByRole('button', { name: 'Set color', exact: true }).click();
-        await page.getByLabel('Speech color', { exact: true }).fill('#ffffff');
+        await chooseColor(page, 'Speech color', '#ffffff');
       }
       await page.getByRole('button', { name: 'Clear color', exact: true }).click();
       await expect(page.getByText('Not set', { exact: true })).toBeVisible();
@@ -196,4 +208,95 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     const restored = await page.request.put('/api/application/appearance', { headers, data: { revision: current.revision, settings: defaultAppearance } });
     expect(restored.ok()).toBe(true);
   }
+});
+
+for (const width of [1440, 390, 320]) test(`custom HSL picker previews, validates and cancels safely at ${width}px`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width, height: width === 320 ? 640 : 900 });
+  const session = await page.request.get('/api/session').then(response => response.json());
+  await page.goto('/');
+  await page.getByLabel('Owner password').fill('browser-synthetic-password');
+  await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await page.getByRole('button', { name: 'Personas', exact: true }).click();
+  await page.getByRole('button', { name: 'New persona', exact: true }).click();
+  await page.getByLabel('Name', { exact: true }).fill(`HSL picker ${width}`);
+  await page.getByRole('button', { name: 'Set color', exact: true }).click();
+  const trigger = page.getByRole('button', { name: 'Speech color', exact: true });
+  await trigger.click();
+  const picker = page.getByRole('dialog', { name: 'Choose color', exact: true });
+  const hex = picker.getByRole('textbox', { name: 'Hex color', exact: true });
+  const hue = picker.getByRole('slider', { name: 'Hue', exact: true });
+  const saturation = picker.getByRole('slider', { name: 'Saturation', exact: true });
+  const lightness = picker.getByRole('slider', { name: 'Lightness', exact: true });
+  const apply = picker.getByRole('button', { name: 'Apply color', exact: true });
+  await expect(page.locator('input[type=color]')).toHaveCount(0);
+  await expect(hex).toHaveValue('#a8c9f0');
+  await picker.getByRole('group', { name: 'Pastels', exact: true }).getByRole('button', { name: 'Pastel mint', exact: true }).click();
+  await expect(hex).toHaveValue('#b8dfc4');
+  await expect(picker.getByRole('button', { name: 'Pastel mint', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(apply).toBeInViewport({ ratio: 1 });
+  await picker.screenshot({ path: testInfo.outputPath('hsl-picker-pastels.png') });
+  expect(await picker.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await hex.fill('#12oops');
+  await expect(hex).toHaveAttribute('aria-invalid', 'true');
+  await expect(apply).toBeDisabled();
+  await expect(picker.getByRole('alert')).toHaveText('Use a six-digit hex color.');
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).focus();
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).press('Tab');
+  await expect(hue).toBeFocused();
+  await hex.press('Enter');
+  await expect(picker).toBeVisible();
+  await hex.press('Escape');
+  await expect(picker).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect(trigger).toContainText('#A8C9F0');
+
+  await trigger.press('Enter');
+  await expect(hex).toHaveValue('#a8c9f0');
+  await hex.fill('#ff0000');
+  await hue.focus();
+  await hue.press('Home');
+  await hue.press('ArrowRight');
+  await expect(hex).toHaveValue('#ff0400');
+  await hue.fill('120');
+  await expect(hex).toHaveValue('#00ff00');
+  await saturation.fill('0');
+  await expect(hex).toHaveValue('#808080');
+  await hue.fill('240');
+  await saturation.fill('100');
+  await expect(hex).toHaveValue('#0000ff');
+  await lightness.fill('0');
+  await expect(hex).toHaveValue('#000000');
+  await hue.fill('60');
+  await lightness.fill('50');
+  await expect(hex).toHaveValue('#ffff00');
+  await lightness.fill('100');
+  await expect(hex).toHaveValue('#ffffff');
+  await lightness.fill('50');
+  await expect(hex).toHaveValue('#ffff00');
+  await apply.focus();
+  await apply.press('Tab');
+  await expect(hue).toBeFocused();
+  await hue.press('Shift+Tab');
+  await expect(apply).toBeFocused();
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(trigger).toContainText('#A8C9F0');
+  await trigger.click();
+  await hex.fill('#f2b8c6');
+  await page.mouse.click(1, 1);
+  await expect(picker).toHaveCount(0);
+  await expect(trigger).toContainText('#A8C9F0');
+  await trigger.click();
+  await hex.fill('#ABCDEF');
+  await hex.press('Enter');
+  await expect(picker).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect(trigger).toContainText('#ABCDEF');
+  // Applying a color must not submit the containing editor.
+  await expect(page.getByRole('button', { name: 'Save persona', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Save persona', exact: true }).click();
+  await expect(page.getByRole('heading', { name: `HSL picker ${width}`, exact: true })).toBeVisible();
+  const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
+  expect(library.personas.find(persona => persona.name === `HSL picker ${width}`)?.speechColor).toBe('#abcdef');
 });
