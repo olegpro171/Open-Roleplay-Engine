@@ -10,6 +10,7 @@ import { countInput, countText } from './tokens.js';
 import { savedReplacement } from './context-reuse.js';
 import { correctionProtection, correctionMessage, correctionDiagnostic } from './context-corrections.js';
 import { repairInputs } from './context-repair.js';
+import { modelText } from './model-text.js';
 
 export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
   if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.select_a_roleplay_connection_to_measure_the_complete"));
@@ -53,14 +54,14 @@ export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperati
   const ids = new Set(operation.turnIds), turns = snapshot.turns.filter(turn => ids.has(turn.id));
   const template = operation.repair ? config.repairPrompt : operation.level === 1 ? config.extractionPrompt : config.promotionPrompt;
   const values: Record<string, string> = { target_tokens: String(config.summaryTokens), level: String(operation.level), user: snapshot.sources.persona?.name ?? 'You', char: snapshot.sources.character?.name ?? 'Character' };
-  const instructions = template.replace(/{{\s*(target_tokens|level|user|char)\s*}}/gi, (match, name: string) => values[name.toLowerCase()] ?? match);
+  const instructions = modelText(template.replace(/{{\s*(target_tokens|level|user|char)\s*}}/gi, (match, name: string) => values[name.toLowerCase()] ?? match));
   if (operation.repair) {
     const inputs = repairInputs(snapshot, operation, previousRequest);
     const messages: Message[] = [{ role: 'system', content: instructions }, { role: 'user', content: JSON.stringify({
       task: 'Apply only the necessary factual corrections from these input changes to the existing summary. Return the complete summary with all unaffected text preserved exactly. If no correction belongs in this memory, return the existing summary exactly.',
-      previous_summary: inputs.old.text, previously_manually_corrected: inputs.old.manual,
+      previous_summary: modelText(inputs.old.text), previously_manually_corrected: inputs.old.manual,
       coverage_unchanged: inputs.structureUnchanged, previous_inputs_available: inputs.known,
-      changes: inputs.changes,
+      changes: inputs.changes.map(change => ({ ...change, before: change.before === null ? null : modelText(change.before), after: change.after === null ? null : modelText(change.after) })),
       ...(operation.reconcile?.length ? { reconciliation: 'The supplied manual corrections overlap this memory. Reconcile them with the existing summary. Do not silently prefer one correction or discard editorial content. Make conflicts explicit for user review; this result requires approval.' } : {}),
     }) }];
     const physicalInput = connection.contextWindow - connection.maxOutputTokens;
@@ -76,10 +77,10 @@ export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperati
   const protection = correctionProtection(snapshot.turns, snapshot.context);
   const proposed = { id: 'proposed', revision: 0, level: operation.level, text: '', turns: turns.map(sourceOf), children: operation.children, prior: [], approved: false, manual: false, createdAt: '' };
   if (protection.missingFor(proposed).length) throw new AppError(422, 'correction_reconciliation_required', correctionMessage);
-  const source = operation.level === 1 ? turns.map(turn => ({ turn: snapshot.turns.indexOf(turn) + 1, user: turn.user.text, assistant: turn.assistant.text })) : operation.children.map(ref => {
+  const source = operation.level === 1 ? turns.map(turn => ({ turn: snapshot.turns.indexOf(turn) + 1, user: modelText(turn.user.text), assistant: modelText(turn.assistant.text) })) : operation.children.map(ref => {
     const node = nodeFor(snapshot.context, ref);
     if (!node) throw new AppError(422, 'invalid_context', message("errors.a_source_summary_is_missing"));
-    return { level: node.level, text: node.text };
+    return { level: node.level, text: modelText(node.text) };
   });
   const sourceMessage: Message = { role: 'user', content: JSON.stringify({ task: 'Summarize only the supplied sources.', sources: source }) };
   const messages: Message[] = [{ role: 'system', content: instructions }, sourceMessage];
@@ -100,15 +101,19 @@ export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperati
   // Bounded earlier context only. Never add later events to a summary's sources.
   for (const node of [...priorNodes].reverse()) {
     if (!node) continue;
-    const candidate: Message = { role: 'system', content: `Earlier memory for reference only; do not repeat or extend its coverage:\n${node.text}` };
+    const candidate: Message = { role: 'system', content: `Earlier memory for reference only; do not repeat or extend its coverage:\n${modelText(node.text)}` };
     const insert = 1;
     const proposed = [...messages.slice(0, insert), candidate, ...messages.slice(insert)];
     if (estimateInputTokens(proposed) <= physicalInput) { messages.splice(insert, 0, candidate); prior.unshift({ id: node.id, revision: node.revision }); }
   }
   const { contentTokens: _, ...measurement } = countInput(messages);
+  // Ordinary extraction can recover its baseline from the provider JSON. When
+  // display images were excluded, retain the original source separately for repair.
+  const filteredSources = operation.level === 1 && turns.some(turn => modelText(turn.user.text) !== turn.user.text || modelText(turn.assistant.text) !== turn.assistant.text);
   return { prior, request: {
     endpoint: `${connection.endpoint.replace(/\/+$/, '')}/chat/completions`,
     body: { ...connection.customParameters, model: connection.model, messages, stream: true, max_tokens: connection.maxOutputTokens, ...(connection.requestUsage !== false ? { stream_options: { include_usage: true as const } } : {}) },
-    coverage: turns.map(sourceOf), budget: { ...measurement, targetInputTokens: physicalInput, reservedOutputTokens: connection.maxOutputTokens, contextWindow: connection.contextWindow },
+    coverage: turns.map(sourceOf), ...(filteredSources ? { summarySources: turns.map(turn => ({ turnId: turn.id, user: turn.user.text, assistant: turn.assistant.text })) } : {}),
+    budget: { ...measurement, targetInputTokens: physicalInput, reservedOutputTokens: connection.maxOutputTokens, contextWindow: connection.contextWindow },
   } };
 }

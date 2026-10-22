@@ -8,6 +8,7 @@ import { parseLoreDirectives, type LoreDirectives } from './lorebook-directives.
 import { characterParts } from './character-prompt.js';
 import { replaceNameMacros } from './names.js';
 import { countInput } from './tokens.js';
+import { modelText } from './model-text.js';
 
 export type LoreInput = {
   book: Saved<Lorebook>;
@@ -133,7 +134,7 @@ function admissionOrder(left: PreparedEntry, right: PreparedEntry): number {
 
 function excludedReason(entry: PreparedEntry, assistantCount: number, pressure: boolean): string | null {
   if (!entry.entry.enabled) return 'disabled';
-  if (entry.text.trim() === '') return 'empty_content';
+  if (modelText(entry.text).trim() === '') return 'empty_content';
   if (!entry.destination) return 'unavailable_destination';
   if (pressure && entry.directives.ignoreOnPressure) return 'pressure';
   if (entry.directives.dontAfterMatch && entry.matches >= 2) return 'dont_activate_after_match';
@@ -254,7 +255,7 @@ export async function resolveLore(input: LoreInput, matchRegex: RegexMatcher): P
       }
       entry.outcome.reason = reason;
       if (!entry.destination) throw new AppError(500, 'lore_destination_invariant', message("errors.an_eligible_lore_entry_lost_its_destination"));
-      entry.outcome.tokens = countInput([{ role: entry.destination.role, content: entry.text }]).inputTokens - emptyMessageTokens;
+      entry.outcome.tokens = countInput([{ role: entry.destination.role, content: modelText(entry.text) }]).inputTokens - emptyMessageTokens;
       candidates.push(entry);
     }
     let added = 0;

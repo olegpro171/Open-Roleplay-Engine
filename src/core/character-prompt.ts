@@ -1,4 +1,5 @@
 import { characterFields, type Character, type CharacterField, type PromptBlock } from '../shared/library.js';
+import { modelText } from './model-text.js';
 
 /** One expansion defines both outgoing field messages and eligible lore anchors. */
 export function characterParts(block: PromptBlock, card: Character | null | undefined, legacyDescription = ''): { field: CharacterField; text: string }[] {
@@ -8,6 +9,6 @@ export function characterParts(block: PromptBlock, card: Character | null | unde
     : characterFields.filter(field => field === block.marker);
   return fields.flatMap(field => {
     const text = card ? (field === 'examples' ? card.mes_example : card[field]) : field === 'description' ? legacyDescription : '';
-    return text.trim() ? [{ field, text }] : [];
+    return modelText(text).trim() ? [{ field, text }] : [];
   });
 }

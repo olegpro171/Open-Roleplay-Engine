@@ -80,6 +80,15 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, loc
 
   // Restore against stable turn identities after a page is prepended or trimmed.
   useLayoutEffect(() => { restoreRef.current(); }, [content, chatId]);
+  useLayoutEffect(() => {
+    const node = transcript.current;
+    if (!node || !chatId) return;
+    // Lazy images can change a turn's height after its Markdown has rendered.
+    // Observe only the bounded mounted window, including newly loaded pages.
+    const observer = new ResizeObserver(() => restoreRef.current());
+    node.querySelectorAll<HTMLElement>('[data-turn-id]').forEach(turn => observer.observe(turn));
+    return () => observer.disconnect();
+  }, [content, chatId]);
   useLayoutEffect(() => { if (following.current) scrollToLatest(); }, [localContent]);
 
   return { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest };

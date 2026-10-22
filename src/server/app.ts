@@ -44,7 +44,7 @@ import { dirname } from 'node:path';
 import { languageLimits, localeSchema, MessageError } from '../shared/localization.js';
 import { validationMessage } from '../shared/localization-validation.js';
 
-const contentSecurityPolicy = (styleNonce?: string) => `default-src 'self'; script-src 'self'; style-src 'self'${styleNonce ? ` 'nonce-${styleNonce}'` : ''}; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`;
+const contentSecurityPolicy = (styleNonce?: string) => `default-src 'self'; script-src 'self'; style-src 'self'${styleNonce ? ` 'nonce-${styleNonce}'` : ''}; connect-src 'self'; img-src 'self' data: https: http:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`;
 function loreImport<T>(parse: () => T): T {
   try { return parse(); }
   catch (error) {

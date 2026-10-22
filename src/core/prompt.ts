@@ -13,6 +13,7 @@ import { characterParts } from './character-prompt.js';
 import { readCharacterDepthPrompt } from '../shared/card-instructions.js';
 import { resolveCardInstruction } from './card-instructions.js';
 import { injectHistory } from './history-injections.js';
+import { modelText } from './model-text.js';
 export { replaceNameMacros } from './names.js';
 
 export function estimateInputTokens(messages: Message[]): number {
@@ -21,7 +22,7 @@ export function estimateInputTokens(messages: Message[]): number {
 
 export function summaryText(node: SummaryNode, turns: Turn[]): string {
   const positions = new Map(turns.map((turn, i) => [turn.id, i + 1]));
-  return `[Memory L${node.level} · turns ${positions.get(node.turns[0]?.turnId) ?? '?'}–${positions.get(node.turns.at(-1)?.turnId ?? '') ?? '?'}]\n${node.text}`;
+  return `[Memory L${node.level} · turns ${positions.get(node.turns[0]?.turnId) ?? '?'}–${positions.get(node.turns.at(-1)?.turnId ?? '') ?? '?'}]\n${modelText(node.text)}`;
 }
 
 export function assembleRequest(connection: Connection, settings: ChatSettings, turns: Turn[], sources?: PromptSources, context?: ContextState, options: { validateLimits?: boolean; allowStale?: boolean; lore?: LoreResolution | null } = {}): RequestPreview {
@@ -40,7 +41,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   const warnings = promptWarnings(preset);
   let historyIndex: number | null = null;
   const card = sources?.character;
-  const resolve = (text: string) => replaceNameMacros(text, sources?.persona?.name ?? 'You', card?.name ?? 'Character');
+  const resolve = (text: string) => modelText(replaceNameMacros(text, sources?.persona?.name ?? 'You', card?.name ?? 'Character'));
   const messagesBlock = preset.blocks.find(block => block.enabled && block.kind === 'marker' && block.marker === 'messages');
   let depthNote: { depth: number; entry: Entry } | null = null;
   if (messagesBlock?.kind === 'marker' && messagesBlock.allowDepthPrompt) {
@@ -64,7 +65,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     const fieldRelative = destination && ['before_desc', 'after_desc', 'personality', 'scenario'].includes(destination.placement);
     const group = fieldRelative && destination.anchorId ? groups.get(destination.anchorId) : undefined;
     return {
-      message: { role: destination?.role ?? 'system', content: entry.text },
+      message: { role: destination?.role ?? 'system', content: modelText(entry.text) },
       kind: 'lore', ...promptLabel(message("prompt_peek.lore_2", { name: String(entry.name) })), ...(group ? { group } : {}),
     };
   };
@@ -81,7 +82,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     if (block.kind === 'marker' && (block.marker === 'card_system_prompt' || block.marker === 'card_post_history_instructions')) {
       const field = block.marker === 'card_system_prompt' ? 'system_prompt' : 'post_history_instructions';
       const instruction = resolveCardInstruction(card, field, block.fallback ?? '', sources?.persona?.name ?? 'You');
-      if (instruction.text.trim()) entries.push({ message: { role: block.role, content: instruction.text }, kind: instruction.fallback ? 'prompt' : 'character', ...promptLabel(message("diagnostics.text", { name: String(block.name), field: String(field), value: String(instruction.fallback ? 'fallback' : 'card') })) });
+      if (instruction.text.trim()) entries.push({ message: { role: block.role, content: modelText(instruction.text) }, kind: instruction.fallback ? 'prompt' : 'character', ...promptLabel(message("diagnostics.text", { name: String(block.name), field: String(field), value: String(instruction.fallback ? 'fallback' : 'card') })) });
       continue;
     }
     const parts = characterParts(block, card, settings.character);
@@ -110,16 +111,25 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   }
   const turnEntries = (turn: Turn): Entry[] => {
     const result: Entry[] = [];
-    if (turn.user.text !== '') result.push({ message: { role: 'user', content: turn.user.text }, kind: turn.id === 'draft' ? 'draft' : 'history', label: turn.id === 'draft' ? 'Unsent input' : `Turn ${positions.get(turn.id)} · input` });
-    if (turn.complete && turn.assistant.text !== '') result.push({ message: { role: 'assistant', content: turn.assistant.text }, kind: 'history', ...promptLabel(message("diagnostics.turn_response", { value: String(positions.get(turn.id)) })) });
+    const user = modelText(turn.user.text);
+    const assistant = turn.complete ? modelText(turn.assistant.text) : '';
+    if (user !== '') result.push({ message: { role: 'user', content: user }, kind: turn.id === 'draft' ? 'draft' : 'history', label: turn.id === 'draft' ? 'Unsent input' : `Turn ${positions.get(turn.id)} · input` });
+    if (assistant !== '') result.push({ message: { role: 'assistant', content: assistant }, kind: 'history', ...promptLabel(message("diagnostics.turn_response", { value: String(positions.get(turn.id)) })) });
     return result;
   };
+  // Filtering display-only blocks must preserve the marker's insertion boundary.
+  if (historyIndex !== null) historyIndex = entries.slice(0, historyIndex).filter(entry => entry.message.content !== '').length;
+  entries = entries.filter(entry => entry.message.content !== '');
+  const historyInjections = [
+    ...historyLore.map(entry => ({ depth: entry.destination?.depth ?? 0, entry: loreEntry(entry) })),
+    ...(depthNote ? [depthNote] : []),
+  ].filter(injection => injection.entry.message.content !== '');
   let verbatim: Turn[] = [];
   if (historyIndex !== null) {
     if (summariesEnabled) verbatim = resolved.verbatim;
     else {
       const limit = Math.min(settings.targetInputTokens, connection.contextWindow - connection.maxOutputTokens);
-      let used = countInput([...entries, ...historyLore.map(loreEntry), ...(depthNote ? [depthNote.entry] : [])].map(entry => entry.message)).inputTokens;
+      let used = countInput([...entries, ...historyInjections.map(injection => injection.entry)].map(entry => entry.message)).inputTokens;
       let start = turns.length;
       // A pending input is required when Messages is enabled. Completed turns
       // form a contiguous newest suffix; neither parts nor text are truncated.
@@ -132,10 +142,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
       verbatim = turns.slice(start);
     }
     const history = verbatim.flatMap(turnEntries);
-    const expanded = injectHistory(history, entry => Boolean(entry.message.content.trim()), [
-      ...historyLore.map(entry => ({ depth: entry.destination?.depth ?? 0, entry: loreEntry(entry) })),
-      ...(depthNote ? [depthNote] : []),
-    ]);
+    const expanded = injectHistory(history, entry => Boolean(entry.message.content.trim()), historyInjections);
     entries = entries.slice(0, historyIndex).concat(expanded, entries.slice(historyIndex));
   }
   const messages = entries.map(entry => entry.message);

@@ -73,6 +73,19 @@ describe('lorebook original scan input', () => {
 });
 
 describe('lorebook matching and directives', () => {
+  it('budgets only outgoing image-free lore and excludes image-only character anchors', async () => {
+    const image = '\n\n![](https://example.com/' + 'long-image-name-'.repeat(100) + '.png)';
+    const result = await run([entry('prose', { constant: true, content: 'Lore prose.' + image }), entry('image-only', { constant: true, content: image })], { book: { tokenBudget: cost('Lore prose.') } });
+    expect(admitted(result)).toEqual(['prose']);
+    expect(result.tokens).toBe(cost('Lore prose.'));
+    expect(reason(result, 'image-only')).toBe('empty_content');
+    const input = sources();
+    if (!input.character) throw new Error('Fixture character missing.');
+    input.character.description = image;
+    const anchored = await run([entry('description', { constant: true, placement: 'after_desc' })], { sources: input });
+    expect(reason(anchored, 'description')).toBe('unavailable_destination');
+  });
+
   it('handles primary, selective-secondary and constant combinations explicitly', async () => {
     const result = await run([
       entry('primary'), entry('secondary-missing', { selective: true, secondaryKeys: ['moon'] }),

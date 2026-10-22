@@ -71,12 +71,23 @@ describe('chat Markdown presentation', () => {
     expect(completed).toContain('<strong class="direct-speech">, traveler.&quot;</strong>');
   });
 
-  it('renders untrusted HTML as text, blocks unsafe URLs and never loads Markdown images', () => {
+  it('renders untrusted HTML as text, blocks unsafe URLs and renders safe Markdown images', () => {
     const html = render('<script>alert("bad")</script>\n\n<img src="https://example.com/tracker" onerror="alert(1)">\n\n[bad](javascript:alert%281%29) [data](data:text/html,bad) [relative](/api/logout) [safe](https://example.com)\n\n![portrait](https://example.com/portrait.png)');
     expect(html).toContain('&lt;script&gt;');
-    expect(html).toContain('[Image: portrait]');
+    expect(html).toMatch(/<img[^>]*src="https:\/\/example.com\/portrait.png"/u);
+    expect(html).toContain('referrerPolicy="no-referrer"');
     expect(html).toContain('href="https://example.com"');
-    expect(html).not.toMatch(/<(script|img)\b/iu);
+    expect(html).not.toMatch(/<script\b/iu);
+    expect(html).not.toContain('<img src="https://example.com/tracker"');
     expect(html).not.toMatch(/href="(?:javascript:|data:|\/api)/iu);
+  });
+
+  it('supports empty alt text and reference images while blocking local and unsafe image destinations', () => {
+    const html = render('![](https://example.com/empty.png)\n\n![scene][picture]\n\n[picture]: http://example.com/scene.png\n\n![local](/api/logout) ![mail](mailto:bad@example.com) ![data](data:image/png;base64,AA) ![script](javascript:alert%281%29)');
+    expect(html.match(/<img\b/gu)).toHaveLength(2);
+    expect(html).toContain('src="https://example.com/empty.png"');
+    expect(html).toContain('src="http://example.com/scene.png"');
+    expect(html).toContain('[Image: local]');
+    expect(html).not.toMatch(/src="(?:\/|mailto:|data:|javascript:)/iu);
   });
 });

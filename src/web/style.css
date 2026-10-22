@@ -369,6 +369,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .chat-markdown input[type=checkbox] { width: auto; margin-right: .5em; }
 .chat-markdown .direct-speech { color: var(--direct-speech-color); font-weight: 700; }
 .markdown-image { color: var(--muted); font-style: italic; }
+.chat-markdown .chat-inline-image { display: block; max-width: 100%; height: auto; margin: .5em 0; border-radius: 6px; }
 
 /* Shared destructive-action confirmation, including dialogs opened over tag management. */
 .confirmation-dialog{width:min(460px,calc(100% - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:28px;border:1px solid #5a4343;border-radius:14px;background:var(--surface);color:#e8e8e4;box-shadow:0 24px 80px #0008}

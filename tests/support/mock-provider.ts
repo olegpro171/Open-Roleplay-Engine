@@ -70,4 +70,4 @@ export async function startMockProvider() {
 export const syntheticReasoningStart = 'Consider the scene before answering.\n' + Array.from({ length: 80 }, (_, i) => `Reasoning line ${i + 1}: preserve the lantern and the quiet tower.\n`).join('');
 export const syntheticReasoningTail = 'The newest thought: keep the reply grounded in the scene.\n';
 export const markdownReplyStart = 'Mara says "*Stay';
-export const markdownReplyEnd = ' close*, traveler."\n\n— Послушайте! — воскликнул Пётр, но тут же добавил тише: — Я ведь не знал.';
+export const markdownReplyEnd = ' close*, traveler."\n\n— Послушайте! — воскликнул Пётр, но тут же добавил тише: — Я ведь не знал.\n\n![](https://example.com/reply.png)';
