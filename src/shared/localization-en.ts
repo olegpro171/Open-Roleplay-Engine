@@ -348,6 +348,7 @@ export const englishMessages = {
   "chat_appearance_settings.your_edits_are_retained_reload_chat_appearance": "{{value}} Your edits are retained. Reload chat appearance to check the saved result.",
   "chat_appearance_settings.chat_appearance_changed_in_another_window_reload": "Chat appearance changed in another window. Reload chat appearance before saving. Your edits are retained until you reload.",
   "chat_appearance_settings.chat_text_size": "Chat text size",
+  "chat_appearance_settings.display_character_picture": "Display character picture in chat.",
   "chat_appearance_settings.text_scale": "Text scale — {{chatTextScale}}%{{value}}",
   "chat_appearance_settings.adjust_message_text_independently_of_the_rest": "Adjust message text independently of the rest of the interface.",
   "chat_appearance_settings.default": "Default",

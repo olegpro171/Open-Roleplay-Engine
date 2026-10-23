@@ -231,6 +231,8 @@ Accepted on 2026-10-20: the application-level header item is **Settings**, openi
 
 Accepted on 2026-10-21: **Application Settings → Chat appearance** includes a ticked **Text scale** slider for chat message text, with 90%, 100% (default), 110% and 120% steps. An example below it previews the selected size immediately. Saving applies it to existing and live chat messages independently of interface controls, composer and source editors. This is server-wide appearance configuration with the same persistence and backup boundaries as default speech colors; it does not change saved prose or model input.
 
+Accepted on 2026-10-23: **Settings → Chat appearance** includes **Display character picture in chat.**, checked by default. Saving it unchecked hides the round character portrait in Story, Chat details and shared chat-tool sidebars. Library pictures remain visible. This uses the same server-wide persistence and backup boundaries as the other chat appearance preferences.
+
 ### Agent
 
 A task configured for a specific job, with its own instructions and selected Connection. It has read access to chat history, runs manually or automatically, and produces output available through a prompt marker.

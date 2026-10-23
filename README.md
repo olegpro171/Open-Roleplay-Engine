@@ -239,6 +239,8 @@ In **Libraries → Characters / Personas**, **Speech color** starts at **Not set
 
 **Settings → Chat appearance → Text scale** adjusts message text to 90%, 100% (default), 110% or 120%, independently of interface controls. The example below the slider previews the size immediately; **Save chat appearance** applies it to existing messages and live replies.
 
+**Display character picture in chat.** starts checked in the same section. Uncheck it and choose **Save chat appearance** to hide the round portrait in Story, Chat details and chat-tool sidebars. Check and save again to restore it. Library pictures stay visible.
+
 Application defaults are saved privately in `<database>.appearance.json` and survive restart and content import/wipe. They are excluded from SQLite content backups; card overrides are included with their library records.
 
 ## Storage and recovery

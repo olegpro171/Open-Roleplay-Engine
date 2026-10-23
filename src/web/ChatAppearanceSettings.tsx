@@ -47,6 +47,12 @@ export function ChatAppearanceSettings({ status, committed }: { status: Appearan
     {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
     {conflict && <p role="alert">{t("chat_appearance_settings.chat_appearance_changed_in_another_window_reload")}</p>}
     <form onSubmit={event => void save(event)}>
+      <fieldset disabled={busy || conflict}>
+        <label className="checkbox"><input type="checkbox" checked={draft.settings.displayCharacterPicture} onChange={event => {
+          setDraft({ ...draft, settings: { ...draft.settings, displayCharacterPicture: event.target.checked } });
+          setMessage('');
+        }} />{t("chat_appearance_settings.display_character_picture")}</label>
+      </fieldset>
       <fieldset disabled={busy || conflict}><legend>{t("chat_appearance_settings.chat_text_size")}</legend>
         <label htmlFor="chat-text-scale">{t("chat_appearance_settings.text_scale", { chatTextScale: draft.settings.chatTextScale, value: draft.settings.chatTextScale === 100 ? ' (default)' : '' })}</label>
         <p className="small muted" id="chat-text-scale-help">{t("chat_appearance_settings.adjust_message_text_independently_of_the_rest")}</p>

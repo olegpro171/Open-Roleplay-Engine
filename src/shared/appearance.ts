@@ -9,8 +9,9 @@ export const appearanceSchema = z.object({
   characterSpeechColor: speechColorSchema,
   personaSpeechColor: speechColorSchema,
   chatTextScale: chatTextScaleSchema,
+  displayCharacterPicture: z.boolean(),
 }).strict();
-export const defaultAppearance: Appearance = { characterSpeechColor: defaultSpeechColor, personaSpeechColor: defaultSpeechColor, chatTextScale: 100 };
+export const defaultAppearance: Appearance = { characterSpeechColor: defaultSpeechColor, personaSpeechColor: defaultSpeechColor, chatTextScale: 100, displayCharacterPicture: true };
 export const appearanceStatusSchema = z.object({ revision: z.number().int().nonnegative(), settings: appearanceSchema }).strict();
 export type Appearance = z.infer<typeof appearanceSchema>;
 export type AppearanceStatus = z.infer<typeof appearanceStatusSchema>;

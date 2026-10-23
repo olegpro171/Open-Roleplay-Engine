@@ -35,10 +35,10 @@ it('saves authenticated app-wide defaults without changing library/chat state an
     expect(initial.json()).toEqual({ revision: 0, settings: defaultAppearance });
     const before = instance.store.snapshot();
     const libraryBefore = instance.store.libraries();
-    const settings = { characterSpeechColor: '#EEAA88', personaSpeechColor: '#88cc99', chatTextScale: 120 };
+    const settings = { characterSpeechColor: '#EEAA88', personaSpeechColor: '#88cc99', chatTextScale: 120, displayCharacterPicture: false };
     const saved = await instance.app.inject({ method: 'PUT', url: '/api/application/appearance', headers: auth, payload: { revision: 0, settings } });
     expect(saved.statusCode).toBe(200);
-    expect(saved.json()).toEqual({ revision: 1, settings: { characterSpeechColor: '#eeaa88', personaSpeechColor: '#88cc99', chatTextScale: 120 } });
+    expect(saved.json()).toEqual({ revision: 1, settings: { ...settings, characterSpeechColor: '#eeaa88' } });
     expect(instance.store.snapshot()).toEqual(before);
     expect(instance.store.libraries()).toEqual(libraryBefore);
     const stale = await instance.app.inject({ method: 'PUT', url: '/api/application/appearance', headers: auth, payload: { revision: 0, settings: defaultAppearance } });
@@ -48,6 +48,9 @@ it('saves authenticated app-wide defaults without changing library/chat state an
     }
     for (const chatTextScale of [null, 80, 95, 130, '120']) {
       expect((await instance.app.inject({ method: 'PUT', url: '/api/application/appearance', headers: auth, payload: { revision: 1, settings: { ...defaultAppearance, chatTextScale } } })).statusCode).toBe(400);
+    }
+    for (const displayCharacterPicture of [null, 0, 1, 'false']) {
+      expect((await instance.app.inject({ method: 'PUT', url: '/api/application/appearance', headers: auth, payload: { revision: 1, settings: { ...defaultAppearance, displayCharacterPicture } } })).statusCode).toBe(400);
     }
     expect((await instance.app.inject({ method: 'PUT', url: '/api/application/appearance', headers: { ...auth, origin: 'http://other.example' }, payload: { revision: 1, settings: defaultAppearance } })).statusCode).toBe(403);
     await instance.app.close();
@@ -63,7 +66,7 @@ it('retains committed defaults on write/rename failure, removes temporary files 
   const settings = new AppearanceSettings(file);
   const committed = settings.save({ revision: 0, settings: defaultAppearance });
   const saved = fs.readFileSync(file, 'utf8');
-  const next = { revision: 1, settings: { characterSpeechColor: '#112233', personaSpeechColor: '#445566', chatTextScale: 120 } };
+  const next = { revision: 1, settings: { characterSpeechColor: '#112233', personaSpeechColor: '#445566', chatTextScale: 120, displayCharacterPicture: false } };
   vi.mocked(fs.writeFileSync).mockImplementationOnce(() => { throw new Error('Synthetic disk full'); });
   expect(() => settings.save(next)).toThrow('Previous settings were retained');
   vi.mocked(fs.renameSync).mockImplementationOnce(() => { throw new Error('Synthetic rename failure'); });
@@ -86,10 +89,27 @@ it('reads version-1 colors with default text size and upgrades on save without l
   const legacy = JSON.stringify({ version: 1, revision: 7, settings: colors });
   fs.writeFileSync(file, legacy);
   const settings = new AppearanceSettings(file);
-  expect(settings.status()).toEqual({ revision: 7, settings: { ...colors, chatTextScale: 100 } });
+  expect(settings.status()).toEqual({ revision: 7, settings: { ...colors, chatTextScale: 100, displayCharacterPicture: true } });
   expect(fs.readFileSync(file, 'utf8')).toBe(legacy);
   settings.save({ revision: 7, settings: { ...colors, chatTextScale: 90 } });
-  expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 2, revision: 8, settings: { ...colors, chatTextScale: 90 } });
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 3, revision: 8, settings: { ...colors, chatTextScale: 90, displayCharacterPicture: true } });
   const reopened = new AppearanceSettings(file);
-  expect(reopened.save({ revision: 8, settings: { ...colors, personaSpeechColor: '#abcdef' } })).toEqual({ revision: 9, settings: { ...colors, personaSpeechColor: '#abcdef', chatTextScale: 90 } });
+  expect(reopened.save({ revision: 8, settings: { ...colors, personaSpeechColor: '#abcdef' } })).toEqual({ revision: 9, settings: { ...colors, personaSpeechColor: '#abcdef', chatTextScale: 90, displayCharacterPicture: true } });
+});
+
+it('defaults version-2 pictures to visible and preserves a hidden preference across older-client saves', () => {
+  const file = join(directory(), 'settings.appearance.json');
+  const previous = { characterSpeechColor: '#112233', personaSpeechColor: '#445566', chatTextScale: 110 };
+  const legacy = JSON.stringify({ version: 2, revision: 12, settings: previous });
+  fs.writeFileSync(file, legacy);
+  const settings = new AppearanceSettings(file);
+  expect(settings.status()).toEqual({ revision: 12, settings: { ...previous, displayCharacterPicture: true } });
+  expect(fs.readFileSync(file, 'utf8')).toBe(legacy);
+  const hidden = settings.save({ revision: 12, settings: { ...previous, displayCharacterPicture: false } });
+  expect(hidden.settings.displayCharacterPicture).toBe(false);
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 3, ...hidden });
+  const reopened = new AppearanceSettings(file);
+  expect(reopened.status()).toEqual(hidden);
+  expect(reopened.save({ revision: 13, settings: previous })).toEqual({ revision: 14, settings: { ...previous, displayCharacterPicture: false } });
+  expect(reopened.save({ revision: 14, settings: { characterSpeechColor: '#abcdef', personaSpeechColor: previous.personaSpeechColor } })).toEqual({ revision: 15, settings: { ...previous, characterSpeechColor: '#abcdef', displayCharacterPicture: false } });
 });

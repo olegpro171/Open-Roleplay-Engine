@@ -6,11 +6,14 @@ import { appearanceSchema, appearanceStatusSchema, defaultAppearance, type Appea
 import { AppError } from '../core/errors.js';
 
 const legacySavedSchema = appearanceStatusSchema.extend({
-  version: z.literal(1), settings: appearanceSchema.omit({ chatTextScale: true }),
-}).strict().transform(value => ({ ...value, settings: { ...value.settings, chatTextScale: defaultAppearance.chatTextScale } }));
-const savedSchema = z.union([legacySavedSchema, appearanceStatusSchema.extend({ version: z.literal(2) }).strict()]);
-// Older open clients can still save colors without resetting the saved text scale.
-const saveSchema = appearanceStatusSchema.extend({ settings: appearanceSchema.partial({ chatTextScale: true }) });
+  version: z.literal(1), settings: appearanceSchema.omit({ chatTextScale: true, displayCharacterPicture: true }),
+}).strict().transform(value => ({ ...value, settings: { ...defaultAppearance, ...value.settings } }));
+const version2SavedSchema = appearanceStatusSchema.extend({
+  version: z.literal(2), settings: appearanceSchema.omit({ displayCharacterPicture: true }),
+}).strict().transform(value => ({ ...value, settings: { ...value.settings, displayCharacterPicture: defaultAppearance.displayCharacterPicture } }));
+const savedSchema = z.union([legacySavedSchema, version2SavedSchema, appearanceStatusSchema.extend({ version: z.literal(3) }).strict()]);
+// Older open clients preserve newer appearance preferences when saving.
+const saveSchema = appearanceStatusSchema.extend({ settings: appearanceSchema.partial({ chatTextScale: true, displayCharacterPicture: true }) });
 
 export class AppearanceSettings {
   constructor(private file: string) {}
@@ -31,11 +34,15 @@ export class AppearanceSettings {
     const input = saveSchema.parse(value);
     const current = this.status();
     if (input.revision !== current.revision) throw new AppError(409, 'appearance_conflict', message("errors.chat_appearance_changed_in_another_window_reload_chat"));
-    const next = { revision: current.revision + 1, settings: { ...input.settings, chatTextScale: input.settings.chatTextScale ?? current.settings.chatTextScale } };
+    const next = { revision: current.revision + 1, settings: {
+      ...input.settings,
+      chatTextScale: input.settings.chatTextScale ?? current.settings.chatTextScale,
+      displayCharacterPicture: input.settings.displayCharacterPicture ?? current.settings.displayCharacterPicture,
+    } };
     const temporary = `${this.file}.${randomUUID()}.tmp`;
     try {
       try {
-        writeFileSync(temporary, JSON.stringify({ version: 2, ...next }), { mode: 0o600, flag: 'wx' });
+        writeFileSync(temporary, JSON.stringify({ version: 3, ...next }), { mode: 0o600, flag: 'wx' });
         renameSync(temporary, this.file);
       } finally {
         if (existsSync(temporary)) unlinkSync(temporary);

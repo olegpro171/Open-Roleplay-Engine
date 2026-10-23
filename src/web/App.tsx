@@ -381,7 +381,7 @@ export function App() {
 
   const sidebar = snapshot && <>
         <p className="eyebrow">{t("app.current_chat")}</p>
-        <ChatCharacterPortrait key={`${snapshot.id}:${selectedCharacterPicture?.key ?? ''}`} picture={selectedCharacterPicture} />
+        {appearance.settings.displayCharacterPicture && <ChatCharacterPortrait key={`${snapshot.id}:${selectedCharacterPicture?.key ?? ''}`} picture={selectedCharacterPicture} />}
         <h1>{snapshot.settings.title}</h1>
         <p>{snapshot.connection ? `${snapshot.connection.name} · ${snapshot.connection.model}` : t("app.set_up_a_connection_to_begin")}</p>
         <dl><div><dt>{t("app.total_turns")}</dt><dd>{snapshot.totalTurns}</dd></div><div title={t("app.saved_turns_kept_verbatim_in_the_current")}><dt>{t("app.active_turns")}</dt><dd>{activeTurns}</dd></div><div><dt>{t("app.input_target")}</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString(locale())}</dd></div><div><dt>{t("app.estimated_input")}</dt><dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>{currentRequest?.budget.inputTokens.toLocaleString(locale()) ?? '—'}</dd></div></dl>
