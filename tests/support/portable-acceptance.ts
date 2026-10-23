@@ -131,7 +131,7 @@ try {
   const historical = await request<RequestPreview>(`${base}/generations/${generation.id}/request`);
   assert(historical.body.messages.some(message => message.content.includes('PACKAGED REGEX LORE')));
   assert(!JSON.stringify(saved).includes('synthetic-portable-secret'));
-  const backupResponse = await fetch(origin + '/api/data/backup', { headers: { cookie } }); assert(backupResponse.ok);
+  const backupResponse = await fetch(origin + '/api/data/backup', { method: 'POST', headers: { cookie, Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ password: '' }) }); assert(backupResponse.ok);
   const bytes = Buffer.from(await backupResponse.arrayBuffer()); assert(bytes.length > 0);
   const staged = await fetch(origin + '/api/data/stages', { method: 'POST', headers: { cookie, Origin: origin, 'Content-Type': 'application/octet-stream' }, body: bytes }); assert(staged.ok);
   const review: BackupReview = await staged.json(); assert(review.overlaps > 0); assert.equal(review.blockers.length, 0);

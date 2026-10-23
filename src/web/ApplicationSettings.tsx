@@ -8,7 +8,8 @@ import { ChatAppearanceSettings } from './ChatAppearanceSettings';
 import type { AppearanceStatus } from '../shared/appearance';
 import { Dropdown } from './Controls';
 import { useEffect, useRef, useState } from 'react';
-import { backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type DataOutcome } from '../shared/backups';
+import { backupFileMaxBytes, backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type DataOutcome } from '../shared/backups';
+import { filePasswordMaxLength } from '../shared/protected-files';
 import { api, ApiError } from './api';
 import { z } from 'zod';
 import { dataCommandSchema } from '../shared/backups';
@@ -38,6 +39,9 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
   const [errorDetails,setErrorDetails] = useTextState('');
   const [uncertain,setUncertain] = useState<Command|null>(recoveredCommand);
   const [loading,setLoading] = useState(false);
+  const [exportPassword, setExportPassword] = useState('');
+  const [confirmedPassword, setConfirmedPassword] = useState('');
+  const [importPassword, setImportPassword] = useState('');
   const mounted = useRef(true), pending = useRef(false), stage = useRef<string|null>(null);
   const confirm = useConfirmation();
   function scrollToCategory(id: string) {
@@ -59,19 +63,31 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
   }
   async function download() {
     await run(async () => {
-      const response = await fetch('/api/data/backup',{ credentials: 'same-origin' });
-      if (!response.ok) throw new LocalizedError(msg("application_settings.the_backup_could_not_be_created_check"));
-      const blob = await response.blob(), url = URL.createObjectURL(blob), link = document.createElement('a');
-      link.href = url; link.download = response.headers.get('content-disposition')?.match(/filename="([^"]+)"/)?.[1] ?? 'ORE-backup.sqlite';
+      if (exportPassword !== confirmedPassword) throw new LocalizedError(msg('application_settings.backup_password_mismatch'));
+      const response = await fetch('/api/data/backup', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: exportPassword }),
+      });
+      if (!response.ok) {
+        const failure = z.object({ message: z.string(), localized: localizedMessageSchema.optional() }).safeParse(await response.json());
+        throw failure.success ? new ApiError(failure.data.message, response.status, failure.data.localized)
+          : new LocalizedError(msg("application_settings.the_backup_could_not_be_created_check"));
+      }
+      const blob = await response.blob();
+      if (!mounted.current) return;
+      const url = URL.createObjectURL(blob), link = document.createElement('a');
+      link.href = url; link.download = response.headers.get('content-disposition')?.match(/filename="([^"]+)"/)?.[1] ?? 'ORE-backup.orebackup';
       link.click(); setTimeout(() => URL.revokeObjectURL(url),60_000);
-      if (mounted.current) setMessage(msg("application_settings.backup_created_your_browser_handles_the_download"));
+      setExportPassword(''); setConfirmedPassword('');
+      setMessage(msg("application_settings.backup_created_your_browser_handles_the_download"));
     });
   }
   async function select(file: File) {
     await run(async () => {
-      if (file.size > backupLimits.bytes) throw new LocalizedError(msg("application_settings.select_an_ore_sqlite_backup_no_larger"));
+      if (file.size > backupFileMaxBytes) throw new LocalizedError(msg("application_settings.backup_file_too_large"));
       if (stage.current) { await api(`/data/stages/${stage.current}`,'DELETE',{}); stage.current = null; setReview(null); }
-      const response = await fetch('/api/data/stages',{ method: 'POST',credentials: 'same-origin',headers: { 'Content-Type': 'application/octet-stream' },body: file });
+      const passwordHeader = btoa(String.fromCharCode(...new TextEncoder().encode(importPassword)));
+      const response = await fetch('/api/data/stages',{ method: 'POST',credentials: 'same-origin',headers: { 'Content-Type': 'application/octet-stream', 'X-ORE-File-Password': passwordHeader },body: file });
       const result = await response.json();
       if (!response.ok) {
         const failure = z.object({ message: z.string(), details: z.string().optional(), localized: localizedMessageSchema.optional() }).safeParse(result);
@@ -79,7 +95,7 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
       }
       const value: BackupReview = result;
       if (!mounted.current) { await api(`/data/stages/${value.stageId}`,'DELETE',{}); return; }
-      stage.current = value.stageId; setOffset(0); setReview(value); setUncertain(null);
+      stage.current = value.stageId; setOffset(0); setReview(value); setUncertain(null); setImportPassword('');
     });
   }
   async function refresh(next = 0) {
@@ -126,11 +142,20 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
     <LanSettings />
     <section className="settings-section" aria-labelledby="data-backup-heading">
     <h2 id="data-backup-heading" tabIndex={-1}>{t("application_settings.data_backup")}</h2>
-    <p>{t("application_settings.backups_include_saved_stories_memory_libraries_pictures")}<strong>{t("application_settings.saved_api_keys")}</strong>{t("application_settings.keep_the_downloaded_file_private_browser_local")}</p>
-    <button disabled={busy} onClick={() => void download()}>{t("application_settings.save_backup")}</button>
+    <p>{t('application_settings.backup_contents')}</p>
+    <form onSubmit={event => { event.preventDefault(); void download(); }}>
+      <p id="backup-password-help">{t('application_settings.backup_password_help')}</p>
+      <div className="form-grid">
+      <label>{t('application_settings.backup_export_password')}<input type="password" autoComplete="new-password" maxLength={filePasswordMaxLength} value={exportPassword} disabled={busy} aria-describedby="backup-password-help" onChange={event => { setExportPassword(event.target.value); if (!event.target.value) setConfirmedPassword(''); }} /></label>
+      {exportPassword && <label>{t('application_settings.backup_confirm_password')}<input type="password" autoComplete="new-password" maxLength={filePasswordMaxLength} value={confirmedPassword} disabled={busy} onChange={event => setConfirmedPassword(event.target.value)} /></label>}
+      </div>
+      <div className="actions"><button disabled={busy}>{t("application_settings.save_backup")}</button></div>
+    </form>
     <section className="settings-subsection" aria-labelledby="import-backup-heading">
     <h3 id="import-backup-heading">{t("application_settings.import_backup")}</h3>
-    <label className="backup-file">{t("application_settings.inspect_import_backup")}<input type="file" accept=".sqlite,.db,application/octet-stream" disabled={busy || Boolean(uncertain)} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void select(file); }} /></label>
+    <label>{t('application_settings.backup_import_password')}<input type="password" autoComplete="off" maxLength={filePasswordMaxLength} value={importPassword} disabled={busy || Boolean(uncertain)} onChange={event => setImportPassword(event.target.value)} /></label>
+    <p>{t('application_settings.backup_import_password_help')}</p>
+    <label className="backup-file">{t("application_settings.inspect_import_backup")}<input type="file" accept=".orebackup,.sqlite,.db,application/octet-stream" disabled={busy || Boolean(uncertain)} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void select(file); }} /></label>
   {review && <section className="backup-inspection" aria-label={t("application_settings.backup_inspection")}><h4>{t("application_settings.backup_inspection")}</h4>
     <p>{review.metadata ? t("application_settings.ore_schema", { build: review.metadata.build, schema: review.metadata.schema, value: new Date(review.metadata.createdAt).toLocaleString(locale()) }) : t("application_settings.ore_database_no_backup_creation_metadata")}</p>
     <p>{t("application_settings.inspection_changes_no_application_content_this_private", { value: new Date(review.expiresAt).toLocaleTimeString(locale()) })}</p>

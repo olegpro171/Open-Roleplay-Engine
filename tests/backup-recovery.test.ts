@@ -8,6 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { Store } from '../src/persistence/store.js';
 import { BackupService } from '../src/server/backups.js';
+import { unprotectBytes } from '../src/server/protected-files.js';
 import { BackupStore } from '../src/persistence/backup-store.js';
 import { GenerationCoordinator } from '../src/server/coordinator.js';
 import { defaultContextPreset, type ContextJob, type SummaryNode } from '../src/shared/context.js';
@@ -17,7 +18,7 @@ import type { Provider } from '../src/provider/openai.js';
 import { PictureProcessor } from '../src/server/pictures.js';
 import { quadrantPicture } from './support/pictures.js';
 import { createApp } from '../src/server/app.js';
-import type { BackupReview } from '../src/shared/backups.js';
+import { backupLimits, type BackupReview } from '../src/shared/backups.js';
 
 let directory: string;
 const stores: Store[] = [], services: BackupService[] = [], coordinators: GenerationCoordinator[] = [], processors: PictureProcessor[] = [];
@@ -25,7 +26,8 @@ beforeEach(() => { directory = mkdtempSync(join(tmpdir(),'ore-backup-recovery-')
 afterEach(async () => { vi.useRealTimers(); await Promise.all(coordinators.splice(0).map(value => value.shutdown())); await Promise.all(processors.splice(0).map(value => value.close())); services.splice(0).forEach(value => value.close()); stores.splice(0).forEach(value => { if (value.sqlite.open) value.close(); }); rmSync(directory,{ recursive: true,force: true }); });
 function open(name: string) { const value = new Store(join(directory,`${name}.sqlite`)); stores.push(value); return value; }
 function backup(db: Store,name: string) { const value = new BackupService(db,join(directory,`${name}.sqlite`)); services.push(value); return value; }
-async function exported(value: BackupService) { const file = await value.export(); try { return readFileSync(file.path); } finally { file.cleanup(); } }
+// Schema-corruption and crash fixtures need the inner SQLite snapshot.
+async function exported(value: BackupService) { const file = await value.export(); try { return await unprotectBytes(readFileSync(file.path), 'backup', '', backupLimits.bytes); } finally { file.cleanup(); } }
 const command = (review: BackupReview) => ({ requestId: randomUUID(),digest: review.digest,token: review.token,overwrite: true });
 function requireValue<T>(value: T | null | undefined): T { if (value == null) throw new Error('Missing synthetic fixture.'); return value; }
 const model = { name: 'Synthetic',endpoint: 'http://localhost:1234/v1',model: 'synthetic',contextWindow: 100000,maxOutputTokens: 1000,customParameters: {} };

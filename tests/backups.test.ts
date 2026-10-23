@@ -10,6 +10,7 @@ import { createApp } from '../src/server/app.js';
 import { Store } from '../src/persistence/store.js';
 import { execFileSync } from 'node:child_process';
 import { BackupService } from '../src/server/backups.js';
+import { unprotectBytes } from '../src/server/protected-files.js';
 import { BackupStore, datasetEpoch } from '../src/persistence/backup-store.js';
 import { backupLimits, type BackupReview } from '../src/shared/backups.js';
 import { defaultPrompt } from '../src/shared/library.js';
@@ -20,7 +21,8 @@ const owner = 'synthetic-session';
 function store(name: string, migrationsDirectory?: string) { const result = new Store(join(directory,`${name}.sqlite`),migrationsDirectory); stores.push(result); return result; }
 function service(db: Store,name: string, migrationsDirectory?: string) { const result = new BackupService(db,join(directory,`${name}.sqlite`),migrationsDirectory); services.push(result); return result; }
 function receipt(review: BackupReview,overwrite = true) { return { requestId: randomUUID(),digest: review.digest,token: review.token,overwrite }; }
-async function bytes(backups: BackupService) { const file = await backups.export(); try { return readFileSync(file.path); } finally { file.cleanup(); } }
+// Schema-corruption and crash fixtures need the inner SQLite snapshot.
+async function bytes(backups: BackupService) { const file = await backups.export(); try { return await unprotectBytes(readFileSync(file.path), 'backup', '', backupLimits.bytes); } finally { file.cleanup(); } }
 function character(db: Store,name: string,id?: string) { return db.saveLibrary(db.libraryRevision(),'characters',{ name, description: 'A patient guide',personality: '',scenario: '',first_mes: 'Welcome, traveler.',mes_example: '' },id); }
 function chat(db: Store,characterId: string,title: string) { return db.createChat({ title,characterId,personaId: null,connectionId: null,promptId: 'default',contextPresetId: null,targetInputTokens: 32000,lorebookId: null }); }
 beforeEach(() => { directory = mkdtempSync(join(tmpdir(),'ore-backup-test-')); });
@@ -245,10 +247,10 @@ it('protects authenticated routes and rejects old-tab commands even when restore
   let cookie = '';
   const command = async (url: string,payload: unknown,epoch = 'initial',method: 'POST'|'PUT' = 'POST') => app.app.inject({ method,url,headers: { host: 'localhost',origin: 'http://localhost','content-type': 'application/json',cookie,'x-ore-epoch': epoch },payload: JSON.stringify(payload) });
   try {
-    expect((await app.app.inject({ method: 'GET',url: '/api/data/backup',headers: { host: 'localhost' } })).statusCode).toBe(401);
+    expect((await app.app.inject({ method: 'POST',url: '/api/data/backup',headers: { host: 'localhost', origin: 'http://localhost', 'content-type': 'application/json' },payload: { password: '' } })).statusCode).toBe(401);
     const setup = await command('/api/setup',{ password: 'synthetic-owner-password' }); cookie = String(setup.headers['set-cookie']).split(';')[0];
     const revision = app.store.snapshot().revision;
-    const downloaded = await app.app.inject({ method: 'GET',url: '/api/data/backup',headers: { host: 'localhost',cookie } });
+    const downloaded = await command('/api/data/backup', { password: '' });
     expect(downloaded.statusCode).toBe(200); expect(downloaded.headers['content-disposition']).toContain('ORE-backup');
     const rejected = await app.app.inject({ method: 'POST',url: '/api/data/stages',headers: { host: 'localhost',origin: 'http://localhost','content-type': 'application/octet-stream',cookie },payload: Buffer.alloc(100) });
     expect(rejected.statusCode).toBe(422);

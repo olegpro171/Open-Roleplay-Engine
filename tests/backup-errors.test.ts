@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { Store } from '../src/persistence/store.js';
 import { BackupService } from '../src/server/backups.js';
+import { unprotectBytes } from '../src/server/protected-files.js';
 import { BackupStore } from '../src/persistence/backup-store.js';
 import { backupLimits } from '../src/shared/backups.js';
 
@@ -17,7 +18,7 @@ it('rejects oversized inputs and disk-space/write failures, cleans staging, and 
   const directory = fs.mkdtempSync(join(tmpdir(),'ore-backup-errors-')), filename = join(directory,'live.sqlite');
   const store = new Store(filename), service = new BackupService(store,filename);
   try {
-    const file = await service.export(), bytes = fs.readFileSync(file.path); file.cleanup(); const token = new BackupStore(store).token;
+    const file = await service.export(), bytes = await unprotectBytes(fs.readFileSync(file.path), 'backup', '', backupLimits.bytes); file.cleanup(); const token = new BackupStore(store).token;
     const oversized = Buffer.alloc(backupLimits.bytes+1); expect(() => service.upload(oversized,'owner')).toThrow();
     const space = fs.statfsSync(directory); vi.mocked(fs.statfsSync).mockReturnValueOnce({ ...space,bavail: 0 });
     expect(() => service.upload(bytes,'owner')).toThrow('not enough free disk space');
@@ -33,7 +34,7 @@ it('rejects unexpected executable schema names, binary text, wrong selected vari
   const store = new Store(filename), service = new BackupService(store,filename);
   try {
     store.replaceHistory(store.snapshot().revision,'main',[{ user: 'Input',assistant: 'Saved response',complete: true }]);
-    const file = await service.export(), bytes = fs.readFileSync(file.path); file.cleanup(); const token = new BackupStore(store).token;
+    const file = await service.export(), bytes = await unprotectBytes(fs.readFileSync(file.path), 'backup', '', backupLimits.bytes); file.cleanup(); const token = new BackupStore(store).token;
     for (const sql of [
       'CREATE TRIGGER sqliteXhidden AFTER INSERT ON chats BEGIN DELETE FROM chats; END',
       "UPDATE turns SET user_text = X'616263'",
@@ -51,7 +52,7 @@ it('explains schema, content and reconstruction failures without exposing upload
   const store = new Store(filename), service = new BackupService(store,filename);
   try {
     store.replaceHistory(store.snapshot().revision,'main',[{ user: 'Private synthetic prose',assistant: 'Saved response',complete: true }]);
-    const file = await service.export(), bytes = fs.readFileSync(file.path); file.cleanup();
+    const file = await service.export(), bytes = await unprotectBytes(fs.readFileSync(file.path), 'backup', '', backupLimits.bytes); file.cleanup();
     const token = service.persistence.token;
     const cases = [
       { sql: 'PRAGMA user_version = 999', reason: 'Unsupported database schema version 999' },

@@ -2,7 +2,9 @@ import { message } from '../shared/localization.js';
 import { defaultContextPreset, summaryRetrySchema } from '../shared/context.js';
 import { buildInfo } from './installation.js';
 import { BackupService } from './backups.js';
-import { backupLimits, backupTableSchema, dataCommandSchema } from '../shared/backups.js';
+import { backupFileMaxBytes, backupLimits, backupTableSchema, dataCommandSchema } from '../shared/backups.js';
+import { protectedFilePasswordSchema } from '../shared/protected-files.js';
+import { filePasswordFromHeader } from './protected-files.js';
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { promptDiagnostics } from '../core/prompt-diagnostics.js';
@@ -83,7 +85,7 @@ export async function createApp(options: {
   app.addHook('onReady', async () => { await lan.start(); });
   await app.register(cookie);
   const backups = new BackupService(store, options.database, options.migrationsDirectory);
-  app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: backupLimits.bytes }, (_request, body, done) => done(null, body));
+  app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: backupFileMaxBytes }, (_request, body, done) => done(null, body));
   const mutations = new Set<string>();
   const executingMutations = new Set<string>();
   const isMutation = (request: FastifyRequest) => request.url.startsWith('/api/')
@@ -207,17 +209,18 @@ export async function createApp(options: {
 
   const stageParams = z.object({ stageId: z.string().uuid() });
   const owner = (token?: string) => createHash('sha256').update(token ?? '').digest('hex');
-  app.get('/api/data/backup', async (_request, reply) => {
-    const file = await backups.export();
+  app.post('/api/data/backup', async (request, reply) => {
+    const { password } = protectedFilePasswordSchema.parse(request.body);
+    const file = await backups.export(password);
     if (reply.raw.destroyed) { file.cleanup(); return reply; }
     const stream = createReadStream(file.path);
     stream.once('close', file.cleanup);
-    reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename="ORE-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.sqlite"`);
+    reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename="ORE-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.orebackup"`);
     return reply.send(stream);
   });
-  app.post('/api/data/stages', { bodyLimit: backupLimits.bytes }, async request => {
+  app.post('/api/data/stages', { bodyLimit: backupFileMaxBytes }, async request => {
     const bytes = z.instanceof(Buffer).parse(request.body);
-    return backups.upload(bytes, owner(request.cookies.session));
+    return backups.inspect(bytes, owner(request.cookies.session), filePasswordFromHeader(request.headers['x-ore-file-password']));
   });
   app.get('/api/data/stages/:stageId', async request => {
     const { stageId } = stageParams.parse(request.params);

@@ -10,8 +10,9 @@ import { z } from 'zod';
 import { Store } from '../persistence/store.js';
 import { BackupStore, insertRow, sanitizePortable } from '../persistence/backup-store.js';
 import { invalidBackup, rows, rowSchema, validateContent } from '../persistence/backup-validation.js';
-import { backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type BackupMetadata, type DataOutcome } from '../shared/backups.js';
+import { backupFileMaxBytes, backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type BackupMetadata, type DataOutcome } from '../shared/backups.js';
 import { AppError, BackupValidationError } from '../core/errors.js';
+import { isProtectedFile, protectFile, unprotectBytes, validateFilePassword } from './protected-files.js';
 
 const masterSchema = z.array(z.object({ type: z.string(), name: z.string(), tbl_name: z.string(), sql: z.string().nullable() }));
 const schemaEntries = (db: Database.Database) => masterSchema.parse(db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name").all());
@@ -95,7 +96,18 @@ export class BackupService {
     if (metadata.schema !== version) throw invalidBackup('Backup metadata schema version does not match the database version.');
     return metadata;
   }
+  async inspect(bytes: Buffer, owner: string, password = ''): Promise<BackupReview> {
+    validateFilePassword(password);
+    if (bytes.length > backupFileMaxBytes) throw invalidBackup('File exceeds the 128 MiB payload limit plus protected-file overhead.');
+    if (!isProtectedFile(bytes)) return this.upload(bytes, owner);
+    const plaintext = await unprotectBytes(bytes, 'backup', password, backupLimits.bytes);
+    try { return this.stageUpload(plaintext, owner, createHash('sha256').update(bytes).digest('hex')); }
+    finally { plaintext.fill(0); }
+  }
   upload(bytes: Buffer, owner: string): BackupReview {
+    return this.stageUpload(bytes, owner, createHash('sha256').update(bytes).digest('hex'));
+  }
+  private stageUpload(bytes: Buffer, owner: string, digest: string): BackupReview {
     this.expire();
     if (this.closed) throw new AppError(503,'server_stopping',message("errors.the_server_is_stopping"));
     if (this.stages.size >= 3) throw new AppError(429,'backup_staging_full',message("errors.cancel_an_existing_backup_inspection_before_selecting_another"));
@@ -139,7 +151,7 @@ export class BackupService {
       validateContent(trusted);
       trusted.close(); trusted = undefined; source.close(); source = undefined;
       rmSync(original);
-      this.stages.set(id,{ path,owner,digest: createHash('sha256').update(bytes).digest('hex'),expires: Date.now()+backupLimits.ttlMs,metadata });
+      this.stages.set(id,{ path,owner,digest,expires: Date.now()+backupLimits.ttlMs,metadata });
       return this.review(id,owner);
     } catch (error) {
       if (trusted?.open) trusted.close(); if (source?.open) source.close();
@@ -238,7 +250,8 @@ export class BackupService {
       return z.object({ image: z.instanceof(Buffer) }).parse(row).image;
     } finally { db.close(); }
   }
-  async export() {
+  async export(password = '') {
+    validateFilePassword(password);
     const size = z.number().parse(this.store.sqlite.pragma('page_count',{ simple: true })) * z.number().parse(this.store.sqlite.pragma('page_size',{ simple: true }));
     if (size > backupLimits.bytes) throw new AppError(413,'backup_too_large',message("errors.the_database_exceeds_the_supported_128_mib_backup"));
     this.space(size);
@@ -257,7 +270,11 @@ export class BackupService {
         db.pragma('journal_mode = DELETE'); db.exec('VACUUM');
       } finally { db.close(); }
       if (statSync(path).size > backupLimits.bytes) throw new AppError(413,'backup_too_large',message("errors.the_completed_backup_exceeds_the_supported_128_mib"));
-      return { path,cleanup: () => rmSync(directory,{ recursive: true,force: true }) };
+      const protectedPath = join(directory, 'backup.orebackup');
+      await protectFile(path, protectedPath, 'backup', password);
+      if (this.closed) throw new AppError(503,'server_stopping',message("errors.the_server_is_stopping_try_again_after_restart"));
+      rmSync(path);
+      return { path: protectedPath,cleanup: () => rmSync(directory,{ recursive: true,force: true }) };
     } catch (error) { rmSync(directory,{ recursive: true,force: true }); throw error; }
   }
   close() { this.closed = true; clearInterval(this.timer); this.stages.clear(); if (existsSync(this.directory)) rmSync(this.directory,{ recursive: true,force: true }); }

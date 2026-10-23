@@ -34,6 +34,54 @@ async function openChat(page: Page,title: string) {
   await expect(page.getByLabel('Your next turn')).toBeVisible();
 }
 
+for (const width of [1440,390]) test(`password-protected backup, validation and retry at ${width}px`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width, height: 950 }); await login(page);
+  const chatId = await fixture(page, width);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const password = '  Пароль 🔑 for synthetic backup  ';
+  const exportPassword = page.getByLabel('Backup password (optional)', { exact: true });
+  await exportPassword.fill(password);
+  const confirmation = page.getByLabel('Confirm backup password', { exact: true });
+  await confirmation.fill('different password');
+  await page.getByRole('heading', { name: 'Data backup', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('protected-backup-password-fields.png'), fullPage: true });
+  let exports = 0;
+  page.on('request', request => { if (request.url().endsWith('/api/data/backup')) exports++; });
+  await page.getByRole('button', { name: 'Save backup', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('The backup passwords do not match.');
+  expect(exports).toBe(0);
+  await confirmation.fill(password);
+  await page.route('**/api/data/backup', route => route.fulfill({ status: 429, json: { message: 'Other files are being protected or opened. Wait for them to finish and try again.', localized: { key: 'errors.protected_file_busy', fallback: 'Other files are being protected or opened. Wait for them to finish and try again.' } } }), { times: 1 });
+  await page.getByRole('button', { name: 'Save backup', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Wait for them to finish');
+  await expect(exportPassword).toHaveValue(password); await expect(confirmation).toHaveValue(password);
+  expect(exports).toBe(1);
+  const downloadEvent = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Save backup', exact: true }).click();
+  const download = await downloadEvent, path = await download.path();
+  if (!path) throw new Error('Missing synthetic encrypted backup');
+  expect(download.suggestedFilename()).toMatch(/\.orebackup$/);
+  const buffer = await readFile(path);
+  expect(buffer.includes(Buffer.from('synthetic-backup-api-key'))).toBe(false);
+  await expect(exportPassword).toHaveValue(''); await expect(confirmation).toHaveCount(0);
+  const importPassword = page.getByLabel('Backup password (if set)', { exact: true });
+  await importPassword.fill('wrong password');
+  const upload = () => page.getByLabel('Inspect & import backup', { exact: true }).setInputFiles({ name: 'protected.orebackup', mimeType: 'application/octet-stream', buffer });
+  await upload();
+  await expect(page.getByRole('alert')).toContainText('Check the password');
+  await expect(importPassword).toHaveValue('wrong password');
+  await expect(page.getByRole('heading', { name: 'Import review', exact: true })).toHaveCount(0);
+  expect((await page.request.get(`/api/chats/${chatId}`).then(response => response.json())).turns).toHaveLength(85);
+  await importPassword.fill(password);
+  await upload();
+  await expect(page.getByRole('heading', { name: 'Import review', exact: true })).toBeVisible();
+  await expect(importPassword).toHaveValue('');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('protected-backup.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Cancel inspection', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Import review', exact: true })).toHaveCount(0);
+});
+
 for (const width of [1440,390]) test(`invalid backup details and recovery at ${width}px`,async ({ page },testInfo) => {
   await page.setViewportSize({ width,height: 950 }); await login(page);
   await page.getByRole('button',{ name: 'Settings',exact: true }).click();
@@ -52,7 +100,7 @@ for (const width of [1440,390]) test(`invalid backup details and recovery at ${w
   await input.setInputFiles({ name: 'empty.sqlite',mimeType: 'application/octet-stream',buffer: Buffer.alloc(0) });
   await expect(alert.locator('pre')).toHaveText('File is shorter than a SQLite database header (100 bytes).');
   await expect(alert.locator('pre')).toBeHidden();
-  const backup = await page.request.get('/api/data/backup'); expect(backup.ok()).toBe(true);
+  const backup = await page.request.post('/api/data/backup', { headers: await headers(page), data: { password: '' } }); expect(backup.ok()).toBe(true);
   await input.setInputFiles({ name: 'valid.sqlite',mimeType: 'application/octet-stream',buffer: await backup.body() });
   await expect(page.getByRole('heading',{ name: 'Import review',exact: true })).toBeVisible();
   await expect(alert).toHaveCount(0);
@@ -69,12 +117,12 @@ for (const width of [1440,390]) test(`backup inspection, cancel, overwrite retry
   await turn.getByRole('button',{ name: 'Edit response',exact: true }).click(); await other.getByLabel('Edit assistant text').fill('Recoverable stale editor text');
   await other.getByLabel('Your next turn').fill('Recoverable browser draft');
   await page.getByRole('button',{ name: 'Settings',exact: true }).click();
-  await expect(page.getByText('saved API keys',{ exact: true })).toBeVisible();
+  await expect(page.getByText(/Backups include saved stories/)).toBeVisible();
   const downloadEvent = page.waitForEvent('download'); await page.getByRole('button',{ name: 'Save backup',exact: true }).click();
   const download = await downloadEvent, path = await download.path(); if (!path) throw new Error('Missing backup download');
-  expect(download.suggestedFilename()).toMatch(/^ORE-backup-.*\.sqlite$/);
-  const buffer = await readFile(path); expect(buffer.subarray(0,16).toString()).toBe('SQLite format 3\0');
-  const upload = () => page.getByLabel('Inspect & import backup',{ exact: true }).setInputFiles({ name: 'ORE-backup.sqlite',mimeType: 'application/octet-stream',buffer });
+  expect(download.suggestedFilename()).toMatch(/^ORE-backup-.*\.orebackup$/);
+  const buffer = await readFile(path); expect(buffer.subarray(0,8).toString()).toBe('OREENC\r\n'); expect(buffer.includes(Buffer.from('synthetic-backup-api-key'))).toBe(false);
+  const upload = () => page.getByLabel('Inspect & import backup',{ exact: true }).setInputFiles({ name: 'ORE-backup.orebackup',mimeType: 'application/octet-stream',buffer });
   await upload(); await expect(page.getByRole('heading',{ name: 'Import review',exact: true })).toBeVisible();
   const categories = page.getByRole('navigation', { name: 'Settings categories' });
   await categories.getByRole('button', { name: 'Wipe application data', exact: true }).click();
