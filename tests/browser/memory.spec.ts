@@ -1,6 +1,7 @@
 import { openChatTool } from './chat-tools';
 import { test, expect, devices, type Page } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
+import type { ContextPlan } from '../../src/shared/context';
 import type { LibrarySnapshot } from '../../src/shared/library';
 
 async function choose(page: Page, label: string, option: string) {
@@ -129,6 +130,49 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await phone.getByLabel('Input target', { exact: true }).fill('700');
   await phone.getByRole('button', { name: 'Save memory settings', exact: true }).click();
   await expect(phone.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();
+  // Advance through exact saved first-layer batches until the retained parent is next.
+  const currentPlan = () => phone.request.get(`/api/chats/${chat.id}/context/plan`).then(response => response.json() as Promise<ContextPlan>);
+  let reusePlan = await currentPlan();
+  for (let i = 0; i < 48 && reusePlan.next?.level === 1; i++) {
+    expect(reusePlan.reusable).toBeDefined();
+    const previousRevision = (await state()).context.revision;
+    await phone.getByRole('button', { name: 'Save next summary', exact: true }).click();
+    await expect.poll(async () => (await state()).context.revision).toBeGreaterThan(previousRevision);
+    await expect(phone.getByRole('button', { name: 'Save next summary', exact: true })).toBeEnabled();
+    reusePlan = await currentPlan();
+  }
+  expect(reusePlan.next?.level).toBe(2);
+  expect(reusePlan.reusable).toBeDefined();
+  const reusedBox = phone.locator(`[data-summary-id="${reusePlan.reusable?.id}"]`);
+  await expect(reusedBox).toHaveClass(/retained/);
+  const assertReuseFrame = async () => {
+    const frameBox = await phone.locator('.summary-span.preparing').boundingBox();
+    const summaryBox = await reusedBox.boundingBox();
+    expect(frameBox).not.toBeNull();
+    expect(summaryBox).not.toBeNull();
+    if (!frameBox || !summaryBox) throw new Error('Expected visible next frame and saved summary');
+    expect(Math.abs(frameBox.y + frameBox.height / 2 - summaryBox.y - summaryBox.height / 2)).toBeLessThan(1);
+    expect(frameBox.x).toBeCloseTo(summaryBox.x, 0);
+    expect(frameBox.width).toBeCloseTo(summaryBox.width, 0);
+  };
+  await assertReuseFrame();
+  await phone.locator('.memory-chart').screenshot({ path: 'test-results/phone-memory-reuse-next.png' });
+  await phone.setViewportSize({ width: 1280, height: 900 });
+  await assertReuseFrame();
+  await reusedBox.click();
+  await expect(phone.getByRole('heading', { name: `Level 2 summary · revision ${reusePlan.reusable?.revision}`, exact: true })).toBeVisible();
+  await phone.locator('.memory-chart').screenshot({ path: 'test-results/desktop-memory-reuse-next.png' });
+  await phone.setViewportSize(devices['iPhone 13'].viewport);
+  const beforeReuse = await state();
+  await phone.getByRole('button', { name: 'Save next summary', exact: true }).click();
+  await expect.poll(async () => (await state()).context.selected).toContainEqual(reusePlan.reusable);
+  await expect(phone.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();
+  expect((await state()).context.summaries).toEqual(beforeReuse.context.summaries);
+  await phone.getByRole('combobox', { name: 'Saved preparation', exact: true }).click();
+  await phone.getByRole('option', { name: /step · succeeded/ }).first().click();
+  await phone.getByLabel('Saved preparation step', { exact: true }).press('Home');
+  await assertReuseFrame();
+  await choose(phone, 'Saved preparation', 'Current committed selection');
   await phone.getByRole('button', { name: 'Prepare chat', exact: true }).click();
   await expect(phone.getByTestId('memory-prepare-result')).toContainText('0 new summaries generated.');
   expect((await state()).context.archivedTurnIds.length).toBeGreaterThan(refreshed.context.archivedTurnIds.length);

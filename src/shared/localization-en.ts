@@ -712,6 +712,8 @@ export const englishMessages = {
   "memory_timeline.fresh": " · fresh",
   "memory_timeline.l_turns_revision": "L{{level}} · turns {{label}} · {{status}}{{freshness}}{{value}} · revision {{revision}}",
   "memory_timeline.level_summary_turns_to_revision": "Level {{level}} summary, turns {{value}} to {{value2}}, {{status}}{{value3}}{{value4}}{{freshness}}, revision {{revision}}",
+  "memory_timeline.next": "next",
+  "memory_timeline.next_reuses_saved_summary": "Next batch reuses this saved summary; it is not active yet",
   "memory_timeline.next_source_batch_no_replacement_is_active": "Next source batch; no replacement is active",
   "memory_timeline.turns_2": "Turns {{value}}–{{value2}} · {{value3}}{{value4}}",
   "memory_timeline.turn": "Turn {{value}} · {{value2}}{{value3}}",

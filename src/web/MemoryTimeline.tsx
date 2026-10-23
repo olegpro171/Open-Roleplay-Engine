@@ -1,17 +1,18 @@
 import { t, useLocale } from './localization';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { refKey, type ContextOperation, type SummaryNode } from '../shared/context';
+import { refKey, type ContextOperation, type SummaryNode, type SummaryRef } from '../shared/context';
 
 type Props = {
   nodes: SummaryNode[]; selected: Set<string>; stale: Set<string>; archived: Set<string>;
+  reusable?: SummaryRef | null;
   turnIds: string[]; operation: ContextOperation | null | undefined; levels: number; zoom: boolean;
   inspectedId: string | null;
   deleting?: Set<string>; restoring?: Set<string>;
   inspect: (node: SummaryNode) => void;
 };
 
-export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, operation, levels, zoom, inspectedId, inspect, deleting, restoring }: Props) {
+export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, operation, reusable, levels, zoom, inspectedId, inspect, deleting, restoring }: Props) {
   useLocale();
   const plot = useRef<HTMLDivElement>(null);
   const [plotWidth, setPlotWidth] = useState(0);
@@ -31,6 +32,7 @@ export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, oper
     const indices = ids.flatMap(id => positions.has(id) ? [positions.get(id)!] : []);
     return indices.length ? { start: Math.min(...indices), end: Math.max(...indices) } : null;
   };
+  const replacement = operation && reusable ? nodes.find(node => refKey(node) === refKey(reusable)) : undefined;
   // Alternate identities can have identical or partially overlapping coverage.
   // Give each overlap its own keyboard-accessible lane instead of painting one
   // button over another. Revisions remain in the inspection selector.
@@ -42,7 +44,9 @@ export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, oper
       const range = sourceSpan(node.turns.map(source => source.turnId));
       return range ? [{ key: refKey(node), ...range }] : [];
     }).sort((a, b) => a.start - b.start || a.end - b.end || a.key.localeCompare(b.key));
-    if (operation?.level === level) {
+    // Reuse surrounds the saved result in its existing lane. Only a new
+    // replacement needs another lane alongside retained alternatives.
+    if (operation?.level === level && !replacement) {
       const range = sourceSpan(operation.turnIds);
       if (range) items.push({ key: 'next', ...range });
     }
@@ -80,7 +84,7 @@ export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, oper
         const fits = (range.end - range.start + 1) / count * plotWidth >= label.length * 6 + 14;
         return <button key={refKey(node)} data-summary-id={node.id} className={`summary-span ${status}${stale.has(refKey(node)) ? ' stale' : ''}${node.manual ? ' manual' : ''}${inspectedId === node.id ? ' inspected' : ''}${deleting?.has(node.id) ? ' deleting' : ''}`} style={{ ...span(range.start, range.end), bottom: bottom(node.level, refKey(node)) }} aria-pressed={inspectedId === node.id} aria-label={t("memory_timeline.level_summary_turns_to_revision", { level: node.level, value: range.start + 1, value2: range.end + 1, status: status, value3: deleting?.has(node.id) ? t("interface.will_be_deleted") : '', value4: node.manual ? t("interface.manually_edited_2") : '', freshness: freshness, revision: node.revision })} aria-describedby={hint?.text === text ? tooltipId : undefined} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)} onFocus={e => showHint(e.currentTarget, text)} onBlur={() => setHint(null)} onClick={() => { setHint(null); inspect(node); }}>{fits ? label : ''}</button>;
       })}
-      {operation && (() => { const range = sourceSpan(operation.turnIds); return range && <div className="summary-span preparing" style={{ ...span(range.start, range.end), bottom: bottom(operation.level, 'next') }} aria-label={t("memory_timeline.next_source_batch_no_replacement_is_active")}>{(range.end - range.start + 1) / count * plotWidth >= 40 ? 'next' : ''}</div>; })()}
+      {operation && (() => { const range = sourceSpan(operation.turnIds); return range && <div className="summary-span preparing" style={{ ...span(range.start, range.end), bottom: bottom(operation.level, replacement ? refKey(replacement) : 'next') }} aria-label={t(replacement ? "memory_timeline.next_reuses_saved_summary" : "memory_timeline.next_source_batch_no_replacement_is_active")}>{(range.end - range.start + 1) / count * plotWidth >= 40 && !replacement ? t("memory_timeline.next") : ''}</div>; })()}
       {compact ? bands.map(band => {
         const text = t("memory_timeline.turns_2", { value: band.start + 1, value2: band.end + 1, value3: band.archived ? t("interface.archived_2") : t("interface.verbatim"), value4: band.restoring ? t("interface.returns_to_verbatim") : '' });
         return <div key={band.start} className={`turn-tick turn-band ${band.archived ? 'retained' : 'active'}${band.restoring ? ' restoring' : ''}`} role="img" aria-label={text} style={span(band.start, band.end)} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)} />;
