@@ -40,7 +40,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await expect(page.getByLabel('First-layer extraction prompt')).not.toBeEmpty();
   await expect(page.getByRole('textbox', { name: 'Repair prompt', exact: true })).toHaveValue(/character for character/);
   await page.getByRole('textbox', { name: 'Repair prompt', exact: true }).fill('Keep unaffected wording exactly. Apply only factual corrections from the changed inputs. Return the same summary when no correction is needed.');
-  await page.getByRole('button', { name: 'Save context', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   const contextId = (await libraries()).contexts.find(preset => preset.name === 'Imported story memory')!.id;
   expect((await libraries()).contexts.find(preset => preset.id === contextId)?.repairPrompt).toContain('Keep unaffected wording exactly');
   const chat = await post('/api/chats', { title: 'Imported compaction proof', targetInputTokens: 700, connectionId: roleplay.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId });

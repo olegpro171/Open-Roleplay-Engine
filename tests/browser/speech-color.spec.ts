@@ -32,7 +32,7 @@ for (const width of [1440, 390]) test(`saves speech colors from both editors and
     await color.scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath(`${kind}-color-editor.png`), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.getByRole('button', { name: `Save ${kind}`, exact: true }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   }
   const savedLibrary = await library();
@@ -62,11 +62,11 @@ for (const width of [1440, 390]) test(`saves speech colors from both editors and
   await expect(page.getByRole('button', { name: 'Speech color', exact: true })).toContainText('#EEAA88');
   await chooseColor(page, 'Speech color', '#cc99ff');
   await page.route(`**/api/library/${character.id}`, route => route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic save rejection.' }) }), { times: 1 });
-  await page.getByRole('button', { name: 'Save character', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('alert').first()).toContainText('Synthetic save rejection.');
   await expect(page.getByRole('button', { name: 'Speech color', exact: true })).toContainText('#CC99FF');
   expect((await library()).characters.find(item => item.id === character.id)?.speechColor).toBe('#eeaa88');
-  await page.getByRole('button', { name: 'Save character', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await expect(assistantSpeech.first()).toHaveCSS('color', 'rgb(204, 153, 255)');
@@ -188,7 +188,7 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
       }
       await page.getByRole('button', { name: 'Clear color', exact: true }).click();
       await expect(page.getByText('Not set', { exact: true })).toBeVisible();
-      await page.getByRole('button', { name: `Save ${kind}`, exact: true }).click();
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
       await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
     }
     await expect(observer.locator('.part.assistant .direct-speech')).toHaveCSS('color', 'rgb(238, 170, 136)');
@@ -306,8 +306,8 @@ for (const width of [1440, 390, 320]) test(`custom HSL picker previews, validate
   await expect(trigger).toBeFocused();
   await expect(trigger).toContainText('#ABCDEF');
   // Applying a color must not submit the containing editor.
-  await expect(page.getByRole('button', { name: 'Save persona', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Save persona', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('heading', { name: `HSL picker ${width}`, exact: true })).toBeVisible();
   const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
   expect(library.personas.find(persona => persona.name === `HSL picker ${width}`)?.speechColor).toBe('#abcdef');

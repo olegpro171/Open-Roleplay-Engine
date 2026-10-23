@@ -63,7 +63,7 @@ test('keeps crop/editor save levels separate, recovers exact saves, and refreshe
   await dialog.getByRole('button', { name: 'Use crop', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toBeFocused();
   expect((await library(page)).characters.some(card => card.name === 'Picture browser keeper')).toBe(false);
-  await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(row(page, 'Picture browser keeper')).toBeVisible();
+  await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(row(page, 'Picture browser keeper')).toBeVisible();
   const saved = await library(page), card = saved.characters.find(card => card.name === 'Picture browser keeper'); if (!card) throw new Error('Missing saved character');
   const picture = saved.characterPictures.find(item => item.characterId === card.id); if (!picture) throw new Error('Missing saved picture');
   expect(picture.crop).toEqual({ version: 1, x: 0, y: 0, width: .125, height: .25 });
@@ -77,19 +77,19 @@ test('keeps crop/editor save levels separate, recovers exact saves, and refreshe
   await row(page, card.name).getByRole('button', { name: `Edit ${card.name}`, exact: true }).click();
   const cancelled = await corner(page); await cancelled.getByRole('button', { name: 'Reset crop', exact: true }).click(); await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toBeFocused();
-  const before = await library(page); await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(row(page, card.name)).toBeVisible(); expect((await library(page)).revision).toBe(before.revision);
+  const before = await library(page); await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(row(page, card.name)).toBeVisible(); expect((await library(page)).revision).toBe(before.revision);
   await row(page, card.name).getByRole('button', { name: `Edit ${card.name}`, exact: true }).click(); await upload(page, image, 'Replace picture');
   await page.getByLabel('Character description').fill('Text and picture survive uncertain acknowledgement.');
   const sent: unknown[] = [];
   await page.route(`**/api/library/${card.id}`, async route => { sent.push(route.request().postDataJSON()); await route.fetch(); await route.abort(); });
-  await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(page.getByRole('button', { name: 'Retry same save', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(page.getByRole('button', { name: 'Retry same save', exact: true })).toBeEnabled();
   await expect(page.getByLabel('Character description')).toHaveValue('Text and picture survive uncertain acknowledgement.'); await expect(page.getByLabel('Character description')).toBeDisabled();
   await page.unroute(`**/api/library/${card.id}`); await page.route(`**/api/library/${card.id}`, async route => { sent.push(route.request().postDataJSON()); await route.continue(); });
   await page.getByRole('button', { name: 'Retry same save', exact: true }).click(); await expect(row(page, card.name)).toBeVisible(); expect(sent[1]).toEqual(sent[0]);
   const replacement = (await library(page)).characterPictures.find(item => item.characterId === card.id); if (!replacement) throw new Error('Missing replacement'); expect(replacement.key).not.toBe(picture.key);
   await expect(row(other, card.name).locator('img')).toHaveAttribute('src', replacement.thumbnailUrl);
   await row(page, card.name).getByRole('button', { name: /^Duplicate(?: |$)/ }).click(); await expect(row(page, `${card.name} copy`)).toBeVisible();
-  await row(page, `${card.name} copy`).getByRole('button', { name: /^Edit(?: |$)/ }).click(); await page.getByRole('button', { name: 'Remove picture', exact: true }).click(); await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(row(page, `${card.name} copy`)).toContainText('No picture');
+  await row(page, `${card.name} copy`).getByRole('button', { name: /^Edit(?: |$)/ }).click(); await page.getByRole('button', { name: 'Remove picture', exact: true }).click(); await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(row(page, `${card.name} copy`)).toContainText('No picture');
   expect((await library(page)).characterPictures.find(item => item.characterId === card.id)?.key).toBe(replacement.key); await other.close();
 });
 
@@ -108,11 +108,11 @@ test('reviews PNG artwork, preserves diagnostics, blocks failed art and retains 
   await page.getByRole('button', { name: 'Review embedded tags', exact: true }).click(); await page.getByText('Review tags', { exact: true }).click(); await page.getByRole('radio', { name: 'Import all', exact: true }).check(); await page.getByRole('button', { name: 'Apply reviewed tags', exact: true }).click();
   const saved = await library(page), card = saved.characters.find(card => card.name === source.data.name); if (!card) throw new Error('Missing imported character');
   await page.route(`**/api/library/${card.id}`, route => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic picture conflict' }) }));
-  await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(page.getByRole('alert').filter({ hasText: 'Synthetic picture conflict' }).first()).toBeVisible(); await expect(page.getByLabel('Character description')).toHaveValue('Local text remains after definite failure'); await page.unroute(`**/api/library/${card.id}`);
+  await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(page.getByRole('alert').filter({ hasText: 'Synthetic picture conflict' }).first()).toBeVisible(); await expect(page.getByLabel('Character description')).toHaveValue('Local text remains after definite failure'); await page.unroute(`**/api/library/${card.id}`);
   await command(page, `/library/${card.id}`, { kind: 'characters', revision: (await library(page)).revision, data: { ...fields(card.name), description: 'Newer independent text' } }, 'PUT');
   await expect(page.getByRole('button', { name: 'Use current text and tags; keep my picture draft', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Use current text and tags; keep my picture draft', exact: true }).click(); await expect(page.getByLabel('Character description')).toHaveValue('Newer independent text');
-  await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toBeEnabled(); await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(row(page, card.name)).toContainText('Newer independent text');
+  await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toBeEnabled(); await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(row(page, card.name)).toContainText('Newer independent text');
   const invalidSource = { ...source, data: { ...source.data, name: 'Picture metadata only' } }, invalid = Buffer.concat([image.subarray(0,8), pngChunk('tEXt', Buffer.from(`chara\0${Buffer.from(JSON.stringify(invalidSource)).toString('base64')}`))]);
   await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'invalid-card.png', mimeType: 'image/png', buffer: invalid }); await expect(page.getByRole('heading', { name: 'Review Picture metadata only' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Import', exact: true })).toBeDisabled();
@@ -213,7 +213,7 @@ test('ignores a closed editor’s delayed picture analysis and preserves the nex
   await page.getByRole('button', { name: 'New character', exact: true }).click(); await page.getByLabel('Name', { exact: true }).fill('Picture new delayed draft');
   if (!finish) throw new Error('Missing delayed analysis'); await finish(); await page.unroute('**/api/pictures/preview');
   await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Picture new delayed draft'); await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toHaveCount(0);
-  await upload(page, image); await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(row(page, 'Picture new delayed draft')).toBeVisible();
+  await upload(page, image); await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(row(page, 'Picture new delayed draft')).toBeVisible();
   expect((await library(page)).characters.some(card => card.name === 'Picture old delayed draft')).toBe(false);
 });
 

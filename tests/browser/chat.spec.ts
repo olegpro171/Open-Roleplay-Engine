@@ -20,17 +20,17 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await page.getByLabel('Model identifier').fill('synthetic-roleplay');
   await page.getByLabel('API base URL').fill(endpoint);
   await page.getByLabel('API key', { exact: true }).fill('browser-api-secret');
-  await page.getByRole('button', { name: 'Save Connection', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('button', { name: 'Characters', exact: true }).click();
   await page.getByRole('button', { name: 'New character', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Keeper');
   await page.getByLabel('Character description', { exact: true }).fill('You play the keeper of the tower.');
-  await page.getByRole('button', { name: 'Save character', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('button', { name: 'Personas', exact: true }).click();
   await page.getByRole('button', { name: 'New persona', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Traveller');
   await page.getByLabel('Persona description').fill('The user is a traveller.');
-  await page.getByRole('button', { name: 'Save persona', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Chat settings');
   await page.getByLabel('Chat title').fill('The Lantern Tower');
@@ -194,7 +194,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await page.getByRole('button', { name: 'Expand block 8', exact: true }).click();
   await choose(page, 'Marker source for block 8', 'Character scenario');
   await page.getByRole('button', { name: 'Move block 8 up', exact: true }).click();
-  await page.getByRole('button', { name: 'Save prompt', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
   await choose(page, 'Character', 'Moon');
@@ -242,7 +242,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await builtIn.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
   await page.getByLabel('Fallback text').fill('Modified default');
-  await page.getByRole('button', { name: 'Save prompt', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await builtIn.getByRole('button', { name: 'Restore', exact: true }).click();
   await page.locator('.confirmation-dialog').getByRole('button', { name: 'Restore', exact: true }).click();
   await builtIn.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -274,7 +274,7 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
     const field = page.getByLabel(name, { exact: true });
     await field.fill('');
     await expect(field).toHaveValue('');
-    await page.getByRole('button', { name: 'Save Connection', exact: true }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(field).toBeVisible();
     await field.fill(name === 'Model context window' ? '128000' : '3000');
   }
@@ -290,7 +290,7 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await page.getByLabel('Remove the saved API key').check();
   await expect(page.getByLabel('API key', { exact: true })).toBeDisabled();
   await page.getByLabel('Remove the saved API key').uncheck();
-  await page.getByRole('button', { name: 'Save Connection', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
   const first = page.getByRole('region', { name: 'Prompt block 1', exact: true });

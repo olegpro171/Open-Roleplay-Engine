@@ -42,10 +42,10 @@ for (const width of [1440, 390]) {
     await page.route('**/api/library', route => route.request().method() === 'POST'
       ? route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic save rejection.' }) })
       : route.continue(), { times: 1 });
-    await page.getByRole('button', { name: 'Save persona', exact: true }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('Synthetic save rejection.');
     await expect(page.getByLabel('Title / comment', { exact: true })).toHaveValue('University version');
-    await page.getByRole('button', { name: 'Save persona', exact: true }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('heading', { name: university, exact: true })).toBeVisible();
     const search = page.getByRole('searchbox', { name: 'Search personas', exact: true });
     await search.fill('UNIVERSITY VERSION');
@@ -80,7 +80,7 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: 'Personas', exact: true }).click();
     await page.getByRole('article').filter({ has: page.getByRole('heading', { name: university, exact: true }) }).getByRole('button', { name: 'Edit', exact: true }).click();
     await page.getByLabel('Title / comment', { exact: true }).fill('');
-    await page.getByRole('button', { name: 'Save persona', exact: true }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Story', exact: true }).click();
     await expect(page.locator('.part.user .part-heading strong')).toHaveText(name);

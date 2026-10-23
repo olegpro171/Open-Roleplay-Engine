@@ -128,7 +128,7 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
     {issues.length > 0 && <div role="alert"><p>{t("lorebook_editor.correct_these_fields_before_saving")}</p><ul>{issues.map((issue, index) => <li key={index}>{issue.path[0] === 'entries' && typeof issue.path[1] === 'number' && book.entries[issue.path[1]] ? <button type="button" className="quiet" onClick={() => setSelectedId(book.entries[Number(issue.path[1])].id)}>{book.entries[Number(issue.path[1])].name}: </button> : null}{issue.path.join('.')}: {formatMessage(validationMessage(issue))}</li>)}</ul></div>}
     {stale && <p role="status">{t("lorebook_editor.the_library_changed_your_unsaved_edits_remain")}</p>}
     <p className="small muted">{t("lorebook_editor.saved_changes_apply_to_future_requests_in")}</p>
-    <EditorActions><button type="submit" form={formId} disabled={busy || stale}>{t("lorebook_editor.save_lorebook")}</button><button type="button" className="secondary" onClick={close}>{t("character_import.cancel")}</button></EditorActions>
+    <EditorActions formId={formId} disabled={busy || stale} close={close} />
   </form>;
 }
 

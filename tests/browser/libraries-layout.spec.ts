@@ -41,18 +41,18 @@ test('Libraries reopens the last category and new Connections reserve 8,196 outp
   await expect(page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Connections', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
-for (const width of [1280, 390]) {
-  test(`saves and closes every library editor with Save and Cancel side by side at ${width}px`, async ({ page }, testInfo) => {
-    await page.setViewportSize({ width, height: 900 });
+for (const width of [1280, 820, 800, 390, 320]) {
+  test(`keeps Save and Cancel available while scrolling every library editor at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: width === 820 ? 500 : 900 });
     await login(page);
     const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
-    const fixtures: { kind: LibraryKind; category: string; save: string; data: object }[] = [
-      { kind: 'personas', category: 'Personas', save: 'Save persona', data: { description: 'A patient keeper.' } },
-      { kind: 'characters', category: 'Characters', save: 'Save character', data: { description: 'The keeper waits.', personality: '', scenario: '', first_mes: '', mes_example: '' } },
-      { kind: 'lorebooks', category: 'Lorebooks', save: 'Save lorebook', data: newLorebook() },
-      { kind: 'prompts', category: 'Prompts', save: 'Save prompt', data: defaultPrompt },
-      { kind: 'connections', category: 'Connections', save: 'Save Connection', data: { endpoint, model: 'mock', contextWindow: 100_000, maxOutputTokens: 1000, customParameters: {} } },
-      { kind: 'contexts', category: 'Context presets', save: 'Save context', data: defaultContextPreset },
+    const fixtures: { kind: LibraryKind; category: string; data: object }[] = [
+      { kind: 'personas', category: 'Personas', data: { description: 'A patient keeper.' } },
+      { kind: 'characters', category: 'Characters', data: { description: 'The keeper waits.', personality: '', scenario: '', first_mes: '', mes_example: '' } },
+      { kind: 'lorebooks', category: 'Lorebooks', data: newLorebook() },
+      { kind: 'prompts', category: 'Prompts', data: defaultPrompt },
+      { kind: 'connections', category: 'Connections', data: { endpoint, model: 'mock', contextWindow: 100_000, maxOutputTokens: 1000, customParameters: {} } },
+      { kind: 'contexts', category: 'Context presets', data: defaultContextPreset },
     ];
     for (const fixture of fixtures) {
       const name = `Sidebar editor ${fixture.kind} ${width}`;
@@ -60,16 +60,48 @@ for (const width of [1280, 390]) {
       await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: fixture.category, exact: true }).click();
       const content = page.getByRole('region', { name: fixture.category, exact: true });
       const article = () => content.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
+      const sidebarHeight = await page.locator('.library-sidebar').evaluate(element => element.getBoundingClientRect().height);
       await article().getByRole('button', { name: /^Edit(?: |$)/ }).click();
+      if (width <= 800) {
+        expect(await page.locator('.library-sidebar').evaluate(element => element.getBoundingClientRect().height)).toBe(sidebarHeight);
+      }
       const actions = page.getByRole('group', { name: 'Editor actions', exact: true });
-      const save = actions.getByRole('button', { name: fixture.save, exact: true });
+      const save = actions.getByRole('button', { name: 'Save', exact: true });
       const close = actions.getByRole('button', { name: 'Cancel', exact: true });
-      await actions.scrollIntoViewIfNeeded();
+      await expect(save).toBeInViewport();
+      await expect(close).toBeInViewport();
       const saveBounds = await save.boundingBox(), closeBounds = await close.boundingBox();
       if (!saveBounds || !closeBounds) throw new Error('Missing editor actions');
-      expect(closeBounds.x).toBeGreaterThanOrEqual(saveBounds.x + saveBounds.width);
-      expect(closeBounds.y).toBe(saveBounds.y);
-      expect(closeBounds.height).toBe(saveBounds.height);
+      if (width > 800) {
+        const sidebar = await page.locator('.library-sidebar').boundingBox();
+        if (!sidebar) throw new Error('Missing library sidebar');
+        expect(saveBounds.x).toBeGreaterThanOrEqual(sidebar.x);
+        expect(saveBounds.x + saveBounds.width).toBeLessThanOrEqual(sidebar.x + sidebar.width);
+        expect(closeBounds.x).toBe(saveBounds.x);
+        expect(closeBounds.y).toBeGreaterThanOrEqual(saveBounds.y + saveBounds.height);
+        await expect(save).toHaveText('Save');
+      } else {
+        expect(closeBounds.x).toBeGreaterThanOrEqual(saveBounds.x + saveBounds.width);
+        expect(closeBounds.y).toBe(saveBounds.y);
+        expect(closeBounds.x + closeBounds.width).toBeGreaterThan(width - 40);
+        expect(saveBounds.width).toBe(44);
+        expect(saveBounds.height).toBe(44);
+        await expect(save.locator('svg')).toBeVisible();
+        await expect(close.locator('svg')).toBeVisible();
+        await expect(save.locator('span')).toBeHidden();
+        await expect(close.locator('span')).toBeHidden();
+      }
+      // Neither action moves with the form, including a short desktop viewport.
+      const scroller = width > 800 ? content : page.locator('main.library-layout');
+      await scroller.evaluate(element => element.scrollTo(0, element.scrollHeight));
+      if (fixture.kind === 'characters') expect(await scroller.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+      await expect(save).toBeInViewport();
+      await expect(close).toBeInViewport();
+      expect(await save.boundingBox()).toEqual(saveBounds);
+      await page.screenshot({ path: testInfo.outputPath(`scrolled-${fixture.kind}.png`), animations: 'disabled' });
+      await save.focus();
+      await page.keyboard.press('Tab');
+      await expect(close).toBeFocused();
       const nameInput = content.getByLabel(fixture.kind === 'lorebooks' ? 'Book name' : 'Name', { exact: true });
       // Save retains native required-field validation.
       await nameInput.fill('');
@@ -92,6 +124,25 @@ for (const width of [1280, 390]) {
     }
   });
 }
+
+test('preserves an editor draft across layout changes and submits from the keyboard', async ({ page }) => {
+  await login(page);
+  await page.getByRole('button', { name: 'Personas', exact: true }).click();
+  await page.getByRole('button', { name: 'New persona', exact: true }).click();
+  const name = 'Responsive keyboard persona';
+  await page.getByLabel('Name', { exact: true }).fill(name);
+  await page.getByLabel('Persona description').fill('This draft survives changing the layout.');
+  for (const width of [1280, 390, 820]) {
+    await page.setViewportSize({ width, height: 700 });
+    await expect(page.getByLabel('Name', { exact: true })).toHaveValue(name);
+    await expect(page.getByLabel('Persona description')).toHaveValue('This draft survives changing the layout.');
+    await expect(page.getByRole('group', { name: 'Editor actions', exact: true })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeInViewport();
+  }
+  await page.getByLabel('Name', { exact: true }).press('Enter');
+  await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+  expect((await library(page)).personas.find(record => record.name === name)?.description).toBe('This draft survives changing the layout.');
+});
 
 test('fits loaded multiline text, preserves manual sizing while typing and remeasures newly opened fields', async ({ page }, testInfo) => {
   await login(page);
@@ -204,13 +255,13 @@ test('keeps vertical library navigation beside a scrolling list and preserves fa
   await page.route('**/api/library', route => route.request().method() === 'POST'
     ? route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic library save conflict' }) })
     : route.continue());
-  await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Save persona', exact: true }).click();
+  await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Synthetic library save conflict');
   await expect(content.getByLabel('Name', { exact: true })).toHaveValue('Library layout persona');
   await expect(content.getByLabel('Persona description')).toHaveValue('A patient observatory keeper.');
   expect((await library(page)).personas.some(persona => persona.name === 'Library layout persona')).toBe(false);
   await page.unroute('**/api/library');
-  await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Save persona', exact: true }).click();
+  await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Save', exact: true }).click();
   await expect(content.getByRole('heading', { name: 'Library layout persona', exact: true })).toBeVisible();
   expect((await library(page)).personas.find(persona => persona.name === 'Library layout persona')?.description).toBe('A patient observatory keeper.');
 
@@ -267,8 +318,8 @@ test('keeps every category and the library editors usable on narrow screens', as
     await content.getByRole('button', { name: 'New persona', exact: true }).click();
     await content.getByLabel('Name', { exact: true }).fill('Unsaved phone persona');
     await content.getByLabel('Persona description').fill('A recoverable editing draft.');
-    await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Save persona', exact: true }).scrollIntoViewIfNeeded();
-    await expect(page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Save persona', exact: true })).toBeInViewport();
+    await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Save', exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Save', exact: true })).toBeInViewport();
     expect(await content.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Cancel', exact: true }).click();
   }
@@ -308,7 +359,7 @@ test('returns to the top of a scrollable prompt list after saving or closing a d
   await panel.evaluate(element => { element.scrollTop = element.scrollHeight; });
   await panel.getByRole('textbox', { name: 'Fallback text' }).last().fill('Edited while scrolled down.');
   await panel.evaluate(element => { element.scrollTop = element.scrollHeight; });
-  await page.getByRole('button', { name: 'Save prompt', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(panel.getByRole('button', { name: 'New prompt', exact: true })).toBeInViewport();
   expect(await panel.evaluate(element => element.scrollTop)).toBe(0);
 

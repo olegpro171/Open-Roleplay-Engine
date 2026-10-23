@@ -48,7 +48,7 @@ test('selects Character fields, groups resolved messages and sends exact automat
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/character-fields-phone.png', fullPage: true });
-  await page.getByRole('button', { name: 'Save prompt', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   const saved = (await library()).prompts.find(prompt => prompt.name === 'Selectable fields proof');
   expect(saved?.blocks.find(block => block.kind === 'marker' && block.marker === 'character')).toMatchObject({ fields: ['description', 'scenario'], role: 'user' });
   if (!saved) throw new Error('Missing saved prompt.');

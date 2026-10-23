@@ -101,16 +101,6 @@ const newKeys = {
   "contexts": "libraryActions.new.contexts"
 } as const satisfies Record<string, MessageKey>;
 export function newLibraryLabel(value: keyof typeof newKeys) { return t(newKeys[value]); }
-const saveKeys = {
-  "chats": "libraryActions.save.chats",
-  "personas": "libraryActions.save.personas",
-  "characters": "libraryActions.save.characters",
-  "lorebooks": "libraryActions.save.lorebooks",
-  "connections": "libraryActions.save.connections",
-  "prompts": "libraryActions.save.prompts",
-  "contexts": "libraryActions.save.contexts"
-} as const satisfies Record<string, MessageKey>;
-export function saveLibraryLabel(value: keyof typeof saveKeys) { return t(saveKeys[value]); }
 const searchKeys = {
   "chats": "libraryActions.search.chats",
   "personas": "libraryActions.search.personas",

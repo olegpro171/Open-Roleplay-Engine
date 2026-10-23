@@ -66,7 +66,7 @@ test('edits card instructions, enables preset injection, explains unavailable so
   await page.getByRole('button', { name: 'Add marker', exact: true }).click();
   await page.getByRole('button', { name: 'Expand block 7', exact: true }).click();
   await choose(page, 'Marker source for block 7', 'Card post-history instructions — card text or fallback');
-  await page.getByRole('button', { name: 'Save prompt', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await page.getByRole('button', { name: 'Chat details', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Chat settings', exact: true })).toHaveText('Chat settings (1)');
@@ -86,7 +86,7 @@ test('edits card instructions, enables preset injection, explains unavailable so
   await page.getByLabel('Character depth note', { exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/card-instructions-desktop.png', fullPage: true });
   await page.route(`**/api/library/${character.id}`, route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic failed save.' }) }));
-  await page.getByRole('button', { name: 'Save character', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Retry same save', exact: true })).toBeVisible();
   await expect(page.getByLabel('Character depth note', { exact: true })).toHaveValue('Keep the key secret, {{char}}.');
   await page.unroute(`**/api/library/${character.id}`);

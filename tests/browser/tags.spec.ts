@@ -50,7 +50,7 @@ test('filters with AND, preserves character drafts through catalog edits, and ma
   await expect(page.getByRole('button', { name: 'Manage tags', exact: true })).toBeFocused();
   await expect(page.getByLabel('Character description')).toHaveValue('Draft survives catalog operations');
   await chooser(page).getByRole('checkbox', { name: /tag-new, punctuation/ }).check();
-  await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(row(page, 'Tag A')).toContainText('Draft survives catalog operations'); await expect(row(page, 'Tag A')).not.toContainText('tag-new, punctuation');
+  await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(row(page, 'Tag A')).toContainText('Draft survives catalog operations'); await expect(row(page, 'Tag A')).not.toContainText('tag-new, punctuation');
   // Assignments stay available through filters and the editor without appearing in rows.
   await expect(page.getByRole('group', { name: 'Active tag filters' })).toContainText('tag-journey');
   await row(page, 'Tag A').getByRole('button', { name: /^Duplicate(?: |$)/ }).click(); await expect(row(page, 'Tag A copy')).toBeVisible();
@@ -61,7 +61,7 @@ test('filters with AND, preserves character drafts through catalog edits, and ma
   await row(page, 'Tag A').getByRole('button', { name: /^Edit(?: |$)/ }).click();
   await chooser(page).getByRole('button', { name: 'Remove tag-new, punctuation', exact: true }).click(); await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await row(page, 'Tag A').getByRole('button', { name: /^Edit(?: |$)/ }).click(); await expect(chooser(page).getByRole('checkbox', { name: /tag-new, punctuation/ })).toBeChecked();
-  await chooser(page).getByRole('button', { name: 'Remove tag-new, punctuation', exact: true }).click(); await page.getByRole('button', { name: 'Save character', exact: true }).click();
+  await chooser(page).getByRole('button', { name: 'Remove tag-new, punctuation', exact: true }).click(); await page.getByRole('button', { name: 'Save', exact: true }).click();
   await openFilters(page); await filters(page).getByRole('checkbox', { name: /tag-unused/ }).check(); await expect(page.getByRole('status').filter({ hasText: 'No characters match all selected tags' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters', exact: true }).click(); await expect(row(page, 'Tag C')).toBeVisible();
   await openManager(page); await page.setViewportSize({ width: 390, height: 844 });
@@ -219,9 +219,9 @@ test('refreshes another tab, prunes deleted filters, retains failed drafts and r
   await expect(page.getByRole('button', { name: 'Remove concurrent-tag', exact: true })).toHaveCount(0); await expect(row(page, 'Tag concurrent untagged')).toBeVisible();
   await row(page, 'Tag concurrent').getByRole('button', { name: /^Edit(?: |$)/ }).click(); await page.getByLabel('Character description').fill('Draft retained on conflict');
   await page.route(`**/api/library/${character.id}`, route => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic tag save conflict' }) }));
-  await page.getByRole('button', { name: 'Save character', exact: true }).click(); await expect(page.getByRole('alert').filter({ hasText: 'Synthetic tag save conflict' }).first()).toBeVisible(); await expect(page.getByLabel('Character description')).toHaveValue('Draft retained on conflict'); await page.unroute(`**/api/library/${character.id}`);
+  await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(page.getByRole('alert').filter({ hasText: 'Synthetic tag save conflict' }).first()).toBeVisible(); await expect(page.getByLabel('Character description')).toHaveValue('Draft retained on conflict'); await page.unroute(`**/api/library/${character.id}`);
   await command(other, '/library/tags', { revision: (await library(other)).revision, name: 'concurrent-change' });
-  await expect(page.getByRole('button', { name: 'Save character', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click(); await row(page, 'Tag concurrent').getByRole('button', { name: /^Edit(?: |$)/ }).click();
   await openManager(page); await manager(page).getByLabel('New tag name').fill('CONCURRENT-CHANGE'); await manager(page).getByRole('button', { name: 'Create tag', exact: true }).click();
   await expect(manager(page).getByRole('alert')).toContainText('already exists'); await expect(manager(page).getByLabel('New tag name')).toHaveValue('CONCURRENT-CHANGE');
@@ -259,7 +259,7 @@ test('paginates the catalog and keeps long or HTML-like names usable as text in 
   expect(await chooser(page).evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await chooser(page).screenshot({ path: 'test-results/tags-phone-chooser.png' });
-  await page.getByRole('button', { name: 'Save character', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(row(page, 'Tag long-name draft')).toBeVisible();
   await expect(row(page, 'Tag long-name draft')).not.toContainText(longName);
   await row(page, 'Tag long-name draft').getByRole('button', { name: /^Edit(?: |$)/ }).click();

@@ -34,10 +34,10 @@ for (const width of [1440, 390]) {
     const imported = (await library(page)).characters.find(character => character.name === name);
     if (!imported) throw new Error('Missing imported character');
     await page.route(`**/api/library/${imported.id}`, route => route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic greeting save failure.' }) }), { times: 1 });
-    await page.getByRole('button', { name: 'Save character', exact: true }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('alert').filter({ hasText: 'Synthetic greeting save failure.' }).first()).toBeVisible();
     await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue('Edited greeting for {{user}} from {{char}}.');
-    await page.getByRole('button', { name: 'Save character', exact: true }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await page.getByRole('button', { name: `Edit ${name}`, exact: true }).click();
     await expect(page.getByLabel('Alternate greeting 2', { exact: true })).toHaveValue('A third beginning.\n\nA second paragraph.');
     await page.getByLabel('Alternate greeting 1', { exact: true }).fill('Discard this draft.');

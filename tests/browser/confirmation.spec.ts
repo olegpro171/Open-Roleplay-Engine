@@ -13,7 +13,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await page.getByRole('button', { name: 'New persona', exact: true }).click();
     const name = `Traveller ${viewport.width} <b>literal</b> ${'long name '.repeat(7)}`.trim();
     await page.getByLabel('Name', { exact: true }).fill(name);
-    await page.getByRole('button', { name: 'Save persona', exact: true }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     const row = page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
     const trigger = row.getByRole('button', { name: 'Delete', exact: true });
     const dialog = page.getByRole('dialog', { name: 'Delete library item?' });
@@ -73,7 +73,7 @@ test('lore entry deletion stays in the book draft until saved', async ({ page })
   await page.getByLabel('Book name', { exact: true }).fill('Deletion draft atlas');
   await page.getByRole('button', { name: 'Add entry', exact: true }).click();
   await page.getByLabel('Entry name', { exact: true }).fill('Keep the gate');
-  await page.getByRole('button', { name: 'Save lorebook', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   const row = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Deletion draft atlas', exact: true }) });
   await row.getByRole('button', { name: 'Edit', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Delete lore entry?' });
@@ -89,7 +89,7 @@ test('lore entry deletion stays in the book draft until saved', async ({ page })
   await expect(entry).toHaveValue('Keep the gate');
   await page.getByRole('button', { name: 'Delete entry', exact: true }).click();
   await dialog.getByRole('button', { name: 'Delete entry', exact: true }).click();
-  await page.getByRole('button', { name: 'Save lorebook', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(row).toContainText('0 entries');
   await page.reload();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();

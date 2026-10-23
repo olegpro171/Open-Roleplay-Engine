@@ -1,5 +1,5 @@
 import type { MessageText } from './localization';
-import { newLibraryLabel, saveLibraryLabel, searchLibraryLabel, sortLibraryLabel } from './localization-labels';
+import { newLibraryLabel, searchLibraryLabel, sortLibraryLabel } from './localization-labels';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
 import { libraryLabel, characterFieldLabel, markerLabel as localizedMarkerLabel, stateLabel } from './localization-labels';
 import { librarySortSchema, readLibrarySort, sortLibraryItems, sortOptions, type LibrarySort } from './library-sorting';
@@ -18,7 +18,7 @@ import { upgradePrompt } from '../core/prompt-upgrade';
 import { importChat } from '../core/chat-import';
 import { CharacterImport } from './CharacterImport';
 import { CharacterEditor } from './CharacterEditor';
-import { EditorActions } from './EditorActions';
+import { EditorActions, EditorActionsTarget } from './EditorActions';
 import { EditorTextarea } from './EditorTextarea';
 import { TagChips, TagFilterMenu } from './Tags';
 import { characterTagIndex, matchesCharacterTags } from '../shared/tags';
@@ -238,6 +238,7 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
     const { id, revision: _revision, ...data } = record;
     return { kind: initialTarget.kind, id, revision: library.revision, data };
   });
+  const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
   const panel = useRef<HTMLElement>(null);
   const wasEditing = useRef(Boolean(editing));
   useLayoutEffect(() => {
@@ -296,7 +297,7 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
       : section === 'characters' && 'lorebookId' in item && item.lorebookId ? msg("libraries.character_copied_its_default_lorebook_is_shared")
       : section === 'lorebooks' ? msg("libraries.independent_lorebook_copy_saved") : msg("libraries.copy_saved"));
   }
-  return <main className="library-layout">
+  return <EditorActionsTarget.Provider value={actionsTarget}><div className="library-workspace"><main className="library-layout">
     <aside className="library-sidebar">
       <p className="eyebrow">{t("libraries.your_libraries")}</p>
       <nav className="library-tabs" aria-label={t("libraries.library_categories")}>
@@ -315,6 +316,7 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
           }}
         ><LibraryIcon kind={kind} />{libraryLabel(kind)}</button>)}
       </nav>
+      <div className="library-editor-target" ref={setActionsTarget} />
     </aside>
     <section ref={panel} key={section} className="document-panel library-panel" aria-labelledby="library-heading">
     <h1 id="library-heading">{libraryLabel(section)}</h1>
@@ -374,7 +376,7 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
       </>}
     </>}
     </section>
-  </main>;
+  </main></div></EditorActionsTarget.Provider>;
 }
 function CharacterDescription({ text }: { text: string }) {
   useLocale();
@@ -446,7 +448,7 @@ function LibraryEditor({ initial, connections, currentRevision, busy, run, close
       <ConnectionTools connection={data as Connection} parameters={parameters} connectionId={initial.id} apiKey={removeKey ? '' : key || undefined} />
     </>}
     {initial.kind === 'prompts' && <div className="full"><p className="small muted">{t("libraries.enabled_blocks_and_markers_compose_the_base", { value: '{{user}}', value2: '{{char}}' })}</p><PromptEditor value={data as PromptPreset} change={setData} /></div>}
-  </div></fieldset>{error && <p role="alert">{error}</p>}{stale && <p role="status">{t("libraries.the_library_changed_close_this_editor_and")}</p>}<EditorActions><button type="submit" form={formId} disabled={busy || stale}>{saveLibraryLabel(initial.kind)}</button><button type="button" className="secondary" onClick={close}>{t("character_import.cancel")}</button></EditorActions></form>;
+  </div></fieldset>{error && <p role="alert">{error}</p>}{stale && <p role="status">{t("libraries.the_library_changed_close_this_editor_and")}</p>}<EditorActions formId={formId} disabled={busy || stale} close={close} /></form>;
 }
 function ConnectionTools({ connection, parameters, connectionId, apiKey }: { connection: Connection; parameters: string; connectionId?: string; apiKey?: string }) {
   useLocale();

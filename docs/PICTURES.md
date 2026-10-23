@@ -4,7 +4,7 @@ Implemented for local testing following the [assignment](PICTURES_IMPLEMENTATION
 
 ## Workflow
 
-The Picture section follows Name. Choose/replace a PNG, JPEG or WebP, then Adjust crop. Drag inside the square or use keyboard-operable Zoom, Horizontal position and Vertical position sliders. Axes with no travel are disabled and explained. Reset centers the largest square. Use crop changes the editor draft; Cancel/Escape restores its previous crop. Save character commits text, tags and picture together. Cancel in the editor discards its unsaved draft. Files/crops are not saved across reloads.
+The Picture section follows Name. Choose/replace a PNG, JPEG or WebP, then Adjust crop. Drag inside the square or use keyboard-operable Zoom, Horizontal position and Vertical position sliders. Axes with no travel are disabled and explained. Reset centers the largest square. Use crop changes the editor draft; Cancel/Escape restores its previous crop. Save commits text, tags and picture together. Cancel in the editor discards its unsaved draft. Files/crops are not saved across reloads.
 
 A replacement does not replace the current draft until validation succeeds. Invalid files and failed saves preserve recoverable drafts. Selecting the same file again works. Editing a saved crop holds its original bytes once in the open editor so a concurrent replacement/removal cannot destroy the local source; the crop surface uses the bounded oriented preview. No repeated original downloads occur while moving the crop.
 

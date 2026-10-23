@@ -40,11 +40,11 @@ for (const width of [1440, 390]) {
     await page.route('**/api/library', route => route.request().method() === 'POST'
       ? route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic save rejection.' }) })
       : route.continue());
-    await page.getByRole('button', { name: 'Save character', exact: true }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('alert').filter({ hasText: 'Synthetic save rejection.' }).first()).toBeVisible();
     await expect(page.getByLabel('Title / comment', { exact: true })).toHaveValue('University version');
     await page.unroute('**/api/library');
-    await page.getByRole('button', { name: 'Save character', exact: true }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('heading', { name: university, exact: true })).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
     const search = page.getByRole('searchbox', { name: 'Search characters', exact: true });
@@ -75,11 +75,11 @@ for (const width of [1440, 390]) {
     const reconcile = page.getByRole('button', { name: 'Use current text and tags; keep my picture draft', exact: true });
     await expect(reconcile).toBeVisible();
     await expect(page.getByLabel('Title / comment', { exact: true })).toHaveValue('Local draft');
-    await expect(page.getByRole('button', { name: 'Save character', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
     await reconcile.click();
     await expect(page.getByLabel('Title / comment', { exact: true })).toHaveValue('Newer version');
     await page.getByLabel('Title / comment', { exact: true }).fill('University version');
-    await page.getByRole('button', { name: 'Save character', exact: true }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('heading', { name: university, exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: 'Chats', exact: true }).click();
@@ -108,7 +108,7 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: 'Characters', exact: true }).click();
     await page.getByRole('button', { name: `Edit ${university}`, exact: true }).click();
     await page.getByLabel('Title / comment', { exact: true }).fill('');
-    await page.getByRole('button', { name: 'Save character', exact: true }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Story', exact: true }).click();
     await expect(page.locator('.part.assistant .part-heading strong')).toHaveText(name);

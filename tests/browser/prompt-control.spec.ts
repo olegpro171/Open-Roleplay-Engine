@@ -25,7 +25,7 @@ test('edits explicit markers, uses recent history, and enables preparation again
   await expect(page.locator('body')).not.toContainText('future compaction');
   await page.getByRole('checkbox', { name: 'Enable block 4', exact: true }).uncheck();
   await expect(page.getByRole('status').filter({ hasText: 'Summary marker is absent or disabled. Summaries will not be sent.' })).toBeVisible();
-  await page.getByRole('button', { name: 'Save prompt', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   const prompt = (await library()).prompts.find(item => item.name === 'Explicit prompt proof')!;
   const model = await command('/api/library', { revision: (await library()).revision, kind: 'connections', data: { name: 'Prompt proof model', endpoint, model: 'synthetic-roleplay', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
   const summary = await command('/api/library', { revision: (await library()).revision, kind: 'connections', data: { name: 'Prompt proof summaries', endpoint, model: 'synthetic-summary', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
@@ -93,7 +93,7 @@ test('saves a prompt with every block removed and shows generic advisory warning
   for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Remove block 1', exact: true }).click();
   await expect(page.locator('.prompt-block')).toHaveCount(0);
   await expect(page.getByRole('status').filter({ hasText: 'marker' })).toHaveCount(4);
-  await page.getByRole('button', { name: 'Save prompt', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Empty prompt proof', exact: true })).toBeVisible();
   const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
   expect(library.prompts.find(prompt => prompt.name === 'Empty prompt proof')!.blocks).toEqual([]);

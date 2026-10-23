@@ -41,7 +41,7 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await page.getByLabel('Primary keys', { exact: true }).fill('MoonGate');
   await page.getByLabel('Lore content', { exact: true }).fill('The Moon Gate is sealed with a silver crescent.');
   await page.getByLabel('Entry comment', { exact: true }).fill('Never send this human-only comment.');
-  await page.getByRole('button', { name: 'Save lorebook', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   const bookRow = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Moon Gate atlas', exact: true }) });
   await expect(bookRow).toContainText('1 entries · 1 enabled');
   await bookRow.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -63,7 +63,7 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await page.getByLabel('Name', { exact: true }).fill('Moon keeper');
   await page.getByLabel('Character description', { exact: true }).fill('Keeper of the city gate.');
   await choose(page, 'Default lorebook', 'Moon Gate atlas');
-  await page.getByRole('button', { name: 'Save character', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
   await choose(page, 'Character', 'Moon keeper');
@@ -99,7 +99,7 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await expect(bookRow).toContainText('Lore browser story');
   await bookRow.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByLabel('Lore content', { exact: true }).fill('The Moon Gate now bears a golden sun.');
-  await page.getByRole('button', { name: 'Save lorebook', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Request inspector');
   await page.getByRole('combobox', { name: 'Inspect request', exact: true }).click();
@@ -193,7 +193,7 @@ test('keeps unsaved entries on failures and revision conflicts, with bounded edi
   await page.screenshot({ path: 'test-results/lorebook-phone-editor.png' });
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.route(`**/api/library/${created.id}`, route => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic shared-edit conflict.' }) }));
-  await page.getByRole('button', { name: 'Save lorebook', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Synthetic shared-edit conflict');
   await expect(page.getByLabel('Lore content', { exact: true })).toHaveValue('Unsaved detail survives the failed write.');
   await page.unroute(`**/api/library/${created.id}`);
@@ -203,7 +203,7 @@ test('keeps unsaved entries on failures and revision conflicts, with bounded edi
   await command(page, `/api/library/${created.id}`, { kind: 'lorebooks', revision: (await library(page)).revision, data: { ...data, description: 'Changed from another tab.' } }, 'PUT');
   await expect(page.getByRole('status').filter({ hasText: 'Your unsaved edits remain here' })).toBeVisible();
   await expect(page.getByLabel('Lore content', { exact: true })).toHaveValue('Unsaved detail survives the failed write.');
-  await expect(page.getByRole('button', { name: 'Save lorebook', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Cancel', exact: true }).scrollIntoViewIfNeeded();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
