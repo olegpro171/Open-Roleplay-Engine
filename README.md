@@ -263,6 +263,8 @@ Backups support ORE schemas 12, 13, 14 and 15, up to 128 MiB and 100,000 portabl
 
 ## Phone access
 
+The outer page suppresses overscroll bounce; chats, lists, settings and dialogs retain their own scrolling. The sign-in screen also scrolls on short viewports. Actual phone bounce and software-keyboard behavior still require device verification.
+
 LAN access starts disabled. Start ORE normally, create the owner account on the server computer, then open **Settings → Phone / LAN access** from its local address. Enable **HTTP access from the local network** and choose **Save LAN settings**. **Select network automatically** starts checked: ORE chooses an available private IPv4 network, uses port 3000 and recovers network/address changes while the server runs. Uncheck it to reveal the network dropdown and port field for manual configuration. Copy the hostname URL from the read-only **Phone address** field and open it on your phone; sign in with the same owner password. No certificate, domain, router port forwarding or extra service is required.
 
 On macOS, the address uses the computer’s existing Bonjour name, such as `http://macbook-pro-oleg.local:3000`, so a bookmark survives DHCP address changes. The network and phone must support local mDNS/Bonjour resolution. ORE uses the OS-provided hostname service; it does not install a DNS daemon. Other host platforms require an existing local hostname responder and remain unqualified. Renaming the computer changes its hostname URL.
