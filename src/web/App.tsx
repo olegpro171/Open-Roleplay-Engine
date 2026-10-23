@@ -25,6 +25,7 @@ import { ChatTextarea } from './ChatTextarea';
 import { ChatDetailsTarget, ChatWorkspace } from './ChatWorkspace';
 import { ChatCharacterPortrait } from './Pictures';
 import { useComposerKeyboard } from './useComposerKeyboard';
+import { useTouchScrollGuard } from './useTouchScrollGuard';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
@@ -70,6 +71,7 @@ export function App() {
   const [online, setOnline] = useState(false);
   const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory' | 'data'>('story');
   const composerKeyboard = useComposerKeyboard(isIOS && tab === 'story');
+  useTouchScrollGuard(isIOS && session?.authenticated === true && tab === 'story');
   const [libraryTarget, setLibraryTarget] = useState<LibraryTarget | null>(null);
   const confirmAction = useConfirmation(`${chatId}:${tab}:${session?.authenticated}`);
   const drafts = useChatDraft(chatId);

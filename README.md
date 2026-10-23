@@ -263,7 +263,7 @@ Backups support ORE schemas 12, 13, 14 and 15, up to 128 MiB of SQLite content (
 
 ## Phone access
 
-The outer page suppresses overscroll bounce; chats, lists, settings and dialogs retain their own scrolling. The sign-in screen also scrolls on short viewports. Actual phone bounce and software-keyboard behavior still require device verification.
+The outer page suppresses overscroll bounce; chats, lists, settings and dialogs retain their own scrolling. The sign-in screen also scrolls on short viewports. iOS Story adds touch containment to stop gestures on static controls or inner scroll boundaries from panning the outer page, while preserving the committed keyboard layout and browser-managed keyboard behavior. The user tested this touch-only approach on an iPhone 12 Pro Max (reported iOS 26.6.2) and reported no observed issues. Other devices and broader native-gesture coverage remain unverified.
 
 LAN access starts disabled. Start ORE normally, create the owner account on the server computer, then open **Settings → Phone / LAN access** from its local address. Enable **HTTP access from the local network** and choose **Save LAN settings**. **Select network automatically** starts checked: ORE chooses an available private IPv4 network, uses port 3000 and recovers network/address changes while the server runs. Uncheck it to reveal the network dropdown and port field for manual configuration. Copy the hostname URL from the read-only **Phone address** field and open it on your phone; sign in with the same owner password. No certificate, domain, router port forwarding or extra service is required.
 

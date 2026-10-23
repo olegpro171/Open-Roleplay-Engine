@@ -140,6 +140,66 @@ for (const platform of ['iPhone', 'iPad desktop mode', 'Android'] as const) test
     await input.focus();
     await expect(panel).toHaveCSS('padding-bottom', normalBottom);
   });
+  if (platform === 'iPhone') test('touch gestures stay within intended scroll areas and retain native controls', async ({ page }) => {
+    await setup(page);
+    await page.getByLabel('Your next turn').fill('Long draft line.\n'.repeat(60));
+    const result = await page.evaluate(() => {
+      const field = document.querySelector('textarea#turn-input');
+      const panel = document.querySelector('.composer');
+      if (!(field instanceof HTMLTextAreaElement) || !(panel instanceof HTMLElement)) throw new Error('Missing composer');
+      // Synthetic events verify the real non-passive listener's decisions;
+      // they do not emulate Safari's native viewport panning.
+      const gesture = (target: Element, dx: number, dy: number, touches = 1) => {
+        const points = (x: number, y: number) => Array.from({ length: touches }, (_, identifier) => new Touch({ identifier, target, clientX: x + identifier * 20, clientY: y }));
+        target.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: points(100, 150) }));
+        const move = new TouchEvent('touchmove', { bubbles: true, cancelable: true, touches: points(100 + dx, 150 + dy) });
+        target.dispatchEvent(move);
+        target.dispatchEvent(new TouchEvent('touchend', { bubbles: true }));
+        return move.defaultPrevented;
+      };
+      field.setSelectionRange(0, 0);
+      field.scrollTop = 50;
+      const inside = gesture(field, 0, -25);
+      field.scrollTop = 0;
+      const top = gesture(field, 0, 25);
+      field.scrollTop = field.scrollHeight;
+      const bottom = gesture(field, 0, -25);
+      field.setSelectionRange(0, 5);
+      const selection = gesture(field, 0, -25);
+      field.setSelectionRange(0, 0);
+      const staticControl = gesture(panel, 0, -25);
+      const pinch = gesture(panel, 0, -25, 2);
+      const range = document.createElement('input');
+      range.type = 'range';
+      panel.append(range);
+      const slider = gesture(range, 25, 0);
+      range.remove();
+      const scroller = document.createElement('div');
+      scroller.style.cssText = 'width:80px;height:20px;overflow:auto;direction:rtl';
+      const child = document.createElement('div');
+      child.style.cssText = 'width:300px;height:20px';
+      scroller.append(child);
+      panel.append(scroller);
+      scroller.scrollLeft = -50;
+      const horizontal = gesture(scroller, 25, 0);
+      scroller.remove();
+      return { inside, top, bottom, selection, staticControl, pinch, slider, horizontal };
+    });
+    expect(result).toEqual({ inside: false, top: true, bottom: true, selection: false, staticControl: true, pinch: false, slider: false, horizontal: false });
+    // Exercise a real Chromium touch scroll as well as cancellation decisions.
+    const input = page.getByLabel('Your next turn');
+    await input.evaluate(node => { node.scrollTop = 0; });
+    const bounds = await input.boundingBox();
+    if (!bounds) throw new Error('Composer must be visible');
+    const session = await page.context().newCDPSession(page);
+    const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height - 12;
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    for (let step = 1; step <= 6; step++) await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - step * 12 }] });
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect.poll(() => input.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await session.detach();
+  });
 });
 
 for (const width of [1440, 390]) test(`composer fits its content at ${width}px`, async ({ page }) => {
