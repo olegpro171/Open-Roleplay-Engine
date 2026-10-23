@@ -1,3 +1,4 @@
+import { openModal } from './dialog-focus';
 import { useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { Icon } from './Icon';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
@@ -56,7 +57,7 @@ function ReasoningDialog({ text: preview, live, chatId, generationId, length, cl
   useLayoutEffect(() => {
     const trigger = document.activeElement;
     const node = dialog.current;
-    node?.showModal();
+    openModal(node);
     return () => {
       node?.close();
       if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus();

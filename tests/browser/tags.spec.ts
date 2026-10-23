@@ -42,7 +42,10 @@ test('filters with AND, preserves character drafts through catalog edits, and ma
   await openManager(page);
   await manager(page).getByLabel('New tag name', { exact: true }).fill('tag-new, punctuation'); await manager(page).getByRole('button', { name: 'Create tag', exact: true }).click();
   await expect(manager(page).getByRole('button', { name: 'Rename tag-new, punctuation' })).toBeVisible();
-  await manager(page).getByRole('button', { name: 'Rename tag-adventure', exact: true }).click(); await manager(page).getByLabel('Rename tag', { exact: true }).fill('tag-journey'); await manager(page).getByRole('button', { name: 'Save tag name', exact: true }).click();
+  await manager(page).getByRole('button', { name: 'Rename tag-adventure', exact: true }).click();
+  await expect(manager(page).getByLabel('Rename tag', { exact: true })).toBeVisible();
+  await expect(manager(page).getByLabel('Rename tag', { exact: true })).not.toBeFocused();
+  await manager(page).getByLabel('Rename tag', { exact: true }).fill('tag-journey'); await manager(page).getByRole('button', { name: 'Save tag name', exact: true }).click();
   await manager(page).getByRole('button', { name: 'Close tag manager', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Manage tags', exact: true })).toBeFocused();
   await expect(page.getByLabel('Character description')).toHaveValue('Draft survives catalog operations');
@@ -356,6 +359,8 @@ test('keeps tag tools optional, dismisses the picker, and retains visible remova
     expect(new Set(buttons.map(box => Math.round(box?.y ?? -1))).size).toBe(1);
     expect(buttons[1]?.width).toBeLessThan(210);
     await openFilters(page);
+    await expect(page.getByRole('button', { name: /^Tags/ })).toBeFocused();
+    await page.keyboard.press('Tab');
     await expect(filters(page).getByRole('searchbox')).toBeFocused();
     await filters(page).getByRole('searchbox').fill('quiet-ui');
     await filters(page).getByRole('checkbox', { name: /quiet-ui-tag/ }).check();
@@ -375,7 +380,7 @@ test('keeps tag tools optional, dismisses the picker, and retains visible remova
     await page.getByRole('heading', { name: 'Characters', exact: true }).click();
     await expect(filters(page)).toHaveCount(0);
     await openManager(page);
-    await expect(manager(page).getByRole('searchbox')).toBeFocused();
+    await expect(manager(page).getByRole('heading', { level: 2 })).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(manager(page)).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Manage tags', exact: true })).toBeFocused();

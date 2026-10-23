@@ -1,3 +1,4 @@
+import { openModal } from './dialog-focus';
 import { LocalizedError, useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -44,14 +45,14 @@ function OriginalPictureViewer({ picture, close }: { picture: CharacterPicture; 
   useEffect(() => {
     const opener = document.activeElement;
     const node = dialog.current;
-    node?.showModal();
+    openModal(node);
     return () => {
       node?.close();
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
     };
   }, []);
   return createPortal(<dialog ref={dialog} className="original-picture-viewer" aria-label={t("pictures.original_picture")} onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }}>
-    <button type="button" className="quiet" aria-label={t("reasoning.close")} title={t("reasoning.close")} autoFocus onClick={close}><Icon name="Close" /></button>
+    <button type="button" className="quiet" aria-label={t("reasoning.close")} title={t("reasoning.close")} onClick={close}><Icon name="Close" /></button>
     {status === 'loading' && <p role="status">{t("pictures.loading_original")}</p>}
     {status === 'failed' ? <p role="alert">{t("pictures.original_unavailable")}</p> : <img src={picture.originalUrl} alt={t("pictures.original_picture")} style={{ width: `min(100%, calc((100dvh - 32px) * ${picture.width / picture.height}))` }} onLoad={() => setStatus('loaded')} onError={() => setStatus('failed')} />}
   </dialog>, document.body);
@@ -110,10 +111,10 @@ export function PictureEditor({ value, change, original, disabled, processing }:
 }
 export function CropDialog({ image, close, apply, focusTarget }: { focusTarget?: HTMLElement | null; image: NonNullable<PictureDraft>; close: () => void; apply: (crop: PictureCrop) => void }) {
   useLocale();
-  const [crop, setCrop] = useState(image.crop), dialog = useRef<HTMLDialogElement>(null), zoomInput = useRef<HTMLInputElement>(null), title = useId();
+  const [crop, setCrop] = useState(image.crop), dialog = useRef<HTMLDialogElement>(null), title = useId();
   const drag = useRef<{ id: number; x: number; y: number; left: number; top: number; side: number; screen: number } | null>(null);
   useEffect(() => {
-    const opener = focusTarget ?? document.activeElement, node = dialog.current; node?.showModal(); zoomInput.current?.focus();
+    const opener = focusTarget ?? document.activeElement, node = dialog.current; openModal(node);
     return () => { node?.close(); if (opener instanceof HTMLElement) opener.focus(); };
   }, [focusTarget]);
   const controls = cropControls(image, crop), region = cropPixels(image, crop);
@@ -129,7 +130,7 @@ export function CropDialog({ image, close, apply, focusTarget }: { focusTarget?:
       const top = Math.max(0, Math.min(image.height - start.side, start.top - (event.clientY - start.y) * start.side / start.screen));
       setCrop(cropFromControls(image, controls.zoom, image.width === start.side ? 50 : left / (image.width - start.side) * 100, image.height === start.side ? 50 : top / (image.height - start.side) * 100));
     }} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }} onLostPointerCapture={() => { drag.current = null; }}><CroppedPicture image={image} crop={crop} /><div className="crop-grid" /></div>
-    <div className="crop-controls"><label>{t("pictures.zoom")}<output>{controls.zoom.toFixed(2)}×</output><input ref={zoomInput} type="range" aria-label={t("pictures.zoom_2")} min="1" max="4" step="0.01" value={controls.zoom} onChange={event => update({ zoom: Number(event.target.value) })} /></label>
+    <div className="crop-controls"><label>{t("pictures.zoom")}<output>{controls.zoom.toFixed(2)}×</output><input type="range" aria-label={t("pictures.zoom_2")} min="1" max="4" step="0.01" value={controls.zoom} onChange={event => update({ zoom: Number(event.target.value) })} /></label>
       <label>{t("pictures.horizontal_position")}<output>{image.width === region.width ? t("pictures.centered_no_horizontal_travel") : `${Math.round(controls.horizontal)}%`}</output><input type="range" aria-label={t("pictures.horizontal_position_2")} min="0" max="100" step="1" disabled={image.width === region.width} value={controls.horizontal} onChange={event => update({ horizontal: Number(event.target.value) })} /></label>
       <label>{t("pictures.vertical_position")}<output>{image.height === region.height ? t("pictures.centered_no_vertical_travel") : `${Math.round(controls.vertical)}%`}</output><input type="range" aria-label={t("pictures.vertical_position_2")} min="0" max="100" step="1" disabled={image.height === region.height} value={controls.vertical} onChange={event => update({ vertical: Number(event.target.value) })} /></label></div>
     <div className="actions crop-footer"><button type="button" className="secondary" onClick={() => setCrop(cropFromControls(image))}>{t("pictures.reset_crop")}</button><button type="button" onClick={() => apply(crop)}>{t("pictures.use_crop")}</button><button type="button" className="quiet" onClick={close}>{t("character_import.cancel")}</button></div>

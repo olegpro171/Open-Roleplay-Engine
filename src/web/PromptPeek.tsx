@@ -1,3 +1,4 @@
+import { openModal } from './dialog-focus';
 import { formatMessage } from './localization';
 import { t, useLocale, locale } from './localization';
 import { placementLabel, stateLabel } from './localization-labels';
@@ -57,13 +58,13 @@ export function PromptPeek({ request, stale, close }: { request: RequestPreview;
   useEffect(() => {
     const trigger = document.activeElement as HTMLElement | null;
     const node = dialog.current;
-    node?.showModal();
+    openModal(node);
     return () => { node?.close(); trigger?.focus(); };
   }, []);
   const entries = new Map(request.layout?.map(part => [part.messageIndex, part]));
   const limit = Math.min(request.budget.targetInputTokens, request.budget.contextWindow - request.budget.reservedOutputTokens);
   return <dialog ref={dialog} className="prompt-peek" aria-labelledby="prompt-peek-title" onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }}>
-    <div className="peek-content"><div className="peek-heading"><div><p className="eyebrow">{t("prompt_peek.current_input")}</p><h2 id="prompt-peek-title">{t("app.prompt_peek")}</h2></div><button className="secondary" onClick={close} autoFocus title={t("prompt_peek.close_peek")}><Icon name="Close" /><span className="sr-only">{t("prompt_peek.close_peek")}</span></button></div>
+    <div className="peek-content"><div className="peek-heading"><div><p className="eyebrow">{t("prompt_peek.current_input")}</p><h2 id="prompt-peek-title">{t("app.prompt_peek")}</h2></div><button className="secondary" onClick={close} title={t("prompt_peek.close_peek")}><Icon name="Close" /><span className="sr-only">{t("prompt_peek.close_peek")}</span></button></div>
       <p className="small muted">{t("prompt_peek.resolved_messages_in_model_order_including_unsent")}</p>
       <p className="small over-limit" hidden={!stale}>{t("prompt_peek.memory_is_out_of_date_repair_and")}</p>
       <strong>{t("app.estimated_input_2", { value: request.budget.inputTokens.toLocaleString(locale()), value2: limit.toLocaleString(locale()) })}</strong><InputMeter input={request.budget.inputTokens} limit={limit} />

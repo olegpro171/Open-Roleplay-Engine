@@ -229,6 +229,15 @@ for (const width of [1440, 390, 320]) test(`custom HSL picker previews, validate
   const saturation = picker.getByRole('slider', { name: 'Saturation', exact: true });
   const lightness = picker.getByRole('slider', { name: 'Lightness', exact: true });
   const apply = picker.getByRole('button', { name: 'Apply color', exact: true });
+  await expect(picker.getByRole('heading', { level: 2 })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(hue).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(saturation).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(lightness).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(hex).toBeFocused();
   await expect(page.locator('input[type=color]')).toHaveCount(0);
   await expect(hex).toHaveValue('#a8c9f0');
   await picker.getByRole('group', { name: 'Pastels', exact: true }).getByRole('button', { name: 'Pastel mint', exact: true }).click();
@@ -253,6 +262,9 @@ for (const width of [1440, 390, 320]) test(`custom HSL picker previews, validate
   await expect(trigger).toContainText('#A8C9F0');
 
   await trigger.press('Enter');
+  await expect(picker.getByRole('heading', { level: 2 })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(apply).toBeFocused();
   await expect(hex).toHaveValue('#a8c9f0');
   await hex.fill('#ff0000');
   await hue.focus();

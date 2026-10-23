@@ -45,6 +45,7 @@ for (const width of [1280, 390, 320]) test(`streams and saves separate turn reas
 
   await showReasoning.focus(); await showReasoning.press('Enter');
   const popup = page.getByRole('dialog', { name: 'Model reasoning', exact: true });
+  await expect(popup.getByRole('heading', { level: 2 })).toBeFocused();
   const stream = popup.getByLabel('Model reasoning stream', { exact: true });
   await expect(stream).toHaveText(syntheticReasoningStart);
   await expect.poll(() => stream.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);

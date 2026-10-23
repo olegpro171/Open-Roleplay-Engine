@@ -1,3 +1,4 @@
+import { openModal } from './dialog-focus';
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { filePasswordMaxLength } from '../shared/protected-files';
@@ -21,7 +22,7 @@ export function BackupFileDialog({ action, busy, error, errorDetails, cancel, su
   useLayoutEffect(() => {
     const trigger = document.activeElement;
     const node = dialog.current;
-    node?.showModal();
+    openModal(node);
     return () => {
       node?.close();
       if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
@@ -36,7 +37,7 @@ export function BackupFileDialog({ action, busy, error, errorDetails, cancel, su
     <form onSubmit={event => { event.preventDefault(); if (!busy) submit(password, confirmation); }}>
       <div className="form-grid">
         <label className="full">{t(saving ? 'application_settings.backup_export_password' : 'application_settings.backup_import_password')}
-          <input type="password" autoFocus autoComplete={saving ? 'new-password' : 'off'} maxLength={filePasswordMaxLength} value={password} disabled={busy} aria-describedby={description} onChange={event => setPassword(event.target.value)} />
+          <input type="password" autoComplete={saving ? 'new-password' : 'off'} maxLength={filePasswordMaxLength} value={password} disabled={busy} aria-describedby={description} onChange={event => setPassword(event.target.value)} />
         </label>
         {saving && <label className="full">{t('application_settings.backup_confirm_password')}
           <input type="password" autoComplete="new-password" maxLength={filePasswordMaxLength} value={confirmation} disabled={busy} onChange={event => setConfirmation(event.target.value)} />

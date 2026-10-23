@@ -19,6 +19,8 @@ async function login(page: Page) {
 async function corner(page: Page) {
   await page.getByRole('button', { name: 'Adjust crop', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Adjust picture crop' });
+  await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
+  await page.keyboard.press('Tab');
   await expect(dialog.getByLabel('Zoom', { exact: true })).toBeFocused();
   // Native range controls make the complete crop accessible from the keyboard.
   await dialog.getByLabel('Zoom', { exact: true }).press('End');

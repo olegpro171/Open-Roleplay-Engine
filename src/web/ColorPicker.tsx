@@ -1,3 +1,4 @@
+import { openModal } from './dialog-focus';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { speechColorSchema } from '../shared/appearance';
@@ -56,7 +57,7 @@ function ColorPickerDialog({ label, value, cancel, apply }: {
   useLayoutEffect(() => {
     const trigger = document.activeElement;
     const node = dialog.current;
-    node?.showModal();
+    openModal(node);
     return () => {
       node?.close();
       if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus();
@@ -93,10 +94,11 @@ function ColorPickerDialog({ label, value, cancel, apply }: {
       if (event.key !== 'Tab') return;
       const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)'));
       const first = controls[0], last = controls.at(-1);
-      if (event.shiftKey && document.activeElement === first) {
+      const onControl = controls.some(control => control === document.activeElement);
+      if (event.shiftKey && (!onControl || document.activeElement === first)) {
         event.preventDefault();
         last?.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && (!onControl || document.activeElement === last)) {
         event.preventDefault();
         first?.focus();
       }

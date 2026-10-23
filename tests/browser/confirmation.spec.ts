@@ -24,6 +24,8 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     page.on('dialog', () => { throw new Error('Unexpected browser confirmation'); });
     await trigger.click();
     await expect(dialog).toContainText(name);
+    await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
+    await page.keyboard.press('Tab');
     await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeFocused();
@@ -36,6 +38,9 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await expect(dialog).toHaveCount(0);
     await expect(trigger).toBeFocused();
     await trigger.click();
+    await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeFocused();
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     expect(deletes).toBe(0);
     expect((await library()).revision).toBe(before.revision);

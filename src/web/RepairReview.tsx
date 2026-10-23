@@ -1,3 +1,4 @@
+import { openModal } from './dialog-focus';
 import { formatMessage } from './localization';
 import { useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { newId } from './uuid';
@@ -19,7 +20,7 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
   const [error, setError] = useTextState('');
   const [sourcesOpen, setSourcesOpen] = useState(false), [priorOpen, setPriorOpen] = useState(false);
   const [draft, setDraft] = useState<{ key: string; text: string }>({ key: '', text: '' });
-  useEffect(() => { dialog.current?.showModal(); }, []);
+  useEffect(() => { openModal(dialog.current); }, []);
   useEffect(() => {
     let current = true;
     api<ContextJobDetails>(`/context/jobs/${job.id}`).then(value => { if (current) { setDetails(value); setError(''); } }).catch(error => { if (current) setError(errorText(error)); });

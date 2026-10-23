@@ -118,6 +118,7 @@ test('opens chat cards by pointer and keyboard, keeps deletion separate and show
     await openPicture.click();
     const viewer = page.getByRole('dialog', { name: 'Original character picture', exact: true });
     await expect(viewer).toBeVisible();
+    await expect(viewer).toBeFocused();
     await expect(viewer.locator('img')).toHaveAttribute('src', portrait.originalUrl);
     await expect.poll(() => viewer.locator('img').evaluate(image => image instanceof HTMLImageElement ? [image.naturalWidth, image.naturalHeight] : [])).toEqual([400, 200]);
     await expect(viewer.getByRole('status')).toHaveCount(0);

@@ -41,6 +41,7 @@ test('reviews a repair queue with matching panes, source diffs, regenerate, disc
   await openChatTool(page, 'Inspect memory');
   await page.getByRole('button', { name: 'Repair summaries', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Review the proposed replacement' });
+  await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
   const proposal = () => dialog.getByLabel('Proposed summary', { exact: true });
   // Use the editor's paste handler. Browser execCommand replacement (Locator.fill)
   // copies highlight formatting into inline styles, bypassing that input path.

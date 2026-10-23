@@ -1,3 +1,4 @@
+import { openModal } from './dialog-focus';
 import { useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { Icon } from './Icon';
 import { useConfirmation } from './Confirmation';
@@ -14,7 +15,7 @@ export function TagChips({ tags, selected, remove, catalog }: { catalog?: Readon
   const byId = useMemo(() => catalog ?? new Map(tags.map(tag => [tag.id, tag])), [tags, catalog]);
   return <div className="tag-chips">{selected.map(id => <span className="tag-chip" key={id}>{byId.get(id)?.name ?? t("tags.unavailable_tag")}{remove && <button type="button" className="quiet" aria-label={t("tags.remove", { value: byId.get(id)?.name ?? t("interface.unavailable_tag") })} onClick={() => remove(id)}><Icon name="Close" /></button>}</span>)}</div>;
 }
-export function TagChooser({ tags, selected, change, label, disabled = false, showSelected = true, autoFocus = false }: { tags: Tag[]; selected: string[]; change: (ids: string[]) => void; label: string; disabled?: boolean; showSelected?: boolean; autoFocus?: boolean }) {
+export function TagChooser({ tags, selected, change, label, disabled = false, showSelected = true }: { tags: Tag[]; selected: string[]; change: (ids: string[]) => void; label: string; disabled?: boolean; showSelected?: boolean }) {
   useLocale();
   const [search, setSearch] = useState(''), [page, setPage] = useState(0);
   const results = useRef<HTMLDivElement>(null);
@@ -24,7 +25,7 @@ export function TagChooser({ tags, selected, change, label, disabled = false, sh
   const last = Math.max(0, Math.ceil(matches.length / tagLimits.page) - 1), shown = Math.min(page, last);
   return <fieldset className="tag-chooser" disabled={disabled}><legend>{label}</legend>
     {showSelected && <TagChips tags={tags} selected={selected} remove={id => change(selected.filter(value => value !== id))} />}
-    <label>{t("tags.search_tags")}<span className="search-field"><Icon name="Search" /><input type="search" autoFocus={autoFocus} value={search} onChange={event => {
+    <label>{t("tags.search_tags")}<span className="search-field"><Icon name="Search" /><input type="search" value={search} onChange={event => {
       const next = event.target.value;
       // Rows, empty notices and pagination share one reserved area during search,
       // so filtering cannot shrink the page and clamp its scroll position.
@@ -70,7 +71,7 @@ export function TagFilterMenu({ library, busy, run, selected, change }: { librar
       {t("character_editor.tags")}{selected.length > 0 && <span className="tag-filter-count">{selected.length}</span>}<Icon name="ArrowShortBottom" />
     </button>
     {open && <div id={panelId} className="tag-filter-panel">
-      <TagChooser label={t("tags.filter_characters_by_tags")} tags={library.tags} selected={selected} change={change} showSelected={false} autoFocus />
+      <TagChooser label={t("tags.filter_characters_by_tags")} tags={library.tags} selected={selected} change={change} showSelected={false} />
       <div className="tag-filter-footer"><small className="muted">{t("tags.match_all_selected_tags")}</small><button type="button" className="quiet" onClick={() => setManager(true)}>{t("character_editor.manage_tags")}</button></div>
     </div>}
     {manager && <TagManager library={library} busy={busy} run={run} close={() => setManager(false)} />}
@@ -82,13 +83,11 @@ export function TagManager({ library, busy, run, committed, close }: { library: 
   const [search, setSearch] = useState(''), [name, setName] = useState(''), [rename, setRename] = useState<{ id: string; name: string; revision: number } | null>(null);
   const [error, setError] = useTextState(''), [pending, setPending] = useState(false), [page, setPage] = useState(0);
   const dialog = useRef<HTMLDialogElement>(null);
-  const searchInput = useRef<HTMLInputElement>(null);
   const titleId = useId();
   useEffect(() => {
     const trigger = document.activeElement;
     const node = dialog.current;
-    node?.showModal();
-    searchInput.current?.focus();
+    openModal(node);
     return () => { node?.close(); if (trigger instanceof HTMLElement) trigger.focus(); };
   }, []);
   const query = canonicalTagName(search);
@@ -110,12 +109,12 @@ export function TagManager({ library, busy, run, committed, close }: { library: 
     <header className="tag-manager-heading"><div><h2 id={titleId}>{t("character_editor.manage_tags")}</h2><p className="small muted">{t("tags.organize_your_characters_changes_save_immediately")}</p></div><button type="button" className="quiet" aria-label={t("tags.close_tag_manager")} disabled={pending} onClick={close}><Icon name="Close" /></button></header>
     <div className="tag-manager-controls">
       <form onSubmit={async event => { event.preventDefault(); if (await mutate('POST', '/library/tags', { revision: library.revision, name })) setName(''); }}><label>{t("tags.new_tag_name")}<input required value={name} onChange={event => setName(event.target.value)} /></label><button disabled={busy || pending}>{t("tags.create_tag")}</button></form>
-      <label>{t("tags.search_catalog")}<span className="search-field"><Icon name="Search" /><input type="search" ref={searchInput} value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} /></span></label>
+      <label>{t("tags.search_catalog")}<span className="search-field"><Icon name="Search" /><input type="search" value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} /></span></label>
       {error && <p role="alert">{error}</p>}
     </div>
     <div className="tag-catalog">{matches.slice(shown * tagLimits.page, (shown + 1) * tagLimits.page).map(tag => <div key={tag.id} className="tag-catalog-row">
       {rename?.id === tag.id ? <form className="tag-rename" onSubmit={async event => { event.preventDefault(); if (await mutate('PUT', `/library/tags/${rename.id}`, { revision: rename.revision, name: rename.name })) setRename(null); }}>
-        <label>{t("tags.rename_tag")}<input required autoFocus value={rename.name} onChange={event => setRename({ ...rename, name: event.target.value })} /></label>
+        <label>{t("tags.rename_tag")}<input required value={rename.name} onChange={event => setRename({ ...rename, name: event.target.value })} /></label>
         <div className="actions"><button disabled={busy || pending || rename.revision !== library.revision}>{t("tags.save_tag_name")}</button><button type="button" className="quiet" disabled={pending} onClick={() => setRename(null)}>{t("tags.cancel_rename")}</button></div>
         {rename.revision !== library.revision && <p role="status">{t("tags.the_catalog_changed_your_draft_remains_here")}</p>}
       </form> : <><span>{tag.name}<small>{tag.usageCount} {tag.usageCount === 1 ? 'character' : 'characters'}</small></span><div className="actions"><button type="button" className="quiet" aria-label={t("tags.rename", { name: tag.name })} disabled={busy || pending} onClick={() => setRename({ id: tag.id, name: tag.name, revision: library.revision })}>{t("tags.rename_2")}</button><button type="button" className="quiet" aria-label={t("tags.delete", { name: tag.name })} disabled={busy || pending} onClick={() => { confirmAction({ title: t("tags.delete_tag"), message: t("tags.delete_characters_will_lose_this_local_assignment", { name: tag.name, usageCount: tag.usageCount }), actionLabel: t("tags.delete_tag_2"), onConfirm: () => { void mutate('DELETE', `/library/tags/${tag.id}`, { revision: library.revision }, tag.id); } }); }}><Icon name="TrashOutline" />{t("libraries.delete_2")}</button></div></>}

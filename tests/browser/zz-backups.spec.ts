@@ -42,6 +42,7 @@ test('backup dialogs cancel without requests and clear transient passwords', asy
   page.on('request', request => { if (/\/api\/data\/(backup|stages)$/.test(request.url())) requests++; });
   await save.click();
   const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
   await expect(dialog.getByLabel('Confirm backup password', { exact: true })).toBeVisible();
   await dialog.getByLabel('Backup password (optional)', { exact: true }).fill('discard me');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -99,6 +100,7 @@ for (const width of [1440,390]) test(`password-protected backup, validation and 
   const password = '  Пароль 🔑 for synthetic backup  ';
   await page.getByRole('button', { name: 'Save...', exact: true }).click();
   const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
   await expect(dialog.getByLabel('Confirm backup password', { exact: true })).toBeVisible();
   const exportPassword = page.getByLabel('Backup password (optional)', { exact: true });
   await exportPassword.fill(password);

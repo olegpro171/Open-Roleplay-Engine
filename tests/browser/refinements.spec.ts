@@ -40,6 +40,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await meta.getByRole('button', { name: 'Prompt peek', exact: true }).click();
   const peek = page.getByRole('dialog', { name: 'Prompt peek' });
   await expect(peek).toBeVisible();
+  await expect(peek.getByRole('heading', { level: 2 })).toBeFocused();
   await expect(peek.locator('.allocation-legend')).toContainText('Unsent input');
   await expect(peek.locator('.prompt-message[open]')).toHaveCount(0);
   await peek.locator('.prompt-message').filter({ hasText: 'Unsent input' }).locator('summary').click();
@@ -54,6 +55,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await detailsToggle.click();
   await meta.getByRole('button', { name: 'Prompt peek', exact: true }).click();
   await expect(peek).toBeVisible();
+  await expect(peek.getByRole('heading', { level: 2 })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(peek).toHaveCount(0);
   await expect(detailsToggle).toHaveAttribute('aria-expanded', 'true');

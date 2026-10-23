@@ -344,7 +344,7 @@ App resolves the current chat’s character thumbnail from `library.characterPic
 
 App retains the Context dropdown’s open/closed state across workspace navigation, including save/return actions. Remounting a tool’s sidebar must not collapse that dropdown; this is in-memory presentation state, with no saved-chat mutation.
 
-Destructive confirmations share `src/web/Confirmation.tsx`, rendered as a styled modal dialog above the current workspace or another dialog. Cancel receives initial focus; Tab stays within the choices, Escape cancels, and dismissal restores focus to the surviving trigger. Opening a warning performs no mutation. Confirmation submits the originally captured command/revision through the existing error and refresh paths; server revision/operation guards remain authoritative. Unmounting the requesting editor or changing the requesting workspace scope dismisses its warning. This covers turns, chats, library records, lore entries, tags and Clear memory, plus prompt restoration and discarding character edits.
+Destructive confirmations share `src/web/Confirmation.tsx`, rendered as a styled modal dialog above the current workspace or another dialog. The dialog heading receives initial focus; the first Tab selects Cancel, further Tab presses stay within the choices, Escape cancels, and dismissal restores focus to the surviving trigger. Opening a warning performs no mutation. Confirmation submits the originally captured command/revision through the existing error and refresh paths; server revision/operation guards remain authoritative. Unmounting the requesting editor or changing the requesting workspace scope dismisses its warning. This covers turns, chats, library records, lore entries, tags and Clear memory, plus prompt restoration and discarding character edits.
 
 Libraries shares Story's desktop workspace width and sidebar proportions. Its categories form a vertical navigation stack beside the selected library's list/editor, with independent content scrolling. At phone widths, categories wrap above the content in one scrolling page. Existing library editing, import and recovery behavior remains in the owning components.
 
@@ -357,6 +357,8 @@ All library lists use the same compact search control below their actions, with 
 Expand summary inspection/editing around the verified compaction flow and its initial layered visualization; extend the existing libraries only as needed for accepted product requirements. Use Playwright for meaningful end-to-end workflows and responsive layouts, with actual phone checks for platform-specific behavior.
 
 These are implementation priorities, not a delivery schedule. The application build and its core/server/browser tests now exist and pass; commands are documented in [README.md](README.md). Existing simulator validation commands remain in [VISUALIZER.md](docs/VISUALIZER.md), and that isolated experiment is unchanged.
+
+The shared `web/dialog-focus.ts` opens dialogs with focus on their heading (or their container for picture-only viewers) rather than automatically selecting a button, textbox or slider. Tag filters and tag rename fields do not assign focus on opening. Deliberate keyboard navigation, modal focus boundaries, and focus restoration on dismissal remain available.
 
 ### Interface localization
 
