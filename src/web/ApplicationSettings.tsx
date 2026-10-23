@@ -3,13 +3,13 @@ import { LanguageSettings } from './LanguageSettings';
 import { localizedMessageSchema, type LocalizedMessage } from '../shared/localization';
 import { newId } from './uuid';
 import { About } from './About';
+import { BackupFileDialog, type BackupFileAction } from './BackupFileDialog';
 import { LanSettings } from './LanSettings';
 import { ChatAppearanceSettings } from './ChatAppearanceSettings';
 import type { AppearanceStatus } from '../shared/appearance';
 import { Dropdown } from './Controls';
 import { useEffect, useRef, useState } from 'react';
 import { backupFileMaxBytes, backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type DataOutcome } from '../shared/backups';
-import { filePasswordMaxLength } from '../shared/protected-files';
 import { api, ApiError } from './api';
 import { z } from 'zod';
 import { dataCommandSchema } from '../shared/backups';
@@ -39,9 +39,9 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
   const [errorDetails,setErrorDetails] = useTextState('');
   const [uncertain,setUncertain] = useState<Command|null>(recoveredCommand);
   const [loading,setLoading] = useState(false);
-  const [exportPassword, setExportPassword] = useState('');
-  const [confirmedPassword, setConfirmedPassword] = useState('');
-  const [importPassword, setImportPassword] = useState('');
+  const [feedbackArea, setFeedbackArea] = useState<'backup' | 'wipe'>('backup');
+  const [fileAction, setFileAction] = useState<BackupFileAction | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const mounted = useRef(true), pending = useRef(false), stage = useRef<string|null>(null);
   const confirm = useConfirmation();
   function scrollToCategory(id: string) {
@@ -50,9 +50,9 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
     heading?.scrollIntoView({ block: 'start' });
   }
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; if (stage.current && !pending.current) void api(`/data/stages/${stage.current}`,'DELETE',{}).catch(() => {}); }; },[]);
-  async function run(action: () => Promise<void>) {
+  async function run(action: () => Promise<void>, area: 'backup' | 'wipe' = 'backup') {
     if (pending.current) return;
-    pending.current = true; setBusy(true); setError(''); setErrorDetails(''); setMessage('');
+    pending.current = true; setFeedbackArea(area); setBusy(true); setError(''); setErrorDetails(''); setMessage('');
     try { await action(); } catch (error) {
       if (mounted.current) {
         setError(errorText(error, msg("application_settings.data_management_failed_try_again")));
@@ -61,7 +61,7 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
     }
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   }
-  async function download() {
+  async function download(exportPassword: string, confirmedPassword: string) {
     await run(async () => {
       if (exportPassword !== confirmedPassword) throw new LocalizedError(msg('application_settings.backup_password_mismatch'));
       const response = await fetch('/api/data/backup', {
@@ -78,11 +78,11 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
       const url = URL.createObjectURL(blob), link = document.createElement('a');
       link.href = url; link.download = response.headers.get('content-disposition')?.match(/filename="([^"]+)"/)?.[1] ?? 'ORE-backup.orebackup';
       link.click(); setTimeout(() => URL.revokeObjectURL(url),60_000);
-      setExportPassword(''); setConfirmedPassword('');
+      setFileAction(null);
       setMessage(msg("application_settings.backup_created_your_browser_handles_the_download"));
     });
   }
-  async function select(file: File) {
+  async function select(file: File, importPassword: string) {
     await run(async () => {
       if (file.size > backupFileMaxBytes) throw new LocalizedError(msg("application_settings.backup_file_too_large"));
       if (stage.current) { await api(`/data/stages/${stage.current}`,'DELETE',{}); stage.current = null; setReview(null); }
@@ -95,12 +95,13 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
       }
       const value: BackupReview = result;
       if (!mounted.current) { await api(`/data/stages/${value.stageId}`,'DELETE',{}); return; }
-      stage.current = value.stageId; setOffset(0); setReview(value); setUncertain(null); setImportPassword('');
+      stage.current = value.stageId; setOffset(0); setReview(value); setUncertain(null); setFileAction(null);
+      requestAnimationFrame(() => { if (mounted.current) scrollToCategory('import-backup-heading'); });
     });
   }
   async function refresh(next = 0) {
     if (!review) return;
-    setLoading(true); setError(''); setErrorDetails('');
+    setFeedbackArea('backup'); setLoading(true); setError(''); setErrorDetails('');
     try {
       const value = await api<BackupReview>(`/data/stages/${review.stageId}?offset=${next}`);
       if (mounted.current) { setOffset(next); setReview(value); }
@@ -123,6 +124,10 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
       window.location.reload();
     }
   }
+  const feedback = <>
+    {busy && <p role="status">{t("application_settings.working_upload_validation_and_snapshot_work_must")}</p>}
+    {message && <p role="status">{message}</p>}{error && <div role="alert"><p>{error}</p>{errorDetails && <details className="backup-error-details"><summary>{t("application_settings.details")}</summary><pre>{errorDetails}</pre></details>}</div>}
+  </>;
   return <main className="library-layout application-settings">
     <aside className="library-sidebar">
       <p className="eyebrow" id="application-settings-heading">{t("application_settings.application_settings")}</p>
@@ -135,27 +140,21 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
       </nav>
     </aside>
     <div className="document-panel library-panel settings-panel" aria-labelledby="application-settings-heading">
-    {busy && <p role="status">{t("application_settings.working_upload_validation_and_snapshot_work_must")}</p>}
-    {message && <p role="status">{message}</p>}{error && <div role="alert"><p>{error}</p>{errorDetails && <details className="backup-error-details"><summary>{t("application_settings.details")}</summary><pre>{errorDetails}</pre></details>}</div>}
-    {uncertain && <div className="recovery"><p>{t("application_settings.the_command_may_have_committed_retry_this")}</p><button disabled={busy} onClick={() => void run(() => execute(uncertain))}>{t("application_settings.retry_data_command")}</button></div>}
+    {uncertain && <div className="recovery"><p>{t("application_settings.the_command_may_have_committed_retry_this")}</p><button disabled={busy} onClick={() => void run(() => execute(uncertain), uncertain.path === '/data/wipe' ? 'wipe' : 'backup')}>{t("application_settings.retry_data_command")}</button></div>}
     <LanguageSettings /><ChatAppearanceSettings status={appearance} committed={appearanceCommitted} />
     <LanSettings />
     <section className="settings-section" aria-labelledby="data-backup-heading">
     <h2 id="data-backup-heading" tabIndex={-1}>{t("application_settings.data_backup")}</h2>
     <p>{t('application_settings.backup_contents')}</p>
-    <form onSubmit={event => { event.preventDefault(); void download(); }}>
-      <p id="backup-password-help">{t('application_settings.backup_password_help')}</p>
-      <div className="form-grid">
-      <label>{t('application_settings.backup_export_password')}<input type="password" autoComplete="new-password" maxLength={filePasswordMaxLength} value={exportPassword} disabled={busy} aria-describedby="backup-password-help" onChange={event => { setExportPassword(event.target.value); if (!event.target.value) setConfirmedPassword(''); }} /></label>
-      {exportPassword && <label>{t('application_settings.backup_confirm_password')}<input type="password" autoComplete="new-password" maxLength={filePasswordMaxLength} value={confirmedPassword} disabled={busy} onChange={event => setConfirmedPassword(event.target.value)} /></label>}
-      </div>
-      <div className="actions"><button disabled={busy}>{t("application_settings.save_backup")}</button></div>
-    </form>
+    {!fileAction && feedbackArea === 'backup' && feedback}
+    <button type="button" disabled={busy} aria-haspopup="dialog" onClick={() => { setError(''); setErrorDetails(''); setMessage(''); setFileAction({ kind: 'save' }); }}>{t('application_settings.open_save_backup')}</button>
     <section className="settings-subsection" aria-labelledby="import-backup-heading">
     <h3 id="import-backup-heading">{t("application_settings.import_backup")}</h3>
-    <label>{t('application_settings.backup_import_password')}<input type="password" autoComplete="off" maxLength={filePasswordMaxLength} value={importPassword} disabled={busy || Boolean(uncertain)} onChange={event => setImportPassword(event.target.value)} /></label>
-    <p>{t('application_settings.backup_import_password_help')}</p>
-    <label className="backup-file">{t("application_settings.inspect_import_backup")}<input type="file" accept=".orebackup,.sqlite,.db,application/octet-stream" disabled={busy || Boolean(uncertain)} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void select(file); }} /></label>
+    <button type="button" className="secondary" disabled={busy || Boolean(uncertain)} onClick={() => fileInput.current?.click()}>{t('application_settings.select_backup_file')}</button>
+    <input ref={fileInput} type="file" hidden aria-label={t('application_settings.select_backup_file')} accept=".orebackup,.sqlite,.db,application/octet-stream" disabled={busy || Boolean(uncertain)} onChange={event => {
+      const file = event.target.files?.[0]; event.target.value = '';
+      if (file) { setError(''); setErrorDetails(''); setMessage(''); setFileAction({ kind: 'import', file }); }
+    }} />
   {review && <section className="backup-inspection" aria-label={t("application_settings.backup_inspection")}><h4>{t("application_settings.backup_inspection")}</h4>
     <p>{review.metadata ? t("application_settings.ore_schema", { build: review.metadata.build, schema: review.metadata.schema, value: new Date(review.metadata.createdAt).toLocaleString(locale()) }) : t("application_settings.ore_database_no_backup_creation_metadata")}</p>
     <p>{t("application_settings.inspection_changes_no_application_content_this_private", { value: new Date(review.expiresAt).toLocaleTimeString(locale()) })}</p>
@@ -173,11 +172,16 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
   </section></section>
   <section className="settings-section" aria-labelledby="wipe-data-heading"><h2 id="wipe-data-heading" tabIndex={-1}>{t("application_settings.wipe_application_data")}</h2><p>{t("application_settings.delete_all_chats_memory_libraries_api_keys")}</p>
     <p>{t("application_settings.save_backup_above_before_continuing")}</p>
+    {feedbackArea === 'wipe' && feedback}
     <button className="danger" disabled={busy || Boolean(uncertain)} onClick={() => void run(async () => {
       const preview = await api<{ token: string; digest: string }>('/data/wipe-preview');
-      confirm({ title: t("application_settings.wipe_application_data_2"),message: t("application_settings.all_saved_story_content_libraries_api_keys"),actionLabel: t("application_settings.wipe_application_data"),onConfirm: () => void run(() => execute({ path: '/data/wipe',body: { ...preview,requestId: newId(),overwrite: true } })) });
-    })}>{t("application_settings.wipe_application_data")}</button>
-  </section><About /></div></main>;
+      confirm({ title: t("application_settings.wipe_application_data_2"),message: t("application_settings.all_saved_story_content_libraries_api_keys"),actionLabel: t("application_settings.wipe_application_data"),onConfirm: () => void run(() => execute({ path: '/data/wipe',body: { ...preview,requestId: newId(),overwrite: true } }), 'wipe') });
+    }, 'wipe')}>{t("application_settings.wipe_application_data")}</button>
+  </section><About /></div>
+  {fileAction && <BackupFileDialog action={fileAction} busy={busy} error={error} errorDetails={errorDetails}
+    cancel={() => { if (!pending.current) { setFileAction(null); setError(''); setErrorDetails(''); } }}
+    submit={(password, confirmation) => { if (fileAction.kind === 'save') void download(password, confirmation); else void select(fileAction.file, password); }} />}
+  </main>;
 }
 
 function BackupTree({ stageId }: { stageId: string }) {

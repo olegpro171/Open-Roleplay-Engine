@@ -29,13 +29,13 @@ for (const width of [1440, 820, 390, 320]) {
     if (width > 800) expect(contentBox.x).toBeGreaterThanOrEqual(sidebarBox.x + sidebarBox.width);
     else expect(contentBox.y).toBeGreaterThanOrEqual(sidebarBox.y + sidebarBox.height);
 
-    const save = await page.getByRole('button', { name: 'Save backup', exact: true }).boundingBox();
+    const save = await page.getByRole('button', { name: 'Save...', exact: true }).boundingBox();
     const importHeading = await page.getByRole('heading', { name: 'Import backup', exact: true }).boundingBox();
     if (!save || !importHeading) throw new Error('Missing backup controls');
     expect(save.width).toBeLessThan(200);
     expect(save.height).toBeLessThan(60);
     expect(importHeading.y).toBeGreaterThan(save.y + save.height);
-    await expect(page.getByLabel('Inspect & import backup', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Select file...', exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(await content.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`settings-${width}.png`) });
@@ -60,6 +60,6 @@ for (const width of [1440, 820, 390, 320]) {
     await page.screenshot({ path: testInfo.outputPath(`about-${width}.png`) });
     await categories.getByRole('button', { name: 'Data backup', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Data backup', exact: true })).toBeFocused();
-    await expect(page.getByRole('button', { name: 'Save backup', exact: true })).toBeInViewport();
+    await expect(page.getByRole('button', { name: 'Save...', exact: true })).toBeInViewport();
   });
 }

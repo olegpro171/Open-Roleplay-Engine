@@ -443,8 +443,7 @@ button.danger{background:#b74e48;color:#fff;border-color:#d16b64}
 .settings-subsection { margin-top: 32px; }
 .settings-panel h3, .settings-panel h4, .settings-panel h5 { font-size: 16px; font-weight: 550; }
 .backup-inspection { margin-top: 28px; }
-.backup-file { display: grid; gap: .4rem; max-width: 100%; }
-.backup-file input { max-width: 100%; }
+.backup-file-dialog .form-grid { margin-bottom: 20px; }
 .backup-tree { border: 1px solid var(--border, #354040); border-radius: .5rem; padding: .75rem; max-height: 65dvh; overflow: auto; }
 .backup-tree summary { padding: .65rem; cursor: pointer; overflow-wrap: anywhere; }
 .backup-record { margin-left: 1rem; border-left: 2px solid var(--border, #354040); padding-left: .5rem; }

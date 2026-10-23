@@ -99,7 +99,7 @@ If the sources changed while the model was working, an obsolete result must not 
 
 Restarting the server must load the committed selection rather than reconstructing a different tree from transcript length or token totals.
 
-Backups must capture a consistent database snapshot, including any required associated files. Do not treat copying only the main database file during active WAL writes as a complete backup. Manual backup/inspection/import/wipe is implemented as described in [BACKUPS.md](docs/BACKUPS.md), including saved API keys and excluding login/runtime authority. Scheduling and retention remain open.
+Backups must capture a consistent database snapshot, including any required associated files. Do not treat copying only the main database file during active WAL writes as a complete backup. Manual backup/inspection/import/wipe is implemented as described in [BACKUPS.md](docs/BACKUPS.md), including saved API keys and excluding login/runtime authority. ApplicationSettings coordinates download/staging requests; BackupFileDialog owns transient password fields, modal focus and local error presentation. A failed opening retains the selected File for explicit retry; dismissal clears dialog state, and pending requests prevent dismissal/duplicate submission. Successful opening still requires inspection and the existing import confirmation. Scheduling and retention remain open.
 
 ## 6. Generation and streaming
 
