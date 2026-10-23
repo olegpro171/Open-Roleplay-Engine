@@ -242,9 +242,33 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
   const panel = useRef<HTMLElement>(null);
   const wasEditing = useRef(Boolean(editing));
   useLayoutEffect(() => {
-    // The list can be much shorter than the editor it replaces.
-    if (wasEditing.current && !editing) panel.current?.scrollTo(0, 0);
+    let frame = 0;
+    let restoreOverflow: (() => void) | undefined;
+    if (wasEditing.current && !editing && panel.current) {
+      const content = panel.current;
+      // Phones scroll the categories and content together, rather than the
+      // overflow:visible panel. Reset the element that actually owns scrolling.
+      const scroller = getComputedStyle(content).overflowY === 'visible' ? content.parentElement : content;
+      if (scroller) {
+        const overflow = scroller.style.overflow;
+        restoreOverflow = () => { scroller.style.overflow = overflow; };
+        // Keep the scrolling box removed for a rendered frame so compositor
+        // momentum ends before scrolling is enabled again. Keep children mounted
+        // to preserve search state and pending import reviews.
+        scroller.style.overflow = 'clip';
+        frame = requestAnimationFrame(() => {
+          frame = requestAnimationFrame(() => {
+            scroller.style.overflow = overflow;
+            scroller.scrollTo({ left: 0, top: 0, behavior: 'instant' });
+          });
+        });
+      }
+    }
     wasEditing.current = Boolean(editing);
+    return () => {
+      cancelAnimationFrame(frame);
+      restoreOverflow?.();
+    };
   }, [editing]);
   const [creatingChat, setCreatingChat] = useState(false);
   const [notice, setNotice] = useTextState(''), [diagnostics, setDiagnostics] = useState<LoreDiagnostic[]>([]), [search, setSearch] = useState('');

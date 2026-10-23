@@ -23,6 +23,39 @@ async function addRecord(page: Page, kind: LibraryKind, data: object) {
   expect(response.ok(), await response.text()).toBe(true);
 }
 
+test.describe('phone editor scroll recovery', () => {
+  test.use({ hasTouch: true, isMobile: true });
+  for (const height of [500, 900]) test(`closing a moving phone editor restores a short library at ${height}px`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height });
+    await login(page);
+    const name = `Momentum character ${height} run ${test.info().repeatEachIndex}`;
+    await addRecord(page, 'characters', { name, description: 'A long source field.\n'.repeat(150), personality: '', scenario: '', first_mes: '', mes_example: '' });
+    await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Characters', exact: true }).click();
+    await page.getByPlaceholder('Search characters').fill(name);
+    const content = page.getByRole('region', { name: 'Characters', exact: true });
+    await expect(content.getByRole('article')).toHaveCount(1);
+    const scroller = page.locator('main.library-layout');
+    for (const action of ['Cancel', 'Save']) {
+      await content.getByRole('button', { name: /^Edit(?: |$)/ }).click();
+      await scroller.evaluate(node => { node.scrollTop = 600; });
+      await expect.poll(() => scroller.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+      const session = await page.context().newCDPSession(page);
+      const x = 380, y = height - 100;
+      await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      for (let step = 1; step <= 6; step++) {
+        await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - step * 18 }] });
+      }
+      await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: action, exact: true }).click();
+      await expect.poll(() => scroller.evaluate(node => node.scrollTop)).toBe(0);
+      await expect(page.getByPlaceholder('Search characters')).toBeInViewport();
+      await expect(page.getByRole('navigation', { name: 'Library categories' })).toBeInViewport();
+      await expect(content.getByRole('article')).toHaveCount(1);
+      await session.detach();
+    }
+  });
+});
+
 test('Libraries reopens the last category and new Connections reserve 8,196 output tokens', async ({ page }) => {
   await login(page);
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
