@@ -1,6 +1,6 @@
-import { errorText, loadLanguages, locale, message, publishLanguages, selectLanguage, t, useLanguages, useLocale, useTextState } from './localization';
+import { currentPack, errorText, loadLanguages, locale, message, publishLanguages, selectLanguage, t, useLanguages, useLocale, useTextState } from './localization';
 import { useEffect, useRef, useState } from 'react';
-import { languageLimits, languagePackSchema, languageStatusSchema, translationTemplate, validateTranslations } from '../shared/localization';
+import { extendTranslation, languageLimits, languagePackSchema, languageStatusSchema, translationTemplate, validateTranslations, type LanguagePack } from '../shared/localization';
 import { api } from './api';
 import { Dropdown } from './Controls';
 import { useConfirmation } from './Confirmation';
@@ -30,10 +30,9 @@ export function LanguageSettings() {
       else setNotice(message('language.reloaded'));
     });
   }
-  function template() {
-    const pack = translationTemplate();
+  function download(pack: LanguagePack, filename: string) {
     const url = URL.createObjectURL(new Blob([JSON.stringify(pack, null, 2) + '\n'], { type: 'application/json' }));
-    const link = document.createElement('a'); link.href = url; link.download = 'ORE-language-template.json'; link.click();
+    const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
   async function inspect(file: File) {
@@ -68,7 +67,13 @@ export function LanguageSettings() {
       if (!await selectLanguage(value)) setError(message('language.storageFailed'));
     })} /></label>
     {selected && <p className="small muted">{t('language.coverage', { translated: selected.translated, total: selected.total })}</p>}
-    <div className="actions"><button type="button" className="secondary" disabled={busy} onClick={() => fileInput.current?.click()}>{t('language.import')}</button><button type="button" className="secondary" onClick={template}>{t('language.template')}</button><button type="button" className="secondary" disabled={busy} onClick={() => void refresh()}>{t('language.reload')}</button></div>
+    <div className="actions">
+      <button type="button" className="secondary" disabled={busy} onClick={() => fileInput.current?.click()}>{t('language.import')}</button>
+      <button type="button" className="secondary" onClick={() => download(translationTemplate(), 'ORE-language-template.json')}>{t('language.template')}</button>
+      <button type="button" className="secondary" disabled={busy || locale() === 'en'} aria-describedby="language-extend-help" onClick={() => download(extendTranslation(currentPack()), `${locale()}.json`)}>{t('language.extend')}</button>
+      <button type="button" className="secondary" disabled={busy} onClick={() => void refresh()}>{t('language.reload')}</button>
+    </div>
+    <p id="language-extend-help" className="small muted">{t('language.extendHelp')}</p>
     <input ref={fileInput} hidden type="file" accept=".json,application/json" aria-label={t('language.import')} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void inspect(file); }} />
     {busy && <p role="status">{t('language.loading')}</p>}{notice && <p role="status">{notice}</p>}{error && <p role="alert">{error}</p>}
     {status?.issues.map(issue => <p role="status" key={issue.file}>{issue.file}: {t('language.issue')}</p>)}

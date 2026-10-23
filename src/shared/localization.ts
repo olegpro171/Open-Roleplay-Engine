@@ -55,6 +55,10 @@ export function translationTemplate(locale = 'ru', nativeName = 'Русский'
   }
   return { formatVersion: 1, locale, nativeName, direction, messages };
 }
+export function extendTranslation(pack: LanguagePack): LanguagePack {
+  const template = translationTemplate(pack.locale, pack.nativeName, pack.direction);
+  return { ...pack, messages: { ...template.messages, ...pack.messages } };
+}
 export const languageStatusSchema = z.object({
   languages: z.array(languagePackSchema.omit({ messages: true }).extend({ translated: z.number().int().nonnegative(), total: z.number().int().nonnegative(), revision: z.string(), custom: z.boolean() })),
   issues: z.array(z.object({ file: z.string(), message: localizedMessageSchema })),

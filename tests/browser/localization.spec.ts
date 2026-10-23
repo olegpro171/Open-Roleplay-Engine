@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 import type { ChatSnapshot } from '../../src/shared/contracts';
-import { languageStatusSchema } from '../../src/shared/localization';
+import { englishPack, languagePackSchema, languageStatusSchema, validateTranslations } from '../../src/shared/localization';
 
 const russian = { formatVersion: 1, locale: 'ru', nativeName: 'Русский', direction: 'ltr', messages: {
   'language.heading': 'Язык', 'language.select': 'Язык интерфейса',
@@ -54,6 +55,7 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
   }
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Language', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Download extended translation', exact: true })).toBeDisabled();
   await page.getByLabel('Import language file', { exact: true }).setInputFiles({ name: 'ru.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(russian)) });
   const replace = page.getByRole('button', { name: 'Replace language file', exact: true });
   await expect(replace.or(page.getByRole('status').filter({ hasText: 'Language file saved.' }))).toBeVisible();
@@ -64,6 +66,28 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
   await expect(page.getByRole('heading', { name: 'Язык', exact: true })).toBeVisible();
   // Missing translation is a readable English fallback, not an internal key.
   await expect(page.getByRole('button', { name: 'Reload languages', exact: true })).toBeVisible();
+  const installedBefore = await page.request.get('/api/localization/ru').then(response => response.json());
+  const downloading = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download extended translation', exact: true }).click();
+  const download = await downloading;
+  expect(download.suggestedFilename()).toBe('ru.json');
+  const path = await download.path();
+  if (!path) throw new Error('Translation download was not saved');
+  const bytes = await readFile(path);
+  const extended = languagePackSchema.parse(JSON.parse(bytes.toString('utf8')));
+  expect(extended).toMatchObject(russian);
+  expect(extended.messages['language.reload']).toBe(englishPack.messages['language.reload']);
+  expect(extended.messages['counts.turns_few']).toBe('{{count}} turns');
+  expect(extended.messages['counts.turns_many']).toBe('{{count}} turns');
+  validateTranslations(extended);
+  expect(await page.request.get('/api/localization/ru').then(response => response.json())).toEqual(installedBefore);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath(`extended-translation-${width}.png`) });
+  await page.getByLabel('Import language file', { exact: true }).setInputFiles({ name: 'ru.json', mimeType: 'application/json', buffer: bytes });
+  await expect(replace).toBeVisible();
+  await replace.click();
+  await expect(page.getByRole('status').filter({ hasText: 'Language file saved.' })).toBeVisible();
+  expect(await page.request.get('/api/localization/ru').then(response => response.json())).toEqual(extended);
   await page.getByRole('button', { name: 'История', exact: true }).click();
   await expect(page.getByLabel('Your next turn')).toHaveValue('Keep this composer draft exactly.');
   expect(await page.request.get(`/api/chats/${chatId}`).then(response => response.json())).toEqual(savedBefore);

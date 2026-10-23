@@ -46,6 +46,8 @@ export const englishMessages = {
   "language.select": "Interface language",
   "language.import": "Import language file",
   "language.template": "Download translation template",
+  "language.extend": "Download extended translation",
+  "language.extendHelp": "Download the selected language with existing translations preserved and missing entries filled in English. Translate the new entries, then import the file to update the installed language.",
   "language.reload": "Reload languages",
   "language.loading": "Loading languages…",
   "language.description": "This browser remembers your choice. Story text and model instructions keep their original language.",

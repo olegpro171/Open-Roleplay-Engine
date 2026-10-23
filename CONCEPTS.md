@@ -409,6 +409,8 @@ The user approved runtime JSON language packs with i18next/react-i18next, with E
 
 Application-authored interface text and structured diagnostics use stable keys, named placeholders and language-specific plurals. Missing entries fall back to English. Invalid files and failed replacement writes retain the previous valid pack. Number/date presentation follows the selected language. User content, editable prompts/model instructions and historical requests retain their original text; a language change does not affect context selection, budgeting, model input or summary language. Legacy saved diagnostics without translation identities retain their original wording. See [localization format and boundaries](docs/LOCALIZATION.md).
 
+Accepted translation maintenance on 2026-10-23: users can download the selected non-English pack extended with missing current English entries and the locale's required plural forms. Preserve existing translations, metadata and unknown keys. Export alone does not modify the installed pack; users translate the additions and explicitly import the updated file. The separate English template remains available for first-time translation.
+
 ### Decisions still open
 
 - Distribution identity beyond the accepted in-app name “ORE”; repository renaming is deferred.

@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Languages } from '../src/server/languages.js';
-import { englishPack, languagePackSchema, localeSchema, message, translationTemplate, validateTranslations } from '../src/shared/localization.js';
+import { englishPack, extendTranslation, languagePackSchema, localeSchema, message, translationTemplate, validateTranslations } from '../src/shared/localization.js';
 import { createApp } from '../src/server/app.js';
 import { Store } from '../src/persistence/store.js';
 import { assembleRequest } from '../src/core/prompt.js';
@@ -17,6 +17,35 @@ const directories: string[] = [];
 function directory() { const path = fs.mkdtempSync(join(tmpdir(), 'ore-languages-')); directories.push(path); return path; }
 const russian = { formatVersion: 1, locale: 'ru', nativeName: 'Русский', direction: 'ltr', messages: { 'language.heading': 'Язык' } } as const;
 afterEach(() => { vi.restoreAllMocks(); for (const path of directories.splice(0)) fs.rmSync(path, { recursive: true, force: true }); });
+
+it('extends partial translations without changing existing values, metadata or unknown keys', () => {
+  const source = { ...russian, messages: {
+    ...russian.messages,
+    'language.coverage': '{{translated}} из {{total}} переводов',
+    'counts.turns_one': '{{count}} ход', 'counts.turns_few': '{{count}} хода',
+    'counts.turns_many': '{{count}} ходов', 'counts.turns_other': '{{count}} хода',
+    'future.feature': 'Сохранить',
+  } };
+  const before = structuredClone(source);
+  const extended = extendTranslation(source);
+  expect(extended).toMatchObject(source);
+  expect(source).toEqual(before);
+  expect(extended.messages['language.reload']).toBe(englishPack.messages['language.reload']);
+  expect(extended.messages['counts.summaries_few']).toBe(englishPack.messages['counts.summaries_other']);
+  expect(() => validateTranslations(languagePackSchema.parse(extended))).not.toThrow();
+  expect(extendTranslation(extended)).toEqual(extended);
+});
+
+it('extends empty and right-to-left packs using their own locale and plural requirements', () => {
+  for (const pack of [russian, { ...russian, locale: 'ar', nativeName: 'العربية', direction: 'rtl' as const }]) {
+    const extended = extendTranslation({ ...pack, messages: {} });
+    expect(extended).toMatchObject({ locale: pack.locale, nativeName: pack.nativeName, direction: pack.direction });
+    for (const form of new Intl.PluralRules(pack.locale).resolvedOptions().pluralCategories) {
+      expect(extended.messages[`counts.turns_${form}`]).toBeDefined();
+    }
+    expect(() => validateTranslations(languagePackSchema.parse(extended))).not.toThrow();
+  }
+});
 
 it('discovers, installs and reloads partial packs without a build, retaining the last good pack on invalid edits', () => {
   const path = directory(), languages = new Languages(path);
