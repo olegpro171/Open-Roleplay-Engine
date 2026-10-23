@@ -6,7 +6,7 @@ import { newId } from './uuid';
 import { Icon } from './Icon';
 import { ApplicationSettings } from './ApplicationSettings';
 import { useConfirmation } from './Confirmation';
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import type { ChatSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError, datasetChanged } from './api';
 import { hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
@@ -79,12 +79,19 @@ export function App() {
   const [settledDraft, setSettledDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<Edit | null>(null);
+  const editForm = useRef<HTMLFormElement>(null);
   const [peek, setPeek] = useState(false);
   const [contextExpanded, setContextExpanded] = useState(false);
   const [chatDetailsTarget, setChatDetailsTarget] = useState<HTMLDivElement | null>(null);
   const [generationId, setGenerationId] = useState('');
   const loadId = useRef(0);
-  const { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot, edit);
+  const { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot, Boolean(edit));
+  useLayoutEffect(() => {
+    const scroller = transcript.current;
+    const form = editForm.current;
+    if (!edit || !form || !scroller) return;
+    scroller.scrollTop += form.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 16;
+  }, [edit?.turnId, edit?.part]);
   const clearServerError = useCallback(() => setError(current => formatMessage(current) === formatMessage(serverUnavailable) ? '' : current), []);
   const refreshSession = useCallback(async () => {
     try { setSession(await api<Session>('/session')); clearServerError(); } catch { setError(serverUnavailable); }
@@ -283,7 +290,8 @@ export function App() {
   const currentToolSnapshot = toolSnapshot?.id === snapshot?.id ? toolSnapshot : null;
   const shownGeneration = currentToolSnapshot?.generations.find((generation) => generation.id === generationId);
   const [inspection, setInspection] = useState<{ chatId: string | null; key: string; request: RequestPreview | null; error: MessageText }>({ chatId: null, key: '', request: null, error: '' });
-  const inspectionKey = JSON.stringify([snapshot?.id, snapshot?.revision, snapshot?.memory.revision, snapshot?.connection, draft, pending]);
+  const [previewRetry, setPreviewRetry] = useState(0);
+  const inspectionKey = JSON.stringify([snapshot?.id, snapshot?.revision, snapshot?.memory.revision, snapshot?.connection, draft, pending, previewRetry]);
   useEffect(() => {
     if (!snapshot?.connection || (!pending && draft !== settledDraft)) return;
     let current = true;
@@ -436,7 +444,7 @@ export function App() {
             {(['user', 'assistant'] as const).filter(part => part !== 'user' || inputVisible).map((part) => <div className={`part ${part}`} key={part}>
               <div className="part-heading"><strong>{part === 'user' ? selectedPersonaName : selectedCharacterName}</strong></div>
               {part === 'assistant' && reasoning && generating && !responseText && <ReasoningPreview text={reasoning.text} />}
-              {edit?.turnId === turn.id && edit.part === part ? <form onSubmit={saveEdit} className="edit-form"><ChatTextarea autoSize aria-label={t("app.edit_text", { part: part })} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><p className="small muted">{snapshot.settings.lorebookId ? t("app.saving_a_history_edit_starts_fresh_lore") : ""}</p><div className="actions"><button disabled={busy}>{t("app.save_edit")}</button><button type="button" className="quiet" onClick={() => setEdit(null)}>{t("app.cancel_edit")}</button></div></form> : <div className="prose">
+              {edit?.turnId === turn.id && edit.part === part ? <form ref={editForm} onSubmit={saveEdit} className="edit-form"><ChatTextarea autoSize aria-label={t("app.edit_text", { part: part })} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><p className="small muted">{snapshot.settings.lorebookId ? t("app.saving_a_history_edit_starts_fresh_lore") : ""}</p><div className="actions"><button disabled={busy}>{t("app.save_edit")}</button><button type="button" className="quiet" onClick={() => setEdit(null)}>{t("app.cancel_edit")}</button></div></form> : <div className="prose">
                 {part === 'assistant' && (!turn.complete || generating)
                   ? <>{trimBoundaryNewlines(responseText) ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={trimBoundaryNewlines(responseText)} speechColor={selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor} /> : <span className="muted">{generating ? t(reasoning ? "app.reasoning" : "app.waiting_for_first_token") : cancelled ? t("app.generation_cancelled") : t("app.awaiting_response")}</span>}{generating && <span className="cursor" aria-label={t("app.generating")} />}</>
                   : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor : selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor} /> : <span className="muted blank">{t("app.blank")}</span>}
@@ -471,11 +479,15 @@ export function App() {
     </ChatWorkspace>}
     {tab === 'library' && <Libraries library={library} defaults={chatDefaults} currentChatId={chatId} busy={busy} run={command} openChat={openChat} initialTarget={libraryTarget} />}
     {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
-    {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>{t("app.return_to_chat")}</button>}><Memory key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} /></ChatWorkspace>}
-    {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>{t("app.return_to_chat")}</button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...(currentToolSnapshot?.generations ?? []).map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString(locale())} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!snapshot.connection || busy} onClick={() => { setGenerationId(''); setSettledDraft(draft); }}>{t("app.preview", { value: pending ? t("interface.pending_turn") : t("interface.next_request") })}</button><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>
+    {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>{t("app.return_to_chat")}</button>}><Memory key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} editPreset={id => { setLibraryTarget({ kind: 'contexts', id }); setTab('library'); }} /></ChatWorkspace>}
+    {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>{t("app.return_to_chat")}</button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...(currentToolSnapshot?.generations ?? []).map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString(locale())} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>
       <p className="small muted">{generationId ? t("app.saved_attempt_its_ceiling_is_historical", { value: shownGeneration?.status ?? 'unavailable', value2: formatMessage(shownGeneration?.errorMessage ?? shownGeneration?.error) }) : t("app.live_preview_of_the_current_setup_and")}</p>
       {!generationId && memoryStale && <p role="status">{t("app.memory_is_out_of_date_this_inspection")}</p>}
-      {!generationId && inspectionError && <p role="status">{inspectionError}</p>}{generationId && matchingSavedInspection?.error && <p role="alert">{formatMessage(matchingSavedInspection.error)}</p>}
+      {!generationId && inspectionCurrent && currentRequest && currentRequest.budget.inputTokens > inputLimit && <div className="recovery" role="status"><p>{t(currentRequest.budget.inputTokens > currentRequest.budget.targetInputTokens ? "errors.the_estimated_input_exceeds_your_target_prepare_context" : "errors.the_estimated_input_plus_reserved_output_exceeds_the")}</p>{summariesEnabled && <button className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button>}</div>}
+      {!generationId && (inspectionError || currentRequest && !inspectionCurrent) && <div role="status">
+        <p>{inspectionError || t("app.counting_current_input")}</p>
+        {inspection.key === inspectionKey && inspection.error && <button type="button" className="secondary" onClick={() => setPreviewRetry(value => value + 1)}>{t("app.retry_preview")}</button>}
+      </div>}{generationId && matchingSavedInspection?.error && <p role="alert">{formatMessage(matchingSavedInspection.error)}</p>}
       {shownGeneration?.usage && <p className="small">{t("app.provider_reported_input_output_tokens", { value: shownGeneration.usage.inputTokens.toLocaleString(locale()), value2: shownGeneration.usage.outputTokens.toLocaleString(locale()) })}</p>}
       {shownRequest && <>{shownRequest.warnings?.map((warning, index) => <p role="status" key={warning}>{formatMessage(shownRequest.warningMessages?.[index] ?? warning)}</p>)}<div className="budget"><strong>{t("app.estimated_input_2", { value: shownRequest.budget.inputTokens.toLocaleString(locale()), value2: shownRequest.budget.targetInputTokens.toLocaleString(locale()) })}</strong><InputMeter input={shownRequest.budget.inputTokens} limit={Math.min(shownRequest.budget.targetInputTokens, shownRequest.budget.contextWindow - shownRequest.budget.reservedOutputTokens)} /><span>{t("app.reserved_output_model_window", { value: shownRequest.budget.reservedOutputTokens.toLocaleString(locale()), value2: shownRequest.budget.contextWindow.toLocaleString(locale()) })}</span></div>{shownRequest.layout && <BudgetBreakdown request={shownRequest} />}<LoreInspection request={shownRequest} historical={Boolean(generationId)} /><details className="request-details"><summary>{t("app.endpoint_and_request_body")}</summary><h2>{t("app.endpoint")}</h2><pre>{shownRequest.endpoint}</pre><h2>{t("app.request_body")}</h2><pre data-testid="request-body">{JSON.stringify(shownRequest.body, null, 2)}</pre></details><details><summary>{t("app.turn_identities_and_source_revisions")}</summary><pre>{JSON.stringify(shownRequest.coverage, null, 2)}</pre></details></>}
     </section></ChatWorkspace>}
@@ -489,9 +501,9 @@ function Login({ session, onLogin }: { session: Session; onLogin: () => Promise<
   const [password, setPassword] = useState('');
   const [error, setError] = useTextState('');
   const [busy, setBusy] = useState(false);
-  return <main className="login"><div className="login-card"><span className="brand-mark">{t("app.o")}</span><p className="eyebrow">{t("app.ore")}</p><h1>{session.setupRequired ? t("app.your_stories_start_here") : t("app.welcome_back")}</h1><p>{session.setupRequired ? t("app.create_the_owner_password_on_the_server") : t("app.sign_in_to_continue_your_story")}</p><form onSubmit={async (event) => {
+  return <main className="login"><div className="login-card"><span className="brand-mark">{t("app.o")}</span><h1>{session.setupRequired ? t("app.your_stories_start_here") : t("app.welcome_back")}</h1>{session.setupRequired && <p>{t("app.create_the_owner_password_on_the_server")}</p>}<form onSubmit={async (event) => {
     event.preventDefault(); setBusy(true); setError('');
     try { await api(session.setupRequired ? '/setup' : '/login', 'POST', { password }); setPassword(''); await onLogin(); }
     catch (error) { setError(errorText(error, msg("app.could_not_sign_in"))); } finally { setBusy(false); }
-  }}><label>{t("app.owner_password")}<input type="password" required minLength={12} maxLength={256} autoComplete={session.setupRequired ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} /></label><small className="muted">{t("app.at_least_12_characters")}</small>{error && <p role="alert">{error}</p>}<button disabled={busy}>{busy ? t("app.opening") : session.setupRequired ? t("app.create_owner_account") : t("app.sign_in")}</button></form></div></main>;
+  }}><label>{t("app.owner_password")}<input type="password" required minLength={12} maxLength={256} autoComplete={session.setupRequired ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <p role="alert">{error}</p>}<button disabled={busy}>{busy ? t("app.opening") : session.setupRequired ? t("app.create_owner_account") : t("app.sign_in")}</button></form></div></main>;
 }

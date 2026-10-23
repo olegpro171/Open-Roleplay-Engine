@@ -7,7 +7,7 @@ export const customParametersSchema = z.object({
   frequency_penalty: z.number().min(-2).max(2).optional(),
   seed: z.number().int().optional(),
   stop: z.union([z.string().max(200), z.array(z.string().max(200)).max(4)]).optional(),
-  reasoning_effort: z.enum(['none', 'minimal', 'low', 'medium', 'high']).optional(),
+  reasoning_effort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional(),
 }).strict();
 
 export const connectionSchema = z.object({

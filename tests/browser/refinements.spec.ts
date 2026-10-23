@@ -176,10 +176,16 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
     await expect.poll(bottomGap).toBeLessThan(2);
     const lastTurn = page.getByRole('article', { name: 'Turn 220', exact: true });
     await lastTurn.getByRole('button', { name: 'Edit response', exact: true }).click();
-    await expect.poll(bottomGap).toBeLessThan(2);
     const editor = page.getByLabel('Edit assistant text');
+    // Opening an editor now reveals its beginning rather than following the end.
+    await expect.poll(() => editor.evaluate(field => {
+      const scroller = field.closest('.transcript');
+      if (!scroller) return false;
+      const top = field.getBoundingClientRect().top;
+      return top >= scroller.getBoundingClientRect().top && top < scroller.getBoundingClientRect().bottom;
+    })).toBe(true);
     await editor.fill(`${await editor.inputValue()} The lantern stays lit.`);
-    await expect.poll(bottomGap).toBeLessThan(2);
+    await expect(editor).toHaveValue(/The lantern stays lit\.$/);
     await page.getByRole('button', { name: 'Cancel edit', exact: true }).click();
     await expect.poll(bottomGap).toBeLessThan(2);
   }

@@ -64,7 +64,7 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   };
   return <div className="dropdown" ref={anchor}>
     {editable ? <input {...props} required={required} autoComplete="off" value={value} onFocus={show} onClick={show} onChange={event => { onChange(event.target.value); setActive(0); setOpen(true); }} />
-      : <button {...props} type="button" className="select-trigger" onClick={() => expanded ? setOpen(false) : show()}>{options.find(option => option.value === value)?.label ?? t("character_editor.none_selected")}<Icon name="ArrowShortBottom" /></button>}
+      : <button {...props} type="button" className="select-trigger" onClick={() => expanded ? setOpen(false) : show()}><span className="select-label">{options.find(option => option.value === value)?.label ?? t("character_editor.none_selected")}</span><Icon name="ArrowShortBottom" /></button>}
     {expanded && createPortal(<div ref={popup} id={id} role="listbox" aria-label={label} className="select-menu" style={position} onMouseDown={event => event.preventDefault()}>{visible.map((option, index) => <div role="option" id={`${id}-${index}`} key={option.value} aria-selected={option.value === value} aria-disabled={option.disabled || undefined} data-active={index === activeIndex} onPointerMove={() => setActive(index)} onClick={() => choose(option)}>{option.label}{option.value === value && <Icon name="Check" />}</div>)}</div>, document.body)}
   </div>;
 }

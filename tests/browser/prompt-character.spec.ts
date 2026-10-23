@@ -99,7 +99,7 @@ test('imports older prompt exports with retired lore controls as selectable fiel
   await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
-  await page.getByLabel('Import prompt', { exact: true }).setInputFiles({ name: 'old-prompt.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ ...legacyLorePrompt, name: 'Legacy fields import' })) });
+  await page.getByLabel('Import prompt preset', { exact: true }).setInputFiles({ name: 'old-prompt.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ ...legacyLorePrompt, name: 'Legacy fields import' })) });
   await expect(page.getByRole('heading', { name: 'Legacy fields import', exact: true })).toBeVisible();
   const library: LibrarySnapshot = await page.request.get('/api/library').then(response => response.json());
   const prompt = library.prompts.find(item => item.name === 'Legacy fields import');

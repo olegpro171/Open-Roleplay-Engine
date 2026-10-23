@@ -7,6 +7,11 @@ const settings: ChatSettings = { title: 'Test', instructions: 'Instructions', ch
 const turn: Turn = { id: 'turn', position: 1, complete: true, user: { id: 'user', revision: 2, text: '' }, assistant: { id: 'assistant', revision: 3, text: '' } };
 
 describe('request assembly', () => {
+  it.each(['xhigh', 'max'])('preserves supported reasoning effort %s in the outgoing body', effort => {
+    const configured = connectionSchema.parse({ ...connection, customParameters: { reasoning_effort: effort } });
+    expect(assembleRequest(configured, settings, []).body.reasoning_effort).toBe(effort);
+    expect(connectionSchema.safeParse({ ...connection, customParameters: { reasoning_effort: 'unrecognized' } }).success).toBe(false);
+  });
   it('omits blank parts while retaining turn coverage and literal prompt text', () => {
     const request = assembleRequest(connection, settings, [turn]);
     expect(request.body.messages).toEqual(['Instructions', '{{literal}}', 'Persona'].map((content) => ({ role: 'system', content })));

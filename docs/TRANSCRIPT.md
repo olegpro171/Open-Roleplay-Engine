@@ -4,6 +4,8 @@ Story opens the latest 15 whole turns. Near the top, it loads up to 40 older tur
 
 Prepending or trimming restores the visible turn by stable identity and within-turn progress. Resizing retains the same anchor. The bottom of an older window is a reading position, not permission to jump to the latest turn. Latest turn explicitly returns to the current end. Page movement is disabled while editing, and automatic movement also pauses while a turn control has focus. Loading failures retain the window and composer draft; the explicit page control retries. If an edited turn is remotely removed/replaced, its unsaved text remains available to copy and close.
 
+Opening either turn editor scrolls its beginning into the transcript viewport. While an editor is open, automatic reading-anchor restoration pauses so expanding text and manual scrolling can reach the editor’s end and save controls. Closing restores the pre-edit reading anchor (or the latest position when previously following) and resumes ordinary transcript anchoring; cancelling retains the saved turn unchanged.
+
 Browser Find searches only mounted turns. Whole-chat search, jump-to-turn controls and persistent reading-position storage remain deferred. Reopening/reloading the chat starts at the latest turns. Returning from a chat tool retains the current in-memory window and scroll anchor when its sources still exist.
 
 ## Read contracts and consistency

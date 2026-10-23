@@ -88,7 +88,10 @@ export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, oper
       {compact ? bands.map(band => {
         const text = t("memory_timeline.turns_2", { value: band.start + 1, value2: band.end + 1, value3: band.archived ? t("interface.archived_2") : t("interface.verbatim"), value4: band.restoring ? t("interface.returns_to_verbatim") : '' });
         return <div key={band.start} className={`turn-tick turn-band ${band.archived ? 'retained' : 'active'}${band.restoring ? ' restoring' : ''}`} role="img" aria-label={text} style={span(band.start, band.end)} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)} />;
-      }) : turnIds.map((id, i) => <div key={id} title={t("memory_timeline.turn", { value: i + 1, value2: archived.has(id) ? t("interface.archived_2") : t("interface.verbatim"), value3: restoring?.has(id) ? t("interface.returns_to_verbatim") : '' })} className={`turn-tick ${archived.has(id) ? 'retained' : 'active'}${restoring?.has(id) ? ' restoring' : ''}`} style={span(i, i)}>{zoom && plotWidth / count >= String(i + 1).length * 6 + 4 ? i + 1 : ''}</div>)}
+      }) : turnIds.map((id, i) => {
+        const text = t("memory_timeline.turn", { value: i + 1, value2: archived.has(id) ? t("interface.archived_2") : t("interface.verbatim"), value3: restoring?.has(id) ? t("interface.returns_to_verbatim") : '' });
+        return <div key={id} role="img" aria-label={text} className={`turn-tick ${archived.has(id) ? 'retained' : 'active'}${restoring?.has(id) ? ' restoring' : ''}`} style={span(i, i)} onPointerEnter={e => showHint(e.currentTarget, text)} onPointerLeave={() => setHint(null)}>{zoom && plotWidth / count >= String(i + 1).length * 6 + 4 ? i + 1 : ''}</div>;
+      })}
     </div></div>
     {hint && createPortal(<div id={tooltipId} role="tooltip" className="timeline-tooltip" style={{ left: hint.left, top: hint.top }}>{hint.text}</div>, document.body)}
   </div>;

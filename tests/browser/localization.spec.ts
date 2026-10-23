@@ -8,6 +8,8 @@ const russian = { formatVersion: 1, locale: 'ru', nativeName: 'Русский', 
   'app.story': 'История', 'app.libraries': 'Библиотеки', 'app.settings': 'Настройки',
   'libraries.chat_title': 'Название истории',
   'editor_actions.save': 'Сохранить',
+  'libraries.import': 'Импорт: {{value}}', 'interface.prompt_preset': 'промпт',
+  'library-sorting.added_newest': 'Добавлены: сначала самые новые записи',
   'color_picker.title': 'Выбор цвета', 'color_picker.hue': 'Оттенок',
   'errors.this_response_is_no_longer_active': 'Этот ответ уже завершён.',
 } };
@@ -94,6 +96,16 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
   expect(await page.request.get(`/api/chats/${chatId}`).then(response => response.json())).toEqual(savedBefore);
   expect(await preview()).toEqual(inputBefore);
   await page.getByRole('button', { name: 'Библиотеки', exact: true }).click();
+  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  const sorting = page.getByRole('combobox', { name: 'Sort characters', exact: true });
+  await expect(sorting).toHaveText('Добавлены: сначала самые новые записи');
+  expect(await sorting.evaluate(button => {
+    const arrow = button.querySelector('svg');
+    return arrow !== null && arrow.getBoundingClientRect().right <= button.getBoundingClientRect().right;
+  })).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath(`localized-sorting-${width}.png`) });
+  await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+  await expect(page.getByText('Импорт: промпт', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Personas', exact: true }).click();
   await page.getByRole('button', { name: 'New persona', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Unsaved persona name');

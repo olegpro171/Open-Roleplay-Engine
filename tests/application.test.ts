@@ -220,7 +220,7 @@ describe('persistent chat and generation', () => {
 
   it('checks and tests unsaved Connection settings without changing chat history or calibrating the counter', async () => {
     const before = await state();
-    const input = { connection: { ...before.connection, maxOutputTokens: 4096, customParameters: { reasoning_effort: 'high' } }, connectionId: before.settings.connectionId };
+    const input = { connection: { ...before.connection, maxOutputTokens: 4096, customParameters: { reasoning_effort: 'max' } }, connectionId: before.settings.connectionId };
     expect(mock.requests).toHaveLength(0);
     const check = await command('/api/connections/diagnose', { ...input, action: 'check' });
     expect(check.statusCode).toBe(200);
@@ -232,7 +232,7 @@ describe('persistent chat and generation', () => {
     expect(result.request.body).toEqual(mock.requests[0].body);
     expect(result.request.body.messages).toEqual([{ role: 'user', content: 'Hi' }]);
     expect(result.request.body.max_tokens).toBe(4096);
-    expect(result.request.body.reasoning_effort).toBe('high');
+    expect(result.request.body.reasoning_effort).toBe('max');
     expect(result.request.budget.reservedOutputTokens).toBe(4096);
     expect(result.usage).toEqual({ inputTokens: 321, outputTokens: 17, totalTokens: 338 });
     expect(result.request.budget.inputTokens).not.toBe(result.usage.inputTokens);

@@ -51,7 +51,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await page.getByLabel('Your next turn').fill('I enter the tower.');
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Request inspector');
-  await page.getByRole('button', { name: 'Preview next request' }).click();
+  await expect(page.getByRole('button', { name: 'Prompt peek', exact: true })).toBeEnabled();
   await expect(page.getByTestId('request-body')).toBeHidden();
   await page.getByText('Endpoint and request body', { exact: true }).click();
   await expect(page.getByTestId('request-body')).toContainText('I enter the tower.');
@@ -210,7 +210,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await expect(page.getByRole('button', { name: 'Edit input', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Request inspector');
-  await page.getByRole('button', { name: 'Preview next request', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Prompt peek', exact: true })).toBeEnabled();
   const preview = JSON.parse((await page.getByTestId('request-body').textContent())!);
   expect(preview.messages[0].content).toBe('Play Moon in a story with Visitor.');
   expect(preview.messages.at(-2).content).toBe('An observatory');

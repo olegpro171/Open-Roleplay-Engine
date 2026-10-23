@@ -3,10 +3,12 @@ import { useLayoutEffect, useRef, useState } from 'react';
 type Anchor = { turnId: string; progress: number };
 
 // Keep the visible turn and the reading position within it stable as text reflows.
-export function useTranscriptScroll(chatId: string | null, content: unknown, localContent: unknown) {
+export function useTranscriptScroll(chatId: string | null, content: unknown, editing: boolean) {
   const transcript = useRef<HTMLDivElement>(null);
   const anchor = useRef<Anchor | null>(null);
   const following = useRef(true);
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
   const previousChat = useRef<string | null>(null);
   const [awayFromLatest, setAwayFromLatest] = useState(false);
   const captureRef = useRef<() => void>(() => {});
@@ -35,6 +37,10 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, loc
     let width = node.clientWidth, height = node.clientHeight;
     const turns = () => Array.from(node.querySelectorAll<HTMLElement>('[data-turn-id]'));
     const capture = () => {
+      if (editingRef.current) {
+        setAwayFromLatest(node.scrollHeight - node.scrollTop - node.clientHeight >= 80);
+        return;
+      }
       const top = node.getBoundingClientRect().top;
       const turn = turns().find(turn => turn.getBoundingClientRect().bottom > top);
       const turnId = turn?.dataset.turnId;
@@ -47,6 +53,9 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, loc
     };
     const restore = () => {
       width = node.clientWidth; height = node.clientHeight;
+      // An expanding editor and its caret own the reading position until it
+      // closes. Following the latest turn would hide the beginning of the edit.
+      if (editingRef.current) return;
       if (following.current) node.scrollTop = node.scrollHeight;
       else if (anchor.current) {
         const savedAnchor = anchor.current;
@@ -80,6 +89,7 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, loc
 
   // Restore against stable turn identities after a page is prepended or trimmed.
   useLayoutEffect(() => { restoreRef.current(); }, [content, chatId]);
+  useLayoutEffect(() => { if (!editing) restoreRef.current(); }, [editing]);
   useLayoutEffect(() => {
     const node = transcript.current;
     if (!node || !chatId) return;
@@ -89,7 +99,5 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, loc
     node.querySelectorAll<HTMLElement>('[data-turn-id]').forEach(turn => observer.observe(turn));
     return () => observer.disconnect();
   }, [content, chatId]);
-  useLayoutEffect(() => { if (following.current) scrollToLatest(); }, [localContent]);
-
   return { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest };
 }
