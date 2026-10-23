@@ -315,6 +315,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
   .crop-dialog .crop-footer{grid-column:1/-1;position:static;margin:0;padding:0}
 }
 .turn { container-type: inline-size; }
+.turn:last-child { border-bottom: 0; padding-bottom: 0; }
 .turn-controls { display: flex; align-items: center; gap: 12px; margin-top: 18px; min-width: 0; }
 .turn-actions { display: flex; align-items: center; justify-content: flex-end; flex: 1; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: #3b4654 transparent; padding: 4px; }
 .turn-actions .turn-action { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 6px; min-width: 44px; height: 44px; padding: 8px; white-space: nowrap; -webkit-tap-highlight-color: transparent; }
