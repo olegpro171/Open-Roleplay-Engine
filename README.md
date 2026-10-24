@@ -243,6 +243,20 @@ In **Libraries → Characters / Personas**, **Speech color** starts at **Not set
 
 Application defaults are saved privately in `<database>.appearance.json` and survive restart and content import/wipe. They are excluded from SQLite content backups; card overrides are included with their library records.
 
+## Chat behavior
+
+**Settings → Chat behavior → Enter key behavior** selects how the new-message composer sends:
+
+- **Send with Ctrl + Enter** (default): Enter or Shift + Enter inserts a new line; Ctrl + Enter sends. On Mac, ⌘ + Enter also sends.
+- **Send with Enter**: Enter sends; Shift + Enter inserts a new line.
+- **Use Send button only**: composer sending shortcuts are disabled; Enter or Shift + Enter inserts a new line. The Send button remains keyboard accessible.
+
+Choose **Save chat behavior** to apply the preference across all chats. Failed saves keep your edits; changes from another window require **Reload chat behavior**. Unsent text and message editors remain unchanged. The Send tooltip shows the current shortcut. During generation or another submission restriction, shortcuts never queue a message for later.
+
+These shortcuts are for physical keyboards. On phones and tablets, plain Return always inserts a new line, including with an attached keyboard in Enter mode. Use Send, or Ctrl/⌘ + Enter with an attached keyboard in Ctrl mode. This conservative behavior avoids treating software Return as Send when browsers cannot identify its source. Actual phone software/external keyboards still require hands-on verification; browser tests emulate their event/device signals.
+
+The private `<database>.chat-behavior.json` preference survives restart and content import/wipe, and is excluded from SQLite chat backups. If settings cannot load, shortcuts stay disabled with a Retry notice and Send remains available.
+
 ## Storage and recovery
 
 SQLite uses WAL, foreign keys, versioned SQL migrations, and short transactions. Turns and their parts have stable identities and separate part revisions. Every mutation checks the chat revision; edits and setup changes are blocked while a response or preparation runs. Only one turn per chat can be pending, and only one generation/preparation workflow per chat can be active. Different chats may run independently. Summaries, dependencies, selected revisions and the cutoff are durable; each valid replacement and its selection commit together. The database records process ownership so a second local server cannot mark a live operation interrupted.

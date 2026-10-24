@@ -220,7 +220,7 @@ for (const width of [1440, 390]) test(`composer fits its content at ${width}px`,
         && sendBounds.x + sendBounds.width <= viewportWidth;
     }).toBe(true);
     await expect(send).toHaveText('');
-    await expect(send).toHaveAttribute('title', 'Send');
+    await expect(send).toHaveAttribute('title', /^Send \(Ctrl(?: \/ ⌘)? \+ Enter\)$/);
     await expect.poll(() => send.evaluate(button => {
       const bounds = button.getBoundingClientRect();
       return bounds.width === bounds.height;

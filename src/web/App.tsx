@@ -1,5 +1,7 @@
 import type { MessageText } from './localization';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
+import { chatBehaviorStatusSchema, type ChatBehaviorStatus } from '../shared/chat-behavior';
+import { isComposerSendKey, isMacKeyboard, isPhoneOrTablet } from './composer-shortcuts';
 import { appearanceStatusSchema, defaultAppearance, type AppearanceStatus } from '../shared/appearance';
 import { chatDefaultsStatusSchema, initialChatDefaults, type ChatDefaultsStatus } from '../shared/chat-defaults';
 import { newId } from './uuid';
@@ -53,6 +55,9 @@ export function App() {
   const [appearance, setAppearance] = useState<AppearanceStatus>({ revision: 0, settings: defaultAppearance });
   const [chatDefaults, setChatDefaults] = useState<ChatDefaultsStatus>(initialChatDefaults);
   const [appearanceError, setAppearanceError] = useTextState(null);
+  const [chatBehavior, setChatBehavior] = useState<ChatBehaviorStatus | null>(null);
+  const [chatBehaviorError, setChatBehaviorError] = useTextState(null);
+  const sendInFlight = useRef(false);
   const [library, setLibrary] = useState<LibrarySnapshot | null>(null);
   const libraryCache = useRef<LibrarySnapshot | null>(null);
   const [snapshot, setSnapshot] = useState<StorySnapshot | null>(null);
@@ -103,12 +108,15 @@ export function App() {
     const id = ++loadId.current;
     try {
       const cached = libraryCache.current;
-      const [update, appearanceResult, defaults] = await Promise.all([
+      const [update, appearanceResult, defaults, behaviorResult] = await Promise.all([
         api<LibrarySnapshot | UnchangedLibrary>(`/library${cached ? `?knownRevision=${cached.revision}` : ''}`),
         api<unknown>('/application/appearance')
           .then(value => ({ value: appearanceStatusSchema.parse(value), error: null }))
           .catch(error => ({ value: null, error: errorText(error, msg("app.chat_appearance_could_not_be_loaded")) })),
         api<unknown>('/application/chat-defaults').then(value => chatDefaultsStatusSchema.parse(value)),
+        api<unknown>('/application/chat-behavior')
+          .then(value => ({ value: chatBehaviorStatusSchema.parse(value), error: null }))
+          .catch(error => ({ value: null, error: errorText(error, msg('chat_behavior.read_failed')) })),
       ]);
       // Keep existing editors/transcript available to copy after a dataset replacement.
       if (datasetChanged()) return;
@@ -150,6 +158,11 @@ export function App() {
           setAppearance(current => nextAppearance.revision >= current.revision ? nextAppearance : current);
         }
         setAppearanceError(appearanceResult.error);
+        if (behaviorResult.value) {
+          const nextBehavior = behaviorResult.value;
+          setChatBehavior(current => !current || nextBehavior.revision >= current.revision ? nextBehavior : current);
+        }
+        setChatBehaviorError(behaviorResult.error);
         clearServerError();
         if (selected !== chatId) {
           setChatId(selected); setEdit(null); setPeek(false); setGenerationId('');
@@ -333,12 +346,21 @@ export function App() {
       await refresh(); return false;
     } finally { setBusy(false); }
   }
+  const canSend = Boolean(snapshot?.connection && !busy && !pending && !working && !memoryStale
+    && !dataChanged && !drafts.needsReview && draft.trim());
+  const enterKeyBehavior = chatBehaviorError ? 'button-only' : chatBehavior?.settings.enterKeyBehavior ?? 'button-only';
+  const mobileKeyboard = isPhoneOrTablet(navigator);
+  const macKeyboard = isMacKeyboard(navigator);
+  const sendTitle = busy ? t('app.saving_changes')
+    : enterKeyBehavior === 'ctrl-enter' ? t(macKeyboard ? 'chat_behavior.send_ctrl_mac' : 'chat_behavior.send_ctrl')
+      : enterKeyBehavior === 'enter' && !mobileKeyboard ? t('chat_behavior.send_enter') : t('app.send');
+
   async function send(event: FormEvent) {
     event.preventDefault();
-    const text = trimBoundaryNewlines(draft);
-    if (!snapshot || busy || pending || working || dataChanged || drafts.needsReview || !text.trim()) return;
+    if (!snapshot || !canSend || sendInFlight.current) return;
     const id = snapshot.id;
     const sent = drafts.stage(id, snapshot.revision);
+    sendInFlight.current = true;
     setBusy(true); setError('');
     try {
       await api(`/chats/${id}/turns`, 'POST', sent.submission);
@@ -349,8 +371,9 @@ export function App() {
       if (error instanceof ApiError && error.status < 500) drafts.reject(id, sent);
       setError(errorText(error, msg("app.the_request_failed")));
     } finally {
-      setBusy(false);
       await latestRefresh.current();
+      sendInFlight.current = false;
+      setBusy(false);
     }
   }
 
@@ -412,7 +435,8 @@ export function App() {
     {dataChanged && <div className="error-banner" role="alert"><span>{t("app.application_data_was_imported_or_wiped_in")}</span><button onClick={() => window.location.reload()}>{t("app.reload_current_data")}</button></div>}
     {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" onClick={() => setError('')}>{t("app.dismiss")}</button></div>}
     {appearanceError && <div className="error-banner" role="alert"><span>{t("app.using_the_last_loaded_chat_appearance_or", { appearanceError: appearanceError })}</span><button className="quiet" onClick={() => void refresh()}>{t("app.retry_chat_appearance")}</button></div>}
-    {tab === 'data' && <ApplicationSettings appearance={appearance} appearanceCommitted={value => { setAppearance(current => value.revision >= current.revision ? value : current); setAppearanceError(null); }} openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
+    {chatBehaviorError && <div className="error-banner" role="alert"><span>{t('chat_behavior.shortcuts_unavailable', { error: chatBehaviorError })}</span><button className="quiet" onClick={() => void refresh()}>{t('chat_behavior.retry')}</button></div>}
+    {tab === 'data' && <ApplicationSettings chatBehavior={chatBehavior} chatBehaviorCommitted={value => { setChatBehavior(current => !current || value.revision >= current.revision ? value : current); setChatBehaviorError(null); }} appearance={appearance} appearanceCommitted={value => { setAppearance(current => value.revision >= current.revision ? value : current); setAppearanceError(null); }} openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
     {snapshot && ['settings', 'memory', 'request'].includes(tab) && toolError && <div className="error-banner" role="alert">{toolError}<button onClick={() => setToolRetry(value => value + 1)}>{t("app.retry_loading")}</button></div>}
     {snapshot && ['settings', 'memory'].includes(tab) && toolSnapshot?.id !== snapshot.id && <main className="document-panel"><p role="status">{t("app.loading_chat_tools")}</p></main>}
     {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} navigation actions={<>
@@ -470,8 +494,12 @@ export function App() {
         {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{(latest.errorMessage ? formatMessage(latest.errorMessage) : latest.error) ?? t("app.regeneration_did_not_finish_try_again")}</p>}
         {drafts.needsReview && <div className="recovery" role="alert"><p>{t("app.this_browser_draft_predates_a_backup_import")}</p><button onClick={drafts.review}>{t("app.use_recovered_draft")}</button></div>}
         <form className={isIOS ? 'composer composer-ios' : 'composer'} data-keyboard-visible={composerKeyboard || undefined} onSubmit={(event) => void send(event)}>
-          <ChatTextarea autoSize rows={1} aria-label={t("app.your_next_turn")} id="turn-input" placeholder={t("app.what_happens_next")} value={draft} disabled={busy} onValueChange={text => { drafts.change(text); setPeek(false); }} />
-          <button className="send-turn" aria-label={t("app.send")} title={busy ? t("app.saving_changes") : t("app.send")} disabled={pending || busy || working || memoryStale || dataChanged || drafts.needsReview || !snapshot.connection || !draft.trim()}><span className="send-icon" aria-hidden="true" /></button>
+          <ChatTextarea autoSize rows={1} aria-label={t("app.your_next_turn")} id="turn-input" enterKeyHint="enter" onKeyDown={event => {
+            if (!isComposerSendKey(event.nativeEvent, enterKeyBehavior, mobileKeyboard, macKeyboard)) return;
+            event.preventDefault();
+            if (!event.repeat && canSend && !sendInFlight.current) event.currentTarget.form?.requestSubmit();
+          }} placeholder={t("app.what_happens_next")} value={draft} disabled={busy} onValueChange={text => { drafts.change(text); setPeek(false); }} />
+          <button className="send-turn" aria-label={t("app.send")} title={sendTitle} disabled={!canSend}><span className="send-icon" aria-hidden="true" /></button>
           {drafts.storageError && <span className="composer-status" role="alert">{t("app.draft_could_not_be_saved_in_this")}</span>}
           {preparing && <span className="composer-status">{t("app.preparing_memory")}</span>}
         </form>

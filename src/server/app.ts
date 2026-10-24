@@ -41,6 +41,7 @@ import { LanAccess } from './lan.js';
 import { isLoopback } from './lan-policy.js';
 import type { LanInterface } from '../shared/lan.js';
 import { AppearanceSettings } from './appearance.js';
+import { ChatBehaviorSettings } from './chat-behavior.js';
 import { Languages } from './languages.js';
 import { dirname } from 'node:path';
 import { languageLimits, localeSchema, MessageError } from '../shared/localization.js';
@@ -73,6 +74,7 @@ export async function createApp(options: {
   }
   const storyReader = new StoryReader(store);
   const appearance = new AppearanceSettings(`${options.database}.appearance.json`);
+  const chatBehavior = new ChatBehaviorSettings(`${options.database}.chat-behavior.json`);
   const chatDefaults = new ChatDefaultsSettings(`${options.database}.chat-defaults.json`);
   const languages = new Languages(options.languagesDirectory ?? join(dirname(options.database), 'languages'));
   const auth = new Auth(store);
@@ -168,6 +170,12 @@ export async function createApp(options: {
   app.post('/api/localization/import', { bodyLimit: languageLimits.bytes + 100_000 }, async request => {
     const input = z.object({ pack: z.unknown(), expectedRevision: z.string().regex(/^[0-9a-f]{64}$/).nullable() }).strict().parse(request.body);
     return languages.save(input.pack, input.expectedRevision);
+  });
+  app.get('/api/application/chat-behavior', async () => chatBehavior.status());
+  app.put('/api/application/chat-behavior', async request => {
+    const result = chatBehavior.save(request.body);
+    coordinator.changed();
+    return result;
   });
   app.get('/api/application/appearance', async () => appearance.status());
   app.get('/api/application/chat-defaults', async () => chatDefaults.status());

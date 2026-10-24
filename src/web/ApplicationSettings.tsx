@@ -6,6 +6,8 @@ import { About } from './About';
 import { BackupFileDialog, type BackupFileAction } from './BackupFileDialog';
 import { LanSettings } from './LanSettings';
 import { ChatAppearanceSettings } from './ChatAppearanceSettings';
+import { ChatBehaviorSettings } from './ChatBehaviorSettings';
+import type { ChatBehaviorStatus } from '../shared/chat-behavior';
 import type { AppearanceStatus } from '../shared/appearance';
 import { Dropdown } from './Controls';
 import { useEffect, useRef, useState } from 'react';
@@ -31,7 +33,7 @@ function recoveredCommand(): Command | null {
   try { const saved = localStorage.getItem(commandKey); return saved ? commandSchema.parse(JSON.parse(saved)) : null; }
   catch { return null; }
 }
-export function ApplicationSettings({ openLibraries, appearance, appearanceCommitted }: { openLibraries: () => void; appearance: AppearanceStatus; appearanceCommitted: (value: AppearanceStatus) => void }) {
+export function ApplicationSettings({ openLibraries, appearance, appearanceCommitted, chatBehavior, chatBehaviorCommitted }: { chatBehavior: ChatBehaviorStatus | null; chatBehaviorCommitted: (value: ChatBehaviorStatus) => void; openLibraries: () => void; appearance: AppearanceStatus; appearanceCommitted: (value: AppearanceStatus) => void }) {
   useLocale();
   const [review,setReview] = useState<BackupReview|null>(null);
   const [offset,setOffset] = useState(0);
@@ -133,6 +135,7 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
       <p className="eyebrow" id="application-settings-heading">{t("application_settings.application_settings")}</p>
       <nav className="library-tabs" aria-label={t("application_settings.settings_categories")}><button type="button" onClick={() => scrollToCategory('language-heading')}>{t("language.heading")}</button>
         <button type="button" onClick={() => scrollToCategory('chat-appearance-heading')}>{t("application_settings.chat_appearance")}</button>
+        <button type="button" onClick={() => scrollToCategory('chat-behavior-heading')}>{t('chat_behavior.heading')}</button>
         <button type="button" onClick={() => scrollToCategory('lan-heading')}>{t("application_settings.phone_lan_access")}</button>
         <button type="button" onClick={() => scrollToCategory('data-backup-heading')}>{t("application_settings.data_backup")}</button>
         <button type="button" onClick={() => scrollToCategory('wipe-data-heading')}>{t("application_settings.wipe_application_data")}</button>
@@ -142,6 +145,7 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
     <div className="document-panel library-panel settings-panel" aria-labelledby="application-settings-heading">
     {uncertain && <div className="recovery"><p>{t("application_settings.the_command_may_have_committed_retry_this")}</p><button disabled={busy} onClick={() => void run(() => execute(uncertain), uncertain.path === '/data/wipe' ? 'wipe' : 'backup')}>{t("application_settings.retry_data_command")}</button></div>}
     <LanguageSettings /><ChatAppearanceSettings status={appearance} committed={appearanceCommitted} />
+    <ChatBehaviorSettings status={chatBehavior} committed={chatBehaviorCommitted} />
     <LanSettings />
     <section className="settings-section" aria-labelledby="data-backup-heading">
     <h2 id="data-backup-heading" tabIndex={-1}>{t("application_settings.data_backup")}</h2>
