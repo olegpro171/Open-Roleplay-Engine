@@ -3,18 +3,20 @@ import { refKey, type ContextOperation, type ContextState, type SummaryNode } fr
 import { replaceSelection, selectedContext, staleSummaries } from './context.js';
 import { correctionProtection } from './context-corrections.js';
 import { assembleRequest } from './prompt.js';
+import { refusalAffected } from './summary-refusals.js';
 
 export const operationKey = (operation: ContextOperation) => JSON.stringify([operation.level, operation.turnIds, operation.children.map(refKey)]);
 
 /** Current approved versions only, with exact surviving coverage and fresh dependencies. */
 export function savedSummaries(turns: Turn[], state: ContextState): SummaryNode[] {
   const stale = staleSummaries(turns, state);
+  const refused = refusalAffected(state);
   const latest = new Map<string, SummaryNode>();
   const positions = new Map(turns.map((turn, i) => [turn.id, i]));
   for (const node of state.summaries) if (node.approved && (!latest.has(node.id) || node.revision > latest.get(node.id)!.revision)) latest.set(node.id, node);
   return [...latest.values()].filter(node => {
     const first = positions.get(node.turns[0]?.turnId);
-    return !stale.has(refKey(node)) && first !== undefined && node.turns.every((source, i) => turns[first + i]?.id === source.turnId);
+    return !stale.has(refKey(node)) && !refused.has(refKey(node)) && first !== undefined && node.turns.every((source, i) => turns[first + i]?.id === source.turnId);
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
 }
 

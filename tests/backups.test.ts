@@ -14,6 +14,9 @@ import { unprotectBytes } from '../src/server/protected-files.js';
 import { BackupStore, datasetEpoch } from '../src/persistence/backup-store.js';
 import { backupLimits, type BackupReview } from '../src/shared/backups.js';
 import { defaultPrompt } from '../src/shared/library.js';
+import { sourceOf } from '../src/core/context.js';
+import { summaryRefusalFilterVersion } from '../src/core/summary-validation.js';
+import type { SummaryNode } from '../src/shared/context.js';
 
 let directory: string;
 const stores: Store[] = [], services: BackupService[] = [];
@@ -29,6 +32,26 @@ beforeEach(() => { directory = mkdtempSync(join(tmpdir(),'ore-backup-test-')); }
 afterEach(() => { for (const value of services.splice(0)) value.close(); for (const value of stores.splice(0)) if (value.sqlite.open) value.close(); rmSync(directory,{ recursive: true,force: true }); });
 
 describe('portable backup persistence',() => {
+  it('preserves saved refusal decisions and outstanding reconstruction through portable import', async () => {
+    const source = store('refusal-source'), backups = service(source, 'refusal-source');
+    source.replaceHistory(source.snapshot().revision, 'main', Array.from({ length: 4 }, (_, index) => ({ user: `Mira carries key ${index + 1}.`, assistant: 'Leon waits outside.', complete: true })));
+    const before = source.snapshot();
+    const summaries: SummaryNode[] = [0, 1].map(index => ({ id: randomUUID(), revision: 0, level: 1, text: "I can't help with this.",
+      turns: before.turns.slice(index * 2, index * 2 + 2).map(sourceOf), children: [], prior: [], approved: true, manual: false, createdAt: new Date().toISOString(),
+      refusalCheck: { version: summaryRefusalFilterVersion, result: 'suspected', ...(index === 0 ? { decision: 'keep' as const } : {}) },
+      ...(index === 1 ? { regeneration: 'refusal' as const } : {}),
+    }));
+    for (const node of summaries) source.sqlite.prepare('INSERT INTO summaries (id, revision, chat_id, data) VALUES (?, ?, ?, ?)').run(node.id, node.revision, 'main', JSON.stringify(node));
+    source.sqlite.prepare('INSERT INTO context_states (chat_id, revision, data) VALUES (?, ?, ?)').run('main', 1, JSON.stringify({ selected: summaries.map(({ id, revision }) => ({ id, revision })), archivedTurnIds: before.turns.map(turn => turn.id) }));
+    const destination = store('refusal-target'), target = service(destination, 'refusal-target');
+    const review = target.upload(await bytes(backups), owner);
+    expect(review.blockers).toEqual([]);
+    target.commit(review.stageId, owner, receipt(review));
+    expect(destination.snapshot().context.summaries).toEqual(summaries);
+    expect(destination.snapshot().turns).toEqual(before.turns);
+    expect(destination.snapshot().context.selected).toEqual(summaries.map(({ id, revision }) => ({ id, revision })));
+  });
+
   it('records the creating commit and still reads historical package-version metadata', async () => {
     const source = store('identity'), backups = service(source, 'identity');
     const snapshot = await bytes(backups);

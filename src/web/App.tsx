@@ -297,7 +297,7 @@ export function App() {
   const preparing = snapshot?.preparing;
   const working = Boolean(active || preparing);
   const summariesEnabled = hasPromptMarker(snapshot?.sources.prompt, 'summary');
-  const memoryStale = summariesEnabled && Boolean(snapshot?.memory.stale);
+  const memoryStale = summariesEnabled && Boolean(snapshot?.memory.stale || snapshot?.memory.refusalBlocked);
   const pending = snapshot?.latestTurn?.complete === false;
   const latest = snapshot?.latestGeneration;
   const currentToolSnapshot = toolSnapshot?.id === snapshot?.id ? toolSnapshot : null;
@@ -445,7 +445,8 @@ export function App() {
         <button className="quiet chat-navigation-action" onClick={() => setTab('request')}><Icon name="Menu" />{t("app.request_inspector")}</button>
       </>}>
       <section className="conversation" aria-label={t("app.conversation")}>
-        {memoryStale && <div className="recovery" role="status"><div><strong>{t("app.memory_needs_review")}</strong><p>{t("app.archived_history_changed_repair_the_affected_summaries")}</p></div><button className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button></div>}
+        {Boolean(snapshot.memory.refusalCount) && <div className="recovery" role="status"><div><strong>{t('refusals.notice', { count: snapshot.memory.refusalCount })}</strong></div><button className="secondary" onClick={() => setTab('memory')}>{t('refusals.review')}</button></div>}
+        {memoryStale && !snapshot.memory.refusalCount && <div className="recovery" role="status"><div><strong>{t("app.memory_needs_review")}</strong><p>{t("app.archived_history_changed_repair_the_affected_summaries")}</p></div><button className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button></div>}
         {pageError && <div className="recovery" role="alert">{pageError}<button className="secondary" onClick={() => setPageError('')}>{t("app.dismiss")}</button></div>}
         <div className="transcript-frame"><div className="transcript" ref={transcript}>
           {snapshot.page.hasOlder && <div className="history-page-control" data-history-direction="older"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('older')}>{pageLoading ? t("app.loading_history") : t("app.load_older_turns")}</button></div>}

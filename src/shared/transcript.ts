@@ -20,6 +20,6 @@ export type StorySnapshot = Pick<ChatSnapshot, 'id' | 'revision' | 'settings' | 
   latestTurn: { id: string; complete: boolean } | null;
   latestGeneration: StoryGeneration | null;
   preparing: boolean;
-  memory: { revision: number; selectedCount: number; archivedCount: number; stale: boolean };
+  memory: { revision: number; selectedCount: number; archivedCount: number; stale: boolean; refusalCount: number; refusalBlocked: boolean };
   page: { turns: TranscriptTurn[]; generations: StoryGeneration[]; hasOlder: boolean; hasNewer: boolean };
 };

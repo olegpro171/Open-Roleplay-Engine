@@ -533,6 +533,14 @@ export async function createApp(options: {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
     store.contexts.clearMemory(chatId(request.params), revision); coordinator.changed(); return { ok: true };
   });
+  app.post('/api/chats/:chatId/context/refusals', async request => {
+    const input = z.object({ revision: revisionSchema, filterVersion: z.number().int().positive(),
+      summaries: z.array(z.object({ id: z.string().uuid(), revision: revisionSchema }).strict()).min(1).max(50_000),
+      action: z.enum(['keep', 'regenerate', 'delete']),
+    }).strict().parse(request.body);
+    const result = store.contexts.resolveRefusals(chatId(request.params), input.revision, input.filterVersion, input.summaries, input.action);
+    coordinator.changed(); return result;
+  });
   app.post('/api/chats/:chatId/context/refresh', async request => {
     const input = z.object({ revision: revisionSchema, requestId: z.string().uuid() }).strict().parse(request.body);
     const existing = store.contexts.commandJob(chatId(request.params), input.requestId, 'refresh');

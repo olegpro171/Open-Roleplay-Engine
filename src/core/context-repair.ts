@@ -3,12 +3,14 @@ import type { ChatSnapshot, RequestPreview } from '../shared/contracts.js';
 import { refKey, type ContextOperation, type RepairChange, type SummaryRef } from '../shared/context.js';
 import { AppError } from './errors.js';
 import { nodeFor, sourceOf, staleSummaries } from './context.js';
+import { assertCleanSummaryInput, unresolvedRefusal } from './summary-refusals.js';
 
 /** Compare effective incorporated inputs, rather than treating all provenance edits as content changes. */
 export function repairInputs(snapshot: ChatSnapshot, operation: ContextOperation, previousRequest: RequestPreview | null) {
   const old = operation.repair && nodeFor(snapshot.context, operation.repair);
   if (!old) throw new AppError(422, 'missing_summary', message("errors.the_summary_being_repaired_is_missing"));
   const changes: RepairChange[] = [];
+  const rebuilding = unresolvedRefusal(old);
   const latest = new Map<string, SummaryRef>();
   for (const node of snapshot.context.summaries) if (node.approved && node.revision > (latest.get(node.id)?.revision ?? -1)) latest.set(node.id, { id: node.id, revision: node.revision });
   const current = (ref: SummaryRef) => latest.get(ref.id) ?? ref;
@@ -51,11 +53,14 @@ export function repairInputs(snapshot: ChatSnapshot, operation: ContextOperation
       const before = beforeRef && nodeFor(snapshot.context, beforeRef), after = afterRef && nodeFor(snapshot.context, afterRef);
       if (beforeRef && !before || afterRef && !after) throw new AppError(422, 'invalid_context', message("errors.a_summary_input_revision_is_missing"));
       if (afterRef && stale.has(refKey(afterRef))) throw new AppError(409, 'stale_dependency', message("errors.repair_the_changed_input_summary_before_repairing_its"));
+      if (after) assertCleanSummaryInput(after);
+      const omitted = before && unresolvedRefusal(before);
+      if (omitted) known = false;
       const coverageChanged = !same(before?.turns.map(source => source.turnId) ?? [], after?.turns.map(source => source.turnId) ?? []);
       if (coverageChanged) structureUnchanged = false;
       add({ kind, id, label: `${kind === 'prior' ? 'Earlier memory' : kind === 'correction' ? 'Manual correction requiring reconciliation' : 'Source summary'} · level ${(after ?? before)!.level} · ${id}${coverageChanged ? ' · coverage changed' : ''}`,
-        before: before?.text ?? null, after: after?.text ?? null, beforeRevision: beforeRef?.revision ?? null, afterRevision: afterRef?.revision ?? null, ...(coverageChanged ? { coverageChanged: true } : {}) });
+        before: omitted ? null : before?.text ?? null, after: after?.text ?? null, beforeRevision: beforeRef?.revision ?? null, afterRevision: afterRef?.revision ?? null, ...(coverageChanged ? { coverageChanged: true } : {}), ...(omitted ? { beforeOmitted: 'unusable_summary' as const } : {}) });
     }
   }
-  return { old, changes, prior, corrections, currentSources, known, structureUnchanged, reusable: known && structureUnchanged && changes.length === 0 };
+  return { old, changes, prior, corrections, currentSources, known, structureUnchanged, rebuilding, reusable: !rebuilding && known && structureUnchanged && changes.length === 0 };
 }

@@ -81,7 +81,7 @@ it('derives archived/stale status from all source revisions even when those turn
   const node = { id: 'saved-memory', revision: 0, level: 1, text: 'Private memory text', turns: sources, children: [], prior: [], approved: true, manual: false, createdAt: '' };
   f.store.sqlite.prepare('INSERT INTO summaries (id,revision,chat_id,data) VALUES (?,?,?,?)').run(node.id, 0, 'main', JSON.stringify(node));
   f.store.sqlite.prepare('INSERT INTO context_states (chat_id,revision,data) VALUES (?,?,?)').run('main', 1, JSON.stringify({ selected: [{ id: node.id, revision: 0 }], archivedTurnIds: sources.map(source => source.turnId) }));
-  expect(f.read().memory).toEqual({ revision: 1, archivedCount: 3, selectedCount: 1, stale: false });
+  expect(f.read().memory).toEqual({ revision: 1, archivedCount: 3, selectedCount: 1, stale: false, refusalCount: 0, refusalBlocked: false });
   f.store.sqlite.prepare('UPDATE turns SET user_revision = user_revision + 1 WHERE id = ?').run(sources[0]?.turnId);
   const result = f.read();
   expect(result.memory.stale).toBe(true);

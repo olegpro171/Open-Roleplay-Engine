@@ -8,6 +8,8 @@ In **Libraries → Context presets**, the built-in **Default context preset** ca
 
 Generated summaries are checked for obvious refusals, placeholders, empty output, repetition loops and incomplete/truncated responses before they can replace source context. These are basic heuristics, not verification of summary facts. Real-model narrative quality and actual phone use remain unverified.
 
+Saved summaries are checked again when the refusal detector changes. Story shows **Review suspected refusals**; Memory offers **Keep as is**, **Regenerate & repair**, or a previewed **Delete from here onward…**. Regeneration starts through **Repair summaries**, rebuilding refused output from clean sources before repairing its consumers. Detected refusal text is withheld from new summary requests unless explicitly kept as a false positive. Suffix deletion preserves original turns and historical requests; use **Prepare chat** to rebuild afterward. Checks and decisions persist across restart without automatically making model requests. See [saved refusal recovery](docs/SUMMARY_REFUSALS.md).
+
 ## Start on this Mac
 
 Double-click **start-app.command**, or run:

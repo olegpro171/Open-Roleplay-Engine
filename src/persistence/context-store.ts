@@ -4,7 +4,10 @@ import type { Store } from './store.js';
 import { AppError } from '../core/errors.js';
 import { contextPlan } from '../core/context-plan.js';
 import { refreshContext } from '../core/context-refresh.js';
-import { summaryDeletion } from '../core/context-delete.js';
+import { summaryDeletion, summarySuffixDeletion } from '../core/context-delete.js';
+import { checkSummaryRefusal, summaryRefusalCheck, unresolvedRefusal, assertRefusalSelection } from '../core/summary-refusals.js';
+import { summaryRefusalFilterVersion } from '../core/summary-validation.js';
+import { latestApproved } from '../core/context-corrections.js';
 import { savedReplacement } from '../core/context-reuse.js';
 import { nextRepair, nodeFor, repairQueue, replaceSelection, selectedContext, sourceOf } from '../core/context.js';
 import { repairInputs } from '../core/context-repair.js';
@@ -25,6 +28,14 @@ export class ContextStore {
   snapshot(chatId: string, presetId: string | null): ContextSnapshot {
     const row = this.sqlite.prepare('SELECT data, revision FROM context_states WHERE chat_id = ?').get(chatId) as (JsonRow & { revision: number }) | undefined;
     const summaries = (this.sqlite.prepare('SELECT data FROM summaries WHERE chat_id = ? ORDER BY rowid').all(chatId) as JsonRow[]).map(row => JSON.parse(row.data) as SummaryNode);
+    const update = this.sqlite.prepare("UPDATE summaries SET data = json_set(data, '$.refusalCheck', json(?)) WHERE chat_id = ? AND id = ? AND revision = ?");
+    // A check changes only quality metadata, never text/source or chat revisions.
+    // Persist it once per filter version; historical text remains available locally.
+    for (const node of summaries) {
+      if (node.refusalCheck?.version === summaryRefusalFilterVersion) continue;
+      node.refusalCheck = checkSummaryRefusal(node.text);
+      update.run(JSON.stringify(node.refusalCheck), chatId, node.id, node.revision);
+    }
     const jobs = (this.sqlite.prepare('SELECT data FROM context_jobs WHERE chat_id = ? ORDER BY rowid DESC LIMIT 20').all(chatId) as JsonRow[]).map(row => JSON.parse(row.data) as ContextJob);
     return { ...emptyContextState(), ...(row ? JSON.parse(row.data) as ContextState : {}), revision: row?.revision ?? 0, summaries, preset: this.store.contextPreset(presetId), jobs };
   }
@@ -91,7 +102,10 @@ export class ContextStore {
     }
     this.sqlite.prepare('INSERT INTO context_states (chat_id, revision, data) VALUES (?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET revision=excluded.revision, data=excluded.data').run(chatId, state.revision, JSON.stringify({ selected: state.selected, archivedTurnIds: state.archivedTurnIds }));
   }
-  private saveNode(chatId: string, node: SummaryNode) { this.sqlite.prepare('INSERT INTO summaries (id, revision, chat_id, data) VALUES (?, ?, ?, ?)').run(node.id, node.revision, chatId, JSON.stringify(node)); }
+  private saveNode(chatId: string, node: SummaryNode) {
+    node.refusalCheck = checkSummaryRefusal(node.text);
+    this.sqlite.prepare('INSERT INTO summaries (id, revision, chat_id, data) VALUES (?, ?, ?, ?)').run(node.id, node.revision, chatId, JSON.stringify(node));
+  }
   private repairedState(snapshot: ChatSnapshot, node: SummaryNode): ContextState {
     return { ...snapshot.context, revision: snapshot.context.revision + 1,
       archivedTurnIds: snapshot.context.archivedTurnIds.filter(id => snapshot.turns.some(turn => turn.id === id)),
@@ -152,6 +166,7 @@ export class ContextStore {
       if (!hasPromptMarker(snapshot.sources.prompt, 'summary')) throw new AppError(422, 'summaries_disabled', message("errors.summaries_are_disabled_enable_a_summary_marker_in"));
       if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) throw new AppError(409, 'repair_awaits_review', message("errors.approve_or_discard_the_existing_repair_candidate_before"));
       if (!preset) throw new AppError(422, 'context_required', message("errors.select_a_context_preset_first"));
+      if (mode !== 'repair') assertRefusalSelection(snapshot.context);
       // Only an explicit Prepare click may restore detail. Automatic preparation
       // and single steps continue from the committed selection.
       const reselection = mode === 'prepare' && !generationId ? refreshContext(snapshot, { allowOverflowFallback: true }) : null;
@@ -244,7 +259,7 @@ export class ContextStore {
       if (sourceTurns.length !== sourceIds.size || sourceTurns.some(turn => !turn.complete)) throw new AppError(409, 'stale_sources', message("errors.the_summary_sources_changed"));
       if (savedStep.request && JSON.stringify(savedStep.request.coverage) !== JSON.stringify(sourceTurns.map(sourceOf))) throw new AppError(409, 'stale_sources', message("errors.the_source_revisions_changed_while_the_model_was"));
       const identity = repair?.id ?? randomUUID();
-      const unchanged = Boolean(inputs?.known && inputs.structureUnchanged && text === inputs.old.text && step.operation.turnIds.length);
+      const unchanged = Boolean(inputs && !inputs.rebuilding && inputs.known && inputs.structureUnchanged && text === inputs.old.text && step.operation.turnIds.length);
       const node: SummaryNode = { id: identity, revision: repair ? Math.max(...snapshot.context.summaries.filter(node => node.id === identity).map(node => node.revision)) + 1 : 0,
         level: step.operation.level, text, turns: sourceTurns.map(sourceOf), children: step.operation.children, prior,
         ...(inputs ? { corrections: inputs.corrections } : {}),
@@ -308,7 +323,7 @@ export class ContextStore {
           ? { ...candidate, text: normalized, manual: true, revision: Math.max(...snapshot.context.summaries.filter(node => node.id === candidate.id).map(node => node.revision)) + 1 }
           : candidate;
         const changed = edited.revision !== candidate.revision;
-        const approved = { ...edited, approved: true };
+        const approved = { ...edited, approved: true, refusalCheck: checkSummaryRefusal(edited.text) };
         const state: ContextState = { ...snapshot.context, revision: snapshot.context.revision + 1,
           summaries: changed ? [...snapshot.context.summaries, approved] : snapshot.context.summaries.map(node => refKey(node) === refKey(approved) ? approved : node),
           archivedTurnIds: snapshot.context.archivedTurnIds.filter(id => snapshot.turns.some(turn => turn.id === id)),
@@ -373,15 +388,47 @@ export class ContextStore {
         throw new AppError(409, 'context_review_pending', message("memory.close_the_repair_review_before_deleting_summaries"));
       }
       const deletion = summaryDeletion(this.store.snapshot(chatId).context, ref);
-      this.sqlite.prepare(`UPDATE context_steps SET data = json_set(data, '$.resultDeleted', json('true'))
-        WHERE job_id IN (SELECT id FROM context_jobs WHERE chat_id = ?)
-        AND json_extract(data, '$.result.id') IN (SELECT value FROM json_each(?))`)
-        .run(chatId, JSON.stringify([...deletion.deletedIds]));
-      const remove = this.sqlite.prepare('DELETE FROM summaries WHERE chat_id = ? AND id = ?');
-      for (const id of deletion.deletedIds) remove.run(chatId, id);
-      this.saveState(chatId, deletion.after);
+      return this.commitDeletion(chatId, deletion);
+    })();
+  }
+  private commitDeletion(chatId: string, deletion: ReturnType<typeof summaryDeletion>) {
+    this.sqlite.prepare(`UPDATE context_steps SET data = json_set(data, '$.resultDeleted', json('true'))
+      WHERE job_id IN (SELECT id FROM context_jobs WHERE chat_id = ?)
+      AND json_extract(data, '$.result.id') IN (SELECT value FROM json_each(?))`)
+      .run(chatId, JSON.stringify([...deletion.deletedIds]));
+    const remove = this.sqlite.prepare('DELETE FROM summaries WHERE chat_id = ? AND id = ?');
+    for (const id of deletion.deletedIds) remove.run(chatId, id);
+    this.saveState(chatId, deletion.after);
+    this.store.bumpRevision(chatId);
+    return { deletedIds: [...deletion.deletedIds], restoredTurnIds: deletion.restoredTurnIds };
+  }
+  resolveRefusals(chatId: string, revision: number, filterVersion: number, refs: SummaryRef[], action: 'keep' | 'regenerate' | 'delete') {
+    return this.sqlite.transaction(() => {
+      this.store.checkRevision(revision, chatId);
+      this.store.ensureIdle(chatId);
+      if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) {
+        throw new AppError(409, 'context_review_pending', message('refusals.close_repair_first'));
+      }
+      const snapshot = this.store.snapshot(chatId);
+      const latest = new Map(latestApproved(snapshot.context).map(node => [node.id, node]));
+      const nodes = refs.map(ref => {
+        const node = latest.get(ref.id);
+        if (filterVersion !== summaryRefusalFilterVersion || !node || node.revision !== ref.revision || !unresolvedRefusal(node)) {
+          throw new AppError(409, 'stale_refusal_review', message('refusals.review_changed'));
+        }
+        return node;
+      });
+      if (action === 'delete') return this.commitDeletion(chatId, summarySuffixDeletion(snapshot.context, snapshot.turns.map(turn => turn.id), refs));
+      for (const node of nodes) {
+        if (action === 'keep') {
+          const check = summaryRefusalCheck(node);
+          node.refusalCheck = check.result === 'suspected' ? { ...check, decision: 'keep' } : check;
+          delete node.regeneration;
+        } else node.regeneration = 'refusal';
+        this.sqlite.prepare('UPDATE summaries SET data = ? WHERE chat_id = ? AND id = ? AND revision = ?').run(JSON.stringify(node), chatId, node.id, node.revision);
+      }
       this.store.bumpRevision(chatId);
-      return { deletedIds: [...deletion.deletedIds], restoredTurnIds: deletion.restoredTurnIds };
+      return { ok: true };
     })();
   }
   clearMemory(chatId: string, revision: number) {
@@ -399,7 +446,7 @@ export class ContextStore {
       if (!text.trim() || !old.turns.length) throw new AppError(400, 'blank_summary', message("errors.a_saved_summary_must_have_nonempty_text_and"));
       const normalized = text.trim();
       if (normalized === old.text) return { id: old.id, revision: old.revision };
-      const node: SummaryNode = { ...old, revision: Math.max(...state.summaries.filter(node => node.id === ref.id).map(node => node.revision)) + 1, text: normalized, manual: true, createdAt: new Date().toISOString(), basedOn: ref };
+      const node: SummaryNode = { ...old, regeneration: undefined, revision: Math.max(...state.summaries.filter(node => node.id === ref.id).map(node => node.revision)) + 1, text: normalized, manual: true, createdAt: new Date().toISOString(), basedOn: ref };
       this.saveNode(chatId, node);
       const replacement = { id: node.id, revision: node.revision };
       this.saveState(chatId, { ...state, revision: state.revision + 1, selected: state.selected.map(selected => refKey(selected) === refKey(ref) ? replacement : selected) });

@@ -5,6 +5,7 @@ import type { Turn } from '../shared/contracts.js';
 import { refKey, type ContextOperation, type ContextPreset, type ContextState, type SummaryNode, type SummaryRef, type TurnSource } from '../shared/context.js';
 
 import { correctionMessage, correctionDiagnostic, correctionProtection, latestApproved, summaryDependencies } from './context-corrections.js';
+import { assertRefusalSelection } from './summary-refusals.js';
 
 export const sourceOf = (turn: Turn) => ({ turnId: turn.id, userRevision: turn.user.revision, assistantRevision: turn.assistant.sourceRevision ?? turn.assistant.revision, complete: turn.complete });
 export const nodeFor = (state: ContextState, ref: SummaryRef) => state.summaries.find(node => refKey(node) === refKey(ref));
@@ -25,7 +26,7 @@ export function staleSummarySources(turnSources: TurnSource[], state: ContextSta
     const node = nodes.get(key);
     if (!node || visiting.has(key)) { stale.add(key); return true; }
     visiting.add(key);
-    let invalid = node.turns.some(source => {
+    let invalid = node.regeneration === 'refusal' || node.turns.some(source => {
       const current = sources.get(source.turnId);
       return !current || !current.complete || current.userRevision !== source.userRevision || current.assistantRevision !== source.assistantRevision;
     });
@@ -41,6 +42,7 @@ export function staleSummarySources(turnSources: TurnSource[], state: ContextSta
 }
 
 export function selectedContext(turns: Turn[], state: ContextState, allowStale = false): { summaries: SummaryNode[]; verbatim: Turn[] } {
+  if (!allowStale) assertRefusalSelection(state);
   const prefix = turns.slice(0, state.archivedTurnIds.length);
   const byRef = new Map(state.summaries.map(node => [refKey(node), node]));
   const nodes = state.selected.map(ref => byRef.get(refKey(ref)));
@@ -179,6 +181,7 @@ export function repairQueue(turns: Turn[], state: ContextState, replacements = n
       ...(reconcile.length ? { reconcile: reconcile.map(({ id, revision }) => ({ id, revision })) } : {}) });
   };
   for (const correction of protection.corrections) visit(correction);
+  for (const node of latest.values()) if (node.regeneration === 'refusal') visit(node);
   for (const ref of [...state.selected, ...targets]) visit(ref);
   return queue;
 }

@@ -4,11 +4,13 @@ import { AppError } from '../core/errors.js';
 import { promptDiagnostics } from '../core/prompt-diagnostics.js';
 import { staleSummarySources } from '../core/context.js';
 import { refKey } from '../shared/context.js';
+import { refusalAffected, refusalFindings } from '../core/summary-refusals.js';
 import { transcriptQuerySchema, type StoryGeneration, type StorySnapshot, type TranscriptQuery } from '../shared/transcript.js';
 import type { Store } from './store.js';
 import * as schema from './schema.js';
 
-// Read-only presentation queries. Engine/coordinator callers retain Store.snapshot.
+// Bounded presentation queries; context reads may cache refusal-check metadata.
+// Engine/coordinator callers retain Store.snapshot.
 export class StoryReader {
   constructor(private readonly store: Store) {}
 
@@ -42,10 +44,11 @@ export class StoryReader {
       }).from(schema.turns).leftJoin(schema.responseVariants, eq(schema.responseVariants.id, schema.turns.selectedVariantId))
         .where(eq(schema.turns.chatId, chatId)).all();
       const stale = staleSummarySources(sources, context);
+      const refused = refusalAffected(context);
       return {
         ...header, promptDiagnostics: promptDiagnostics(header.sources), sources: { ...header.sources, lorebook: undefined }, totalTurns, latestTurn, latestGeneration,
         preparing: this.store.contexts.running(chatId),
-        memory: { revision: context.revision, selectedCount: context.selected.length,
+        memory: { revision: context.revision, selectedCount: context.selected.length, refusalCount: refusalFindings(context).length, refusalBlocked: context.selected.some(ref => refused.has(refKey(ref))),
           archivedCount: sources.filter(source => archived.has(source.turnId)).length, stale: context.selected.some(ref => stale.has(refKey(ref))) },
         page: { turns: turns.map((turn, index) => ({ ...turn, ordinal: start + index + 1, archived: archived.has(turn.id) })),
           generations: turns.length ? this.generations(chatId, turns.map(turn => turn.id)) : [],

@@ -24,6 +24,12 @@ function isRefusal(text: string): boolean {
     || /^(?:извините[,!\s]*(?:но\s+)?)?я не могу (?:помочь с (?:этим|данным) запросом|выполнить (?:этот|данный) запрос|(?:суммировать|резюмировать|обобщить) (?:этот|данный) (?:текст|материал))/iu.test(text);
 }
 
+/** Increment only when saved-text refusal detection changes. */
+export const summaryRefusalFilterVersion = 1;
+export function containsSummaryRefusal(text: string): boolean {
+  return isRefusal(comparable(text));
+}
+
 function isRepetitionLoop(text: string): boolean {
   const words = text.toLocaleLowerCase('en').match(/[\p{L}\p{N}]+/gu) ?? [];
   // Six or more repetitions covering the entire response are a strong loop signal.

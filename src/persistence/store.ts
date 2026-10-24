@@ -17,6 +17,8 @@ import { MessageError, outcomeMessage, type LocalizedMessage } from '../shared/l
 import { replaceNameMacros } from '../core/prompt.js';
 import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStatus, RequestPreview, ResponseVariant, TokenUsage, Turn } from '../shared/contracts.js';
 import { regenerationView } from '../core/regeneration.js';
+import { assertRefusalSelection } from '../core/summary-refusals.js';
+import { hasPromptMarker } from '../shared/library.js';
 import { readCharacterAlternateGreetings, characterLabel, characterSchema, libraryCharacterSchema, libraryPersonaSchema, personaSchema, defaultPrompt, defaultInstructions, selectionsSchema, type Character, type LibraryCharacter, type LibraryPersona, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary, type PromptSources } from '../shared/library.js';
 import { lorebookSchema, loreDiagnosticSchema, type Lorebook, type LoreImportPreview, type LoreResolution, type LoreState } from '../shared/lorebook.js';
 import { importLorebook, loreCompatibility, markLoreEdits } from '../core/lorebook-formats.js';
@@ -823,6 +825,7 @@ export class Store {
       this.checkRevision(expected, chatId); this.ensureIdle(chatId);
       const snapshot = this.snapshot(chatId);
       if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.save_a_connection_before_sending_a_turn"));
+      if (hasPromptMarker(snapshot.sources.prompt, 'summary')) assertRefusalSelection(snapshot.context);
       let turn = snapshot.turns.at(-1);
       if (text !== undefined) {
         if (turn && !turn.complete) throw new AppError(409, 'pending_turn', message("errors.resolve_or_delete_the_pending_turn_before_submitting"));
@@ -846,6 +849,7 @@ export class Store {
       this.checkRevision(expected, chatId);
       this.ensureIdle(chatId);
       const snapshot = this.snapshot(chatId), target = snapshot.turns.at(-1);
+      if (hasPromptMarker(snapshot.sources.prompt, 'summary')) assertRefusalSelection(snapshot.context);
       if (!target?.complete || target.id !== turnId) throw new AppError(409, 'latest_turn_only', message("errors.only_the_latest_completed_turn_can_be_regenerated"));
       if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.select_a_connection_before_regenerating_a_response"));
       const { context } = regenerationView(snapshot);

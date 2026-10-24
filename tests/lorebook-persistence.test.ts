@@ -14,6 +14,7 @@ import { defaultContextPreset, type ContextJob, type ContextStep, type SummaryNo
 import fixtures from './fixtures/lorebooks.json';
 import { legacyLorePrompt, legacyRoleplayPrompt } from '../src/persistence/legacy-prompt.js';
 import { upgradePrompt } from '../src/core/prompt-upgrade.js';
+import { summaryRefusalFilterVersion } from '../src/core/summary-validation.js';
 
 const folders: string[] = [];
 const stores: Store[] = [];
@@ -464,7 +465,7 @@ describe('schema 7 lorebook migration', () => {
     expect(saved.sources.lorebook).toBeNull();
     expect(store.libraries().lorebooks).toEqual([]);
     expect(character(store, seeded.characterId).lorebookId).toBeUndefined();
-    expect(saved.context.summaries).toContainEqual(seeded.summary);
+    expect(saved.context.summaries).toContainEqual({ ...seeded.summary, refusalCheck: { version: summaryRefusalFilterVersion, result: 'passed' } });
     expect(saved.context.selected).toEqual([{ id: seeded.summary.id, revision: seeded.summary.revision }]);
     expect(saved.generations[0]?.request).toEqual(seeded.request);
     expect(saved.generations[0]?.request).not.toHaveProperty('lore');

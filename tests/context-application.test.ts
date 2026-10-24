@@ -12,9 +12,14 @@ import { GenerationCoordinator } from '../src/server/coordinator.js';
 import type { Provider } from '../src/provider/openai.js';
 import type { RequestPreview } from '../src/shared/contracts.js';
 import { defaultContextPreset, refKey, type ContextJob, type SummaryRetry, type SummaryNode } from '../src/shared/context.js';
-import { contextPlan } from '../src/core/context-plan.js';
+import { contextPlan, summaryRequest } from '../src/core/context-plan.js';
+import { repairInputs } from '../src/core/context-repair.js';
 import { repairQueue, selectedContext } from '../src/core/context.js';
 import { correctionProtection } from '../src/core/context-corrections.js';
+import { summaryRefusalFilterVersion } from '../src/core/summary-validation.js';
+import { refusalFindings } from '../src/core/summary-refusals.js';
+import { summarySuffixDeletion } from '../src/core/context-delete.js';
+import { StoryReader } from '../src/persistence/story-reader.js';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const dispose of cleanup.splice(0)) await dispose(); });
@@ -66,6 +71,189 @@ function retainedAlternative(f: ReturnType<typeof fixture>, source: SummaryNode,
   f.store.sqlite.prepare('INSERT INTO summaries (id, revision, chat_id, data) VALUES (?, ?, ?, ?)').run(node.id, node.revision, f.chatId, JSON.stringify(node));
   return node;
 }
+
+it('detects legacy refusals before prepared memory can be used', async () => {
+  const f = fixture(8);
+  expect((await f.idle(f.start())).status).toBe('succeeded');
+  const before = f.state();
+  const ref = before.context.selected[0];
+  const node = before.context.summaries.find(node => refKey(node) === refKey(ref));
+  expect(node).toBeDefined();
+  f.store.sqlite.prepare('UPDATE summaries SET data = ? WHERE chat_id = ? AND id = ? AND revision = ?')
+    .run(JSON.stringify({ ...node, text: "I can't help with this.", refusalCheck: undefined }), f.chatId, ref.id, ref.revision);
+  const checked = f.state();
+  expect(checked.context.summaries.find(node => refKey(node) === refKey(ref))).toHaveProperty('refusalCheck.result', 'suspected');
+  expect(contextPlan(checked).ready).toBe(false);
+  expect(() => assembleRequest(checked.connection!, checked.settings, checked.turns, checked.sources, checked.context)).toThrow(/refusal/i);
+  expect(f.calls.length).toBe(before.context.jobs.reduce((count, job) => count + (job.generatedCount ?? 0), 0));
+});
+
+function legacyRefusal(f: ReturnType<typeof fixture>, node: SummaryNode) {
+  f.store.sqlite.prepare('UPDATE summaries SET data = ? WHERE chat_id = ? AND id = ? AND revision = ?')
+    .run(JSON.stringify({ ...node, text: "I can't help with this. Please try a different request.", refusalCheck: undefined }), f.chatId, node.id, node.revision);
+  return f.state().context.summaries.find(saved => refKey(saved) === refKey(node))!;
+}
+
+describe('saved refusal recovery', () => {
+  it.each(['child', 'prior', 'correction'] as const)('withholds refused previous %s text, supplies its clean replacement, and rejects an unresolved current source', kind => {
+    const f = fixture(8), snapshot = f.state();
+    const source: SummaryNode = { id: randomUUID(), revision: 0, level: 1, text: "I can't help with this.",
+      turns: snapshot.turns.slice(0, 2).map(turn => ({ turnId: turn.id, userRevision: turn.user.revision, assistantRevision: turn.assistant.sourceRevision ?? turn.assistant.revision, complete: true })),
+      children: [], prior: [], approved: true, manual: kind === 'correction', createdAt: '' };
+    const replacement: SummaryNode = { ...source, revision: 1, text: 'Mira kept the brass key and Leon left the cellar closed.', basedOn: source };
+    const consumer: SummaryNode = { ...source, id: randomUUID(), level: kind === 'child' ? 2 : 1,
+      text: 'Mira waited for Leon beside the cellar.', manual: false,
+      children: kind === 'child' ? [source] : [], prior: kind === 'prior' ? [source] : [], corrections: kind === 'correction' ? [source] : [] };
+    const operation = { level: consumer.level, turnIds: consumer.turns.map(source => source.turnId), children: kind === 'child' ? [replacement] : [], repair: consumer };
+    const current = { ...snapshot, context: { ...snapshot.context, summaries: [source, replacement, consumer] } };
+    const inputs = repairInputs(current, operation, null);
+    expect(inputs.reusable).toBe(false);
+    expect(inputs.known).toBe(false);
+    expect(inputs.changes.find(change => change.kind === kind)).toMatchObject({ before: null, after: replacement.text, beforeOmitted: 'unusable_summary' });
+    const request = summaryRequest(current, operation, snapshot.connection!);
+    expect(JSON.stringify(request.request.body)).not.toContain(source.text);
+    expect(JSON.stringify(request.request.body)).toContain(replacement.text);
+    const unresolved = { ...current, context: { ...current.context, summaries: [source, consumer] } };
+    expect(() => summaryRequest(unresolved, { ...operation, children: kind === 'child' ? [source] : [] }, snapshot.connection!)).toThrow(/source summary may contain a refusal/);
+  });
+
+  it('persists checks without changing text/provenance, discovers them in Story, and retains a false-positive decision across restart', async () => {
+    const f = fixture(8); await f.idle(f.start('step'));
+    const node = legacyRefusal(f, f.state().context.summaries[0]);
+    const before = f.state(), calls = f.calls.length;
+    const history = f.store.contexts.details(before.context.jobs[0].id);
+    f.store.sqlite.exec("CREATE TRIGGER reject_repeated_check BEFORE UPDATE ON summaries BEGIN SELECT RAISE(ABORT, 'cached summaries must not be rescanned'); END");
+    expect(f.state().context.summaries).toEqual(before.context.summaries);
+    f.store.sqlite.exec('DROP TRIGGER reject_repeated_check');
+    const story = new StoryReader(f.store).read(f.chatId, { limit: 15, shift: 0 });
+    expect(story.memory).toMatchObject({ refusalCount: 1, refusalBlocked: true });
+    expect(() => f.store.begin(before.revision, randomUUID(), 'A new scene.', f.chatId)).toThrow(/refusal/);
+    expect(f.state().turns).toEqual(before.turns);
+    expect(f.state().revision).toBe(before.revision);
+    // A restored check from an unknown detector version must not be trusted.
+    f.store.sqlite.prepare("UPDATE summaries SET data = json_set(data, '$.refusalCheck.version', ?, '$.refusalCheck.result', 'passed') WHERE chat_id = ? AND id = ?")
+      .run(summaryRefusalFilterVersion + 1, f.chatId, node.id);
+    expect(f.state().context.summaries[0].refusalCheck).toEqual({ version: summaryRefusalFilterVersion, result: 'suspected' });
+    f.store.contexts.resolveRefusals(f.chatId, before.revision, summaryRefusalFilterVersion, [node], 'keep');
+    const kept = f.state();
+    expect(refusalFindings(kept.context)).toEqual([]);
+    expect(contextPlan(kept).stale).toEqual([]);
+    expect(() => assembleRequest(kept.connection!, kept.settings, kept.turns, kept.sources, kept.context, { validateLimits: false })).not.toThrow();
+    expect(kept.context.selected).toEqual(before.context.selected);
+    expect(kept.context.summaries[0]).toMatchObject({ text: node.text, revision: node.revision, refusalCheck: { decision: 'keep' } });
+    expect(f.store.contexts.details(before.context.jobs[0].id)).toEqual(history);
+    expect(() => validateContent(f.store.sqlite)).not.toThrow();
+    await f.resume();
+    expect(f.state().context.summaries).toEqual(kept.context.summaries);
+    expect(f.calls).toHaveLength(calls);
+    f.store.contexts.editSummary(f.chatId, f.state().revision, node, "I cannot summarize this content.");
+    expect(refusalFindings(f.state().context)).toHaveLength(1);
+  });
+
+  it('forces reconstruction with unchanged turns and withholds old refused inputs when repairing all required consumers', async () => {
+    const f = fixture(24); await f.idle(f.start());
+    const original = f.state();
+    const source = original.context.summaries.find(node => node.level === 1)!;
+    const node = legacyRefusal(f, source), calls = f.calls.length;
+    const history = original.context.jobs.map(job => f.store.contexts.details(job.id));
+    f.store.contexts.resolveRefusals(f.chatId, f.state().revision, summaryRefusalFilterVersion, [node], 'regenerate');
+    expect(repairQueue(f.state().turns, f.state().context)[0].repair).toEqual({ id: node.id, revision: node.revision });
+    f.setMode('unchanged');
+    const id = f.start('repair');
+    expect((await f.idle(id)).status).toBe('awaiting_review');
+    expect(f.calls).toHaveLength(calls + 1);
+    const rebuilt = JSON.parse(f.calls[calls].request.body.messages.at(-1)!.content);
+    expect(rebuilt.previous_summary).toBeUndefined();
+    expect(rebuilt.sources).toHaveLength(2);
+    expect(JSON.stringify(rebuilt)).toContain(f.imported[0].user);
+    const firstCandidate = f.state().context.summaries.find(node => !node.approved)!;
+    expect(firstCandidate.id).toBe(node.id);
+    let approvals = 0;
+    while (f.store.contexts.job(id).status === 'awaiting_review' && approvals < 100) {
+      f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'approve');
+      await f.idle(id); approvals++;
+    }
+    expect(f.store.contexts.job(id).status).toBe('succeeded');
+    expect(approvals).toBeGreaterThan(1);
+    const recovery = f.calls.slice(calls).map(call => call.request.body);
+    expect(JSON.stringify(recovery)).not.toContain(node.text);
+    expect(JSON.stringify(recovery)).not.toContain("I can't help");
+    const payloads = recovery.map(body => JSON.parse(body.messages.at(-1)!.content));
+    expect(payloads.some(payload => payload.changes?.some((change: { before: string | null; beforeOmitted?: string }) => change.before === null && change.beforeOmitted === 'unusable_summary'))).toBe(true);
+    expect(f.state().turns).toEqual(original.turns);
+    expect(f.state().context.summaries.find(saved => refKey(saved) === refKey(node))?.text).toBe(node.text);
+    expect(contextPlan(f.state()).stale).toEqual([]);
+    expect(refusalFindings(f.state().context)).toEqual([]);
+    expect(original.context.jobs.map(job => f.store.contexts.details(job.id))).toEqual(history);
+    expect(() => validateContent(f.store.sqlite)).not.toThrow();
+  });
+
+  it('preserves approved recovery progress on Close and restart, and rejects late cancelled output', async () => {
+    const f = fixture(24); await f.idle(f.start());
+    const node = legacyRefusal(f, f.state().context.summaries.find(node => node.level === 1)!);
+    f.store.contexts.resolveRefusals(f.chatId, f.state().revision, summaryRefusalFilterVersion, [node], 'regenerate');
+    const id = f.start('repair'); await f.idle(id);
+    const candidate = f.state().context.summaries.find(node => !node.approved)!;
+    f.holdNext();
+    f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'approve');
+    await expect.poll(() => f.store.contexts.job(id).stepCount).toBe(2);
+    f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'close');
+    f.release();
+    await f.resume();
+    expect(f.state().context.summaries.find(node => refKey(node) === refKey(candidate))).toMatchObject({ approved: true });
+    expect(f.state().context.summaries.filter(node => !node.approved)).toEqual([]);
+    expect(contextPlan(f.state()).stale.length).toBeGreaterThan(0);
+    const reopened = f.start('repair'); await f.idle(reopened);
+    expect(f.store.contexts.job(reopened).status).toBe('awaiting_review');
+    expect(f.state().context.summaries.find(node => !node.approved)?.id).not.toBe(candidate.id);
+  });
+
+  it('deletes the chronological suffix across layers atomically, preserves turns/requests, and rebuilds through Prepare', async () => {
+    const f = fixture(24); await f.idle(f.start());
+    const original = f.state();
+    const node = legacyRefusal(f, original.context.summaries.find(node => node.level === 1 && node.turns[0].turnId === original.turns[2].id)!);
+    const before = f.state(), calls = f.calls.length;
+    const preview = summarySuffixDeletion(before.context, before.turns.map(turn => turn.id), [node]);
+    expect(preview.boundary).toBe(2);
+    expect(preview.deleted.some(summary => summary.level > 1 && summary.turns[0].turnId === original.turns[0].id)).toBe(true);
+    const requests = before.context.jobs.flatMap(job => f.store.contexts.steps(job.id).map(step => step.request));
+    expect(() => f.store.contexts.resolveRefusals(f.chatId, before.revision - 1, summaryRefusalFilterVersion, [node], 'delete')).toThrow(/changed/);
+    expect(f.state()).toEqual(before);
+    f.store.sqlite.exec("CREATE TRIGGER reject_refusal_deletion BEFORE DELETE ON summaries BEGIN SELECT RAISE(ABORT, 'synthetic delete failure'); END");
+    expect(() => f.store.contexts.resolveRefusals(f.chatId, before.revision, summaryRefusalFilterVersion, [node], 'delete')).toThrow('synthetic delete failure');
+    expect(f.state()).toEqual(before);
+    f.store.sqlite.exec('DROP TRIGGER reject_refusal_deletion');
+    f.store.contexts.resolveRefusals(f.chatId, before.revision, summaryRefusalFilterVersion, [node], 'delete');
+    const deleted = f.state();
+    expect(deleted.turns).toEqual(before.turns);
+    expect(deleted.context.summaries.map(node => node.id).some(id => preview.deletedIds.has(id))).toBe(false);
+    expect(deleted.context.selected).toEqual(preview.after.selected);
+    expect(deleted.context.jobs.flatMap(job => f.store.contexts.steps(job.id).map(step => step.request))).toEqual(requests);
+    expect(f.calls).toHaveLength(calls);
+    await f.resume();
+    expect(f.state().context.summaries).toEqual(deleted.context.summaries);
+    expect((await f.idle(f.start())).status).toBe('succeeded');
+    expect(contextPlan(f.state()).ready).toBe(true);
+    expect(() => validateContent(f.store.sqlite)).not.toThrow();
+  });
+
+  it('does not block roleplay for unused alternatives or Summary-off, and rejects stale filter and busy review actions', async () => {
+    const f = fixture(8); await f.idle(f.start('step'));
+    const original = f.state();
+    const inactive = retainedAlternative(f, original.context.summaries[0], { text: 'I cannot summarize this content.', refusalCheck: undefined });
+    expect(new StoryReader(f.store).read(f.chatId, { shift: 0, limit: 15 }).memory).toMatchObject({ refusalCount: 1, refusalBlocked: false });
+    expect(() => f.store.contexts.resolveRefusals(f.chatId, f.state().revision, summaryRefusalFilterVersion + 1, [inactive], 'keep')).toThrow(/filter changed/);
+    const active = legacyRefusal(f, original.context.summaries[0]);
+    const prompt = f.store.libraries().prompts.find(prompt => prompt.id === 'default')!;
+    f.store.saveLibrary(f.store.libraryRevision(), 'prompts', { name: prompt.name, blocks: prompt.blocks.filter(block => block.kind !== 'marker' || block.marker !== 'summary') }, prompt.id);
+    expect(contextPlan(f.state()).stale).toEqual([]);
+    expect(() => assembleRequest(f.state().connection!, f.state().settings, f.state().turns, f.state().sources, f.state().context, { validateLimits: false })).not.toThrow();
+    f.holdNext();
+    const generation = f.coordinator.start(f.state().revision, randomUUID(), 'A new scene.', f.chatId);
+    expect(() => f.store.contexts.resolveRefusals(f.chatId, f.state().revision, summaryRefusalFilterVersion, [active], 'keep')).toThrow();
+    f.coordinator.cancel(generation.generationId); f.release();
+  });
+});
 
 it('resetting the built-in context preserves prepared memory and immutable request history across restart', async () => {
   const f = fixture(24, 500, true);

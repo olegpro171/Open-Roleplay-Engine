@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { BackupValidationError } from '../core/errors.js';
 import { chatSettingsSchema, connectionSchema, type RequestPreview } from '../shared/contracts.js';
 import { libraryCharacterSchema, libraryPersonaSchema, promptSchema } from '../shared/library.js';
-import { summaryRetrySchema, contextPresetSchema, type SummaryNode, type ContextJob, type ContextStep } from '../shared/context.js';
+import { summaryRefusalCheckSchema, summaryRetrySchema, contextPresetSchema, type SummaryNode, type ContextJob, type ContextStep } from '../shared/context.js';
 import { lorebookSchema, loreDiagnosticSchema, lorePlacements, loreRoleSchema } from '../shared/lorebook.js';
 import { canonicalTagName, tagNameSchema } from '../shared/tags.js';
 import { cropPixels, cropSchema, pictureLimits } from '../shared/pictures.js';
@@ -63,7 +63,7 @@ const ref = z.object({ id, revision: integer });
 const refs = z.array(ref).max(backupLimits.rows);
 const selection = z.object({ selected: refs, archivedTurnIds: z.array(id).max(backupLimits.rows) });
 const source = z.object({ turnId: id, userRevision: integer, assistantRevision: integer, complete: z.boolean() });
-const node = z.object({ id, revision: integer, level: integer.positive(), text: z.string().max(1_000_000), turns: z.array(source), children: refs, prior: refs, corrections: refs.optional(), basedOn: ref.optional(), approved: z.boolean(), manual: z.boolean(), createdAt: z.string() }) satisfies z.ZodType<SummaryNode>;
+const node = z.object({ refusalCheck: summaryRefusalCheckSchema.optional(), regeneration: z.literal('refusal').optional(), id, revision: integer, level: integer.positive(), text: z.string().max(1_000_000), turns: z.array(source), children: refs, prior: refs, corrections: refs.optional(), basedOn: ref.optional(), approved: z.boolean(), manual: z.boolean(), createdAt: z.string() }) satisfies z.ZodType<SummaryNode>;
 const entryState = z.object({ fingerprint: z.string(), matches: integer });
 const diagnostic = loreDiagnosticSchema;
 const loreResolution = z.object({
