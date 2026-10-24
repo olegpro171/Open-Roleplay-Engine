@@ -1,6 +1,6 @@
 // Stable presentation keys. Editable model prompts and user content do not belong here.
 export const englishMessages = {
-  "settings.saving": "Saving changes…",
+  "settings.save_slow": "Saving settings is taking longer than expected. Your changes have not been confirmed yet.",
   "settings.save_failed": "Settings could not be synchronized. Your changes are retained. {{error}}",
   "settings.retry": "Retry",
   "refusals.resolve_before_using_memory": "Saved memory may contain a refusal. Review suspected refusals in Memory before continuing.",

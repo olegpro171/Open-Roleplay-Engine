@@ -4,6 +4,89 @@ import { appearanceStatusSchema, type AppearanceStatus } from '../../src/shared/
 
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 
+for (const width of [1440, 390]) test(`settings save feedback stays quiet until one second and recovers at ${width}px`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width, height: 850 });
+  const session = await page.request.get('/api/session').then(response => response.json());
+  await page.goto('/');
+  await page.getByLabel('Owner password').fill('browser-synthetic-password');
+  await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+  await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible();
+  const path = '/api/application/appearance';
+  const read = async () => appearanceStatusSchema.parse(await page.request.get(path).then(response => response.json()));
+  const initial = await read();
+  await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Settings categories' }).getByRole('button', { name: 'Chat appearance', exact: true }).click();
+  const section = page.getByRole('region', { name: 'Chat appearance', exact: true });
+  const checkbox = section.getByRole('checkbox', { name: 'Display character picture in chat.', exact: true });
+  await expect(checkbox).toBeEnabled();
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
+  await page.clock.pauseAt(new Date('2026-01-01T00:01:00Z'));
+  let release = () => {};
+  let gate: Promise<void>;
+  const hold = () => { gate = new Promise<void>(resolve => { release = resolve; }); };
+  let fail = false;
+  let writes = 0;
+  hold();
+  await page.route(`**${path}`, async route => {
+    if (route.request().method() !== 'PUT') return route.continue();
+    writes++;
+    const shouldFail = fail;
+    await gate;
+    if (shouldFail) await route.fulfill({ status: 503, json: { message: 'Synthetic save failure' } });
+    else await route.continue();
+  });
+  try {
+    const before = await checkbox.boundingBox();
+    await checkbox.setChecked(!initial.settings.displayCharacterPicture);
+    await expect.poll(() => writes).toBe(1);
+    await page.clock.runFor(999);
+    await expect(section.getByRole('status')).toHaveCount(0);
+    await expect(section.getByRole('alert')).toHaveCount(0);
+    expect(await checkbox.boundingBox()).toEqual(before);
+    release();
+    await expect.poll(async () => (await read()).settings.displayCharacterPicture).toBe(!initial.settings.displayCharacterPicture);
+    await page.clock.runFor(1);
+    await expect(section.getByRole('alert')).toHaveCount(0);
+
+    hold();
+    await checkbox.setChecked(initial.settings.displayCharacterPicture);
+    await expect.poll(() => writes).toBe(2);
+    await page.clock.runFor(999);
+    await expect(section.getByRole('alert')).toHaveCount(0);
+    await page.clock.runFor(1);
+    await expect(section.getByRole('alert')).toContainText('Saving settings is taking longer than expected');
+    await page.screenshot({ path: testInfo.outputPath('slow-settings-save.png') });
+    release();
+    await expect(section.getByRole('alert')).toHaveCount(0);
+    expect((await read()).settings.displayCharacterPicture).toBe(initial.settings.displayCharacterPicture);
+
+    hold();
+    fail = true;
+    await checkbox.setChecked(!initial.settings.displayCharacterPicture);
+    await expect.poll(() => writes).toBe(3);
+    release();
+    await expect(section.getByRole('alert')).toContainText('Synthetic save failure');
+    await expect(checkbox).toBeChecked({ checked: !initial.settings.displayCharacterPicture });
+    expect((await read()).settings.displayCharacterPicture).toBe(initial.settings.displayCharacterPicture);
+    hold();
+    fail = false;
+    await section.getByRole('button', { name: 'Retry', exact: true }).click();
+    await expect.poll(() => writes).toBe(4);
+    await page.clock.runFor(999);
+    await expect(section.getByRole('alert')).toHaveCount(0);
+    release();
+    await expect.poll(async () => (await read()).settings.displayCharacterPicture).toBe(!initial.settings.displayCharacterPicture);
+    await page.clock.runFor(1001);
+    await expect(section.getByRole('alert')).toHaveCount(0);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+    const current = await read();
+    const restored = await page.request.put(path, { headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: current.revision, settings: initial.settings } });
+    expect(restored.ok()).toBe(true);
+  }
+});
+
 for (const width of [1440, 820, 390, 320]) {
   test(`application settings shares the workspace and scrolls categories at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 700 });

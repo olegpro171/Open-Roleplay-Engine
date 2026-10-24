@@ -18,7 +18,7 @@ Reported problems motivating the project include unreliable automatic scene boun
 
 ## 2. User-defined core concepts
 
-Accepted on 2026-10-24: Application Settings saves each valid change immediately, without Save or Reload buttons. Appearance, keyboard behavior and LAN settings retain failed changes with Retry; rapid edits serialize and competing saves reconcile only the fields changed locally. Language files refresh automatically while Settings is open. App-default colors save as they are adjusted; their picker closes without undoing saved changes. Backup export/import, data deletion and reusable library/chat editors retain their explicit action and confirmation flows.
+Accepted on 2026-10-24: Application Settings saves each valid change immediately, without Save or Reload buttons. Appearance, keyboard behavior and LAN settings retain failed changes with Retry; rapid edits serialize and competing saves reconcile only the fields changed locally. Language files refresh automatically while Settings is open. App-default colors save as they are adjusted; their picker closes without undoing saved changes. Backup export/import, data deletion and reusable library/chat editors retain their explicit action and confirmation flows. Accepted on 2026-10-25: routine settings saves show no transient status. A save still pending after one second shows an error-style delay banner until it finishes; confirmed failures appear immediately with Retry.
 
 ### Connection
 

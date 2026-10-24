@@ -27,9 +27,16 @@ export function useSettingsState<Settings extends object, Status extends Setting
 
 export function SettingsSaveStatus({ saving, error, retry }: { saving: boolean; error: unknown; retry: () => Promise<void> }) {
   useLocale();
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    setSlow(false);
+    if (!saving) return;
+    const timer = window.setTimeout(() => setSlow(true), 1000);
+    return () => window.clearTimeout(timer);
+  }, [saving]);
   return <>
-    {saving && <p role="status">{t('settings.saving')}</p>}
-    {error != null && <div role="alert"><p>{t('settings.save_failed', { error: formatMessage(errorText(error)) })}</p>
+    {saving && slow && error == null && <div className="error-banner" role="alert">{t('settings.save_slow')}</div>}
+    {error != null && <div className="error-banner" role="alert"><p>{t('settings.save_failed', { error: formatMessage(errorText(error)) })}</p>
       <button type="button" className="secondary" disabled={saving} onClick={() => void retry()}>{t('settings.retry')}</button></div>}
   </>;
 }
