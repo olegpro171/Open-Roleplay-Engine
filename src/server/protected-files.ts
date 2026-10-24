@@ -5,8 +5,8 @@ import { AppError } from '../core/errors.js';
 import { message } from '../shared/localization.js';
 import { filePasswordMaxLength, filePasswordSchema, protectedFileFormat as format, protectedFileHeaderBytes, protectedFileOverheadBytes } from '../shared/protected-files.js';
 
-// Kind is authenticated so a future Connection file cannot be interpreted as a backup.
-const kinds = { backup: 1 } as const;
+// Kind is authenticated so Connection files cannot be interpreted as backups.
+const kinds = { backup: 1, connection: 2 } as const;
 type ProtectedFileKind = keyof typeof kinds;
 const magic = Buffer.from(format.magic, 'ascii');
 const maxPasswordHeaderLength = 4 * Math.ceil(filePasswordMaxLength * 4 / 3);
@@ -62,6 +62,17 @@ async function withKey<T>(password: string, salt: Buffer, action: (key: Buffer) 
 
 export function isProtectedFile(bytes: Buffer): boolean {
   return bytes.subarray(0, magic.length).equals(magic);
+}
+
+// Small portable profiles use the same envelope without temporary plaintext files.
+export async function protectBytes(bytes: Buffer, kind: ProtectedFileKind, password: string): Promise<Buffer> {
+  const salt = randomBytes(format.saltBytes), nonce = randomBytes(format.nonceBytes);
+  const header = Buffer.concat([magic, Buffer.from([format.version, kinds[kind]]), salt, nonce]);
+  return withKey(password, salt, key => {
+    const cipher = createCipheriv('aes-256-gcm', key, nonce, { authTagLength: format.tagBytes });
+    cipher.setAAD(header);
+    return Buffer.concat([header, cipher.update(bytes), cipher.final(), cipher.getAuthTag()]);
+  });
 }
 
 export async function protectFile(source: string, destination: string, kind: ProtectedFileKind, password: string): Promise<void> {

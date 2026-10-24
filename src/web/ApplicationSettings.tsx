@@ -4,6 +4,7 @@ import { localizedMessageSchema, type LocalizedMessage } from '../shared/localiz
 import { newId } from './uuid';
 import { About } from './About';
 import { BackupFileDialog, type BackupFileAction } from './BackupFileDialog';
+import { startDownload } from './downloads';
 import { LanSettings } from './LanSettings';
 import { ChatAppearanceSettings } from './ChatAppearanceSettings';
 import { ChatBehaviorSettings } from './ChatBehaviorSettings';
@@ -73,20 +74,9 @@ export function ApplicationSettings({ openLibraries, appearance, chatBehavior, l
   async function download(exportPassword: string, confirmedPassword: string) {
     await run(async () => {
       if (exportPassword !== confirmedPassword) throw new LocalizedError(msg('application_settings.backup_password_mismatch'));
-      const response = await fetch('/api/data/backup', {
-        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: exportPassword }),
-      });
-      if (!response.ok) {
-        const failure = z.object({ message: z.string(), localized: localizedMessageSchema.optional() }).safeParse(await response.json());
-        throw failure.success ? new ApiError(failure.data.message, response.status, failure.data.localized)
-          : new LocalizedError(msg("application_settings.the_backup_could_not_be_created_check"));
-      }
-      const blob = await response.blob();
+      const prepared = await api<unknown>('/data/backup', 'POST', { password: exportPassword });
       if (!mounted.current) return;
-      const url = URL.createObjectURL(blob), link = document.createElement('a');
-      link.href = url; link.download = response.headers.get('content-disposition')?.match(/filename="([^"]+)"/)?.[1] ?? 'ORE-backup.orebackup';
-      link.click(); setTimeout(() => URL.revokeObjectURL(url),60_000);
+      startDownload(prepared);
       setFileAction(null);
       setMessage(msg("application_settings.backup_created_your_browser_handles_the_download"));
     });
@@ -158,7 +148,10 @@ export function ApplicationSettings({ openLibraries, appearance, chatBehavior, l
     <h2 id="data-backup-heading" tabIndex={-1}>{t("application_settings.data_backup")}</h2>
     <p>{t('application_settings.backup_contents')}</p>
     {!fileAction && feedbackArea === 'backup' && feedback}
-    <button type="button" disabled={busy} aria-haspopup="dialog" onClick={() => { setError(''); setErrorDetails(''); setMessage(''); setFileAction({ kind: 'save' }); }}>{t('application_settings.open_save_backup')}</button>
+    <button type="button" disabled={busy} aria-haspopup="dialog" onClick={event => {
+      event.currentTarget.focus({ preventScroll: true });
+      setError(''); setErrorDetails(''); setMessage(''); setFileAction({ kind: 'save' });
+    }}>{t('application_settings.open_save_backup')}</button>
     <section className="settings-subsection" aria-labelledby="import-backup-heading">
     <h3 id="import-backup-heading">{t("application_settings.import_backup")}</h3>
     <button type="button" className="secondary" disabled={busy || Boolean(uncertain)} onClick={() => fileInput.current?.click()}>{t('application_settings.select_backup_file')}</button>

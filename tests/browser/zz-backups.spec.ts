@@ -122,9 +122,11 @@ for (const width of [1440,390]) test(`password-protected backup, validation and 
   const downloadEvent = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   const download = await downloadEvent, path = await download.path();
+  expect(download.url()).toMatch(/^http:\/\/127\.0\.0\.1:4173\/api\/downloads\/[0-9a-f]{64}$/);
   if (!path) throw new Error('Missing synthetic encrypted backup');
   expect(download.suggestedFilename()).toMatch(/\.orebackup$/);
   const buffer = await readFile(path);
+  expect(await download.failure()).toBeNull();
   expect(buffer.includes(Buffer.from('synthetic-backup-api-key'))).toBe(false);
   await expect(dialog).toHaveCount(0);
   const importPassword = page.getByLabel('Backup password (if set)', { exact: true });

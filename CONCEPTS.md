@@ -33,6 +33,8 @@ A reusable data structure holding the information needed to call a model:
 
 The intended interface is a simple list of connections. Provider-specific editors and automatic tuning for individual providers are not an initial goal.
 
+Accepted on 2026-10-24: each Connection offers **Export...**, opening a dialog with an optional file password and an unchecked **Include API key** option. Checking it displays a credential-sharing warning. Save downloads an encrypted profile using the existing portable-file protection, including when the password is blank. **Import Connection...** selects a file and opens a password dialog; a failed opening stays there for password correction and retry. Successful import creates an independent Connection, preserving existing profiles. Passwords remain transient; API keys are included only by explicit choice.
+
 Proposed refinements:
 
 - Always allow manual model entry when model discovery is unavailable.
@@ -395,7 +397,7 @@ Files containing credentials should be protected against generic public-file sca
 
 The backup save action opens a dialog with optional password and confirmation fields visible immediately, plus Save and secondary Cancel actions. Selecting an import file opens a password dialog with Import and secondary Cancel actions. Failed opening stays in that dialog so the user can correct the password and retry the same file. Successful opening proceeds to the existing inspection and overwrite confirmation; cancelling discards transient passwords and file selection.
 
-Backup downloads use a versioned encrypted wrapper around the existing consistent portable snapshot. Existing plaintext SQLite backups remain importable through the same validation/review/confirmation flow. Use standard authenticated encryption and password derivation rather than a proprietary cipher or an embedded secret. Passwords are transient and excluded from saved data, browser storage, previews and diagnostics. The wrapper can be reused for future explicit Connection exports with API keys; that export option remains future work. Local database credential storage and HTTP LAN transport are unchanged. See [protected file format](docs/PROTECTED_FILES.md).
+Backup downloads use a versioned encrypted wrapper around the existing consistent portable snapshot. Existing plaintext SQLite backups remain importable through the same validation/review/confirmation flow. Use standard authenticated encryption and password derivation rather than a proprietary cipher or an embedded secret. Passwords are transient and excluded from saved data, browser storage, previews and diagnostics. Connection exports reuse this wrapper with a separate authenticated content kind and optional explicit API-key inclusion. Local database credential storage and HTTP LAN transport are unchanged. See [protected file format](docs/PROTECTED_FILES.md).
 
 ### Backup and release direction — accepted 2026-10-19
 

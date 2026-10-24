@@ -11,7 +11,8 @@ export class ApiError extends Error {
 export async function api<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`/api${path}`, {
     method, credentials: 'same-origin', signal,
-    ...(body !== undefined ? { headers: { 'Content-Type': 'application/json', 'X-ORE-Epoch': datasetEpoch() }, body: JSON.stringify(body) } : {}),
+    headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json', 'X-ORE-Epoch': datasetEpoch() } : {}) },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   const observed = response.headers.get('X-ORE-Epoch');
   if (observed && epoch === null) epoch = observed;

@@ -2,9 +2,13 @@ import { message } from '../shared/localization.js';
 import { defaultContextPreset, summaryRetrySchema } from '../shared/context.js';
 import { buildInfo } from './installation.js';
 import { BackupService } from './backups.js';
+import { Downloads } from './downloads.js';
+import { downloadTokenSchema } from '../shared/downloads.js';
 import { backupFileMaxBytes, backupLimits, backupTableSchema, dataCommandSchema } from '../shared/backups.js';
 import { protectedFilePasswordSchema } from '../shared/protected-files.js';
 import { filePasswordFromHeader } from './protected-files.js';
+import { connectionExportSchema, connectionImportSchema } from '../shared/connection-files.js';
+import { exportConnection, importConnection } from './connection-files.js';
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { promptDiagnostics } from '../core/prompt-diagnostics.js';
@@ -87,6 +91,7 @@ export async function createApp(options: {
   app.addHook('onReady', async () => { await lan.start(); });
   await app.register(cookie);
   const backups = new BackupService(store, options.database, options.migrationsDirectory);
+  const downloads = new Downloads();
   app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: backupFileMaxBytes }, (_request, body, done) => done(null, body));
   const mutations = new Set<string>();
   const executingMutations = new Set<string>();
@@ -217,13 +222,34 @@ export async function createApp(options: {
 
   const stageParams = z.object({ stageId: z.string().uuid() });
   const owner = (token?: string) => createHash('sha256').update(token ?? '').digest('hex');
+  app.get('/api/downloads/:token', async (request, reply) => {
+    const { token } = z.object({ token: downloadTokenSchema }).parse(request.params);
+    const download = downloads.open(token, owner(request.cookies.session));
+    reply.type('application/octet-stream')
+      .header('Content-Length', download.length)
+      .header('Content-Disposition', `attachment; filename="${download.filename}"`);
+    if ('bytes' in download.source) {
+      reply.raw.once('finish', () => download.release(request.method !== 'HEAD' && reply.statusCode === 200));
+      reply.raw.once('close', () => download.release());
+      return reply.send(download.source.bytes);
+    }
+    const stream = createReadStream(download.source.path);
+    let streamClosed = false, responseEnded = false, completed = false;
+    const release = () => { if (streamClosed && responseEnded) download.release(completed); };
+    stream.once('close', () => { streamClosed = true; release(); });
+    reply.raw.once('finish', () => { responseEnded = true; completed = request.method !== 'HEAD' && reply.statusCode === 200; release(); });
+    reply.raw.once('close', () => { responseEnded = true; stream.destroy(); release(); });
+    return reply.send(stream);
+  });
   app.post('/api/data/backup', async (request, reply) => {
     const { password } = protectedFilePasswordSchema.parse(request.body);
     const file = await backups.export(password);
     if (reply.raw.destroyed) { file.cleanup(); return reply; }
+    const filename = `ORE-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.orebackup`;
+    if (request.headers.accept === 'application/json') return downloads.add(owner(request.cookies.session), filename, file);
     const stream = createReadStream(file.path);
     stream.once('close', file.cleanup);
-    reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename="ORE-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.orebackup"`);
+    reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename="${filename}"`);
     return reply.send(stream);
   });
   app.post('/api/data/stages', { bodyLimit: backupFileMaxBytes }, async request => {
@@ -428,6 +454,25 @@ export async function createApp(options: {
     const input = z.object({ revision: revisionSchema, tagPolicy: tagPolicySchema }).strict().parse(request.body);
     const tags = store.tags.applyEmbedded(input.revision, id, input.tagPolicy); coordinator.changed();
     return { tags, revision: store.libraryRevision() };
+  });
+  app.post('/api/library/connections/:id/export', async (request, reply) => {
+    const { id } = z.object({ id: identity }).parse(request.params);
+    const { password, includeApiKey } = connectionExportSchema.parse(request.body);
+    const connection = store.connection(id);
+    const bytes = await exportConnection(connection, includeApiKey ? store.connectionApiKey(id) : undefined, password);
+    if (request.headers.accept === 'application/json') {
+      const filename = `${connection.name.replace(/[^a-z0-9_-]/gi, '_')}.oreconnection`;
+      return downloads.add(owner(request.cookies.session), filename, { bytes });
+    }
+    return reply.type('application/octet-stream')
+      .header('Content-Disposition', 'attachment; filename="ORE-connection.oreconnection"').send(bytes);
+  });
+  app.post('/api/library/connections/import', async request => {
+    const input = connectionImportSchema.parse(request.body);
+    const profile = await importConnection(input.base64, input.password);
+    const id = store.saveLibrary(input.revision, 'connections', profile.connection, undefined, profile.apiKey);
+    coordinator.changed();
+    return { id };
   });
   app.post('/api/library/connections/:id/duplicate', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
@@ -680,6 +725,6 @@ export async function createApp(options: {
     app.setNotFoundHandler((request, reply) => request.url.startsWith('/api/') ? reply.code(404).send({ message: 'Not found.' }) : sendIndex(reply));
   }
   app.addHook('preClose', async () => { await lan.close(); await pictures.close(); await coordinator.shutdown(); });
-  app.addHook('onClose', async () => { try { backups.close(); } finally { store.close(); } });
+  app.addHook('onClose', async () => { try { downloads.close(); backups.close(); } finally { store.close(); } });
   return { app, store, coordinator, lan };
 }
