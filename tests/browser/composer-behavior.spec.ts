@@ -55,16 +55,15 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
   try {
     await expect(region.getByRole('radio', { name: /^Send with Ctrl/ })).toBeChecked();
     await expect(region.getByText('Physical keyboard only', { exact: true })).toBeVisible();
-    await region.getByRole('radio', { name: /^Use Send button only/ }).check();
     await page.route(`**${url}`, route => route.request().method() === 'PUT'
       ? route.fulfill({ status: 500, json: { message: 'Synthetic behavior save failure.' } }) : route.continue());
-    await region.getByRole('button', { name: 'Save chat behavior', exact: true }).click();
-    await expect(region.getByRole('alert')).toContainText('Your edits are retained. Synthetic behavior save failure.');
+    await region.getByRole('radio', { name: /^Use Send button only/ }).check();
+    await expect(region.getByRole('alert')).toContainText('Your changes are retained. Synthetic behavior save failure.');
     await expect(region.getByRole('radio', { name: /^Use Send button only/ })).toBeChecked();
     expect((await status(page)).settings.enterKeyBehavior).toBe('ctrl-enter');
     await page.unroute(`**${url}`);
-    await region.getByRole('button', { name: 'Save chat behavior', exact: true }).click();
-    await expect(region.getByRole('status')).toHaveText('Chat behavior saved.');
+    await region.getByRole('button', { name: 'Retry', exact: true }).click();
+    await expect.poll(async () => (await status(page)).settings.enterKeyBehavior).toBe('button-only');
     await page.screenshot({ path: testInfo.outputPath('chat-behavior.png') });
     expect(await region.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -78,16 +77,10 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
     await composer.fill('Keep this unsent draft.');
 
     await settings(page);
-    await region.getByRole('radio', { name: /^Send with Enter/ }).check();
-    // A different tab's save must require reloading before local edits can commit.
+    // A competing save is reconciled automatically before the selected mode commits.
     await preference(page, 'ctrl-enter');
-    await expect(region.getByRole('alert')).toContainText('changed in another window');
-    await expect(region.getByRole('button', { name: 'Save chat behavior', exact: true })).toBeDisabled();
-    await region.getByRole('button', { name: 'Reload chat behavior', exact: true }).click();
-    await expect(region.getByRole('radio', { name: /^Send with Ctrl/ })).toBeChecked();
     await region.getByRole('radio', { name: /^Send with Enter/ }).check();
-    await region.getByRole('button', { name: 'Save chat behavior', exact: true }).click();
-    await expect(region.getByRole('status')).toHaveText('Chat behavior saved.');
+    await expect.poll(async () => (await status(page)).settings.enterKeyBehavior).toBe('enter');
     await story(page);
     await expect(composer).toHaveValue('Keep this unsent draft.');
     await expect(send).toHaveAttribute('title', 'Send (Enter)');
@@ -116,8 +109,7 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
 
     await settings(page);
     await region.getByRole('radio', { name: /^Send with Ctrl/ }).check();
-    await region.getByRole('button', { name: 'Save chat behavior', exact: true }).click();
-    await expect(region.getByRole('status')).toHaveText('Chat behavior saved.');
+    await expect.poll(async () => (await status(page)).settings.enterKeyBehavior).toBe('ctrl-enter');
     await story(page);
     await page.reload();
     await expect(send).toHaveAttribute('title', /^Send \(Ctrl(?: \/ ⌘)? \+ Enter\)$/);

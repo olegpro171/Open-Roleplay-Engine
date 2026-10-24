@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { localizedMessageSchema } from './localization.js';
 
 export const lanSettingsSchema = z.object({
   enabled: z.boolean(),
@@ -17,7 +18,7 @@ export const lanStatusSchema = z.object({
   runtime: z.discriminatedUnion('state', [
     z.object({ state: z.literal('off') }),
     z.object({ state: z.literal('listening'), url: z.string().url() }),
-    z.object({ state: z.literal('unavailable'), message: z.string() }),
+    z.object({ state: z.literal('unavailable'), message: z.string(), localized: localizedMessageSchema.optional() }),
   ]),
   canConfigure: z.boolean(),
 });

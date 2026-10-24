@@ -10,9 +10,9 @@ Use **Settings → Language → Interface language**. Language selectors are not
 
 To extend a partial translation after an app update, select it under **Interface language**, then choose **Download extended translation**. This downloads `<locale>.json` from the currently loaded pack, preserving its metadata, existing translations and unknown keys while filling missing current entries and required plural forms with English text. Translate the added values and import the file to update the installed pack. Downloading does not change the installed file or its coverage count. The button is disabled for the bundled English fallback and while language operations are running; the original template download remains available for starting a new translation.
 
-Alternatively, place a UTF-8 `<locale>.json` file in the installation's `languages/` directory and choose **Reload languages**. Examples are `ru.json`, `de.json` and `pt-BR.json`. The filename must match its canonical locale. Source development uses the repository's ignored `languages/` directory. Portable installations use `<ORE_HOME>/languages`, independently of database overrides and versioned `app/` directories. Updates preserve this directory. No rebuild or server restart is required.
+Alternatively, place a UTF-8 `<locale>.json` file in the installation's `languages/` directory; open Settings to discover it automatically. Examples are `ru.json`, `de.json` and `pt-BR.json`. The filename must match its canonical locale. Source development uses the repository's ignored `languages/` directory. Portable installations use `<ORE_HOME>/languages`, independently of database overrides and versioned `app/` directories. Updates preserve this directory. No rebuild or server restart is required.
 
-Reloading also updates the active pack. A removed selected language falls back to English, retaining the browser preference so it can be selected again after restoration. A malformed edit retains that server process's last valid pack and displays a notice. After restart, an invalid custom pack uses its bundled fallback, if present; other invalid packs are omitted. Reload is explicit, not a filesystem watcher.
+Reloading also updates the active pack. A removed selected language falls back to English, retaining the browser preference so it can be selected again after restoration. A malformed edit retains that server process's last valid pack and displays a notice. After restart, an invalid custom pack uses its bundled fallback, if present; other invalid packs are omitted. Settings refreshes language files when opened and every five seconds while open; polling stops when Settings closes. This uses the existing authenticated reload API, without a filesystem watcher or a Reload button.
 
 ## Pack format
 
@@ -61,7 +61,7 @@ Migration 15 adds a nullable `generations.error_message` field. New terminal out
 - `src/shared/localization-validation.ts`: presentation descriptors for Zod issues and explicitly authored validation messages.
 - `src/server/languages.ts`: bounded discovery, last-valid recovery, revision checks and private atomic file replacement.
 - `src/web/localization.tsx`: i18next/react-i18next instance, browser preference, stale-response protection and render-time message formatting.
-- `src/web/LanguageSettings.tsx`: selection, template download, import and reload controls.
+- `src/web/LanguageSettings.tsx`: selection, template download, import and automatic refresh.
 
 Use `t(key, params)` for render-time labels and subscribe with `useLocale()` in components, including memoized components. Use complete sentences with named placeholders rather than assembling translated words or changing their grammatical case in code. Use `message(key, params)` for saved/transient diagnostic identities, and `formatMessage` when rendering. `useTextState` retains a descriptor through language changes instead of freezing the previously translated string. API errors preserve descriptors through `errorText`.
 

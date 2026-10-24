@@ -28,6 +28,8 @@ import { ChatDetailsTarget, ChatWorkspace } from './ChatWorkspace';
 import { ChatCharacterPortrait } from './Pictures';
 import { useComposerKeyboard } from './useComposerKeyboard';
 import { useTouchScrollGuard } from './useTouchScrollGuard';
+import { useSettingsAutosave } from './useSettingsAutosave';
+import { lanStatusSchema, type LanSettings, type LanStatus } from '../shared/lan';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
@@ -57,6 +59,19 @@ export function App() {
   const [appearanceError, setAppearanceError] = useTextState(null);
   const [chatBehavior, setChatBehavior] = useState<ChatBehaviorStatus | null>(null);
   const [chatBehaviorError, setChatBehaviorError] = useTextState(null);
+  // Keep settings queues and failed choices through workspace navigation and reopening Settings.
+  const appearanceEditor = useSettingsAutosave<AppearanceStatus['settings'], AppearanceStatus>({
+    status: appearance, path: '/application/appearance', parse: value => appearanceStatusSchema.parse(value),
+    committed: value => { setAppearance(current => value.revision >= current.revision ? value : current); setAppearanceError(null); },
+  });
+  const behaviorEditor = useSettingsAutosave<ChatBehaviorStatus['settings'], ChatBehaviorStatus>({
+    status: chatBehavior, path: '/application/chat-behavior', parse: value => chatBehaviorStatusSchema.parse(value),
+    committed: value => { setChatBehavior(current => !current || value.revision >= current.revision ? value : current); setChatBehaviorError(null); },
+  });
+  const lanEditor = useSettingsAutosave<LanSettings, LanStatus>({
+    status: null, path: '/application/lan', parse: value => lanStatusSchema.parse(value),
+    body: ({ revision, settings }) => ({ revision, ...settings }),
+  });
   const sendInFlight = useRef(false);
   const [library, setLibrary] = useState<LibrarySnapshot | null>(null);
   const libraryCache = useRef<LibrarySnapshot | null>(null);
@@ -436,7 +451,7 @@ export function App() {
     {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" onClick={() => setError('')}>{t("app.dismiss")}</button></div>}
     {appearanceError && <div className="error-banner" role="alert"><span>{t("app.using_the_last_loaded_chat_appearance_or", { appearanceError: appearanceError })}</span><button className="quiet" onClick={() => void refresh()}>{t("app.retry_chat_appearance")}</button></div>}
     {chatBehaviorError && <div className="error-banner" role="alert"><span>{t('chat_behavior.shortcuts_unavailable', { error: chatBehaviorError })}</span><button className="quiet" onClick={() => void refresh()}>{t('chat_behavior.retry')}</button></div>}
-    {tab === 'data' && <ApplicationSettings chatBehavior={chatBehavior} chatBehaviorCommitted={value => { setChatBehavior(current => !current || value.revision >= current.revision ? value : current); setChatBehaviorError(null); }} appearance={appearance} appearanceCommitted={value => { setAppearance(current => value.revision >= current.revision ? value : current); setAppearanceError(null); }} openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
+    {tab === 'data' && <ApplicationSettings chatBehavior={behaviorEditor} appearance={appearanceEditor} lan={lanEditor} openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
     {snapshot && ['settings', 'memory', 'request'].includes(tab) && toolError && <div className="error-banner" role="alert">{toolError}<button onClick={() => setToolRetry(value => value + 1)}>{t("app.retry_loading")}</button></div>}
     {snapshot && ['settings', 'memory'].includes(tab) && toolSnapshot?.id !== snapshot.id && <main className="document-panel"><p role="status">{t("app.loading_chat_tools")}</p></main>}
     {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} navigation actions={<>

@@ -68,7 +68,7 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
   await expect(page.locator('html')).toHaveAttribute('lang', 'ru');
   await expect(page.getByRole('heading', { name: 'Язык', exact: true })).toBeVisible();
   // Missing translation is a readable English fallback, not an internal key.
-  await expect(page.getByRole('button', { name: 'Reload languages', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Download translation template', exact: true })).toBeVisible();
   const installedBefore = await page.request.get('/api/localization/ru').then(response => response.json());
   const downloading = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download extended translation', exact: true }).click();
@@ -79,7 +79,7 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
   const bytes = await readFile(path);
   const extended = languagePackSchema.parse(JSON.parse(bytes.toString('utf8')));
   expect(extended).toMatchObject(russian);
-  expect(extended.messages['language.reload']).toBe(englishPack.messages['language.reload']);
+  expect(extended.messages['language.template']).toBe(englishPack.messages['language.template']);
   expect(extended.messages['counts.turns_few']).toBe('{{count}} turns');
   expect(extended.messages['counts.turns_many']).toBe('{{count}} turns');
   validateTranslations(extended);
@@ -141,7 +141,9 @@ test('failed language requests preserve the previous selection and stored errors
   const installed = status.languages.find(item => item.locale === 'ru');
   const saved = await page.request.post('/api/localization/import', { headers: { Origin: 'http://127.0.0.1:4173' }, data: { pack: russian, expectedRevision: installed?.custom ? installed.revision : null } });
   expect(saved.ok()).toBe(true);
-  await page.getByRole('button', { name: 'Reload languages', exact: true }).click();
+  await page.waitForResponse(response => response.url().endsWith('/api/localization/reload') && response.ok());
+  await chooseLanguage(page, 'Interface language', 'Русский');
+  await chooseLanguage(page, 'Язык интерфейса', 'English');
   await expect(page.getByRole('alert')).toHaveCount(0);
   await page.route('**/api/logout', route => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: 'This response is no longer active.', localized: { key: 'errors.this_response_is_no_longer_active', fallback: 'This response is no longer active.' } }) }), { times: 1 });
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();

@@ -23,13 +23,22 @@ export function LanguageSettings() {
     try { await action(); } catch (error) { if (mounted.current) setError(errorText(error, message('language.unavailable'))); }
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   }
-  async function refresh() {
-    await run(async () => {
-      const result = await loadLanguages(true);
-      if (result.issues.some(issue => issue.file === 'languages')) setError(message('language.reloadFailed'));
-      else setNotice(message('language.reloaded'));
-    });
-  }
+  useEffect(() => {
+    let active = true;
+    let refreshing = false;
+    async function refresh() {
+      if (pending.current || refreshing) return;
+      refreshing = true;
+      try {
+        await loadLanguages(true);
+      } catch (cause) {
+        if (active) setError(errorText(cause, message('language.reloadFailed')));
+      } finally { refreshing = false; }
+    }
+    void refresh();
+    const timer = setInterval(() => void refresh(), 5000);
+    return () => { active = false; clearInterval(timer); };
+  }, [setError]);
   function download(pack: LanguagePack, filename: string) {
     const url = URL.createObjectURL(new Blob([JSON.stringify(pack, null, 2) + '\n'], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
@@ -71,7 +80,6 @@ export function LanguageSettings() {
       <button type="button" className="secondary" disabled={busy} onClick={() => fileInput.current?.click()}>{t('language.import')}</button>
       <button type="button" className="secondary" onClick={() => download(translationTemplate(), 'ORE-language-template.json')}>{t('language.template')}</button>
       <button type="button" className="secondary" disabled={busy || locale() === 'en'} aria-describedby="language-extend-help" onClick={() => download(extendTranslation(currentPack()), `${locale()}.json`)}>{t('language.extend')}</button>
-      <button type="button" className="secondary" disabled={busy} onClick={() => void refresh()}>{t('language.reload')}</button>
     </div>
     <p id="language-extend-help" className="small muted">{t('language.extendHelp')}</p>
     <input ref={fileInput} hidden type="file" accept=".json,application/json" aria-label={t('language.import')} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void inspect(file); }} />

@@ -200,7 +200,7 @@ it('fails closed for invalid saved settings and supports explicit replacement wi
   await instance.app.close();
   writeFileSync(join(directory, 'chat.sqlite.lan.json'), 'not valid JSON');
   await start();
-  expect((await status()).runtime.state).toBe('unavailable');
+  expect((await status()).runtime).toMatchObject({ state: 'unavailable', localized: { key: 'lan_settings.saved_settings_unreadable' } });
   expect((await instance.app.inject({ url: '/api/chat', headers: { cookie } })).statusCode).toBe(200);
   expect((await save({ enabled: false })).statusCode).toBe(200);
   expect((await status()).runtime.state).toBe('off');

@@ -7,7 +7,7 @@ async function chooseColor(page: Page, label: string, color: string) {
   await page.getByRole('button', { name: label, exact: true }).click();
   const picker = page.getByRole('dialog', { name: 'Choose color', exact: true });
   await picker.getByRole('textbox', { name: 'Hex color', exact: true }).fill(color);
-  await picker.getByRole('button', { name: 'Apply color', exact: true }).click();
+  await picker.getByRole('button', { name: label.startsWith('Default ') ? 'Close' : 'Apply color', exact: true }).click();
   await expect(picker).toHaveCount(0);
 }
 
@@ -126,8 +126,8 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     await expect(page.getByRole('heading', { name: 'Chat appearance', exact: true })).toBeFocused();
     const slider = settings.getByRole('slider', { name: 'Text scale' });
     const preview = settings.getByRole('region', { name: 'Chat text preview' }).locator('.chat-markdown');
-    const saveButton = settings.getByRole('button', { name: 'Save chat appearance', exact: true });
-    const buttonFontSize = await saveButton.evaluate(element => getComputedStyle(element).fontSize);
+    const colorButton = settings.getByRole('button', { name: 'Default character speech color', exact: true });
+    const buttonFontSize = await colorButton.evaluate(element => getComputedStyle(element).fontSize);
     await expect(slider).toHaveValue('100');
     await slider.focus();
     await slider.press('Home');
@@ -137,21 +137,20 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
       await expect(preview).toHaveCSS('line-height', `${Number((pixels * 1.85).toFixed(3))}px`);
       if (scale < 120) await slider.press('ArrowRight');
     }
-    await expect(saveButton).toHaveCSS('font-size', buttonFontSize);
-    await expect(observer.locator('.part.user .chat-markdown')).toHaveCSS('font-size', '15px');
-    await chooseColor(page, 'Default character speech color', '#eeaa88');
-    await chooseColor(page, 'Default persona speech color', '#88cc99');
+    await expect(colorButton).toHaveCSS('font-size', buttonFontSize);
+    await expect(observer.locator('.part.user .chat-markdown')).toHaveCSS('font-size', '18px');
     await page.route('**/api/application/appearance', route => route.request().method() === 'PUT'
       ? route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic appearance save failure.' }) }) : route.continue());
-    await settings.getByRole('button', { name: 'Save chat appearance', exact: true }).click();
+    await chooseColor(page, 'Default character speech color', '#eeaa88');
+    await chooseColor(page, 'Default persona speech color', '#88cc99');
     await expect(settings.getByRole('alert')).toContainText('Synthetic appearance save failure.');
     await expect(page.getByRole('button', { name: 'Default persona speech color', exact: true })).toContainText('#88CC99');
-    expect((await appearance()).settings).toEqual(defaultAppearance);
+    expect((await appearance()).settings).toEqual({ ...defaultAppearance, chatTextScale: 120 });
     await expect(slider).toHaveValue('120');
     await expect(preview).toHaveCSS('font-size', '18px');
     await page.unroute('**/api/application/appearance');
-    await settings.getByRole('button', { name: 'Save chat appearance', exact: true }).click();
-    await expect(settings.getByRole('status')).toHaveText('Chat appearance saved.');
+    await settings.getByRole('button', { name: 'Retry', exact: true }).click();
+    await expect(settings.getByRole('alert')).toHaveCount(0);
     await expect(observer.locator('.part.user .chat-markdown')).toHaveCSS('font-size', '18px');
     await expect(observer.locator('.part.assistant .chat-markdown')).toHaveCSS('font-size', '18px');
     await expect(observer.locator('.part.user .direct-speech')).toHaveCSS('color', 'rgb(136, 204, 153)');
@@ -160,19 +159,16 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     await page.screenshot({ path: testInfo.outputPath('chat-appearance.png'), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
-    // An external save must retain local drafts and reject stale writes.
+    // External saves refresh automatically, including after closing an instant color editor.
     await chooseColor(page, 'Default persona speech color', '#ffffff');
     await page.getByRole('button', { name: 'Default persona speech color', exact: true }).click();
     await page.getByRole('dialog', { name: 'Choose color', exact: true }).getByRole('textbox', { name: 'Hex color', exact: true }).fill('#f2b8c6');
     const currentAppearance = await appearance();
     const external = await page.request.put('/api/application/appearance', { headers, data: { revision: currentAppearance.revision, settings: { characterSpeechColor: '#eeaa88', personaSpeechColor: '#99bbdd' } } });
     expect(external.ok()).toBe(true);
-    await expect(page.getByRole('dialog', { name: 'Choose color', exact: true })).toHaveCount(0);
-    await expect(settings.getByRole('alert')).toContainText('another window');
-    await expect(page.getByRole('button', { name: 'Default persona speech color', exact: true })).toContainText('#FFFFFF');
-    await expect(settings.getByRole('button', { name: 'Save chat appearance', exact: true })).toBeDisabled();
-    await settings.getByRole('button', { name: 'Reload chat appearance', exact: true }).click();
-    await expect(page.getByRole('dialog', { name: 'Choose color', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Choose color', exact: true })).toBeVisible();
+    await expect(page.getByRole('dialog').getByRole('textbox', { name: 'Hex color', exact: true })).toHaveValue('#f2b8c6');
+    await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Default persona speech color', exact: true })).toContainText('#99BBDD');
     await expect(observer.locator('.part.user .direct-speech')).toHaveCSS('color', 'rgb(153, 187, 221)');
 

@@ -27,8 +27,8 @@ const presetGroups: { label: MessageKey; colors: { name: MessageKey; hex: string
   ] },
 ];
 
-export function ColorPicker({ label, value, onChange, disabled = false }: {
-  label: string; value: string; onChange: (value: string) => void; disabled?: boolean;
+export function ColorPicker({ label, value, onChange, disabled = false, instant = false }: {
+  label: string; value: string; onChange: (value: string) => void; disabled?: boolean; instant?: boolean;
 }) {
   useLocale();
   const [open, setOpen] = useState(false);
@@ -39,12 +39,12 @@ export function ColorPicker({ label, value, onChange, disabled = false }: {
       <span dir="ltr">{value.toUpperCase()}</span>
       <span className="color-picker-edit">{t('color_picker.edit')}</span>
     </button>
-    {open && !disabled && <ColorPickerDialog label={label} value={value} cancel={() => setOpen(false)} apply={color => { onChange(color); setOpen(false); }} />}
+    {open && !disabled && <ColorPickerDialog label={label} value={value} instant={instant} change={onChange} cancel={() => setOpen(false)} apply={color => { onChange(color); setOpen(false); }} />}
   </>;
 }
 
-function ColorPickerDialog({ label, value, cancel, apply }: {
-  label: string; value: string; cancel: () => void; apply: (color: string) => void;
+function ColorPickerDialog({ label, value, instant, change, cancel, apply }: {
+  label: string; value: string; instant: boolean; change: (color: string) => void; cancel: () => void; apply: (color: string) => void;
 }) {
   useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -70,6 +70,7 @@ function ColorPickerDialog({ label, value, cancel, apply }: {
     if (parsed.success) {
       setColor(parsed.data);
       setHsl(hexToHsl(parsed.data));
+      if (instant) change(parsed.data);
     }
   }
 
@@ -80,6 +81,7 @@ function ColorPickerDialog({ label, value, cancel, apply }: {
     setHsl(updated);
     setColor(hex);
     setHexDraft(hex);
+    if (instant) change(hex);
   }
 
   const channels: { channel: keyof HslColor; label: MessageKey; max: number; unit: string; background: string }[] = [
@@ -111,8 +113,8 @@ function ColorPickerDialog({ label, value, cancel, apply }: {
     <header className="color-picker-heading"><h2 id={titleId}>{t('color_picker.title')}</h2><p id={descriptionId}>{label}</p></header>
     <div className="color-picker-body">
       <div className="color-picker-preview">
-        <div><span className="color-picker-swatch" style={{ backgroundColor: value }} aria-hidden="true" /><small>{t('color_picker.current')}</small></div>
-        <div><span className="color-picker-swatch" style={{ backgroundColor: color }} aria-hidden="true" /><small>{t('color_picker.new')}</small></div>
+        {!instant && <div><span className="color-picker-swatch" style={{ backgroundColor: value }} aria-hidden="true" /><small>{t('color_picker.current')}</small></div>}
+        <div><span className="color-picker-swatch" style={{ backgroundColor: color }} aria-hidden="true" /><small>{t(instant ? 'color_picker.current' : 'color_picker.new')}</small></div>
         <span className="color-picker-sample" style={{ color }}>{t('color_picker.sample')}</span>
       </div>
       <div className="color-picker-channels" dir="ltr">{channels.map(({ channel, label: key, max, unit, background }) => <label key={channel}>
@@ -123,7 +125,7 @@ function ColorPickerDialog({ label, value, cancel, apply }: {
       <label className="color-picker-hex">{t('color_picker.hex')}
         <input type="text" dir="ltr" spellCheck={false} autoComplete="off" maxLength={7} value={hexDraft}
           aria-invalid={!valid} aria-describedby={!valid ? errorId : undefined} onChange={event => chooseHex(event.target.value)}
-          onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (valid) apply(color); } }} />
+          onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (valid) { if (instant) cancel(); else apply(color); } } }} />
       </label>
       {!valid && <p id={errorId} className="color-picker-error" role="alert">{t('validation.use_a_six_digit_hex_color')}</p>}
       <div className="color-picker-presets">{presetGroups.map(group => <div role="group" aria-label={t(group.label)} key={group.label}>
@@ -135,8 +137,10 @@ function ColorPickerDialog({ label, value, cancel, apply }: {
       </div>)}</div>
     </div>
     <footer className="actions color-picker-footer">
-      <button type="button" className="secondary" onClick={cancel}>{t('character_import.cancel')}</button>
-      <button type="button" disabled={!valid} onClick={() => apply(color)}>{t('color_picker.apply')}</button>
+      {instant ? <button type="button" className="secondary" onClick={cancel}>{t('reasoning.close')}</button> : <>
+        <button type="button" className="secondary" onClick={cancel}>{t('character_import.cancel')}</button>
+        <button type="button" disabled={!valid} onClick={() => apply(color)}>{t('color_picker.apply')}</button>
+      </>}
     </footer>
   </dialog>, document.body);
 }

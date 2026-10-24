@@ -1,4 +1,4 @@
-import { message } from '../shared/localization.js';
+import { message, type LocalizedMessage } from '../shared/localization.js';
 import type { IncomingMessage } from 'node:http';
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -28,7 +28,7 @@ export class LanAccess {
   private saved: Saved = { version: 2, revision: 0, settings: { enabled: false, automatic: true, interfaceId: null, port: 3000 }, binding: null };
   private upgradePending = false;
   private listener: Listener | null = null;
-  private message: string | null = null;
+  private message: string | LocalizedMessage | null = null;
   private invalidFile = false;
   private closed = false;
   private started = false;
@@ -57,7 +57,7 @@ export class LanAccess {
       }
     } catch {
       this.invalidFile = true;
-      this.message = 'Saved LAN settings could not be read. LAN access is off. Save settings from this computer to replace them.';
+      this.message = message('lan_settings.saved_settings_unreadable');
     }
   }
 
@@ -85,10 +85,18 @@ export class LanAccess {
 
   status(canConfigure: boolean): LanStatus {
     this.checkNetwork();
-    const runtime: LanStatus['runtime'] = this.options.unavailable ? { state: 'unavailable', message: this.options.unavailable }
-      : this.message ? { state: 'unavailable', message: this.message }
-      : this.listener ? { state: 'listening', url: `http://${this.listener.hostname}:${this.listener.port}` }
-      : { state: 'off' };
+    let runtime: LanStatus['runtime'];
+    if (this.options.unavailable) {
+      runtime = { state: 'unavailable', message: this.options.unavailable };
+    } else if (this.message) {
+      runtime = typeof this.message === 'string'
+        ? { state: 'unavailable', message: this.message }
+        : { state: 'unavailable', message: this.message.fallback, localized: this.message };
+    } else if (this.listener) {
+      runtime = { state: 'listening', url: `http://${this.listener.hostname}:${this.listener.port}` };
+    } else {
+      runtime = { state: 'off' };
+    }
     return { revision: this.saved.revision, settings: { ...this.saved.settings }, interfaces: this.interfaces(), runtime, canConfigure: canConfigure && !this.options.unavailable };
   }
 
@@ -177,7 +185,7 @@ export class LanAccess {
       this.preferredInterface = previous.binding.name;
       this.listener = null;
       this.message = this.saved.settings.automatic ? 'The local network changed. ORE will reconnect automatically.'
-        : 'The selected LAN address or subnet changed. LAN access is off. Select the current network and save settings from this computer.';
+        : message('lan_settings.manual_network_changed');
       void this.retire(previous);
     }
   }
@@ -207,7 +215,7 @@ export class LanAccess {
       if (this.listener?.authority !== authority) return;
       const previous = this.listener;
       this.listener = null;
-      this.message = this.saved.settings.automatic ? 'The LAN listener failed. ORE will retry automatically.' : 'The LAN listener failed. Save LAN settings from this computer to retry.';
+      this.message = this.saved.settings.automatic ? 'The LAN listener failed. ORE will retry automatically.' : message('lan_settings.manual_listener_failed');
       void this.retire(previous);
     });
     return { transport, authority, binding, port, hostname };

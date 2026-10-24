@@ -114,7 +114,7 @@ it('renders Russian plurals, English fallback and historical descriptors without
   try {
     await i18n.changeLanguage('ru');
     expect([1, 2, 5, 21].map(count => t('counts.turns', { count }))).toEqual(['1 ход', '2 хода', '5 ходов', '21 ход']);
-    expect(t('language.reload')).toBe('Reload languages');
+    expect(t('language.template')).toBe('Download translation template');
     expect(formatMessage(message('language.heading'))).toBe('Язык');
     expect(formatMessage({ key: 'retired.diagnostic', fallback: 'Original saved wording' })).toBe('Original saved wording');
     await i18n.changeLanguage('en');

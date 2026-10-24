@@ -8,8 +8,10 @@ import { LanSettings } from './LanSettings';
 import { ChatAppearanceSettings } from './ChatAppearanceSettings';
 import { ChatBehaviorSettings } from './ChatBehaviorSettings';
 import type { ChatBehaviorStatus } from '../shared/chat-behavior';
-import type { AppearanceStatus } from '../shared/appearance';
+import type { Appearance, AppearanceStatus } from '../shared/appearance';
 import { Dropdown } from './Controls';
+import type { SettingsAutosave } from './settings-autosave';
+import type { LanSettings as LanConfiguration, LanStatus } from '../shared/lan';
 import { useEffect, useRef, useState } from 'react';
 import { backupFileMaxBytes, backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type DataOutcome } from '../shared/backups';
 import { api, ApiError } from './api';
@@ -33,7 +35,12 @@ function recoveredCommand(): Command | null {
   try { const saved = localStorage.getItem(commandKey); return saved ? commandSchema.parse(JSON.parse(saved)) : null; }
   catch { return null; }
 }
-export function ApplicationSettings({ openLibraries, appearance, appearanceCommitted, chatBehavior, chatBehaviorCommitted }: { chatBehavior: ChatBehaviorStatus | null; chatBehaviorCommitted: (value: ChatBehaviorStatus) => void; openLibraries: () => void; appearance: AppearanceStatus; appearanceCommitted: (value: AppearanceStatus) => void }) {
+export function ApplicationSettings({ openLibraries, appearance, chatBehavior, lan }: {
+  openLibraries: () => void;
+  appearance: SettingsAutosave<Appearance, AppearanceStatus>;
+  chatBehavior: SettingsAutosave<ChatBehaviorStatus['settings'], ChatBehaviorStatus>;
+  lan: SettingsAutosave<LanConfiguration, LanStatus>;
+}) {
   useLocale();
   const [review,setReview] = useState<BackupReview|null>(null);
   const [offset,setOffset] = useState(0);
@@ -144,9 +151,9 @@ export function ApplicationSettings({ openLibraries, appearance, appearanceCommi
     </aside>
     <div className="document-panel library-panel settings-panel" aria-labelledby="application-settings-heading">
     {uncertain && <div className="recovery"><p>{t("application_settings.the_command_may_have_committed_retry_this")}</p><button disabled={busy} onClick={() => void run(() => execute(uncertain), uncertain.path === '/data/wipe' ? 'wipe' : 'backup')}>{t("application_settings.retry_data_command")}</button></div>}
-    <LanguageSettings /><ChatAppearanceSettings status={appearance} committed={appearanceCommitted} />
-    <ChatBehaviorSettings status={chatBehavior} committed={chatBehaviorCommitted} />
-    <LanSettings />
+    <LanguageSettings /><ChatAppearanceSettings autosave={appearance} />
+    <ChatBehaviorSettings autosave={chatBehavior} />
+    <LanSettings autosave={lan} />
     <section className="settings-section" aria-labelledby="data-backup-heading">
     <h2 id="data-backup-heading" tabIndex={-1}>{t("application_settings.data_backup")}</h2>
     <p>{t('application_settings.backup_contents')}</p>

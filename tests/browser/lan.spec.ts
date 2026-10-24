@@ -25,7 +25,22 @@ test('enables LAN from Application Settings and uses the app on an insecure phon
   await expect(settings.getByLabel('LAN port', { exact: true })).toHaveCount(0);
   await settings.getByLabel('Select network automatically').uncheck();
   await expect(settings.getByRole('combobox', { name: 'Local network' })).toContainText('browser-fixture');
-  await settings.getByLabel('LAN port', { exact: true }).fill('4174');
+  const port = settings.getByLabel('LAN port', { exact: true });
+  await expect.poll(async () => lanStatusSchema.parse(await page.request.get('/api/application/lan').then(response => response.json())).settings.automatic).toBe(false);
+  const portWrites: number[] = [];
+  page.on('request', request => {
+    if (request.url().endsWith('/api/application/lan') && request.method() === 'PUT') portWrites.push(request.postDataJSON().port);
+  });
+  await port.fill('80');
+  await expect(port).toHaveValue('80');
+  expect(await port.evaluate((input: HTMLInputElement) => input.validity.valid)).toBe(false);
+  await port.fill('');
+  await port.press('4');
+  await port.press('1');
+  await port.press('7');
+  await port.press('4');
+  await expect.poll(async () => lanStatusSchema.parse(await page.request.get('/api/application/lan').then(response => response.json())).settings.port).toBe(4174);
+  expect(portWrites).toEqual([4174]);
   let statusReadHeld = false, statusReadReleased = false;
   let releaseStatusRead: () => void = () => {};
   const heldRead = new Promise<void>(resolve => { releaseStatusRead = resolve; });
@@ -39,7 +54,6 @@ test('enables LAN from Application Settings and uses the app on an insecure phon
   try {
     await expect.poll(() => statusReadHeld, { timeout: 8000 }).toBe(true);
     await settings.getByLabel('Enable HTTP access from the local network').check();
-    await settings.getByRole('button', { name: 'Save LAN settings', exact: true }).click();
     await expect(settings.getByRole('textbox', { name: 'Phone address' })).toHaveValue('http://ore-browser.local:4174');
   } finally { releaseStatusRead(); }
   await expect.poll(() => statusReadReleased).toBe(true);
@@ -96,14 +110,12 @@ test('enables LAN from Application Settings and uses the app on an insecure phon
   } finally {
     await context.close();
     await settings.getByLabel('Enable HTTP access from the local network').uncheck();
-    await settings.getByRole('button', { name: 'Save LAN settings', exact: true }).click();
     await expect(settings.getByRole('textbox', { name: 'Phone address' })).toHaveCount(0);
   }
   expect(lanStatusSchema.parse(await page.request.get('/api/application/lan').then(response => response.json())).runtime.state).toBe('off');
   await settings.getByLabel('Select network automatically').check();
   await expect(settings.getByRole('combobox', { name: 'Local network' })).toHaveCount(0);
   await expect(settings.getByLabel('LAN port', { exact: true })).toHaveCount(0);
-  await settings.getByRole('button', { name: 'Save LAN settings', exact: true }).click();
   await expect.poll(async () => lanStatusSchema.parse(await page.request.get('/api/application/lan').then(response => response.json())).settings)
     .toEqual({ enabled: false, automatic: true, interfaceId: null, port: 3000 });
   await page.reload();
