@@ -155,9 +155,9 @@ Preserve all original turns, summary versions and roleplay request records. Save
 
 The user also requested current input inspection in the Story sidebar: total and active verbatim turns, the complete input estimate, a color-coded allocation and a detailed resolved prompt peek. Current request inspection follows saved settings and unsent input; historical attempts retain their original limits. Completed responses show endpoint-reported input/output tokens when supplied, independently of planning estimates. Missing counts are unavailable rather than inferred. The final user decision on 2026-10-17 is to use one shared `cl100k_base` reference tokenizer for all models, accepting modest differences from actual endpoint counts around the working input target. This replaces the earlier model-specific approach and avoids model mappings, tokenizer discovery and per-model assets. Apply the same measurement to request planning, allocations, summary sizes and savings. Keep endpoint usage attached to its exact historical request, and preserve saved estimates. Existing ‘Estimated input’ wording is sufficient; do not add tokenizer names, reference labels or repeated technical caveats to the normal interface. Method/version and limitations remain available in saved request metadata and developer documentation. Connection checks and the optional immediate ‘Hi’ test remain separate diagnostics, without calibration or chat changes.
 
-### Turn
-
 Accepted on 2026-10-24: Repair Review shows observed **Connecting**, **Reasoning** and **Generating** phases and opens at its full review size before a candidate arrives. The redundant “Checking affected memory…” label is removed. A summary rejected by the refusal heuristic can be inspected read-only from its failed request; inspection does not create a candidate, approve the text or change memory. Regenerate remains explicit. Saved summary text uses a fixed-height scrolling region so switching versions does not resize the page or replace the focused selector.
+
+### Turn
 
 The primary stored conversation unit is a **turn**, containing a user-input part and an assistant-response part. Accepted decisions:
 
@@ -218,6 +218,8 @@ Accepted chat-start refinement on 2026-10-18: **New chat** opens a compact form 
 Accepted on 2026-10-22: **Prompts**, **Connections** and **Context presets** each offer a bookmark to choose one default for new chats. The filled bookmark identifies the chosen default; clicking it clears that choice. Creation saves these selections immediately, including the context preset's own summarization settings. Changing defaults never changes existing chat selections. Without an available chosen default, retain the original fallback: built-in Prompt, first available Connection or None, and no Context preset. Character, Persona, title, input target, default lorebook and greeting retain their existing creation rules.
 
 Accepted Library interface refinement on 2026-10-18: every category uses a compact search box directly below its actions, with a magnifying glass and “Search …” placeholder for the current library, without a separate visible label or helper paragraph. Lorebooks places Import lorebook beside New lorebook, replacing the standalone import section while retaining import review.
+
+Accepted Library redesign on 2026-10-24: keep creation/import buttons in consistent toolbar positions across categories and viewport sizes. Separate item content from an ordered action footer, use a deliberate two-by-two action layout on narrow cards, and keep new-chat default bookmarks beside item titles. Search, sorting, import review, confirmations and editor recovery retain their behavior.
 
 Accepted Chats library refinement on 2026-10-21: clicking anywhere in a chat card opens Story, with a subtle hover highlight and keyboard access through its title. Delete chat remains a separate confirmed action, beside the chat details on narrow screens when space permits. A small round portrait of the assigned character precedes the title; the reusable avatar uses the saved crop and a neutral placeholder when no picture is available.
 
@@ -281,7 +283,7 @@ Accepted on 2026-10-22: all color selection uses a shared custom HSL picker with
 
 ### Library sorting
 
-Requested on 2026-10-21: compact sort dropdowns share the search row in every library. Offer names, added dates and edited dates in both directions; Chats additionally offers last-message recency. Unedited items fall back to their added date. Sorting combines with search and character tags, and each library remembers its choice in this browser. Defaults are newest added for reusable records and recent messages for Chats. Dates refer to local saved records; unavailable historical dates remain unknown and follow dated items. Sorting changes presentation only, preserving selections, prompts and history.
+Requested on 2026-10-21: compact sort dropdowns share the search row in every library (stacked below search on the narrowest panels after the 2026-10-24 redesign). Offer names, added dates and edited dates in both directions; Chats additionally offers last-message recency. Unedited items fall back to their added date. Sorting combines with search and character tags, and each library remembers its choice in this browser. Defaults are newest added for reusable records and recent messages for Chats. Dates refer to local saved records; unavailable historical dates remain unknown and follow dated items. Sorting changes presentation only, preserving selections, prompts and history.
 
 ### Character pictures
 

@@ -10,7 +10,7 @@ import { LoreDiagnostics } from './LorebookEditor';
 import { TagImportOptions } from './Tags';
 
 type Pending = { base64: string; review: CharacterImportReview; requestId: string; policy: TagPolicy; uncertain: boolean };
-export function CharacterImport({ revision, busy, run, imported, leadingAction, trailingAction, hidden }: { leadingAction?: ReactNode; trailingAction?: ReactNode; hidden?: boolean; revision: number; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; imported: (result: CharacterImportResult, missing: boolean) => void }) {
+export function CharacterImport({ revision, busy, run, imported, leadingAction, hidden }: { leadingAction?: ReactNode; hidden?: boolean; revision: number; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; imported: (result: CharacterImportResult, missing: boolean) => void }) {
   useLocale();
   const [pending, setPending] = useState<Pending | null>(null), [working, setWorking] = useState(false), [error, setError] = useTextState('');
   const attempt = useRef(0), submitting = useRef(false), analysisAbort = useRef<AbortController | null>(null);
@@ -50,7 +50,7 @@ export function CharacterImport({ revision, busy, run, imported, leadingAction, 
     if (current === attempt.current) setWorking(false);
   }
   return <section className="character-import" aria-label={t("character_import.character_import")} hidden={hidden}>
-    <div className="actions library-toolbar character-toolbar" role="group" aria-label={t("character_import.library_actions")}>{leadingAction}
+    <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}>{leadingAction}
     <label className="file-button"><Icon name="Import" />{t("character_import.import_character")}<input type="file" accept=".json,.png" disabled={busy || working || Boolean(pending)} onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
       const current = ++attempt.current; setWorking(true); setError('');
@@ -60,7 +60,7 @@ export function CharacterImport({ revision, busy, run, imported, leadingAction, 
         if (current !== attempt.current) return;
         await analyze(base64);
       } catch (error) { if (current === attempt.current) { setError(errorText(error, msg("character_import.could_not_read_the_card"))); setWorking(false); } }
-    }} /></label>{trailingAction}</div>
+    }} /></label></div>
     {working && <p role="status">{pending ? t("character_import.saving_or_reviewing_this_import") : t("character_import.analyzing_this_card")}</p>}
     {pending && <div className="character-import-review"><h2>{t("character_import.review", { name: pending.review.name })}</h2>
       {pending.review.book && <p>{t("character_import.embedded_lorebook_entries_an_independent_linked_book", { name: pending.review.book.name, entries: pending.review.book.entries })}</p>}

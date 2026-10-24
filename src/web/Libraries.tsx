@@ -212,6 +212,34 @@ function LibraryIcon({ kind }: { kind: LibraryKind | 'chats' }) {
   return name ? <Icon name={name} /> : <span className="icon-placeholder" aria-hidden="true" />;
 }
 
+function LibraryHeader({ editing, children }: { editing: boolean; children: ReactNode }) {
+  const header = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const element = header.current;
+    const panel = element?.parentElement;
+    const workspace = panel?.parentElement;
+    if (!element || !panel || !workspace) return;
+    // Native keyboard/scroll-into-view navigation must leave focused actions
+    // below the sticky controls, including translated or wrapped toolbar text.
+    const measure = () => {
+      const padding = getComputedStyle(element).position === 'sticky' ? `${element.offsetHeight + 12}px` : '';
+      panel.style.scrollPaddingBlockStart = padding;
+      workspace.style.scrollPaddingBlockStart = padding;
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    window.addEventListener('resize', measure);
+    measure();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+      panel.style.scrollPaddingBlockStart = '';
+      workspace.style.scrollPaddingBlockStart = '';
+    };
+  }, [editing]);
+  return <header ref={header} className={`library-list-header${editing ? ' is-editing' : ''}`}>{children}</header>;
+}
+
 export type LibraryTarget = { kind: 'prompts' | 'characters' | 'lorebooks' | 'contexts'; id: string };
 export function Libraries({ library, defaults, currentChatId, busy, run, openChat, initialTarget }: { library: LibrarySnapshot; defaults: ChatDefaultsStatus; currentChatId: string | null; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void; initialTarget?: LibraryTarget | null }) {
   useLocale();
@@ -346,11 +374,33 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
       <div className="library-editor-target" ref={setActionsTarget} />
     </aside>
     <section ref={panel} key={section} className="document-panel library-panel" aria-labelledby="library-heading">
-    <h1 id="library-heading">{libraryLabel(section)}</h1>
-    {notice && <p role="status">{notice}</p>}<LoreDiagnostics diagnostics={diagnostics} />
+    <LibraryHeader editing={Boolean(editing) || creatingChat}>
+      <h1 id="library-heading">{libraryLabel(section)}</h1>
+      {section === 'chats' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy || creatingChat} onClick={() => setCreatingChat(true)}><Icon name="AddToList" />{t("libraries.new_chat")}</button></div>}
+      {!editing && section !== 'chats' && section !== 'characters' && section !== 'lorebooks' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy} onClick={create}><Icon name="AddToList" />{newLibraryLabel(section)}</button>
+        {section === 'connections' && <><button type="button" className="secondary" disabled={busy} onClick={() => connectionInput.current?.click()}><Icon name="Import" />{t('connection_files.import_button')}</button>
+          <input ref={connectionInput} type="file" hidden accept=".oreconnection,application/octet-stream" aria-label={t('connection_files.import_button')} disabled={busy} onChange={event => {
+            const file = event.target.files?.[0]; event.target.value = '';
+            if (file) setConnectionFile({ kind: 'import', file, revision: library.revision });
+          }} /></>}
+        {(section === 'personas') && <label className="file-button"><Icon name="Import" />{t("libraries.import_personas")}<input type="file" accept=".json" disabled={busy} onChange={async e => {
+          const file = e.target.files?.[0]; e.target.value = ''; if (!file) return;
+          await run(async () => {
+            if (file.size > 2_000_000) throw new LocalizedError(msg("libraries.card_imports_are_limited_to_2_mb"));
+            const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte);
+            const result = await api<{ ids: string[]; books?: { id: string; name: string; entries: number }[]; diagnostics?: LoreDiagnostic[] }>('/library/import', 'POST', { revision: library.revision, requestId: newId(), kind: section, base64: btoa(binary) });
+            setNotice(msg("libraries.imported_persona_s", { length: result.ids.length, value: result.books?.map(book => t("interface.lorebook_entries", { name: String(book.name), entries: String(book.entries) })).join('') ?? '' })); setDiagnostics(result.diagnostics ?? []);
+          });
+        }} /></label>}
+        {(section === 'prompts' || section === 'contexts') && <label className="file-button"><Icon name="Import" />{t("libraries.import", { value: section === 'contexts' ? t("interface.context_preset") : t("interface.prompt_preset") })}<input type="file" accept=".json" disabled={busy} onChange={async e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) await run(async () => { if (file.size > 1_000_000) throw new LocalizedError(msg("libraries.preset_file_is_too_large")); const value: unknown = JSON.parse(await file.text()); await api('/library', 'POST', { kind: section, revision: library.revision, data: section === 'prompts' ? upgradePrompt(value) : value }); }); }} /></label>}
+      </div>}
+      {!editing && section === 'lorebooks' && <LorebookImport leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_lorebook")}</button>} revision={library.revision} busy={busy} run={run} imported={(_id, message) => setNotice(message)} />}
+      {section === 'characters' && <CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_character")}</button>} revision={library.revision} busy={busy} run={run} imported={(result, missing) => { setNotice(missing ? msg("libraries.the_original_import_was_saved_but_its") : msg("libraries.imported_character", { length: result.ids.length, value: result.books.map(book => t("interface.lorebook_entries", { name: String(book.name), entries: String(book.entries) })).join(''), value2: result.tags ? ` ${result.tags.assigned} local tags assigned; ${result.tags.created} created.` : t("interface.original_tag_report_unavailable"), value3: result.picture ? result.picture.saved ? t("interface.picture_saved") : t("interface.no_picture_saved") : t("interface.original_picture_report_unavailable"), value4: filters.length ? t("interface.the_character_may_be_hidden_by_your_tag") : '' })); setDiagnostics(result.diagnostics); }} />}
+      {!editing && !creatingChat && <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort} />}
+    </LibraryHeader>
+      {!editing && section === 'characters' && <div className="library-filter-controls"><TagFilterMenu library={library} busy={busy} run={run} selected={filters} change={setFilters} /></div>}
+    {notice && <p className="library-notice" role="status">{notice}</p>}<LoreDiagnostics diagnostics={diagnostics} />
     {section === 'chats' ? <>
-      <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy || creatingChat} onClick={() => setCreatingChat(true)}><Icon name="AddToList" />{t("libraries.new_chat")}</button></div>
-      {!creatingChat && <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort} />}
       {creatingChat && <NewChat library={library} busy={busy} run={run} created={id => { setCreatingChat(false); openChat(id, 'settings'); }} cancel={() => setCreatingChat(false)} />}
       <div className="library-list chat-list">
         {visibleChats.map(item => <article key={item.id} className="chat-card">
@@ -369,34 +419,36 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
         {query && visibleChats.length === 0 && library.chats.length > 0 && <p className="muted" role="status">{t("libraries.no_chats_match_your_search")}</p>}
       </div>
     </> : <>
-      {!editing && section !== 'characters' && section !== 'lorebooks' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy} onClick={create}><Icon name="AddToList" />{newLibraryLabel(section)}</button>
-        {section === 'connections' && <><button type="button" className="secondary" disabled={busy} onClick={() => connectionInput.current?.click()}><Icon name="Import" />{t('connection_files.import_button')}</button>
-          <input ref={connectionInput} type="file" hidden accept=".oreconnection,application/octet-stream" aria-label={t('connection_files.import_button')} disabled={busy} onChange={event => {
-            const file = event.target.files?.[0]; event.target.value = '';
-            if (file) setConnectionFile({ kind: 'import', file, revision: library.revision });
-          }} /></>}
-        {(section === 'personas') && <label className="file-button"><Icon name="Import" />{t("libraries.import_personas")}<input type="file" accept=".json" disabled={busy} onChange={async e => {
-          const file = e.target.files?.[0]; e.target.value = ''; if (!file) return;
-          await run(async () => {
-            if (file.size > 2_000_000) throw new LocalizedError(msg("libraries.card_imports_are_limited_to_2_mb"));
-            const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte);
-            const result = await api<{ ids: string[]; books?: { id: string; name: string; entries: number }[]; diagnostics?: LoreDiagnostic[] }>('/library/import', 'POST', { revision: library.revision, requestId: newId(), kind: section, base64: btoa(binary) });
-            setNotice(msg("libraries.imported_persona_s", { length: result.ids.length, value: result.books?.map(book => t("interface.lorebook_entries", { name: String(book.name), entries: String(book.entries) })).join('') ?? '' })); setDiagnostics(result.diagnostics ?? []);
-          });
-        }} /></label>}
-        {(section === 'prompts' || section === 'contexts') && <label className="file-button"><Icon name="Import" />{t("libraries.import", { value: section === 'contexts' ? t("interface.context_preset") : t("interface.prompt_preset") })}<input type="file" accept=".json" disabled={busy} onChange={async e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) await run(async () => { if (file.size > 1_000_000) throw new LocalizedError(msg("libraries.preset_file_is_too_large")); const value: unknown = JSON.parse(await file.text()); await api('/library', 'POST', { kind: section, revision: library.revision, data: section === 'prompts' ? upgradePrompt(value) : value }); }); }} /></label>}
-      </div>}
-      {!editing && section === 'lorebooks' && <LorebookImport leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_lorebook")}</button>} revision={library.revision} busy={busy} run={run} imported={(_id, message) => setNotice(message)} />}
-      {section === 'characters' && <CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_character")}</button>} trailingAction={!editing && <TagFilterMenu library={library} busy={busy} run={run} selected={filters} change={setFilters} />} revision={library.revision} busy={busy} run={run} imported={(result, missing) => { setNotice(missing ? msg("libraries.the_original_import_was_saved_but_its") : msg("libraries.imported_character", { length: result.ids.length, value: result.books.map(book => t("interface.lorebook_entries", { name: String(book.name), entries: String(book.entries) })).join(''), value2: result.tags ? ` ${result.tags.assigned} local tags assigned; ${result.tags.created} created.` : t("interface.original_tag_report_unavailable"), value3: result.picture ? result.picture.saved ? t("interface.picture_saved") : t("interface.no_picture_saved") : t("interface.original_picture_report_unavailable"), value4: filters.length ? t("interface.the_character_may_be_hidden_by_your_tag") : '' })); setDiagnostics(result.diagnostics); }} />}
       {editing ? editing.kind === 'characters' && 'personality' in editing.data ? <CharacterEditor key={editing.id ?? 'new-character'} initial={{ ...editing, data: editing.data }} library={library} busy={busy} run={run} close={() => setEditing(null)} openBook={openBook} saved={() => setNotice(msg("libraries.character_saved", { value: filters.length ? t("interface.it_may_be_hidden_by_your_tag_filters") : '' }))} extracted={id => { setEditing(null); setFilters([]); setSection('lorebooks'); setNotice(msg("libraries.embedded_lorebook_extracted_review_its_shared_library")); setPendingBook(id); }} /> : editing.kind === 'lorebooks' && 'entries' in editing.data ? <LorebookEditor key={editing.id ?? editing.kind} initial={{ ...editing, data: editing.data }} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <LibraryEditor key={editing.id ?? editing.kind} initial={editing} connections={library.connections} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <>
-      <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort} />
       {section === 'characters' && filters.length > 0 && <div className="character-active-filters" aria-label={t("libraries.active_tag_filters")} role="group">
         <TagChips tags={library.tags} catalog={tagCatalog} selected={filters} remove={id => setFilters(filters.filter(value => value !== id))} />
         <button type="button" className="quiet" onClick={() => setFilters([])}>{t("libraries.clear_filters")}</button>
         <span className="small muted" role="status">{t("libraries.of_characters", { length: visibleRecords.length, length2: library.characters.length })}</span>
       </div>}
-      <div className={`library-list${section === 'characters' ? ' character-list' : section === 'prompts' || section === 'contexts' ? ' prompt-list' : ''}`}>{visibleRecords.map(item => <article key={item.id}>{section === 'characters' && <PictureSquare url={pictureIndex.get(item.id)?.thumbnailUrl} />}<div className={section === 'characters' ? 'character-row-content' : undefined}><h2 title={section === 'characters' || section === 'personas' ? characterLabel(item) : undefined}>{item.id === 'default' && item.name === 'Default roleplay' ? t("libraries.default_prompt") : item.id === 'default-context' && item.name === 'Layered narrative memory' ? defaultContextLabel : item.name}{(section === 'characters' || section === 'personas') && 'titleComment' in item && item.titleComment && <span className="character-comment"> · {item.titleComment}</span>}</h2>{section === 'characters' && 'description' in item ? <CharacterDescription text={item.description} /> : <p>{section === 'connections' ? (item as Saved<Connection>).model : section === 'prompts' ? `${(item as Saved<PromptPreset>).blocks.length} blocks` : section === 'contexts' ? t("libraries.minimum_tail_batch", { minTail: (item as Saved<ContextPreset>).minTail, batchSize: (item as Saved<ContextPreset>).batchSize }) : 'description' in item ? item.description.slice(0, 140) : ''}</p>}{section === 'lorebooks' && 'entries' in item && <><p>{t("libraries.entries_enabled", { length: item.entries.length, length2: item.entries.filter(entry => entry.enabled).length })}</p><LorebookUses bookId={item.id} library={library} /></>}</div><div className="actions">
-        {(section === 'prompts' || section === 'connections' || section === 'contexts') && <DefaultBookmark kind={section} item={item} defaults={defaults} libraryRevision={library.revision} busy={busy} run={run} />}
+      <div className={`library-list${section === 'characters' ? ' character-list' : ''}`}>
+        {visibleRecords.map(item => <article className="library-card" key={item.id}>
+          <div className="library-card-body">
+            {section === 'characters' && <PictureSquare url={pictureIndex.get(item.id)?.thumbnailUrl} />}
+            <div className="library-card-content">
+              <div className="library-card-heading">
+                <h2 title={item.id === 'default' && item.name === 'Default roleplay' ? defaultPromptLabel : item.id === 'default-context' && item.name === 'Layered narrative memory' ? defaultContextLabel : characterLabel(item)}>
+                  {item.id === 'default' && item.name === 'Default roleplay' ? defaultPromptLabel : item.id === 'default-context' && item.name === 'Layered narrative memory' ? defaultContextLabel : item.name}
+                  {(section === 'characters' || section === 'personas') && 'titleComment' in item && item.titleComment && <span className="character-comment"> · {item.titleComment}</span>}
+                </h2>
+                {(section === 'prompts' || section === 'connections' || section === 'contexts') && <DefaultBookmark kind={section} item={item} defaults={defaults} libraryRevision={library.revision} busy={busy} run={run} />}
+              </div>
+              {section === 'characters' && 'description' in item ? <CharacterDescription text={item.description} /> :
+                <p>{section === 'connections' && 'model' in item ? item.model
+                  : section === 'prompts' && 'blocks' in item ? t("libraries.block_count", { count: item.blocks.length })
+                  : section === 'contexts' && 'minTail' in item ? t("libraries.minimum_tail_batch", { minTail: item.minTail, batchSize: item.batchSize })
+                  : 'description' in item ? item.description.slice(0, 140) : ''}</p>}
+              {section === 'lorebooks' && 'entries' in item && <>
+                <p>{t("libraries.entries_enabled", { length: item.entries.length, length2: item.entries.filter(entry => entry.enabled).length })}</p>
+                <LorebookUses bookId={item.id} library={library} />
+              </>}
+            </div>
+          </div>
+          <div className="library-card-actions">
         <button className="secondary" aria-label={section === 'characters' ? t("libraries.edit", { value: characterLabel(item) }) : undefined} disabled={busy} onClick={() => { const { id, revision: _revision, ...record } = item; const { hasApiKey, ...data } = record as typeof record & { hasApiKey?: boolean }; setEditing({ kind: section, id, revision: library.revision, data, hasApiKey }); }}><Icon name="EditOutline" />{t("libraries.edit_2")}</button>
         <button className="quiet" aria-label={section === 'characters' ? t("libraries.duplicate", { value: characterLabel(item) }) : undefined} disabled={busy} onClick={() => void run(() => duplicate(item))}><Icon name="CopyOutline" />{t("libraries.duplicate_2")}</button>
         {section === 'connections' ? <button type="button" className="quiet" disabled={busy} aria-haspopup="dialog" onClick={event => {
@@ -404,9 +456,9 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
           event.currentTarget.focus({ preventScroll: true });
           setConnectionFile({ kind: 'export', id: item.id, name: item.name });
         }}><Icon name="Upload" />{t('connection_files.export_button')}</button> : <button className="quiet" aria-label={section === 'characters' ? t("libraries.export_json", { value: characterLabel(item) }) : undefined} onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}><Icon name="Upload" />{section === 'characters' ? t("libraries.export_json_2") : t("libraries.export")}</button>}
-        {item.id === 'default' && <button className="quiet prompt-reset-action" disabled={busy} onClick={() => { confirmAction({ title: t("libraries.restore_original_prompt"), message: t("libraries.restore_the_built_in_default_prompt_chats"), actionLabel: t("libraries.restore_original"), onConfirm: () => { void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.restore_original")}</button>}
-        {section === 'contexts' && item.id === 'default-context' && <button className="quiet prompt-reset-action" disabled={busy} onClick={() => { confirmAction({ title: t("libraries.reset_context"), message: t("libraries.reset_context_confirmation"), actionLabel: t("libraries.reset"), onConfirm: () => { void run(() => api('/library/default-context/reset', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.reset")}</button>}
-        {item.id !== 'default' && !(section === 'contexts' && item.id === 'default-context') && <button className={`quiet${section === 'prompts' || section === 'contexts' ? ' prompt-reset-action' : ''}`} aria-label={section === 'characters' ? t("libraries.delete", { value: characterLabel(item) }) : undefined} disabled={busy || (section === 'lorebooks' && library.lorebookUses.some(use => use.bookId === item.id && (use.characters.length > 0 || use.chats.length > 0)))} onClick={() => { confirmAction({ title: t("libraries.delete_library_item"), message: t("libraries.delete_from_the_library", { value: section === 'characters' || section === 'personas' ? characterLabel(item) : item.name }), actionLabel: t("libraries.delete_2"), onConfirm: () => { void run(() => api(`/library/${item.id}`, 'DELETE', { kind: section, revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.delete_2")}</button>}
+        {item.id === 'default' && <button className="quiet" disabled={busy} onClick={() => { confirmAction({ title: t("libraries.restore_original_prompt"), message: t("libraries.restore_the_built_in_default_prompt_chats"), actionLabel: t("libraries.restore_original"), onConfirm: () => { void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.restore_original")}</button>}
+        {section === 'contexts' && item.id === 'default-context' && <button className="quiet" disabled={busy} onClick={() => { confirmAction({ title: t("libraries.reset_context"), message: t("libraries.reset_context_confirmation"), actionLabel: t("libraries.reset"), onConfirm: () => { void run(() => api('/library/default-context/reset', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.reset")}</button>}
+        {item.id !== 'default' && !(section === 'contexts' && item.id === 'default-context') && <button className="quiet" aria-label={section === 'characters' ? t("libraries.delete", { value: characterLabel(item) }) : undefined} disabled={busy || (section === 'lorebooks' && library.lorebookUses.some(use => use.bookId === item.id && (use.characters.length > 0 || use.chats.length > 0)))} onClick={() => { confirmAction({ title: t("libraries.delete_library_item"), message: t("libraries.delete_from_the_library", { value: section === 'characters' || section === 'personas' ? characterLabel(item) : item.name }), actionLabel: t("libraries.delete_2"), onConfirm: () => { void run(() => api(`/library/${item.id}`, 'DELETE', { kind: section, revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.delete_2")}</button>}
       </div></article>)}{library[section].length === 0 && <p className="muted">{t("libraries.create_or_import_your_first", { value: section === 'lorebooks' ? 'lorebook' : section === 'personas' ? 'persona' : section === 'characters' ? 'character' : section === 'connections' ? t("libraries.connection") : 'prompt' })}</p>}{section !== 'characters' && query && visibleRecords.length === 0 && library[section].length > 0 && <p className="muted" role="status">{t("libraries.no_match_your_search", { value: libraryLabel(section).toLowerCase() })}</p>}</div>
       {section === 'characters' && library.characters.length > 0 && visibleRecords.length === 0 && <p role="status">{query ? filters.length ? t("libraries.no_characters_match_your_search_and_selected") : t("libraries.no_characters_match_your_search") : t("libraries.no_characters_match_all_selected_tags_clear")}</p>}
       </>}
@@ -436,7 +488,7 @@ function DefaultBookmark({ kind, item, defaults, libraryRevision, busy, run }: {
   useLocale();
   const selected = defaults.settings[kind] === item.id;
   const label = t(selected ? 'libraries.clear_default' : 'libraries.set_default', { name: item.name });
-  return <button type="button" className="quiet" aria-label={label} title={label} aria-pressed={selected} disabled={busy}
+  return <button type="button" className="quiet library-default" aria-label={label} title={label} aria-pressed={selected} disabled={busy}
     onClick={() => void run(() => api('/application/chat-defaults', 'PUT', {
       revision: defaults.revision, libraryRevision, kind, id: selected ? null : item.id,
     }))}><Icon name={selected ? 'Bookmark' : 'BookmarkOutline'} /></button>;

@@ -355,9 +355,12 @@ test('keeps tag tools optional, dismisses the picker, and retains visible remova
       page.locator('label.file-button').filter({ has: page.getByLabel('Import character', { exact: true }) }).boundingBox(),
       page.getByRole('button', { name: /^Tags/ }).boundingBox(),
     ]);
-    expect(buttons.every(box => box !== null)).toBe(true);
-    expect(new Set(buttons.map(box => Math.round(box?.y ?? -1))).size).toBe(1);
-    expect(buttons[1]?.width).toBeLessThan(210);
+    const [create, importCard, tags] = buttons;
+    const search = await page.getByRole('searchbox', { name: 'Search characters', exact: true }).boundingBox();
+    if (!create || !importCard || !tags || !search) throw new Error('Missing Library controls');
+    expect(create.y).toBe(importCard.y);
+    expect(Math.abs(create.width - importCard.width)).toBeLessThanOrEqual(1);
+    expect(tags.y).toBeGreaterThanOrEqual(search.y + search.height);
     await openFilters(page);
     await expect(page.getByRole('button', { name: /^Tags/ })).toBeFocused();
     await page.keyboard.press('Tab');
@@ -365,6 +368,10 @@ test('keeps tag tools optional, dismisses the picker, and retains visible remova
     await filters(page).getByRole('searchbox').fill('quiet-ui');
     await filters(page).getByRole('checkbox', { name: /quiet-ui-tag/ }).check();
     await expect(row(page, 'Quiet untagged card')).toHaveCount(0);
+    const filterPanel = await page.locator('.tag-filter-panel').boundingBox();
+    const card = await row(page, 'Quiet tagged card').boundingBox();
+    if (!filterPanel || !card) throw new Error('Missing filter panel or result card');
+    expect(card.y).toBeGreaterThanOrEqual(filterPanel.y + filterPanel.height);
     await page.screenshot({ path: `test-results/tag-picker-${width}.png`, fullPage: true });
     await page.keyboard.press('Escape');
     await expect(filters(page)).toHaveCount(0);

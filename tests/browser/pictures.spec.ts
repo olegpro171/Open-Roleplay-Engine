@@ -147,7 +147,7 @@ test('keeps mixed library rows bounded and crop controls usable at desktop, phon
       if (!picture) throw new Error('Missing character picture');
       expect(Math.abs(description.y + description.height - (picture.y + picture.height))).toBeLessThanOrEqual(1);
       if (width > 800) {
-        const bounds = await characterRow.boundingBox();
+        const bounds = await characterRow.locator('.library-card-body').boundingBox();
         if (!bounds) throw new Error('Missing character row');
         const topMargin = picture.y - bounds.y;
         const bottomMargin = bounds.y + bounds.height - (picture.y + picture.height);
@@ -160,8 +160,8 @@ test('keeps mixed library rows bounded and crop controls usable at desktop, phon
       await expect(characterRow).not.toContainText('picture-visual-tag-');
     }
     const heights = await rows.evaluateAll(elements => elements.map(element => Math.round(element.getBoundingClientRect().height))); expect(new Set(heights).size).toBe(1);
-    // Phone actions now use two rows to retain readable labels and 44px targets.
-    expect(Math.max(...heights)).toBeLessThanOrEqual(width > 800 ? 200 : 224);
+    // The shared footer adds a separate action area below the bounded preview.
+    expect(Math.max(...heights)).toBeLessThanOrEqual(width > 800 ? 230 : 250);
     if (width <= 800) {
       const actions = await rows.first().getByRole('button').all();
       const bounds = await Promise.all(actions.map(action => action.boundingBox()));

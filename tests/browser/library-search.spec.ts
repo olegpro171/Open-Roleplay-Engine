@@ -106,8 +106,14 @@ test('keeps search close to the actions on narrow screens and opens reviewed lor
       const sort = content.getByRole('combobox', { name: `Sort ${category.toLowerCase()}`, exact: true });
       const sortBounds = await sort.boundingBox();
       if (!bounds || !actions || !sortBounds) throw new Error('Missing library search, sort or actions');
-      expect(Math.abs(bounds.y - sortBounds.y)).toBeLessThanOrEqual(2);
-      expect(sortBounds.x).toBeGreaterThan(bounds.x + bounds.width);
+      if (width === 320) {
+        expect(sortBounds.y).toBeGreaterThanOrEqual(bounds.y + bounds.height);
+        expect(sortBounds.x).toBe(bounds.x);
+        expect(sortBounds.width).toBe(bounds.width);
+      } else {
+        expect(Math.abs(bounds.y - sortBounds.y)).toBeLessThanOrEqual(2);
+        expect(sortBounds.x).toBeGreaterThan(bounds.x + bounds.width);
+      }
       await sort.focus();
       await sort.press('Enter');
       await expect(page.getByRole('listbox', { name: `Sort ${category.toLowerCase()}`, exact: true })).toBeVisible();

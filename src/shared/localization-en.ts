@@ -94,6 +94,8 @@ export const englishMessages = {
   "color_picker.white": "White",
   "color_picker.charcoal": "Charcoal",
   "libraries.set_default": "Set {{name}} as default",
+  "libraries.block_count_one": "{{count}} block",
+  "libraries.block_count_other": "{{count}} blocks",
   "libraries.clear_default": "Clear {{name}} as default",
   "errors.chat_defaults_unavailable": "Saved new-chat defaults could not be read. Check the settings file and try again.",
   "errors.chat_defaults_conflict": "The library or new-chat defaults changed in another window. Refresh and try again.",
