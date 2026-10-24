@@ -20,6 +20,18 @@ describe('summary output validation', () => {
   });
 
   it.each([
+    "I can't help with this",
+    "I can't help with this. Please ask about something else.",
+    'I can’t help with that content.',
+    'I cannot assist with this.',
+    'I can not help you with that.',
+    'I won’t assist you with this material.',
+    'I will not help with that.',
+    'I am unable to help with this.',
+    'I’m unable to assist you with that.',
+    'Sorry, but I can’t help with this.',
+    'Unfortunately, I cannot help with that.',
+    'I CANNOT HELP WITH THIS REQUEST.',
     "I'm sorry, but I can't help with this request.",
     "I can't continue with this task.",
     'I can’t continue with this task. Please try something else.',
@@ -47,6 +59,9 @@ describe('summary output validation', () => {
     'Mira says, “I cannot help with this request.” Leon accepts her refusal.',
     '“I cannot summarize this content,” the broken automaton repeats.',
     'I cannot open the gate; Mira brings the key.',
+    'I cannot help with thatching the roof; Mira works alone.',
+    'Leon reads the note: I can’t help with this.',
+    '“I can’t help with this,” Mira says, leaving Leon alone.',
     '“I can’t continue with this task,” Mira says before leaving.',
     'Mira and Leon find a note labeled TODO inside the cellar.',
     'Summary: Mira entrusts Leon with her only key after he promises to avoid the cellar.',
@@ -82,6 +97,7 @@ describe('summarization request gate', () => {
   it.each([
     ['placeholder', 'stop', 'placeholder_summary'],
     ['I cannot summarize this content.', 'stop', 'refused_summary'],
+    ["I can't help with this. Please try a different request.", 'stop', 'refused_summary'],
     ['', 'stop', 'empty_summary'],
     [' \n ', 'stop', 'empty_summary'],
     ['Leon takes the key. '.repeat(10), 'stop', 'repetitive_summary'],

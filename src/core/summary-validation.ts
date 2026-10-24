@@ -20,7 +20,7 @@ function isPlaceholder(text: string): boolean {
 function isRefusal(text: string): boolean {
   // Match model-directed refusals at the start, not phrases quoted inside a story.
   const opening = text.replace(/^(?:(?:i(?:'|’)?m sorry|i am sorry|sorry|i apologize|unfortunately)[,.!:\s]*(?:but\s+)?)/iu, '');
-  return /^(?:as an? (?:ai|language model)\b|i(?:\s+(?:cannot|can(?:'|’)t|won(?:'|’)t|will not|am unable to|must (?:decline|refuse))|['’]m unable to)\s+(?:(?:assist|help)(?: you)? (?:with (?:this|that|the) (?:request|content|material)|(?:to )?(?:summari[sz]e|process|fulfil|fulfill))|(?:provide|generate|create|write)\s+(?:(?:a|the|this|that)\s+)?(?:summary|response|content)|(?:continue with (?:this|that|the) (?:task|request)|summari[sz]e|comply|fulfil|fulfill|process this request))\b|(?:this|that|your) request (?:violates|goes against)\b)/iu.test(opening)
+  return /^(?:as an? (?:ai|language model)\b|i(?:\s+(?:cannot|can not|can(?:'|’)t|won(?:'|’)t|will not|am unable to|must (?:decline|refuse))|['’]m unable to)\s+(?:(?:assist|help)(?: you)? (?:with (?:(?:this|that)\b|the (?:request|content|material))|(?:to )?(?:summari[sz]e|process|fulfil|fulfill))|(?:provide|generate|create|write)\s+(?:(?:a|the|this|that)\s+)?(?:summary|response|content)|(?:continue with (?:this|that|the) (?:task|request)|summari[sz]e|comply|fulfil|fulfill|process this request))\b|(?:this|that|your) request (?:violates|goes against)\b)/iu.test(opening)
     || /^(?:извините[,!\s]*(?:но\s+)?)?я не могу (?:помочь с (?:этим|данным) запросом|выполнить (?:этот|данный) запрос|(?:суммировать|резюмировать|обобщить) (?:этот|данный) (?:текст|материал))/iu.test(text);
 }
 
