@@ -96,6 +96,8 @@ export type SummaryRetry = z.infer<typeof summaryRetrySchema>;
 export type ContextJob = {
   errorMessage?: import('./localization.js').LocalizedMessage;
   retry?: SummaryRetry;
+  /** Automatic continuation never restores finer saved detail. */
+  automatic?: true;
   id: string; chatId: string; status: ContextJobStatus; mode: 'prepare' | 'step' | 'repair' | 'refresh'; generationId: string | null;
   sourceRevision: number; config: ContextPreset & SummaryRef; stepCount: number; error: string | null; createdAt: string; updatedAt: string;
   historyTurnIds: string[];

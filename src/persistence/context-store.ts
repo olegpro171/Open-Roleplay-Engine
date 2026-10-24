@@ -149,9 +149,9 @@ export class ContextStore {
       return { jobId: job.id, report };
     })();
   }
-  begin(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>, generationId: string | null = null, loreResolution?: LoreResolution | null, retry?: SummaryRetry): { job: ContextJob; fresh: boolean } {
+  begin(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>, generationId: string | null = null, loreResolution?: LoreResolution | null, retry?: SummaryRetry, automatic = false): { job: ContextJob; fresh: boolean } {
     return this.sqlite.transaction(() => {
-      const command = JSON.stringify({ mode, generationId, ...(retry ? { retry } : {}) });
+      const command = JSON.stringify({ mode, generationId, ...(retry ? { retry } : {}), ...(automatic ? { automatic: true } : {}) });
       const existing = this.sqlite.prepare('SELECT data, chat_id, command FROM context_jobs WHERE request_id = ?').get(requestId) as (JsonRow & { chat_id: string; command: string }) | undefined;
       if (existing) {
         if (existing.chat_id !== chatId || existing.command !== command) throw new AppError(409, 'request_id_conflict', message("errors.this_request_identity_was_used_for_another_memory"));
@@ -169,10 +169,10 @@ export class ContextStore {
       if (mode !== 'repair') assertRefusalSelection(snapshot.context);
       // Only an explicit Prepare click may restore detail. Automatic preparation
       // and single steps continue from the committed selection.
-      const reselection = mode === 'prepare' && !generationId ? refreshContext(snapshot, { allowOverflowFallback: true }) : null;
+      const reselection = mode === 'prepare' && !generationId && !automatic ? refreshContext(snapshot, { allowOverflowFallback: true }) : null;
       const now = new Date().toISOString();
       const before = new Set(snapshot.context.selected.map(refKey));
-      const job: ContextJob = this.bump({ ...(retry ? { retry } : {}), id: randomUUID(), chatId, status: 'running', mode, generationId, config: preset, sourceRevision: revision, historyTurnIds: snapshot.turns.map(turn => turn.id), stepCount: 0, error: null, createdAt: now, updatedAt: now,
+      const job: ContextJob = this.bump({ ...(retry ? { retry } : {}), ...(automatic ? { automatic: true as const } : {}), id: randomUUID(), chatId, status: 'running', mode, generationId, config: preset, sourceRevision: revision, historyTurnIds: snapshot.turns.map(turn => turn.id), stepCount: 0, error: null, createdAt: now, updatedAt: now,
         ...(reselection ? { refresh: reselection.report } : {}), reusedCount: reselection?.state.selected.filter(ref => !before.has(refKey(ref))).length ?? 0, generatedCount: 0 });
       this.store.saveLoreOperation(chatId, job.id, snapshot.loreResolution ?? null);
       if (reselection?.report.changed) this.saveState(chatId, reselection.state);
@@ -290,7 +290,7 @@ export class ContextStore {
       if (job.status !== 'running') return;
       for (const step of this.steps(id)) if (step.status === 'running') this.saveStep({ ...step, status: status === 'interrupted' ? 'interrupted' : 'failed', ...outcome });
       let completed = job;
-      if (status === 'succeeded' && job.mode === 'prepare' && !job.generationId && job.stepCount) {
+      if (status === 'succeeded' && job.mode === 'prepare' && !job.generationId && !job.automatic && job.stepCount) {
         // Newly available groups can make a finer saved-only plan possible.
         // Finish the explicit action in that plan, rather than changing it again
         // on a second identical click. Automatic continuation never does this.

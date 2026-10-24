@@ -17,6 +17,9 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await page.goto('/'); await page.getByLabel('Owner password').fill(password);
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
+  const behaviorUrl = '/api/application/chat-behavior';
+  const initialBehavior = await page.request.get(behaviorUrl).then(response => response.json());
+  await page.request.put(behaviorUrl, { headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: initialBehavior.revision, settings: { ...initialBehavior.settings, autoRetryMemory: true, memoryMaxRetries: 10 } } });
   const libraries = () => page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
   const post = async (url: string, data: unknown) => {
     const response = await page.request.post(url, { headers: { Origin: 'http://127.0.0.1:4173' }, data });
@@ -108,8 +111,10 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await phone.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(phone, 'Inspect memory');
   await expect(phone.getByTestId('memory-status')).toContainText('Ready:');
-  await expect(phone.getByRole('checkbox', { name: 'Auto retry failed or refused requests' })).toBeChecked();
-  await expect(phone.getByLabel('Maximum retries', { exact: true })).toHaveValue('10');
+  await expect(phone.getByRole('checkbox', { name: 'Auto retry failed or refused requests' })).not.toBeChecked();
+  await phone.getByRole('checkbox', { name: 'Auto retry failed or refused requests' }).check();
+  await expect(phone.getByLabel('Maximum retries', { exact: true })).toHaveValue('1');
+  await expect(page.getByRole('checkbox', { name: 'Auto retry failed or refused requests' })).toBeChecked();
   await phone.locator('.summary-retry-controls').screenshot({ path: 'test-results/phone-summary-retries.png' });
   expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await phone.locator('.memory-chart').scrollIntoViewIfNeeded();
@@ -272,6 +277,8 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Inspect memory');
   await expect(page.locator(`[data-summary-id="${deleteTarget.id}"]`)).toHaveCount(0);
+  const currentBehavior = await page.request.get(behaviorUrl).then(response => response.json());
+  await page.request.put(behaviorUrl, { headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: currentBehavior.revision, settings: initialBehavior.settings } });
   await phoneContext.close();
   expect(summary.id).toBeTruthy();
 });

@@ -190,7 +190,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .composer textarea:focus-visible{outline:none}
 .composer-ios .send-turn{border-radius:50%}
 .send-icon{display:block;width:22px;height:22px;background:currentColor;mask:url("./assets/send-one-svgrepo-com.svg") center/contain no-repeat}
-.composer-status{grid-column:1/-1;color:var(--muted);font-size:11px}
+.memory-preparation-status{position:absolute;z-index:2;top:12px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);padding:7px 12px;border:1px solid var(--line);border-radius:18px;background:var(--surface);color:var(--muted);font-size:11px;box-shadow:0 2px 8px #0003;pointer-events:none}
 .request-details[open]>summary{margin-bottom:22px}
 .timeline-layout{display:grid;grid-template-columns:36px minmax(0,1fr);margin-top:26px}
 .timeline-labels{position:relative;color:var(--muted);font-size:11px}

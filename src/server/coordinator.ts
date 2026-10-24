@@ -7,6 +7,7 @@ import type { Provider } from '../provider/openai.js';
 import { ContextCoordinator } from './context-coordinator.js';
 import { LoreRegexPool } from './lore-regex.js';
 import { resolveRequestLore } from './lore-resolution.js';
+import { defaultChatBehavior, type ChatBehavior } from '../shared/chat-behavior.js';
 
 export class GenerationCoordinator {
   readonly events = new EventEmitter();
@@ -14,7 +15,7 @@ export class GenerationCoordinator {
   private stopping = false;
   readonly context: ContextCoordinator;
   readonly loreRegex = new LoreRegexPool();
-  constructor(private store: Store, private provider: Provider) {
+  constructor(private store: Store, private provider: Provider, private behavior: () => ChatBehavior = () => defaultChatBehavior) {
     store.recoverInterrupted();
     this.context = new ContextCoordinator(store, provider, () => this.changed(), this.loreRegex);
     this.events.setMaxListeners(100);
@@ -47,14 +48,15 @@ export class GenerationCoordinator {
     const clearUpdateTimer = () => clearTimeout(updateTimer);
     operation.controller.signal.addEventListener('abort', clearUpdateTimer, { once: true });
     try {
+      const behavior = this.behavior();
       const initial = this.store.generationSnapshot(id);
       const loreResolution = await resolveRequestLore(initial, this.loreRegex, operation.controller.signal);
       if (this.stopping || operation.controller.signal.aborted) return;
       this.store.saveLoreOperation(chatId, id, loreResolution);
-      await this.context.prepareForGeneration(chatId, id, operation.controller.signal);
+      await this.context.prepareForGeneration(chatId, id, operation.controller.signal, behavior);
       if (this.stopping || operation.controller.signal.aborted) return;
       const snapshot = this.store.generationSnapshot(id);
-      const request = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context, { lore: loreResolution });
+      const request = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context, { lore: loreResolution, overshoot: behavior });
       this.store.saveRequest(id, request);
       this.changed();
       let lastCheckpoint = 0;
@@ -83,6 +85,10 @@ export class GenerationCoordinator {
       });
       if (!this.stopping && !operation.controller.signal.aborted) {
         this.store.finish(id, 'succeeded', operation.text, null, completion?.usage ?? null, operation.reasoning);
+        this.changed();
+        // This is a separate ordinary memory job. Its Stop/failure/restart
+        // outcome cannot change the response that was already committed.
+        await this.context.prepareAfterGeneration(chatId, id, behavior);
         this.changed();
       }
     } catch (error) {

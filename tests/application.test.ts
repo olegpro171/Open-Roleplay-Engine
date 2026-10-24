@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { createApp } from '../src/server/app.js';
 import type { ChatSnapshot, RequestPreview } from '../src/shared/contracts.js';
 import { defaultPrompt } from '../src/shared/library.js';
+import { defaultChatBehavior } from '../src/shared/chat-behavior.js';
 import { startMockProvider, syntheticReasoningStart, syntheticReasoningTail } from './support/mock-provider.js';
 
 let directory: string;
@@ -508,7 +509,8 @@ describe('persistent chat and generation', () => {
     expect((await submit()).statusCode).toBe(409);
   });
 
-  it('fails over-budget preparation before calling the provider and preserves the pending input', async () => {
+  it('rejects over-budget input with overshoot disabled before calling the provider and preserves the pending input', async () => {
+    expect((await command('/api/application/chat-behavior', { revision: 0, settings: { ...defaultChatBehavior, allowInputOvershoot: false } }, 'PUT')).statusCode).toBe(200);
     let snapshot = await state();
     await command('/api/settings', { revision: snapshot.revision, connection: snapshot.connection, settings: { ...snapshot.settings, targetInputTokens: 1 } }, 'PUT');
     await submit(); snapshot = await waitForIdle();

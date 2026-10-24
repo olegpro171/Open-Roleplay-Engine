@@ -34,13 +34,13 @@ it('defaults to Ctrl+Enter, validates authenticated revisioned saves and restore
     const cookie = login.headers['set-cookie']?.toString().split(';')[0];
     if (!cookie) throw new Error('Missing session cookie');
     const auth = { ...headers, cookie };
-    expect((await instance.app.inject({ method: 'GET', url, headers: auth })).json()).toEqual({ revision: 0, settings: { enterKeyBehavior: 'ctrl-enter' } });
+    expect((await instance.app.inject({ method: 'GET', url, headers: auth })).json()).toEqual({ revision: 0, settings: defaultChatBehavior });
     const before = instance.store.snapshot(), libraryBefore = instance.store.libraries();
     for (const enterKeyBehavior of ['enter', 'button-only', 'ctrl-enter']) {
       const revision = (await instance.app.inject({ method: 'GET', url, headers: auth })).json().revision;
       const saved = await instance.app.inject({ method: 'PUT', url, headers: auth, payload: { revision, settings: { enterKeyBehavior } } });
       expect(saved.statusCode).toBe(200);
-      expect(saved.json()).toEqual({ revision: revision + 1, settings: { enterKeyBehavior } });
+      expect(saved.json()).toEqual({ revision: revision + 1, settings: { ...defaultChatBehavior, enterKeyBehavior } });
     }
     for (const payload of [
       { revision: 3, settings: { enterKeyBehavior: 'unknown' } },
@@ -48,6 +48,7 @@ it('defaults to Ctrl+Enter, validates authenticated revisioned saves and restore
       { revision: 3, settings: { enterKeyBehavior: null } },
       { revision: -1, settings: defaultChatBehavior },
       { revision: 3, settings: { ...defaultChatBehavior, extra: true } },
+      ...[{ maximumOvershootTokens: -1 }, { maximumOvershootTokens: 1.5 }, { maximumOvershootTokens: Number.MAX_SAFE_INTEGER + 1 }, { allowInputOvershoot: 'true' }, { memoryMaxRetries: -1 }, { autoRetryMemory: null }].map(patch => ({ revision: 3, settings: { ...defaultChatBehavior, ...patch } })),
     ]) expect((await instance.app.inject({ method: 'PUT', url, headers: auth, payload })).statusCode).toBe(400);
     expect((await instance.app.inject({ method: 'PUT', url, headers: auth, payload: { revision: 0, settings: { enterKeyBehavior: 'enter' } } })).statusCode).toBe(409);
     expect((await instance.app.inject({ method: 'PUT', url, headers: { ...auth, origin: 'http://elsewhere.example' }, payload: { revision: 3, settings: defaultChatBehavior } })).statusCode).toBe(403);
@@ -107,4 +108,21 @@ it('recognizes phones, Android tablets and desktop-mode iPads without classifyin
   expect(isPhoneOrTablet({ userAgent: 'Windows NT', platform: 'Win32', maxTouchPoints: 5 })).toBe(false);
   expect(isMacKeyboard({ platform: 'MacIntel', userAgent: 'Macintosh' })).toBe(true);
   expect(isMacKeyboard({ platform: 'Win32', userAgent: 'Windows NT' })).toBe(false);
+});
+
+
+it('reads legacy version-1 preferences without rewriting them, and persists overshoot and retry preferences in version 2', () => {
+  const file = join(directory(), 'legacy.json');
+  const legacy = JSON.stringify({ version: 1, revision: 7, settings: { enterKeyBehavior: 'enter' } });
+  fs.writeFileSync(file, legacy);
+  const preferences = new ChatBehaviorSettings(file);
+  expect(preferences.status()).toEqual({ revision: 7, settings: { ...defaultChatBehavior, enterKeyBehavior: 'enter' } });
+  expect(fs.readFileSync(file, 'utf8')).toBe(legacy);
+  const settings = { ...defaultChatBehavior, enterKeyBehavior: 'button-only', allowInputOvershoot: false, maximumOvershootTokens: Number.MAX_SAFE_INTEGER, autoRetryMemory: false, memoryMaxRetries: 3 };
+  const saved = preferences.save({ revision: 7, settings });
+  expect(saved).toEqual({ revision: 8, settings });
+  expect(new ChatBehaviorSettings(file).status()).toEqual(saved);
+  expect(JSON.parse(fs.readFileSync(file, 'utf8')).version).toBe(2);
+  const keyboardOnly = preferences.save({ revision: saved.revision, settings: { enterKeyBehavior: 'enter' } });
+  expect(keyboardOnly.settings).toEqual({ ...saved.settings, enterKeyBehavior: 'enter' });
 });

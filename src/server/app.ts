@@ -68,7 +68,8 @@ export async function createApp(options: {
   const store = new Store(options.database, options.migrationsDirectory, { mustExist: options.databaseMustExist });
   const pictures = new PictureProcessor();
   const provider = options.provider ?? new OpenAICompatibleProvider();
-  const coordinator = new GenerationCoordinator(store, provider);
+  const chatBehavior = new ChatBehaviorSettings(`${options.database}.chat-behavior.json`);
+  const coordinator = new GenerationCoordinator(store, provider, () => chatBehavior.status().settings);
   function publicSnapshot(id: string): ChatSnapshot {
     const { loreState: _state, loreResolution: _resolution, ...snapshot } = store.snapshot(id);
     return { ...snapshot, promptDiagnostics: promptDiagnostics(snapshot.sources), sources: { ...snapshot.sources, lorebook: undefined }, generations: snapshot.generations.map(generation => ({ ...generation,
@@ -78,7 +79,6 @@ export async function createApp(options: {
   }
   const storyReader = new StoryReader(store);
   const appearance = new AppearanceSettings(`${options.database}.appearance.json`);
-  const chatBehavior = new ChatBehaviorSettings(`${options.database}.chat-behavior.json`);
   const chatDefaults = new ChatDefaultsSettings(`${options.database}.chat-defaults.json`);
   const languages = new Languages(options.languagesDirectory ?? join(dirname(options.database), 'languages'));
   const auth = new Auth(store);

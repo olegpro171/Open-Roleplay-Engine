@@ -17,16 +17,21 @@ import { SummaryInspection } from './SummaryInspection';
 import { MemoryTimeline } from './MemoryTimeline';
 import { RefusalReview } from './RefusalReview';
 import { RejectedSummary } from './RejectedSummary';
+import type { ChatBehaviorStatus } from '../shared/chat-behavior';
+import type { SettingsAutosave } from './settings-autosave';
+import { SettingsSaveStatus, useSettingsState } from './useSettingsAutosave';
 const RepairReview = lazy(() => import('./RepairReview').then(module => ({ default: module.RepairReview })));
 
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 type JobDetails = { job: ContextJob; steps: ContextStep[] };
-export function Memory({ snapshot, library, busy, run, editPreset }: { snapshot: ChatSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; editPreset: (id: string) => void }) {
+export function Memory({ snapshot, library, busy, run, editPreset, behavior }: { snapshot: ChatSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; editPreset: (id: string) => void; behavior: SettingsAutosave<ChatBehaviorStatus['settings'], ChatBehaviorStatus> }) {
   useLocale();
   const confirmAction = useConfirmation(snapshot.id);
   const retryControls = useRef<HTMLFieldSetElement>(null);
-  const [autoRetry, setAutoRetry] = useState(true);
-  const [maxRetries, setMaxRetries] = useState(10);
+  const retrySettings = useSettingsState(behavior);
+  const autoRetry = retrySettings.draft?.autoRetryMemory ?? true;
+  const maxRetries = retrySettings.draft?.memoryMaxRetries ?? 10;
+  const retrySettingsUnavailable = !retrySettings.draft || retrySettings.saving || Boolean(retrySettings.error);
   const [planError, setPlanError] = useTextState('');
   const [calculation, setCalculation] = useState<{ key: string; plan: ContextPlan | null; error: MessageText }>({ key: '', plan: null, error: '' });
   const planKey = `${snapshot.id}:${snapshot.revision}:${snapshot.context.revision}`;
@@ -99,7 +104,7 @@ export function Memory({ snapshot, library, busy, run, editPreset }: { snapshot:
   const repairJob = snapshot.context.jobs.find(job => job.mode === 'repair' && (job.status === 'running' || job.status === 'awaiting_review' || job.id === repairSession && ['failed', 'interrupted'].includes(job.status)));
   const latestJob = snapshot.context.jobs[0];
   const start = (mode: Exclude<ContextJob['mode'], 'refresh'>) => run(async () => {
-    if (autoRetry && mode !== 'repair' && !retryControls.current?.querySelector<HTMLInputElement>('input[required]')?.reportValidity()) return;
+    if (mode !== 'repair' && (!retrySettings.draft || retrySettings.saving || retrySettings.error || autoRetry && !retryControls.current?.querySelector<HTMLInputElement>('input[required]')?.reportValidity())) return;
     const result = await api<{ jobId: string }>(`/chats/${snapshot.id}/context/prepare`, 'POST', { revision: snapshot.revision, requestId: newId(), mode, ...(autoRetry && mode !== 'repair' ? { retry: { maxRetries } } : {}) });
     if (mode === 'repair') setRepairSession(result.jobId);
     setHistoryId(''); setDetails(null); setInspected(null); setPlanError('');
@@ -118,14 +123,15 @@ export function Memory({ snapshot, library, busy, run, editPreset }: { snapshot:
     {(planError || calculationError) && <p role="status">{planError || calculationError}</p>}
     {latestJob?.error && latestJob.sourceRevision === snapshot.revision && !plan?.ready && <p className="memory-failure" role="status">{t("memory.last_preparation_stopped", { error: formatMessage(latestJob.errorMessage ?? latestJob.error) })}</p>}
     <div className="actions memory-actions">
-      <button disabled={!summariesEnabled || locked || !planCurrent || !snapshot.context.preset || !plan || Boolean(plan.stale.length) || Boolean(awaiting) || unsavedSettings} onClick={() => void start('prepare')}>{t("memory.prepare_chat")}</button>
-      <button className="secondary" disabled={!summariesEnabled || locked || !planCurrent || !plan?.next || Boolean(plan.blocked) || Boolean(awaiting) || unsavedSettings} onClick={() => void start('step')}>{t("memory.save_next_summary")}</button>
+      <button disabled={!summariesEnabled || locked || retrySettingsUnavailable || !planCurrent || !snapshot.context.preset || !plan || Boolean(plan.stale.length) || Boolean(awaiting) || unsavedSettings} onClick={() => void start('prepare')}>{t("memory.prepare_chat")}</button>
+      <button className="secondary" disabled={!summariesEnabled || locked || retrySettingsUnavailable || !planCurrent || !plan?.next || Boolean(plan.blocked) || Boolean(awaiting) || unsavedSettings} onClick={() => void start('step')}>{t("memory.save_next_summary")}</button>
       <button className="secondary" disabled={!summariesEnabled || locked || !planCurrent || !plan?.repairCount || Boolean(awaiting)} onClick={() => void start('repair')}>{t("memory.repair_summaries")}</button>
       {active && <button className="secondary" disabled={busy} onClick={() => void run(() => active.generationId ? api(`/generations/${active.generationId}/cancel`, 'POST', {}) : api(`/context/jobs/${active.id}/cancel`, 'POST', {}))}>{t("memory.stop_preparation")}</button>}
     </div>
-    {summariesEnabled && <fieldset ref={retryControls} disabled={locked} className="summary-retry-controls"><legend className="sr-only">{t("memory.preparation_retries")}</legend>
-      <label className="checkbox"><input type="checkbox" checked={autoRetry} onChange={event => setAutoRetry(event.target.checked)} />{t("memory.auto_retry_failed_or_refused_requests")}</label>
-      {autoRetry && <label>{t("memory.maximum_retries")}<NumberInput required aria-label={t("memory.maximum_retries")} min={0} max={Number.MAX_SAFE_INTEGER} value={maxRetries} onChange={setMaxRetries} /><small>{t("memory.retries_after_the_initial_attempt_per_request")}</small></label>}
+    {summariesEnabled && <fieldset ref={retryControls} disabled={locked || !retrySettings.draft} className="summary-retry-controls"><legend className="sr-only">{t("memory.preparation_retries")}</legend>
+      <SettingsSaveStatus saving={retrySettings.saving} error={retrySettings.error} retry={behavior.retry} />
+      <label className="checkbox"><input type="checkbox" checked={autoRetry} onChange={event => behavior.update({ autoRetryMemory: event.target.checked })} />{t("memory.auto_retry_failed_or_refused_requests")}</label>
+      {autoRetry && <label>{t("memory.maximum_retries")}<NumberInput required aria-label={t("memory.maximum_retries")} min={0} max={Number.MAX_SAFE_INTEGER} value={maxRetries} onChange={value => { if (Number.isSafeInteger(value) && value >= 0) behavior.update({ memoryMaxRetries: value }); }} /><small>{t("memory.retries_after_the_initial_attempt_per_request")}</small></label>}
     </fieldset>}
     {summariesEnabled && <p className="small muted">{t("memory.prepare_chat_reconsiders_memory_for_the_saved")}</p>}
     {summariesEnabled && prepared && <p role="status" data-testid="memory-prepare-result">{t("memory.saved_summaries_reused_new_summaries_generated", { value: prepared.mode === 'step' ? t("interface.summary_step_saved") : t("interface.memory_prepared"), value2: prepared.reusedCount ?? 0, value3: prepared.generatedCount ?? 0 })}{prepared.refresh ? <> {t("memory.verbatim_turns_estimated_input", { verbatimBefore: prepared.refresh.verbatimBefore, verbatimTurns: prepared.outcome!.verbatimTurns, value: prepared.refresh.inputBefore.toLocaleString(locale()), value2: prepared.outcome!.inputTokens.toLocaleString(locale()), value3: selectionReport?.protectedSummaries ? ` ${selectionReport.protectedSummaries} manually edited summaries remain represented.` : '', value4: selectionReport?.limitation ? ` ${formatMessage(selectionReport.limitationMessage ?? selectionReport.limitation)}` : selectionReport?.limited && !prepared.stepCount ? t("interface.no_different_fitting_selection_was_available_in_saved") : '' })}</> : null}</p>}

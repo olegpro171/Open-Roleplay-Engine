@@ -56,8 +56,16 @@ export function ApplicationSettings({ openLibraries, appearance, chatBehavior, l
   const confirm = useConfirmation();
   function scrollToCategory(id: string) {
     const heading = document.getElementById(id);
-    heading?.focus({ preventScroll: true });
-    heading?.scrollIntoView({ block: 'start' });
+    const panel = heading?.closest<HTMLElement>('.settings-panel');
+    if (!heading || !panel) return;
+    const scrollArea = getComputedStyle(panel).overflowY === 'visible'
+      ? panel.closest<HTMLElement>('.application-settings') : panel;
+    if (!scrollArea) return;
+    heading.focus({ preventScroll: true });
+    // Scroll only the responsive workspace owner. scrollIntoView also moves
+    // the overflow-hidden document when longer settings push headings deeper.
+    const margin = Number.parseFloat(getComputedStyle(heading).scrollMarginTop) || 0;
+    scrollArea.scrollTop += heading.getBoundingClientRect().top - scrollArea.getBoundingClientRect().top - margin;
   }
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; if (stage.current && !pending.current) void api(`/data/stages/${stage.current}`,'DELETE',{}).catch(() => {}); }; },[]);
   async function run(action: () => Promise<void>, area: 'backup' | 'wipe' = 'backup') {

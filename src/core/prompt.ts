@@ -14,6 +14,7 @@ import { readCharacterDepthPrompt } from '../shared/card-instructions.js';
 import { resolveCardInstruction } from './card-instructions.js';
 import { injectHistory } from './history-injections.js';
 import { modelText } from './model-text.js';
+import { fitsInputTarget, type InputOvershoot } from './input-target.js';
 export { replaceNameMacros } from './names.js';
 
 export function estimateInputTokens(messages: Message[]): number {
@@ -25,7 +26,7 @@ export function summaryText(node: SummaryNode, turns: Turn[]): string {
   return `[Memory L${node.level} · turns ${positions.get(node.turns[0]?.turnId) ?? '?'}–${positions.get(node.turns.at(-1)?.turnId ?? '') ?? '?'}]\n${modelText(node.text)}`;
 }
 
-export function assembleRequest(connection: Connection, settings: ChatSettings, turns: Turn[], sources?: PromptSources, context?: ContextState, options: { validateLimits?: boolean; allowStale?: boolean; lore?: LoreResolution | null } = {}): RequestPreview {
+export function assembleRequest(connection: Connection, settings: ChatSettings, turns: Turn[], sources?: PromptSources, context?: ContextState, options: { validateLimits?: boolean; allowStale?: boolean; lore?: LoreResolution | null; overshoot?: InputOvershoot } = {}): RequestPreview {
   // The default template also supports the legacy inline-settings API. An
   // explicitly supplied preset, including an empty one, is always authoritative.
   const preset = sources?.prompt ? promptSchema.parse({ name: sources.prompt.name, blocks: sources.prompt.blocks }) : {
@@ -151,7 +152,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   const { contentTokens, ...measurement } = countInput(messages);
   const { inputTokens } = measurement;
   layout.forEach((part, index) => { part.tokens = contentTokens[index]; });
-  if (options.validateLimits !== false && inputTokens > settings.targetInputTokens) {
+  if (options.validateLimits !== false && !fitsInputTarget(inputTokens, settings.targetInputTokens, options.overshoot)) {
     throw new AppError(422, 'input_budget_exceeded', message("errors.the_estimated_input_exceeds_your_target_prepare_context"));
   }
   if (options.validateLimits !== false && inputTokens + connection.maxOutputTokens > connection.contextWindow) {

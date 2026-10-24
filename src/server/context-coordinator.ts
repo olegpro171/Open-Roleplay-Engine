@@ -1,4 +1,8 @@
-import { message } from '../shared/localization.js';
+import { message, type LocalizedMessage } from '../shared/localization.js';
+import type { ChatBehavior } from '../shared/chat-behavior.js';
+import type { ChatSnapshot } from '../shared/contracts.js';
+import { assembleRequest } from '../core/prompt.js';
+import { fitsInputTarget } from '../core/input-target.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AppError } from '../core/errors.js';
 import { contextPlan, summaryRequest } from '../core/context-plan.js';
@@ -71,16 +75,58 @@ export class ContextCoordinator {
     this.active.set(id, { controller, task, generationId: this.store.contexts.job(id).generationId }); this.changed();
     return task;
   }
-  async prepareForGeneration(chatId: string, generationId: string, signal: AbortSignal) {
+  async prepareForGeneration(chatId: string, generationId: string, signal: AbortSignal, behavior: ChatBehavior) {
     const snapshot = { ...this.store.generationSnapshot(generationId), loreResolution: this.store.loreOperation(generationId) };
-    if (!hasPromptMarker(snapshot.sources.prompt, 'summary') || !snapshot.context.preset) return;
+    if (!snapshot.connection || !hasPromptMarker(snapshot.sources.prompt, 'summary') || !snapshot.context.preset) return;
+    const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context, { validateLimits: false, lore: snapshot.loreResolution });
+    // Physical overflow is validated by final request assembly. It never adds
+    // a preparation trigger when the working target permits this input.
+    if (fitsInputTarget(request.budget.inputTokens, snapshot.settings.targetInputTokens, behavior)) return;
     const plan = contextPlan(snapshot);
     if (plan.blocked) throw new AppError(422, 'context_blocked', plan.blockedMessage ?? plan.blocked);
     if (plan.ready) return;
-    const { job, fresh } = this.store.contexts.begin(chatId, snapshot.revision, generationId, 'prepare', generationId);
+    const retry = behavior.autoRetryMemory ? { maxRetries: behavior.memoryMaxRetries } : undefined;
+    const { job, fresh } = this.store.contexts.begin(chatId, snapshot.revision, generationId, 'prepare', generationId, undefined, retry);
     if (fresh) await this.dispatch(job.id, signal);
     const completed = this.store.contexts.job(job.id);
     if (completed.status !== 'succeeded') throw new AppError(422, 'context_failed', completed.errorMessage ?? completed.error ?? 'Context preparation did not finish. Resume from Memory before retrying the response.');
+  }
+  async prepareAfterGeneration(chatId: string, generationId: string, behavior: ChatBehavior) {
+    const snapshot = this.store.snapshot(chatId);
+    if (this.stopping || !snapshot.connection || !snapshot.context.preset || !hasPromptMarker(snapshot.sources.prompt, 'summary')) return;
+    let lore: LoreResolution | null = null;
+    let failure: string | LocalizedMessage | undefined;
+    try {
+      if (snapshot.sources.lorebook) lore = await this.resolveLore(chatId);
+      const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context, { validateLimits: false, allowStale: true, lore });
+      if (request.budget.inputTokens <= snapshot.settings.targetInputTokens) return;
+    } catch (error) {
+      failure = error instanceof AppError ? error.localized ?? error.message : message('diagnostics.memory_preparation_failed_check_the_connection_and_retry');
+    }
+    if (this.stopping) return;
+    // Lore resolution can yield. A newer command owns the chat if it changed
+    // in that interval; its own Send/completion checks will govern preparation.
+    if (!this.postResponseStillCurrent(snapshot, generationId)) return;
+    const retry = behavior.autoRetryMemory ? { maxRetries: behavior.memoryMaxRetries } : undefined;
+    const { job, fresh } = this.store.contexts.begin(chatId, snapshot.revision, `after:${generationId}`, 'prepare', null, lore, retry, true);
+    if (!fresh) return;
+    if (failure) {
+      this.store.contexts.finish(job.id, 'failed', failure);
+      this.changed();
+      return;
+    }
+    void this.dispatch(job.id);
+  }
+  private postResponseStillCurrent(snapshot: ChatSnapshot, generationId: string): boolean {
+    if (this.store.generation(generationId)?.status !== 'succeeded') return false;
+    try {
+      this.store.checkRevision(snapshot.revision, snapshot.id);
+      this.store.ensureIdle(snapshot.id);
+      return true;
+    } catch (error) {
+      if (error instanceof AppError && ['revision_conflict', 'generation_running', 'context_running'].includes(error.code)) return false;
+      throw error;
+    }
   }
   private async run(id: string, signal: AbortSignal) {
     try {

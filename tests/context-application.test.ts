@@ -20,6 +20,7 @@ import { summaryRefusalFilterVersion } from '../src/core/summary-validation.js';
 import { refusalFindings } from '../src/core/summary-refusals.js';
 import { summarySuffixDeletion } from '../src/core/context-delete.js';
 import { StoryReader } from '../src/persistence/story-reader.js';
+import { defaultChatBehavior } from '../src/shared/chat-behavior.js';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const dispose of cleanup.splice(0)) await dispose(); });
@@ -30,6 +31,7 @@ function fixture(count = 48, target = 500, builtInContext = false) {
   const calls: { request: RequestPreview; apiKey: string }[] = [];
   type OutputMode = 'normal' | 'unchanged' | 'near' | 'placeholder' | 'refusal' | 'length' | 'huge' | 'transport';
   let mode: OutputMode = 'normal';
+  let storyReply = 'Leon pockets the brass key.';
   let nextModes: OutputMode[] = [];
   let holdAt = -1, release: (() => void) | null = null;
   const provider: Provider = { async stream(request, apiKey, _signal, onText) {
@@ -40,7 +42,7 @@ function fixture(count = 48, target = 500, builtInContext = false) {
     let old: string | undefined;
     try { old = JSON.parse(request.body.messages.at(-1)!.content).previous_summary; } catch { /* Roleplay input is plain text. */ }
     if (summary && calls.length === holdAt) await new Promise<void>(resolve => { release = resolve; });
-    onText(!summary ? 'Leon pockets the brass key.' : outcome === 'placeholder' ? 'placeholder' : outcome === 'refusal' ? "I can't help with this." : outcome === 'huge' ? Array.from({ length: 2_000 }, (_, i) => `detail${i}`).join(' ') : old !== undefined && (outcome === 'unchanged' || outcome === 'near') ? old + (outcome === 'near' ? '!' : '') : `Mira entrusted Leon with her brass key; he promised to avoid the cellar.${calls.length % 3 === 0 ? ' She still distrusts him.' : ''}${old !== undefined ? ` Repaired candidate ${calls.length}.` : ''}`);
+    onText(!summary ? storyReply : outcome === 'placeholder' ? 'placeholder' : outcome === 'refusal' ? "I can't help with this." : outcome === 'huge' ? Array.from({ length: 2_000 }, (_, i) => `detail${i}`).join(' ') : old !== undefined && (outcome === 'unchanged' || outcome === 'near') ? old + (outcome === 'near' ? '!' : '') : `Mira entrusted Leon with her brass key; he promised to avoid the cellar.${calls.length % 3 === 0 ? ' She still distrusts him.' : ''}${old !== undefined ? ` Repaired candidate ${calls.length}.` : ''}`);
     return { finishReason: outcome === 'length' && summary ? 'length' : 'stop' };
   } };
   const connection = { name: 'Story', endpoint: 'http://localhost:1234/v1', model: 'story-model', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} };
@@ -50,16 +52,18 @@ function fixture(count = 48, target = 500, builtInContext = false) {
   const chatId = store.createChat({ title: 'Imported', targetInputTokens: target, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId });
   const imported = Array.from({ length: count }, (_, i) => ({ user: `Turn ${i + 1}: Mira offers Leon the brass key, but warns him about the cellar. ${'Atmospheric detail. '.repeat(8)}`, assistant: `Leon promises not to enter the cellar. ${'The room remains quiet. '.repeat(7)}`, complete: true }));
   store.replaceHistory(store.snapshot(chatId).revision, chatId, imported);
-  let coordinator = new GenerationCoordinator(store, provider);
+  const behavior = { ...defaultChatBehavior };
+  let coordinator = new GenerationCoordinator(store, provider, () => behavior);
   const state = () => store.snapshot(chatId);
   const start = (mode: Exclude<ContextJob['mode'], 'refresh'> = 'prepare', retry?: SummaryRetry) => coordinator.context.start(chatId, state().revision, randomUUID(), mode, undefined, retry).jobId;
   const idle = async (id: string) => { await expect.poll(() => store.contexts.job(id).status, { timeout: 5_000 }).not.toBe('running'); return store.contexts.job(id); };
   const resume = async () => {
     release?.(); release = null; await coordinator.shutdown(); store.close();
-    store = new Store(filename); coordinator = new GenerationCoordinator(store, provider);
+    store = new Store(filename); coordinator = new GenerationCoordinator(store, provider, () => behavior);
   };
   cleanup.push(async () => { release?.(); await coordinator.shutdown(); store.close(); rmSync(directory, { recursive: true, force: true }); });
-  return { get store() { return store; }, get coordinator() { return coordinator; }, state, start, idle, resume, calls, imported, chatId, contextId,
+  return { get store() { return store; }, get coordinator() { return coordinator; }, state, start, idle, resume, calls, imported, chatId, contextId, behavior,
+    setStoryReply(text: string) { storyReply = text; },
     setNextModes(values: typeof nextModes) { nextModes = [...values]; },
     setMode(value: typeof mode) { mode = value; }, holdNext(offset = 1) { holdAt = calls.length + offset; }, release() { release?.(); release = null; holdAt = -1; },
   };
@@ -727,7 +731,7 @@ describe('durable imported-session preparation', () => {
   });
 
   it('leaves the response pending when automatic preparation rejects output', async () => {
-    const f = fixture(); f.setMode('placeholder');
+    const f = fixture(); f.behavior.autoRetryMemory = false; f.setMode('placeholder');
     f.coordinator.start(f.state().revision, randomUUID(), 'Leon waits.', f.chatId);
     await expect.poll(() => f.state().generations[0].status).toBe('failed');
     expect(f.state().turns.at(-1)?.complete).toBe(false); expect(f.calls).toHaveLength(1);
@@ -843,9 +847,12 @@ describe('durable imported-session preparation', () => {
     await f.idle(f.start());
     const enlarged = f.state(), summaries = enlarged.context.summaries;
     f.store.updateChat(enlarged.revision, f.chatId, { ...settings, targetInputTokens: 600 });
+    // A short reply leaves this test focused on saved reuse before Send.
+    f.setStoryReply('Yes.');
     calls = f.calls.length;
     f.coordinator.start(f.state().revision, randomUUID(), 'Leon waits again.', f.chatId);
     await expect.poll(() => f.state().generations[0].status).toBe('succeeded');
+    await expect.poll(() => f.coordinator.hasActiveWork()).toBe(false);
     const prepared = f.state().context.jobs[0];
     expect(prepared.generationId).toBe(f.state().generations[0].id);
     expect(prepared.refresh).toBeUndefined(); expect(prepared.reusedCount).toBeGreaterThan(0);

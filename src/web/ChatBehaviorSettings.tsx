@@ -3,6 +3,7 @@ import { SettingsSaveStatus, useSettingsState } from './useSettingsAutosave';
 import { t, useLocale } from './localization';
 import { isMacKeyboard } from './composer-shortcuts';
 import type { SettingsAutosave } from './settings-autosave';
+import { NumberInput } from './Controls';
 
 export function ChatBehaviorSettings({ autosave }: { autosave: SettingsAutosave<ChatBehaviorStatus['settings'], ChatBehaviorStatus> }) {
   useLocale();
@@ -28,6 +29,15 @@ export function ChatBehaviorSettings({ autosave }: { autosave: SettingsAutosave<
             onChange={() => autosave.update({ enterKeyBehavior: option.value })} />
           <span>{option.label}<small>{option.help}</small></span>
         </label>)}
+      </fieldset>
+      <fieldset disabled={!draft} className="summary-retry-controls">
+        <legend className="sr-only">{t('chat_behavior.input_target')}</legend>
+        <label className="checkbox"><input type="checkbox" checked={draft?.allowInputOvershoot ?? true}
+          onChange={event => autosave.update({ allowInputOvershoot: event.target.checked })} />{t('chat_behavior.allow_input_overshoot')}</label>
+        <label>{t('chat_behavior.maximum_overshoot_tokens')}<NumberInput required min={0} max={Number.MAX_SAFE_INTEGER}
+          disabled={!draft?.allowInputOvershoot} value={draft?.maximumOvershootTokens ?? 100}
+          onChange={value => { if (Number.isSafeInteger(value) && value >= 0) autosave.update({ maximumOvershootTokens: value }); }} /></label>
+        <p className="small muted">{t('chat_behavior.overshoot_help')}</p>
       </fieldset>
     </div>
   </section>;
