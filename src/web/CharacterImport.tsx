@@ -1,6 +1,6 @@
+import { LibraryImport } from './LibraryImport';
 import { LocalizedError, useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { newId } from './uuid';
-import { Icon } from './Icon';
 import { CroppedPicture, fileBase64, PictureSquare } from './Pictures';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LibrarySnapshot } from '../shared/library';
@@ -51,7 +51,7 @@ export function CharacterImport({ revision, busy, run, imported, leadingAction, 
   }
   return <section className="character-import" aria-label={t("character_import.character_import")} hidden={hidden}>
     <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}>{leadingAction}
-    <label className="file-button"><Icon name="Import" />{t("character_import.import_character")}<input type="file" accept=".json,.png" disabled={busy || working || Boolean(pending)} onChange={async event => {
+    <LibraryImport label={t("character_import.import_character")} accept=".json,.png" disabled={busy || working || Boolean(pending)} onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
       const current = ++attempt.current; setWorking(true); setError('');
       try {
@@ -60,7 +60,7 @@ export function CharacterImport({ revision, busy, run, imported, leadingAction, 
         if (current !== attempt.current) return;
         await analyze(base64);
       } catch (error) { if (current === attempt.current) { setError(errorText(error, msg("character_import.could_not_read_the_card"))); setWorking(false); } }
-    }} /></label></div>
+    }} /></div>
     {working && <p role="status">{pending ? t("character_import.saving_or_reviewing_this_import") : t("character_import.analyzing_this_card")}</p>}
     {pending && <div className="character-import-review"><h2>{t("character_import.review", { name: pending.review.name })}</h2>
       {pending.review.book && <p>{t("character_import.embedded_lorebook_entries_an_independent_linked_book", { name: pending.review.book.name, entries: pending.review.book.entries })}</p>}

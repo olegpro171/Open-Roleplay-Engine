@@ -603,3 +603,12 @@ button.text-link>.ui-icon{width:14px;height:14px}
 }
 
 @media(max-height:500px){.library-list-header{position:static}}
+
+.library-import-dialog{border-color:var(--line)}
+.library-import-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}
+.library-import-heading h2{margin:0;overflow-wrap:anywhere}
+.library-import-heading button{flex-shrink:0;padding:10px}
+.library-import-dialog .library-import-drop{display:flex;flex-direction:column;justify-content:center;gap:16px;width:100%;min-height:180px;padding:24px;border:2px dashed var(--muted);white-space:normal;text-align:center}
+.library-import-drop.is-dragging{background:var(--surface);border-style:solid;outline:2px solid var(--muted);outline-offset:3px}
+.library-import-drop .ui-icon{width:32px;height:32px;pointer-events:none}
+.library-import-dialog p{margin:16px 0 0}

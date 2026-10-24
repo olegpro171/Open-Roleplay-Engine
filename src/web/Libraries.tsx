@@ -1,3 +1,4 @@
+import { LibraryImport } from './LibraryImport';
 import type { MessageText } from './localization';
 import { newLibraryLabel, searchLibraryLabel, sortLibraryLabel } from './localization-labels';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
@@ -301,7 +302,6 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
   }, [editing]);
   const [creatingChat, setCreatingChat] = useState(false);
   const [connectionFile, setConnectionFile] = useState<ConnectionFileAction | null>(null);
-  const connectionInput = useRef<HTMLInputElement>(null);
   const [notice, setNotice] = useTextState(''), [diagnostics, setDiagnostics] = useState<LoreDiagnostic[]>([]), [search, setSearch] = useState('');
   const [pendingBook, setPendingBook] = useState<string | null>(null);
   const [filters, setFilters] = useState<string[]>([]);
@@ -378,12 +378,11 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
       <h1 id="library-heading">{libraryLabel(section)}</h1>
       {section === 'chats' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy || creatingChat} onClick={() => setCreatingChat(true)}><Icon name="AddToList" />{t("libraries.new_chat")}</button></div>}
       {!editing && section !== 'chats' && section !== 'characters' && section !== 'lorebooks' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy} onClick={create}><Icon name="AddToList" />{newLibraryLabel(section)}</button>
-        {section === 'connections' && <><button type="button" className="secondary" disabled={busy} onClick={() => connectionInput.current?.click()}><Icon name="Import" />{t('connection_files.import_button')}</button>
-          <input ref={connectionInput} type="file" hidden accept=".oreconnection,application/octet-stream" aria-label={t('connection_files.import_button')} disabled={busy} onChange={event => {
-            const file = event.target.files?.[0]; event.target.value = '';
-            if (file) setConnectionFile({ kind: 'import', file, revision: library.revision });
-          }} /></>}
-        {(section === 'personas') && <label className="file-button"><Icon name="Import" />{t("libraries.import_personas")}<input type="file" accept=".json" disabled={busy} onChange={async e => {
+        {section === 'connections' && <LibraryImport label={t('connection_files.import_button')} accept=".oreconnection,application/octet-stream" disabled={busy} onChange={event => {
+          const file = event.target.files?.[0]; event.target.value = '';
+          if (file) setConnectionFile({ kind: 'import', file, revision: library.revision });
+        }} />}
+        {(section === 'personas') && <LibraryImport label={t("libraries.import_personas")} accept=".json" disabled={busy} onChange={async e => {
           const file = e.target.files?.[0]; e.target.value = ''; if (!file) return;
           await run(async () => {
             if (file.size > 2_000_000) throw new LocalizedError(msg("libraries.card_imports_are_limited_to_2_mb"));
@@ -391,8 +390,8 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
             const result = await api<{ ids: string[]; books?: { id: string; name: string; entries: number }[]; diagnostics?: LoreDiagnostic[] }>('/library/import', 'POST', { revision: library.revision, requestId: newId(), kind: section, base64: btoa(binary) });
             setNotice(msg("libraries.imported_persona_s", { length: result.ids.length, value: result.books?.map(book => t("interface.lorebook_entries", { name: String(book.name), entries: String(book.entries) })).join('') ?? '' })); setDiagnostics(result.diagnostics ?? []);
           });
-        }} /></label>}
-        {(section === 'prompts' || section === 'contexts') && <label className="file-button"><Icon name="Import" />{t("libraries.import", { value: section === 'contexts' ? t("interface.context_preset") : t("interface.prompt_preset") })}<input type="file" accept=".json" disabled={busy} onChange={async e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) await run(async () => { if (file.size > 1_000_000) throw new LocalizedError(msg("libraries.preset_file_is_too_large")); const value: unknown = JSON.parse(await file.text()); await api('/library', 'POST', { kind: section, revision: library.revision, data: section === 'prompts' ? upgradePrompt(value) : value }); }); }} /></label>}
+        }} />}
+        {(section === 'prompts' || section === 'contexts') && <LibraryImport label={t("libraries.import", { value: section === 'contexts' ? t("interface.context_preset") : t("interface.prompt_preset") })} accept=".json" disabled={busy} onChange={async e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) await run(async () => { if (file.size > 1_000_000) throw new LocalizedError(msg("libraries.preset_file_is_too_large")); const value: unknown = JSON.parse(await file.text()); await api('/library', 'POST', { kind: section, revision: library.revision, data: section === 'prompts' ? upgradePrompt(value) : value }); }); }} />}
       </div>}
       {!editing && section === 'lorebooks' && <LorebookImport leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_lorebook")}</button>} revision={library.revision} busy={busy} run={run} imported={(_id, message) => setNotice(message)} />}
       {section === 'characters' && <CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_character")}</button>} revision={library.revision} busy={busy} run={run} imported={(result, missing) => { setNotice(missing ? msg("libraries.the_original_import_was_saved_but_its") : msg("libraries.imported_character", { length: result.ids.length, value: result.books.map(book => t("interface.lorebook_entries", { name: String(book.name), entries: String(book.entries) })).join(''), value2: result.tags ? ` ${result.tags.assigned} local tags assigned; ${result.tags.created} created.` : t("interface.original_tag_report_unavailable"), value3: result.picture ? result.picture.saved ? t("interface.picture_saved") : t("interface.no_picture_saved") : t("interface.original_picture_report_unavailable"), value4: filters.length ? t("interface.the_character_may_be_hidden_by_your_tag") : '' })); setDiagnostics(result.diagnostics); }} />}

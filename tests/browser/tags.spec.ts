@@ -352,7 +352,7 @@ test('keeps tag tools optional, dismisses the picker, and retains visible remova
     await page.setViewportSize({ width, height: 844 });
     const buttons = await Promise.all([
       page.getByRole('button', { name: 'New character', exact: true }).boundingBox(),
-      page.locator('label.file-button').filter({ has: page.getByLabel('Import character', { exact: true }) }).boundingBox(),
+      page.getByRole('button', { name: 'Import character', exact: true }).boundingBox(),
       page.getByRole('button', { name: /^Tags/ }).boundingBox(),
     ]);
     const [create, importCard, tags] = buttons;

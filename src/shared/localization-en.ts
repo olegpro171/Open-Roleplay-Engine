@@ -1,5 +1,8 @@
 // Stable presentation keys. Editable model prompts and user content do not belong here.
 export const englishMessages = {
+  "library_import.close": "Close import",
+  "library_import.drop_here": "Drop file here or click to browse",
+  "library_import.one_file": "Choose one file at a time.",
   "settings.save_slow": "Saving settings is taking longer than expected. Your changes have not been confirmed yet.",
   "settings.save_failed": "Settings could not be synchronized. Your changes are retained. {{error}}",
   "settings.retry": "Retry",

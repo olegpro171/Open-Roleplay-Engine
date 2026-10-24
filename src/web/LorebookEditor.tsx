@@ -1,3 +1,4 @@
+import { LibraryImport } from './LibraryImport';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
 import { validationMessage } from '../shared/localization-validation';
 import type { z } from 'zod';
@@ -34,11 +35,10 @@ export function LorebookImport({ leadingAction, revision, busy, run, imported }:
   useLocale();
   const [review, setReview] = useState<{ preview: LoreImportPreview; value: unknown; revision: number; requestId: string; filename: string } | null>(null);
   const [error, setError] = useTextState(''), [reading, setReading] = useState(false), [attempted, setAttempted] = useState(false);
-  const attempt = useRef(0), fileInput = useRef<HTMLInputElement>(null);
+  const attempt = useRef(0);
   useEffect(() => () => { attempt.current++; }, []);
   return <div className="lore-import">
-    <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}>{leadingAction}<button type="button" className="secondary" disabled={busy || reading} onClick={() => fileInput.current?.click()}><Icon name="Import" />{t("lorebook_editor.import_lorebook")}</button></div>
-    <input ref={fileInput} aria-label={t("lorebook_editor.lorebook_json_file")} hidden type="file" accept=".json,application/json" disabled={busy || reading} onChange={async event => {
+    <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}>{leadingAction}<LibraryImport label={t("lorebook_editor.import_lorebook")} inputLabel={t("lorebook_editor.lorebook_json_file")} accept=".json,application/json" disabled={busy || reading} onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
       const current = ++attempt.current; setReview(null); setError(''); setReading(true); setAttempted(false);
       try {
@@ -48,7 +48,7 @@ export function LorebookImport({ leadingAction, revision, busy, run, imported }:
         if (attempt.current === current) setReview({ preview, value, revision, requestId: newId(), filename: file.name });
       } catch (failure) { if (attempt.current === current) setError(errorText(failure, msg("lorebook_editor.could_not_read_this_lorebook"))); }
       finally { if (attempt.current === current) setReading(false); }
-    }} />
+    }} /></div>
     {reading && <p role="status">{t("lorebook_editor.reviewing_lorebook")}</p>}{error && <p role="alert">{error}</p>}
     {review && <div className="lore-import-review"><h3>{t("character_import.review", { name: review.preview.book.name })}</h3><p className="small">{t("lorebook_editor.format_entries_enabled", { filename: review.filename, format: review.preview.format, length: review.preview.book.entries.length, length2: review.preview.book.entries.filter(entry => entry.enabled).length })}</p><p className="small">{t("lorebook_editor.scan_depth_messages_lore_cap_tokens_recursion", { scanDepth: review.preview.book.scanDepth, value: review.preview.book.tokenBudget.toLocaleString(locale()), value2: review.preview.book.recursiveScanning ? t("interface.on") : t("interface.off") })}</p><LoreDiagnostics diagnostics={review.preview.diagnostics} />
       <p className="small muted">{t("lorebook_editor.import_creates_a_new_book_select_it")}</p>

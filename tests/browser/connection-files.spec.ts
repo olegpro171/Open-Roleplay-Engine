@@ -64,6 +64,7 @@ for (const width of [1440, 390]) test(`Connection export/import with optional ke
     const before = await library(page);
     const chooser = page.waitForEvent('filechooser');
     await page.getByRole('button', { name: 'Import Connection...', exact: true }).click();
+    if (width > 800) await page.getByRole('button', { name: 'Drop file here or click to browse', exact: true }).click();
     await (await chooser).setFiles({ name: download.suggestedFilename(), mimeType: 'application/octet-stream', buffer: bytes });
     const importing = page.getByRole('dialog', { name: 'Import Connection', exact: true });
     await expect(importing.getByLabel('File password (if set)', { exact: true })).toHaveValue('');

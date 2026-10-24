@@ -285,6 +285,10 @@ Accepted on 2026-10-21: Character and Persona editors have a saved **Speech colo
 
 Accepted on 2026-10-22: all color selection uses a shared custom HSL picker with hue, saturation and lightness controls, exact hex entry, a before/after preview, and varied presets including pastel shades. Apply accepts the picker choice into the editor draft; Cancel or Escape discards picker adjustments. The existing editor Save commits the color.
 
+### Library imports
+
+Accepted on 2026-10-25: reusable Library Import actions first open a popup with a close cross and an outlined “Drop file here or click to browse” area. Dropping one file or browsing continues the category’s existing import flow. On phone-sized layouts, Import opens the file picker immediately without the popup or drag-and-drop area.
+
 ### Library sorting
 
 Requested on 2026-10-21: compact sort dropdowns share the search row in every library (stacked below search on the narrowest panels after the 2026-10-24 redesign). Offer names, added dates and edited dates in both directions; Chats additionally offers last-message recency. Unedited items fall back to their added date. Sorting combines with search and character tags, and each library remembers its choice in this browser. Defaults are newest added for reusable records and recent messages for Chats. Dates refer to local saved records; unavailable historical dates remain unknown and follow dated items. Sorting changes presentation only, preserving selections, prompts and history.
