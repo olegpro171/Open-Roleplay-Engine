@@ -12,7 +12,7 @@ The same filtering applies to resolved prompt/card/persona/lore text and memory,
 
 ## Quoted speech
 
-Balanced `"…"`, `'…'`, `“…”`, `‘…’`, `«…»` and `„…“` spans are bold and use the selected speech color, including the quotation marks. Nested pairs are included in the outer span. Apostrophes inside words do not start or end a quotation. This recognizes quoted text, including quotations that are not literally spoken dialogue; it does not infer narrative meaning. Unclosed streamed quotations remain ordinary text until their closing mark arrives.
+Balanced `"…"`, `“…”`, `«…»` and `„…“` spans are bold and use the selected speech color, including the quotation marks. Nested pairs are included in the outer span. Straight and curly single quotes never start or end a quotation, including leading apostrophes such as `'em`. This recognizes quoted text, including quotations that are not literally spoken dialogue; it does not infer narrative meaning. Unclosed streamed quotations remain ordinary text until their closing mark arrives.
 
 Speech styling covers complete detected spans, including em dashes (`—`) inside quotations and opening/resuming dialogue dashes. Dashes separating speech from recognized author clauses remain plain because they fall outside those spans.
 

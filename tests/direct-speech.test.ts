@@ -10,9 +10,12 @@ describe('quoted direct speech', () => {
   it.each([
     ['Mara asked "How are you?"', ['"How are you?"']],
     ['“Hello,” she said. «Привет», — ответила Мара.', ['“Hello,”', '«Привет»']],
-    ["'Hello,' she said. ‘I’m here.’", ["'Hello,'", '‘I’m here.’']],
+    ["'Hello,' she said. ‘I’m here.’", []],
     ["Don't style Mara's words or d’Artagnan.", []],
     ['Он сказал: «Она ответила: „Да“».', ['«Она ответила: „Да“»']],
+    ["\"You say that like they sell 'em at the gas station.\"", ["\"You say that like they sell 'em at the gas station.\""]],
+    ['“They sell ’em at the gas station.”', ['“They sell ’em at the gas station.”']],
+    ['"A ‘single quote cannot interrupt speech."', ['"A ‘single quote cannot interrupt speech."']],
     ['"Unfinished stream', []],
     ['"before\0after"', []],
     ['"First" and "second".', ['"First"', '"second"']],

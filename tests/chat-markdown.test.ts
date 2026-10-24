@@ -9,6 +9,12 @@ function render(text: string, speech?: Parameters<typeof ChatMarkdown>[0]['speec
 }
 
 describe('chat Markdown presentation', () => {
+  it('highlights complete double-quoted speech containing a leading apostrophe', () => {
+    const html = render(`"You say that like they sell 'em at the gas station."`);
+    expect(html).toContain('<strong class="direct-speech">&quot;You say that like they sell &#x27;em at the gas station.&quot;</strong>');
+    expect(render("'Hello,' she said. ‘Goodbye.’")).not.toContain('class="direct-speech"');
+  });
+
   it('styles opening, resuming and internal em dashes within detected speech', () => {
     const html = render('— Привет, — сказала Мара. — «Стой — подожди».');
     const highlighted = Array.from(html.matchAll(/<strong class="direct-speech">([^<]*)<\/strong>/gu), match => match[1]);

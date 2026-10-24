@@ -95,7 +95,7 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
   await expect(prose.locator('em')).toHaveText('Mara smiles.');
   await expect(prose.locator('img[src="https://example.com/empty-alt.png"]')).toHaveCount(1);
 
-  const input = '*I enter.* "Is anyone there?"\n\n![](https://example.com/input.png)';
+  const input = '*I enter.* "You say that like they sell \'em at the gas station."\n\n![](https://example.com/input.png)';
   await request.post('/__test/mode', { data: { mode: 'markdown' } });
   const originalAppearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
   try {
@@ -111,6 +111,7 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
     const turn = page.getByRole('article', { name: 'Turn 2', exact: true });
     const reply = turn.locator('.part.assistant .prose');
     await expect(turn.locator('.part.user em')).toHaveText('I enter.');
+    await expect(turn.locator('.part.user .direct-speech')).toHaveText(`"You say that like they sell 'em at the gas station."`);
     await expect(turn.locator('.part.user .direct-speech')).toHaveCSS('color', 'rgb(136, 204, 153)');
     await expect(turn.locator('.part.user img')).toHaveAttribute('src', 'https://example.com/input.png');
     await expect(reply).toHaveText(markdownReplyStart);
@@ -139,7 +140,7 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
     expect(saved.turns[1].assistant.text).toBe(markdownReplyStart + markdownReplyEnd);
     // Inspect the server's immutable outgoing request, not a presentation-derived approximation.
     const historical = await page.request.get(`/api/chats/${chat.id}/generations/${saved.generations[0].id}/request`).then(response => response.json());
-    expect(historical.body.messages).toContainEqual({ role: 'user', content: '*I enter.* "Is anyone there?"' });
+    expect(historical.body.messages).toContainEqual({ role: 'user', content: '*I enter.* "You say that like they sell \'em at the gas station."' });
     const outgoingGreeting = historical.body.messages.find((message: { role: string }) => message.role === 'assistant').content;
     expect(outgoingGreeting).toContain('*Mara smiles.*');
     expect(outgoingGreeting).not.toContain('tracker.png');

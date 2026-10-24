@@ -1,7 +1,7 @@
 export type SpeechRange = { start: number; end: number };
 
 const closingQuote = new Map([
-  ['"', '"'], ["'", "'"], ['“', '”'], ['‘', '’'], ['«', '»'], ['„', '“'],
+  ['"', '"'], ['“', '”'], ['«', '»'], ['„', '“'],
 ]);
 const wordCharacter = /[\p{L}\p{N}]/u;
 
@@ -15,8 +15,6 @@ export function quotedSpeechRanges(text: string): SpeechRange[] {
       stack.length = 0;
       continue;
     }
-    // Apostrophes in contractions, possessives and names are not quotation marks.
-    if ((character === "'" || character === '’') && wordCharacter.test(text[index - 1] ?? '') && wordCharacter.test(text[index + 1] ?? '')) continue;
     const open = stack.at(-1);
     if (open?.close === character) {
       stack.pop();
@@ -25,7 +23,7 @@ export function quotedSpeechRanges(text: string): SpeechRange[] {
     }
     const close = closingQuote.get(character);
     if (!close) continue;
-    if ((character === "'" || character === '‘' || character === '"') && wordCharacter.test(text[index - 1] ?? '')) continue;
+    if (character === '"' && wordCharacter.test(text[index - 1] ?? '')) continue;
     stack.push({ start: index, close });
   }
   return ranges;
