@@ -88,6 +88,18 @@ function mockStream(text: string, finishReason = 'stop', refusal?: string) {
 afterEach(() => vi.restoreAllMocks());
 
 describe('summarization request gate', () => {
+  it('reports observed phases once and never returns to reasoning after reply text', async () => {
+    const phases: string[] = [];
+    const provider: Provider = { async stream(_request, _key, _signal, text, reasoning) {
+      reasoning?.('Thinking'); reasoning?.('More thought');
+      text('Mira kept the key.'); reasoning?.('Late thought'); text(' Leon left.');
+      return { finishReason: 'stop' };
+    } };
+    await expect(generateSummary(provider, request, '', new AbortController().signal, phase => phases.push(phase)))
+      .resolves.toBe('Mira kept the key. Leon left.');
+    expect(phases).toEqual(['connecting', 'reasoning', 'generating']);
+  });
+
   it('returns a valid summary only after the stream finishes', async () => {
     mockStream('Mira gives Leon the key, trusting his promise to avoid the cellar.');
     await expect(generateSummary(new OpenAICompatibleProvider(), request, '', new AbortController().signal))

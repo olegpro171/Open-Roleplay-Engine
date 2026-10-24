@@ -153,6 +153,8 @@ The user also requested current input inspection in the Story sidebar: total and
 
 ### Turn
 
+Accepted on 2026-10-24: Repair Review shows observed **Connecting**, **Reasoning** and **Generating** phases and opens at its full review size before a candidate arrives. The redundant “Checking affected memory…” label is removed. A summary rejected by the refusal heuristic can be inspected read-only from its failed request; inspection does not create a candidate, approve the text or change memory. Regenerate remains explicit. Saved summary text uses a fixed-height scrolling region so switching versions does not resize the page or replace the focused selector.
+
 The primary stored conversation unit is a **turn**, containing a user-input part and an assistant-response part. Accepted decisions:
 
 - Historical turns are complete. Only the newest turn may be incomplete while its response is pending, including after a generation error or cancellation. Another turn cannot be submitted while that incomplete turn remains unresolved. New responses use the same in-turn Cancel action as regeneration, without a separate generating status row. Their version selector appears immediately as a disabled 1 / 1 during generation, keeping Cancel to its right; the selector remains beside the latest completed turn’s action even with one saved version. Cancelling before any text arrives displays “Generation cancelled.” in the assistant area; received partial text remains inspectable. The pending-turn panel and Retry response remain available.

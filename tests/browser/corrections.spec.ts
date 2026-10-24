@@ -67,18 +67,36 @@ test('inspects alternate identities and old versions without timeline collisions
   }
   await oldBox.click();
   await page.getByRole('button', { name: 'Edit summary', exact: true }).click();
-  await page.getByLabel('Summary text', { exact: true }).fill('Author correction: Mira has a duplicate key.');
+  const correction = 'Author correction: Mira has a duplicate key.\n' + 'Long saved memory.\n'.repeat(150);
+  await page.getByLabel('Summary text', { exact: true }).fill(correction);
   await page.getByRole('button', { name: 'Save summary edit', exact: true }).click();
   const editedBox = page.locator(`.summary-span[data-summary-id="${old.id}"][aria-label$="revision 1"]`);
   await editedBox.click();
   await expect(page.getByTestId('summary-authority')).toContainText('awaiting reconciliation');
   await expect(page.getByRole('button', { name: 'Repair summaries', exact: true })).toBeEnabled();
-  await page.getByRole('combobox', { name: 'Summary version', exact: true }).click();
-  await page.getByRole('option', { name: 'Revision 0 · historical', exact: true }).click();
-  await expect(page.locator('.summary-inspection .prose').first()).toHaveText(old.text);
-  await expect(page.getByRole('button', { name: 'Edit summary', exact: true })).toHaveCount(0);
-  await page.getByRole('combobox', { name: 'Summary version', exact: true }).click();
-  await page.getByRole('option', { name: 'Revision 1 · current approved · manually corrected', exact: true }).click();
-  await expect(page.locator('.summary-inspection .prose').first()).toHaveText('Author correction: Mira has a duplicate key.');
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const selector = page.getByRole('combobox', { name: 'Summary version', exact: true });
+    const text = page.getByRole('region', { name: 'Summary text', exact: true });
+    await selector.scrollIntoViewIfNeeded();
+    const bounds = await text.boundingBox();
+    expect(await text.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+    await selector.focus();
+    const top = await selector.evaluate(element => element.getBoundingClientRect().top);
+    await selector.press('ArrowDown');
+    await selector.press('ArrowDown');
+    await selector.press('Enter');
+    await expect(text).toHaveText(old.text);
+    await expect(selector).toBeFocused();
+    expect(Math.abs((await selector.boundingBox())!.y - top)).toBeLessThan(2);
+    expect((await text.boundingBox())!.height).toBe(bounds!.height);
+    await expect(page.getByRole('button', { name: 'Edit summary', exact: true })).toHaveCount(0);
+    await selector.press('ArrowUp');
+    await selector.press('ArrowUp');
+    await selector.press('Enter');
+    await expect(text).toHaveText(correction.trim());
+    expect((await text.boundingBox())!.height).toBe(bounds!.height);
+    await text.screenshot({ path: `test-results/summary-text-${width}.png` });
+  }
   expect((await state()).context.summaries.find(node => node.id === old.id && node.revision === 1)?.turns).toEqual(old.turns);
 });

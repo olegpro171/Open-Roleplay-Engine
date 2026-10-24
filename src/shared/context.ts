@@ -116,6 +116,8 @@ export type ContextRefresh = {
   limitation?: string;
 };
 export type ContextStep = {
+  /** Rejected model output for read-only inspection; never a summary candidate. */
+  rejectedText?: string;
   errorMessage?: import('./localization.js').LocalizedMessage;
   id: string; jobId: string; operation: ContextOperation; request: RequestPreview | null;
   status: 'running' | 'saved' | 'candidate' | 'discarded' | 'failed' | 'interrupted'; result: SummaryRef | null;
@@ -129,6 +131,12 @@ export type ContextStep = {
 export type RepairChange = { kind: 'user' | 'assistant' | 'child' | 'prior' | 'correction'; id: string; label: string; before: string | null; after: string | null; beforeRevision: number | null; afterRevision: number | null; coverageChanged?: boolean; beforeOmitted?: 'unusable_summary' };
 export type ContextSnapshot = ContextState & { preset: (ContextPreset & SummaryRef) | null; jobs: ContextJob[] };
 export type RepairAction = 'approve' | 'regenerate' | 'close';
+export type SummaryPhase = 'connecting' | 'reasoning' | 'generating';
+export type ContextJobProgress = {
+  status: ContextJobStatus;
+  /** Transient observed stream phase, omitted after the request ends. */
+  phase?: SummaryPhase;
+};
 export type ContextJobDetails = {
   job: ContextJob; steps: ContextStep[];
   repair?: { remaining: number; previousSources: string | null; currentSources: string; previousPrior: string; currentPrior: string };

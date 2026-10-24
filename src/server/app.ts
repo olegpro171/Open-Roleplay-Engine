@@ -566,6 +566,10 @@ export async function createApp(options: {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     return store.contexts.details(id);
   });
+  app.get('/api/context/jobs/:id/progress', async request => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    return coordinator.context.progress(id);
+  });
   app.post('/api/context/jobs/:id/cancel', async request => {
     z.object({}).strict().parse(request.body);
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);

@@ -3,10 +3,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { AppError } from '../core/errors.js';
 import { contextPlan, summaryRequest } from '../core/context-plan.js';
 import { nextRepair } from '../core/context.js';
-import { generateSummary } from './summarizer.js';
+import { generateSummary, RefusedSummaryError } from './summarizer.js';
 import type { Store } from '../persistence/store.js';
 import type { Provider } from '../provider/openai.js';
-import type { ContextJob, RepairAction, SummaryRetry, SummaryNode } from '../shared/context.js';
+import type { ContextJob, RepairAction, SummaryRetry, SummaryNode, SummaryPhase, ContextJobProgress } from '../shared/context.js';
 import { hasPromptMarker } from '../shared/library.js';
 import type { LoreRegexPool } from './lore-regex.js';
 import { resolveRequestLore } from './lore-resolution.js';
@@ -14,9 +14,14 @@ import type { LoreResolution } from '../shared/lorebook.js';
 
 export class ContextCoordinator {
   private active = new Map<string, { controller: AbortController; task: Promise<void>; generationId: string | null }>();
+  private phases = new Map<string, SummaryPhase>();
   private stopping = false;
   private preflights = new Set<AbortController>();
   constructor(private store: Store, private provider: Provider, private changed: () => void, private loreRegex: LoreRegexPool) {}
+  progress(id: string): ContextJobProgress {
+    const { status } = this.store.contexts.job(id);
+    return { status, ...(status === 'running' ? { phase: this.phases.get(id) } : {}) };
+  }
   hasActiveWork() { return this.active.size > 0 || this.preflights.size > 0; }
   async startResolved(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>, retry?: SummaryRetry) {
     if (this.stopping) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
@@ -103,11 +108,11 @@ export class ContextCoordinator {
           this.changed();
           let text: string;
           try {
-            text = prepared.request && connectionId ? await generateSummary(this.provider, prepared.request, this.store.connectionApiKey(connectionId), signal) : '';
+            text = prepared.request && connectionId ? await generateSummary(this.provider, prepared.request, this.store.connectionApiKey(connectionId), signal, phase => this.phases.set(id, phase)) : '';
           } catch (error) {
             // Retry only provider/output failures. Planning and commit failures need user action.
             if (signal.aborted || this.stopping || !(error instanceof AppError) || error.status !== 502) throw error;
-            this.store.contexts.failAttempt(step, error.localized ?? error.message);
+            this.store.contexts.failAttempt(step, error.localized ?? error.message, job.mode === 'repair' && error instanceof RefusedSummaryError ? error.rejectedText : undefined);
             this.changed();
             if (!job.retry || job.retry.maxRetries !== 0 && retries >= job.retry.maxRetries) throw error;
             retries++;
@@ -129,7 +134,7 @@ export class ContextCoordinator {
       if (!this.stopping) this.store.contexts.finish(id, 'cancelled', message("interface.preparation_stopped_previously_saved_replacements_remain_selected_resume"));
     } catch (error) {
       if (!this.stopping) this.store.contexts.finish(id, signal.aborted ? 'cancelled' : 'failed', error instanceof AppError ? error.localized ?? error.message : message("diagnostics.memory_preparation_failed_check_the_connection_and_retry"));
-    } finally { this.changed(); }
+    } finally { this.phases.delete(id); this.changed(); }
   }
   cancel(id: string) {
     const operation = this.active.get(id), job = this.store.contexts.job(id);

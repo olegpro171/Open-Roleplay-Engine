@@ -44,6 +44,8 @@ The accepted 2026-10-24 [saved refusal recovery](SUMMARY_REFUSALS.md) adds an ex
 
 Matching prose panes align unchanged text and highlight textual removals/additions, with the previous version read-only and the candidate editable. They share scrolling and offer difference navigation and optional unchanged-line collapsing. Expandable comparisons show the previous/current sources and earlier memory actually captured in saved requests; missing historical source text is identified explicitly. Phone layouts use a unified comparison. Matching concerns text, not narrative meaning. Structural freshness still does not establish semantic consistency or preserve every author correction.
 
+Repair Review keeps its window size while waiting and displays Connecting, Reasoning or Generating from observed stream activity. A heuristic refusal offers **Inspect rejected summary anyway**, showing the failed output read-only. It remains outside saved memory and cannot be approved; Regenerate starts another explicit request. Failed-request output remains inspectable after restart, while Close still discards candidates and local edits. Summary inspection uses a fixed-height text region and keeps focus on the version selector when switching revisions.
+
 ## Budget allocation and cutoff: proposed mechanism
 
 The limits, fixed first-layer batching, and failure conditions above are user-defined constraints. The preparation mechanism below is recommended for discussion, not a finalized implementation specification.

@@ -39,9 +39,17 @@ test('reviews a repair queue with matching panes, source diffs, regenerate, disc
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Continuous repair proof', exact: true }) }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Inspect memory');
+  await request.post('/__test/mode', { data: { mode: 'hold-first-token' } });
   await page.getByRole('button', { name: 'Repair summaries', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Review the proposed replacement' });
   await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
+  await expect(dialog.getByTestId('repair-phase')).toHaveText('Connecting…');
+  const connectingBounds = await dialog.boundingBox();
+  await dialog.screenshot({ path: 'test-results/repair-connecting.png' });
+  await request.post('/__test/finish');
+  await expect(dialog.getByTestId('repair-phase')).toHaveText('Generating…');
+  await request.post('/__test/finish');
+  await request.post('/__test/mode', { data: { mode: 'normal' } });
   const proposal = () => dialog.getByLabel('Proposed summary', { exact: true });
   // Use the editor's paste handler. Browser execCommand replacement (Locator.fill)
   // copies highlight formatting into inline styles, bypassing that input path.
@@ -53,6 +61,7 @@ test('reviews a repair queue with matching panes, source diffs, regenerate, disc
     }, text);
   };
   await expect(proposal()).toHaveAttribute('contenteditable', 'true');
+  expect(await dialog.boundingBox()).toEqual(connectingBounds);
   await expect(dialog.getByLabel('Previous summary', { exact: true })).toHaveAttribute('contenteditable', 'false');
   const previousBounds = await dialog.getByLabel('Previous summary', { exact: true }).boundingBox();
   const proposedBounds = await proposal().boundingBox();
@@ -96,8 +105,14 @@ test('reviews a repair queue with matching panes, source diffs, regenerate, disc
   await dialog.getByRole('button', { name: 'Approve & Next', exact: true }).click();
   await expect(dialog.getByRole('alert')).toBeVisible();
   expect((await state()).context.summaries.some(node => node.approved && node.text === 'Reviewed continuity: Mira kept her key.')).toBe(true);
-  await request.post('/__test/mode', { data: { mode: 'normal' } });
+  await request.post('/__test/mode', { data: { mode: 'reasoning' } });
   await dialog.getByRole('button', { name: 'Regenerate', exact: true }).click();
+  await expect(dialog.getByTestId('repair-phase')).toHaveText('Reasoning…');
+  await request.post('/__test/finish');
+  await request.post('/__test/finish');
+  await expect(dialog.getByTestId('repair-phase')).toHaveText('Generating…');
+  await request.post('/__test/finish');
+  await request.post('/__test/mode', { data: { mode: 'normal' } });
   await expect(proposal()).toHaveAttribute('contenteditable', 'true');
   await expect(dialog.getByRole('status').first()).toContainText('1 approved');
   // Resizing preserves the edited text while switching to a unified phone comparison.
@@ -120,8 +135,21 @@ test('reviews a repair queue with matching panes, source diffs, regenerate, disc
   // A fresh source edit can be closed while its provider request is still in progress.
   await command(`/api/chats/${chat.id}/turns/${(await state()).turns[0].id}/user`, { revision: (await state()).revision, text: 'Mira hid the brass key.' }, 'PATCH');
   await expect(page.getByRole('button', { name: 'Repair summaries', exact: true })).toBeEnabled();
-  await request.post('/__test/mode', { data: { mode: 'hold' } });
+  const beforeRefusal = await state();
+  await request.post('/__test/mode', { data: { mode: 'refusal' } });
   await page.getByRole('button', { name: 'Repair summaries', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('refused');
+  await dialog.getByText('Inspect rejected summary anyway', { exact: true }).click();
+  await expect(dialog.getByRole('region', { name: 'Rejected summary', exact: true })).toContainText("I can't help with this.");
+  await expect(dialog.getByRole('button', { name: /^Approve &/ })).toBeDisabled();
+  const afterRefusal = await state();
+  expect(afterRefusal.context.selected).toEqual(beforeRefusal.context.selected);
+  expect(afterRefusal.context.summaries).toEqual(beforeRefusal.context.summaries);
+  await dialog.screenshot({ path: 'test-results/repair-refusal-phone.png' });
+  await request.post('/__test/mode', { data: { mode: 'hold-first-token' } });
+  await dialog.getByRole('button', { name: 'Regenerate', exact: true }).click();
+  await expect(dialog.getByTestId('repair-phase')).toHaveText('Connecting…');
+  await dialog.screenshot({ path: 'test-results/repair-connecting-phone.png' });
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await request.post('/__test/finish');

@@ -65,6 +65,29 @@ function fixture(count = 48, target = 500, builtInContext = false) {
   };
 }
 
+it('retains refused repair output for inspection without creating or selecting a candidate', async () => {
+  const f = fixture(8);
+  await f.idle(f.start('step'));
+  f.store.editPart(f.state().revision, f.state().turns[0].id, 'user', 'Mira kept the key.', f.chatId);
+  const before = f.state().context;
+  f.setMode('refusal');
+  const id = f.start('repair');
+  expect((await f.idle(id)).status).toBe('failed');
+  expect(f.coordinator.context.progress(id)).toEqual({ status: 'failed' });
+  expect(f.store.contexts.details(id).steps.at(-1)).toMatchObject({
+    status: 'failed', rejectedText: "I can't help with this.", result: null,
+  });
+  expect(f.state().context.selected).toEqual(before.selected);
+  expect(f.state().context.summaries).toEqual(before.summaries);
+  expect(() => f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'approve')).toThrow();
+  await f.resume();
+  expect(f.store.contexts.details(id).steps.at(-1)).toHaveProperty('rejectedText', "I can't help with this.");
+  expect(JSON.stringify(f.store.contexts.details(id))).not.toContain('summary-secret');
+  expect(() => validateContent(f.store.sqlite)).not.toThrow();
+  f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'close');
+  expect(f.state().context.selected).toEqual(before.selected);
+});
+
 // Legacy alternatives are seeded only into an isolated temporary database.
 function retainedAlternative(f: ReturnType<typeof fixture>, source: SummaryNode, overrides: Partial<SummaryNode> = {}): SummaryNode {
   const node: SummaryNode = { ...structuredClone(source), id: randomUUID(), revision: 0, basedOn: undefined, corrections: undefined, prior: [], createdAt: new Date().toISOString(), ...overrides };
@@ -1199,12 +1222,14 @@ describe('targeted repair with review', () => {
     f.setMode('normal'); f.holdNext();
     f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'regenerate');
     expect(f.store.contexts.job(id).status).toBe('running');
+    expect(f.coordinator.context.progress(id)).toEqual({ status: 'running', phase: 'connecting' });
     const saved = f.state().context.summaries;
     const requestId = randomUUID(), revision = f.state().revision;
     f.coordinator.context.repairAction(id, revision, requestId, 'close');
     f.coordinator.context.repairAction(id, revision, requestId, 'close');
     f.release(); await new Promise(resolve => setTimeout(resolve, 20));
     expect(f.store.contexts.job(id)).toMatchObject({ status: 'cancelled', reviewedCount: 1 });
+    expect(f.coordinator.context.progress(id)).toEqual({ status: 'cancelled' });
     expect(f.state().context.summaries).toEqual(saved);
     expect(f.state().context.jobs.some(job => job.status === 'running')).toBe(false);
   });

@@ -183,6 +183,8 @@ Actual text lengths, model errors, persistence, revision conflicts, and summary 
 
 ## 8. Model connections and token measurement
 
+Repair stream phases are transient coordinator state read through authenticated `GET /api/context/jobs/:id/progress`; the browser polls this small response only while work runs and aborts reads/timers on status, revision or dialog changes. Readable reasoning before output marks Reasoning, first output marks Generating, and no unreadable provider state is inferred. Completion/cancellation clears the phase. Failed repair steps may retain optional `rejectedText` for read-only inspection of heuristic refusals, separately from summary candidates and selection. Backup validation accepts this bounded optional field; older records remain valid without a schema migration. Explicit provider-filter/transport failures do not expose raw error bodies. The fixed review shell scrolls its body; summary inspection keeps the version selector mounted and scrolls the text region independently.
+
 Connection duplication reads settings and credentials inside one revision-checked, idle library transaction and saves an independent Connection/key together. Its authenticated endpoint returns only the new identity; ordinary public records expose credential presence only. Failed credential writes roll back the entire copy. No schema migration is required.
 
 Start with an explicit OpenAI-compatible HTTP adapter, honoring the selected endpoint, model, token limits, and supported custom JSON parameters. The exact initial API dialect and supported endpoint subset must be documented during implementation; OpenAI-compatible services are not assumed to behave identically. Anthropic-compatible support remains a possible later addition.

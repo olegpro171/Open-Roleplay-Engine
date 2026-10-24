@@ -5,7 +5,7 @@ export async function startMockProvider() {
   const modelRequests: { authorization?: string }[] = [];
   let modelMode: 'normal' | 'error' | 'invalid' | 'redirect' | number = 'normal';
   const waiting: (() => void)[] = [];
-  let mode: 'normal' | 'repair-unchanged' | 'hold' | 'hold-first-token' | 'markdown' | 'reasoning' | 'reasoning-only' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' | 'placeholder' | 'no-usage' | 'bad-usage' = 'normal';
+  let mode: 'normal' | 'refusal' | 'repair-unchanged' | 'hold' | 'hold-first-token' | 'markdown' | 'reasoning' | 'reasoning-only' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' | 'placeholder' | 'no-usage' | 'bad-usage' = 'normal';
   const send = (response: ServerResponse, value: unknown) => response.write(`data: ${JSON.stringify(value)}\n\n`);
   const server = createServer(async (request, response) => {
     if (request.url === '/v1/models') {
@@ -28,7 +28,7 @@ export async function startMockProvider() {
     if (currentMode === 'error') { response.writeHead(401).end('upstream-secret-do-not-save'); return; }
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
     const firstToken = () => {
-      if (!response.destroyed && currentMode !== 'empty' && currentMode !== 'reasoning-only') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'markdown' ? markdownReplyStart : currentMode === 'placeholder' ? 'placeholder' : currentMode === 'padded' ? '\r\n \nThe lantern\n\n' : currentMode === 'whitespace' ? '\n\t\n' : repairText ?? 'The lantern ' }, finish_reason: null }] });
+      if (!response.destroyed && currentMode !== 'empty' && currentMode !== 'reasoning-only') send(response, { choices: [{ index: 0, delta: { content: currentMode === 'markdown' ? markdownReplyStart : currentMode === 'refusal' ? "I can't help with this." : currentMode === 'placeholder' ? 'placeholder' : currentMode === 'padded' ? '\r\n \nThe lantern\n\n' : currentMode === 'whitespace' ? '\n\t\n' : repairText ?? 'The lantern ' }, finish_reason: null }] });
     };
     const finish = () => {
       if (response.destroyed) return;

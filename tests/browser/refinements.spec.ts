@@ -105,6 +105,9 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await expect(page.locator('.memory-failure')).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Memory', exact: true }).getByRole('meter', { name: 'Input budget' })).toHaveClass(/fits/);
   await command(`/api/library/${contextId}`, { revision: (await libraries()).revision, kind: 'contexts', data: preset }, 'PUT');
+  // This API edit advances the chat revision. Wait for its SSE snapshot before
+  // submitting a settings form captured from that snapshot.
+  await expect(page.getByText(/^Minimum tail 2 · Turn batch 2/)).toBeVisible();
   await page.getByLabel('Input target', { exact: true }).fill('700');
   await page.getByRole('button', { name: 'Save memory settings', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();

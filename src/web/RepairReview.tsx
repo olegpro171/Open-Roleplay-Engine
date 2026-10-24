@@ -5,9 +5,10 @@ import { newId } from './uuid';
 import { Icon } from './Icon';
 import { useEffect, useRef, useState } from 'react';
 import type { ChatSnapshot } from '../shared/contracts';
-import { refKey, type ContextJob, type ContextJobDetails, type RepairAction } from '../shared/context';
+import { refKey, type ContextJob, type ContextJobDetails, type ContextJobProgress, type SummaryPhase, type RepairAction } from '../shared/context';
 import { api } from './api';
 import { TextComparison } from './TextComparison';
+import { RejectedSummary } from './RejectedSummary';
 
 export function RepairReview({ snapshot, job, busy, run, dismissed }: {
   snapshot: ChatSnapshot; job: ContextJob; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; dismissed: () => void;
@@ -17,15 +18,35 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
   const pending = useRef(false);
   const retry = useRef<{ key: string; requestId: string } | null>(null);
   const [details, setDetails] = useState<ContextJobDetails | null>(null);
+  const [phase, setPhase] = useState<SummaryPhase>('connecting');
   const [error, setError] = useTextState('');
   const [sourcesOpen, setSourcesOpen] = useState(false), [priorOpen, setPriorOpen] = useState(false);
   const [draft, setDraft] = useState<{ key: string; text: string }>({ key: '', text: '' });
   useEffect(() => { openModal(dialog.current); }, []);
   useEffect(() => {
-    let current = true;
-    api<ContextJobDetails>(`/context/jobs/${job.id}`).then(value => { if (current) { setDetails(value); setError(''); } }).catch(error => { if (current) setError(errorText(error)); });
-    return () => { current = false; };
-  }, [job.id, snapshot.revision]);
+    const controller = new AbortController();
+    api<ContextJobDetails>(`/context/jobs/${job.id}`, 'GET', undefined, controller.signal)
+      .then(value => { if (!controller.signal.aborted) { setDetails(value); setError(''); } })
+      .catch(error => { if (!controller.signal.aborted) setError(errorText(error)); });
+    return () => controller.abort();
+  }, [job.id, job.status, snapshot.revision]);
+  useEffect(() => {
+    setPhase('connecting');
+    if (job.status !== 'running') return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function poll() {
+      try {
+        const progress = await api<ContextJobProgress>(`/context/jobs/${job.id}/progress`, 'GET', undefined, controller.signal);
+        if (controller.signal.aborted || progress.status !== 'running') return;
+        setPhase(progress.phase ?? 'connecting');
+      } catch (error) { if (!controller.signal.aborted) setError(errorText(error)); }
+      if (!controller.signal.aborted) timer = setTimeout(() => void poll(), 500);
+    }
+    void poll();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [job.id, job.status, snapshot.revision]);
+  const rejected = details?.steps.at(-1);
   const step = details?.steps.slice().reverse().find(step => step.status === 'candidate');
   const candidate = snapshot.context.summaries.find(node => step?.result && refKey(node) === refKey(step.result));
   const previous = snapshot.context.summaries.find(node => step?.operation.repair && refKey(node) === refKey(step.operation.repair));
@@ -53,7 +74,7 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
     pending.current = false;
   }
   return <dialog ref={dialog} className="repair-dialog" aria-labelledby="repair-title" onCancel={e => { e.preventDefault(); if (!busy) void act('close'); }}>
-    <div className="repair-heading"><div><p className="eyebrow">{t("repair_review.repair_review")}</p><h2 id="repair-title">{t("repair_review.review_the_proposed_replacement")}</h2><p className="small muted" role="status">{t("repair_review.approved_unchanged_after_model_check_reused_without", { value: job.reviewedCount ?? 0, value2: job.unchangedCount ?? 0, value3: job.revalidatedCount ?? 0, value4: remaining !== undefined ? ` · ${remaining} remaining` : '', value5: running ? t("interface.checking_affected_memory") : '' })}</p></div></div>
+    <div className="repair-heading"><div><p className="eyebrow">{t("repair_review.repair_review")}</p><h2 id="repair-title">{t("repair_review.review_the_proposed_replacement")}</h2><p className="small muted" role="status">{t("repair_review.approved_unchanged_after_model_check_reused_without", { value: job.reviewedCount ?? 0, value2: job.unchangedCount ?? 0, value3: job.revalidatedCount ?? 0, value4: remaining !== undefined ? t("repair_review.remaining", { count: remaining }) : '' })}</p></div></div>
     <div className="repair-body">
       {candidate && previous && <><p className="small muted">{t("repair_review.level_approve_this_replacement_before_its_dependents", { level: candidate.level, value: positions.length ? t("interface.turns", { value: String(Math.min(...positions)), value2: String(Math.max(...positions)) }) : t("interface.all_covered_turns_deleted"), value2: previous.manual ? t("interface.previous_summary_includes_manual_corrections") : '' })}</p>
         {!snapshot.context.selected.some(ref => ref.id === candidate.id) && <p className="small muted">{t("repair_review.this_summary_is_retained_approval_saves_the")}</p>}
@@ -66,7 +87,9 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
           {(details.repair.previousPrior || details.repair.currentPrior) && <details open={priorOpen} onToggle={e => { e.stopPropagation(); setPriorOpen(e.currentTarget.open); }}><summary>{t("repair_review.earlier_memory_used_for_interpretation")}</summary>{sourcesOpen && priorOpen && <TextComparison original={details.repair.previousPrior} value={details.repair.currentPrior} originalLabel={t("repair_review.previous_earlier_memory")} modifiedLabel={t("repair_review.current_earlier_memory")} />}</details>}
         </details>}
       </>}
-      {!candidate && <p role="status">{running ? t("repair_review.generating_a_repair_candidate_approved_repairs_are") : t("repair_review.no_candidate_is_ready_regenerate_to_continue")}</p>}
+      {running && <p role="status" data-testid="repair-phase">{t(`repair_review.phase_${phase}`)}</p>}
+      {!candidate && !running && <p role="status">{t("repair_review.no_candidate_is_ready_regenerate_to_continue")}</p>}
+      {current && !running && rejected?.status === 'failed' && rejected.rejectedText !== undefined && <RejectedSummary key={rejected.id} text={rejected.rejectedText} />}
       {(error || job.error) && <p className="repair-error" role="alert">{error || formatMessage(job.errorMessage ?? job.error)}</p>}
       {obsolete && !running && <p role="status">{t("repair_review.the_chat_or_settings_changed_regenerate_this")}</p>}
     </div>

@@ -232,7 +232,7 @@ export class ContextStore {
       return step;
     })();
   }
-  failAttempt(step: ContextStep, error: string | LocalizedMessage) {
+  failAttempt(step: ContextStep, error: string | LocalizedMessage, rejectedText?: string) {
     const outcome = outcomeMessage(error);
     this.sqlite.transaction(() => {
       const job = this.job(step.jobId);
@@ -240,7 +240,7 @@ export class ContextStore {
       const row = this.sqlite.prepare('SELECT data FROM context_steps WHERE id = ? AND job_id = ?').get(step.id, job.id) as JsonRow | undefined;
       const saved = row ? JSON.parse(row.data) as ContextStep : null;
       if (!saved || saved.status !== 'running') throw new AppError(409, 'duplicate_context_result', message("errors.this_summary_step_has_already_been_resolved"));
-      this.saveStep({ ...saved, status: 'failed', ...outcome });
+      this.saveStep({ ...saved, status: 'failed', ...outcome, ...(job.mode === 'repair' && rejectedText !== undefined ? { rejectedText } : {}) });
     })();
   }
   completeStep(step: ContextStep, text: string, prior: SummaryRef[]): SummaryNode {
