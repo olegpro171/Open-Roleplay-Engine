@@ -48,7 +48,7 @@ it.each(['hold', 'reasoning'] as const)('recovers a real server crash during %s 
     await stop(); await start();
     const recovered = await getState();
     expect(recovered.turns[0]).toEqual(pending);
-    expect(recovered.generations[0]).toMatchObject({ status: 'interrupted', partialText: mode === 'reasoning' ? '' : 'The lantern ' });
+    expect(recovered.generations[0]).toMatchObject({ status: 'interrupted', partialText: mode === 'reasoning' ? '' : 'The lantern ', errorMessage: { key: 'outcome.generationInterrupted' } });
     const reasoning = await fetch(`${address}/api/chats/main/generations/${recovered.generations[0].id}/reasoning`, { headers: { cookie } }).then(response => response.json() as Promise<{ text: string }>);
     expect(reasoning.text).toBe(mode === 'reasoning' ? syntheticReasoningStart : '');
     expect(mock.requests).toHaveLength(1);

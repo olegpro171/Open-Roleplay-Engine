@@ -1006,7 +1006,11 @@ export class Store {
   recoverInterrupted() {
     this.sqlite.transaction(() => {
       const running = this.db.select().from(schema.generations).where(eq(schema.generations.status, 'running')).all();
-      this.db.update(schema.generations).set({ status: 'interrupted', error: message('outcome.generationInterrupted').fallback, errorMessage: message('outcome.generationInterrupted'), updatedAt: new Date().toISOString() }).where(eq(schema.generations.status, 'running')).run();
+      for (const kind of ['response', 'regeneration'] as const) {
+        const diagnostic = message(kind === 'regeneration' ? 'outcome.regenerationInterrupted' : 'outcome.generationInterrupted');
+        this.db.update(schema.generations).set({ status: 'interrupted', error: diagnostic.fallback, errorMessage: diagnostic, updatedAt: new Date().toISOString() })
+          .where(and(eq(schema.generations.status, 'running'), eq(schema.generations.kind, kind))).run();
+      }
       for (const id of new Set(running.map(g => g.chatId))) this.bumpRevision(id);
       this.contexts.recover();
     })();

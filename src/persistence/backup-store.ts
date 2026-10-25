@@ -39,7 +39,8 @@ export function sanitizePortable(db: Database.Database) {
   db.transaction(() => {
     db.exec('DELETE FROM sessions; DELETE FROM owners; DELETE FROM runtime_owner; DELETE FROM lore_commands; DELETE FROM data_commands;');
     db.prepare("UPDATE dataset_state SET epoch = 'initial' WHERE id = 1").run();
-    db.prepare("UPDATE generations SET status = 'interrupted', error = 'The saved operation was interrupted. Retry explicitly.', error_message = ? WHERE status = 'running'").run(JSON.stringify(message('outcome.backupInterrupted')));
+    const interrupted = message('outcome.backupInterrupted');
+    db.prepare("UPDATE generations SET status = 'interrupted', error = ?, error_message = ? WHERE status = 'running'").run(interrupted.fallback, JSON.stringify(interrupted));
     for (const row of rows(db,'generations')) db.prepare('UPDATE generations SET request_id = ? WHERE id = ?').run(randomUUID(), row.id);
     for (const row of rows(db,'context_steps')) {
       const value = z.record(z.string(),z.unknown()).parse(json(row));

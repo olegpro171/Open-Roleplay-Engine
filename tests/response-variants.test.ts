@@ -106,7 +106,7 @@ describe('durable response variants', () => {
     f.store.beginRegeneration(f.state().revision, randomUUID(), original.id, 'main');
     const count = f.calls.length;
     await f.reopen();
-    expect(f.state().generations[0].status).toBe('interrupted');
+    expect(f.state().generations[0]).toMatchObject({ status: 'interrupted', errorMessage: { key: 'outcome.regenerationInterrupted' } });
     expect(f.calls).toHaveLength(count);
     expect(f.state().turns[0]).toEqual(original);
     f.regen(); await f.idle();
