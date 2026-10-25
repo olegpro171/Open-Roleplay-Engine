@@ -32,6 +32,20 @@ beforeEach(() => { directory = mkdtempSync(join(tmpdir(),'ore-backup-test-')); }
 afterEach(() => { for (const value of services.splice(0)) value.close(); for (const value of stores.splice(0)) if (value.sqlite.open) value.close(); rmSync(directory,{ recursive: true,force: true }); });
 
 describe('portable backup persistence',() => {
+  it('round-trips per-chat Author’s notes while chats without one retain their older settings', async () => {
+    const source = store('note-source'), backups = service(source, 'note-source');
+    const note = { prompt: 'The guard has not seen the key.', depth: 3, role: 'assistant' as const };
+    source.saveAuthorNote('main', { revision: source.snapshot().revision, settings: note });
+    const other = source.createChat({ title: 'Older chat', targetInputTokens: 32000, connectionId: null, promptId: 'default', characterId: null, personaId: null, contextPresetId: null });
+    const before = source.snapshot(), older = source.snapshot(other);
+    const destination = store('note-target'), target = service(destination, 'note-target');
+    const review = target.upload(await bytes(backups), owner);
+    expect(review.blockers).toEqual([]);
+    target.commit(review.stageId, owner, receipt(review));
+    expect(destination.snapshot().settings).toEqual(before.settings);
+    expect(destination.snapshot(other).settings).toEqual(older.settings);
+    expect(destination.snapshot(other).settings.authorNote).toBeUndefined();
+  });
   it('preserves saved refusal decisions and outstanding reconstruction through portable import', async () => {
     const source = store('refusal-source'), backups = service(source, 'refusal-source');
     source.replaceHistory(source.snapshot().revision, 'main', Array.from({ length: 4 }, (_, index) => ({ user: `Mira carries key ${index + 1}.`, assistant: 'Leon waits outside.', complete: true })));

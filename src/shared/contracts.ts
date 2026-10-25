@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { authorNoteSchema } from './author-note.js';
 
 export const customParametersSchema = z.object({
   temperature: z.number().min(0).max(2).optional(),
@@ -33,6 +34,7 @@ export const chatSettingsSchema = z.object({
   character: z.string().max(100_000),
   persona: z.string().max(100_000),
   targetInputTokens: z.number().int().positive().max(10_000_000),
+  authorNote: authorNoteSchema.optional(),
   connectionId: z.string().nullable().optional(), promptId: z.string().optional(),
   characterId: z.string().nullable().optional(), personaId: z.string().nullable().optional(),
   contextPresetId: z.string().nullable().optional(),

@@ -29,6 +29,8 @@ import { ChatCharacterPortrait } from './Pictures';
 import { useComposerKeyboard } from './useComposerKeyboard';
 import { useTouchScrollGuard } from './useTouchScrollGuard';
 import { useSettingsAutosave } from './useSettingsAutosave';
+import { useAuthorNote } from './useAuthorNote';
+import { AuthorNoteDialog, AuthorNoteSaveStatus } from './AuthorNote';
 import { lanStatusSchema, type LanSettings, type LanStatus } from '../shared/lan';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
@@ -101,6 +103,8 @@ export function App() {
   const [edit, setEdit] = useState<Edit | null>(null);
   const editForm = useRef<HTMLFormElement>(null);
   const [peek, setPeek] = useState(false);
+  const [authorNoteOpen, setAuthorNoteOpen] = useState(false);
+  useEffect(() => { setAuthorNoteOpen(false); }, [chatId, tab]);
   const [contextExpanded, setContextExpanded] = useState(false);
   const [chatDetailsTarget, setChatDetailsTarget] = useState<HTMLDivElement | null>(null);
   const [generationId, setGenerationId] = useState('');
@@ -311,6 +315,21 @@ export function App() {
   const active = snapshot?.latestGeneration?.status === 'running' ? snapshot.latestGeneration : undefined;
   const preparing = snapshot?.preparing;
   const working = Boolean(active || preparing);
+  const authorNote = useAuthorNote(snapshot, working || busy || dataChanged, (id, status) => {
+    const current = snapshotRef.current;
+    if (current?.id !== id || status.revision < current.revision) return;
+    // Retire pagination together with its read identity; its old finally block
+    // can no longer release the loading flag after that identity changes.
+    loadId.current++;
+    pageRequest.current?.abort();
+    pageBusy.current = false;
+    setPageLoading(false);
+    refreshPending.current = false;
+    const next = { ...current, revision: status.revision, settings: { ...current.settings, authorNote: status.settings } };
+    snapshotRef.current = next;
+    setSnapshot(next);
+    void latestRefresh.current();
+  });
   const summariesEnabled = hasPromptMarker(snapshot?.sources.prompt, 'summary');
   const memoryStale = summariesEnabled && Boolean(snapshot?.memory.stale || snapshot?.memory.refusalBlocked);
   const pending = snapshot?.latestTurn?.complete === false;
@@ -361,18 +380,18 @@ export function App() {
       await refresh(); return false;
     } finally { setBusy(false); }
   }
-  const canSend = Boolean(snapshot?.connection && !busy && !pending && !working && !memoryStale
+  const canSend = Boolean(snapshot?.connection && !busy && !pending && !working && !memoryStale && !authorNote.pending
     && !dataChanged && !drafts.needsReview && draft.trim());
   const enterKeyBehavior = chatBehaviorError ? 'button-only' : chatBehavior?.settings.enterKeyBehavior ?? 'button-only';
   const mobileKeyboard = isPhoneOrTablet(navigator);
   const macKeyboard = isMacKeyboard(navigator);
-  const sendTitle = busy ? t('app.saving_changes')
+  const sendTitle = authorNote.pending ? t('author_note.pending') : busy ? t('app.saving_changes')
     : enterKeyBehavior === 'ctrl-enter' ? t(macKeyboard ? 'chat_behavior.send_ctrl_mac' : 'chat_behavior.send_ctrl')
       : enterKeyBehavior === 'enter' && !mobileKeyboard ? t('chat_behavior.send_enter') : t('app.send');
 
   async function send(event: FormEvent) {
     event.preventDefault();
-    if (!snapshot || !canSend || sendInFlight.current) return;
+    if (!snapshot || !canSend || authorNote.editor.getSnapshot().pending || sendInFlight.current) return;
     const id = snapshot.id;
     const sent = drafts.stage(id, snapshot.revision);
     sendInFlight.current = true;
@@ -457,6 +476,7 @@ export function App() {
     {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} navigation actions={<>
         <button className="quiet chat-navigation-action" aria-label={t("app.chat_settings")} onClick={() => setTab('settings')}><Icon name="Settings" />{t("app.chat_settings_2", { value: snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : '' })}</button>
         <button className="quiet chat-navigation-action" onClick={() => setTab('memory')}><Icon name="List" />{t("app.inspect_memory")}</button>
+        <button className="quiet chat-navigation-action" onClick={() => setAuthorNoteOpen(true)}><Icon name="TagOutline" />{t('author_note.title')}</button>
         <button className="quiet chat-navigation-action" onClick={() => setTab('request')}><Icon name="Menu" />{t("app.request_inspector")}</button>
       </>}>
       <section className="conversation" aria-label={t("app.conversation")}>
@@ -494,7 +514,7 @@ export function App() {
               action={generating
                 ? { kind: 'cancel', disabled: busy, run: () => void command(() => api(`/generations/${active.id}/cancel`, 'POST', {})) }
                 : turn.complete && turn.id === snapshot.latestTurn?.id && snapshot.connection
-                  ? { kind: 'regenerate', disabled: working || busy || Boolean(edit), run: () => void command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/regenerate`, 'POST', { revision: snapshot.revision, requestId: newId() })) }
+                  ? { kind: 'regenerate', disabled: working || busy || authorNote.pending || Boolean(edit), run: () => void command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/regenerate`, 'POST', { revision: snapshot.revision, requestId: newId() })) }
                   : null}
               select={id => command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/variants/${id}/select`, 'POST', { revision: snapshot.revision }))}
               edit={part => setEdit({ turnId: turn.id, part, text: turn[part].text, revision: snapshot.revision })}
@@ -506,10 +526,12 @@ export function App() {
           {snapshot.page.hasNewer && <div className="history-page-control" data-history-direction="newer"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('newer')}>{pageLoading ? t("app.loading_history") : t("app.load_newer_turns")}</button></div>}
           {edit && !snapshot.page.turns.some(turn => turn.id === edit.turnId) && <div className="recovery" role="alert"><div><p>{t("app.the_edited_turn_was_removed_or_replaced")}</p><ChatTextarea aria-label={t("app.unsaved_turn_edit")} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><button onClick={() => setEdit(null)}>{t("app.close_edit")}</button></div></div>}
         </div>{(awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}</div>
-        {!active && pending && <div className="recovery" role="status"><div><strong>{t("app.last_turn_is_still_pending")}</strong><p>{latest?.status === 'cancelled' ? t("app.response_cancelled_generate_response_before_next_turn") : (latest?.errorMessage ? formatMessage(latest.errorMessage) : latest?.error) ?? t("app.generate_response_before_next_turn")}</p>{partial && <small>{t("app.partial_text_is_preserved_for_inspection_it")}</small>}</div><button className="secondary" disabled={busy} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: newId() }))}>{t("app.retry_response")}</button></div>}
+        {!active && pending && <div className="recovery" role="status"><div><strong>{t("app.last_turn_is_still_pending")}</strong><p>{latest?.status === 'cancelled' ? t("app.response_cancelled_generate_response_before_next_turn") : (latest?.errorMessage ? formatMessage(latest.errorMessage) : latest?.error) ?? t("app.generate_response_before_next_turn")}</p>{partial && <small>{t("app.partial_text_is_preserved_for_inspection_it")}</small>}</div><button className="secondary" disabled={busy || working || authorNote.pending} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: newId() }))}>{t("app.retry_response")}</button></div>}
         {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{(latest.errorMessage ? formatMessage(latest.errorMessage) : latest.error) ?? t("app.regeneration_did_not_finish_try_again")}</p>}
         {drafts.needsReview && <div className="recovery" role="alert"><p>{t("app.this_browser_draft_predates_a_backup_import")}</p><button onClick={drafts.review}>{t("app.use_recovered_draft")}</button></div>}
         {drafts.storageError && <div className="recovery" role="alert">{t("app.draft_could_not_be_saved_in_this")}</div>}
+        {!authorNoteOpen && <AuthorNoteSaveStatus saving={authorNote.saving} error={authorNote.error} retry={authorNote.editor.retry} disabled={working || busy || dataChanged} />}
+        {!authorNoteOpen && authorNote.storageError && authorNote.pending && <p role="alert">{t('author_note.storage_failed')}</p>}
         <form className={isIOS ? 'composer composer-ios' : 'composer'} data-keyboard-visible={composerKeyboard || undefined} onSubmit={(event) => void send(event)}>
           <ChatTextarea autoSize textScale={appearance.settings.chatTextScale} rows={1} aria-label={t("app.your_next_turn")} id="turn-input" enterKeyHint="enter" onKeyDown={event => {
             if (!isComposerSendKey(event.nativeEvent, enterKeyBehavior, mobileKeyboard, macKeyboard)) return;
@@ -535,6 +557,9 @@ export function App() {
       {shownRequest && <>{shownRequest.warnings?.map((warning, index) => <p role="status" key={warning}>{formatMessage(shownRequest.warningMessages?.[index] ?? warning)}</p>)}<div className="budget"><strong>{t("app.estimated_input_2", { value: shownRequest.budget.inputTokens.toLocaleString(locale()), value2: shownRequest.budget.targetInputTokens.toLocaleString(locale()) })}</strong><InputMeter input={shownRequest.budget.inputTokens} limit={Math.min(shownRequest.budget.targetInputTokens, shownRequest.budget.contextWindow - shownRequest.budget.reservedOutputTokens)} /><span>{t("app.reserved_output_model_window", { value: shownRequest.budget.reservedOutputTokens.toLocaleString(locale()), value2: shownRequest.budget.contextWindow.toLocaleString(locale()) })}</span></div>{shownRequest.layout && <BudgetBreakdown request={shownRequest} />}<LoreInspection request={shownRequest} historical={Boolean(generationId)} /><details className="request-details"><summary>{t("app.endpoint_and_request_body")}</summary><h2>{t("app.endpoint")}</h2><pre>{shownRequest.endpoint}</pre><h2>{t("app.request_body")}</h2><pre data-testid="request-body">{JSON.stringify(shownRequest.body, null, 2)}</pre></details><details><summary>{t("app.turn_identities_and_source_revisions")}</summary><pre>{JSON.stringify(shownRequest.coverage, null, 2)}</pre></details></>}
     </section></ChatWorkspace>}
     {peek && currentRequest && <PromptPeek stale={memoryStale} request={currentRequest} close={() => setPeek(false)} />}
+    {authorNoteOpen && tab === 'story' && snapshot && authorNote.draft && <AuthorNoteDialog key={snapshot.id} note={authorNote.draft} editor={authorNote.editor}
+      locked={working || busy || dataChanged} missingMessages={!hasPromptMarker(snapshot.sources.prompt, 'messages')}
+      saving={authorNote.saving} error={authorNote.error} storageError={authorNote.storageError} close={() => setAuthorNoteOpen(false)} />}
 
   </div></ChatDetailsTarget.Provider>;
 }

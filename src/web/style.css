@@ -175,6 +175,10 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 @media(max-width:800px){.turn-heading{flex-wrap:wrap;row-gap:4px}.turn-usage{font-size:9px}.prompt-peek{width:calc(100% - 20px);max-height:90dvh}.peek-content{padding:18px}.prompt-message summary{gap:9px;font-size:12px}.allocation-legend{font-size:11px}}
 
 .peek-content{padding-top:0}.peek-heading{position:sticky;top:0;background:#181e27;z-index:1;padding:22px 0 10px;border-bottom:1px solid var(--line);margin-bottom:18px}.peek-heading h2{margin-bottom:8px}
+.author-note-dialog{max-width:700px}
+.author-note-dialog textarea{min-height:240px;max-height:50dvh;resize:vertical}
+.author-note-controls{display:flex;gap:18px;margin:18px 0}
+.author-note-controls>label{width:140px;min-width:0}
 @media(max-width:800px){.peek-content{padding-top:0}.peek-heading{padding-top:18px}}
 
 /* The scroll hook preserves the reading position during viewport resize. */

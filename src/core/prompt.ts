@@ -2,7 +2,7 @@ import { promptLabel } from '../shared/localization.js';
 import { message } from '../shared/localization.js';
 import type { ChatSettings, Connection, Message, PromptEntry, RequestPreview, Turn } from '../shared/contracts.js';
 import { AppError } from './errors.js';
-import { characterFieldLabels, defaultPrompt, hasPromptMarker, promptSchema, promptWarnings, promptWarningMessages, type PromptSources } from '../shared/library.js';
+import { characterFieldLabels, defaultPrompt, hasPromptMarker, promptSchema, promptWarningMessages, type PromptSources } from '../shared/library.js';
 import type { ContextState, SummaryNode } from '../shared/context.js';
 import { assertCorrectionSelection } from './context-corrections.js';
 import { selectedContext, sourceOf } from './context.js';
@@ -39,11 +39,15 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   const positions = new Map(turns.map((turn, index) => [turn.id, index + 1]));
   type Entry = { message: Message; kind: PromptEntry['kind']; label: string; labelMessage?: PromptEntry['labelMessage']; group?: PromptEntry['group'] };
   let entries: Entry[] = [];
-  const warnings = promptWarnings(preset);
+  const warningMessages = promptWarningMessages(preset);
   let historyIndex: number | null = null;
   const card = sources?.character;
   const resolve = (text: string) => modelText(replaceNameMacros(text, sources?.persona?.name ?? 'You', card?.name ?? 'Character'));
   const messagesBlock = preset.blocks.find(block => block.enabled && block.kind === 'marker' && block.marker === 'messages');
+  const authorNote = settings.authorNote;
+  if (authorNote?.prompt.trim() && !messagesBlock) {
+    warningMessages.push(message('author_note.messages_missing'));
+  }
   let depthNote: { depth: number; entry: Entry } | null = null;
   if (messagesBlock?.kind === 'marker' && messagesBlock.allowDepthPrompt) {
     const note = readCharacterDepthPrompt(card ?? {});
@@ -124,6 +128,13 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   const historyInjections = [
     ...historyLore.map(entry => ({ depth: entry.destination?.depth ?? 0, entry: loreEntry(entry) })),
     ...(depthNote ? [depthNote] : []),
+    ...(authorNote?.prompt.trim() ? [{
+      depth: authorNote.depth,
+      entry: {
+        message: { role: authorNote.role, content: resolve(authorNote.prompt) }, kind: 'prompt' as const,
+        ...promptLabel(message('author_note.inspection', { depth: authorNote.depth })),
+      },
+    }] : []),
   ].filter(injection => injection.entry.message.content !== '');
   let verbatim: Turn[] = [];
   if (historyIndex !== null) {
@@ -159,7 +170,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     throw new AppError(422, 'context_window_exceeded', message("errors.the_estimated_input_plus_reserved_output_exceeds_the"));
   }
   return {
-    warnings, warningMessages: promptWarningMessages(preset), layout,
+    warnings: warningMessages.map(warning => warning.fallback), warningMessages, layout,
     ...(options.lore !== undefined ? { lore: options.lore } : {}),
     endpoint: `${connection.endpoint.replace(/\/+$/, '')}/chat/completions`,
     body: {

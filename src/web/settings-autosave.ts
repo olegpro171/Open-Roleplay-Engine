@@ -5,6 +5,8 @@ export type AutosaveState<Settings, Status> = {
   status: Status | null;
   draft: Settings | null;
   saving: boolean;
+  pending: boolean;
+  pendingChanges: Partial<Settings>;
   error: unknown;
 };
 
@@ -33,10 +35,16 @@ export class SettingsAutosave<Settings extends object, Status extends SettingsSt
   }
 
   private makeSnapshot(): AutosaveState<Settings, Status> {
+    const pendingChanges = { ...this.submitted, ...this.queued };
+    const draft = this.status ? { ...this.status.settings, ...pendingChanges } : null;
     return {
       status: this.status,
-      draft: this.status ? { ...this.status.settings, ...this.submitted, ...this.queued } : null,
+      draft,
       saving: this.saving,
+      // A failed write can have committed remotely, even when a queued revert
+      // equals the old acknowledged value. Keep it pending until reconciled.
+      pending: this.saving || this.force || Object.keys(this.submitted).length > 0 || Object.keys(this.queued).length > 0,
+      pendingChanges,
       error: this.error,
     };
   }

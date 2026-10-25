@@ -1,4 +1,5 @@
 import { message } from '../shared/localization.js';
+import { authorNoteStatusSchema } from '../shared/author-note.js';
 import { defaultContextPreset, summaryRetrySchema } from '../shared/context.js';
 import { buildInfo } from './installation.js';
 import { BackupService } from './backups.js';
@@ -72,7 +73,7 @@ export async function createApp(options: {
   const coordinator = new GenerationCoordinator(store, provider, () => chatBehavior.status().settings);
   function publicSnapshot(id: string): ChatSnapshot {
     const { loreState: _state, loreResolution: _resolution, ...snapshot } = store.snapshot(id);
-    return { ...snapshot, promptDiagnostics: promptDiagnostics(snapshot.sources), sources: { ...snapshot.sources, lorebook: undefined }, generations: snapshot.generations.map(generation => ({ ...generation,
+    return { ...snapshot, promptDiagnostics: promptDiagnostics(snapshot.sources, snapshot.settings.authorNote), sources: { ...snapshot.sources, lorebook: undefined }, generations: snapshot.generations.map(generation => ({ ...generation,
       ...(generation.status === 'running' ? { partialText: coordinator.partialText(generation.id), reasoningText: coordinator.reasoningText(generation.id).slice(-2000), reasoningLength: coordinator.reasoningText(generation.id).length } : {}),
       request: generation.request?.lore ? { ...generation.request, lore: { ...generation.request.lore, detailsAvailable: true, outcomes: [], diagnostics: [], scan: [], stateBefore: {}, stateDelta: {} } } : generation.request,
     })) };
@@ -532,7 +533,14 @@ export async function createApp(options: {
   app.post('/api/chats/:chatId/prompt-diagnostics', async request => {
     const input = z.object({ revision: revisionSchema, settings: selectionsSchema }).strict().parse(request.body);
     store.checkRevision(input.revision, chatId(request.params));
-    return promptDiagnostics(store.promptSources(input.settings));
+    return promptDiagnostics(store.promptSources(input.settings), store.authorNote(chatId(request.params)).settings);
+  });
+  app.get('/api/chats/:chatId/author-note', async request => store.authorNote(chatId(request.params)));
+  app.put('/api/chats/:chatId/author-note', async request => {
+    const input = authorNoteStatusSchema.parse(request.body);
+    const result = store.saveAuthorNote(chatId(request.params), input);
+    coordinator.changed();
+    return result;
   });
   app.delete('/api/chats/:chatId', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);

@@ -38,6 +38,7 @@ import { readEmbeddedTags } from '../core/tags.js';
 import { characterImportResultSchema, tagPolicySchema, type TagPolicy, type CharacterImportReview } from '../shared/tags.js';
 import { upgradePrompt } from '../core/prompt-upgrade.js';
 import { cardInstructionFields, readCardInstruction, readCharacterDepthPrompt } from '../shared/card-instructions.js';
+import { authorNoteSchema, defaultAuthorNote, type AuthorNoteStatus } from '../shared/author-note.js';
 
 function parseImport<T>(parse: () => T): T {
   try { return parse(); }
@@ -761,6 +762,24 @@ export class Store {
       if (settings.title !== previous.title || settings.lorebookId !== previous.lorebookId) this.bumpLibrary();
     })();
   }
+  authorNote(chatId: string): AuthorNoteStatus {
+    const chat = this.chat(chatId);
+    return { revision: chat.revision, settings: chat.settings.authorNote ?? defaultAuthorNote };
+  }
+  saveAuthorNote(chatId: string, input: AuthorNoteStatus): AuthorNoteStatus {
+    const note = authorNoteSchema.parse(input.settings);
+    return this.sqlite.transaction(() => {
+      this.checkRevision(input.revision, chatId);
+      this.ensureIdle(chatId);
+      const chat = this.chat(chatId);
+      const previous = chat.settings.authorNote ?? defaultAuthorNote;
+      if (isDeepStrictEqual(previous, note)) return this.authorNote(chatId);
+      this.db.update(schema.chats).set({ settings: { ...chat.settings, authorNote: note }, updatedAt: new Date().toISOString() })
+        .where(eq(schema.chats.id, chatId)).run();
+      this.bumpRevision(chatId);
+      return this.authorNote(chatId);
+    })();
+  }
   deleteChat(expected: number, chatId: string) {
     this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId); this.ensureIdle(chatId);
@@ -806,7 +825,7 @@ export class Store {
       const old = this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get();
       this.db.insert(schema.connections).values({ id: connectionId, settings: connection, revision: (old?.revision ?? -1) + 1 }).onConflictDoUpdate({ target: schema.connections.id, set: { updatedAt: new Date().toISOString(), settings: connection, revision: (old?.revision ?? -1) + 1 } }).run();
       if (apiKey !== undefined) this.db.insert(schema.credentials).values({ id: connectionId, apiKey }).onConflictDoUpdate({ target: schema.credentials.id, set: { apiKey } }).run();
-      this.db.update(schema.chats).set({ updatedAt: new Date().toISOString(), settings: { ...settings, connectionId, lorebookId: settings.lorebookId === undefined ? previous.lorebookId ?? null : settings.lorebookId, contextPresetId: settings.contextPresetId === undefined ? previous.contextPresetId ?? null : settings.contextPresetId } }).where(eq(schema.chats.id, chatId)).run();
+      this.db.update(schema.chats).set({ updatedAt: new Date().toISOString(), settings: { ...settings, authorNote: settings.authorNote ?? previous.authorNote, connectionId, lorebookId: settings.lorebookId === undefined ? previous.lorebookId ?? null : settings.lorebookId, contextPresetId: settings.contextPresetId === undefined ? previous.contextPresetId ?? null : settings.contextPresetId } }).where(eq(schema.chats.id, chatId)).run();
       this.bumpAffected('connections', connectionId); this.bumpLibrary();
     })();
   }

@@ -46,7 +46,7 @@ export class StoryReader {
       const stale = staleSummarySources(sources, context);
       const refused = refusalAffected(context);
       return {
-        ...header, promptDiagnostics: promptDiagnostics(header.sources), sources: { ...header.sources, lorebook: undefined }, totalTurns, latestTurn, latestGeneration,
+        ...header, promptDiagnostics: promptDiagnostics(header.sources, header.settings.authorNote), sources: { ...header.sources, lorebook: undefined }, totalTurns, latestTurn, latestGeneration,
         preparing: this.store.contexts.running(chatId),
         memory: { revision: context.revision, selectedCount: context.selected.length, refusalCount: refusalFindings(context).length, refusalBlocked: context.selected.some(ref => refused.has(refKey(ref))),
           archivedCount: sources.filter(source => archived.has(source.turnId)).length, stale: context.selected.some(ref => stale.has(refKey(ref))) },

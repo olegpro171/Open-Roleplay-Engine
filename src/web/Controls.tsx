@@ -17,6 +17,8 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   const visible = editable ? options.filter(option => option.label.toLowerCase().includes(value.toLowerCase())).slice(0, 100) : options;
   const expanded = open && visible.length > 0 && !disabled;
   const activeIndex = Math.min(active, Math.max(0, visible.length - 1));
+  // A modal makes outside content inert, so its options must share the dialog.
+  const portalTarget = anchor.current?.closest('dialog[open]') ?? document.body;
   function show() {
     const index = visible.findIndex(option => option.value === value);
     setActive(Math.max(0, index)); setOpen(true);
@@ -43,7 +45,11 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
     role: 'combobox' as const, 'aria-label': label, 'aria-expanded': expanded, 'aria-controls': expanded ? id : undefined,
     'aria-haspopup': 'listbox' as const, 'aria-activedescendant': expanded ? `${id}-${activeIndex}` : undefined, disabled,
     onKeyDown: (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setOpen(false); event.stopPropagation(); }
+      if (event.key === 'Escape') {
+        if (expanded) event.preventDefault();
+        setOpen(false);
+        event.stopPropagation();
+      }
       else if (event.key === 'Tab') setOpen(false);
       else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -65,7 +71,7 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   return <div className="dropdown" ref={anchor}>
     {editable ? <input {...props} required={required} autoComplete="off" value={value} onFocus={show} onClick={show} onChange={event => { onChange(event.target.value); setActive(0); setOpen(true); }} />
       : <button {...props} type="button" className="select-trigger" onClick={() => expanded ? setOpen(false) : show()}><span className="select-label">{options.find(option => option.value === value)?.label ?? t("character_editor.none_selected")}</span><Icon name="ArrowShortBottom" /></button>}
-    {expanded && createPortal(<div ref={popup} id={id} role="listbox" aria-label={label} className="select-menu" style={position} onMouseDown={event => event.preventDefault()}>{visible.map((option, index) => <div role="option" id={`${id}-${index}`} key={option.value} aria-selected={option.value === value} aria-disabled={option.disabled || undefined} data-active={index === activeIndex} onPointerMove={() => setActive(index)} onClick={() => choose(option)}>{option.label}{option.value === value && <Icon name="Check" />}</div>)}</div>, document.body)}
+    {expanded && createPortal(<div ref={popup} id={id} role="listbox" aria-label={label} className="select-menu" style={position} onMouseDown={event => event.preventDefault()}>{visible.map((option, index) => <div role="option" id={`${id}-${index}`} key={option.value} aria-selected={option.value === value} aria-disabled={option.disabled || undefined} data-active={index === activeIndex} onPointerMove={() => setActive(index)} onClick={() => choose(option)}>{option.label}{option.value === value && <Icon name="Check" />}</div>)}</div>, portalTarget)}
   </div>;
 }
 
