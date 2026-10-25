@@ -23,7 +23,7 @@ export function ChatBehaviorSettings({ autosave }: { autosave: SettingsAutosave<
       <fieldset className="chat-behavior-options" disabled={!draft} aria-describedby="chat-behavior-description chat-behavior-phone-help">
         <legend>{t('chat_behavior.enter_key')}</legend>
         <p id="chat-behavior-description">{t('chat_behavior.description')}</p>
-        <p className="small muted" id="chat-behavior-phone-help"><strong>{t('chat_behavior.physical_only')}</strong><br />{t(mac ? 'chat_behavior.phone_help_mac' : 'chat_behavior.phone_help')}</p>
+        <p className="small muted" id="chat-behavior-phone-help"><strong>{t('chat_behavior.physical_only')}</strong><br />{t('chat_behavior.phone_help')}</p>
         {options.map(option => <label className="radio-option" key={option.value}>
           <input type="radio" name="enter-key-behavior" value={option.value} checked={draft?.enterKeyBehavior === option.value}
             onChange={() => autosave.update({ enterKeyBehavior: option.value })} />
