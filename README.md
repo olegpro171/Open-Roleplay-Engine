@@ -87,6 +87,8 @@ A nonblank card instruction replaces its marker's fallback; `{{original}}` inclu
 
 ## Character pictures
 
+Character selectors in **New chat** and **Chat settings** show small round portraits beside names in the dropdown and selected value. Missing or unavailable pictures use the neutral avatar; **None selected** stays text-only.
+
 In **Libraries → Chats**, click a chat card to open Story, or focus its title and press Enter/Space. Cards highlight on hover and show a small round portrait of the assigned character beside the title, with a placeholder when unavailable. **Delete chat** remains separate and asks for confirmation; it shares the details row on narrow screens when space permits.
 
 The current chat sidebar shows a round picture of its assigned character below “CURRENT CHAT” and above the chat name, centered at 80% of the sidebar content width in the two-column layout. In Chat details at widths up to 800px, it uses 50% of the content width. It also appears alongside chat tools. Click the portrait to view the original uncropped picture fitted to the full screen. Close it with the transparent Close icon, Escape or the surrounding background. Characters without a picture show no portrait area; failed image loads retain the neutral fallback.

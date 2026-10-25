@@ -1,9 +1,9 @@
 import { t, useLocale, locale } from './localization';
 import { Icon } from './Icon';
-import { useEffect, useId, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type KeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
-type Option = { value: string; label: string; disabled?: boolean };
+type Option = { value: string; label: string; disabled?: boolean; leading?: ReactNode };
 type DropdownProps = {
   value: string; onChange: (value: string) => void; options: Option[];
   'aria-label'?: string; disabled?: boolean; editable?: boolean; required?: boolean;
@@ -17,6 +17,7 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   const visible = editable ? options.filter(option => option.label.toLowerCase().includes(value.toLowerCase())).slice(0, 100) : options;
   const expanded = open && visible.length > 0 && !disabled;
   const activeIndex = Math.min(active, Math.max(0, visible.length - 1));
+  const selected = options.find(option => option.value === value);
   // A modal makes outside content inert, so its options must share the dialog.
   const portalTarget = anchor.current?.closest('dialog[open]') ?? document.body;
   function show() {
@@ -70,9 +71,14 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   };
   return <div className="dropdown" ref={anchor}>
     {editable ? <input {...props} required={required} autoComplete="off" value={value} onFocus={show} onClick={show} onChange={event => { onChange(event.target.value); setActive(0); setOpen(true); }} />
-      : <button {...props} type="button" className="select-trigger" onClick={() => expanded ? setOpen(false) : show()}><span className="select-label">{options.find(option => option.value === value)?.label ?? t("character_editor.none_selected")}</span><Icon name="ArrowShortBottom" /></button>}
-    {expanded && createPortal(<div ref={popup} id={id} role="listbox" aria-label={label} className="select-menu" style={position} onMouseDown={event => event.preventDefault()}>{visible.map((option, index) => <div role="option" id={`${id}-${index}`} key={option.value} aria-selected={option.value === value} aria-disabled={option.disabled || undefined} data-active={index === activeIndex} onPointerMove={() => setActive(index)} onClick={() => choose(option)}>{option.label}{option.value === value && <Icon name="Check" />}</div>)}</div>, portalTarget)}
+      : <button {...props} type="button" className="select-trigger" onClick={() => expanded ? setOpen(false) : show()}><span className="select-label"><OptionLabel label={selected?.label ?? t("character_editor.none_selected")} leading={selected?.leading} /></span><Icon name="ArrowShortBottom" /></button>}
+    {expanded && createPortal(<div ref={popup} id={id} role="listbox" aria-label={label} className="select-menu" style={position} onMouseDown={event => event.preventDefault()}>{visible.map((option, index) => <div role="option" id={`${id}-${index}`} key={option.value} aria-selected={option.value === value} aria-disabled={option.disabled || undefined} data-active={index === activeIndex} onPointerMove={() => setActive(index)} onClick={() => choose(option)}><OptionLabel label={option.label} leading={option.leading} />{option.value === value && <Icon name="Check" />}</div>)}</div>, portalTarget)}
   </div>;
+}
+
+function OptionLabel({ label, leading }: Pick<Option, 'label' | 'leading'>) {
+  if (!leading) return label;
+  return <span className="select-option-content"><span className="select-option-leading" aria-hidden="true">{leading}</span><span className="select-option-text">{label}</span></span>;
 }
 
 export function NumberInput({ value, onChange, min = 1, max = 10_000_000, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max' | 'type'> & { value: number; onChange: (value: number) => void; min?: number; max?: number }) {

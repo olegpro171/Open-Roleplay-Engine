@@ -56,6 +56,17 @@ function selection(snapshot: ChatToolsSnapshot): Selection {
     connectionId: snapshot.settings.connectionId ?? null, promptId: snapshot.settings.promptId ?? 'default',
     characterId: snapshot.settings.characterId ?? null, personaId: snapshot.settings.personaId ?? null, contextPresetId: snapshot.settings.contextPresetId ?? null, lorebookId: snapshot.settings.lorebookId ?? null };
 }
+function characterDropdownOptions(library: LibrarySnapshot) {
+  const pictures = new Map(library.characterPictures.map(picture => [picture.characterId, picture.thumbnailUrl]));
+  return [
+    { value: '', label: t("character_editor.none_selected") },
+    ...library.characters.map(character => ({
+      value: character.id,
+      label: characterLabel(character),
+      leading: <CharacterAvatar url={pictures.get(character.id)} />,
+    })),
+  ];
+}
 function SelectionFields({ value, change, library }: { value: Selection; change: (value: Selection) => void; library: LibrarySnapshot }) {
   useLocale();
   return <div className="form-grid">
@@ -64,7 +75,7 @@ function SelectionFields({ value, change, library }: { value: Selection; change:
     {(['connectionId', 'promptId', 'characterId', 'personaId', 'contextPresetId', 'lorebookId'] as const).map((key, i) => {
       const names = [t("libraries.connection"), t("libraries.prompt_preset"), t("app.character"), t("libraries.persona"), t("libraries.context_preset"), t("libraries.lorebook")];
       const lists = [library.connections, library.prompts, library.characters, library.personas, library.contexts, library.lorebooks];
-      return <label key={key}>{names[i]}<Dropdown aria-label={names[i]} value={value[key] ?? ''} onChange={selected => change({ ...value, [key]: selected || null })} options={[...(key !== 'promptId' ? [{ value: '', label: t("character_editor.none_selected") }] : []), ...lists[i].map(item => ({ value: item.id, label: key === 'characterId' ? characterLabel(item) : key === 'personaId' ? personaLabel(item) : item.name }))]} /></label>;
+      return <label key={key}>{names[i]}<Dropdown aria-label={names[i]} value={value[key] ?? ''} onChange={selected => change({ ...value, [key]: selected || null })} options={key === 'characterId' ? characterDropdownOptions(library) : [...(key !== 'promptId' ? [{ value: '', label: t("character_editor.none_selected") }] : []), ...lists[i].map(item => ({ value: item.id, label: key === 'personaId' ? personaLabel(item) : item.name }))]} /></label>;
     })}
   </div>;
 }
@@ -91,7 +102,7 @@ function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnap
   }
   return <form onSubmit={create}><fieldset disabled={busy}><legend>{t("libraries.new_chat")}</legend>
     <div className="form-grid">
-      <label>{t("app.character")}<Dropdown aria-label={t("app.character")} value={characterId ?? ''} onChange={id => setCharacterId(id || null)} options={[{ value: '', label: t("character_editor.none_selected") }, ...library.characters.map(item => ({ value: item.id, label: characterLabel(item) }))]} /></label>
+      <label>{t("app.character")}<Dropdown aria-label={t("app.character")} value={characterId ?? ''} onChange={id => setCharacterId(id || null)} options={characterDropdownOptions(library)} /></label>
       <label>{t("libraries.persona")}<Dropdown aria-label={t("libraries.persona")} value={personaId ?? ''} onChange={id => setPersonaId(id || null)} options={[{ value: '', label: t("character_editor.none_selected") }, ...library.personas.map(item => ({ value: item.id, label: personaLabel(item) }))]} /></label>
     </div>
     <div className="actions"><button>{t("libraries.create_chat")}</button><button type="button" className="quiet" onClick={cancel}>{t("character_import.cancel")}</button></div>

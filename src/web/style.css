@@ -84,6 +84,11 @@ dialog:focus,dialog h2[tabindex="-1"]:focus{outline:none}
 .select-trigger{width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;min-width:0;text-align:left;overflow-wrap:anywhere;border:1px solid #3e4854;border-radius:7px;background:#131921;color:#f0efeb;padding:10px 12px;font:inherit}
 .select-trigger span{color:var(--muted);flex-shrink:0}
 .select-trigger .select-label{min-width:0;flex-shrink:1;color:inherit}
+.select-option-content{display:flex;align-items:center;gap:8px;min-width:0}
+.select-trigger .select-option-content{color:inherit}
+.select-option-content>.select-option-leading{display:flex;flex:none}
+.select-option-content>.select-option-text{min-width:0;flex-shrink:1;color:inherit}
+.select-option-leading .character-avatar{width:24px;height:24px}
 .select-trigger:focus-visible{outline:2px solid var(--muted);outline-offset:3px}
 .select-trigger[aria-expanded=true]{border-color:#aa8162}
 .select-menu{position:fixed;z-index:100;overflow:auto;overscroll-behavior:contain;padding:5px;background:#1b232d;border:1px solid #5b524b;border-radius:8px;box-shadow:0 12px 36px #0008;color:#f0efeb;font-size:14px;font-weight:400;scrollbar-color:#3b4654 transparent}
