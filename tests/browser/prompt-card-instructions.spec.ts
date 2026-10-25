@@ -75,7 +75,7 @@ test('edits card instructions, enables preset injection, explains unavailable so
   await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Characters', exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Instruction Mira', exact: true }) }).getByRole('button', { name: 'Edit Instruction Mira', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Instruction Mira', exact: true }) }).getByRole('button', { name: 'Instruction Mira', exact: true }).click();
   await page.getByText('Card instructions', { exact: true }).click();
   await expect(page.getByLabel('Card system prompt', { exact: true })).toHaveValue('{{original}} Narrate {{char}}.');
   await expect(page.getByLabel('Character note depth', { exact: true })).toHaveValue('1');

@@ -55,14 +55,14 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('article')).toHaveCount(2);
     await page.screenshot({ path: testInfo.outputPath('title-library.png'), fullPage: true });
 
-    await page.getByRole('button', { name: `Edit ${university}`, exact: true }).click();
+    await page.getByRole('button', { name: `${university}`, exact: true }).click();
     await expect(page.getByLabel('Name', { exact: true })).toHaveValue(name);
     await expect(page.getByLabel('Title / comment', { exact: true })).toHaveValue('University version');
     await page.getByLabel('Title / comment', { exact: true }).fill('Unsaved title');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(page.getByRole('heading', { name: university, exact: true })).toBeVisible();
 
-    await page.getByRole('button', { name: `Edit ${university}`, exact: true }).click();
+    await page.getByRole('button', { name: `${university}`, exact: true }).click();
     await page.getByLabel('Title / comment', { exact: true }).fill('Local draft');
     const saved = (await library(page)).characters.find(card => card.name === name && card.titleComment === 'University version');
     if (!saved) throw new Error('Missing saved character');
@@ -106,7 +106,7 @@ for (const width of [1440, 390]) {
     // Clearing only the metadata leaves Story names and the copied greeting unchanged.
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
     await page.getByRole('button', { name: 'Characters', exact: true }).click();
-    await page.getByRole('button', { name: `Edit ${university}`, exact: true }).click();
+    await page.getByRole('button', { name: `${university}`, exact: true }).click();
     await page.getByLabel('Title / comment', { exact: true }).fill('');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();

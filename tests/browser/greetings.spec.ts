@@ -22,7 +22,7 @@ for (const width of [1440, 390]) {
     } };
     await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'greetings.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(card)) });
     await page.getByRole('button', { name: 'Import', exact: true }).click();
-    await page.getByRole('button', { name: `Edit ${name}`, exact: true }).click();
+    await page.getByRole('button', { name: `${name}`, exact: true }).click();
     await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue('First alternative from {{char}}.');
     await page.getByLabel('Alternate greeting 1', { exact: true }).fill('Edited greeting for {{user}} from {{char}}.');
     await page.getByRole('button', { name: 'Remove alternate greeting 2', exact: true }).click();
@@ -38,11 +38,11 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('alert').filter({ hasText: 'Synthetic greeting save failure.' }).first()).toBeVisible();
     await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue('Edited greeting for {{user}} from {{char}}.');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await page.getByRole('button', { name: `Edit ${name}`, exact: true }).click();
+    await page.getByRole('button', { name: `${name}`, exact: true }).click();
     await expect(page.getByLabel('Alternate greeting 2', { exact: true })).toHaveValue('A third beginning.\n\nA second paragraph.');
     await page.getByLabel('Alternate greeting 1', { exact: true }).fill('Discard this draft.');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await page.getByRole('button', { name: `Edit ${name}`, exact: true }).click();
+    await page.getByRole('button', { name: `${name}`, exact: true }).click();
     await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue('Edited greeting for {{user}} from {{char}}.');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 

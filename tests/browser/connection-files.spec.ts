@@ -1,3 +1,4 @@
+import { openLibraryActions } from './library-card-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -38,7 +39,7 @@ for (const width of [1440, 390]) test(`Connection export/import with optional ke
     const original = (await library(page)).connections.find(item => item.id === originalId);
     if (!original) throw new Error('Missing synthetic Connection');
     const row = page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) }).first();
-    await row.getByRole('button', { name: 'Export...', exact: true }).click();
+    await (await openLibraryActions(page, row)).getByRole('menuitem', { name: 'Export...', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Export Connection', exact: true });
     await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
     await expect(dialog.getByLabel('Include API key')).not.toBeChecked();
@@ -90,10 +91,10 @@ test('Connection dialogs cancel without requests, clear secrets, and block dupli
   const name = 'Connection dialog controls';
   await fixture(page, name);
   const row = page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
-  const trigger = row.getByRole('button', { name: 'Export...', exact: true });
+  const trigger = row.getByRole('button', { name: /^Actions for / });
   let requests = 0;
   page.on('request', request => { if (/\/connections\/[^/]+\/export$/.test(request.url())) requests++; });
-  await trigger.click();
+  await (await openLibraryActions(page, row)).getByRole('menuitem', { name: 'Export...', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('File password (optional)', { exact: true }).fill('discard password');
   await dialog.getByLabel('Include API key').check();
@@ -101,7 +102,7 @@ test('Connection dialogs cancel without requests, clear secrets, and block dupli
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toBeFocused();
   expect(requests).toBe(0);
-  await trigger.click();
+  await (await openLibraryActions(page, row)).getByRole('menuitem', { name: 'Export...', exact: true }).click();
   await expect(dialog.getByLabel('File password (optional)', { exact: true })).toHaveValue('');
   await expect(dialog.getByLabel('Include API key')).not.toBeChecked();
   let release: (() => void) | undefined;

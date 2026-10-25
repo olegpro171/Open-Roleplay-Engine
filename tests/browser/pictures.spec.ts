@@ -1,3 +1,4 @@
+import { openLibraryActions } from './library-card-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import sharp from 'sharp';
 import { cardPng, pngChunk, quadrantPicture, pixel } from '../support/pictures';
@@ -50,7 +51,7 @@ test('imports a PNG card with a null lorebook and retains its picture and greeti
   const picture = saved.characterPictures.find(item => item.characterId === card.id);
   if (!picture) throw new Error('Missing null-book character picture');
   await expect(row(page, card.name).locator('img')).toHaveAttribute('src', picture.thumbnailUrl);
-  await row(page, source.data.name).getByRole('button', { name: `Edit ${source.data.name}`, exact: true }).click();
+  await row(page, source.data.name).getByRole('button', { name: `${source.data.name}`, exact: true }).click();
   await expect(page.getByLabel('Greeting', { exact: true })).toHaveValue(source.data.first_mes);
   await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue(source.data.alternate_greetings[0]);
   await expect(page.getByRole('button', { name: 'Extract embedded lorebook', exact: true })).toHaveCount(0);
@@ -70,15 +71,15 @@ test('keeps crop/editor save levels separate, recovers exact saves, and refreshe
   expect(await pixel(await page.request.get(picture.thumbnailUrl).then(response => response.body()), 160, 160)).toEqual([240,30,30,255]);
   const other = await context.newPage(); await other.goto('/'); await other.getByRole('button', { name: 'Libraries', exact: true }).click(); await other.getByRole('button', { name: 'Characters', exact: true }).click();
   await expect(row(other, card.name).locator('img')).toHaveAttribute('src', picture.thumbnailUrl);
-  await row(page, card.name).getByRole('button', { name: `Edit ${card.name}`, exact: true }).click();
+  await row(page, card.name).getByRole('button', { name: `${card.name}`, exact: true }).click();
   await upload(page, await sharp({ create: { width: 100, height: 300, channels: 4, background: 'teal' } }).png().toBuffer(), 'Replace picture');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect((await library(page)).characterPictures.find(item => item.characterId === card.id)?.key).toBe(picture.key);
-  await row(page, card.name).getByRole('button', { name: `Edit ${card.name}`, exact: true }).click();
+  await row(page, card.name).getByRole('button', { name: `${card.name}`, exact: true }).click();
   const cancelled = await corner(page); await cancelled.getByRole('button', { name: 'Reset crop', exact: true }).click(); await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toBeFocused();
   const before = await library(page); await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(row(page, card.name)).toBeVisible(); expect((await library(page)).revision).toBe(before.revision);
-  await row(page, card.name).getByRole('button', { name: `Edit ${card.name}`, exact: true }).click(); await upload(page, image, 'Replace picture');
+  await row(page, card.name).getByRole('button', { name: `${card.name}`, exact: true }).click(); await upload(page, image, 'Replace picture');
   await page.getByLabel('Character description').fill('Text and picture survive uncertain acknowledgement.');
   const sent: unknown[] = [];
   await page.route(`**/api/library/${card.id}`, async route => { sent.push(route.request().postDataJSON()); await route.fetch(); await route.abort(); });
@@ -88,8 +89,8 @@ test('keeps crop/editor save levels separate, recovers exact saves, and refreshe
   await page.getByRole('button', { name: 'Retry same save', exact: true }).click(); await expect(row(page, card.name)).toBeVisible(); expect(sent[1]).toEqual(sent[0]);
   const replacement = (await library(page)).characterPictures.find(item => item.characterId === card.id); if (!replacement) throw new Error('Missing replacement'); expect(replacement.key).not.toBe(picture.key);
   await expect(row(other, card.name).locator('img')).toHaveAttribute('src', replacement.thumbnailUrl);
-  await row(page, card.name).getByRole('button', { name: /^Duplicate(?: |$)/ }).click(); await expect(row(page, `${card.name} copy`)).toBeVisible();
-  await row(page, `${card.name} copy`).getByRole('button', { name: /^Edit(?: |$)/ }).click(); await page.getByRole('button', { name: 'Remove picture', exact: true }).click(); await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(row(page, `${card.name} copy`)).toContainText('No picture');
+  await (await openLibraryActions(page, row(page, card.name))).getByRole('menuitem', { name: /^Duplicate(?: |$)/ }).click(); await expect(row(page, `${card.name} copy`)).toBeVisible();
+  await row(page, `${card.name} copy`).getByRole('heading').getByRole('button').click(); await page.getByRole('button', { name: 'Remove picture', exact: true }).click(); await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(row(page, `${card.name} copy`)).toContainText('No picture');
   expect((await library(page)).characterPictures.find(item => item.characterId === card.id)?.key).toBe(replacement.key); await other.close();
 });
 
@@ -100,7 +101,7 @@ test('reviews PNG artwork, preserves diagnostics, blocks failed art and retains 
   await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'card.png', mimeType: 'image/png', buffer: original });
   await expect(page.getByRole('heading', { name: 'Review Picture imported card' })).toBeVisible(); await expect(page.locator('.import-picture .cropped-picture')).toBeVisible();
   await page.getByRole('button', { name: 'Import', exact: true }).click();
-  await expect(row(page, source.data.name)).toBeVisible(); await row(page, source.data.name).getByRole('button', { name: `Edit ${source.data.name}`, exact: true }).click();
+  await expect(row(page, source.data.name)).toBeVisible(); await row(page, source.data.name).getByRole('button', { name: `${source.data.name}`, exact: true }).click();
   await upload(page, image, 'Replace picture'); await page.getByLabel('Character description').fill('Local text remains after definite failure');
   await page.getByRole('button', { name: 'Manage tags', exact: true }).click(); const manager = page.getByRole('dialog', { name: 'Manage tags', exact: true });
   await manager.getByLabel('New tag name').fill('picture-manager-tag'); await manager.getByRole('button', { name: 'Create tag', exact: true }).click(); await expect(manager.getByRole('button', { name: 'Rename picture-manager-tag', exact: true })).toBeVisible(); await manager.getByRole('button', { name: 'Close tag manager', exact: true }).click();
@@ -141,7 +142,7 @@ test('keeps mixed library rows bounded and crop controls usable at desktop, phon
     const rows = page.getByRole('article').filter({ has: page.getByRole('heading', { name: /^Picture visual / }) }); await expect(rows).toHaveCount(4);
     for (const characterRow of await rows.all()) {
       const heading = await characterRow.getByRole('heading').boundingBox();
-      const description = await characterRow.locator('p').boundingBox();
+      const description = await characterRow.locator('.library-card-description').boundingBox();
       if (!heading || !description) throw new Error('Missing character preview');
       const picture = await characterRow.locator('.picture-square').boundingBox();
       if (!picture) throw new Error('Missing character picture');
@@ -160,20 +161,16 @@ test('keeps mixed library rows bounded and crop controls usable at desktop, phon
       await expect(characterRow).not.toContainText('picture-visual-tag-');
     }
     const heights = await rows.evaluateAll(elements => elements.map(element => Math.round(element.getBoundingClientRect().height))); expect(new Set(heights).size).toBe(1);
-    // The shared footer adds a separate action area below the bounded preview.
-    expect(Math.max(...heights)).toBeLessThanOrEqual(width > 800 ? 230 : 250);
-    if (width <= 800) {
-      const actions = await rows.first().getByRole('button').all();
-      const bounds = await Promise.all(actions.map(action => action.boundingBox()));
-      if (bounds.some(box => !box)) throw new Error('Missing character action');
-      const visible = bounds.filter(box => box !== null);
-      expect(new Set(visible.map(box => Math.round(box.y))).size).toBe(2);
-      for (const box of visible) expect(box.height).toBeGreaterThanOrEqual(44);
-    }
+    // Card height now contains the picture and equal padding, without a footer.
+    expect(Math.max(...heights)).toBeLessThanOrEqual(width > 800 ? 150 : 130);
+    const more = await rows.first().getByRole('button', { name: /^Actions for / }).boundingBox();
+    if (!more) throw new Error('Missing character action trigger');
+    expect(more.width).toBeGreaterThanOrEqual(44);
+    expect(more.height).toBeGreaterThanOrEqual(44);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await rows.first().scrollIntoViewIfNeeded(); await page.screenshot({ path: `test-results/pictures-library-${width}.png`, fullPage: true });
   }
-  await row(page, 'Picture visual 0').getByRole('button', { name: /^Edit(?: |$)/ }).click();
+  await row(page, 'Picture visual 0').getByRole('heading').getByRole('button').click();
   for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 568 }, { width: 740, height: 360 }]) {
     await page.setViewportSize(viewport); await page.getByRole('button', { name: 'Adjust crop', exact: true }).click(); const dialog = page.getByRole('dialog', { name: 'Adjust picture crop' });
     await expect(dialog.getByRole('button', { name: 'Use crop', exact: true })).toBeInViewport(); expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);

@@ -1,3 +1,4 @@
+import { openLibraryActions } from './library-card-helpers';
 import { openChatTool } from './chat-tools';
 import { test, expect, type Page } from '@playwright/test';
 import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
@@ -44,10 +45,10 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   const bookRow = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Moon Gate atlas', exact: true }) });
   await expect(bookRow).toContainText('1 entries · 1 enabled');
-  await bookRow.getByRole('button', { name: 'Edit', exact: true }).click();
+  await bookRow.getByRole('heading').getByRole('button').click();
   await expect(page.getByLabel('Lore content', { exact: true })).toHaveValue('The Moon Gate is sealed with a silver crescent.');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await bookRow.getByRole('button', { name: 'Duplicate', exact: true }).click();
+  await (await openLibraryActions(page, bookRow)).getByRole('menuitem', { name: 'Duplicate', exact: true }).click();
   const copyRow = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Moon Gate atlas copy', exact: true }) });
   await expect(copyRow).toBeVisible();
   const copiedLibrary = await library(page);
@@ -55,7 +56,7 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   const copiedBook = copiedLibrary.lorebooks.find(book => book.name === 'Moon Gate atlas copy');
   expect(copiedBook?.id).not.toBe(originalBook?.id);
   expect(copiedBook?.entries[0]?.id).not.toBe(originalBook?.entries[0]?.id);
-  await copyRow.getByRole('button', { name: 'Delete', exact: true }).click();
+  await (await openLibraryActions(page, copyRow)).getByRole('menuitem', { name: 'Delete', exact: true }).click();
   await page.locator('.confirmation-dialog').getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(copyRow).toHaveCount(0);
   await page.getByRole('button', { name: 'Characters', exact: true }).click();
@@ -94,10 +95,11 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   const historical: RequestPreview = await page.request.get(`/api/chats/${chat.id}/generations/${generation.id}/request`).then(response => response.json());
   expect(historical?.lore?.outcomes.some(entry => entry.text.includes('silver crescent'))).toBe(true);
   await books(page);
-  await expect(bookRow.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled();
+  await expect((await openLibraryActions(page, bookRow)).getByRole('menuitem', { name: 'Delete', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
   await expect(bookRow).toContainText('Moon keeper');
   await expect(bookRow).toContainText('Lore browser story');
-  await bookRow.getByRole('button', { name: 'Edit', exact: true }).click();
+  await bookRow.getByRole('heading').getByRole('button').click();
   await page.getByLabel('Lore content', { exact: true }).fill('The Moon Gate now bears a golden sun.');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
@@ -153,7 +155,7 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'keeper.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(character)) });
   await page.getByRole('button', { name: 'Import', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Embedded harbor book' })).toBeVisible();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported harbor keeper', exact: true }) }).getByRole('button', { name: /^Edit(?: |$)/ }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported harbor keeper', exact: true }) }).getByRole('heading').getByRole('button').click();
   await expect(page.getByRole('combobox', { name: 'Default lorebook', exact: true })).toContainText('Embedded harbor book');
   await page.getByRole('button', { name: 'Open book', exact: true }).click();
   await expect(page.getByLabel('Book name', { exact: true })).toHaveValue('Embedded harbor book');
@@ -163,7 +165,7 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   const legacy = await command(page, '/api/library', { kind: 'characters', revision: (await library(page)).revision, data: { name: 'Legacy harbor keeper', description: 'Existing editable description.', personality: '', scenario: '', first_mes: '', mes_example: '', source: legacySource } });
   const beforeExtraction = (await library(page)).lorebooks.length;
   await page.getByRole('button', { name: 'Characters', exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Legacy harbor keeper', exact: true }) }).getByRole('button', { name: /^Edit(?: |$)/ }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Legacy harbor keeper', exact: true }) }).getByRole('heading').getByRole('button').click();
   await page.getByRole('button', { name: 'Extract embedded lorebook', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Embedded lorebook extracted' })).toBeVisible();
   await expect(page.getByLabel('Book name', { exact: true })).toHaveValue('Embedded harbor book');
@@ -179,7 +181,7 @@ test('keeps unsaved entries on failures and revision conflicts, with bounded edi
   const large = { ...newLorebook(), name: 'Large browser atlas', entries: Array.from({ length: 125 }, (_, i) => ({ ...newLoreEntry(`browser-entry-${i}`), name: `Record ${i}`, keys: [`key-${i}`], content: `Saved detail ${i}.`, insertionOrder: i })) };
   const created = await command(page, '/api/library', { kind: 'lorebooks', revision: (await library(page)).revision, data: large });
   await books(page);
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Large browser atlas', exact: true }) }).getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Large browser atlas', exact: true }) }).getByRole('heading').getByRole('button').click();
   await expect(page.locator('.lore-entry-list > button')).toHaveCount(50);
   await expect(page.getByLabel('Lore content', { exact: true })).toHaveCount(1);
   await page.getByLabel('Search entries', { exact: true }).fill('key-124');

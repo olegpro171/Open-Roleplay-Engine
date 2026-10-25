@@ -1,3 +1,4 @@
+import { openLibraryActions } from './library-card-helpers';
 import { openChatTool } from './chat-tools';
 import { test, expect, devices, type Page } from '@playwright/test';
 
@@ -161,7 +162,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
 
   await phone.getByRole('button', { name: 'Libraries', exact: true }).click();
   await phone.getByRole('button', { name: 'Connections', exact: true }).click();
-  await phone.getByRole('button', { name: 'Edit', exact: true }).click();
+  await phone.getByRole('article').getByRole('heading').getByRole('button').click();
   await expect(phone.getByLabel('API key', { exact: true })).toHaveValue('');
   await expect(phone.getByLabel('API key', { exact: true })).toHaveAttribute('placeholder', 'Saved · leave blank to keep it');
   expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -239,13 +240,13 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   const builtIn = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Default prompt' }) });
-  await builtIn.getByRole('button', { name: 'Edit', exact: true }).click();
+  await builtIn.getByRole('heading').getByRole('button').click();
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
   await page.getByLabel('Fallback text').fill('Modified default');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await builtIn.getByRole('button', { name: 'Restore', exact: true }).click();
+  await (await openLibraryActions(page, builtIn)).getByRole('menuitem', { name: 'Restore', exact: true }).click();
   await page.locator('.confirmation-dialog').getByRole('button', { name: 'Restore', exact: true }).click();
-  await builtIn.getByRole('button', { name: 'Edit', exact: true }).click();
+  await builtIn.getByRole('heading').getByRole('button').click();
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
   await expect(page.getByLabel('Fallback text')).toHaveValue('Write the next response in this roleplay. Stay consistent with the established story.');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -269,7 +270,7 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await expect(page.locator('.topbar .tabs button')).toHaveText(['Story', 'Libraries', 'Settings']);
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Connections', exact: true }).click();
-  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('article').getByRole('heading').getByRole('button').click();
   for (const name of ['Model context window', 'Reserved output tokens']) {
     const field = page.getByLabel(name, { exact: true });
     await field.fill('');

@@ -14,7 +14,7 @@ export function EditorActions({ formId, disabled, close, cancelDisabled = false 
   useLocale();
   const target = useContext(EditorActionsTarget);
   if (!target) return null;
-  return createPortal(<div className="library-editor-actions" role="group" aria-label={t("editor_actions.editor_actions")}>
+  return createPortal(<div className="library-editor-actions floating-controls" role="group" aria-label={t("editor_actions.editor_actions")}>
     <button type="submit" form={formId} disabled={disabled} title={t("editor_actions.save")} aria-label={t("editor_actions.save")}>
       <Icon name="SaveOutline" /><span>{t("editor_actions.save")}</span>
     </button>

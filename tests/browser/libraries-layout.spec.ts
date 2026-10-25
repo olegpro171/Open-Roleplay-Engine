@@ -1,3 +1,4 @@
+import { openLibraryActions } from './library-card-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import { defaultPrompt, type LibraryKind, type LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
@@ -36,7 +37,7 @@ test.describe('phone editor scroll recovery', () => {
     await expect(content.getByRole('article')).toHaveCount(1);
     const scroller = page.locator('main.library-layout');
     for (const action of ['Cancel', 'Save']) {
-      await content.getByRole('button', { name: /^Edit(?: |$)/ }).click();
+      await content.getByRole('heading').getByRole('button').click();
       await scroller.evaluate(node => { node.scrollTop = 600; });
       await expect.poll(() => scroller.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
       const session = await page.context().newCDPSession(page);
@@ -94,7 +95,7 @@ for (const width of [1280, 820, 800, 390, 320]) {
       const content = page.getByRole('region', { name: fixture.category, exact: true });
       const article = () => content.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
       const sidebarHeight = await page.locator('.library-sidebar').evaluate(element => element.getBoundingClientRect().height);
-      await article().getByRole('button', { name: /^Edit(?: |$)/ }).click();
+      await article().getByRole('heading').getByRole('button').click();
       if (width <= 800) {
         expect(await page.locator('.library-sidebar').evaluate(element => element.getBoundingClientRect().height)).toBe(sidebarHeight);
       }
@@ -146,7 +147,7 @@ for (const width of [1280, 820, 800, 390, 320]) {
       await save.click();
       await expect(content.getByRole('heading', { name: `${name} saved`, exact: true })).toBeVisible();
       expect((await library(page))[fixture.kind].some(record => record.name === `${name} saved`)).toBe(true);
-      await content.getByRole('article').filter({ has: page.getByRole('heading', { name: `${name} saved`, exact: true }) }).getByRole('button', { name: /^Edit(?: |$)/ }).click();
+      await content.getByRole('article').filter({ has: page.getByRole('heading', { name: `${name} saved`, exact: true }) }).getByRole('heading').getByRole('button').click();
       await nameInput.fill('Discard this sidebar draft');
       await actions.scrollIntoViewIfNeeded();
       await page.screenshot({ path: testInfo.outputPath(`sidebar-${fixture.kind}.png`), animations: 'disabled' });
@@ -189,7 +190,7 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.getByRole('button', { name: 'Characters', exact: true }).click();
-    await page.getByRole('button', { name: 'Edit Sized character editor · Night watch', exact: true }).click();
+    await page.getByRole('button', { name: 'Sized character editor · Night watch', exact: true }).click();
     const description = page.getByLabel('Character description', { exact: true });
     const measure = () => description.evaluate(element => ({ height: element.getBoundingClientRect().height, base: parseFloat(getComputedStyle(element).minHeight) }));
     const loaded = await measure();
@@ -224,13 +225,13 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     await page.getByLabel('Name', { exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath(`character-editor-${width}.png`), animations: 'disabled' });
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await page.getByRole('button', { name: 'Edit Sized character editor · Night watch', exact: true }).click();
+    await page.getByRole('button', { name: 'Sized character editor · Night watch', exact: true }).click();
     expect((await measure()).height).toBe(loaded.base * 4);
     await expect(description).toHaveValue(longText);
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
     await page.getByRole('button', { name: 'Personas', exact: true }).click();
-    await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Sized persona editor', exact: true }) }).getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Sized persona editor', exact: true }) }).getByRole('heading').getByRole('button').click();
     const medium = await page.getByLabel('Persona description').evaluate(element => ({ height: element.getBoundingClientRect().height, base: parseFloat(getComputedStyle(element).minHeight), fits: element.scrollHeight <= element.clientHeight }));
     expect(medium.height).toBeGreaterThan(medium.base);
     expect(medium.height).toBeLessThan(medium.base * 4);
@@ -238,7 +239,7 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
     await page.getByRole('button', { name: 'Lorebooks', exact: true }).click();
-    await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Sized lorebook editor', exact: true }) }).getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Sized lorebook editor', exact: true }) }).getByRole('heading').getByRole('button').click();
     const lore = page.getByLabel('Lore content', { exact: true });
     const longLore = await lore.evaluate(element => ({ height: element.getBoundingClientRect().height, base: parseFloat(getComputedStyle(element).minHeight) }));
     expect(longLore.height).toBe(longLore.base * 4);
@@ -248,7 +249,7 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
     await page.getByRole('button', { name: 'Prompts', exact: true }).click();
-    await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Sized prompt editor', exact: true }) }).getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Sized prompt editor', exact: true }) }).getByRole('heading').getByRole('button').click();
     await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
     expect(await page.getByRole('textbox', { name: 'Block text', exact: true }).evaluate(element => element.getBoundingClientRect().height >= parseFloat(getComputedStyle(element).minHeight) * 4)).toBe(true);
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -384,7 +385,7 @@ test('returns to the top of a scrollable prompt list after saving or closing a d
   }
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Prompts', exact: true });
-  const edit = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Scroll position prompt 0', exact: true }) }).getByRole('button', { name: 'Edit', exact: true });
+  const edit = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Scroll position prompt 0', exact: true }) }).getByRole('heading').getByRole('button');
   await edit.click();
   for (let index = 1; index <= 6; index++) {
     await panel.getByRole('button', { name: `Expand block ${index}`, exact: true }).click();
@@ -407,7 +408,7 @@ test('returns to the top of a scrollable prompt list after saving or closing a d
 });
 
 
-test('aligns Restore and Delete across prompt cards at desktop and phone widths', async ({ page }, testInfo) => {
+test('sizes Restore and Delete consistently in prompt action menus at desktop and phone widths', async ({ page }, testInfo) => {
   await login(page);
   await addRecord(page, 'prompts', { ...defaultPrompt, name: 'Aligned prompt actions' });
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
@@ -416,20 +417,13 @@ test('aligns Restore and Delete across prompt cards at desktop and phone widths'
   const custom = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Aligned prompt actions', exact: true }) });
   for (const width of [1440, 820, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 });
-    const restore = builtIn.getByRole('button', { name: 'Restore', exact: true });
-    const remove = custom.getByRole('button', { name: 'Delete', exact: true });
+    const restore = (await openLibraryActions(page, builtIn)).getByRole('menuitem', { name: 'Restore', exact: true });
     const restoreSize = await restore.evaluate(element => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height }));
+    await page.keyboard.press('Escape');
+    const remove = (await openLibraryActions(page, custom)).getByRole('menuitem', { name: 'Delete', exact: true });
     const deleteSize = await remove.evaluate(element => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height }));
     expect(restoreSize).toEqual(deleteSize);
-    const positions = await Promise.all([builtIn, custom].map(card => card.getByRole('button').evaluateAll(buttons => {
-      const origin = buttons[0].closest('article')?.getBoundingClientRect();
-      if (!origin) throw new Error('Missing prompt card');
-      return buttons.map(button => {
-        const rect = button.getBoundingClientRect();
-        return { x: rect.x - origin.x, y: rect.y - origin.y };
-      });
-    })));
-    expect(positions[0]).toEqual(positions[1]);
+    await page.keyboard.press('Escape');
     expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await builtIn.screenshot({ path: testInfo.outputPath(`default-prompt-${width}.png`) });
     await custom.screenshot({ path: testInfo.outputPath(`prompt-actions-${width}.png`) });
@@ -437,7 +431,7 @@ test('aligns Restore and Delete across prompt cards at desktop and phone widths'
 });
 
 
-test('resets the built-in context and matches Delete width on desktop and phone', async ({ page }, testInfo) => {
+test('resets the built-in context and matches the Delete menu action width on desktop and phone', async ({ page }, testInfo) => {
   await login(page);
   await addRecord(page, 'contexts', { ...defaultContextPreset, name: 'Independent context actions' });
   const saved = (await library(page)).contexts.find(item => item.id === 'default-context');
@@ -451,21 +445,27 @@ test('resets the built-in context and matches Delete width on desktop and phone'
   const panel = page.getByRole('region', { name: 'Context presets', exact: true });
   const builtIn = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Customized context', exact: true }) });
   const custom = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Independent context actions', exact: true }) });
-  await expect(builtIn.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0);
+  await expect((await openLibraryActions(page, builtIn)).getByRole('menuitem', { name: 'Delete', exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 });
-    const size = (card: typeof builtIn, name: string) => card.getByRole('button', { name, exact: true }).evaluate(element => {
-      const rect = element.getBoundingClientRect();
-      return { width: rect.width, height: rect.height };
-    });
+    const size = async (card: typeof builtIn, name: string) => {
+      const action = (await openLibraryActions(page, card)).getByRole('menuitem', { name, exact: true });
+      const measured = await action.evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      });
+      await page.keyboard.press('Escape');
+      return measured;
+    };
     expect(await size(builtIn, 'Reset')).toEqual(await size(custom, 'Delete'));
     expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await builtIn.screenshot({ path: testInfo.outputPath(`context-reset-${width}.png`) });
   }
-  await builtIn.getByRole('button', { name: 'Reset', exact: true }).click();
+  await (await openLibraryActions(page, builtIn)).getByRole('menuitem', { name: 'Reset', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
   expect((await library(page)).contexts.find(item => item.id === 'default-context')?.minTail).toBe(23);
-  await builtIn.getByRole('button', { name: 'Reset', exact: true }).click();
+  await (await openLibraryActions(page, builtIn)).getByRole('menuitem', { name: 'Reset', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Reset', exact: true }).click();
   await expect(panel.getByRole('heading', { name: 'Default context preset', exact: true })).toBeVisible();
   const reset = (await library(page)).contexts.find(item => item.id === 'default-context');

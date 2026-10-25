@@ -58,7 +58,7 @@ for (const width of [1440, 390]) test(`saves speech colors from both editors and
 
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Characters', exact: true }).click();
-  await page.getByRole('button', { name: `Edit ${name}`, exact: true }).click();
+  await page.getByRole('button', { name: `${name}`, exact: true }).click();
   await expect(page.getByRole('button', { name: 'Speech color', exact: true })).toContainText('#EEAA88');
   await chooseColor(page, 'Speech color', '#cc99ff');
   await page.route(`**/api/library/${character.id}`, route => route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic save rejection.' }) }), { times: 1 });
@@ -182,8 +182,8 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Libraries', exact: true }).click();
     for (const kind of ['character', 'persona'] as const) {
       await page.getByRole('button', { name: kind === 'character' ? 'Characters' : 'Personas', exact: true }).click();
-      if (kind === 'character') await page.getByRole('button', { name: `Edit ${name}`, exact: true }).click();
-      else await page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) }).getByRole('button', { name: 'Edit', exact: true }).click();
+      if (kind === 'character') await page.getByRole('button', { name: `${name}`, exact: true }).click();
+      else await page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) }).getByRole('heading').getByRole('button').click();
       if (kind === 'persona') {
         await expect(page.getByText('Not set', { exact: true })).toBeVisible();
         await page.getByRole('button', { name: 'Set color', exact: true }).click();

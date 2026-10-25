@@ -1,4 +1,5 @@
 import { LibraryImport } from './LibraryImport';
+import { LibraryCardMenu } from './LibraryCardMenu';
 import type { MessageText } from './localization';
 import { newLibraryLabel, searchLibraryLabel, sortLibraryLabel } from './localization-labels';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
@@ -431,34 +432,38 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
             <div className="library-card-content">
               <div className="library-card-heading">
                 <h2 title={item.id === 'default' && item.name === 'Default roleplay' ? defaultPromptLabel : item.id === 'default-context' && item.name === 'Layered narrative memory' ? defaultContextLabel : characterLabel(item)}>
-                  {item.id === 'default' && item.name === 'Default roleplay' ? defaultPromptLabel : item.id === 'default-context' && item.name === 'Layered narrative memory' ? defaultContextLabel : item.name}
-                  {(section === 'characters' || section === 'personas') && 'titleComment' in item && item.titleComment && <span className="character-comment"> · {item.titleComment}</span>}
+                  <button type="button" className="library-card-open" disabled={busy} onClick={() => {
+                    const { id, revision: _revision, ...record } = item;
+                    const { hasApiKey, ...data } = { ...record, hasApiKey: 'hasApiKey' in record && record.hasApiKey === true };
+                    setEditing({ kind: section, id, revision: library.revision, data, hasApiKey });
+                  }}><span className="library-card-title">{item.id === 'default' && item.name === 'Default roleplay' ? defaultPromptLabel : item.id === 'default-context' && item.name === 'Layered narrative memory' ? defaultContextLabel : item.name}
+                  {(section === 'characters' || section === 'personas') && 'titleComment' in item && item.titleComment && <span className="character-comment"> · {item.titleComment}</span>}</span></button>
                 </h2>
-                {(section === 'prompts' || section === 'connections' || section === 'contexts') && <DefaultBookmark kind={section} item={item} defaults={defaults} libraryRevision={library.revision} busy={busy} run={run} />}
+                <div className="library-card-tools">
+                  {(section === 'prompts' || section === 'connections' || section === 'contexts') && <DefaultBookmark kind={section} item={item} defaults={defaults} libraryRevision={library.revision} busy={busy} run={run} />}
+                  <LibraryCardMenu name={characterLabel(item)} disabled={busy} revision={library.revision}>
+                    <button className="secondary" role="menuitem" tabIndex={-1} aria-label={section === 'characters' ? t("libraries.duplicate", { value: characterLabel(item) }) : undefined} disabled={busy} onClick={() => void run(() => duplicate(item))}><Icon name="CopyOutline" />{t("libraries.duplicate_2")}</button>
+                    {section === 'connections' ? <button type="button" className="secondary" role="menuitem" tabIndex={-1} disabled={busy} aria-haspopup="dialog" onClick={() => {
+                      setConnectionFile({ kind: 'export', id: item.id, name: item.name });
+                    }}><Icon name="Upload" />{t('connection_files.export_button')}</button> : <button className="secondary" role="menuitem" tabIndex={-1} aria-label={section === 'characters' ? t("libraries.export_json", { value: characterLabel(item) }) : undefined} onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}><Icon name="Upload" />{section === 'characters' ? t("libraries.export_json_2") : t("libraries.export")}</button>}
+                    {item.id === 'default' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => { confirmAction({ title: t("libraries.restore_original_prompt"), message: t("libraries.restore_the_built_in_default_prompt_chats"), actionLabel: t("libraries.restore_original"), onConfirm: () => { void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.restore_original")}</button>}
+                    {section === 'contexts' && item.id === 'default-context' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => { confirmAction({ title: t("libraries.reset_context"), message: t("libraries.reset_context_confirmation"), actionLabel: t("libraries.reset"), onConfirm: () => { void run(() => api('/library/default-context/reset', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.reset")}</button>}
+                    {item.id !== 'default' && !(section === 'contexts' && item.id === 'default-context') && <button className="secondary" role="menuitem" tabIndex={-1} aria-label={section === 'characters' ? t("libraries.delete", { value: characterLabel(item) }) : undefined} disabled={busy || (section === 'lorebooks' && library.lorebookUses.some(use => use.bookId === item.id && (use.characters.length > 0 || use.chats.length > 0)))} onClick={() => { confirmAction({ title: t("libraries.delete_library_item"), message: t("libraries.delete_from_the_library", { value: section === 'characters' || section === 'personas' ? characterLabel(item) : item.name }), actionLabel: t("libraries.delete_2"), onConfirm: () => { void run(() => api(`/library/${item.id}`, 'DELETE', { kind: section, revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.delete_2")}</button>}
+                  </LibraryCardMenu>
+                </div>
               </div>
-              {section === 'characters' && 'description' in item ? <CharacterDescription text={item.description} /> :
-                <p>{section === 'connections' && 'model' in item ? item.model
+              <LibraryDescription text={section === 'connections' && 'model' in item ? item.model
                   : section === 'prompts' && 'blocks' in item ? t("libraries.block_count", { count: item.blocks.length })
                   : section === 'contexts' && 'minTail' in item ? t("libraries.minimum_tail_batch", { minTail: item.minTail, batchSize: item.batchSize })
-                  : 'description' in item ? item.description.slice(0, 140) : ''}</p>}
-              {section === 'lorebooks' && 'entries' in item && <>
-                <p>{t("libraries.entries_enabled", { length: item.entries.length, length2: item.entries.filter(entry => entry.enabled).length })}</p>
-                <LorebookUses bookId={item.id} library={library} />
-              </>}
+                  : 'description' in item ? item.description : ''}>
+                {section === 'lorebooks' && 'entries' in item && <>
+                  <p>{t("libraries.entries_enabled", { length: item.entries.length, length2: item.entries.filter(entry => entry.enabled).length })}</p>
+                  <LorebookUses bookId={item.id} library={library} />
+                </>}
+              </LibraryDescription>
             </div>
           </div>
-          <div className="library-card-actions">
-        <button className="secondary" aria-label={section === 'characters' ? t("libraries.edit", { value: characterLabel(item) }) : undefined} disabled={busy} onClick={() => { const { id, revision: _revision, ...record } = item; const { hasApiKey, ...data } = record as typeof record & { hasApiKey?: boolean }; setEditing({ kind: section, id, revision: library.revision, data, hasApiKey }); }}><Icon name="EditOutline" />{t("libraries.edit_2")}</button>
-        <button className="quiet" aria-label={section === 'characters' ? t("libraries.duplicate", { value: characterLabel(item) }) : undefined} disabled={busy} onClick={() => void run(() => duplicate(item))}><Icon name="CopyOutline" />{t("libraries.duplicate_2")}</button>
-        {section === 'connections' ? <button type="button" className="quiet" disabled={busy} aria-haspopup="dialog" onClick={event => {
-          // Safari does not focus pointer-clicked buttons; give the modal an explicit return target.
-          event.currentTarget.focus({ preventScroll: true });
-          setConnectionFile({ kind: 'export', id: item.id, name: item.name });
-        }}><Icon name="Upload" />{t('connection_files.export_button')}</button> : <button className="quiet" aria-label={section === 'characters' ? t("libraries.export_json", { value: characterLabel(item) }) : undefined} onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}><Icon name="Upload" />{section === 'characters' ? t("libraries.export_json_2") : t("libraries.export")}</button>}
-        {item.id === 'default' && <button className="quiet" disabled={busy} onClick={() => { confirmAction({ title: t("libraries.restore_original_prompt"), message: t("libraries.restore_the_built_in_default_prompt_chats"), actionLabel: t("libraries.restore_original"), onConfirm: () => { void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.restore_original")}</button>}
-        {section === 'contexts' && item.id === 'default-context' && <button className="quiet" disabled={busy} onClick={() => { confirmAction({ title: t("libraries.reset_context"), message: t("libraries.reset_context_confirmation"), actionLabel: t("libraries.reset"), onConfirm: () => { void run(() => api('/library/default-context/reset', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.reset")}</button>}
-        {item.id !== 'default' && !(section === 'contexts' && item.id === 'default-context') && <button className="quiet" aria-label={section === 'characters' ? t("libraries.delete", { value: characterLabel(item) }) : undefined} disabled={busy || (section === 'lorebooks' && library.lorebookUses.some(use => use.bookId === item.id && (use.characters.length > 0 || use.chats.length > 0)))} onClick={() => { confirmAction({ title: t("libraries.delete_library_item"), message: t("libraries.delete_from_the_library", { value: section === 'characters' || section === 'personas' ? characterLabel(item) : item.name }), actionLabel: t("libraries.delete_2"), onConfirm: () => { void run(() => api(`/library/${item.id}`, 'DELETE', { kind: section, revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.delete_2")}</button>}
-      </div></article>)}{library[section].length === 0 && <p className="muted">{t("libraries.create_or_import_your_first", { value: section === 'lorebooks' ? 'lorebook' : section === 'personas' ? 'persona' : section === 'characters' ? 'character' : section === 'connections' ? t("libraries.connection") : 'prompt' })}</p>}{section !== 'characters' && query && visibleRecords.length === 0 && library[section].length > 0 && <p className="muted" role="status">{t("libraries.no_match_your_search", { value: libraryLabel(section).toLowerCase() })}</p>}</div>
+      </article>)}{library[section].length === 0 && <p className="muted">{t("libraries.create_or_import_your_first", { value: section === 'lorebooks' ? 'lorebook' : section === 'personas' ? 'persona' : section === 'characters' ? 'character' : section === 'connections' ? t("libraries.connection") : 'prompt' })}</p>}{section !== 'characters' && query && visibleRecords.length === 0 && library[section].length > 0 && <p className="muted" role="status">{t("libraries.no_match_your_search", { value: libraryLabel(section).toLowerCase() })}</p>}</div>
       {section === 'characters' && library.characters.length > 0 && visibleRecords.length === 0 && <p role="status">{query ? filters.length ? t("libraries.no_characters_match_your_search_and_selected") : t("libraries.no_characters_match_your_search") : t("libraries.no_characters_match_all_selected_tags_clear")}</p>}
       </>}
     </>}
@@ -469,16 +474,16 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
     if (kind === 'import') void run(async () => {});
   }} />}</div></EditorActionsTarget.Provider>;
 }
-function CharacterDescription({ text }: { text: string }) {
+function LibraryDescription({ text, children }: { text: string; children?: ReactNode }) {
   useLocale();
-  const node = useRef<HTMLParagraphElement>(null), [overflow, setOverflow] = useState(false);
+  const node = useRef<HTMLDivElement>(null), [overflow, setOverflow] = useState(false);
   useEffect(() => {
     const element = node.current; if (!element) return;
     const measure = () => setOverflow(element.scrollHeight > element.clientHeight + 1);
     measure(); const observer = new ResizeObserver(measure); observer.observe(element);
     return () => observer.disconnect();
-  }, [text]);
-  return <p ref={node} className={`character-description${overflow ? ' overflows' : ''}`}>{text}</p>;
+  }, [text, children]);
+  return <div ref={node} className={`library-card-description${overflow ? ' overflows' : ''}`}><p>{text}</p>{children}</div>;
 }
 function DefaultBookmark({ kind, item, defaults, libraryRevision, busy, run }: {
   kind: ChatDefaultKind; item: { id: string; name: string }; defaults: ChatDefaultsStatus;

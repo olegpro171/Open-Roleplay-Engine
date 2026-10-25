@@ -52,7 +52,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('article')).toHaveCount(1);
     await search.fill(name);
     await expect(page.getByRole('article')).toHaveCount(2);
-    await page.getByRole('article').filter({ has: page.getByRole('heading', { name: university, exact: true }) }).getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.getByRole('article').filter({ has: page.getByRole('heading', { name: university, exact: true }) }).getByRole('heading').getByRole('button').click();
     await page.getByLabel('Title / comment', { exact: true }).fill('Unsaved draft');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(page.getByRole('heading', { name: university, exact: true })).toBeVisible();
@@ -78,7 +78,7 @@ for (const width of [1440, 390]) {
 
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
     await page.getByRole('button', { name: 'Personas', exact: true }).click();
-    await page.getByRole('article').filter({ has: page.getByRole('heading', { name: university, exact: true }) }).getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.getByRole('article').filter({ has: page.getByRole('heading', { name: university, exact: true }) }).getByRole('heading').getByRole('button').click();
     await page.getByLabel('Title / comment', { exact: true }).fill('');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();

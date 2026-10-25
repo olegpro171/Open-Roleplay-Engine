@@ -1,3 +1,4 @@
+import { openLibraryActions } from './library-card-helpers';
 import { expect, test, type Locator } from '@playwright/test';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
@@ -9,7 +10,7 @@ async function bounds(locator: Locator) {
   return box;
 }
 
-test('library actions occupy consistent slots across categories and viewport changes', async ({ page }, testInfo) => {
+test('library action menus stack controls consistently across categories and viewport changes', async ({ page }, testInfo) => {
   const session = await page.request.get('/api/session').then(response => response.json());
   await page.goto('/');
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
@@ -50,27 +51,32 @@ test('library actions occupy consistent slots across categories and viewport cha
       creationSlot = { x: create.x, width: create.width };
       const card = panel.getByRole('article').filter({ hasText: `Action layout ${fixture.kind} with` });
       await card.scrollIntoViewIfNeeded();
-      const edit = await bounds(card.getByRole('button', { name: /^Edit(?: |$)/ }));
-      const duplicate = await bounds(card.getByRole('button', { name: /^Duplicate(?: |$)/ }));
-      const exportButton = await bounds(card.getByRole('button', { name: /^Export/ }));
-      const remove = await bounds(card.getByRole('button', { name: /^Delete(?: |$)/ }));
       const title = await bounds(card.getByRole('heading'));
-      expect(edit.y, `${fixture.category} actions below content at ${width}`).toBeGreaterThanOrEqual(title.y + title.height);
-      expect(duplicate.y).toBe(edit.y);
-      expect(duplicate.x).toBeGreaterThan(edit.x);
-      expect(Math.abs(duplicate.width - edit.width)).toBeLessThanOrEqual(1);
-      expect(remove.y).toBe(exportButton.y);
-      expect(remove.x).toBeGreaterThan(exportButton.x);
-      for (const box of [edit, duplicate, exportButton, remove]) {
+      const titleLineHeight = await card.getByRole('heading').evaluate(element => Number.parseFloat(getComputedStyle(element).lineHeight));
+      expect(title.height).toBeLessThanOrEqual(titleLineHeight * 2 + 1);
+      const more = await bounds(card.getByRole('button', { name: /^Actions for / }));
+      expect(more.height).toBeGreaterThanOrEqual(44);
+      expect(Math.abs(more.y - title.y)).toBeLessThanOrEqual(8);
+      const menu = await openLibraryActions(page, card);
+      const actions = await Promise.all((await menu.getByRole('menuitem').all()).map(bounds));
+      expect(actions).toHaveLength(3);
+      for (const [index, box] of actions.entries()) {
         expect(box.height).toBeGreaterThanOrEqual(44);
         expect(box.x).toBeGreaterThanOrEqual(0);
         expect(box.x + box.width).toBeLessThanOrEqual(width);
+        if (index > 0) {
+          expect(box.y).toBeGreaterThanOrEqual(actions[index - 1].y + actions[index - 1].height);
+          expect(box.x).toBe(actions[0].x);
+          expect(box.width).toBe(actions[0].width);
+        }
       }
+      await page.keyboard.press('Escape');
+      await expect(menu).toHaveCount(0);
       expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
       if (['prompts', 'connections', 'contexts'].includes(fixture.kind)) {
         const bookmark = card.getByRole('button', { name: /^Set .* default/ });
         const bookmarkBox = await bounds(bookmark);
-        expect(bookmarkBox.y).toBeLessThan(edit.y);
+        expect(bookmarkBox.y).toBe(more.y);
       }
       if ([1280, 820, 390, 320].includes(width)) await page.screenshot({ path: testInfo.outputPath(`${fixture.kind}-${width}.png`), animations: 'disabled' });
     }
@@ -89,8 +95,8 @@ test('library actions occupy consistent slots across categories and viewport cha
   const saved: LibrarySnapshot = await page.request.get('/api/library').then(response => response.json());
   expect(defaults.settings.prompts).toBe(saved.prompts.find(item => item.name.startsWith('Action layout prompts with'))?.id);
   await prompt.getByRole('button', { name: /^Clear .* default/ }).click();
-  await expect(prompt.getByRole('button', { name: 'Edit', exact: true })).toBeEnabled();
-  await prompt.getByRole('button', { name: 'Edit', exact: true }).focus();
+  await expect(prompt.getByRole('heading').getByRole('button')).toBeEnabled();
+  await prompt.getByRole('heading').getByRole('button').focus();
   await page.keyboard.press('Enter');
   await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Action layout prompts with a long descriptive title');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -123,7 +129,7 @@ test('creation controls stay reachable while browsing long lists at desktop and 
     const firstPosition = await bounds(create);
     await scroller.evaluate(node => { node.scrollTop -= 80; });
     expect(await bounds(create)).toEqual(firstPosition);
-    const edit = panel.getByRole('article').last().getByRole('button', { name: 'Edit', exact: true });
+    const edit = panel.getByRole('article').last().getByRole('heading').getByRole('button');
     await edit.focus();
     const control = await bounds(edit);
     const header = await bounds(panel.locator('header'));

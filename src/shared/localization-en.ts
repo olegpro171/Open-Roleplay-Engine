@@ -530,6 +530,7 @@ export const englishMessages = {
   "libraries.minimum_tail_batch": "Minimum tail {{minTail}} · Batch {{batchSize}}",
   "libraries.entries_enabled": "{{length}} entries · {{length2}} enabled",
   "libraries.edit_2": "Edit",
+  "libraries.actions_for": "Actions for {{name}}",
   "libraries.duplicate": "Duplicate {{value}}",
   "libraries.connection_copied_add_its_api_key_in": "Connection copied. Any saved API key was copied too.",
   "libraries.character_copied_its_default_lorebook_is_shared": "Character copied. Its default lorebook is shared with the original character; duplicate the book for independent edits.",
