@@ -17,9 +17,9 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 .library-editor-target{flex-shrink:0}
 .floating-controls{padding:4px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:0 4px 16px #0006}
 .library-editor-actions{display:flex;flex-direction:column;gap:10px;margin-top:20px}
-.library-editor-actions>button{min-height:44px;justify-content:center}
-.library-editor-actions>button>.ui-icon{display:none}
-@media(min-width:801px){.library-editor-actions.floating-controls{padding:0;border:0;border-radius:0;background:none;box-shadow:none}}
+.editor-actions>button{min-height:44px;justify-content:center}
+.editor-actions>button>.ui-icon{display:none}
+@media(min-width:801px){.editor-actions.floating-controls{padding:0;border:0;border-radius:0;background:none;box-shadow:none}}
 @media(max-width:800px){
   .library-workspace .library-sidebar{display:contents}
   .library-workspace .library-navigation{display:block;padding:22px 18px 18px;border-bottom:1px solid var(--line)}
@@ -27,11 +27,7 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
   .library-editor-target{position:sticky;top:12px;height:0;z-index:20}
   .library-editor-target:has(.library-editor-actions){margin-top:32px;margin-bottom:-32px}
   .library-editor-target .library-editor-actions{position:absolute;top:0;right:max(18px,env(safe-area-inset-right))}
-  .library-editor-actions{flex-direction:row;gap:8px;margin:0}
   .library-workspace .library-list-header.is-editing{padding-right:120px;min-height:86px}
-  .library-editor-actions>button{width:44px;height:44px;padding:10px}
-  .library-editor-actions>button>.ui-icon{display:block;width:22px;height:22px}
-  .library-editor-actions>button>span{display:none}
 }
 .add-alternate-greeting{display:block;margin-inline:auto}
 .alternate-greeting{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-bottom:18px}.alternate-greeting>button{align-self:flex-end;min-height:44px}
@@ -442,8 +438,8 @@ button.danger{background:#b74e48;color:#fff;border-color:#d16b64}
 @media(max-width:800px){
   .chat-character-portrait{width:50%}
   .story-layout{grid-template-rows:auto minmax(0,1fr)}
-  .story-meta{position:relative;display:block;overflow:visible;padding:10px 18px;border-right:0;border-bottom:1px solid var(--line)}
-  .story-meta.story-navigation{padding:0;border:0}
+  .story-meta{position:relative;display:block;overflow:visible;padding:0;border:0}
+  .story-meta>.editor-actions{position:absolute;top:12px;right:max(18px,env(safe-area-inset-right));z-index:20}
   .chat-details-slot:not(:empty){display:block;margin-left:auto;flex-shrink:0}
   .chat-details-slot:not(:empty)~.connection-status{display:none}
   button.chat-details-toggle{display:flex;align-items:center;gap:6px;min-height:44px;padding:6px 8px;border-color:var(--line);color:var(--header-highlight);font-size:12px;white-space:nowrap}
@@ -456,6 +452,11 @@ button.danger{background:#b74e48;color:#fff;border-color:#d16b64}
   .chat-details .chat-page-actions{flex-direction:column}
   .chat-details .chat-page-actions button{flex:none;width:100%;text-align:left}
   .chat-panel{padding:24px 18px 50px}
+  .story-layout:has(.story-meta>.editor-actions)>.chat-panel>.eyebrow{padding-right:120px;min-height:44px}
+  .editor-actions{flex-direction:row;flex-wrap:nowrap;gap:8px;margin:0}
+  .editor-actions>button{flex:none;width:44px;height:44px;padding:10px;justify-content:center}
+  .editor-actions>button>.ui-icon{display:block;width:22px;height:22px}
+  .editor-actions>button>span{display:none}
 }
 @media(max-width:360px){.topbar:has(.chat-details-slot:not(:empty)){gap:6px}.chat-details-slot button.chat-details-toggle{font-size:11px;padding:6px;gap:3px}.topbar:has(.chat-details-slot:not(:empty)) .tabs{gap:9px}.topbar:has(.chat-details-slot:not(:empty)) .signout{font-size:9px!important}}
 .chat-panel{container:chat-panel / inline-size}

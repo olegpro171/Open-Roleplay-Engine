@@ -136,8 +136,8 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
   const [saving, setSaving] = useState(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   return <ChatWorkspace sidebar={sidebar} actions={<>
-    <button type="submit" form={formId} disabled={busy || revision !== snapshot.revision}>{t("libraries.save_and_return")}</button>
-    <button type="button" className="secondary" disabled={saving} onClick={returnToChat}>{t("libraries.return_without_saving")}</button>
+    <button type="submit" form={formId} disabled={busy || revision !== snapshot.revision} aria-label={t("libraries.save_and_return")} title={t("libraries.save_and_return")}><Icon name="SaveOutline" /><span>{t("libraries.save_and_return")}</span></button>
+    <button type="button" className="secondary" disabled={saving} onClick={returnToChat} aria-label={t("libraries.return_without_saving")} title={t("libraries.return_without_saving")}><Icon name="Close" /><span>{t("libraries.return_without_saving")}</span></button>
   </>}><section className="document-panel chat-panel" aria-label={t("app.chat_settings")}><p className="eyebrow">{t("libraries.chat_settings")}</p><h1>{t("libraries.choose_this_story_s_ingredients")}</h1><p className="muted">{t("libraries.each_chat_keeps_its_own_selections_edit")}</p>
     <form id={formId} onSubmit={async e => {
       e.preventDefault();

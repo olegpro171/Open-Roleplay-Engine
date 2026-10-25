@@ -58,7 +58,7 @@ for (const width of [320, 390, 800]) {
   });
 }
 
-for (const width of [1280, 820, 390, 320]) {
+for (const width of [1280, 820, 801, 800, 390, 320]) {
   test(`chat tools share the workspace and return safely at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     const session = await page.request.get('/api/session').then(response => response.json());
@@ -98,7 +98,40 @@ for (const width of [1280, 820, 390, 320]) {
       const content = page.getByRole('region', { name: region, exact: true });
       await expect(content).toBeVisible();
       await expect(sidebar.getByRole('button', { name: 'Chat settings', exact: true })).toHaveCount(0);
-      if (width < 800) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
+      const actions = sidebar.locator('.chat-page-actions');
+      const close = actions.getByRole('button', { name: region === 'Chat settings' ? 'Return without saving' : 'Return to chat', exact: true });
+      await expect(actions.getByRole('button')).toHaveCount(region === 'Chat settings' ? 2 : 1);
+      await expect(close).toHaveAttribute('title', region === 'Chat settings' ? 'Return without saving' : 'Return to chat');
+      if (width <= 800) {
+        const header = await page.locator('header').boundingBox();
+        const bounds = await close.boundingBox();
+        const heading = await content.getByRole('heading', { level: 1 }).boundingBox();
+        if (!header || !bounds || !heading) throw new Error('Missing compact tool controls');
+        expect(bounds.width).toBe(44);
+        expect(bounds.height).toBe(44);
+        expect(bounds.y).toBeGreaterThanOrEqual(header.y + header.height);
+        expect(bounds.y + bounds.height).toBeLessThanOrEqual(heading.y);
+        expect(bounds.x + bounds.width).toBeGreaterThan(width - 40);
+        await expect(close.locator('svg')).toBeVisible();
+        await expect(close.locator('span')).toBeHidden();
+        if (region === 'Chat settings') {
+          const save = actions.getByRole('button', { name: 'Save and return', exact: true });
+          const saveBounds = await save.boundingBox();
+          if (!saveBounds) throw new Error('Missing compact Save control');
+          expect(saveBounds.width).toBe(44);
+          expect(saveBounds.height).toBe(44);
+          expect(saveBounds.y).toBe(bounds.y);
+          expect(saveBounds.x + saveBounds.width).toBeLessThan(bounds.x);
+          await expect(save.locator('svg')).toBeVisible();
+          await expect(save.locator('span')).toBeHidden();
+        }
+      } else {
+        await expect(close.locator('svg')).toBeHidden();
+        await expect(close.locator('span')).toBeVisible();
+      }
+      const actionBounds = await close.boundingBox();
+      await page.screenshot({ path: testInfo.outputPath(`${region}-controls-${width}.png`), animations: 'disabled' });
+      if (width <= 800) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
       await expect(sidebar.getByRole('heading', { name: `Saved workspace ${width}`, exact: true })).toBeVisible();
       const left = await sidebar.boundingBox(), right = await content.boundingBox();
       if (!left || !right) throw new Error('Missing chat workspace');
@@ -114,8 +147,9 @@ for (const width of [1280, 820, 390, 320]) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect(await content.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`${region}-${width}.png`), animations: 'disabled' });
-      if (width < 800) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
+      if (width <= 800) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
       await content.evaluate(node => { node.scrollTop = node.scrollHeight; });
+      expect(await close.boundingBox()).toEqual(actionBounds);
       await expect(sidebar.getByRole('button', { name: region === 'Chat settings' ? 'Return without saving' : 'Return to chat', exact: true })).toBeInViewport();
       await sidebar.getByRole('button', { name: region === 'Chat settings' ? 'Return without saving' : 'Return to chat', exact: true }).click();
       await expect(page.getByLabel('Your next turn')).toHaveValue('A composer draft survives the tools.');

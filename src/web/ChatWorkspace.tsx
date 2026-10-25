@@ -37,7 +37,7 @@ export function ChatWorkspace({ sidebar, actions, navigation = false, children }
       wide.removeEventListener('change', resize);
     };
   }, [expanded]);
-  const pageActions = <div className="chat-page-actions">{actions}</div>;
+  const pageActions = <div className={`chat-page-actions${navigation ? '' : ' editor-actions floating-controls'}`}>{actions}</div>;
   return <main className="story-layout">
     {target && createPortal(<button ref={toggle} type="button" className="quiet chat-details-toggle" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)} onKeyDown={event => {
       if (expanded && event.key === 'Tab' && !event.shiftKey) {
