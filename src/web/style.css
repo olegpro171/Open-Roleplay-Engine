@@ -467,6 +467,8 @@ button.danger{background:#b74e48;color:#fff;border-color:#d16b64}
 }
 
 .error-banner { flex-shrink: 0; }
+.error-banner:has(>.error-banner-actions) { flex-wrap: wrap; }
+.error-banner-actions { flex-shrink: 0; justify-content: flex-end; margin: 0 0 0 auto; }
 .settings-panel p, .settings-panel li { overflow-wrap: anywhere; }
 .settings-section + .settings-section { margin-top: 40px; padding-top: 28px; border-top: 1px solid var(--line); }
 .settings-section > h2 { scroll-margin-top: 24px; }

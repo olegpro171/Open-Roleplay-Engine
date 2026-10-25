@@ -506,7 +506,10 @@ export function App() {
       <button className="quiet signout" onClick={() => void command(async () => { await api('/logout', 'POST', {}); setSnapshot(null); await refreshSession(); })}>{t("app.sign_out")}</button>
     </header>
     {dataChanged && <div className="error-banner" role="alert"><span>{t("app.application_data_was_imported_or_wiped_in")}</span><button onClick={() => window.location.reload()}>{t("app.reload_current_data")}</button></div>}
-    {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" disabled={busy} onClick={() => { setError(''); void refresh(); }}>{t("app.retry_loading")}</button><button className="quiet" onClick={() => setError('')}>{t("app.dismiss")}</button></div>}
+    {error && <div className="error-banner" role="alert"><span>{error}</span><div className="actions error-banner-actions">
+      <button className="quiet" disabled={busy} onClick={() => { setError(''); void refresh(); }}>{t("app.retry_loading")}</button>
+      <button className="quiet" onClick={() => setError('')}>{t("app.dismiss")}</button>
+    </div></div>}
     {appearanceError && <div className="error-banner" role="alert"><span>{t("app.using_the_last_loaded_chat_appearance_or", { appearanceError: appearanceError })}</span><button className="quiet" onClick={() => void refresh()}>{t("app.retry_chat_appearance")}</button></div>}
     {chatBehaviorError && <div className="error-banner" role="alert"><span>{t('chat_behavior.shortcuts_unavailable', { error: chatBehaviorError })}</span><button className="quiet" onClick={() => void refresh()}>{t('chat_behavior.retry')}</button></div>}
     {tab === 'data' && <ApplicationSettings chatBehavior={behaviorEditor} appearance={appearanceEditor} lan={lanEditor} openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}

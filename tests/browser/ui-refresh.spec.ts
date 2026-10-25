@@ -100,7 +100,7 @@ test('keeps chat and memory budget panels mounted during debounced and delayed r
   expect(snapshot.context.archivedTurnIds.length).toBeGreaterThan(0);
 });
 
-for (const width of [1280, 390]) test(`automatically clears the server warning after initial and active-session outages at ${width}px`, async ({ page, request }) => {
+for (const width of [1280, 801, 800, 390, 320]) test(`automatically clears the server warning after initial and active-session outages at ${width}px`, async ({ page, request }) => {
   await page.setViewportSize({ width, height: 700 });
   const session = await request.get('/api/session').then(response => response.json());
   const warning = 'Cannot reach the server. Check that it is running.';
@@ -124,6 +124,14 @@ for (const width of [1280, 390]) test(`automatically clears the server warning a
   expect(banner.y).toBeGreaterThanOrEqual(header.y + header.height);
   expect(banner.y + banner.height).toBeLessThanOrEqual(content.y);
   await expect(page.locator('.error-banner')).toBeInViewport();
+  const retry = await page.getByRole('button', { name: 'Retry loading', exact: true }).boundingBox();
+  const dismiss = await page.getByRole('button', { name: 'Dismiss', exact: true }).boundingBox();
+  if (!retry || !dismiss) throw new Error('Missing server warning actions');
+  expect(Math.abs(retry.y - dismiss.y)).toBeLessThan(1);
+  expect(dismiss.x - (retry.x + retry.width)).toBeCloseTo(8, 0);
+  expect(banner.x + banner.width - (dismiss.x + dismiss.width)).toBeCloseTo(width > 800 ? 30 : 16, 0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath(`server-warning-${width}.png`) });
   await page.context().setOffline(false);
   await expect(page.locator('.error-banner')).toHaveCount(0, { timeout: 10_000 });
   await expect(page.locator('.connection-status')).toHaveText('Connected', { timeout: 10_000 });
