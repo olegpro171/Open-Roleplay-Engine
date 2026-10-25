@@ -3,7 +3,7 @@ import { initReactI18next, useTranslation } from 'react-i18next';
 import { useEffect, useState, useSyncExternalStore, type Dispatch, type SetStateAction } from 'react';
 import { api } from './api';
 import { ApiError } from './api';
-import { englishPack, languagePackSchema, languageStatusSchema, localizedMessageSchema, message, type LanguagePack, type LanguageStatus, type LocalizedMessage, type MessageKey, type MessageParameters } from '../shared/localization';
+import { englishPack, languagePackSchema, languageStatusSchema, localizedMessageSchema, message, validateTranslations, type LanguagePack, type LanguageStatus, type LocalizedMessage, type MessageKey, type MessageParameters } from '../shared/localization';
 
 export { message };
 export type MessageText = string | LocalizedMessage | { issues: { path: string; localized: LocalizedMessage }[] };
@@ -95,7 +95,7 @@ export async function selectLanguage(language: string, remember = true): Promise
   if (request !== selection) return true;
   if (pack.locale !== language) throw new Error(t('language.unavailable'));
   i18n.removeResourceBundle(language, 'translation');
-  i18n.addResourceBundle(language, 'translation', pack.messages);
+  i18n.addResourceBundle(language, 'translation', validateTranslations(pack).messages);
   activePack = pack;
   await i18n.changeLanguage(language);
   if (request !== selection) return true;

@@ -1,14 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ZodError } from 'zod';
 import { AppError } from '../core/errors.js';
-import { englishPack, russianPack, languagePackSchema, languageLimits, message, validateTranslations, type LanguagePack, type LanguageStatus } from '../shared/localization.js';
+import { englishPack, russianPack, languagePackSchema, languageLimits, languageFileProblem, message, validateTranslations, type LanguagePack, type LanguageStatus } from '../shared/localization.js';
 
-type Loaded = { pack: LanguagePack; revision: string; custom: boolean };
+type Loaded = { pack: LanguagePack; revision: string; custom: boolean; validation: ReturnType<typeof validateTranslations> };
 function loaded(pack: LanguagePack, custom: boolean): Loaded {
-  return { pack, custom, revision: createHash('sha256').update(JSON.stringify(pack)).digest('hex') };
+  return { pack, custom, validation: validateTranslations(pack), revision: createHash('sha256').update(JSON.stringify(pack)).digest('hex') };
 }
-const builtins = () => new Map([['en', loaded(englishPack, false)], ['ru', loaded(russianPack, false)]]);
+const bundled = new Map([['en', loaded(englishPack, false)], ['ru', loaded(russianPack, false)]]);
+const builtins = () => new Map(bundled);
 function missing(error: unknown) { return error instanceof Error && 'code' in error && error.code === 'ENOENT'; }
 
 /** Packs are presentation data, kept outside versioned application files and chat backups. */
@@ -49,12 +51,12 @@ export class Languages {
             pack = languagePackSchema.parse(JSON.parse(readFileSync(fd, 'utf8')));
           } finally { closeSync(fd); }
           if (pack.locale !== locale) throw new Error('Language filename does not match its locale');
-          validateTranslations(pack);
           next.set(locale, loaded(pack, true));
-        } catch {
+        } catch (cause) {
           const previous = this.packs.get(file.slice(0, -5));
           if (previous?.custom) next.set(previous.pack.locale, previous);
-          issues.push({ file: file.slice(0, 100), message: message('language.issue') });
+          const problem = cause instanceof SyntaxError || cause instanceof ZodError ? languageFileProblem(cause) : message('language.issue');
+          issues.push({ file: file.slice(0, 100), message: problem });
         }
       }
     } catch {
@@ -67,9 +69,10 @@ export class Languages {
   }
 
   status(): LanguageStatus {
-    return { languages: [...this.packs.values()].map(({ pack: { messages, ...metadata }, revision, custom }) => ({
+    return { languages: [...this.packs.values()].map(({ pack: { messages: _messages, ...metadata }, revision, custom, validation }) => ({
       ...metadata, revision, custom, total: Object.keys(englishPack.messages).length,
-      translated: Object.keys(englishPack.messages).filter(key => Object.hasOwn(messages, key)).length,
+      translated: Object.keys(englishPack.messages).filter(key => Object.hasOwn(validation.messages, key)).length,
+      translationIssues: validation.issues,
     })), issues: this.issues };
   }
 
@@ -81,10 +84,9 @@ export class Languages {
 
   save(value: unknown, expectedRevision: string | null): LanguageStatus {
     const parsed = languagePackSchema.safeParse(value);
-    if (!parsed.success) throw new AppError(400, 'invalid_language', message('language.invalid'));
+    if (!parsed.success) throw new AppError(400, 'invalid_language', languageFileProblem(parsed.error));
     const pack = parsed.data;
     if (pack.locale === 'en') throw new AppError(400, 'reserved_language', message('language.englishReserved'));
-    try { validateTranslations(pack); } catch { throw new AppError(400, 'invalid_language', message('language.invalid')); }
     const bytes = JSON.stringify(pack, null, 2) + '\n';
     if (Buffer.byteLength(bytes) > languageLimits.bytes) throw new AppError(413, 'language_limit', message('language.limit'));
     this.reload();

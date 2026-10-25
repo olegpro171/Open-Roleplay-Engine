@@ -14,6 +14,82 @@ const russian = { formatVersion: 1, locale: 'ru', nativeName: 'Русский', 
   'errors.this_response_is_no_longer_active': 'Этот ответ уже завершён.',
 } };
 
+for (const width of [1440, 390, 320]) test(`imports partial packs with actionable reports and retains incompatible entries at ${width}px`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width, height: 900 });
+  await signIn(page);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Language', exact: true }).click();
+  const key = 'repair_review.approved_unchanged_after_model_check_reused_without';
+  const source = { ...russian, messages: { ...russian.messages,
+    [key]: '{{value}} одобрено {{value2}} {{value3}}{{value4}}{{value5}}',
+    'language.template': 'Скачать {{unexpected}}',
+    'counts.turns_one': '{{count}} ход', 'counts.turns_other': '{{count}} ходов',
+  } };
+  const importPack = async (pack: unknown) => {
+    await page.getByLabel('Import language file', { exact: true }).setInputFiles({ name: 'ru.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(pack)) });
+    const replace = page.getByRole('button', { name: 'Replace language file', exact: true });
+    await expect(replace.or(page.getByRole('status').filter({ hasText: /Language file saved/ }))).toBeVisible();
+    if (await replace.isVisible()) await replace.click();
+  };
+  await importPack(source);
+  await expect(page.getByRole('status').filter({ hasText: 'Language file saved with incompatible entries.' })).toBeVisible();
+  const report = page.locator('details').filter({ has: page.locator('summary').filter({ hasText: '4 incompatible translations' }) });
+  await expect(report).toBeVisible();
+  await expect(report.locator('li')).toHaveCount(4);
+  await expect(report.getByText(key, { exact: true })).toBeVisible();
+  await expect(report).toContainText('Expected: {{value}}, {{value2}}, {{value3}}, {{value4}}. Found: {{value}}, {{value2}}, {{value3}}, {{value4}}, {{value5}}.');
+  await expect(report).toContainText('counts.turns_few, counts.turns_many');
+  expect(await page.request.get('/api/localization/ru').then(response => response.json())).toEqual(source);
+  await chooseLanguage(page, 'Interface language', 'Русский');
+  await expect(page.getByRole('heading', { name: 'Язык', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Download translation template', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Язык', exact: true })).toContainText(`${Object.keys(russian.messages).length} of`);
+  const downloading = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download extended translation', exact: true }).click();
+  const path = await (await downloading).path();
+  if (!path) throw new Error('Missing exported pack');
+  const exported = languagePackSchema.parse(JSON.parse(await readFile(path, 'utf8')));
+  expect(exported.messages).toMatchObject(source.messages);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await report.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath(`partial-language-report-${width}.png`) });
+  await page.reload();
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
+  await page.getByRole('button', { name: 'Язык', exact: true }).click();
+  await expect(report).toBeVisible();
+  await page.getByLabel('Import language file', { exact: true }).setInputFiles({ name: 'invalid.json', mimeType: 'application/json', buffer: Buffer.from('{bad JSON') });
+  await expect(page.getByRole('alert')).toContainText('not valid JSON');
+  expect(await page.request.get('/api/localization/ru').then(response => response.json())).toEqual(source);
+  const fixed = { ...source, messages: { ...source.messages,
+    [key]: englishPack.messages[key], 'language.template': 'Скачать шаблон',
+    'counts.turns_few': '{{count}} хода', 'counts.turns_many': '{{count}} ходов',
+  } };
+  await importPack(fixed);
+  await expect(page.getByRole('status').filter({ hasText: 'Language file saved.' })).toBeVisible();
+  await expect(report).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Скачать шаблон', exact: true })).toBeVisible();
+  await chooseLanguage(page, 'Язык интерфейса', 'English');
+});
+
+test('paginates large incompatibility reports without losing entries', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await signIn(page);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Language', exact: true }).click();
+  const keys = Object.keys(englishPack.messages).slice(0, 25);
+  const pack = { ...russian, messages: Object.fromEntries(keys.map(key => [key, '{{unexpected}}'])) };
+  await page.getByLabel('Import language file', { exact: true }).setInputFiles({ name: 'ru.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(pack)) });
+  await page.getByRole('button', { name: 'Replace language file', exact: true }).click();
+  const report = page.locator('details').filter({ hasText: '25 incompatible translations' });
+  await expect(report.locator('li')).toHaveCount(20);
+  await report.getByRole('button', { name: 'Next issues', exact: true }).click();
+  await expect(report.locator('li')).toHaveCount(5);
+  await expect(report.getByText(keys[24], { exact: true })).toBeVisible();
+  await report.getByRole('button', { name: 'Previous issues', exact: true }).click();
+  await expect(report.locator('li')).toHaveCount(20);
+  expect(await page.request.get('/api/localization/ru').then(response => response.json())).toEqual(pack);
+});
+
 async function signIn(page: Page) {
   const session = await page.request.get('/api/session').then(response => response.json());
   await page.goto('/');
@@ -82,7 +158,7 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
   expect(extended.messages['language.template']).toBe(englishPack.messages['language.template']);
   expect(extended.messages['counts.turns_few']).toBe('{{count}} turns');
   expect(extended.messages['counts.turns_many']).toBe('{{count}} turns');
-  validateTranslations(extended);
+  expect(validateTranslations(extended).issues).toEqual([]);
   expect(await page.request.get('/api/localization/ru').then(response => response.json())).toEqual(installedBefore);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath(`extended-translation-${width}.png`) });

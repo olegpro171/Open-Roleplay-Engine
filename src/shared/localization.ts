@@ -35,10 +35,12 @@ const translationKey = z.string().regex(/^[A-Za-z][A-Za-z0-9_.-]{0,199}$/).refin
 export const localeSchema = z.string().min(2).max(60).regex(/^[a-zA-Z]{2,8}(?:-[a-zA-Z0-9]{1,8})*$/)
   .refine(value => { try { return Intl.getCanonicalLocales(value).length === 1; } catch { return false; } }, 'Use a valid language tag.')
   .transform(value => Intl.getCanonicalLocales(value)[0]);
+
 export const languagePackSchema = z.object({
   formatVersion: z.literal(1), locale: localeSchema, nativeName: z.string().trim().min(1).max(80),
   direction: z.enum(['ltr', 'rtl']),
-  messages: z.record(translationKey, z.string().min(1).max(30_000)).refine(value => Object.keys(value).length <= languageLimits.entries),
+  messages: z.record(translationKey, z.string().max(30_000))
+    .refine(value => Object.keys(value).length <= languageLimits.entries),
 }).strict();
 export type LanguagePack = z.infer<typeof languagePackSchema>;
 export const englishPack: LanguagePack = { formatVersion: 1, locale: 'en', nativeName: 'English', direction: 'ltr', messages: englishMessages };
@@ -60,7 +62,10 @@ export function extendTranslation(pack: LanguagePack): LanguagePack {
   return { ...pack, messages: { ...template.messages, ...pack.messages } };
 }
 export const languageStatusSchema = z.object({
-  languages: z.array(languagePackSchema.omit({ messages: true }).extend({ translated: z.number().int().nonnegative(), total: z.number().int().nonnegative(), revision: z.string(), custom: z.boolean() })),
+  languages: z.array(languagePackSchema.omit({ messages: true }).extend({
+    translated: z.number().int().nonnegative(), total: z.number().int().nonnegative(), revision: z.string(), custom: z.boolean(),
+    translationIssues: z.array(z.object({ key: z.string(), message: localizedMessageSchema })),
+  })),
   issues: z.array(z.object({ file: z.string(), message: localizedMessageSchema })),
 }).strict();
 export type LanguageStatus = z.infer<typeof languageStatusSchema>;
@@ -69,18 +74,56 @@ export function placeholders(text: string): string[] {
   return [...new Set([...text.matchAll(/\{\{([A-Za-z][A-Za-z0-9_]*)\}\}/g)].map(match => match[1]))].sort();
 }
 
-/** Reject interpolation/nesting syntax we do not support, including HTML and resource references. */
-export function validateTranslations(pack: LanguagePack): void {
+/** Resolve active messages without modifying the retained translation file. Unknown keys stay inert. */
+export function validateTranslations(pack: LanguagePack): { messages: Record<string, string>; issues: LanguageStatus['languages'][number]['translationIssues'] } {
+  const messages: Record<string, string> = {};
+  const issues = new Map<string, LocalizedMessage>();
+  const groups = new Map<string, string[]>();
   const plural = new Intl.PluralRules(pack.locale).resolvedOptions().pluralCategories;
   for (const [key, value] of Object.entries(pack.messages)) {
     const base = key.replace(/_(zero|one|two|few|many|other)$/, '');
-    const source = englishPack.messages[key] ?? englishPack.messages[`${base}_other`] ?? englishPack.messages[`${base}_one`];
+    const isPlural = base !== key && Object.hasOwn(englishPack.messages, `${base}_one`) && Object.hasOwn(englishPack.messages, `${base}_other`);
+    const source = Object.hasOwn(englishPack.messages, key) ? englishPack.messages[key] : isPlural ? englishPack.messages[`${base}_other`] : undefined;
     if (source === undefined) continue; // Retain future/older keys without activating them.
+    if (isPlural) {
+      const keys = groups.get(base) ?? [];
+      keys.push(key);
+      groups.set(base, keys);
+    }
     const stripped = value.replace(/\{\{[A-Za-z][A-Za-z0-9_]*\}\}/g, '');
-    if (stripped.includes('{{') || stripped.includes('}}') || value.includes('$t(') || /<\/?[A-Za-z!]/.test(value)) throw new Error(`Unsupported translation syntax: ${key}`);
-    if (placeholders(source).join(',') !== placeholders(value).join(',')) throw new Error(`Placeholder mismatch: ${key}`);
-    if (englishPack.messages[`${base}_other`] !== undefined && englishPack.messages[`${base}_one`] !== undefined) {
-      for (const category of plural) if (!pack.messages[`${base}_${category}`]) throw new Error(`Missing plural form: ${base}_${category}`);
+    if (!value.trim()) issues.set(key, message('language.entryEmpty'));
+    else if (stripped.includes('{{') || stripped.includes('}}') || value.includes('$t(') || /<\/?[A-Za-z!]/.test(value)) {
+      issues.set(key, message('language.entrySyntax'));
+    } else if (placeholders(source).join(',') !== placeholders(value).join(',')) {
+      issues.set(key, message('language.entryPlaceholders', {
+        expected: placeholders(source).map(name => `{{${name}}}`).join(', ') || '∅',
+        actual: placeholders(value).map(name => `{{${name}}}`).join(', ') || '∅',
+      }));
+    } else messages[key] = value;
+  }
+  for (const [base, keys] of groups) {
+    const missing = plural.map(category => `${base}_${category}`).filter(key => !Object.hasOwn(pack.messages, key));
+    const invalid = keys.filter(key => issues.has(key));
+    if (!missing.length && !invalid.length) continue;
+    for (const key of keys) {
+      delete messages[key];
+      if (!issues.has(key)) issues.set(key, message('language.entryPluralGroup', { keys: [...missing, ...invalid].join(', ') }));
     }
   }
+  return { messages, issues: [...issues].map(([key, problem]) => ({ key, message: problem })) };
+}
+
+/** Structural failures reject the whole file; never include uploaded text in diagnostics. */
+export function languageFileProblem(error: unknown): LocalizedMessage {
+  if (error instanceof SyntaxError) return message('language.invalidJson');
+  if (error instanceof z.ZodError) {
+    const issue = error.issues[0];
+    if (issue) {
+      const path = issue.path.map(String).join('.') || 'root';
+      if (issue.path[0] === 'formatVersion') return message('language.invalidVersion');
+      if (issue.code === 'invalid_type') return message('language.invalidType', { path, expected: issue.expected });
+      return message('language.invalidField', { path });
+    }
+  }
+  return message('language.invalid');
 }

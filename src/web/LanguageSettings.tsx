@@ -1,9 +1,27 @@
-import { currentPack, errorText, loadLanguages, locale, message, publishLanguages, selectLanguage, t, useLanguages, useLocale, useTextState } from './localization';
+import { currentPack, errorText, formatMessage, loadLanguages, locale, message, publishLanguages, selectLanguage, t, useLanguages, useLocale, useTextState } from './localization';
 import { useEffect, useRef, useState } from 'react';
-import { extendTranslation, languageLimits, languagePackSchema, languageStatusSchema, translationTemplate, validateTranslations, type LanguagePack } from '../shared/localization';
+import { extendTranslation, languageFileProblem, languageLimits, languagePackSchema, languageStatusSchema, translationTemplate, type LanguagePack, type LanguageStatus } from '../shared/localization';
 import { api } from './api';
 import { Dropdown } from './Controls';
 import { useConfirmation } from './Confirmation';
+
+function TranslationReport({ language }: { language: LanguageStatus['languages'][number] }) {
+  useLocale();
+  const [page, setPage] = useState(0);
+  const size = 20;
+  const issues = language.translationIssues;
+  const offset = page * size;
+  return <details open>
+    <summary>{t('language.report', { language: language.nativeName, count: issues.length })}</summary>
+    <p className="small muted">{t('language.reportHelp')}</p>
+    <ul>{issues.slice(offset, offset + size).map(issue => <li key={issue.key}><code>{issue.key}</code>: {formatMessage(issue.message)}</li>)}</ul>
+    {issues.length > size && <div className="actions">
+      <button className="secondary" disabled={page === 0} onClick={() => setPage(page - 1)}>{t('language.reportPrevious')}</button>
+      <span>{t('language.reportPage', { first: offset + 1, last: Math.min(offset + size, issues.length), total: issues.length })}</span>
+      <button className="secondary" disabled={offset + size >= issues.length} onClick={() => setPage(page + 1)}>{t('language.reportNext')}</button>
+    </div>}
+  </details>;
+}
 
 export function LanguageSettings() {
   useLocale();
@@ -47,26 +65,22 @@ export function LanguageSettings() {
   async function inspect(file: File) {
     await run(async () => {
       if (file.size > languageLimits.bytes) throw new Error(t('language.limit'));
-      let pack;
-      try { pack = languagePackSchema.parse(JSON.parse(await file.text())); validateTranslations(pack); }
-      catch { setError(message('language.invalid')); return; }
+      let pack: LanguagePack;
+      try { pack = languagePackSchema.parse(JSON.parse(await file.text())); }
+      catch (cause) { setError(languageFileProblem(cause)); return; }
       const current = await loadLanguages();
       if (!mounted.current) return;
       const installed = current.languages.find(item => item.locale === pack.locale);
       const captured = pack;
-      const save = () => void run(async () => {
-        const result = await api<unknown>('/localization/import', 'POST', { pack: captured, expectedRevision: installed?.custom ? installed.revision : null });
-        publishLanguages(languageStatusSchema.parse(result));
+      const savePack = async () => {
+        const result = languageStatusSchema.parse(await api<unknown>('/localization/import', 'POST', { pack: captured, expectedRevision: installed?.custom ? installed.revision : null }));
+        publishLanguages(result);
         if (locale() === captured.locale) await selectLanguage(captured.locale, false);
-        if (mounted.current) setNotice(message('language.imported'));
-      });
-      if (installed?.custom) confirm({ title: t('language.confirmTitle'), message: t('language.confirmBody', { language: pack.nativeName }), actionLabel: t('language.replace'), onConfirm: save });
-      else {
-        const result = await api<unknown>('/localization/import', 'POST', { pack, expectedRevision: null });
-        publishLanguages(languageStatusSchema.parse(result));
-        if (locale() === pack.locale) await selectLanguage(pack.locale, false);
-        if (mounted.current) setNotice(message('language.imported'));
-      }
+        const savedLanguage = result.languages.find(item => item.locale === captured.locale);
+        if (mounted.current) setNotice(message(savedLanguage?.translationIssues.length ? 'language.importedWithIssues' : 'language.imported'));
+      };
+      if (installed?.custom) confirm({ title: t('language.confirmTitle'), message: t('language.confirmBody', { language: pack.nativeName }), actionLabel: t('language.replace'), onConfirm: () => void run(savePack) });
+      else await savePack();
     });
   }
   return <section className="settings-section" aria-labelledby="language-heading">
@@ -84,6 +98,7 @@ export function LanguageSettings() {
     <p id="language-extend-help" className="small muted">{t('language.extendHelp')}</p>
     <input ref={fileInput} hidden type="file" accept=".json,application/json" aria-label={t('language.import')} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void inspect(file); }} />
     {busy && <p role="status">{t('language.loading')}</p>}{notice && <p role="status">{notice}</p>}{error && <p role="alert">{error}</p>}
-    {status?.issues.map(issue => <p role="status" key={issue.file}>{issue.file}: {t('language.issue')}</p>)}
+    {status?.languages.filter(language => language.translationIssues.length).map(language => <TranslationReport key={`${language.locale}:${language.revision}`} language={language} />)}
+    {status?.issues.map(issue => <p role="status" key={issue.file}>{issue.file}: {formatMessage(issue.message)}</p>)}
   </section>;
 }
