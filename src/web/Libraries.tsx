@@ -7,7 +7,8 @@ import { libraryLabel, characterFieldLabel, markerLabel as localizedMarkerLabel,
 import { librarySortSchema, readLibrarySort, sortLibraryItems, sortOptions, type LibrarySort } from './library-sorting';
 import { SpeechColorSelector } from './SpeechColorSelector';
 import { newId } from './uuid';
-import { Icon, type IconName } from './Icon';
+import { Icon } from './Icon';
+import { PersonaIcon } from './PersonaIcon';
 import type { ChatDefaultsStatus, ChatDefaultKind } from '../shared/chat-defaults';
 import type { PromptDiagnostic } from '../shared/prompt-diagnostics';
 import { useConfirmation } from './Confirmation';
@@ -203,15 +204,18 @@ function LibrarySearch({ section, value, change, sort, changeSort }: { section: 
     </div><div className="library-sort"><Dropdown aria-label={sortLibraryLabel(section)} value={sort} onChange={changeSort} options={sortOptions(section)} /></div>
   </div>;
 }
-const libraryIcons: Record<LibraryKind | 'chats', IconName | null> = {
-  chats: 'ChatOutline', personas: null, characters: null, lorebooks: 'FolderOutline',
-  prompts: 'TextbookOutline', connections: 'Link', contexts: 'FilterOutline',
+const libraryIcons: Record<LibraryKind | 'chats', ReactNode> = {
+  chats: <Icon name="ChatOutline" />,
+  personas: <PersonaIcon />,
+  characters: <Icon name="Profile" />,
+  lorebooks: <Icon name="FolderOutline" />,
+  prompts: <Icon name="TextbookOutline" />,
+  connections: <Icon name="Link" />,
+  contexts: <Icon name="FilterOutline" />,
 };
 
 function LibraryIcon({ kind }: { kind: LibraryKind | 'chats' }) {
-  useLocale();
-  const name = libraryIcons[kind];
-  return name ? <Icon name={name} /> : <span className="icon-placeholder" aria-hidden="true" />;
+  return libraryIcons[kind];
 }
 
 function LibraryHeader({ editing, children }: { editing: boolean; children: ReactNode }) {

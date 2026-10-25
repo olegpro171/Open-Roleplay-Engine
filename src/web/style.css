@@ -493,8 +493,7 @@ button.danger{background:#b74e48;color:#fff;border-color:#d16b64}
 svg.ui-icon { display:inline-block; width:20px; height:20px; flex-shrink:0; fill:none; stroke:none; vertical-align:middle; }
 button:has(> .ui-icon), .file-button:has(> .ui-icon) { display:inline-flex; align-items:center; gap:8px; }
 .file-button:has(> .ui-icon) { flex-direction:row; }
-.library-tabs button:has(> .ui-icon), .library-tabs button:has(> .icon-placeholder) { display:flex; align-items:center; justify-content:flex-start; gap:10px; }
-.icon-placeholder { display:inline-block; width:20px; height:20px; flex-shrink:0; }
+.library-tabs button:has(> .ui-icon) { display:flex; align-items:center; justify-content:flex-start; gap:10px; }
 .library-search svg.ui-icon { fill:none; stroke:none; color:var(--muted); }
 .search-field { display:block; position:relative; }
 .search-field > .ui-icon { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--muted); pointer-events:none; }
