@@ -1,6 +1,6 @@
 import { blockedText, type LocalizedMessage } from '../shared/localization.js';
 import { message } from '../shared/localization.js';
-import type { ChatSnapshot, Message, RequestPreview } from '../shared/contracts.js';
+import type { EngineSnapshot, Message, RequestPreview } from '../shared/contracts.js';
 import { emptyContextState, refKey, type ContextOperation, type ContextPlan, type SummaryRef } from '../shared/context.js';
 import { AppError } from './errors.js';
 import { nextCompaction, nodeFor, rankedPromotions, repairQueue, sourceOf, staleSummaries } from './context.js';
@@ -13,7 +13,7 @@ import { repairInputs } from './context-repair.js';
 import { modelText } from './model-text.js';
 import { assertCleanSummaryInput, refusalAffected } from './summary-refusals.js';
 
-export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
+export function contextPlan(snapshot: EngineSnapshot): ContextPlan {
   if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.select_a_roleplay_connection_to_measure_the_complete"));
   const state = snapshot.context;
   const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, state, { validateLimits: false, allowStale: true, lore: snapshot.loreResolution });
@@ -51,7 +51,7 @@ export function contextPlan(snapshot: ChatSnapshot): ContextPlan {
   return { inputTokens: request.budget.inputTokens, method: request.budget.method, counting: request.budget.counting, targetInputTokens: snapshot.settings.targetInputTokens, effectiveLimit, verbatimTurnIds: request.history!.verbatimTurnIds, next, ready: !blocked && !next, blocked, blockedMessage, stale, repairCount: repairQueue(snapshot.turns, state).length, ...(reusable ? { reusable: { id: reusable.id, revision: reusable.revision } } : {}) };
 }
 
-export function summaryRequest(snapshot: ChatSnapshot, operation: ContextOperation, connection: NonNullable<ChatSnapshot['connection']>, replacements = new Map<string, SummaryRef | null>(), previousRequest: RequestPreview | null = null): { request: RequestPreview; prior: SummaryRef[] } {
+export function summaryRequest(snapshot: EngineSnapshot, operation: ContextOperation, connection: NonNullable<EngineSnapshot['connection']>, replacements = new Map<string, SummaryRef | null>(), previousRequest: RequestPreview | null = null): { request: RequestPreview; prior: SummaryRef[] } {
   const config = snapshot.context.preset;
   if (!config) throw new AppError(422, 'context_required', message("errors.select_a_context_preset_first"));
   const ids = new Set(operation.turnIds), turns = snapshot.turns.filter(turn => ids.has(turn.id));

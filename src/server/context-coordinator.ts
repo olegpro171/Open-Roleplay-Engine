@@ -1,6 +1,6 @@
 import { message, type LocalizedMessage } from '../shared/localization.js';
 import type { ChatBehavior } from '../shared/chat-behavior.js';
-import type { ChatSnapshot } from '../shared/contracts.js';
+import type { EngineSnapshot } from '../shared/contracts.js';
 import { assembleRequest } from '../core/prompt.js';
 import { fitsInputTarget } from '../core/input-target.js';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -21,7 +21,7 @@ export class ContextCoordinator {
   private phases = new Map<string, SummaryPhase>();
   private stopping = false;
   private preflights = new Set<AbortController>();
-  constructor(private store: Store, private provider: Provider, private changed: () => void, private loreRegex: LoreRegexPool) {}
+  constructor(private store: Store, private provider: Provider, private changed: (chatId: string) => void, private loreRegex: LoreRegexPool) {}
   progress(id: string): ContextJobProgress {
     const { status } = this.store.contexts.job(id);
     return { status, ...(status === 'running' ? { phase: this.phases.get(id) } : {}) };
@@ -45,14 +45,14 @@ export class ContextCoordinator {
     const result = this.store.contexts.repairAction(id, revision, requestId, action, text);
     if (result.fresh && action === 'close') this.active.get(id)?.controller.abort();
     if (result.fresh && result.job.status === 'running') void this.dispatch(id);
-    this.changed();
+    this.changed(result.job.chatId);
     return { jobId: id };
   }
   private async resolveLore(chatId: string) {
     const controller = new AbortController();
     this.preflights.add(controller);
     try {
-      const lore = await resolveRequestLore(this.store.snapshot(chatId), this.loreRegex, controller.signal);
+      const lore = await resolveRequestLore(this.store.engineSnapshot(chatId), this.loreRegex, controller.signal);
       if (this.stopping || controller.signal.aborted) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
       return lore;
     } finally { this.preflights.delete(controller); }
@@ -65,14 +65,14 @@ export class ContextCoordinator {
     const lore = await this.resolveLore(job.chatId);
     const result = this.store.contexts.repairAction(id, revision, requestId, action, text, lore);
     if (result.fresh && result.job.status === 'running') void this.dispatch(id);
-    this.changed();
+    this.changed(result.job.chatId);
     return { jobId: id };
   }
   private dispatch(id: string, parentSignal?: AbortSignal): Promise<void> {
     const controller = new AbortController();
     const signal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal;
     const task = this.run(id, signal).finally(() => { if (this.active.get(id)?.controller === controller) this.active.delete(id); });
-    this.active.set(id, { controller, task, generationId: this.store.contexts.job(id).generationId }); this.changed();
+    this.active.set(id, { controller, task, generationId: this.store.contexts.job(id).generationId }); this.changed(this.store.contexts.job(id).chatId);
     return task;
   }
   async prepareForGeneration(chatId: string, generationId: string, signal: AbortSignal, behavior: ChatBehavior) {
@@ -92,7 +92,7 @@ export class ContextCoordinator {
     if (completed.status !== 'succeeded') throw new AppError(422, 'context_failed', completed.errorMessage ?? completed.error ?? 'Context preparation did not finish. Resume from Memory before retrying the response.');
   }
   async prepareAfterGeneration(chatId: string, generationId: string, behavior: ChatBehavior) {
-    const snapshot = this.store.snapshot(chatId);
+    const snapshot = this.store.engineSnapshot(chatId);
     if (this.stopping || !snapshot.connection || !snapshot.context.preset || !hasPromptMarker(snapshot.sources.prompt, 'summary')) return;
     let lore: LoreResolution | null = null;
     let failure: string | LocalizedMessage | undefined;
@@ -112,12 +112,12 @@ export class ContextCoordinator {
     if (!fresh) return;
     if (failure) {
       this.store.contexts.finish(job.id, 'failed', failure);
-      this.changed();
+      this.changed(chatId);
       return;
     }
     void this.dispatch(job.id);
   }
-  private postResponseStillCurrent(snapshot: ChatSnapshot, generationId: string): boolean {
+  private postResponseStillCurrent(snapshot: EngineSnapshot, generationId: string): boolean {
     if (this.store.generation(generationId)?.status !== 'succeeded') return false;
     try {
       this.store.checkRevision(snapshot.revision, snapshot.id);
@@ -129,6 +129,7 @@ export class ContextCoordinator {
     }
   }
   private async run(id: string, signal: AbortSignal) {
+    const chatId = this.store.contexts.job(id).chatId;
     try {
       while (!signal.aborted && !this.stopping) {
         const job = this.store.contexts.job(id), snapshot = this.store.contexts.operationSnapshot(id);
@@ -136,11 +137,11 @@ export class ContextCoordinator {
         const replacements = new Map();
         const operation = job.mode === 'repair' ? nextRepair(snapshot.turns, snapshot.context, replacements) : plan.next;
         if (job.mode !== 'repair' && plan.blocked) throw new AppError(422, 'context_blocked', plan.blockedMessage ?? plan.blocked);
-        if (!operation) { this.store.contexts.finish(id, 'succeeded'); this.changed(); return; }
-        if (job.mode === 'repair' && this.store.contexts.revalidateRepair(id)) { this.changed(); await new Promise<void>(resolve => setImmediate(resolve)); continue; }
+        if (!operation) { this.store.contexts.finish(id, 'succeeded'); this.changed(chatId); return; }
+        if (job.mode === 'repair' && this.store.contexts.revalidateRepair(id)) { this.changed(chatId); await new Promise<void>(resolve => setImmediate(resolve)); continue; }
         if (job.mode !== 'repair' && this.store.contexts.reuseNext(id)) {
-          this.changed();
-          if (job.mode === 'step') { this.store.contexts.finish(id, 'succeeded'); this.changed(); return; }
+          this.changed(chatId);
+          if (job.mode === 'step') { this.store.contexts.finish(id, 'succeeded'); this.changed(chatId); return; }
           continue;
         }
         const connectionId = job.config.connectionId ?? (snapshot.settings.connectionId === undefined ? 'main' : snapshot.settings.connectionId);
@@ -151,7 +152,7 @@ export class ContextCoordinator {
         let saved: SummaryNode | undefined;
         while (true) {
           const step = this.store.contexts.beginStep(id, operation, prepared.request, plan.inputTokens);
-          this.changed();
+          this.changed(chatId);
           let text: string;
           try {
             text = prepared.request && connectionId ? await generateSummary(this.provider, prepared.request, this.store.connectionApiKey(connectionId), signal, phase => this.phases.set(id, phase)) : '';
@@ -159,7 +160,7 @@ export class ContextCoordinator {
             // Retry only provider/output failures. Planning and commit failures need user action.
             if (signal.aborted || this.stopping || !(error instanceof AppError) || error.status !== 502) throw error;
             this.store.contexts.failAttempt(step, error.localized ?? error.message, job.mode === 'repair' && error instanceof RefusedSummaryError ? error.rejectedText : undefined);
-            this.changed();
+            this.changed(chatId);
             if (!job.retry || job.retry.maxRetries !== 0 && retries >= job.retry.maxRetries) throw error;
             retries++;
             await delay(1000, undefined, { signal });
@@ -170,17 +171,17 @@ export class ContextCoordinator {
           break;
         }
         if (!saved) break;
-        this.changed();
+        this.changed(chatId);
         if (job.mode === 'repair') {
           if (saved.approved) { await new Promise<void>(resolve => setImmediate(resolve)); continue; }
-          this.store.contexts.finish(id, 'awaiting_review'); this.changed(); return;
+          this.store.contexts.finish(id, 'awaiting_review'); this.changed(chatId); return;
         }
-        if (job.mode === 'step') { this.store.contexts.finish(id, 'succeeded'); this.changed(); return; }
+        if (job.mode === 'step') { this.store.contexts.finish(id, 'succeeded'); this.changed(chatId); return; }
       }
       if (!this.stopping) this.store.contexts.finish(id, 'cancelled', message("interface.preparation_stopped_previously_saved_replacements_remain_selected_resume"));
     } catch (error) {
       if (!this.stopping) this.store.contexts.finish(id, signal.aborted ? 'cancelled' : 'failed', error instanceof AppError ? error.localized ?? error.message : message("diagnostics.memory_preparation_failed_check_the_connection_and_retry"));
-    } finally { this.phases.delete(id); this.changed(); }
+    } finally { this.phases.delete(id); this.changed(chatId); }
   }
   cancel(id: string) {
     const operation = this.active.get(id), job = this.store.contexts.job(id);
@@ -188,7 +189,7 @@ export class ContextCoordinator {
     if (job.generationId) throw new AppError(409, 'response_owns_preparation', message("errors.cancel_the_running_response_to_stop_its_memory"));
     operation.controller.abort();
     this.store.contexts.finish(id, 'cancelled', message("interface.preparation_stopped_previously_saved_replacements_remain_selected_resume"));
-    this.changed();
+    this.changed(job.chatId);
   }
   cancelForGeneration(generationId: string) {
     for (const [id, operation] of this.active) {

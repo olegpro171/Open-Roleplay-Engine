@@ -14,6 +14,8 @@ Build a focused application for roleplay conversations with explicit control ove
 
 The motivation is dependable context handling: predictable compaction, editable summaries, a clear verbatim-message cutoff, and visibility into exactly what is sent to the model. The initial aim is a useful personal tool rather than a broad replacement for every feature in existing roleplay applications.
 
+Accepted on 2026-10-25: keep ORE lightweight for laptops and phones, with simple systems, restrained animation and low client/server power use. The first efficiency pass separates transport keepalives from change notifications, scopes and coalesces client refreshes, excludes historical request bodies from current engine/tool reads, and keys previews to their actual input. Historical requests remain saved and individually inspectable through paged request lists. These changes preserve context rules, persistence safeguards and server-owned operation recovery; battery savings require device measurements.
+
 Reported problems motivating the project include unreliable automatic scene boundaries, missing character access to memories, and apparent duplication between summary and advanced-memory paths. These are user-reported observations, not reproduced diagnoses.
 
 ## 2. User-defined core concepts

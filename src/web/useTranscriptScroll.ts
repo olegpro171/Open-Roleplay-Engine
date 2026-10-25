@@ -11,10 +11,12 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, edi
   editingRef.current = editing;
   const previousChat = useRef<string | null>(null);
   const [awayFromLatest, setAwayFromLatest] = useState(false);
-  const captureRef = useRef<() => void>(() => {});
+  const captureRef = useRef<(trackFollowing?: boolean) => void>(() => {});
   const restoreRef = useRef<() => void>(() => {});
   function preservePosition(holdAnchor = false) {
-    captureRef.current();
+    // Only a scroll interaction changes whether we follow the end. Content
+    // may have grown before ResizeObserver restores it during this read.
+    captureRef.current(false);
     if (holdAnchor) following.current = false;
   }
   function followingLatest() { return following.current; }
@@ -36,7 +38,7 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, edi
     }
     let width = node.clientWidth, height = node.clientHeight;
     const turns = () => Array.from(node.querySelectorAll<HTMLElement>('[data-turn-id]'));
-    const capture = () => {
+    const capture = (trackFollowing = true) => {
       if (editingRef.current) {
         setAwayFromLatest(node.scrollHeight - node.scrollTop - node.clientHeight >= 80);
         return;
@@ -48,8 +50,10 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, edi
         const rect = turn.getBoundingClientRect();
         anchor.current = { turnId, progress: (top - rect.top) / rect.height };
       }
-      following.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
-      setAwayFromLatest(!following.current);
+      if (trackFollowing) {
+        following.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+        setAwayFromLatest(!following.current);
+      }
     };
     const restore = () => {
       width = node.clientWidth; height = node.clientHeight;

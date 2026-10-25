@@ -4,14 +4,14 @@ import { useTextState, errorText, t, message as msg, useLocale } from './localiz
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { useEffect, useRef, useState } from 'react';
-import type { ChatSnapshot } from '../shared/contracts';
+import type { ChatToolsSnapshot } from '../shared/contracts';
 import { refKey, type ContextJob, type ContextJobDetails, type ContextJobProgress, type SummaryPhase, type RepairAction } from '../shared/context';
 import { api } from './api';
 import { TextComparison } from './TextComparison';
 import { RejectedSummary } from './RejectedSummary';
 
 export function RepairReview({ snapshot, job, busy, run, dismissed }: {
-  snapshot: ChatSnapshot; job: ContextJob; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; dismissed: () => void;
+  snapshot: ChatToolsSnapshot; job: ContextJob; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; dismissed: () => void;
 }) {
   useLocale();
   const dialog = useRef<HTMLDialogElement>(null);

@@ -9,8 +9,12 @@ import { Icon } from './Icon';
 import { ApplicationSettings } from './ApplicationSettings';
 import { useConfirmation } from './Confirmation';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
-import type { ChatSnapshot, RequestPreview } from '../shared/contracts';
+import type { ChatToolsSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError, datasetChanged } from './api';
+import { changeSchema } from '../shared/changes';
+import { RefreshQueue, fullRefresh, scopeForChange, type RefreshScope } from './refresh-queue';
+import { useRequestPreview } from './useRequestPreview';
+import { useGenerationHistory } from './useGenerationHistory';
 import { hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
 import { ChatSetup, Libraries, type LibraryTarget } from './Libraries';
 import { Dropdown } from './Controls';
@@ -80,25 +84,28 @@ export function App() {
   const [snapshot, setSnapshot] = useState<StorySnapshot | null>(null);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
-  const [toolSnapshot, setToolSnapshot] = useState<ChatSnapshot | null>(null);
+  const [toolSnapshot, setToolSnapshot] = useState<ChatToolsSnapshot | null>(null);
   const [toolError, setToolError] = useTextState('');
   const [toolRetry, setToolRetry] = useState(0);
+  const [toolRefresh, setToolRefresh] = useState(0);
   const [pageLoading, setPageLoading] = useState(false);
   const pageBusy = useRef(false);
   const pageRequest = useRef<AbortController | null>(null);
   const refreshPending = useRef(false);
+  const deferredRefresh = useRef<RefreshScope | null>(null);
   const forceLatest = useRef(false);
   const [pageError, setPageError] = useTextState('');
   const [error, setError] = useTextState('');
   const [online, setOnline] = useState(false);
   const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory' | 'data'>('story');
+  const visibleTab = useRef(tab);
+  visibleTab.current = tab;
   const composerKeyboard = useComposerKeyboard(isIOS && tab === 'story');
   useTouchScrollGuard(isIOS && session?.authenticated === true && tab === 'story');
   const [libraryTarget, setLibraryTarget] = useState<LibraryTarget | null>(null);
   const confirmAction = useConfirmation(`${chatId}:${tab}:${session?.authenticated}`);
   const drafts = useChatDraft(chatId);
   const draft = drafts.text;
-  const [settledDraft, setSettledDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<Edit | null>(null);
   const editForm = useRef<HTMLFormElement>(null);
@@ -122,25 +129,37 @@ export function App() {
   }, [clearServerError]);
   const editRef = useRef(edit);
   editRef.current = edit;
-  const refresh = useCallback(async () => {
-    if (pageBusy.current) { refreshPending.current = true; return; }
+  const refreshReader = useRef<(scope: RefreshScope) => Promise<void>>(async () => {});
+  const [refreshQueue] = useState(() => new RefreshQueue(scope => refreshReader.current(scope)));
+  const refresh = useCallback((scope: RefreshScope = fullRefresh) => refreshQueue.request(scope), [refreshQueue]);
+  refreshReader.current = async (requested: RefreshScope) => {
+    if (pageBusy.current) {
+      refreshPending.current = true;
+      deferredRefresh.current = { ...deferredRefresh.current, ...requested };
+      return;
+    }
+    const requestedChat = chatId;
     const id = ++loadId.current;
     try {
       const cached = libraryCache.current;
+      const scope = cached ? requested : fullRefresh;
       const [update, appearanceResult, defaults, behaviorResult] = await Promise.all([
-        api<LibrarySnapshot | UnchangedLibrary>(`/library${cached ? `?knownRevision=${cached.revision}` : ''}`),
-        api<unknown>('/application/appearance')
+        scope.library ? api<LibrarySnapshot | UnchangedLibrary>(`/library${cached ? `?knownRevision=${cached.revision}` : ''}`) : null,
+        scope.appearance ? api<unknown>('/application/appearance')
           .then(value => ({ value: appearanceStatusSchema.parse(value), error: null }))
-          .catch(error => ({ value: null, error: errorText(error, msg("app.chat_appearance_could_not_be_loaded")) })),
-        api<unknown>('/application/chat-defaults').then(value => chatDefaultsStatusSchema.parse(value)),
-        api<unknown>('/application/chat-behavior')
+          .catch(error => ({ value: null, error: errorText(error, msg("app.chat_appearance_could_not_be_loaded")) })) : null,
+        scope['chat-defaults'] ? api<unknown>('/application/chat-defaults').then(value => chatDefaultsStatusSchema.parse(value)) : null,
+        scope['chat-behavior'] ? api<unknown>('/application/chat-behavior')
           .then(value => ({ value: chatBehaviorStatusSchema.parse(value), error: null }))
-          .catch(error => ({ value: null, error: errorText(error, msg('chat_behavior.read_failed')) })),
+          .catch(error => ({ value: null, error: errorText(error, msg('chat_behavior.read_failed')) })) : null,
       ]);
       // Keep existing editors/transcript available to copy after a dataset replacement.
       if (datasetChanged()) return;
       let items: LibrarySnapshot;
-      if ('unchanged' in update) {
+      if (!update) {
+        if (!cached) throw new LocalizedError(msg('app.library_refresh_has_no_matching_saved_version'));
+        items = cached;
+      } else if ('unchanged' in update) {
         if (!cached || cached.revision !== update.revision) throw new LocalizedError(msg("app.library_refresh_has_no_matching_saved_version"));
         items = { ...cached, chats: update.chats };
       } else items = update;
@@ -152,36 +171,40 @@ export function App() {
       if (keepWindow && first) parameters.set('anchor', first.id);
       let state: StorySnapshot | null;
       let windowReset = false;
-      try { state = selected ? await api<StorySnapshot>(`/chats/${selected}/story?${parameters}`) : null; }
+      const readStory = scope.story || current?.id !== selected;
+      try { state = !readStory ? current : selected ? await api<StorySnapshot>(`/chats/${selected}/story?${parameters}`) : null; }
       catch (error) {
         if (id !== loadId.current) return;
         if (!(error instanceof ApiError) || error.status !== 409 || !selected) throw error;
         state = await api<StorySnapshot>(`/chats/${selected}/story`);
         windowReset = true;
       }
-      if (id === loadId.current && !datasetChanged()) {
+      if (id === loadId.current && requestedChat === selectedChat.current && !datasetChanged()) {
         libraryCache.current = items;
         forceLatest.current = false;
-        preservePosition(Boolean(current?.page.hasNewer));
+        if (readStory) preservePosition(Boolean(current?.page.hasNewer));
         if (windowReset) {
           scrollToLatest();
           setPageError(msg("app.the_displayed_history_was_removed_or_replaced"));
         }
-        snapshotRef.current = state;
-        setSnapshot(state);
-        setLibrary(items);
-        setChatDefaults(current => defaults.revision >= current.revision ? defaults : current);
+        if (readStory) {
+          snapshotRef.current = state;
+          setSnapshot(state);
+        }
+        if (update) setLibrary(items);
+        if (scope.tools) setToolRefresh(value => value + 1);
+        if (defaults) setChatDefaults(current => defaults.revision >= current.revision ? defaults : current);
         // A settings save can commit while this refresh is waiting for chat state.
-        if (appearanceResult.value) {
+        if (appearanceResult?.value) {
           const nextAppearance = appearanceResult.value;
           setAppearance(current => nextAppearance.revision >= current.revision ? nextAppearance : current);
         }
-        setAppearanceError(appearanceResult.error);
-        if (behaviorResult.value) {
+        if (appearanceResult) setAppearanceError(appearanceResult.error);
+        if (behaviorResult?.value) {
           const nextBehavior = behaviorResult.value;
           setChatBehavior(current => !current || nextBehavior.revision >= current.revision ? nextBehavior : current);
         }
-        setChatBehaviorError(behaviorResult.error);
+        if (behaviorResult) setChatBehaviorError(behaviorResult.error);
         clearServerError();
         if (selected !== chatId) {
           setChatId(selected); setEdit(null); setPeek(false); setGenerationId('');
@@ -194,8 +217,13 @@ export function App() {
       if (error instanceof ApiError && error.status === 401) void refreshSession();
       else if (error instanceof ApiError && error.status === 404) { setChatId(null); }
       else setError(error instanceof ApiError ? errorText(error) : serverUnavailable);
+    } finally {
+      // Page movement and chat switches invalidate reads already in flight.
+      // Retain their scopes: without periodic polling, dropping a settings
+      // notification here could leave its new value unseen indefinitely.
+      if (!datasetChanged() && (id !== loadId.current || requestedChat !== selectedChat.current)) void refresh(requested);
     }
-  }, [refreshSession, chatId, clearServerError]);
+  };
   const latestRefresh = useRef(refresh);
   latestRefresh.current = refresh;
   const selectedChat = useRef(chatId);
@@ -211,35 +239,44 @@ export function App() {
   }, [error, refreshSession]);
   useEffect(() => {
     if (!session?.authenticated) return;
+    // Reading saved state must also work when the observer cannot connect.
     void refresh();
     const events = new EventSource('/api/events');
     events.onopen = () => { setOnline(true); clearServerError(); void refresh(); };
-    events.onmessage = () => { void refresh(); };
+    events.onmessage = event => {
+      let scope: RefreshScope | null = fullRefresh;
+      try {
+        const parsed = changeSchema.safeParse(JSON.parse(event.data));
+        if (parsed.success) scope = scopeForChange(parsed.data, selectedChat.current, visibleTab.current === 'story');
+      } catch { /* Unknown/older notifications reconcile from authoritative state. */ }
+      if (scope) void refresh(scope);
+    };
     events.onerror = () => { setOnline(false); void refreshSession(); };
     const visible = () => { if (document.visibilityState === 'visible') { void refreshSession(); void refresh(); } };
     document.addEventListener('visibilitychange', visible);
     return () => { events.close(); setOnline(false); document.removeEventListener('visibilitychange', visible); };
   }, [session?.authenticated, refresh, refreshSession, clearServerError]);
-
   useEffect(() => {
-    const timer = setTimeout(() => setSettledDraft(draft), 1_000);
-    return () => clearTimeout(timer);
-  }, [draft]);
+    if (session?.authenticated && libraryCache.current) void refresh({ library: true, story: true, tools: true });
+  }, [chatId, session?.authenticated, refresh]);
+  useEffect(() => {
+    if (tab === 'story' && session?.authenticated && libraryCache.current) void refresh({ story: true });
+  }, [tab, session?.authenticated, refresh]);
 
   useEffect(() => { setPeek(false); setGenerationId(''); }, [snapshot?.id]);
   useEffect(() => {
-    if (!snapshot || !['settings', 'memory', 'request'].includes(tab)) {
+    if (!snapshot || !['settings', 'memory'].includes(tab)) {
       setToolSnapshot(null);
       setToolError('');
       return;
     }
     const controller = new AbortController();
     setToolError('');
-    void api<ChatSnapshot>(`/chats/${snapshot.id}`, 'GET', undefined, controller.signal).then(value => {
+    void api<ChatToolsSnapshot>(`/chats/${snapshot.id}/tools`, 'GET', undefined, controller.signal).then(value => {
       if (!controller.signal.aborted && !datasetChanged()) setToolSnapshot(value);
     }).catch(error => { if (!controller.signal.aborted) setToolError(errorText(error, msg("app.cannot_load_chat_tools"))); });
     return () => controller.abort();
-  }, [tab, snapshot, toolRetry]);
+  }, [tab, snapshot?.id, snapshot?.revision, snapshot?.memory.revision, toolRefresh, toolRetry]);
 
   useEffect(() => {
     return () => { pageRequest.current?.abort(); };
@@ -292,7 +329,9 @@ export function App() {
         setPageLoading(false);
         if (refreshPending.current) {
           refreshPending.current = false;
-          void latestRefresh.current();
+          const scope = deferredRefresh.current ?? fullRefresh;
+          deferredRefresh.current = null;
+          void latestRefresh.current(scope);
         }
       }
     }
@@ -334,35 +373,35 @@ export function App() {
   const memoryStale = summariesEnabled && Boolean(snapshot?.memory.stale || snapshot?.memory.refusalBlocked);
   const pending = snapshot?.latestTurn?.complete === false;
   const latest = snapshot?.latestGeneration;
-  const currentToolSnapshot = toolSnapshot?.id === snapshot?.id ? toolSnapshot : null;
-  const shownGeneration = currentToolSnapshot?.generations.find((generation) => generation.id === generationId);
-  const [inspection, setInspection] = useState<{ chatId: string | null; key: string; request: RequestPreview | null; error: MessageText }>({ chatId: null, key: '', request: null, error: '' });
-  const [previewRetry, setPreviewRetry] = useState(0);
-  const inspectionKey = JSON.stringify([snapshot?.id, snapshot?.revision, snapshot?.memory.revision, snapshot?.connection, draft, pending, previewRetry]);
+  const history = useGenerationHistory(snapshot?.id ?? null, tab === 'request', `${toolRefresh}:${snapshot?.latestGeneration?.id}:${snapshot?.latestGeneration?.status}:${snapshot?.latestGeneration?.requestAvailable}`, generationId);
   useEffect(() => {
-    if (!snapshot?.connection || (!pending && draft !== settledDraft)) return;
-    let current = true;
-    api<RequestPreview>(`/chats/${snapshot.id}/preview`, 'POST', { revision: snapshot.revision, inspection: true, ...(!pending ? { text: draft } : {}) })
-      .then(request => { if (current) setInspection({ chatId: snapshot.id, key: inspectionKey, request, error: '' }); })
-      .catch(error => { if (current) setInspection(previous => ({ chatId: snapshot.id, key: inspectionKey, request: previous.chatId === snapshot.id ? previous.request : null, error: errorText(error) })); });
-    return () => { current = false; };
-  }, [inspectionKey, settledDraft]);
-  const currentRequest = snapshot?.connection && inspection.chatId === snapshot.id ? inspection.request : null;
-  const inspectionCurrent = inspection.key === inspectionKey && !inspection.error;
-  const inspectionError = inspection.key === inspectionKey ? formatMessage(inspection.error) : currentRequest ? '' : snapshot?.connection ? t("app.counting_current_input") : '';
+    if (tab === 'request' && history.missingSelected && !history.loading && !history.error && generationId) setGenerationId('');
+  }, [tab, history.missingSelected, history.loading, history.error, generationId]);
+  const shownGeneration = history.items.find(generation => generation.id === generationId)
+    ?? (history.selected?.id === generationId ? history.selected : null);
+  const requestOptions = shownGeneration && !history.items.some(item => item.id === shownGeneration.id)
+    ? [shownGeneration, ...history.items] : history.items;
+  const preview = useRequestPreview(snapshot, draft, tab !== 'library' && tab !== 'data', tab === 'request' && !generationId || peek);
+  const currentRequest = snapshot?.connection ? preview.estimate : null;
+  const inspectionCurrent = preview.current;
+  const inspectionError = formatMessage(preview.error) || (!currentRequest && snapshot?.connection ? t('app.counting_current_input') : '');
   const [savedInspection, setSavedInspection] = useState<{ chatId: string; generationId: string; request: RequestPreview | null; error: MessageText } | null>(null);
-  const savedRequestPresent = Boolean(shownGeneration?.request);
+  const [savedInspectionRetry, setSavedInspectionRetry] = useState(0);
+  const savedRequestPresent = Boolean(shownGeneration?.requestAvailable);
   useEffect(() => {
-    if (!snapshot || !generationId || !savedRequestPresent) return;
-    let current = true;
-    api<RequestPreview | null>(`/chats/${snapshot.id}/generations/${generationId}/request`).then(request => {
-      if (current) setSavedInspection({ chatId: snapshot.id, generationId, request, error: '' });
-    }).catch(error => { if (current) setSavedInspection({ chatId: snapshot.id, generationId, request: null, error: errorText(error) }); });
-    return () => { current = false; };
-  }, [snapshot?.id, generationId, savedRequestPresent]);
+    if (tab !== 'request' || !snapshot || !generationId || !savedRequestPresent) {
+      setSavedInspection(null);
+      return;
+    }
+    const controller = new AbortController();
+    api<RequestPreview | null>(`/chats/${snapshot.id}/generations/${encodeURIComponent(generationId)}/request`, 'GET', undefined, controller.signal).then(request => {
+      if (!controller.signal.aborted) setSavedInspection({ chatId: snapshot.id, generationId, request, error: '' });
+    }).catch(error => { if (!controller.signal.aborted) setSavedInspection({ chatId: snapshot.id, generationId, request: null, error: errorText(error) }); });
+    return () => controller.abort();
+  }, [tab, snapshot?.id, generationId, savedRequestPresent, savedInspectionRetry]);
   const matchingSavedInspection = savedInspection?.chatId === snapshot?.id && savedInspection?.generationId === generationId ? savedInspection : null;
-  const shownRequest = generationId ? matchingSavedInspection?.request ?? shownGeneration?.request : currentRequest;
-  const activeTurns = currentRequest?.history?.verbatimTurnIds.filter(id => id !== 'draft').length ?? (snapshot ? snapshot.totalTurns - snapshot.memory.archivedCount : 0);
+  const shownRequest = generationId ? matchingSavedInspection?.request : preview.request;
+  const activeTurns = currentRequest?.history?.verbatimTurns ?? (snapshot ? snapshot.totalTurns - snapshot.memory.archivedCount : 0);
   const inputLimit = currentRequest ? Math.min(currentRequest.budget.targetInputTokens, currentRequest.budget.contextWindow - currentRequest.budget.reservedOutputTokens) : 0;
   const generationById = new Map(snapshot?.page.generations.map(generation => [generation.id, generation]));
   const turnUsage = new Map(snapshot?.page.turns.flatMap(turn => {
@@ -431,7 +470,7 @@ export function App() {
     setEdit(null);
     setPeek(false);
     setGenerationId('');
-    if (id !== chatId) {
+    if (snapshotRef.current?.id !== id) {
       snapshotRef.current = null;
       setSnapshot(null);
       setToolSnapshot(null);
@@ -467,7 +506,7 @@ export function App() {
       <button className="quiet signout" onClick={() => void command(async () => { await api('/logout', 'POST', {}); setSnapshot(null); await refreshSession(); })}>{t("app.sign_out")}</button>
     </header>
     {dataChanged && <div className="error-banner" role="alert"><span>{t("app.application_data_was_imported_or_wiped_in")}</span><button onClick={() => window.location.reload()}>{t("app.reload_current_data")}</button></div>}
-    {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" onClick={() => setError('')}>{t("app.dismiss")}</button></div>}
+    {error && <div className="error-banner" role="alert"><span>{error}</span><button className="quiet" disabled={busy} onClick={() => { setError(''); void refresh(); }}>{t("app.retry_loading")}</button><button className="quiet" onClick={() => setError('')}>{t("app.dismiss")}</button></div>}
     {appearanceError && <div className="error-banner" role="alert"><span>{t("app.using_the_last_loaded_chat_appearance_or", { appearanceError: appearanceError })}</span><button className="quiet" onClick={() => void refresh()}>{t("app.retry_chat_appearance")}</button></div>}
     {chatBehaviorError && <div className="error-banner" role="alert"><span>{t('chat_behavior.shortcuts_unavailable', { error: chatBehaviorError })}</span><button className="quiet" onClick={() => void refresh()}>{t('chat_behavior.retry')}</button></div>}
     {tab === 'data' && <ApplicationSettings chatBehavior={behaviorEditor} appearance={appearanceEditor} lan={lanEditor} openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
@@ -545,18 +584,20 @@ export function App() {
     {tab === 'library' && <Libraries library={library} defaults={chatDefaults} currentChatId={chatId} busy={busy} run={command} openChat={openChat} initialTarget={libraryTarget} />}
     {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
     {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>{t("app.return_to_chat")}</button>}><Memory behavior={behaviorEditor} key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} editPreset={id => { setLibraryTarget({ kind: 'contexts', id }); setTab('library'); }} /></ChatWorkspace>}
-    {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>{t("app.return_to_chat")}</button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...(currentToolSnapshot?.generations ?? []).map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString(locale())} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>
+    {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button className="secondary" onClick={returnToChat}>{t("app.return_to_chat")}</button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} disabled={history.loading} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...requestOptions.map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString(locale())} · ${generation.status}` }))]} /></label><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>
+      <div className="actions">{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('latest').then(moved => { if (moved) setGenerationId(''); })}>{t('app.latest_requests')}</button>}{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('newer').then(moved => { if (moved) setGenerationId(''); })}>{t('app.newer_requests')}</button>}{history.older && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('older').then(moved => { if (moved) setGenerationId(''); })}>{t('app.older_requests')}</button>}</div>
+      {history.error && <p role="alert">{formatMessage(history.error)} <button type="button" className="secondary" onClick={history.retry}>{t('app.retry_loading')}</button></p>}
       <p className="small muted">{generationId ? t("app.saved_attempt_its_ceiling_is_historical", { value: shownGeneration?.status ?? 'unavailable', value2: formatMessage(shownGeneration?.errorMessage ?? shownGeneration?.error) }) : t("app.live_preview_of_the_current_setup_and")}</p>
       {!generationId && memoryStale && <p role="status">{t("app.memory_is_out_of_date_this_inspection")}</p>}
       {!generationId && inspectionCurrent && currentRequest && currentRequest.budget.inputTokens > inputLimit && <div className="recovery" role="status"><p>{t(currentRequest.budget.inputTokens > currentRequest.budget.targetInputTokens ? "errors.the_estimated_input_exceeds_your_target_prepare_context" : "errors.the_estimated_input_plus_reserved_output_exceeds_the")}</p>{summariesEnabled && <button className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button>}</div>}
       {!generationId && (inspectionError || currentRequest && !inspectionCurrent) && <div role="status">
         <p>{inspectionError || t("app.counting_current_input")}</p>
-        {inspection.key === inspectionKey && inspection.error && <button type="button" className="secondary" onClick={() => setPreviewRetry(value => value + 1)}>{t("app.retry_preview")}</button>}
-      </div>}{generationId && matchingSavedInspection?.error && <p role="alert">{formatMessage(matchingSavedInspection.error)}</p>}
+        {preview.error && <button type="button" className="secondary" onClick={preview.retry}>{t("app.retry_preview")}</button>}
+      </div>}{generationId && matchingSavedInspection?.error && <p role="alert">{formatMessage(matchingSavedInspection.error)} <button type="button" className="secondary" onClick={() => setSavedInspectionRetry(value => value + 1)}>{t("app.retry_loading")}</button></p>}
       {shownGeneration?.usage && <p className="small">{t("app.provider_reported_input_output_tokens", { value: shownGeneration.usage.inputTokens.toLocaleString(locale()), value2: shownGeneration.usage.outputTokens.toLocaleString(locale()) })}</p>}
       {shownRequest && <>{shownRequest.warnings?.map((warning, index) => <p role="status" key={warning}>{formatMessage(shownRequest.warningMessages?.[index] ?? warning)}</p>)}<div className="budget"><strong>{t("app.estimated_input_2", { value: shownRequest.budget.inputTokens.toLocaleString(locale()), value2: shownRequest.budget.targetInputTokens.toLocaleString(locale()) })}</strong><InputMeter input={shownRequest.budget.inputTokens} limit={Math.min(shownRequest.budget.targetInputTokens, shownRequest.budget.contextWindow - shownRequest.budget.reservedOutputTokens)} /><span>{t("app.reserved_output_model_window", { value: shownRequest.budget.reservedOutputTokens.toLocaleString(locale()), value2: shownRequest.budget.contextWindow.toLocaleString(locale()) })}</span></div>{shownRequest.layout && <BudgetBreakdown request={shownRequest} />}<LoreInspection request={shownRequest} historical={Boolean(generationId)} /><details className="request-details"><summary>{t("app.endpoint_and_request_body")}</summary><h2>{t("app.endpoint")}</h2><pre>{shownRequest.endpoint}</pre><h2>{t("app.request_body")}</h2><pre data-testid="request-body">{JSON.stringify(shownRequest.body, null, 2)}</pre></details><details><summary>{t("app.turn_identities_and_source_revisions")}</summary><pre>{JSON.stringify(shownRequest.coverage, null, 2)}</pre></details></>}
     </section></ChatWorkspace>}
-    {peek && currentRequest && <PromptPeek stale={memoryStale} request={currentRequest} close={() => setPeek(false)} />}
+    {peek && <PromptPeek stale={memoryStale} request={inspectionCurrent ? preview.request : null} error={inspectionError} retry={preview.retry} close={() => setPeek(false)} />}
     {authorNoteOpen && tab === 'story' && snapshot && authorNote.draft && <AuthorNoteDialog key={snapshot.id} note={authorNote.draft} editor={authorNote.editor}
       locked={working || busy || dataChanged} missingMessages={!hasPromptMarker(snapshot.sources.prompt, 'messages')}
       saving={authorNote.saving} error={authorNote.error} storageError={authorNote.storageError} close={() => setAuthorNoteOpen(false)} />}

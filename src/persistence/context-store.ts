@@ -14,7 +14,7 @@ import { repairInputs } from '../core/context-repair.js';
 import { assembleRequest } from '../core/prompt.js';
 import { validateSummary } from '../core/summary-validation.js';
 import { emptyContextState, refKey, type SummaryRetry, type ContextJob, type ContextJobDetails, type ContextOperation, type ContextSnapshot, type ContextState, type ContextStep, type SummaryNode, type SummaryRef, type RepairAction, type RepairChange } from '../shared/context.js';
-import type { ChatSnapshot, RequestPreview } from '../shared/contracts.js';
+import type { EngineSnapshot, RequestPreview } from '../shared/contracts.js';
 import { hasPromptMarker } from '../shared/library.js';
 import type { LoreResolution } from '../shared/lorebook.js';
 
@@ -57,7 +57,7 @@ export class ContextStore {
   details(id: string): ContextJobDetails {
     const job = this.job(id), steps = this.steps(id);
     if (job.mode !== 'repair') return { job, steps };
-    const snapshot = this.store.snapshot(job.chatId);
+    const snapshot = this.store.engineSnapshot(job.chatId);
     const step = [...steps].reverse().find(step => step.status === 'candidate') ?? steps.at(-1);
     const previous = step?.operation.repair ? this.sourceRequest(job.chatId, step.operation.repair) : null;
     const payload = (request: RequestPreview | null | undefined): { sources?: unknown; previous_sources?: unknown; changes?: RepairChange[] } => {
@@ -90,7 +90,7 @@ export class ContextStore {
   sourceRequest(chatId: string, ref: SummaryRef): RequestPreview | null {
     const row = this.sqlite.prepare("SELECT context_steps.data FROM context_steps JOIN context_jobs ON context_jobs.id = context_steps.job_id WHERE context_jobs.chat_id = ? AND json_extract(context_steps.data, '$.result.id') = ? AND json_extract(context_steps.data, '$.result.revision') = ? AND json_type(context_steps.data, '$.request') = 'object' ORDER BY context_steps.rowid DESC LIMIT 1").get(chatId, ref.id, ref.revision) as JsonRow | undefined;
     if (row) return (JSON.parse(row.data) as ContextStep).request;
-    const node = nodeFor(this.store.snapshot(chatId).context, ref);
+    const node = nodeFor(this.store.engineSnapshot(chatId).context, ref);
     return node?.basedOn ? this.sourceRequest(chatId, node.basedOn) : null;
   }
   private saveJob(job: ContextJob) { this.sqlite.prepare('UPDATE context_jobs SET data = ? WHERE id = ?').run(JSON.stringify(job), job.id); }
@@ -106,7 +106,7 @@ export class ContextStore {
     node.refusalCheck = checkSummaryRefusal(node.text);
     this.sqlite.prepare('INSERT INTO summaries (id, revision, chat_id, data) VALUES (?, ?, ?, ?)').run(node.id, node.revision, chatId, JSON.stringify(node));
   }
-  private repairedState(snapshot: ChatSnapshot, node: SummaryNode): ContextState {
+  private repairedState(snapshot: EngineSnapshot, node: SummaryNode): ContextState {
     return { ...snapshot.context, revision: snapshot.context.revision + 1,
       archivedTurnIds: snapshot.context.archivedTurnIds.filter(id => snapshot.turns.some(turn => turn.id === id)),
       selected: snapshot.context.selected.flatMap(ref => ref.id === node.id ? node.turns.length ? [{ id: node.id, revision: node.revision }] : [] : [ref]),
@@ -120,7 +120,7 @@ export class ContextStore {
   private current(job: ContextJob) {
     if (job.status !== 'running' && job.status !== 'awaiting_review') throw new AppError(409, 'inactive_context_job', message("errors.this_memory_operation_is_no_longer_active"));
     this.store.checkRevision(job.sourceRevision, job.chatId);
-    const snapshot = job.generationId ? this.store.generationSnapshot(job.generationId) : this.store.snapshot(job.chatId);
+    const snapshot = job.generationId ? this.store.generationSnapshot(job.generationId) : this.store.engineSnapshot(job.chatId);
     if (!snapshot.context.preset || refKey(snapshot.context.preset) !== refKey(job.config)) throw new AppError(409, 'stale_context_result', message("errors.the_context_preset_changed_generate_a_new_candidate"));
     if (job.generationId && this.store.generation(job.generationId)?.status !== 'running') throw new AppError(409, 'inactive_generation', message("errors.the_response_owning_this_preparation_is_no_longer"));
     return { ...snapshot, loreResolution: this.store.loreOperation(job.id) ?? (job.generationId ? this.store.loreOperation(job.generationId) : null) };
@@ -137,7 +137,7 @@ export class ContextStore {
       }
       this.store.checkRevision(revision, chatId); this.store.ensureIdle(chatId);
       if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) throw new AppError(409, 'repair_awaits_review', message("errors.approve_or_discard_the_repair_candidate_before_refreshing"));
-      const snapshot = { ...this.store.snapshot(chatId), loreResolution };
+      const snapshot = { ...this.store.engineSnapshot(chatId), loreResolution };
       const { state, report } = refreshContext(snapshot);
       const now = new Date().toISOString();
       const job: ContextJob = this.bump({ id: randomUUID(), chatId, status: 'succeeded', mode: 'refresh', generationId: null,
@@ -162,7 +162,7 @@ export class ContextStore {
         const generation = this.store.generation(generationId);
         if (!generation || generation.chatId !== chatId || generation.status !== 'running' || this.running(chatId)) throw new AppError(409, 'context_running', message("errors.another_operation_is_already_running_for_this_chat"));
       } else this.store.ensureIdle(chatId);
-      const snapshot = { ...(generationId ? this.store.generationSnapshot(generationId) : this.store.snapshot(chatId)), loreResolution: loreResolution ?? (generationId ? this.store.loreOperation(generationId) : null) }, preset = snapshot.context.preset;
+      const snapshot = { ...(generationId ? this.store.generationSnapshot(generationId) : this.store.engineSnapshot(chatId)), loreResolution: loreResolution ?? (generationId ? this.store.loreOperation(generationId) : null) }, preset = snapshot.context.preset;
       if (!hasPromptMarker(snapshot.sources.prompt, 'summary')) throw new AppError(422, 'summaries_disabled', message("errors.summaries_are_disabled_enable_a_summary_marker_in"));
       if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) throw new AppError(409, 'repair_awaits_review', message("errors.approve_or_discard_the_existing_repair_candidate_before"));
       if (!preset) throw new AppError(422, 'context_required', message("errors.select_a_context_preset_first"));
@@ -362,7 +362,7 @@ export class ContextStore {
         this.store.checkRevision(revision, job.chatId); this.store.ensureIdle(job.chatId);
         if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND id != ? AND json_extract(data, '$.status') = 'awaiting_review'").get(job.chatId, id)) throw new AppError(409, 'repair_awaits_review', message("errors.another_repair_is_awaiting_review_close_it_before"));
         if (!['awaiting_review', 'failed', 'interrupted'].includes(job.status)) throw new AppError(409, 'inactive_context_job', message("errors.this_repair_is_no_longer_awaiting_an_action"));
-        const snapshot = this.store.snapshot(job.chatId);
+        const snapshot = this.store.engineSnapshot(job.chatId);
         if (!hasPromptMarker(snapshot.sources.prompt, 'summary')) throw new AppError(422, 'summaries_disabled', message("errors.summaries_are_disabled_enable_a_summary_marker_before"));
         if (!snapshot.context.preset) throw new AppError(422, 'context_required', message("errors.select_a_context_preset_first"));
         if (action === 'regenerate') {
@@ -371,7 +371,7 @@ export class ContextStore {
         }
         if (action === 'approve') this.review(id, revision, true, text);
         else if (job.sourceRevision !== revision) this.discardCandidates(id);
-        const current = this.job(id), updated = this.store.snapshot(job.chatId);
+        const current = this.job(id), updated = this.store.engineSnapshot(job.chatId);
         const remaining = repairQueue(updated.turns, updated.context).length;
         this.saveJob(this.bump({ ...current, config: updated.context.preset!, status: remaining ? 'running' : 'succeeded', error: null, errorMessage: undefined }));
       }
@@ -387,7 +387,7 @@ export class ContextStore {
       if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) {
         throw new AppError(409, 'context_review_pending', message("memory.close_the_repair_review_before_deleting_summaries"));
       }
-      const deletion = summaryDeletion(this.store.snapshot(chatId).context, ref);
+      const deletion = summaryDeletion(this.store.engineSnapshot(chatId).context, ref);
       return this.commitDeletion(chatId, deletion);
     })();
   }
@@ -409,7 +409,7 @@ export class ContextStore {
       if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) {
         throw new AppError(409, 'context_review_pending', message('refusals.close_repair_first'));
       }
-      const snapshot = this.store.snapshot(chatId);
+      const snapshot = this.store.engineSnapshot(chatId);
       const latest = new Map(latestApproved(snapshot.context).map(node => [node.id, node]));
       const nodes = refs.map(ref => {
         const node = latest.get(ref.id);
@@ -441,7 +441,7 @@ export class ContextStore {
   editSummary(chatId: string, revision: number, ref: SummaryRef, text: string): SummaryRef {
     return this.sqlite.transaction(() => {
       this.store.checkRevision(revision, chatId); this.store.ensureIdle(chatId);
-      const state = this.store.snapshot(chatId).context, old = nodeFor(state, ref);
+      const state = this.store.engineSnapshot(chatId).context, old = nodeFor(state, ref);
       if (!old?.approved || state.summaries.some(node => node.id === ref.id && node.approved && node.revision > ref.revision)) throw new AppError(409, 'stale_summary', message("errors.this_is_not_the_current_approved_summary_revision"));
       if (!text.trim() || !old.turns.length) throw new AppError(400, 'blank_summary', message("errors.a_saved_summary_must_have_nonempty_text_and"));
       const normalized = text.trim();

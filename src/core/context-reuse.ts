@@ -1,4 +1,4 @@
-import type { ChatSnapshot, Turn } from '../shared/contracts.js';
+import type { EngineSnapshot, Turn } from '../shared/contracts.js';
 import { refKey, type ContextOperation, type ContextState, type SummaryNode } from '../shared/context.js';
 import { replaceSelection, selectedContext, staleSummaries } from './context.js';
 import { correctionProtection } from './context-corrections.js';
@@ -21,7 +21,7 @@ export function savedSummaries(turns: Turn[], state: ContextState): SummaryNode[
 }
 
 /** Reuse the exact eligible batch/parent only when it reduces the complete input. */
-export function savedReplacement(snapshot: ChatSnapshot, operation: ContextOperation): { node: SummaryNode; state: ContextState; inputAfter: number } | null {
+export function savedReplacement(snapshot: EngineSnapshot, operation: ContextOperation): { node: SummaryNode; state: ContextState; inputAfter: number } | null {
   if (operation.repair || !snapshot.connection) return null;
   const protection = correctionProtection(snapshot.turns, snapshot.context);
   if (protection.unresolved.length) return null;

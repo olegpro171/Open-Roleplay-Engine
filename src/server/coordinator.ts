@@ -7,6 +7,7 @@ import type { Provider } from '../provider/openai.js';
 import { ContextCoordinator } from './context-coordinator.js';
 import { LoreRegexPool } from './lore-regex.js';
 import { resolveRequestLore } from './lore-resolution.js';
+import type { Change } from '../shared/changes.js';
 import { defaultChatBehavior, type ChatBehavior } from '../shared/chat-behavior.js';
 
 export class GenerationCoordinator {
@@ -17,11 +18,11 @@ export class GenerationCoordinator {
   readonly loreRegex = new LoreRegexPool();
   constructor(private store: Store, private provider: Provider, private behavior: () => ChatBehavior = () => defaultChatBehavior) {
     store.recoverInterrupted();
-    this.context = new ContextCoordinator(store, provider, () => this.changed(), this.loreRegex);
+    this.context = new ContextCoordinator(store, provider, chatId => this.changed({ kind: 'chat', chatId, detail: 'state' }), this.loreRegex);
     this.events.setMaxListeners(100);
   }
   hasActiveWork() { return this.active.size > 0 || this.context.hasActiveWork(); }
-  changed() { this.events.emit('changed'); }
+  changed(change: Change = { kind: 'all' }) { this.events.emit('changed', change); }
   reasoningText(id: string) { return this.active.get(id)?.reasoning ?? ''; }
   partialText(id: string) { return this.active.get(id)?.text ?? ''; }
 
@@ -39,7 +40,7 @@ export class GenerationCoordinator {
       const operation = { controller: new AbortController(), task: Promise.resolve(), text: '', reasoning: '' };
       this.active.set(result.id, operation);
       operation.task = this.run(result.id, operation, chatId).finally(() => this.active.delete(result.id));
-      this.changed();
+      this.changed({ kind: 'chat', chatId, detail: 'state' });
     }
     return { generationId: result.id };
   }
@@ -58,7 +59,7 @@ export class GenerationCoordinator {
       const snapshot = this.store.generationSnapshot(id);
       const request = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context, { lore: loreResolution, overshoot: behavior });
       this.store.saveRequest(id, request);
-      this.changed();
+      this.changed({ kind: 'chat', chatId, detail: 'state' });
       let lastCheckpoint = 0;
       const publish = () => {
         if (Date.now() - lastCheckpoint >= 250) {
@@ -66,11 +67,11 @@ export class GenerationCoordinator {
           updateTimer = undefined;
           this.store.checkpoint(id, operation.text, operation.reasoning);
           lastCheckpoint = Date.now();
-          this.changed();
+          this.changed({ kind: 'chat', chatId, detail: 'stream' });
         } else if (!updateTimer) {
           updateTimer = setTimeout(() => {
             updateTimer = undefined;
-            if (!operation.controller.signal.aborted && !this.stopping) this.changed();
+            if (!operation.controller.signal.aborted && !this.stopping) this.changed({ kind: 'chat', chatId, detail: 'stream' });
           }, 250 - (Date.now() - lastCheckpoint));
         }
       };
@@ -85,18 +86,18 @@ export class GenerationCoordinator {
       });
       if (!this.stopping && !operation.controller.signal.aborted) {
         this.store.finish(id, 'succeeded', operation.text, null, completion?.usage ?? null, operation.reasoning);
-        this.changed();
+        this.changed({ kind: 'chat', chatId, detail: 'state' });
         // This is a separate ordinary memory job. Its Stop/failure/restart
         // outcome cannot change the response that was already committed.
         await this.context.prepareAfterGeneration(chatId, id, behavior);
-        this.changed();
+        this.changed({ kind: 'chat', chatId, detail: 'state' });
       }
     } catch (error) {
       if (this.stopping) return;
       // Never persist upstream response bodies or raw transport errors: they may contain secrets.
       const diagnostic = error instanceof AppError ? error.localized ?? error.message : message("diagnostics.the_model_request_failed_or_timed_out_check");
       this.store.finish(id, 'failed', operation.text, diagnostic, null, operation.reasoning);
-      this.changed();
+      this.changed({ kind: 'chat', chatId, detail: 'state' });
     } finally {
       clearUpdateTimer();
       operation.controller.signal.removeEventListener('abort', clearUpdateTimer);
@@ -104,11 +105,12 @@ export class GenerationCoordinator {
   }
   cancel(id: string) {
     const operation = this.active.get(id);
-    if (!operation || this.store.generation(id)?.status !== 'running') throw new AppError(409, 'inactive_generation', message("errors.this_response_is_no_longer_active"));
-    this.store.finish(id, 'cancelled', operation.text, this.store.generation(id)?.kind === 'regeneration' ? message("diagnostics.regeneration_cancelled_the_selected_response_was_kept") : message("app.response_cancelled_generate_response_before_next_turn"), null, operation.reasoning);
+    const generation = this.store.generation(id);
+    if (!operation || generation?.status !== 'running') throw new AppError(409, 'inactive_generation', message("errors.this_response_is_no_longer_active"));
+    this.store.finish(id, 'cancelled', operation.text, generation.kind === 'regeneration' ? message("diagnostics.regeneration_cancelled_the_selected_response_was_kept") : message("app.response_cancelled_generate_response_before_next_turn"), null, operation.reasoning);
     operation.controller.abort();
     this.context.cancelForGeneration(id);
-    this.changed();
+    this.changed({ kind: 'chat', chatId: generation.chatId, detail: 'state' });
   }
   async shutdown() {
     this.stopping = true;

@@ -1,4 +1,4 @@
-import type { ChatSnapshot } from '../shared/contracts.js';
+import type { EngineSnapshot } from '../shared/contracts.js';
 import { hasPromptMarker } from '../shared/library.js';
 import type { LoreResolution } from '../shared/lorebook.js';
 import { resolveLore } from '../core/lorebook.js';
@@ -6,7 +6,7 @@ import { assembleRequest } from '../core/prompt.js';
 import type { LoreRegexPool } from './lore-regex.js';
 import { loreCompatibility } from '../core/lorebook-formats.js';
 
-export async function resolveRequestLore(snapshot: ChatSnapshot, pool: LoreRegexPool, signal?: AbortSignal): Promise<LoreResolution | null> {
+export async function resolveRequestLore(snapshot: EngineSnapshot, pool: LoreRegexPool, signal?: AbortSignal): Promise<LoreResolution | null> {
   const book = snapshot.sources.lorebook;
   if (!book || !snapshot.connection) return null;
   const input = { book, turns: snapshot.turns, sources: snapshot.sources, state: snapshot.loreState ?? { epoch: 0, entries: {} } };

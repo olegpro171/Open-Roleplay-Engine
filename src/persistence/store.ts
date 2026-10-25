@@ -15,7 +15,7 @@ import { databaseSchemaVersion } from '../shared/build-info.js';
 import { AppError } from '../core/errors.js';
 import { MessageError, outcomeMessage, type LocalizedMessage } from '../shared/localization.js';
 import { replaceNameMacros } from '../core/prompt.js';
-import type { ChatSettings, ChatSnapshot, Connection, Generation, GenerationStatus, RequestPreview, ResponseVariant, TokenUsage, Turn } from '../shared/contracts.js';
+import type { ChatSettings, ChatSnapshot, EngineSnapshot, GenerationPage, Connection, Generation, GenerationStatus, RequestPreview, ResponseVariant, TokenUsage, Turn } from '../shared/contracts.js';
 import { regenerationView } from '../core/regeneration.js';
 import { assertRefusalSelection } from '../core/summary-refusals.js';
 import { hasPromptMarker } from '../shared/library.js';
@@ -347,9 +347,14 @@ export class Store {
       };
     });
   }
-  snapshot(chatId = 'main'): ChatSnapshot {
+  engineSnapshot(chatId = 'main'): EngineSnapshot {
     const header = this.chatHeader(chatId);
     const turns = this.readTurns(chatId);
+    return { ...header, turns, loreState: this.loreState(chatId, header.settings.lorebookId), context: this.contexts.snapshot(chatId, header.settings.contextPresetId ?? null) };
+  }
+  // Retained for explicit legacy inspection. Runtime engine and UI tools use
+  // engineSnapshot so old requests never participate in current calculations.
+  snapshot(chatId = 'main'): ChatSnapshot {
     const generations: Generation[] = this.db.select({
       id: schema.generations.id, turnId: schema.generations.turnId, status: schema.generations.status,
       sourceRevision: schema.generations.sourceRevision, kind: schema.generations.kind,
@@ -360,7 +365,37 @@ export class Store {
       id: row.id, turnId: row.turnId, status: row.status, sourceRevision: row.sourceRevision, kind: row.kind,
       request: row.request, usage: row.usage, partialText: row.partialText, reasoningText: row.reasoningText, error: row.error, errorMessage: row.errorMessage, createdAt: row.createdAt, updatedAt: row.updatedAt,
     }));
-    return { ...header, turns, generations, loreState: this.loreState(chatId, header.settings.lorebookId), context: this.contexts.snapshot(chatId, header.settings.contextPresetId ?? null) };
+    return { ...this.engineSnapshot(chatId), generations };
+  }
+  generationPage(chatId: string, input: { before?: string; selected?: string; limit: number }): GenerationPage {
+    this.chat(chatId);
+    let boundary: number | undefined;
+    if (input.before) {
+      const row = this.db.select({ rowid: sql<number>`rowid` }).from(schema.generations)
+        .where(and(eq(schema.generations.chatId, chatId), eq(schema.generations.id, input.before))).get();
+      if (!row) throw new AppError(404, 'generation_not_found', message('errors.saved_response_request_not_found'));
+      boundary = row.rowid;
+    }
+    const descriptors = () => this.db.select({
+      id: schema.generations.id, turnId: schema.generations.turnId, status: schema.generations.status,
+      sourceRevision: schema.generations.sourceRevision, kind: schema.generations.kind,
+      requestAvailable: sql<number>`${schema.generations.request} IS NOT NULL`, usage: schema.generations.usage,
+      error: schema.generations.error, errorMessage: schema.generations.errorMessage,
+      createdAt: schema.generations.createdAt, updatedAt: schema.generations.updatedAt,
+    }).from(schema.generations);
+    const rows = descriptors().where(and(eq(schema.generations.chatId, chatId), boundary === undefined ? undefined : sql`rowid < ${boundary}`))
+      .orderBy(desc(sql`rowid`)).limit(input.limit + 1).all();
+    const descriptor = (row: typeof rows[number]) => ({ ...row, requestAvailable: Boolean(row.requestAvailable) });
+    const items = rows.slice(0, input.limit).map(descriptor);
+    let selected: GenerationPage['selected'];
+    if (input.selected) {
+      selected = items.find(item => item.id === input.selected);
+      if (!selected) {
+        const row = descriptors().where(and(eq(schema.generations.chatId, chatId), eq(schema.generations.id, input.selected))).get();
+        selected = row ? descriptor(row) : null;
+      }
+    }
+    return { items, nextBefore: rows.length > input.limit ? items.at(-1)?.id ?? null : null, ...(input.selected ? { selected } : {}) };
   }
   promptSources(input: ReturnType<typeof selectionsSchema.parse>): PromptSources {
     return {
@@ -373,9 +408,12 @@ export class Store {
   checkRevision(expected: number, chatId = 'main') {
     if (this.chat(chatId).revision !== expected) throw new AppError(409, 'revision_conflict', message("errors.the_chat_changed_on_another_device_review_the"));
   }
-  ensureIdle(chatId?: string) {
+  generationRunning(chatId?: string) {
     const condition = chatId ? and(eq(schema.generations.status, 'running'), eq(schema.generations.chatId, chatId)) : eq(schema.generations.status, 'running');
-    if (this.db.select().from(schema.generations).where(condition).get()) throw new AppError(409, 'generation_running', message("errors.cancel_or_wait_for_the_current_response_before"));
+    return Boolean(this.db.select({ id: schema.generations.id }).from(schema.generations).where(condition).get());
+  }
+  ensureIdle(chatId?: string) {
+    if (this.generationRunning(chatId)) throw new AppError(409, 'generation_running', message("errors.cancel_or_wait_for_the_current_response_before"));
     if (this.contexts.running(chatId)) throw new AppError(409, 'context_running', message("errors.stop_or_wait_for_memory_preparation_before_editing"));
   }
   bumpRevision(chatId = 'main') {
@@ -398,7 +436,7 @@ export class Store {
       createdAt: chat.createdAt, updatedAt: chat.updatedAt,
       lastMessageAt: this.db.select({ date: sql<string | null>`max(${schema.turns.messageAt})` }).from(schema.turns).where(eq(schema.turns.chatId, chat.id)).get()?.date ?? null,
       turnCount: (this.sqlite.prepare('SELECT count(*) AS n FROM turns WHERE chat_id = ?').get(chat.id) as { n: number }).n,
-      running: Boolean(this.db.select().from(schema.generations).where(and(eq(schema.generations.chatId, chat.id), eq(schema.generations.status, 'running'))).get()) || this.contexts.running(chat.id),
+      running: this.generationRunning(chat.id) || this.contexts.running(chat.id),
     }));
   }
   libraryUpdate(knownRevision?: number): LibrarySnapshot | UnchangedLibrary {
@@ -842,14 +880,14 @@ export class Store {
         return { id: existing.id, fresh: false };
       }
       this.checkRevision(expected, chatId); this.ensureIdle(chatId);
-      const snapshot = this.snapshot(chatId);
+      const snapshot = this.engineSnapshot(chatId);
       if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.save_a_connection_before_sending_a_turn"));
       if (hasPromptMarker(snapshot.sources.prompt, 'summary')) assertRefusalSelection(snapshot.context);
       let turn = snapshot.turns.at(-1);
       if (text !== undefined) {
         if (turn && !turn.complete) throw new AppError(409, 'pending_turn', message("errors.resolve_or_delete_the_pending_turn_before_submitting"));
         this.insertTurn(chatId, (turn?.position ?? 0) + 1, { user: text, assistant: '', complete: false });
-        turn = this.snapshot(chatId).turns.at(-1);
+        turn = this.engineSnapshot(chatId).turns.at(-1);
       } else if (!turn || turn.complete) throw new AppError(409, 'no_pending_turn', message("errors.there_is_no_pending_turn_to_retry"));
       const id = randomUUID(), now = new Date().toISOString();
       this.db.insert(schema.generations).values({ id, chatId, requestId, command, turnId: turn!.id, status: 'running', sourceRevision: this.bumpRevision(chatId), request: null, partialText: '', error: null, createdAt: now, updatedAt: now }).run();
@@ -867,7 +905,7 @@ export class Store {
       }
       this.checkRevision(expected, chatId);
       this.ensureIdle(chatId);
-      const snapshot = this.snapshot(chatId), target = snapshot.turns.at(-1);
+      const snapshot = this.engineSnapshot(chatId), target = snapshot.turns.at(-1);
       if (hasPromptMarker(snapshot.sources.prompt, 'summary')) assertRefusalSelection(snapshot.context);
       if (!target?.complete || target.id !== turnId) throw new AppError(409, 'latest_turn_only', message("errors.only_the_latest_completed_turn_can_be_regenerated"));
       if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.select_a_connection_before_regenerating_a_response"));
@@ -879,10 +917,10 @@ export class Store {
       return { id, fresh: true };
     })();
   }
-  generationSnapshot(id: string): ChatSnapshot {
+  generationSnapshot(id: string): EngineSnapshot {
     const generation = this.generation(id);
     if (!generation) throw new AppError(404, 'generation_not_found', message("errors.response_attempt_not_found"));
-    const snapshot = this.snapshot(generation.chatId);
+    const snapshot = this.engineSnapshot(generation.chatId);
     if (generation.kind !== 'regeneration') return snapshot;
     if (snapshot.turns.at(-1)?.id !== generation.turnId || !generation.contextSelection) throw new AppError(409, 'stale_result', message("errors.the_regeneration_endpoint_is_no_longer_available"));
     return regenerationView({ ...snapshot, context: { ...snapshot.context, ...generation.contextSelection } });

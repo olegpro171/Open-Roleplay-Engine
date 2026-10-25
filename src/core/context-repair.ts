@@ -1,12 +1,12 @@
 import { message } from '../shared/localization.js';
-import type { ChatSnapshot, RequestPreview } from '../shared/contracts.js';
+import type { EngineSnapshot, RequestPreview } from '../shared/contracts.js';
 import { refKey, type ContextOperation, type RepairChange, type SummaryRef } from '../shared/context.js';
 import { AppError } from './errors.js';
 import { nodeFor, sourceOf, staleSummaries } from './context.js';
 import { assertCleanSummaryInput, unresolvedRefusal } from './summary-refusals.js';
 
 /** Compare effective incorporated inputs, rather than treating all provenance edits as content changes. */
-export function repairInputs(snapshot: ChatSnapshot, operation: ContextOperation, previousRequest: RequestPreview | null) {
+export function repairInputs(snapshot: EngineSnapshot, operation: ContextOperation, previousRequest: RequestPreview | null) {
   const old = operation.repair && nodeFor(snapshot.context, operation.repair);
   if (!old) throw new AppError(422, 'missing_summary', message("errors.the_summary_being_repaired_is_missing"));
   const changes: RepairChange[] = [];

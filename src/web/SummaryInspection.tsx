@@ -1,6 +1,6 @@
 import { t, useLocale, locale } from './localization';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatSnapshot } from '../shared/contracts';
+import type { ChatToolsSnapshot } from '../shared/contracts';
 import { refKey, type SummaryNode } from '../shared/context';
 import { correctionProtection } from '../core/context-corrections';
 import { staleSummaries } from '../core/context';
@@ -10,7 +10,7 @@ import { api } from './api';
 import { countText } from '../core/tokens';
 
 export function SummaryInspection({ snapshot, node, historical, selected, locked, inspect, saved, run, previewDelete }: {
-  snapshot: ChatSnapshot; node: SummaryNode; historical: boolean; selected: Set<string>; locked: boolean;
+  snapshot: ChatToolsSnapshot; node: SummaryNode; historical: boolean; selected: Set<string>; locked: boolean;
   inspect: (node: SummaryNode) => void; saved: () => void; run: (action: () => Promise<unknown>) => Promise<boolean>;
   previewDelete: (node: SummaryNode) => void;
 }) {

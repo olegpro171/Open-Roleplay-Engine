@@ -35,7 +35,8 @@ import { Store } from '../persistence/store.js';
 import { StoryReader } from '../persistence/story-reader.js';
 import { transcriptQuerySchema } from '../shared/transcript.js';
 import { fetchModels, OpenAICompatibleProvider, type Provider } from '../provider/openai.js';
-import { connectionSchema, editSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema, type ChatSnapshot } from '../shared/contracts.js';
+import { connectionSchema, editSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema, generationIdentitySchema, generationPageSchema, requestEstimate, type ChatSnapshot, type ChatToolsSnapshot } from '../shared/contracts.js';
+import type { Change } from '../shared/changes.js';
 import { trimBoundaryNewlines } from '../shared/text.js';
 import { Auth, sessionSeconds } from './auth.js';
 import { GenerationCoordinator } from './coordinator.js';
@@ -77,6 +78,14 @@ export async function createApp(options: {
       ...(generation.status === 'running' ? { partialText: coordinator.partialText(generation.id), reasoningText: coordinator.reasoningText(generation.id).slice(-2000), reasoningLength: coordinator.reasoningText(generation.id).length } : {}),
       request: generation.request?.lore ? { ...generation.request, lore: { ...generation.request.lore, detailsAvailable: true, outcomes: [], diagnostics: [], scan: [], stateBefore: {}, stateDelta: {} } } : generation.request,
     })) };
+  }
+  function mutationSnapshot(request: FastifyRequest) {
+    const id = chatId(request.params);
+    // Current web commands reconcile through scoped notifications. Preserve the
+    // full legacy response for callers that explicitly rely on that contract.
+    return request.headers.prefer === 'return=minimal'
+      ? { ok: true, revision: store.chatHeader(id).revision }
+      : publicSnapshot(id);
   }
   const storyReader = new StoryReader(store);
   const appearance = new AppearanceSettings(`${options.database}.appearance.json`);
@@ -180,19 +189,19 @@ export async function createApp(options: {
   app.get('/api/application/chat-behavior', async () => chatBehavior.status());
   app.put('/api/application/chat-behavior', async request => {
     const result = chatBehavior.save(request.body);
-    coordinator.changed();
+    coordinator.changed({ kind: 'settings', setting: 'chat-behavior' });
     return result;
   });
   app.get('/api/application/appearance', async () => appearance.status());
   app.get('/api/application/chat-defaults', async () => chatDefaults.status());
   app.put('/api/application/chat-defaults', async request => {
     const result = chatDefaults.save(request.body, store);
-    coordinator.changed();
+    coordinator.changed({ kind: 'settings', setting: 'chat-defaults' });
     return result;
   });
   app.put('/api/application/appearance', async request => {
     const result = appearance.save(request.body);
-    coordinator.changed();
+    coordinator.changed({ kind: 'settings', setting: 'appearance' });
     return result;
   });
   const localNetworkAdmin = (request: FastifyRequest) => isLoopback(request.ip) && !lan.isLanRequest(request.raw);
@@ -353,11 +362,11 @@ export async function createApp(options: {
     return store.saveCharacter(input, id, prepared);
   }
   app.post('/api/library', { bodyLimit: 30_000_000 }, async request => {
-    const result = await saveLibrary(request.body); coordinator.changed(); return result;
+    const result = await saveLibrary(request.body); coordinator.changed({ kind: 'library' }); return result;
   });
   app.put('/api/library/:id', { bodyLimit: 30_000_000 }, async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
-    const result = await saveLibrary(request.body, id); coordinator.changed(); return result;
+    const result = await saveLibrary(request.body, id); coordinator.changed({ kind: 'library' }); return result;
   });
   async function previewPicture(bytes: Buffer, reply: FastifyReply) {
     const controller = new AbortController();
@@ -387,15 +396,15 @@ export async function createApp(options: {
   app.delete('/api/library/:id', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
     const input = z.object({ revision: revisionSchema, kind: z.enum(['personas', 'characters', 'prompts', 'connections', 'contexts', 'lorebooks']) }).strict().parse(request.body);
-    store.deleteLibrary(input.revision, input.kind, id); coordinator.changed(); return { ok: true };
+    store.deleteLibrary(input.revision, input.kind, id); coordinator.changed({ kind: 'library' }); return { ok: true };
   });
   app.post('/api/library/default/restore', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-    store.saveLibrary(revision, 'prompts', defaultPrompt, 'default'); coordinator.changed(); return { ok: true };
+    store.saveLibrary(revision, 'prompts', defaultPrompt, 'default'); coordinator.changed({ kind: 'library' }); return { ok: true };
   });
   app.post('/api/library/default-context/reset', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-    store.saveLibrary(revision, 'contexts', defaultContextPreset, 'default-context'); coordinator.changed(); return { ok: true };
+    store.saveLibrary(revision, 'contexts', defaultContextPreset, 'default-context'); coordinator.changed({ kind: 'library' }); return { ok: true };
   });
   app.post('/api/library/import', { bodyLimit: pictureBase64Limit + 2000 }, async request => {
     const input = z.object({ revision: revisionSchema, requestId: z.string().uuid().optional(), kind: z.enum(['personas', 'characters']), tagPolicy: tagPolicySchema.optional(), pictureMode: pictureModeSchema.optional(), base64: pictureBase64Schema }).strict().parse(request.body);
@@ -408,13 +417,13 @@ export async function createApp(options: {
       store.previewCard(parsed.value);
       const prepared = artwork.mode === 'retain' && parsed.artwork ? await pictures.process(parsed.artwork) : undefined;
       const result = store.importCard(input.revision, requestId, parsed.value, input.tagPolicy, artwork, prepared);
-      coordinator.changed(); return result;
+      coordinator.changed({ kind: 'library' }); return result;
     }
     const value = readCardFile(input.base64);
     let items;
     try { items = importPersonas(value); }
     catch (error) { if (error instanceof ZodError) throw error; throw new AppError(400, 'invalid_card', error instanceof MessageError ? error.localized : error instanceof Error ? error.message : message("errors.invalid_card")); }
-    const ids = store.importLibrary(input.revision, input.kind, items); coordinator.changed(); return { ids };
+    const ids = store.importLibrary(input.revision, input.kind, items); coordinator.changed({ kind: 'library' }); return { ids };
   });
   app.post('/api/library/characters/preview', { bodyLimit: pictureBase64Limit + 1000 }, async (request, reply) => {
     const { base64 } = z.object({ base64: pictureBase64Schema }).strict().parse(request.body);
@@ -428,23 +437,23 @@ export async function createApp(options: {
   });
   app.post('/api/library/tags', async request => {
     const input = z.object({ revision: revisionSchema, name: tagNameSchema }).strict().parse(request.body);
-    const id = store.tags.create(input.revision, input.name); coordinator.changed();
+    const id = store.tags.create(input.revision, input.name); coordinator.changed({ kind: 'library' });
     return { id, revision: store.libraryRevision() };
   });
   app.put('/api/library/tags/:id', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
     const input = z.object({ revision: revisionSchema, name: tagNameSchema }).strict().parse(request.body);
-    store.tags.rename(input.revision, id, input.name); coordinator.changed(); return { revision: store.libraryRevision() };
+    store.tags.rename(input.revision, id, input.name); coordinator.changed({ kind: 'library' }); return { revision: store.libraryRevision() };
   });
   app.delete('/api/library/tags/:id', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-    store.tags.delete(revision, id); coordinator.changed(); return { revision: store.libraryRevision() };
+    store.tags.delete(revision, id); coordinator.changed({ kind: 'library' }); return { revision: store.libraryRevision() };
   });
   app.put('/api/library/characters/:id/tags', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
     const input = z.object({ revision: revisionSchema, tagIds: tagIdsSchema }).strict().parse(request.body);
-    store.tags.setAssignments(input.revision, id, input.tagIds); coordinator.changed(); return { ok: true };
+    store.tags.setAssignments(input.revision, id, input.tagIds); coordinator.changed({ kind: 'library' }); return { ok: true };
   });
   app.get('/api/library/characters/:id/tags/preview', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
@@ -453,7 +462,7 @@ export async function createApp(options: {
   app.post('/api/library/characters/:id/tags/apply', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
     const input = z.object({ revision: revisionSchema, tagPolicy: tagPolicySchema }).strict().parse(request.body);
-    const tags = store.tags.applyEmbedded(input.revision, id, input.tagPolicy); coordinator.changed();
+    const tags = store.tags.applyEmbedded(input.revision, id, input.tagPolicy); coordinator.changed({ kind: 'library' });
     return { tags, revision: store.libraryRevision() };
   });
   app.post('/api/library/connections/:id/export', async (request, reply) => {
@@ -472,20 +481,20 @@ export async function createApp(options: {
     const input = connectionImportSchema.parse(request.body);
     const profile = await importConnection(input.base64, input.password);
     const id = store.saveLibrary(input.revision, 'connections', profile.connection, undefined, profile.apiKey);
-    coordinator.changed();
+    coordinator.changed({ kind: 'library' });
     return { id };
   });
   app.post('/api/library/connections/:id/duplicate', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
     const copied = store.duplicateConnection(revision, id);
-    coordinator.changed();
+    coordinator.changed({ kind: 'library' });
     return { id: copied };
   });
   app.post('/api/library/characters/:id/duplicate', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-    const copied = store.duplicateCharacter(revision, id); coordinator.changed(); return { id: copied };
+    const copied = store.duplicateCharacter(revision, id); coordinator.changed({ kind: 'library' }); return { id: copied };
   });
   app.post('/api/library/lorebooks/preview', { bodyLimit: 5_100_000 }, async request => {
     const { value } = z.object({ value: z.unknown() }).strict().parse(request.body);
@@ -493,12 +502,12 @@ export async function createApp(options: {
   });
   app.post('/api/library/lorebooks/import', { bodyLimit: 5_100_000 }, async request => {
     const input = z.object({ revision: revisionSchema, requestId: z.string().uuid(), value: z.unknown() }).strict().parse(request.body);
-    const result = store.importBook(input.revision, input.requestId, input.value); coordinator.changed(); return result;
+    const result = store.importBook(input.revision, input.requestId, input.value); coordinator.changed({ kind: 'library' }); return result;
   });
   app.post('/api/library/characters/:id/extract', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
     const input = z.object({ revision: revisionSchema, requestId: z.string().uuid() }).strict().parse(request.body);
-    const result = store.extractBook(input.revision, input.requestId, id); coordinator.changed(); return result;
+    const result = store.extractBook(input.revision, input.requestId, id); coordinator.changed({ kind: 'library' }); return result;
   });
   app.get('/api/library/:kind/:id/export', async request => {
     const { kind, id } = z.object({ kind: z.enum(['personas', 'characters', 'prompts', 'contexts', 'lorebooks']), id: identity }).parse(request.params);
@@ -524,11 +533,11 @@ export async function createApp(options: {
       connectionId: input.connectionId === undefined ? defaults.connectionId : input.connectionId,
       contextPresetId: input.contextPresetId === undefined ? defaults.contextPresetId : input.contextPresetId,
     };
-    const id = store.createChat(settings); coordinator.changed(); return { id };
+    const id = store.createChat(settings); coordinator.changed({ kind: 'chat', chatId: id, detail: 'state' }); return { id };
   });
   app.put('/api/chats/:chatId/selections', async request => {
     const input = z.object({ revision: revisionSchema, settings: selectionsSchema }).strict().parse(request.body);
-    store.updateChat(input.revision, chatId(request.params), input.settings); coordinator.changed(); return publicSnapshot(chatId(request.params));
+    store.updateChat(input.revision, chatId(request.params), input.settings); coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return mutationSnapshot(request);
   });
   app.post('/api/chats/:chatId/prompt-diagnostics', async request => {
     const input = z.object({ revision: revisionSchema, settings: selectionsSchema }).strict().parse(request.body);
@@ -539,17 +548,17 @@ export async function createApp(options: {
   app.put('/api/chats/:chatId/author-note', async request => {
     const input = authorNoteStatusSchema.parse(request.body);
     const result = store.saveAuthorNote(chatId(request.params), input);
-    coordinator.changed();
+    coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' });
     return result;
   });
   app.delete('/api/chats/:chatId', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-    store.deleteChat(revision, chatId(request.params)); coordinator.changed(); return { ok: true };
+    store.deleteChat(revision, chatId(request.params)); coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return { ok: true };
   });
   app.put('/api/chats/:chatId/history', { bodyLimit: 25_000_000 }, async request => {
     const input = replaceHistorySchema.parse(request.body);
     const revision = store.replaceHistory(input.revision, chatId(request.params), input.turns);
-    coordinator.changed();
+    coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' });
     return { ok: true, revision };
   });
   app.get('/api/chats/:chatId/story', async request => {
@@ -560,20 +569,27 @@ export async function createApp(options: {
     return { ...snapshot, latestGeneration: snapshot.latestGeneration ? live(snapshot.latestGeneration) : null,
       page: { ...snapshot.page, generations: snapshot.page.generations.map(generation => live(generation)) } };
   });
+  app.get('/api/chats/:chatId/tools', async (request): Promise<ChatToolsSnapshot> => {
+    const { loreState: _state, loreResolution: _resolution, ...snapshot } = store.engineSnapshot(chatId(request.params));
+    return { ...snapshot, sources: { ...snapshot.sources, lorebook: undefined },
+      promptDiagnostics: promptDiagnostics(snapshot.sources, snapshot.settings.authorNote),
+      generating: store.generationRunning(snapshot.id) };
+  });
+  app.get('/api/chats/:chatId/generations', async request => store.generationPage(chatId(request.params), generationPageSchema.parse(request.query)));
   app.get('/api/chats/:chatId/context/plan', async request => {
-    const snapshot = store.snapshot(chatId(request.params));
+    const snapshot = store.engineSnapshot(chatId(request.params));
     const loreResolution = await resolveRequestLore(snapshot, coordinator.loreRegex);
     store.checkRevision(snapshot.revision, snapshot.id);
     return contextPlan({ ...snapshot, loreResolution });
   });
   app.get('/api/chats/:chatId/generations/:id/request', async request => {
-    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const { id } = z.object({ id: generationIdentitySchema }).parse(request.params);
     const generation = store.generation(id);
     if (!generation || generation.chatId !== chatId(request.params)) throw new AppError(404, 'generation_not_found', message("errors.saved_response_request_not_found"));
     return generation.request;
   });
   app.get('/api/chats/:chatId/generations/:id/reasoning', async request => {
-    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const { id } = z.object({ id: generationIdentitySchema }).parse(request.params);
     const generation = store.generation(id);
     if (!generation || generation.chatId !== chatId(request.params)) throw new AppError(404, 'generation_not_found', message("errors.response_reasoning_not_found"));
     return { text: generation.status === 'running' ? coordinator.reasoningText(id) : generation.reasoningText };
@@ -584,7 +600,7 @@ export async function createApp(options: {
   });
   app.post('/api/chats/:chatId/context/clear', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-    store.contexts.clearMemory(chatId(request.params), revision); coordinator.changed(); return { ok: true };
+    store.contexts.clearMemory(chatId(request.params), revision); coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return { ok: true };
   });
   app.post('/api/chats/:chatId/context/refusals', async request => {
     const input = z.object({ revision: revisionSchema, filterVersion: z.number().int().positive(),
@@ -592,28 +608,28 @@ export async function createApp(options: {
       action: z.enum(['keep', 'regenerate', 'delete']),
     }).strict().parse(request.body);
     const result = store.contexts.resolveRefusals(chatId(request.params), input.revision, input.filterVersion, input.summaries, input.action);
-    coordinator.changed(); return result;
+    coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return result;
   });
   app.post('/api/chats/:chatId/context/refresh', async request => {
     const input = z.object({ revision: revisionSchema, requestId: z.string().uuid() }).strict().parse(request.body);
     const existing = store.contexts.commandJob(chatId(request.params), input.requestId, 'refresh');
     if (existing?.refresh) return { jobId: existing.id, report: existing.refresh };
-    const snapshot = store.snapshot(chatId(request.params));
+    const snapshot = store.engineSnapshot(chatId(request.params));
     const lore = await resolveRequestLore(snapshot, coordinator.loreRegex);
     const result = store.contexts.refresh(snapshot.id, input.revision, input.requestId, lore);
-    coordinator.changed(); return result;
+    coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return result;
   });
   app.delete('/api/chats/:chatId/context/summaries/:id', async request => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = z.object({ revision: revisionSchema, summaryRevision: revisionSchema }).strict().parse(request.body);
     const result = store.contexts.deleteSummary(chatId(request.params), input.revision, { id, revision: input.summaryRevision });
-    coordinator.changed(); return result;
+    coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return result;
   });
   app.patch('/api/chats/:chatId/context/summaries/:id', { bodyLimit: 1_100_000 }, async request => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = z.object({ revision: revisionSchema, summaryRevision: revisionSchema, text: z.string().max(1_000_000) }).strict().parse(request.body);
     const ref = store.contexts.editSummary(chatId(request.params), input.revision, { id, revision: input.summaryRevision }, input.text);
-    coordinator.changed(); return ref;
+    coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return ref;
   });
   app.get('/api/context/jobs/:id', async request => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
@@ -631,7 +647,7 @@ export async function createApp(options: {
   app.post('/api/context/jobs/:id/review', async request => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = z.object({ revision: revisionSchema, accept: z.boolean(), text: z.string().max(1_000_000).optional() }).strict().parse(request.body);
-    store.contexts.review(id, input.revision, input.accept, input.text); coordinator.changed(); return { ok: true };
+    store.contexts.review(id, input.revision, input.accept, input.text); coordinator.changed({ kind: 'chat', chatId: store.contexts.job(id).chatId, detail: 'state' }); return { ok: true };
   });
   app.post('/api/context/jobs/:id/repair', { bodyLimit: 1_100_000 }, async request => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
@@ -643,12 +659,12 @@ export async function createApp(options: {
     app.put(prefix + '/settings', async request => {
       const input = saveSettingsSchema.parse(request.body);
       store.saveSettings(input.revision, input.connection, input.settings, input.apiKey, chatId(request.params));
-      coordinator.changed(); return publicSnapshot(chatId(request.params));
+      coordinator.changed({ kind: 'library' }); return mutationSnapshot(request);
     });
     app.post(prefix + '/preview', async (request, reply) => {
-      const input = z.object({ revision: revisionSchema, text: z.string().max(100_000).optional(), inspection: z.boolean().optional() }).strict().parse(request.body);
+      const input = z.object({ revision: revisionSchema, text: z.string().max(100_000).optional(), inspection: z.boolean().optional(), detail: z.enum(['estimate', 'full']).default('full') }).strict().parse(request.body);
       if (input.text !== undefined) input.text = trimBoundaryNewlines(input.text);
-      const snapshot = store.snapshot(chatId(request.params));
+      const snapshot = store.engineSnapshot(chatId(request.params));
       if (snapshot.revision !== input.revision) throw new AppError(409, 'revision_conflict', message("errors.the_chat_changed_refresh_the_preview"));
       if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.save_a_connection_first"));
       const turns = [...snapshot.turns];
@@ -662,7 +678,9 @@ export async function createApp(options: {
       try {
         const lore = await resolveRequestLore({ ...snapshot, turns }, coordinator.loreRegex, controller.signal);
         store.checkRevision(input.revision, snapshot.id);
-        return assembleRequest(snapshot.connection, snapshot.settings, turns, snapshot.sources, snapshot.context, { ...(input.inspection ? { validateLimits: false, allowStale: true } : {}), lore });
+        const assembled = assembleRequest(snapshot.connection, snapshot.settings, turns, snapshot.sources, snapshot.context, { ...(input.inspection ? { validateLimits: false, allowStale: true } : {}), lore });
+        if (input.detail === 'full') return assembled;
+        return requestEstimate(assembled);
       } finally { request.raw.removeListener('aborted', disconnect); reply.raw.removeListener('close', disconnect); }
     });
     app.post(prefix + '/turns', async (request, reply) => {
@@ -682,18 +700,18 @@ export async function createApp(options: {
       const { id, variantId } = z.object({ id: z.string().uuid(), variantId: z.string().min(1).max(100) }).parse(request.params);
       const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
       store.selectVariant(revision, id, variantId, chatId(request.params));
-      coordinator.changed();
-      return publicSnapshot(chatId(request.params));
+      coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' });
+      return mutationSnapshot(request);
     });
     app.patch(prefix + '/turns/:id/:part', async request => {
       const { id, part } = z.object({ id: z.string().uuid(), part: z.enum(['user', 'assistant']) }).parse(request.params);
       const input = editSchema.parse(request.body);
-      store.editPart(input.revision, id, part, input.text, chatId(request.params)); coordinator.changed(); return publicSnapshot(chatId(request.params));
+      store.editPart(input.revision, id, part, input.text, chatId(request.params)); coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return mutationSnapshot(request);
     });
     app.delete(prefix + '/turns/:id', async request => {
       const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
       const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-      store.deleteTurn(revision, id, chatId(request.params)); coordinator.changed(); return publicSnapshot(chatId(request.params));
+      store.deleteTurn(revision, id, chatId(request.params)); coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return mutationSnapshot(request);
     });
   }
   app.post('/api/generations/:id/cancel', async request => {
@@ -704,12 +722,14 @@ export async function createApp(options: {
   app.get('/api/events', (request, reply) => {
     reply.hijack();
     reply.raw.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
-    const changed = () => {
+    const write = (frame: string) => {
       if (!auth.authenticated(request.cookies.session)) { reply.raw.end(); return; }
-      if (!reply.raw.destroyed) reply.raw.write('data: {}\n\n');
+      if (!reply.raw.destroyed) reply.raw.write(frame);
     };
+    const changed = (change: Change = { kind: 'all' }) => write(`data: ${JSON.stringify(change)}\n\n`);
     const shutdown = () => reply.raw.end();
-    const ping = setInterval(changed, 15_000);
+    // SSE comments keep the transport alive without dispatching a change event.
+    const ping = setInterval(() => write(': keepalive\n\n'), 15_000);
     coordinator.events.on('changed', changed);
     coordinator.events.on('shutdown', shutdown);
     reply.raw.on('close', () => {
@@ -717,7 +737,7 @@ export async function createApp(options: {
       coordinator.events.off('changed', changed);
       coordinator.events.off('shutdown', shutdown);
     });
-    changed();
+    write(': connected\n\n');
   });
   if (options.staticDirectory && existsSync(options.staticDirectory)) {
     const index = readFileSync(join(options.staticDirectory, 'index.html'), 'utf8');

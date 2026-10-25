@@ -1,6 +1,6 @@
 import { openChatTool } from './chat-tools';
 import { test, expect, devices } from '@playwright/test';
-import type { ChatSnapshot } from '../../src/shared/contracts';
+import type { ChatSnapshot, ChatToolsSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
 import { assembleRequest } from '../../src/core/prompt';
@@ -240,8 +240,8 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   await expect.poll(() => transcript.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);
 
   // A synthetic read-only snapshot exercises small summary boxes without paid model calls.
-  await page.route(`**/api/chats/${chatId}`, async route => {
-    const response = await route.fetch(), snapshot = await response.json() as ChatSnapshot;
+  await page.route(`**/api/chats/${chatId}/tools`, async route => {
+    const response = await route.fetch(), snapshot = await response.json() as ChatToolsSnapshot;
     const summary = (id: string, level: number, start: number, end: number): SummaryNode => ({ id, revision: 0, level, text: 'Mira keeps the brass key.', approved: true, manual: false, createdAt: new Date().toISOString(), children: [], prior: [], turns: snapshot.turns.slice(start, end).map(turn => ({ turnId: turn.id, userRevision: turn.user.revision, assistantRevision: turn.assistant.revision, complete: true })) });
     const nodes = [summary('older-memory', 2, 0, 199), summary('recent-memory', 1, 199, 203), summary('retained-l1', 1, 0, 3), summary('retained-l2', 2, 0, 9)];
     snapshot.context = { ...snapshot.context, archivedTurnIds: snapshot.turns.slice(0, 203).map(turn => turn.id), selected: nodes.slice(0, 2).map(node => ({ id: node.id, revision: node.revision })), summaries: nodes };

@@ -27,6 +27,7 @@ it('reads bounded whole-turn windows without loading a full engine snapshot or c
   const f = await fixture();
   const before = f.store.snapshot();
   const fullRead = vi.spyOn(f.store, 'snapshot').mockImplementation(() => { throw new Error('Paged reading must not load full history.'); });
+  const engineRead = vi.spyOn(f.store, 'engineSnapshot').mockImplementation(() => { throw new Error('Paged reading must not load full engine history.'); });
   let page = f.read();
   expect(page.totalTurns).toBe(438);
   expect(page.page.turns.map(turn => turn.ordinal)).toEqual(Array.from({ length: 15 }, (_, i) => 424 + i));
@@ -52,6 +53,7 @@ it('reads bounded whole-turn windows without loading a full engine snapshot or c
   expect(page.page.turns.at(-1)?.ordinal).toBe(438);
   expect(f.calls).toEqual([]);
   fullRead.mockRestore();
+  engineRead.mockRestore();
   expect(f.store.snapshot()).toEqual(before);
 });
 

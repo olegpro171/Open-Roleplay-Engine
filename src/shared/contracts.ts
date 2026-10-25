@@ -82,6 +82,17 @@ export type RequestPreview = {
     counting?: TokenCounting; // Absent on immutable requests saved before model-aware counting.
   };
 };
+// The sidebar needs category totals, never prose or one record per message.
+export type RequestEstimate = Pick<RequestPreview, 'budget' | 'warnings' | 'warningMessages'> & {
+  allocations: Partial<Record<PromptEntry['kind'], number>>;
+  history?: { mode: 'managed' | 'recent'; verbatimTurns: number };
+};
+export function requestEstimate(request: RequestPreview): RequestEstimate {
+  const allocations: RequestEstimate['allocations'] = {};
+  for (const entry of request.layout ?? []) allocations[entry.kind] = (allocations[entry.kind] ?? 0) + entry.tokens;
+  return { budget: request.budget, allocations, warnings: request.warnings, warningMessages: request.warningMessages,
+    ...(request.history ? { history: { mode: request.history.mode, verbatimTurns: request.history.verbatimTurnIds.filter(id => id !== 'draft').length } } : {}) };
+}
 export type GenerationStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export type Generation = {
   errorMessage?: import('./localization.js').LocalizedMessage | null;
@@ -102,6 +113,18 @@ export type ChatSnapshot = {
   loreState?: import('./lorebook.js').LoreState;
   loreResolution?: import('./lorebook.js').LoreResolution | null;
 };
+export type EngineSnapshot = Omit<ChatSnapshot, 'generations'>;
+export type ChatToolsSnapshot = EngineSnapshot & { generating: boolean };
+export type GenerationDescriptor = Omit<Generation, 'request' | 'partialText' | 'reasoningText' | 'reasoningLength'> & { requestAvailable: boolean };
+export type GenerationPage = { items: GenerationDescriptor[]; nextBefore: string | null; selected?: GenerationDescriptor | null };
+// Portable backups preserve bounded opaque record identities, including older
+// imported identities that are not UUIDs. Read cursors follow that contract.
+export const generationIdentitySchema = z.string().min(1).max(100);
+export const generationPageSchema = z.object({
+  before: generationIdentitySchema.optional(),
+  selected: generationIdentitySchema.optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+}).strict();
 
 export const revisionSchema = z.number().int().nonnegative();
 export const saveSettingsSchema = z.object({

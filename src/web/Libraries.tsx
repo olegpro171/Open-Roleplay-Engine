@@ -13,7 +13,7 @@ import { useConfirmation } from './Confirmation';
 import { CharacterAvatar, PictureSquare } from './Pictures';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ChatWorkspace } from './ChatWorkspace';
-import type { ChatSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
+import type { ChatToolsSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
 import { characterLabel, personaLabel, characterFields, characterFieldLabels, defaultPrompt, markers, markerLabel, promptWarnings, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { upgradePrompt } from '../core/prompt-upgrade';
 import { importChat } from '../core/chat-import';
@@ -49,7 +49,7 @@ function lastLibrarySection(): LibraryKind | 'chats' {
     return value && Object.hasOwn(libraryLabels, value) ? value as LibraryKind | 'chats' : 'chats';
   } catch { return 'chats'; }
 }
-function selection(snapshot: ChatSnapshot): Selection {
+function selection(snapshot: ChatToolsSnapshot): Selection {
   return { title: snapshot.settings.title, targetInputTokens: snapshot.settings.targetInputTokens,
     connectionId: snapshot.settings.connectionId ?? null, promptId: snapshot.settings.promptId ?? 'default',
     characterId: snapshot.settings.characterId ?? null, personaId: snapshot.settings.personaId ?? null, contextPresetId: snapshot.settings.contextPresetId ?? null, lorebookId: snapshot.settings.lorebookId ?? null };
@@ -95,7 +95,7 @@ function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnap
     <div className="actions"><button>{t("libraries.create_chat")}</button><button type="button" className="quiet" onClick={cancel}>{t("character_import.cancel")}</button></div>
   </fieldset></form>;
 }
-export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, returnToChat, openLibraryItem }: { snapshot: ChatSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; saved: () => void; sidebar: ReactNode; returnToChat: () => void; openLibraryItem: (target: LibraryTarget) => void }) {
+export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, returnToChat, openLibraryItem }: { snapshot: ChatToolsSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; saved: () => void; sidebar: ReactNode; returnToChat: () => void; openLibraryItem: (target: LibraryTarget) => void }) {
   useLocale();
   const [value, setValue] = useState(() => selection(snapshot));
   const [revision, setRevision] = useState(snapshot.revision);
@@ -152,7 +152,7 @@ async function* fileChunks(file: File) {
   try { while (true) { const { done, value } = await reader.read(); if (done) break; yield decoder.decode(value, { stream: true }); } yield decoder.decode(); }
   finally { reader.releaseLock(); }
 }
-function HistoryImport({ snapshot, busy, run, committed }: { snapshot: ChatSnapshot; busy: boolean; run: Run; committed: (before: number, after: number) => void }) {
+function HistoryImport({ snapshot, busy, run, committed }: { snapshot: ChatToolsSnapshot; busy: boolean; run: Run; committed: (before: number, after: number) => void }) {
   useLocale();
   const [imported, setImported] = useState<Awaited<ReturnType<typeof importChat>> | null>(null);
   const [revision, setRevision] = useState(snapshot.revision), [error, setError] = useTextState(''), [reading, setReading] = useState(false), [filename, setFilename] = useState('');

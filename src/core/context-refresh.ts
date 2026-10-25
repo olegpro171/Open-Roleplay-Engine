@@ -1,6 +1,6 @@
 import { limitationText } from '../shared/localization.js';
 import { message } from '../shared/localization.js';
-import type { ChatSnapshot } from '../shared/contracts.js';
+import type { EngineSnapshot } from '../shared/contracts.js';
 import { refKey, type ContextOperation, type ContextRefresh, type ContextState, type SummaryNode } from '../shared/context.js';
 import { AppError } from './errors.js';
 import { hasChronologicalLevels, rankedPromotions, selectedContext, staleSummaries } from './context.js';
@@ -11,7 +11,7 @@ import { assertCorrectionSelection, correctionMessage, correctionProtection } fr
 import { hasPromptMarker } from '../shared/library.js';
 
 /** Explicit re-selection only: never generates, deletes or edits a summary. */
-export function refreshContext(snapshot: ChatSnapshot, options: { allowOverflowFallback?: boolean } = {}): { state: ContextState; report: ContextRefresh } {
+export function refreshContext(snapshot: EngineSnapshot, options: { allowOverflowFallback?: boolean } = {}): { state: ContextState; report: ContextRefresh } {
   const { turns, context: original, connection, settings, sources } = snapshot;
   if (!hasPromptMarker(sources.prompt, 'summary')) throw new AppError(422, 'summaries_disabled', message("errors.summaries_are_disabled_enable_a_summary_marker_in"));
   const config = original.preset;

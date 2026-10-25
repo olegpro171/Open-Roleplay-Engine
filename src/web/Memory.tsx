@@ -4,7 +4,7 @@ import { useTextState, errorText, t, useLocale, locale } from './localization';
 import { newId } from './uuid';
 import { useConfirmation } from './Confirmation';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatSnapshot } from '../shared/contracts';
+import type { ChatToolsSnapshot } from '../shared/contracts';
 import { hasPromptMarker, type LibrarySnapshot } from '../shared/library';
 import { refKey, type ContextJob, type ContextPlan, type ContextStep, type SummaryNode } from '../shared/context';
 import { summaryDeletion } from '../core/context-delete';
@@ -24,7 +24,7 @@ const RepairReview = lazy(() => import('./RepairReview').then(module => ({ defau
 
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 type JobDetails = { job: ContextJob; steps: ContextStep[] };
-export function Memory({ snapshot, library, busy, run, editPreset, behavior }: { snapshot: ChatSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; editPreset: (id: string) => void; behavior: SettingsAutosave<ChatBehaviorStatus['settings'], ChatBehaviorStatus> }) {
+export function Memory({ snapshot, library, busy, run, editPreset, behavior }: { snapshot: ChatToolsSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; editPreset: (id: string) => void; behavior: SettingsAutosave<ChatBehaviorStatus['settings'], ChatBehaviorStatus> }) {
   useLocale();
   const confirmAction = useConfirmation(snapshot.id);
   const retryControls = useRef<HTMLFieldSetElement>(null);
@@ -62,7 +62,7 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior }: {
   const summariesEnabled = hasPromptMarker(snapshot.sources.prompt, 'summary');
   const active = snapshot.context.jobs.find(job => job.status === 'running');
   const awaiting = snapshot.context.jobs.find(job => job.status === 'awaiting_review');
-  const locked = busy || Boolean(active) || snapshot.generations.some(generation => generation.status === 'running');
+  const locked = busy || Boolean(active) || snapshot.generating;
   useEffect(() => { setPresetId(snapshot.settings.contextPresetId ?? ''); setTarget(snapshot.settings.targetInputTokens); }, [snapshot.settings.contextPresetId, snapshot.settings.targetInputTokens]);
   useEffect(() => {
     let current = true;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatSnapshot } from '../shared/contracts';
+import type { ChatToolsSnapshot } from '../shared/contracts';
 import { refKey, type SummaryRef } from '../shared/context';
 import { refusalFindings } from '../core/summary-refusals';
 import { summaryDependencies } from '../core/context-corrections';
@@ -9,7 +9,7 @@ import { api } from './api';
 import { t, useLocale } from './localization';
 
 export function RefusalReview({ snapshot, locked, run }: {
-  snapshot: ChatSnapshot; locked: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>;
+  snapshot: ChatToolsSnapshot; locked: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>;
 }) {
   useLocale();
   const findings = useMemo(() => refusalFindings(snapshot.context), [snapshot.context]);

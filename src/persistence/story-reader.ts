@@ -10,7 +10,7 @@ import type { Store } from './store.js';
 import * as schema from './schema.js';
 
 // Bounded presentation queries; context reads may cache refusal-check metadata.
-// Engine/coordinator callers retain Store.snapshot.
+// Engine/coordinator callers use Store.engineSnapshot.
 export class StoryReader {
   constructor(private readonly store: Store) {}
 

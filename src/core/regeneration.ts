@@ -1,12 +1,12 @@
 import { message } from '../shared/localization.js';
-import type { ChatSnapshot } from '../shared/contracts.js';
+import type { EngineSnapshot } from '../shared/contracts.js';
 import { refKey } from '../shared/context.js';
 import { hasPromptMarker } from '../shared/library.js';
 import { AppError } from './errors.js';
 import { summaryDependencies } from './context-corrections.js';
 
 /** A request-local endpoint. The stored turn remains complete throughout. */
-export function regenerationView(snapshot: ChatSnapshot): ChatSnapshot {
+export function regenerationView(snapshot: EngineSnapshot): EngineSnapshot {
   const target = snapshot.turns.at(-1);
   if (!target?.complete) throw new AppError(409, 'no_completed_turn', message("errors.only_the_latest_completed_turn_can_be_regenerated"));
   const turns = snapshot.turns.map(turn => turn.id === target.id
