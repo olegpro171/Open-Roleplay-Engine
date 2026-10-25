@@ -67,7 +67,8 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 dialog:focus,dialog h2[tabindex="-1"]:focus{outline:none}
 
 /* Shared workspace controls. */
-.topbar{padding:0 28px;gap:24px;min-height:76px;flex-shrink:0}
+/* Safari samples fixed/sticky edge backgrounds to color the status-bar area. */
+.topbar{position:sticky;top:0;padding:0 28px;gap:24px;min-height:76px;flex-shrink:0}
 .brand{flex-shrink:0;margin-right:0}
 .tabs{padding:0;border:0;background:none;gap:24px;align-self:stretch;align-items:stretch;overflow:visible;min-width:0}
 .tabs button{padding:22px 0;font-weight:500}

@@ -119,6 +119,8 @@ The composer opts into content sizing in `ChatTextarea.tsx`: measure after value
 
 `useTouchScrollGuard.ts` adds touch containment only to authenticated iOS Story. A non-passive touchmove listener cancels single-finger gestures when no inner scroll area can consume movement in that direction, respecting contained boundaries and RTL horizontal scrolling. It preserves multi-touch/zoom, native selection and long-press selection, focused text-input horizontal movement, range controls and application-owned drag surfaces. Leaving Story removes its listeners. It does not change viewport sizing, header visibility, keyboard timing or scroll positions; the existing composer spacing hook remains unchanged. Browser tests check cancellation decisions and a real Chromium touch scroll. The user tested the touch-only approach on the phone and reported no observed issues; this does not establish coverage of every native gesture or other devices.
 
+The workspace header uses `position: sticky; top: 0` so Safari can sample its opaque background for the top system area. The HTML and manifest theme colors match the header (`#171c24`); the page background and manifest launch background remain `#12161c`. This does not opt into an edge-to-edge viewport, add status-bar overlays, or change keyboard sizing. Browser checks verify the workspace layout. The user confirmed the appearance on their iPhone on 2026-10-26; broader device coverage remains unverified.
+
 The intended flow is:
 
 1. Validate the command and save a pending turn only if the chat has no unresolved turn.
