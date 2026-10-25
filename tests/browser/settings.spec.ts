@@ -96,7 +96,7 @@ for (const width of [1440, 820, 390, 320]) {
     await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
     const navigation = page.getByRole('navigation', { name: 'Workspace' });
     await navigation.getByRole('button', { name: 'Libraries', exact: true }).click();
-    const librarySidebar = await page.locator('.library-sidebar').boundingBox();
+    const librarySidebar = await page.locator(width > 800 ? '.library-sidebar' : '.library-navigation').boundingBox();
     const libraryContent = await page.locator('.library-panel').boundingBox();
     await navigation.getByRole('button', { name: 'Settings', exact: true }).click();
     await expect(navigation.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute('aria-current', 'page');

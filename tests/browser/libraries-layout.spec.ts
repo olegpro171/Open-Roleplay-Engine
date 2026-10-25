@@ -94,10 +94,10 @@ for (const width of [1280, 820, 800, 390, 320]) {
       await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: fixture.category, exact: true }).click();
       const content = page.getByRole('region', { name: fixture.category, exact: true });
       const article = () => content.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
-      const sidebarHeight = await page.locator('.library-sidebar').evaluate(element => element.getBoundingClientRect().height);
+      const sidebarHeight = await page.locator('.library-navigation').evaluate(element => element.getBoundingClientRect().height);
       await article().getByRole('heading').getByRole('button').click();
       if (width <= 800) {
-        expect(await page.locator('.library-sidebar').evaluate(element => element.getBoundingClientRect().height)).toBe(sidebarHeight);
+        expect(await page.locator('.library-navigation').evaluate(element => element.getBoundingClientRect().height)).toBe(sidebarHeight);
       }
       const actions = page.getByRole('group', { name: 'Editor actions', exact: true });
       const save = actions.getByRole('button', { name: 'Save', exact: true });
@@ -115,6 +115,12 @@ for (const width of [1280, 820, 800, 390, 320]) {
         expect(closeBounds.y).toBeGreaterThanOrEqual(saveBounds.y + saveBounds.height);
         await expect(save).toHaveText('Save');
       } else {
+        const navigation = await page.getByRole('navigation', { name: 'Library categories' }).boundingBox();
+        const heading = await content.getByRole('heading', { level: 1 }).boundingBox();
+        if (!navigation || !heading) throw new Error('Missing library navigation or heading');
+        expect(saveBounds.y).toBeGreaterThanOrEqual(navigation.y + navigation.height);
+        expect(saveBounds.y).toBeLessThan(heading.y + heading.height);
+        expect(saveBounds.y + saveBounds.height).toBeGreaterThan(heading.y);
         expect(closeBounds.x).toBeGreaterThanOrEqual(saveBounds.x + saveBounds.width);
         expect(closeBounds.y).toBe(saveBounds.y);
         expect(closeBounds.x + closeBounds.width).toBeGreaterThan(width - 40);
@@ -125,13 +131,24 @@ for (const width of [1280, 820, 800, 390, 320]) {
         await expect(save.locator('span')).toBeHidden();
         await expect(close.locator('span')).toBeHidden();
       }
-      // Neither action moves with the form, including a short desktop viewport.
+      // Phone actions travel from the heading row to the top, then stay reachable.
       const scroller = width > 800 ? content : page.locator('main.library-layout');
       await scroller.evaluate(element => element.scrollTo(0, element.scrollHeight));
       if (fixture.kind === 'characters') expect(await scroller.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
       await expect(save).toBeInViewport();
       await expect(close).toBeInViewport();
-      expect(await save.boundingBox()).toEqual(saveBounds);
+      const scrolledBounds = await save.boundingBox();
+      if (!scrolledBounds) throw new Error('Missing scrolled Save action');
+      if (width > 800) {
+        expect(scrolledBounds).toEqual(saveBounds);
+      } else {
+        expect(scrolledBounds.y).toBeLessThanOrEqual(saveBounds.y);
+        if (fixture.kind === 'characters') {
+          expect(scrolledBounds.y).toBeLessThan(saveBounds.y);
+          await scroller.evaluate(element => { element.scrollTop -= 40; });
+          expect(await save.boundingBox()).toEqual(scrolledBounds);
+        }
+      }
       await page.screenshot({ path: testInfo.outputPath(`scrolled-${fixture.kind}.png`), animations: 'disabled' });
       await save.focus();
       await page.keyboard.press('Tab');

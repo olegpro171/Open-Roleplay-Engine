@@ -355,6 +355,7 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
   }
   return <EditorActionsTarget.Provider value={actionsTarget}><div className="library-workspace"><main className="library-layout">
     <aside className="library-sidebar">
+      <div className="library-navigation">
       <p className="eyebrow">{t("libraries.your_libraries")}</p>
       <nav className="library-tabs" aria-label={t("libraries.library_categories")}>
         {(['chats', 'personas', 'characters', 'lorebooks', 'prompts', 'connections', 'contexts'] as const).map(kind => <button
@@ -372,6 +373,7 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
           }}
         ><LibraryIcon kind={kind} />{libraryLabel(kind)}</button>)}
       </nav>
+      </div>
       <div className="library-editor-target" ref={setActionsTarget} />
     </aside>
     <section ref={panel} key={section} className="document-panel library-panel" aria-labelledby="library-heading">

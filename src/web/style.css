@@ -13,6 +13,7 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 .library-workspace .library-sidebar{display:flex;flex-direction:column;overflow:hidden}
 .library-workspace .library-tabs{overflow:auto;min-height:0;flex-shrink:1}
 .library-workspace .library-tabs>button{flex-shrink:0}
+.library-navigation{display:contents}
 .library-editor-target{flex-shrink:0}
 .floating-controls{padding:4px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:0 4px 16px #0006}
 .library-editor-actions{display:flex;flex-direction:column;gap:10px;margin-top:20px}
@@ -20,10 +21,14 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 .library-editor-actions>button>.ui-icon{display:none}
 @media(min-width:801px){.library-editor-actions.floating-controls{padding:0;border:0;border-radius:0;background:none;box-shadow:none}}
 @media(max-width:800px){
-  .library-workspace .library-sidebar{display:block;overflow:visible}
+  .library-workspace .library-sidebar{display:contents}
+  .library-workspace .library-navigation{display:block;padding:22px 18px 18px;border-bottom:1px solid var(--line)}
   .library-workspace .library-tabs{overflow:visible}
-  .library-editor-target{position:absolute;top:12px;right:max(18px,env(safe-area-inset-right));z-index:20}
+  .library-editor-target{position:sticky;top:12px;height:0;z-index:20}
+  .library-editor-target:has(.library-editor-actions){margin-top:32px;margin-bottom:-32px}
+  .library-editor-target .library-editor-actions{position:absolute;top:0;right:max(18px,env(safe-area-inset-right))}
   .library-editor-actions{flex-direction:row;gap:8px;margin:0}
+  .library-workspace .library-list-header.is-editing{padding-right:120px;min-height:86px}
   .library-editor-actions>button{width:44px;height:44px;padding:10px}
   .library-editor-actions>button>.ui-icon{display:block;width:22px;height:22px}
   .library-editor-actions>button>span{display:none}
