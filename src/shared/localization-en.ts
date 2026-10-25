@@ -937,7 +937,6 @@ export const englishMessages = {
   "speech_color_selector.speech_color_selection": "Speech color selection",
   "speech_color_selector.clear_color": "Clear color",
   "speech_color_selector.set_color": "Set color",
-  "speech_color_selector.not_set_uses_the_default_from_chat": "Not set uses the default from Chat appearance settings.",
   "summary_inspection.historical_version_editing_uses_the_current_approved": "Historical version. Editing uses the current approved version.",
   "summary_inspection.correction_awaiting_reconciliation_use_repair_summaries_for": "Correction awaiting reconciliation. Use Repair summaries for stale or conflicting memory, then Prepare chat. Saving does not insert it into model input.",
   "summary_inspection.represented_in_the_saved_model_input": "Represented in the saved model input",

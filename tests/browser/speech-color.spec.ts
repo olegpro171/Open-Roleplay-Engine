@@ -25,9 +25,14 @@ for (const width of [1440, 390]) test(`saves speech colors from both editors and
     await page.getByRole('button', { name: `New ${kind}`, exact: true }).click();
     await page.getByLabel('Name', { exact: true }).fill(name);
     const color = page.getByRole('button', { name: 'Speech color', exact: true });
-    await expect(page.getByText('Not set', { exact: true })).toBeVisible();
+    const unset = page.getByText('Not set', { exact: true });
+    await expect(unset).toBeVisible();
+    await unset.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`${kind}-color-unset-editor.png`), fullPage: true });
+    const unsetWidth = await unset.evaluate(node => node.getBoundingClientRect().width);
     await page.getByRole('button', { name: 'Set color', exact: true }).click();
     await expect(color).toContainText('#A8C9F0');
+    expect(await color.evaluate(node => node.getBoundingClientRect().width)).toBe(unsetWidth);
     await chooseColor(page, 'Speech color', kind === 'character' ? '#eeaa88' : '#88cc99');
     await color.scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath(`${kind}-color-editor.png`), fullPage: true });
