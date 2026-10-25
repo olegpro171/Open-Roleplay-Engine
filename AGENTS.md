@@ -96,21 +96,32 @@ These are review reminders; consult CONCEPTS.md and IMPLEMENTATION.md for the fu
 
 ## Verification requirements
 
-Choose checks by the behavior at risk. A successful build alone does not establish correctness, and asking the user to click through a feature is not a substitute for automated checks the agent can run.
+Choose checks by the behavior at risk and the reach of the change, not by line count or file extension. Before editing, briefly identify what could break and the checks that will address it; a sentence is enough for a small change. Inspect shared consumers when judging scope: a local margin adjustment differs from changing a global layout rule, just as an icon differs from a one-line transaction change. A successful build alone does not establish behavioral correctness, and asking the user to click through a feature is not a substitute for the agent's required verification.
 
 | Change | Expected evidence |
 | --- | --- |
-| Core policy or bug fix | Focused Vitest checks of observable behavior, boundaries, and the regression. Check invariants across a sequence when state carries forward. |
+| Documentation only | Accuracy, link, and command consistency review; no application build or test suite required. |
+| Isolated styling or copy | Inspect the affected UI; check relevant desktop/phone sizes and both sides of changed breakpoints for layout changes. Use an existing focused browser check when useful. No unrelated Vitest or full browser suite required. |
+| Static SVG/icon addition or replacement | Build (includes typechecking) and inspect affected controls for rendering, alignment, sizing and accessible labels. No unrelated suites required when interaction and state behavior are unchanged. |
+| Core policy or functional bug fix | Focused Vitest checks of observable behavior, boundaries, and the regression. Check invariants across a sequence when state carries forward. |
 | Persistence, migration, or operation lifecycle | Tests using real temporary SQLite databases/coordinators: successful commit plus relevant rollback, stale revision, duplicate command, cancellation, or reopen/restart cases. |
 | Provider or request assembly | Controlled mock-provider tests of exact outgoing input/parameters, credential exclusion, and affected malformed/failed/incomplete stream cases. |
-| User workflow or interaction | Relevant Playwright workflow with meaningful state assertions; inspect desktop and phone-sized rendering when layout changes. |
-| Pure styling/copy or documentation | Proportionate visual or accuracy/consistency review; do not invent tests that merely assert wording, class names, or implementation details. |
+| User workflow, interaction or UI state | Build, relevant Playwright workflows with meaningful state assertions, and affected unit tests. Inspect desktop and phone-sized rendering when layout changes. |
+| Broad refactoring, dependencies, build/test infrastructure, or uncertain impact | Full `npm run check`, plus focused evidence for changed behavior that existing suites do not cover. |
 
-- For a reproducible defect, add a regression test and establish that it fails for the original reason before the fix when feasible. Derive expectations from the requirement, not by copying the implementation's calculation into the test.
+- Combine the applicable rows for mixed changes and expand verification when shared consumers or failures reveal wider impact. Do not classify a behavior change as cosmetic because its diff is small.
+- For a reproducible functional defect, add a regression test and establish that it fails for the original reason before the fix when feasible. Derive expectations from the requirement, not by copying the implementation's calculation into the test. Isolated cosmetic corrections may use focused visual verification; do not invent tests that merely assert wording, class names, SVG paths, or implementation details.
 - Test important failures and boundaries alongside the happy path. For example, editing an archived turn must leave all its direct memory consumers stale even when another repaired consumer returns unchanged. Assert saved state and model-call counts when no-call/reuse behavior is part of the promise.
 - Use real core/persistence paths for integration tests and mock external transport at the boundary. Avoid mocking away the invariant under test. Keep fixtures deterministic, isolated, and representative; wait for observable conditions instead of arbitrary sleeps, and clean up test processes/databases.
 - Never delete, skip, weaken, or rewrite a failing expectation solely to obtain a green run. An accepted behavior change may require updating a test; explain why its old expectation no longer applies and retain meaningful coverage. Do not loosen types, validation, security, or error handling to satisfy a test.
 - Investigate relevant failures and fix those introduced by the change. Distinguish demonstrably pre-existing failures and environment blockers from regressions; a rerun that happens to pass is not evidence that a flaky failure is resolved.
+
+### Full-suite checkpoints and efficient execution
+
+- The checks above are sufficient for an ordinary handoff within their stated scope; a full suite is not required after every application edit or commit. Keep the existing suites and run `npm run check` before distributing an updated version, at the completion of a substantial batch of related application changes, and for broad or uncertain changes listed above. A batch checkpoint means completing a larger feature or a group of changes across workflows, not each small cosmetic task.
+- Use broader verification for changes that put saved data, authentication, context coverage or operation recovery at risk when focused checks cannot establish the affected boundaries. Explain the concrete risk when expanding the scope; do not run every suite solely because a server or shared file was touched.
+- Use focused checks while iterating. Do not repeat successful checks against unchanged relevant code, dependencies and test configuration unless a new failure or unresolved concern justifies it. At a full-suite checkpoint, successful constituent commands against the final state are equivalent to `npm run check`; rerun only checks whose inputs changed. A build already includes typechecking.
+- Build before browser checks when application sources changed because they serve `dist/client`; do not validate against a stale build. Select relevant browser files or test names instead of running the entire browser suite for a local change.
 
 ### Commands
 
@@ -124,9 +135,10 @@ Use the supported Node/npm environment from README.md; better-sqlite3 is native,
 | `npm test -- tests/context-core.test.ts` | Example of a focused existing Vitest suite; select the suite relevant to the change. |
 | `npm run build` | Typecheck and build the interface/server. |
 | `npm run test:e2e` | Browser workflows against the built interface and an isolated test server. |
+| `npm run test:e2e -- tests/browser/libraries-layout.spec.ts` | Example of focused browser verification; select files or test names relevant to the change. |
 | `npm run check` | Build, Vitest, and browser suites together. |
 
-Use focused checks while iterating. Before handing off application code, run `npm run check`; running its constituent commands successfully against the final changes is equivalent. Build before browser tests because they serve `dist/client`. If an environment restriction prevents a required check, report the exact missing verification and reason rather than claiming completion of validation. Pure documentation changes require consistency/link/command review, not an application test run. Chromium installation and local-server requirements are documented in README.md. There is no separate lint script; do not claim to have run one.
+If an environment restriction prevents a required check, report the exact missing verification and reason rather than claiming completion of validation. Chromium installation and local-server requirements are documented in README.md. There is no separate lint script; do not claim to have run one.
 
 ## Final review and handoff
 
@@ -134,4 +146,4 @@ Before declaring completion, read the final diff as a reviewer. Trace the change
 
 Update documentation when the change affects accepted behavior, architecture, operation, or verification claims. Put product decisions in CONCEPTS.md, implementation contracts in IMPLEMENTATION.md, commands/current limitations in README.md, and detailed subsystem explanations in `docs/`. Keep this file focused on durable working rules; do not append a feature diary or duplicate full specifications. This guidance does not authorize unrelated cleanup or retroactive application of every style preference.
 
-The final report should state the outcome, relevant checks actually run and their results, and any remaining limitations or unresolved risks. Provide a short manual acceptance path when it helps the user assess the feature. Clearly distinguish implemented, automatically tested, manually observed, and unverified behavior. Do not claim real-provider quality from mock responses, actual phone support from emulation, or a clean test run when required checks were blocked.
+The final report should state the outcome, relevant checks actually run and their results, and any remaining limitations or unresolved risks. When using focused verification, state its scope and that the full suite was not run; this is a valid handoff under the policy above. Provide a short manual acceptance path when it helps the user assess the feature. Clearly distinguish implemented, automatically tested, manually observed, and unverified behavior. Do not claim real-provider quality from mock responses, actual phone support from emulation, or a clean test run when required checks were blocked.
