@@ -1,15 +1,18 @@
+import type { ChatTextScale } from '../shared/appearance';
 import { useLocale } from './localization';
-import { useLayoutEffect, useRef, type TextareaHTMLAttributes } from 'react';
+import { useLayoutEffect, useRef, type CSSProperties, type TextareaHTMLAttributes } from 'react';
 
 type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'defaultValue' | 'onChange'> & {
   value: string;
   onValueChange: (value: string) => void;
   autoSize?: boolean;
+  textScale?: ChatTextScale;
 };
 
 /** Typographic substitution belongs to live typing, never to loading saved prose. */
-export function ChatTextarea({ value, onValueChange, autoSize = false, ...props }: Props) {
+export function ChatTextarea({ value, onValueChange, autoSize = false, textScale, ...props }: Props) {
   useLocale();
+  const style: CSSProperties & { '--chat-text-scale'?: number } = { ...props.style, '--chat-text-scale': textScale === undefined ? undefined : textScale / 100 };
   const textarea = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<number | null>(null);
 
@@ -56,7 +59,7 @@ export function ChatTextarea({ value, onValueChange, autoSize = false, ...props 
       observer.disconnect();
       window.removeEventListener('resize', fitContent);
     };
-  }, [autoSize, value]);
+  }, [autoSize, value, textScale]);
 
   useLayoutEffect(() => {
     if (pendingCaret.current === null) return;
@@ -64,7 +67,7 @@ export function ChatTextarea({ value, onValueChange, autoSize = false, ...props 
     pendingCaret.current = null;
   });
 
-  return <textarea {...props} ref={textarea} value={value} onChange={event => {
+  return <textarea {...props} style={style} ref={textarea} value={value} onChange={event => {
     const input = event.nativeEvent;
     const field = event.currentTarget;
     const caret = field.selectionStart;

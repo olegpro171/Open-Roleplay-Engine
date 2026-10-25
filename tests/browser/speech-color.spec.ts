@@ -119,6 +119,9 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
   await observer.setViewportSize({ width, height: 900 });
   await observer.goto('/');
   const before = await state();
+  const composer = observer.getByLabel('Your next turn');
+  const draft = 'Mira watches the lantern while Leon searches for the key. '.repeat(3);
+  await composer.fill(draft);
   try {
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Settings', exact: true }).click();
     const settings = page.getByRole('region', { name: 'Chat appearance', exact: true });
@@ -134,11 +137,15 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     for (const [scale, pixels] of [[90, 13.5], [100, 15], [110, 16.5], [120, 18]]) {
       await expect(slider).toHaveValue(String(scale));
       await expect(preview).toHaveCSS('font-size', `${pixels}px`);
+      await expect(composer).toHaveCSS('font-size', `${Number(((width > 800 ? 14 : 16) * scale / 100).toFixed(2))}px`);
+      await expect(composer).toHaveValue(draft);
+      await expect.poll(() => composer.evaluate(field => field.scrollHeight <= field.clientHeight + 1)).toBe(true);
       await expect(preview).toHaveCSS('line-height', `${Number((pixels * 1.85).toFixed(3))}px`);
       if (scale < 120) await slider.press('ArrowRight');
     }
     await expect(colorButton).toHaveCSS('font-size', buttonFontSize);
     await expect(observer.locator('.part.user .chat-markdown')).toHaveCSS('font-size', '18px');
+    await observer.screenshot({ path: testInfo.outputPath('scaled-composer.png'), fullPage: true });
     await page.route('**/api/application/appearance', route => route.request().method() === 'PUT'
       ? route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic appearance save failure.' }) }) : route.continue());
     await chooseColor(page, 'Default character speech color', '#eeaa88');

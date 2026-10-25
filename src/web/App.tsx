@@ -511,7 +511,7 @@ export function App() {
         {drafts.needsReview && <div className="recovery" role="alert"><p>{t("app.this_browser_draft_predates_a_backup_import")}</p><button onClick={drafts.review}>{t("app.use_recovered_draft")}</button></div>}
         {drafts.storageError && <div className="recovery" role="alert">{t("app.draft_could_not_be_saved_in_this")}</div>}
         <form className={isIOS ? 'composer composer-ios' : 'composer'} data-keyboard-visible={composerKeyboard || undefined} onSubmit={(event) => void send(event)}>
-          <ChatTextarea autoSize rows={1} aria-label={t("app.your_next_turn")} id="turn-input" enterKeyHint="enter" onKeyDown={event => {
+          <ChatTextarea autoSize textScale={appearance.settings.chatTextScale} rows={1} aria-label={t("app.your_next_turn")} id="turn-input" enterKeyHint="enter" onKeyDown={event => {
             if (!isComposerSendKey(event.nativeEvent, enterKeyBehavior, mobileKeyboard, macKeyboard)) return;
             event.preventDefault();
             if (!event.repeat && canSend && !sendInFlight.current) event.currentTarget.form?.requestSubmit();
