@@ -1,16 +1,16 @@
 # Interface localization
 
-ORE loads language packs at runtime. English is the bundled, authoritative fallback. Russian is available as an empty bundled pack; it uses English until translations are imported. A complete Russian translation is intentionally deferred.
+ORE loads language packs at runtime. English is the bundled, authoritative fallback. Russian is a complete built-in translation, authored from ORE’s product terminology and maintained with application changes. No imported file is needed.
 
 ## Using languages
 
-Use **Settings → Language → Interface language**. Language selectors are not shown in the header or **Chat details**. Switching language updates mounted controls without reloading the page. The composer draft remains in place when navigating to Settings and back. Each browser remembers its selection in `ore-interface-language`; it does not change another device's language. On first use, ORE chooses an available match for the browser's language preferences, otherwise English. An empty Russian pack still selects Russian number/date formatting while interface messages fall back to English.
+Use **Settings → Language → Interface language**. Language selectors are not shown in the header or **Chat details**. Switching language updates mounted controls without reloading the page. The composer draft remains in place when navigating to Settings and back. Each browser remembers its selection in `ore-interface-language`; it does not change another device's language. On first use, ORE chooses an available match for the browser's language preferences, otherwise English.
 
 **Download translation template** downloads the current English catalog with Russian metadata and all required Russian plural variants. Translate the values, keeping keys and named placeholders unchanged. Untranslated keys can be removed altogether to use English fallback. Import the JSON through **Import language file**; replacing an installed custom pack requires confirmation and its captured revision. Malformed JSON, invalid metadata/structure, unsafe keys, unsupported formats and file-limit violations reject the whole file with an explanation; failed writes also preserve the previous file. Incompatible individual entries do not reject the pack: valid translations load and Settings opens a report listing each excluded key and its reason, including expected and supplied placeholders. The report remains available after reload/restart and covers discovered packs as well as imports. Large reports show 20 entries per page. Importing does not select a different language automatically.
 
 To extend a partial translation after an app update, select it under **Interface language**, then choose **Download extended translation**. This downloads `<locale>.json` from the currently loaded pack, preserving its metadata, existing translations (including incompatible entries) and unknown keys while filling missing current entries and required plural forms with English text. Translate the added values and import the file to update the installed pack. Downloading does not change the installed file or its coverage count. The button is disabled for the bundled English fallback and while language operations are running; the original template download remains available for starting a new translation.
 
-Alternatively, place a UTF-8 `<locale>.json` file in the installation's `languages/` directory; open Settings to discover it automatically. Examples are `ru.json`, `de.json` and `pt-BR.json`. The filename must match its canonical locale. Source development uses the repository's ignored `languages/` directory. Portable installations use `<ORE_HOME>/languages`, independently of database overrides and versioned `app/` directories. Updates preserve this directory. No rebuild or server restart is required.
+Alternatively, place a UTF-8 `<locale>.json` file in the installation's `languages/` directory; open Settings to discover it automatically. Examples are `ru.json`, `de.json` and `pt-BR.json`. The filename must match its canonical locale. A custom `ru.json` overrides the complete built-in Russian pack; remove that file to return to the maintained built-in translation. Source development uses the repository's ignored `languages/` directory. Portable installations use `<ORE_HOME>/languages`, independently of database overrides and versioned `app/` directories. Updates preserve this directory. No rebuild or server restart is required.
 
 Reloading also updates the active pack. A removed selected language falls back to English, retaining the browser preference so it can be selected again after restoration. A structurally malformed edit retains that server process's last structurally valid pack and displays a notice. After restart, a structurally invalid custom pack uses its bundled fallback, if present; other invalid packs are omitted. Settings refreshes language files when opened and every five seconds while open; polling stops when Settings closes. This uses the existing authenticated reload API, without a filesystem watcher or a Reload button.
 
@@ -60,6 +60,7 @@ Migration 15 adds a nullable `generations.error_message` field. New terminal out
 
 - `src/shared/localization.ts`: pack/descriptor contracts, canonical locales, placeholder and plural validation, English diagnostic construction and template generation.
 - `src/shared/localization-en.ts`: stable English message keys. Add new entries explicitly; changing English wording must not rename existing keys.
+- `src/shared/localization-ru.ts`: complete maintained Russian catalog. Its type requires every English key and every Russian plural form; catalog tests also check exact key coverage and placeholder compatibility.
 - `src/shared/localization-validation.ts`: presentation descriptors for Zod issues and explicitly authored validation messages.
 - `src/server/languages.ts`: bounded discovery, last-valid recovery, revision checks and private atomic file replacement.
 - `src/web/localization.tsx`: i18next/react-i18next instance, browser preference, stale-response protection and render-time message formatting.
@@ -69,8 +70,29 @@ Use `t(key, params)` for render-time labels and subscribe with `useLocale()` in 
 
 Extend shared diagnostic schemas together with their producers and receipt/backup consumers. Do not translate domain values, CSS selectors, element IDs, protocol names or user-authored text. Model-bound prose and labels that are themselves part of a saved model request remain outside presentation translation.
 
+## Russian terminology and maintenance
+
+Maintain English and Russian in the same change whenever interface meaning changes. Review the actual caller and surrounding flow rather than translating isolated strings. Prefer natural, concise Russian sentences; preserve distinctions between saving, selecting, preparing and approving memory. Do not translate editable model prompts, saved user titles or protocol identifiers. Retain old diagnostic keys needed by historical records.
+
+| English | Russian | Meaning |
+| --- | --- | --- |
+| Connection | Подключение | Reusable endpoint, credentials, model and limits |
+| Prompt preset | Шаблон промпта | Ordered text blocks and markers |
+| Context preset | Пресет контекста | Reusable memory configuration |
+| Character / Persona | Персонаж / Персона | Model’s identity / user’s identity |
+| Lorebook / lore | Лорбук / лор | Conditional world information |
+| Turn / message | Ход / сообщение | Whole user/assistant pair / one part |
+| Summary | Сводка | Saved narrative representation of sources |
+| Prepare chat / repair summaries | Подготовить чат / исправить сводки | Budget preparation / reviewed dependency repair |
+| Verbatim / archived | Дословно / архив | Original text in input / represented through memory |
+| Retained alternative | Сохранённая альтернатива | Saved but not active in model input |
+| Promotion | Объединение на следующем уровне | Compress a fixed group of summaries |
+| Stale / fresh | Устарело / актуально | Structural dependency freshness, not factual quality |
+
+Use complete messages with named parameters, avoiding English grammatical fragments in parameters. All Russian cardinal groups require `one`, `few`, `many`, and `other`. Compile-time coverage and tests prevent omissions and malformed substitutions; linguistic accuracy still requires contextual review.
+
 ## Verification
 
-`tests/localization.test.ts` covers runtime file discovery/reload, partial packs, preservation of incompatible entries through discovery/import/restart/export, unsupported/unsafe input, detailed structural errors, placeholder reports and whole-group Russian plural fallback, English/legacy fallback, atomic write failure, stale replacements, authentication/origin checks and populated schema-14 upgrade preservation. Existing persistence tests cover import receipt replay and backup compatibility. Browser localization tests use a small synthetic Russian pack at desktop and phone-sized widths; they cover partial import/replacement, incompatible-entry reports and pagination, preserved export entries, correction/reimport, malformed-file rejection, live switching, fallback and composer draft preservation. These are structural/interaction checks, not a review of translation quality or actual phone behavior.
+`tests/localization.test.ts` covers runtime file discovery/reload, partial packs, preservation of incompatible entries through discovery/import/restart/export, unsupported/unsafe input, detailed structural errors, placeholder reports and whole-group Russian plural fallback, English/legacy fallback, atomic write failure, stale replacements, authentication/origin checks and populated schema-14 upgrade preservation. Existing persistence tests cover import receipt replay and backup compatibility. Built-in Russian browser checks exercise selection without import, settings, libraries, editors, memory, request inspection, language persistence and unchanged model input at desktop and phone-sized widths. Additional browser localization tests use a small synthetic Russian pack at desktop and phone-sized widths; they cover partial import/replacement, incompatible-entry reports and pagination, preserved export entries, correction/reimport, malformed-file rejection, live switching, fallback and composer draft preservation. These are structural/interaction checks, not a review of translation quality or actual phone behavior.
 
 Run `npm run check` with the supported Node runtime and permission to start isolated local test servers. No real provider credentials are needed.

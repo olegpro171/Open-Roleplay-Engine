@@ -121,3 +121,16 @@ const sortKeys = {
   "contexts": "libraryActions.sort.contexts"
 } as const satisfies Record<string, MessageKey>;
 export function sortLibraryLabel(value: keyof typeof sortKeys) { return t(sortKeys[value]); }
+
+const editKeys = {
+  "chats": "libraryActions.edit.chats",
+  "personas": "libraryActions.edit.personas",
+  "characters": "libraryActions.edit.characters",
+  "lorebooks": "libraryActions.edit.lorebooks",
+  "connections": "libraryActions.edit.connections",
+  "prompts": "libraryActions.edit.prompts",
+  "contexts": "libraryActions.edit.contexts"
+} as const satisfies Record<keyof typeof newKeys, MessageKey>;
+export function libraryEditorTitle(value: keyof typeof newKeys, editing: boolean) {
+  return editing ? t(editKeys[value]) : newLibraryLabel(value);
+}

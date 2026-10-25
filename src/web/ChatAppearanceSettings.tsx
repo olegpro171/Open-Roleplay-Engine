@@ -20,11 +20,11 @@ export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosav
         }} />{t("chat_appearance_settings.display_character_picture")}</label>
       </fieldset>
       <fieldset><legend>{t("chat_appearance_settings.chat_text_size")}</legend>
-        <label htmlFor="chat-text-scale">{t("chat_appearance_settings.text_scale", { chatTextScale: draft.chatTextScale, value: draft.chatTextScale === 100 ? ' (default)' : '' })}</label>
+        <label htmlFor="chat-text-scale">{draft.chatTextScale === 100 ? t("chat_appearance_settings.text_scale_default", { scale: draft.chatTextScale }) : t("chat_appearance_settings.text_scale", { chatTextScale: draft.chatTextScale, value: '' })}</label>
         <p className="small muted" id="chat-text-scale-help">{t("chat_appearance_settings.adjust_message_text_independently_of_the_rest")}</p>
         <div className="chat-text-scale-control">
           <input id="chat-text-scale" type="range" min={90} max={120} step={10} list="chat-text-scale-ticks" value={draft.chatTextScale}
-            aria-describedby="chat-text-scale-help" aria-valuetext={`${draft.chatTextScale}%${draft.chatTextScale === 100 ? ' (default)' : ''}`}
+            aria-describedby="chat-text-scale-help" aria-valuetext={draft.chatTextScale === 100 ? t("chat_appearance_settings.scale_default", { scale: draft.chatTextScale }) : `${draft.chatTextScale}%`}
             onChange={event => {
               const chatTextScale = chatTextScaleSchema.parse(Number(event.target.value));
               autosave.update({ chatTextScale });

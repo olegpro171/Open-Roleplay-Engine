@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { englishMessages } from './localization-en.js';
+import { russianMessages } from './localization-ru.js';
 
 type CatalogKey = keyof typeof englishMessages;
 type PluralKey = { [K in CatalogKey]: K extends `${infer Base}_one` ? Base : never }[CatalogKey];
@@ -44,7 +45,7 @@ export const languagePackSchema = z.object({
 }).strict();
 export type LanguagePack = z.infer<typeof languagePackSchema>;
 export const englishPack: LanguagePack = { formatVersion: 1, locale: 'en', nativeName: 'English', direction: 'ltr', messages: englishMessages };
-export const russianPack: LanguagePack = { formatVersion: 1, locale: 'ru', nativeName: 'Русский', direction: 'ltr', messages: {} };
+export const russianPack: LanguagePack = { formatVersion: 1, locale: 'ru', nativeName: 'Русский', direction: 'ltr', messages: russianMessages };
 export function translationTemplate(locale = 'ru', nativeName = 'Русский', direction: LanguagePack['direction'] = 'ltr'): LanguagePack {
   const messages: Record<string, string> = { ...englishMessages };
   for (const key of Object.keys(englishMessages)) {

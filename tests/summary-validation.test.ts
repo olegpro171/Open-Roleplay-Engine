@@ -117,7 +117,7 @@ describe('summarization request gate', () => {
   ])('rejects %j without returning replacement text', async (text, finishReason, code) => {
     mockStream(text, finishReason);
     await expect(generateSummary(new OpenAICompatibleProvider(), request, 'test-secret', new AbortController().signal))
-      .rejects.toMatchObject({ code });
+      .rejects.toMatchObject({ code, localized: { key: expect.any(String), fallback: expect.any(String) } });
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
   });
 

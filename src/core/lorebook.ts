@@ -173,7 +173,7 @@ export async function resolveLore(input: LoreInput, matchRegex: RegexMatcher): P
     for (const value of [parsed.text, ...entry.keys, ...entry.secondaryKeys, ...directives.additionalKeys.flat(), ...(directives.excludeKeys ?? [])]) {
       for (const macro of value.matchAll(/{{([^{}]*)}}/g)) if (!/^\s*(char|user)\s*$/i.test(macro[1])) unknownMacros.add(macro[0]);
     }
-    if (unknownMacros.size) diagnostics.push({ code: 'unsupported_macro', entryId: entry.id, ...diagnosticMessage(message("interface.only_and_resolve_other_macro_literal", { size: String(unknownMacros.size), value: String(unknownMacros.size === 1 ? ' remains' : 's remain') })) });
+    if (unknownMacros.size) diagnostics.push({ code: 'unsupported_macro', entryId: entry.id, ...diagnosticMessage(message("diagnostics.literal_macros", { count: unknownMacros.size })) });
     const { placement, destination: resolvedDestination } = layout;
     if (!resolvedDestination) diagnostics.push({ code: 'unavailable_destination', entryId: entry.id, ...diagnosticMessage(message("interface.lore_destination_requires_its_enabled_nonempty_character_field", { placement: String(placement) })) });
     if (directives.position && directives.depth !== undefined) diagnostics.push({ code: 'position_overrides_depth', entryId: entry.id, ...diagnosticMessage(message("interface.position_takes_precedence_over_depth")) });

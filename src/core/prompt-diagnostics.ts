@@ -28,9 +28,7 @@ export function promptDiagnostics(sources: PromptSources, authorNote?: AuthorNot
     if (!note.success) diagnostics.push({ code: 'invalid_depth_prompt', target: 'characters', itemId: card.id, ...diagnosticMessage(message("interface.this_character_s_depth_note_has_invalid_settings")) });
     const messages = preset.blocks.find(block => block.enabled && block.kind === 'marker' && block.marker === 'messages');
     if ((!note.success || note.data.prompt.trim()) && (messages?.kind !== 'marker' || !messages.allowDepthPrompt)) {
-      diagnostics.push({ code: 'disabled_depth_prompt', target: 'prompts', itemId: promptId, message: messages
-        ? 'This character’s depth note will not be sent. Allow character depth prompt injection under Messages.'
-        : 'This character’s depth note will not be sent because Messages is absent or disabled.' });
+      diagnostics.push({ code: 'disabled_depth_prompt', target: 'prompts', itemId: promptId, ...diagnosticMessage(message(messages ? 'diagnostics.depth_note_permission' : 'diagnostics.depth_note_messages')) });
     }
   }
   if (sources.lorebook) {
@@ -41,7 +39,7 @@ export function promptDiagnostics(sources: PromptSources, authorNote?: AuthorNot
       return Boolean(layout.parsed.text.trim()) && !layout.destination;
     });
     if (unavailable.length) diagnostics.push({ code: 'unavailable_lore_destinations', target: 'lorebooks', itemId: sources.lorebook.id,
-      ...diagnosticMessage(message("interface.lorebook_be_inserted_because_the_required_character_field", { length: String(unavailable.length), value: String(unavailable.length === 1 ? 'entry cannot' : 'entries cannot'), value2: String(unavailable.slice(0, 3).map(entry => entry.name || 'Unnamed entry').join(', ')), value3: String(unavailable.length > 3 ? ', …' : '') })),
+      ...diagnosticMessage(message("diagnostics.unavailable_lore", { count: unavailable.length, entries: unavailable.slice(0, 3).map(entry => entry.name || entry.id).join(', ') + (unavailable.length > 3 ? ', …' : '') })),
     });
   }
   return diagnostics;

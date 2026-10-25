@@ -1,4 +1,4 @@
-import { message } from '../shared/localization.js';
+import { message, type LocalizedMessage, type MessageKey } from '../shared/localization.js';
 import { AppError } from '../core/errors.js';
 import { validateSummary } from '../core/summary-validation.js';
 import type { Provider, ProviderCompletion } from '../provider/openai.js';
@@ -6,7 +6,7 @@ import type { RequestPreview } from '../shared/contracts.js';
 import type { SummaryPhase } from '../shared/context.js';
 
 export class RefusedSummaryError extends AppError {
-  constructor(public readonly rejectedText: string, diagnostic: string) {
+  constructor(public readonly rejectedText: string, diagnostic: string | LocalizedMessage) {
     super(502, 'refused_summary', diagnostic);
   }
 }
@@ -43,8 +43,16 @@ export async function generateSummary(provider: Provider, request: RequestPrevie
   if (signal.aborted) throw cancelled();
   const validation = validateSummary(text, completion?.finishReason ?? 'unknown');
   if (!validation.accepted) {
-    if (validation.code === 'refused_summary') throw new RefusedSummaryError(text, validation.message);
-    throw new AppError(502, validation.code, validation.message);
+    const keys = {
+      incomplete_summary: 'summary_rejection.incomplete_summary',
+      empty_summary: 'errors.the_summarizer_returned_no_usable_text',
+      placeholder_summary: 'summary_rejection.placeholder_summary',
+      refused_summary: 'summary_rejection.refused_summary',
+      repetitive_summary: 'summary_rejection.repetitive_summary',
+    } as const satisfies Record<typeof validation.code, MessageKey>;
+    const diagnostic = message(keys[validation.code]);
+    if (validation.code === 'refused_summary') throw new RefusedSummaryError(text, diagnostic);
+    throw new AppError(502, validation.code, diagnostic);
   }
   return validation.text;
 }

@@ -3,11 +3,12 @@ import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Languages } from '../src/server/languages.js';
-import { englishPack, extendTranslation, languagePackSchema, localeSchema, message, translationTemplate, validateTranslations, languageFileProblem, languageStatusSchema } from '../src/shared/localization.js';
+import { englishPack, russianPack, extendTranslation, languagePackSchema, localeSchema, message, translationTemplate, validateTranslations, languageFileProblem, languageStatusSchema } from '../src/shared/localization.js';
 import { createApp } from '../src/server/app.js';
 import { Store } from '../src/persistence/store.js';
 import { assembleRequest } from '../src/core/prompt.js';
 import Database from 'better-sqlite3';
+import i18next from 'i18next';
 
 vi.mock('node:fs', async original => {
   const actual = await original<typeof import('node:fs')>();
@@ -17,6 +18,38 @@ const directories: string[] = [];
 function directory() { const path = fs.mkdtempSync(join(tmpdir(), 'ore-languages-')); directories.push(path); return path; }
 const russian = { formatVersion: 1, locale: 'ru', nativeName: 'Русский', direction: 'ltr', messages: { 'language.heading': 'Язык' } } as const;
 afterEach(() => { vi.restoreAllMocks(); for (const path of directories.splice(0)) fs.rmSync(path, { recursive: true, force: true }); });
+
+it('ships a complete compatible Russian catalog and serves it without custom files', () => {
+  const pack = languagePackSchema.parse(russianPack);
+  const expected = translationTemplate('ru').messages;
+  expect(Object.keys(pack.messages).sort()).toEqual(Object.keys(expected).sort());
+  const validated = validateTranslations(pack);
+  expect(validated.issues).toEqual([]);
+  expect(validated.messages).toEqual(pack.messages);
+  const languages = new Languages(directory());
+  expect(languages.get('ru')).toEqual(pack);
+  expect(languages.status().languages.find(item => item.locale === 'ru')).toMatchObject({
+    custom: false, translated: Object.keys(englishPack.messages).length,
+    total: Object.keys(englishPack.messages).length, translationIssues: [],
+  });
+});
+
+it('renders Russian plural forms and named parameters through the runtime translator', () => {
+  const translator = i18next.createInstance();
+  void translator.init({ lng: 'ru', fallbackLng: 'en', initAsync: false, keySeparator: false,
+    resources: { ru: { translation: russianPack.messages }, en: { translation: englishPack.messages } },
+    interpolation: { escapeValue: false },
+  });
+  for (const [count, turns, summaries] of [
+    [0, '0 ходов', '0 сводок'], [1, '1 ход', '1 сводка'], [2, '2 хода', '2 сводки'],
+    [5, '5 ходов', '5 сводок'], [11, '11 ходов', '11 сводок'], [21, '21 ход', '21 сводка'],
+    [22, '22 хода', '22 сводки'], [25, '25 ходов', '25 сводок'], [1.5, '1.5 хода', '1.5 сводки'],
+  ] as const) {
+    expect(translator.t('counts.turns', { count })).toBe(turns);
+    expect(translator.t('counts.summaries', { count })).toBe(summaries);
+  }
+  expect(translator.t('language.coverage', { translated: 10, total: 20 })).toContain('10 из 20');
+});
 
 it('preserves incompatible entries across import, discovery, export and restart while counting only usable translations', () => {
   const key = 'repair_review.approved_unchanged_after_model_check_reused_without';
@@ -134,7 +167,7 @@ it('extends empty and right-to-left packs using their own locale and plural requ
 it('discovers, installs and reloads partial packs without a build, retaining the last good pack on invalid edits', () => {
   const path = directory(), languages = new Languages(path);
   expect(languages.status().languages.map(item => item.locale)).toEqual(['en', 'ru']);
-  expect(languages.get('ru').messages).toEqual({});
+  expect(languages.get('ru').messages).toEqual(russianPack.messages);
   const saved = languages.save(russian, null);
   expect(saved.languages.find(item => item.locale === 'ru')).toMatchObject({ translated: 1, custom: true });
   expect(fs.statSync(join(path, 'ru.json')).mode & 0o777).toBe(0o600);
@@ -144,7 +177,7 @@ it('discovers, installs and reloads partial packs without a build, retaining the
   expect(languages.reload().issues).toHaveLength(1);
   expect(languages.get('ru')).toEqual(russian);
   const fresh = new Languages(path);
-  expect(fresh.get('ru').messages).toEqual({});
+  expect(fresh.get('ru').messages).toEqual(russianPack.messages);
   fs.writeFileSync(join(path, 'de.json'), JSON.stringify({ ...russian, locale: 'de', nativeName: 'Deutsch' }));
   languages.reload();
   expect(languages.get('de').nativeName).toBe('Deutsch');
@@ -167,7 +200,7 @@ it('rejects unsafe filenames, invalid tags and unsupported formats while reporti
   const target = join(directory(), 'private.json'); fs.writeFileSync(target, JSON.stringify(russian));
   const path = directory(); fs.symlinkSync(target, join(path, 'ru.json'));
   const linked = new Languages(path);
-  expect(linked.get('ru').messages).toEqual({}); expect(linked.status().issues).toHaveLength(1);
+  expect(linked.get('ru').messages).toEqual(russianPack.messages); expect(linked.status().issues).toHaveLength(1);
   // Unknown translation keys remain inert, allowing packs to survive application versions.
   expect(validateTranslations({ ...russian, messages: { 'future.feature': 'Later' } })).toEqual({ messages: {}, issues: [] });
   expect(validateTranslations(translationTemplate()).issues).toEqual([]);
@@ -240,7 +273,7 @@ it('allows safe pre-login language reads, requires authenticated same-origin imp
   const headers = { host: 'localhost', origin: 'http://localhost' };
   try {
     expect((await instance.app.inject({ url: '/api/localization', headers })).statusCode).toBe(200);
-    expect((await instance.app.inject({ url: '/api/localization/ru', headers })).json()).toEqual({ ...russian, messages: {} });
+    expect((await instance.app.inject({ url: '/api/localization/ru', headers })).json()).toEqual(russianPack);
     expect((await instance.app.inject({ method: 'POST', url: '/api/localization/import', headers, payload: { pack: russian, expectedRevision: null } })).statusCode).toBe(401);
     const setup = await instance.app.inject({ method: 'POST', url: '/api/setup', headers, payload: { password: 'synthetic-localization-password' } });
     const cookie = setup.headers['set-cookie']?.toString().split(';')[0];
