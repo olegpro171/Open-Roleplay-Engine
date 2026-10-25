@@ -5,7 +5,14 @@ import { placementLabel, stateLabel } from './localization-labels';
 import { Icon } from './Icon';
 import { useEffect, useRef, useState } from 'react';
 import type { PromptEntry, RequestPreview } from '../shared/contracts';
-import { LoreDiagnostics, lorePlacementLabels } from './LorebookEditor';
+import { LoreDiagnostics } from './LorebookEditor';
+
+const loreDisclosureKey = 'ore-prompt-peek-lore-open';
+
+function savedLoreDisclosure(): boolean {
+  try { return localStorage.getItem(loreDisclosureKey) === 'true'; }
+  catch { return false; }
+}
 
 const categories = (): { kind: PromptEntry['kind'] | 'overhead'; label: string }[] => [
   { kind: 'prompt', label: t("prompt_peek.prompt") }, { kind: 'character', label: t("app.character") },
@@ -54,6 +61,7 @@ export function LoreInspection({ request, historical = false }: { request: Reque
 
 export function PromptPeek({ request, stale, close }: { request: RequestPreview; stale: boolean; close: () => void }) {
   useLocale();
+  const [loreOpen, setLoreOpen] = useState(savedLoreDisclosure);
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const trigger = document.activeElement as HTMLElement | null;
@@ -69,9 +77,19 @@ export function PromptPeek({ request, stale, close }: { request: RequestPreview;
       <p className="small over-limit" hidden={!stale}>{t("prompt_peek.memory_is_out_of_date_repair_and")}</p>
       <strong>{t("app.estimated_input_2", { value: request.budget.inputTokens.toLocaleString(locale()), value2: limit.toLocaleString(locale()) })}</strong><InputMeter input={request.budget.inputTokens} limit={limit} />
       <BudgetBreakdown request={request} />
-      <LoreInspection request={request} />
+      <details className="peek-lore" open={loreOpen}>
+        <summary onClick={event => {
+          event.preventDefault();
+          const open = !loreOpen;
+          setLoreOpen(open);
+          try { localStorage.setItem(loreDisclosureKey, String(open)); }
+          catch { /* The disclosure remains usable when browser preferences cannot be saved. */ }
+        }}>{t("prompt_peek.resolved_lore")}</summary>
+        <LoreInspection request={request} />
+      </details>
       {request.warnings?.map((warning, index) => <p className="small" key={warning}>{formatMessage(request.warningMessages?.[index] ?? warning)}</p>)}
-      <div className="prompt-message-list"><PromptMessages request={request} entries={entries} /></div>
+      <h3 className="peek-prompt-heading">{t("prompt_peek.assembled_prompt")}</h3>
+      <section className="prompt-message-list" aria-label={t("prompt_peek.assembled_prompt")}><PromptMessages request={request} entries={entries} /></section>
       <details><summary>{t("prompt_peek.effective_request_parameters")}</summary><pre>{JSON.stringify({ ...request.body, messages: undefined }, null, 2)}</pre></details>
     </div>
   </dialog>;
@@ -79,17 +97,8 @@ export function PromptPeek({ request, stale, close }: { request: RequestPreview;
 
 function PromptMessages({ request, entries }: { request: RequestPreview; entries: Map<number, PromptEntry> }) {
   useLocale();
-  const message = (i: number) => {
-    const part = entries.get(i), value = request.body.messages[i];
+  return request.body.messages.map((value, i) => {
+    const part = entries.get(i);
     return <details className={`prompt-message ${part?.kind ?? 'prompt'}`} key={i}><summary><span className="message-order">{i + 1}</span><span>{formatMessage(part?.labelMessage ?? part?.label) || t("prompt_peek.message")}<small>{stateLabel(value.role)}</small></span><span className="message-size">{t("prompt_peek.est_2", { value: part?.tokens.toLocaleString(locale()) ?? '—' })}</span></summary><div className="prose">{value.content}</div></details>;
-  };
-  const result = [];
-  for (let i = 0; i < request.body.messages.length;) {
-    const group = entries.get(i)?.group;
-    if (!group) { result.push(message(i)); i++; continue; }
-    const start = i, children = [];
-    while (i < request.body.messages.length && entries.get(i)?.group?.id === group.id) children.push(message(i++));
-    result.push(<section className="prompt-message-group" aria-label={`${group.label} messages`} key={`group-${start}`}><h3>{group.label}</h3>{children}</section>);
-  }
-  return result;
+  });
 }

@@ -9,7 +9,7 @@ async function choose(page: Page, label: string, value: string) {
   await page.getByRole('option', { name: value, exact: true }).click();
 }
 
-test('selects Character fields, groups resolved messages and sends exact automatic lore placement', async ({ page }) => {
+test('selects Character fields, inspects a flat prompt with remembered lore disclosure and sends exact lore placement', async ({ page }) => {
   const session = await page.request.get('/api/session').then(response => response.json());
   await page.goto('/');
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
@@ -25,6 +25,7 @@ test('selects Character fields, groups resolved messages and sends exact automat
   await page.request.post('/__test/mode', { data: { mode: 'normal' } });
   const connection = await command('/api/library', { revision: (await library()).revision, kind: 'connections', data: { name: 'Field proof model', endpoint, model: 'synthetic-roleplay', contextWindow: 100000, maxOutputTokens: 1000, customParameters: {} } });
   const character = await command('/api/library', { revision: (await library()).revision, kind: 'characters', data: { name: 'Mira', description: '{{char}} keeps the key.', personality: 'PERSONALITY EXCLUDED', scenario: 'A quiet tower.', mes_example: 'EXAMPLES EXCLUDED', first_mes: '' } });
+  const persona = await command('/api/library', { revision: (await library()).revision, kind: 'personas', data: { name: 'Leon', description: 'A visiting scholar.' } });
   const book = await command('/api/library', { revision: (await library()).revision, kind: 'lorebooks', data: { ...newLorebook(), name: 'Field proof lore', entries: [
     { ...newLoreEntry('description'), name: 'Tower secret', constant: true, placement: 'after_desc', content: 'The key opens the northern vault.' },
     { ...newLoreEntry('personality'), name: 'Absent personality lore', constant: true, placement: 'personality', content: 'MUST NOT INSERT' },
@@ -60,7 +61,7 @@ test('selects Character fields, groups resolved messages and sends exact automat
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   const exported = await page.request.get(`/api/library/prompts/${saved.id}/export`).then(response => response.json() as Promise<PromptPreset>);
   expect(exported.blocks).toEqual(saved.blocks);
-  const chat = await command('/api/chats', { title: 'Character field story', targetInputTokens: 5000, connectionId: connection.id, characterId: character.id, promptId: saved.id, personaId: null, lorebookId: book.id });
+  const chat = await command('/api/chats', { title: 'Character field story', targetInputTokens: 5000, connectionId: connection.id, characterId: character.id, promptId: saved.id, personaId: persona.id, lorebookId: book.id });
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Character field story', exact: true }) }).click();
   await page.getByLabel('Your next turn').fill('I enter the tower.');
@@ -69,21 +70,63 @@ test('selects Character fields, groups resolved messages and sends exact automat
   await page.locator('.context-dropdown > summary').click();
   await page.getByRole('button', { name: 'Prompt peek', exact: true }).click();
   const peek = page.getByRole('dialog', { name: 'Prompt peek', exact: true });
-  const group = peek.getByRole('region', { name: 'Character messages', exact: true });
-  await expect(group.locator('details')).toHaveCount(3);
-  expect(await group.locator('.prompt-message summary').allTextContents()).toEqual(expect.arrayContaining([expect.stringContaining('Description'), expect.stringContaining('Lore · Tower secret'), expect.stringContaining('Scenario')]));
+  const messages = peek.getByRole('region', { name: 'Assembled prompt', exact: true });
+  await expect(messages).toBeVisible();
+  await expect(messages.getByRole('region', { name: 'Character messages', exact: true })).toHaveCount(0);
+  expect(await messages.locator(':scope > .prompt-message > summary').allTextContents()).toEqual([
+    expect.stringContaining('Card system prompt'), expect.stringContaining('Description'),
+    expect.stringContaining('Lore · Tower secret'), expect.stringContaining('Scenario'),
+    expect.stringContaining('Persona'), expect.stringContaining('Unsent input'), expect.stringContaining('Lore · History lore'),
+  ]);
+  const colors = await messages.locator(':scope > .prompt-message').evaluateAll(elements => elements.map(element => getComputedStyle(element).borderLeftColor));
+  expect(colors[2]).toBe(colors[6]);
+  expect(new Set([colors[0], colors[1], colors[2], colors[4], colors[5]]).size).toBe(5);
+  const loreLegendColor = await peek.locator('.allocation-legend .allocation.lore').evaluate(element => getComputedStyle(element).backgroundColor);
+  expect(colors[2]).toBe(loreLegendColor);
+  const lore = peek.locator('.peek-lore');
+  await expect(lore).not.toHaveAttribute('open');
+  await expect(lore.getByRole('region', { name: 'Resolved lore' })).not.toBeVisible();
+  await lore.locator(':scope > summary').click();
   await expect(peek).toContainText('Absent personality lore · excluded');
-  await group.scrollIntoViewIfNeeded();
+  await expect(lore.getByRole('region', { name: 'Resolved lore' })).toBeVisible();
+  await lore.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/character-peek-lore-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await lore.scrollIntoViewIfNeeded();
+  expect(await peek.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/character-peek-lore-phone.png', fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole('button', { name: 'Close peek', exact: true }).click();
+  await page.getByRole('button', { name: 'Prompt peek', exact: true }).click();
+  await expect(lore).toHaveAttribute('open');
+  await lore.locator(':scope > summary').focus();
+  await page.keyboard.press('Space');
+  await expect(lore).not.toHaveAttribute('open');
+  await page.getByRole('button', { name: 'Close peek', exact: true }).click();
+  await page.reload();
+  await page.locator('.context-dropdown > summary').click();
+  await page.getByRole('button', { name: 'Prompt peek', exact: true }).click();
+  await expect(lore).not.toHaveAttribute('open');
+  await lore.locator(':scope > summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(lore).toHaveAttribute('open');
+  await page.reload();
+  await page.locator('.context-dropdown > summary').click();
+  await page.getByRole('button', { name: 'Prompt peek', exact: true }).click();
+  await expect(lore).toHaveAttribute('open');
+  await lore.locator(':scope > summary').click();
+  await peek.evaluate(element => { element.scrollTop = 0; });
   await page.screenshot({ path: 'test-results/character-peek-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  await group.scrollIntoViewIfNeeded();
+  await messages.scrollIntoViewIfNeeded();
   expect(await peek.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/character-peek-phone.png', fullPage: true });
   await page.getByRole('button', { name: 'Close peek', exact: true }).click();
   const preview: RequestPreview = await command(`/api/chats/${chat.id}/preview`, { revision: (await state()).revision, text: 'I enter the tower.' });
   expect(preview.body.messages.slice(1)).toEqual([
     { role: 'user', content: 'Mira keeps the key.' }, { role: 'system', content: 'The key opens the northern vault.' },
-    { role: 'user', content: 'A quiet tower.' }, { role: 'user', content: 'I enter the tower.' }, { role: 'system', content: 'The moon is rising.' },
+    { role: 'user', content: 'A quiet tower.' }, { role: 'system', content: 'A visiting scholar.' },
+    { role: 'user', content: 'I enter the tower.' }, { role: 'system', content: 'The moon is rising.' },
   ]);
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect.poll(async () => (await state()).generations[0]?.status).toBe('succeeded');
