@@ -72,6 +72,8 @@ Keep reusable Connection settings, prompt arrangement, context configuration, ch
 
 The server remains authoritative when both devices are open. Coordinate mutations per chat and verify revisions before applying asynchronous results. Browser button disabling alone cannot enforce the rule that only the latest turn may be pending.
 
+`App.tsx` retains the originating operation with each shared-banner diagnostic: loading failures can retry the read, while command/submission failures offer only Dismiss. Connection failures additionally retain an explicit recovery reason for session polling/automatic clearing; an HTTP error with the same wording remains a request failure. Classification does not depend on diagnostic keys or translated text. Background reads and reconnection cannot replace or clear an unresolved action failure. Dismiss changes only banner state, preserving editor drafts; it never retries a write.
+
 ## 5. Persistence and transaction rules
 
 Use SQLite on the Mac's local disk, with WAL mode and short write transactions. Phone access goes through the API, never through a shared database file. A synchronous database driver is acceptable for this initial workload; keep database work bounded and avoid long operations that stall the server.

@@ -306,6 +306,9 @@ test('failed sends retain exact drafts and retry identity across reload until ac
   });
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.locator('.error-banner').getByRole('button')).toHaveCount(1);
+  await page.locator('.error-banner').getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await expect(page.locator('.error-banner')).toHaveCount(0);
   await expect(page.getByLabel('Your next turn')).toHaveValue(text);
   await page.reload();
   await expect(page.getByLabel('Your next turn')).toHaveValue(text);
@@ -390,6 +393,9 @@ test('a rejected command keeps its draft and permits a corrected explicit retry'
   });
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Synthetic command rejection');
+  await expect(page.locator('.error-banner').getByRole('button')).toHaveCount(1);
+  await page.locator('.error-banner').getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await expect(page.locator('.error-banner')).toHaveCount(0);
   await expect(page.getByLabel('Your next turn')).toHaveValue('Mira keeps her unsent response.');
   await page.reload();
   await expect(page.getByLabel('Your next turn')).toHaveValue('Mira keeps her unsent response.');

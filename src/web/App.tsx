@@ -39,6 +39,9 @@ import { lanStatusSchema, type LanSettings, type LanStatus } from '../shared/lan
 
 type Session = { setupRequired: boolean; authenticated: boolean };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
+type AppFailure =
+  | { kind: 'loading'; reason: 'connection' | 'request'; message: MessageText }
+  | { kind: 'action'; message: MessageText };
 const serverUnavailable = msg("app.cannot_reach_the_server_check_that_it");
 // iPadOS can advertise a Mac when requesting desktop sites.
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
@@ -95,7 +98,13 @@ export function App() {
   const deferredRefresh = useRef<RefreshScope | null>(null);
   const forceLatest = useRef(false);
   const [pageError, setPageError] = useTextState('');
-  const [error, setError] = useTextState('');
+  const [failure, setFailure] = useState<AppFailure | null>(null);
+  const error = formatMessage(failure?.message);
+  const serverUnreachable = failure?.kind === 'loading' && failure.reason === 'connection';
+  const reportLoadFailure = useCallback((message: MessageText, reason: 'connection' | 'request') => {
+    // A failed background read must not replace the action the user needs to resolve.
+    setFailure(current => current?.kind === 'action' ? current : { kind: 'loading', reason, message });
+  }, []);
   const [online, setOnline] = useState(false);
   const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory' | 'data'>('story');
   const visibleTab = useRef(tab);
@@ -123,10 +132,11 @@ export function App() {
     if (!edit || !form || !scroller) return;
     scroller.scrollTop += form.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 16;
   }, [edit?.turnId, edit?.part]);
-  const clearServerError = useCallback(() => setError(current => formatMessage(current) === formatMessage(serverUnavailable) ? '' : current), []);
+  const clearServerError = useCallback(() => setFailure(current => current?.kind === 'loading'
+    && current.reason === 'connection' ? null : current), []);
   const refreshSession = useCallback(async () => {
-    try { setSession(await api<Session>('/session')); clearServerError(); } catch { setError(serverUnavailable); }
-  }, [clearServerError]);
+    try { setSession(await api<Session>('/session')); clearServerError(); } catch { reportLoadFailure(serverUnavailable, 'connection'); }
+  }, [clearServerError, reportLoadFailure]);
   const editRef = useRef(edit);
   editRef.current = edit;
   const refreshReader = useRef<(scope: RefreshScope) => Promise<void>>(async () => {});
@@ -216,7 +226,8 @@ export function App() {
       if (id !== loadId.current) return;
       if (error instanceof ApiError && error.status === 401) void refreshSession();
       else if (error instanceof ApiError && error.status === 404) { setChatId(null); }
-      else setError(error instanceof ApiError ? errorText(error) : serverUnavailable);
+      else if (error instanceof ApiError) reportLoadFailure(errorText(error), 'request');
+      else reportLoadFailure(serverUnavailable, 'connection');
     } finally {
       // Page movement and chat switches invalidate reads already in flight.
       // Retain their scopes: without periodic polling, dropping a settings
@@ -230,13 +241,13 @@ export function App() {
   selectedChat.current = chatId;
   useEffect(() => { void refreshSession(); }, [refreshSession]);
   useEffect(() => {
-    if (error !== formatMessage(serverUnavailable)) return;
+    if (!serverUnreachable) return;
     let checking = false;
     const timer = setInterval(() => {
       if (!checking) { checking = true; void refreshSession().finally(() => { checking = false; }); }
     }, 2_000);
     return () => clearInterval(timer);
-  }, [error, refreshSession]);
+  }, [serverUnreachable, refreshSession]);
   useEffect(() => {
     if (!session?.authenticated) return;
     // Reading saved state must also work when the observer cannot connect.
@@ -412,10 +423,10 @@ export function App() {
   const partial = active?.partialText ?? (pending ? latest?.partialText : '');
 
   async function command(action: () => Promise<unknown>): Promise<boolean> {
-    setBusy(true); setError('');
+    setBusy(true); setFailure(null);
     try { await action(); await refresh(); return true; }
     catch (error) {
-      setError(errorText(error, msg("app.the_request_failed")));
+      setFailure({ kind: 'action', message: errorText(error, msg("app.the_request_failed")) });
       await refresh(); return false;
     } finally { setBusy(false); }
   }
@@ -434,7 +445,7 @@ export function App() {
     const id = snapshot.id;
     const sent = drafts.stage(id, snapshot.revision);
     sendInFlight.current = true;
-    setBusy(true); setError('');
+    setBusy(true); setFailure(null);
     try {
       await api(`/chats/${id}/turns`, 'POST', sent.submission);
       drafts.acknowledge(id, sent);
@@ -442,7 +453,7 @@ export function App() {
     } catch (error) {
       // A server rejection is definite; a lost response is ambiguous, so retain its request identity.
       if (error instanceof ApiError && error.status < 500) drafts.reject(id, sent);
-      setError(errorText(error, msg("app.the_request_failed")));
+      setFailure({ kind: 'action', message: errorText(error, msg("app.the_request_failed")) });
     } finally {
       await latestRefresh.current();
       sendInFlight.current = false;
@@ -457,7 +468,7 @@ export function App() {
   }
 
   if (!session) return <main className="login"><p>{t("app.opening_ore")}</p>{error && <p role="alert">{error}</p>}</main>;
-  if (!session.authenticated) return <Login session={session} onLogin={async () => { setError(''); await refreshSession(); }} />;
+  if (!session.authenticated) return <Login session={session} onLogin={async () => { setFailure(null); await refreshSession(); }} />;
   function openChat(id: string, destination: 'story' | 'settings' = 'story') {
     loadId.current++;
     pageRequest.current?.abort();
@@ -507,8 +518,8 @@ export function App() {
     </header>
     {dataChanged && <div className="error-banner" role="alert"><span>{t("app.application_data_was_imported_or_wiped_in")}</span><button onClick={() => window.location.reload()}>{t("app.reload_current_data")}</button></div>}
     {error && <div className="error-banner" role="alert"><span>{error}</span><div className="actions error-banner-actions">
-      <button className="quiet" disabled={busy} onClick={() => { setError(''); void refresh(); }}>{t("app.retry_loading")}</button>
-      <button className="quiet" onClick={() => setError('')}>{t("app.dismiss")}</button>
+      {failure?.kind === 'loading' && <button className="quiet" disabled={busy} onClick={() => { setFailure(null); void refresh(); }}>{t("app.retry_loading")}</button>}
+      <button className="quiet" onClick={() => setFailure(null)}>{t("app.dismiss")}</button>
     </div></div>}
     {appearanceError && <div className="error-banner" role="alert"><span>{t("app.using_the_last_loaded_chat_appearance_or", { appearanceError: appearanceError })}</span><button className="quiet" onClick={() => void refresh()}>{t("app.retry_chat_appearance")}</button></div>}
     {chatBehaviorError && <div className="error-banner" role="alert"><span>{t('chat_behavior.shortcuts_unavailable', { error: chatBehaviorError })}</span><button className="quiet" onClick={() => void refresh()}>{t('chat_behavior.retry')}</button></div>}
