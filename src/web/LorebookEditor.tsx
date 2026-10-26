@@ -132,6 +132,12 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
   </form>;
 }
 
+function parseEntryKeys(text: string, useRegex: boolean): string[] {
+  // Commas and surrounding spaces can be meaningful inside a regex pattern.
+  if (useRegex) return text.split('\n').filter(Boolean);
+  return text.split(/[,\r\n]/).map(key => key.trim()).filter(Boolean);
+}
+
 function EntryFields({ entry, update, issues }: { entry: LoreEntry; update: (patch: Partial<LoreEntry>) => void; issues: z.core.$ZodIssue[] }) {
   useLocale();
   const [keys, setKeys] = useState(entry.keys.join('\n')), [secondary, setSecondary] = useState(entry.secondaryKeys.join('\n'));
@@ -140,11 +146,16 @@ function EntryFields({ entry, update, issues }: { entry: LoreEntry; update: (pat
     <label className="full">{t("lorebook_editor.entry_name")}<input maxLength={200} value={entry.name} onChange={event => update({ name: event.target.value })} />{errors('name')}</label>
     <label className="checkbox"><input type="checkbox" checked={entry.enabled} onChange={event => update({ enabled: event.target.checked })} />{t("lorebook_editor.entry_enabled")}</label>
     <label className="checkbox"><input type="checkbox" checked={entry.constant} onChange={event => update({ constant: event.target.checked })} />{t("lorebook_editor.constant_activation")}</label>
-    <label className="full">{t("lorebook_editor.primary_keys")}<EditorTextarea aria-label={t("lorebook_editor.primary_keys")} value={keys} onChange={event => { setKeys(event.target.value); update({ keys: event.target.value.split('\n').filter(Boolean) }); }} /><small>{t("lorebook_editor.one_key_per_line_at_least_one")}</small>{errors('keys')}</label>
-    <label className="full">{t("lorebook_editor.secondary_keys")}<EditorTextarea aria-label={t("lorebook_editor.secondary_keys")} value={secondary} onChange={event => { setSecondary(event.target.value); update({ secondaryKeys: event.target.value.split('\n').filter(Boolean) }); }} /><small>{t("lorebook_editor.one_key_per_line_secondary_matching_additionally")}</small>{errors('secondaryKeys')}</label>
+    <label className="full">{t("lorebook_editor.primary_keys")}<EditorTextarea aria-label={t("lorebook_editor.primary_keys")} value={keys} onChange={event => { setKeys(event.target.value); update({ keys: parseEntryKeys(event.target.value, entry.useRegex) }); }} /><small>{t("lorebook_editor.one_key_per_line_at_least_one")}</small>{errors('keys')}</label>
+    <label className="full">{t("lorebook_editor.secondary_keys")}<EditorTextarea aria-label={t("lorebook_editor.secondary_keys")} value={secondary} onChange={event => { setSecondary(event.target.value); update({ secondaryKeys: parseEntryKeys(event.target.value, entry.useRegex) }); }} /><small>{t("lorebook_editor.one_key_per_line_secondary_matching_additionally")}</small>{errors('secondaryKeys')}</label>
     <label className="checkbox full"><input type="checkbox" checked={entry.selective} onChange={event => update({ selective: event.target.checked })} />{t("lorebook_editor.require_a_secondary_key_match")}</label>
     <label className="checkbox"><input type="checkbox" checked={entry.caseSensitive} onChange={event => update({ caseSensitive: event.target.checked })} />{t("lorebook_editor.case_sensitive_matching")}</label>
-    <label className="checkbox"><input type="checkbox" checked={entry.useRegex} onChange={event => update({ useRegex: event.target.checked })} />{t("lorebook_editor.use_regular_expressions")}</label>
+    <label className="checkbox"><input type="checkbox" checked={entry.useRegex} onChange={event => {
+      // Keep the existing key boundaries when changing how those keys match.
+      setKeys(entry.keys.join('\n'));
+      setSecondary(entry.secondaryKeys.join('\n'));
+      update({ useRegex: event.target.checked });
+    }} />{t("lorebook_editor.use_regular_expressions")}</label>
     <label className="full">{t("lorebook_editor.lore_content")}<EditorTextarea aria-label={t("lorebook_editor.lore_content")} className="lore-content" maxLength={100_000} value={entry.content} onChange={event => update({ content: event.target.value })} /><small>{t("lorebook_editor.inserted_prose_supports_and_v3_decorator_lines", { value: '{{user}}', value2: '{{char}}' })}</small>{errors('content')}</label>
     <label className="full">{t("lorebook_editor.entry_comment")}<EditorTextarea aria-label={t("lorebook_editor.entry_comment")} maxLength={100_000} value={entry.comment} onChange={event => update({ comment: event.target.value })} /><small>{t("lorebook_editor.for_you_never_inserted_into_the_prompt")}</small>{errors('comment')}</label>
     <label>{t("lorebook_editor.insertion_order")}<input required type="number" step="any" value={entry.insertionOrder} onChange={event => update({ insertionOrder: Number(event.target.value) })} />{errors('insertionOrder')}</label>

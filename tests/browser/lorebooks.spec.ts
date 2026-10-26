@@ -4,6 +4,7 @@ import { test, expect, type Page } from '@playwright/test';
 import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { newLorebook, newLoreEntry } from '../../src/shared/lorebook';
+import { appearanceStatusSchema } from '../../src/shared/appearance';
 
 async function login(page: Page) {
   const session = await page.request.get('/api/session').then(response => response.json());
@@ -39,13 +40,20 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await page.getByLabel('Book name', { exact: true }).fill('Moon Gate atlas');
   await page.getByRole('button', { name: 'Add entry', exact: true }).click();
   await page.getByLabel('Entry name', { exact: true }).fill('Moon Gate memory');
-  await page.getByLabel('Primary keys', { exact: true }).fill('MoonGate');
+  await page.getByLabel('Primary keys', { exact: true }).fill(' MoonGate, Silver Hall\n,, harbor,  \nBell Tower \n');
+  await page.getByLabel('Secondary keys', { exact: true }).fill(' crescent, moonlight\n, silver \n');
+  await page.getByLabel('Require a secondary-key match', { exact: true }).check();
   await page.getByLabel('Lore content', { exact: true }).fill('The Moon Gate is sealed with a silver crescent.');
   await page.getByLabel('Entry comment', { exact: true }).fill('Never send this human-only comment.');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   const bookRow = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Moon Gate atlas', exact: true }) });
   await expect(bookRow).toContainText('1 entries · 1 enabled');
+  const savedEntry = (await library(page)).lorebooks.find(book => book.name === 'Moon Gate atlas')?.entries[0];
+  expect(savedEntry?.keys).toEqual(['MoonGate', 'Silver Hall', 'harbor', 'Bell Tower']);
+  expect(savedEntry?.secondaryKeys).toEqual(['crescent', 'moonlight', 'silver']);
   await bookRow.getByRole('heading').getByRole('button').click();
+  await expect(page.getByLabel('Primary keys', { exact: true })).toHaveValue('MoonGate\nSilver Hall\nharbor\nBell Tower');
+  await expect(page.getByLabel('Secondary keys', { exact: true })).toHaveValue('crescent\nmoonlight\nsilver');
   await expect(page.getByLabel('Lore content', { exact: true })).toHaveValue('The Moon Gate is sealed with a silver crescent.');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await (await openLibraryActions(page, bookRow)).getByRole('menuitem', { name: 'Duplicate', exact: true }).click();
@@ -74,7 +82,7 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await page.getByLabel('Chat title').fill('Lore browser story');
   await choose(page, 'Connection', 'Lore browser model');
   await page.getByRole('button', { name: 'Save and return', exact: true }).click();
-  await page.getByLabel('Your next turn').fill('I approach MoonGate.');
+  await page.getByLabel('Your next turn').fill('I approach Silver Hall in the moonlight.');
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Request inspector');
   await expect(page.getByRole('region', { name: 'Resolved lore' })).toContainText('Moon Gate memory · admitted');
@@ -176,6 +184,64 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   expect(linked?.lorebookId).toBeTruthy();
 });
 
+test('preserves regex commas and key boundaries when switching modes and entries', async ({ page }, testInfo) => {
+  await login(page);
+  await books(page);
+  await page.getByRole('button', { name: 'New lorebook', exact: true }).click();
+  await page.getByLabel('Book name', { exact: true }).fill('Key editor atlas');
+  await page.getByRole('button', { name: 'Add entry', exact: true }).click();
+  await page.getByLabel('Entry name', { exact: true }).fill('Regex commas');
+  const primary = page.getByLabel('Primary keys', { exact: true });
+  const secondary = page.getByLabel('Secondary keys', { exact: true });
+  const regex = page.getByLabel('Use regular expressions', { exact: true });
+  await regex.check();
+  await primary.fill('gate{1,3}\n[red,blue]+\n  literal, spaces  ');
+  await secondary.fill('moon,light\nstar{2,4}');
+  await page.getByLabel('Lore content', { exact: true }).fill('The gate opens at moonrise.');
+  await page.getByRole('button', { name: 'Add entry', exact: true }).click();
+  await page.getByLabel('Entry name', { exact: true }).fill('Literal keys');
+  await primary.fill('gate, tower');
+  await secondary.fill('moon, star');
+  await regex.check();
+  await expect(primary).toHaveValue('gate\ntower');
+  await expect(secondary).toHaveValue('moon\nstar');
+  await regex.uncheck();
+  await page.getByRole('button', { name: 'Regex commas', exact: false }).click();
+  await expect(primary).toHaveValue('gate{1,3}\n[red,blue]+\n  literal, spaces  ');
+  await expect(secondary).toHaveValue('moon,light\nstar{2,4}');
+  await regex.uncheck();
+  await expect(primary).toHaveValue('gate{1,3}\n[red,blue]+\n  literal, spaces  ');
+  await regex.check();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const saved = (await library(page)).lorebooks.find(book => book.name === 'Key editor atlas');
+  expect(saved?.entries.map(entry => ({ keys: entry.keys, secondaryKeys: entry.secondaryKeys, useRegex: entry.useRegex }))).toEqual([
+    { keys: ['gate{1,3}', '[red,blue]+', '  literal, spaces  '], secondaryKeys: ['moon,light', 'star{2,4}'], useRegex: true },
+    { keys: ['gate', 'tower'], secondaryKeys: ['moon', 'star'], useRegex: false },
+  ]);
+  await page.getByRole('heading', { name: 'Key editor atlas', exact: true }).getByRole('button').click();
+  await expect(primary).toHaveValue('gate{1,3}\n[red,blue]+\n  literal, spaces  ');
+  await page.getByRole('button', { name: 'Literal keys', exact: false }).click();
+  const originalAppearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+  try {
+    for (const theme of ['dark', 'light', 'midnight-black']) {
+      const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+      await command(page, '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } }, 'PUT');
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        await primary.scrollIntoViewIfNeeded();
+        await expect(primary).toBeVisible();
+        await expect(secondary).toHaveValue('moon\nstar');
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.locator('.lore-entry-editor').screenshot({ path: testInfo.outputPath(`${theme}-${width}-keys.png`) });
+      }
+    }
+  } finally {
+    const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+    await command(page, '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme: originalAppearance.settings.theme } }, 'PUT');
+  }
+});
+
 test('keeps unsaved entries on failures and revision conflicts, with bounded editors on a phone', async ({ page }) => {
   await login(page);
   const large = { ...newLorebook(), name: 'Large browser atlas', entries: Array.from({ length: 125 }, (_, i) => ({ ...newLoreEntry(`browser-entry-${i}`), name: `Record ${i}`, keys: [`key-${i}`], content: `Saved detail ${i}.`, insertionOrder: i })) };
@@ -187,6 +253,7 @@ test('keeps unsaved entries on failures and revision conflicts, with bounded edi
   await page.getByLabel('Search entries', { exact: true }).fill('key-124');
   await page.getByRole('button', { name: 'Record 124', exact: false }).click();
   await page.getByLabel('Lore content', { exact: true }).fill('Unsaved detail survives the failed write.');
+  await page.getByLabel('Primary keys', { exact: true }).fill(' key-124, lighthouse\n bell ');
   await page.getByLabel('Entry name', { exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/lorebook-desktop.png' });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -198,6 +265,7 @@ test('keeps unsaved entries on failures and revision conflicts, with bounded edi
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Synthetic shared-edit conflict');
   await expect(page.getByLabel('Lore content', { exact: true })).toHaveValue('Unsaved detail survives the failed write.');
+  await expect(page.getByLabel('Primary keys', { exact: true })).toHaveValue(' key-124, lighthouse\n bell ');
   await page.unroute(`**/api/library/${created.id}`);
   const current = (await library(page)).lorebooks.find(book => book.id === created.id);
   if (!current) throw new Error('Missing large book.');
