@@ -3,6 +3,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import themePalettes from './fixtures/theme-palettes.json';
+import { themeSchema, type Theme } from '../src/shared/appearance';
 import approvedDarkPalette from './fixtures/approved-dark-palette.json';
 
 // Approved by the user on 2026-10-26. This fixture locks values and derivations,
@@ -81,13 +82,15 @@ function paletteChanges(definitions: [string, string][], approved = approvedRole
   return changes;
 }
 
-function paletteSource(theme: 'dark' | 'light'): string {
+function paletteSource(theme: Theme): string {
   const source = withoutComments(read('src/web/palette.css'));
-  const rule = /(:root(?:\[data-theme="light"\])?)\s*\{([^}]+)\}/g;
+  const rule = /(:root(?:\[data-theme="[\w-]+"\])?)\s*\{([^}]+)\}/g;
   const blocks = [...source.matchAll(rule)];
   expect(source.replace(rule, '').trim(), 'Keep all palette definitions in the checked theme rules').toBe('');
-  expect(blocks.map(match => match[1])).toEqual([':root', ':root[data-theme="light"]']);
-  const body = blocks[theme === 'dark' ? 0 : 1][2];
+  expect(blocks.map(match => match[1])).toEqual(themeSchema.options.map(theme => theme === 'dark' ? ':root' : `:root[data-theme="${theme}"]`));
+  const block = blocks.find(match => match[1] === (theme === 'dark' ? ':root' : `:root[data-theme="${theme}"]`));
+  if (!block) throw new Error(`Missing theme ${theme}`);
+  const body = block[2];
   expect(body.replace(/--[\w-]+:\s*[^;]+;|color-scheme:\s*(?:dark|light);/g, '').trim(), 'Only centralized palette declarations and color-scheme belong here').toBe('');
   return body;
 }
@@ -122,12 +125,12 @@ describe('interface palette approval boundary', () => {
     expect(paletteChanges([...approved, ['--text', 'var(--muted)']])).toContain('Duplicate palette definitions');
   });
 
-  it('locks the implemented light overrides and supplies every dark role in both themes', () => {
-    const overrides = paletteDefinitions(paletteSource('light'));
-    expect(paletteChanges(overrides, new Map(Object.entries(themePalettes.lightOverrides)))).toEqual([]);
+  it.each([['light', themePalettes.lightOverrides], ['midnight-black', themePalettes.midnightBlackOverrides]] as const)('locks %s overrides and supplies every shared role', (theme, approved) => {
+    const overrides = paletteDefinitions(paletteSource(theme));
+    expect(paletteChanges(overrides, new Map(Object.entries(approved)))).toEqual([]);
     const dark = new Map(paletteDefinitions(paletteSource('dark')));
-    const light = new Map([...dark, ...overrides]);
-    expect([...light.keys()].sort()).toEqual([...dark.keys()].sort());
+    const themed = new Map([...dark, ...overrides]);
+    expect([...themed.keys()].sort()).toEqual([...dark.keys()].sort());
   });
 
   it('requires web components and styles to reuse palette roles', () => {
@@ -156,8 +159,8 @@ describe('interface palette approval boundary', () => {
   });
 
   it('keeps palette roles resolvable without circular or missing references', () => {
-    for (const theme of ['dark', 'light'] as const) {
-      const definitions = new Map([...paletteDefinitions(paletteSource('dark')), ...(theme === 'light' ? paletteDefinitions(paletteSource('light')) : [])]);
+    for (const theme of themeSchema.options) {
+      const definitions = new Map([...paletteDefinitions(paletteSource('dark')), ...(theme === 'dark' ? [] : paletteDefinitions(paletteSource(theme)))]);
       function visit(name: string, path: string[]): void {
         expect(path, `Circular palette reference: ${[...path, name].join(' → ')}`).not.toContain(name);
         const value = definitions.get(name);

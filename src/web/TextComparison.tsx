@@ -11,7 +11,7 @@ function proseTheme(dark: boolean) { return EditorView.theme({
   '.cm-content': { padding: '16px 12px', minHeight: '180px', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', lineHeight: '1.7', overflowWrap: 'anywhere' },
   '.cm-scroller': { fontFamily: 'inherit', overflowX: 'hidden' },
   '.cm-cursor': { borderLeftColor: 'var(--header-highlight)' },
-  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: 'var(--info-surface)' },
+  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: 'var(--text-selection)' },
   '.cm-gutters': { backgroundColor: 'var(--input-bg)', color: 'var(--muted)', border: 'none' },
   '.cm-changedLine': { backgroundColor: 'transparent' },
   // Override the merge extension's colored gradients and gutters as well as its
@@ -22,7 +22,8 @@ function proseTheme(dark: boolean) { return EditorView.theme({
   '&.cm-merge-b .cm-changedLineGutter': { backgroundColor: 'var(--success)' },
   '.cm-inlineChangedLineGutter': { backgroundColor: 'var(--input-prompt)' },
 }, { dark }); }
-const proseThemes = { dark: proseTheme(true), light: proseTheme(false) };
+const darkProseTheme = proseTheme(true);
+const proseThemes = { dark: darkProseTheme, light: proseTheme(false), 'midnight-black': darkProseTheme };
 const nonce = () => EditorView.cspNonce.of(document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content ?? '');
 
 /** Plain text only: both panes use the same editor, typography and wrapping. */

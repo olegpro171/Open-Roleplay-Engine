@@ -36,8 +36,10 @@ Story renders Markdown in greetings, both turn parts and streaming replies: emph
 
 ## Interface themes
 
-Use **Settings → Chat appearance → Theme** to choose **Dark** or **Light**. Changes
-save immediately and update all connected devices, including the login screen on
+Use **Settings → Chat appearance → Theme** to choose **Dark**, **Light** or
+**Midnight Black**. Midnight Black uses pure-black backgrounds and neutral controls,
+links and default speech colors, retaining semantic status and prompt-category
+colors. Changes save immediately and update all connected devices, including the login screen on
 the next page load. Dark is the initial theme. A failed save keeps the selected
 choice and offers Retry; the visible theme continues to use the committed settings.
 

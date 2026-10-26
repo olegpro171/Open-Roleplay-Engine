@@ -343,7 +343,7 @@ Appearance sidecar version 2 includes `chatTextScale`; version-1 files load at 1
 
 Appearance sidecar version 3 adds the boolean `displayCharacterPicture`, initially true. Version-1/2 files load with pictures enabled without changing their saved contents or revision; the next successful save writes version 3. Older clients omitting this field preserve its committed value. The Chat appearance checkbox saves immediately through the shared settings queue. App mounts the shared sidebar portrait only when the committed preference is enabled, covering Story, Chat details and chat tools; disabling it also unmounts any original-picture viewer. Library portraits remain independent. Failed saves retain both the committed visibility and the local checkbox draft.
 
-Appearance sidecar version 4 adds `theme` (`dark` or `light`) and permits nullable
+Appearance sidecar version 4 adds `theme` (`dark`, `light` or `midnight-black`) and permits nullable
 application speech colors: null follows the active theme, while a hex value remains
 an explicit override below a Character/Persona override. New defaults use null.
 Versions 1–3 load as Dark with all saved colors/revisions intact and upgrade only
@@ -414,6 +414,13 @@ require explicit user agreement. The subsequently authorized Light theme overrid
 these shared roles under `:root[data-theme="light"]`; the original dark fixture is
 unchanged. `tests/fixtures/theme-palettes.json` guards the moved, existing dark speech
 default and light overrides, visually approved by the user on 2026-10-26.
+Midnight Black reuses the dark editor mode and semantic status/category hues, with
+pure-black surface bases and neutral decorative roles under
+`:root[data-theme="midnight-black"]`. Its authorized overrides use the same fixture
+guard. The text-selection role keeps editor selection neutral in Midnight Black
+without changing Dark/Light. The existing version-4 sidecar accepts the added theme;
+no migration or new persistence format is needed. The user visually approved
+Midnight Black on 2026-10-26; actual phone verification remains separate.
 See [palette contract and acceptance checklist](docs/PALETTE.md).
 
 Story uses the distinct `StorySnapshot` contract and read-only `StoryReader` through `/api/chats/:chatId/story`. Indexed per-chat positions bound turn/variant prose reads to 15 initial turns and at most 120 per window. Page movement uses a stable first-turn identity, a bounded shift and the captured chat revision; displayed ordinals are computed independently of stored position gaps. Story carries global latest-turn/generation state, page-scoped generation metadata without historical request bodies, and server-derived memory status using the shared source-provenance freshness rule. It is never passed to the engine as a complete `ChatSnapshot`. Memory, Setup/history replacement and Request inspector fetch full snapshots on demand; model assembly and preparation retain complete authoritative reads. `useTranscriptScroll` anchors page replacement by stable turn identity and within-turn progress; the ineffective deferred-layout CSS trial is superseded. Loading, stale-response rejection, recovery, verification and limits are documented in [TRANSCRIPT.md](docs/TRANSCRIPT.md).

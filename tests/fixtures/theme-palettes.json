@@ -55,5 +55,24 @@
     "--success-text": "color-mix(in srgb, var(--success) 20%, var(--text))",
     "--warning-text": "color-mix(in srgb, var(--warning) 30%, var(--text))",
     "--speech-persona": "#562a0a"
+  },
+  "midnightBlackOverrides": {
+    "--palette-page": "var(--palette-black)",
+    "--palette-inset": "var(--palette-black)",
+    "--palette-chrome": "var(--palette-black)",
+    "--palette-surface": "var(--palette-black)",
+    "--palette-raised": "var(--palette-black)",
+    "--palette-border": "#525252",
+    "--palette-text": "#e8e8e8",
+    "--palette-muted": "#a8a8a8",
+    "--palette-accent": "#d6d6d6",
+    "--palette-speech": "#e8e8e8",
+    "--surface-hover": "var(--accent-tint)",
+    "--link": "var(--text)",
+    "--tooltip-bg": "var(--surface)",
+    "--login-glow": "var(--page)",
+    "--text-selection": "var(--accent-selected)",
+    "--on-retained": "var(--palette-white)",
+    "--input-character": "#e4aa7f"
   }
 }

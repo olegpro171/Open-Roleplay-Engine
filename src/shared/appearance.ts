@@ -4,7 +4,7 @@ export const chatTextScales = [90, 100, 110, 120] as const;
 export const chatTextScaleSchema = z.union(chatTextScales.map(scale => z.literal(scale)));
 export type ChatTextScale = z.infer<typeof chatTextScaleSchema>;
 export const speechColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Use a six-digit hex color.').transform(value => value.toLowerCase());
-export const themeSchema = z.enum(['dark', 'light']);
+export const themeSchema = z.enum(['dark', 'light', 'midnight-black']);
 export type Theme = z.infer<typeof themeSchema>;
 export const appearanceSchema = z.object({
   characterSpeechColor: speechColorSchema.nullable(),

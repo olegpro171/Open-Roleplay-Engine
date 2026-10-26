@@ -294,6 +294,7 @@ export const englishMessages = {
   "application_settings.application_settings": "APPLICATION SETTINGS",
   "application_settings.settings_categories": "Settings categories",
   "appearance.theme": "Theme",
+  "appearance.midnight_black": "Midnight Black",
   "appearance.dark": "Dark",
   "appearance.light": "Light",
   "appearance.theme_help": "Applies to every device using ORE.",

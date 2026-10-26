@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../src/server/app.js';
 import { AppearanceSettings } from '../src/server/appearance.js';
-import { defaultAppearance, appearanceStatusSchema } from '../src/shared/appearance.js';
+import { defaultAppearance, appearanceStatusSchema, themeSchema } from '../src/shared/appearance.js';
 
 vi.mock('node:fs', async original => {
   const actual = await original<typeof import('node:fs')>();
@@ -21,7 +21,7 @@ function directory() {
   return path;
 }
 
-it('saves authenticated app-wide defaults without changing library/chat state and reloads them after restart', async () => {
+it.each(themeSchema.options)('saves %s app-wide defaults without changing library/chat state and reloads them after restart', async theme => {
   const database = join(directory(), 'test.sqlite');
   let instance = await createApp({ database });
   const headers = { host: 'localhost', origin: 'http://localhost' };
@@ -35,7 +35,7 @@ it('saves authenticated app-wide defaults without changing library/chat state an
     expect(initial.json()).toEqual({ revision: 0, settings: defaultAppearance });
     const before = instance.store.snapshot();
     const libraryBefore = instance.store.libraries();
-    const settings = { theme: 'light', characterSpeechColor: '#EEAA88', personaSpeechColor: '#88cc99', chatTextScale: 120, displayCharacterPicture: false };
+    const settings = { theme, characterSpeechColor: '#EEAA88', personaSpeechColor: '#88cc99', chatTextScale: 120, displayCharacterPicture: false };
     const saved = await instance.app.inject({ method: 'PUT', url: '/api/application/appearance', headers: auth, payload: { revision: 0, settings } });
     expect(saved.statusCode).toBe(200);
     expect(saved.json()).toEqual({ revision: 1, settings: { ...settings, characterSpeechColor: '#eeaa88' } });
@@ -133,21 +133,21 @@ it('preserves version-3 colors and revisions, then saves theme defaults and reta
   }
 });
 
-it('renders the current theme before login without exposing saved appearance overrides, and keeps malformed settings recoverable', async () => {
+it.each(themeSchema.options)('renders %s before login without exposing saved appearance overrides, and keeps malformed settings recoverable', async theme => {
   const folder = directory();
   const database = join(folder, 'test.sqlite');
   const staticDirectory = join(folder, 'client');
   fs.mkdirSync(staticDirectory);
   fs.writeFileSync(join(staticDirectory, 'index.html'), '<!doctype html><html lang="en"><head></head><body></body></html>');
   const settings = new AppearanceSettings(`${database}.appearance.json`);
-  settings.save({ revision: 0, settings: { ...defaultAppearance, theme: 'light', characterSpeechColor: '#123456' } });
+  settings.save({ revision: 0, settings: { ...defaultAppearance, theme, characterSpeechColor: '#123456' } });
   const instance = await createApp({ database, staticDirectory });
   try {
     for (const url of ['/', '/index.html']) {
       const response = await instance.app.inject({ method: 'GET', url });
       expect(response.statusCode).toBe(200);
       expect(response.headers['cache-control']).toBe('no-store');
-      expect(response.body).toContain('<html lang="en" data-theme="light">');
+      expect(response.body).toContain(`<html lang="en" data-theme="${theme}">`);
       expect(response.body).not.toContain('#123456');
       expect(response.headers['content-security-policy']).toContain("script-src 'self'");
     }

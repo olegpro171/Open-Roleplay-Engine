@@ -115,6 +115,7 @@
   --speech-character: var(--palette-speech);
   --speech-persona: var(--speech-character);
   --on-retained: var(--text-secondary);
+  --text-selection: var(--info-surface);
 }
 
 /* Light uses the same semantic roles; all color derivations stay here. */
@@ -171,4 +172,28 @@
   --swatch-border: color-mix(in srgb, var(--palette-black) 25%, transparent);
   --palette-speech: #343a42;
   --speech-persona: #562a0a;
+}
+
+/* Midnight Black keeps ordinary surfaces black and decoration neutral.
+   Status, comparison and input-category colors retain their semantic meaning. */
+:root[data-theme="midnight-black"] {
+  color-scheme: dark;
+  --palette-page: var(--palette-black);
+  --palette-inset: var(--palette-black);
+  --palette-chrome: var(--palette-black);
+  --palette-surface: var(--palette-black);
+  --palette-raised: var(--palette-black);
+  --palette-border: #525252;
+  --palette-text: #e8e8e8;
+  --palette-muted: #a8a8a8;
+  --palette-accent: #d6d6d6;
+  --palette-speech: #e8e8e8;
+  --surface-hover: var(--accent-tint);
+  --link: var(--text);
+  --tooltip-bg: var(--surface);
+  --login-glow: var(--page);
+  --text-selection: var(--accent-selected);
+  --on-retained: var(--palette-white);
+  /* Character's category color is independent of the neutral interface accent. */
+  --input-character: #e4aa7f;
 }

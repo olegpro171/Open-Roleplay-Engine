@@ -6,7 +6,8 @@ The user **visually approved the dark palette on 2026-10-26**, after checking
 application menus and reporting no noticeable difference from the previous colors.
 The consolidation and palette checkpoint are complete. The subsequently authorized
 Dark/Light theme selector and Light palette are implemented. The user also visually
-approved Light on 2026-10-26; both shipped palettes follow this approval boundary.
+approved Light and Midnight Black on 2026-10-26; all three shipped palettes follow
+this approval boundary.
 
 The approved appearance includes both the base colors and their derived shades.
 Twenty was a working target during consolidation; it is this palette's approved
@@ -55,12 +56,26 @@ Persona `#562a0a`. These are theme defaults; saved application and card override
 retain precedence. The Persona editor seeds a new override from the Persona theme
 role, independently of Character. Dark speech remains unchanged.
 
+The user requested **Midnight Black** on 2026-10-26: Dark-like presentation with
+pure-black backgrounds and no decorative hues. Its ordinary surfaces, including
+page, header, inputs, panels, dialogs, menus and tooltips, are `#000000`. Text,
+borders, accent controls, links and both speech defaults are neutral; hover,
+selection and primary-control fills use neutral shades to retain interaction cues.
+Status, errors, memory states, repair differences and prompt-category hues retain
+their meaning. Character's category hue is kept separately from the neutral accent.
+Explicit saved speech colors, images and picker data retain their values. The
+`midnightBlackOverrides` fixture records this design, visually approved by the user
+on 2026-10-26. Neither approved Dark nor Light values change.
+
 ## Ownership
 
 `src/web/palette.css` owns the interface's base colors and derived semantic roles.
 The approved Dark interface has 20 base colors; its existing speech default has now
 also moved into this stylesheet. Light overrides bases and selected derivations
 under `:root[data-theme="light"]`, retaining the same semantic roles.
+Midnight Black overrides its bases and decorative roles under
+`:root[data-theme="midnight-black"]`. The shared `text-selection` role aliases the
+existing information surface in Dark/Light and a neutral selection in Midnight Black.
 `src/web/main.tsx` loads it before `style.css`, making the same roles
 available to portals, modal dialogs and the CodeMirror comparison editor. Component
 CSS and editor extensions use `var(--role)` rather than separate color literals.
@@ -75,7 +90,8 @@ CSS and editor extensions use `var(--role)` rather than separate color literals.
 Values live in the stylesheet; the original dark fixture records the visually
 approved definitions for the automated guard. A separate `theme-palettes.json`
 fixture records the moved dark speech roles and visually approved light overrides.
-Both fixtures prevent accidental changes to the accepted appearance.
+It also records the visually approved Midnight Black palette. Both fixtures prevent
+accidental changes to the recorded appearance.
 Different roles can share one base without becoming the same concept: an information indicator and a history allocation can diverge in a later
 approved theme. Reuse existing roles where the meaning matches. A new role may
 alias an approved role when it serves a distinct purpose; a new mix requires
@@ -158,11 +174,12 @@ For future approved appearance changes, the visual checklist is:
 `tests/browser/themes.spec.ts` checks theme save failures/retry, competing saves,
 cross-window updates, fresh-browser login, reload, Russian controls, theme speech
 defaults and custom overrides. It checks key light text/status contrast pairs and
+Midnight Black contrast, pure-black surfaces and neutral decorative roles, and
 captures Story, settings, Library menus, Memory and editable repair at desktop,
 phone-sized and breakpoint-adjacent widths. A live theme change must retain the
 unapproved repair text and composer draft. Existing workflows also run in the full
 suite. These checks do not establish universal accessibility or actual phone support.
 
 Keep visual approval separate from the automated workflow results. The user's
-acceptance above establishes the current Dark and Light baselines; actual phone
-verification remains separate.
+acceptance above establishes the current Dark, Light and Midnight Black baselines;
+actual phone verification remains separate.

@@ -19,7 +19,7 @@ export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosav
     <div>
       <fieldset>
         <label>{t('appearance.theme')}<Dropdown aria-label={t('appearance.theme')} value={draft.theme} onChange={value => autosave.update({ theme: themeSchema.parse(value) })}
-          options={[{ value: 'dark', label: t('appearance.dark') }, { value: 'light', label: t('appearance.light') }]} /></label>
+          options={[{ value: 'dark', label: t('appearance.dark') }, { value: 'light', label: t('appearance.light') }, { value: 'midnight-black', label: t('appearance.midnight_black') }]} /></label>
         <p className="small muted">{t('appearance.theme_help')}</p>
       </fieldset>
       <fieldset>

@@ -55,6 +55,15 @@ visually approved the light theme on 2026-10-26. Both shipped palettes now follo
 palette approval boundary; this visual acceptance does not establish actual phone
 verification or replace technical checks.
 
+Accepted on 2026-10-26: add **Midnight Black**, based on Dark with pure-black
+interface backgrounds and neutral text, controls, links and default speech colors.
+Keep meaningful status, error, comparison and prompt-category colors, plus explicit
+user speech-color overrides. Neutral interaction highlights and filled controls
+remain distinguishable. Dark and Light retain their approved palettes. Midnight
+Black uses the same server-wide theme selection and save/recovery behavior. The
+user visually approved Midnight Black on 2026-10-26; its palette now follows the
+same approval boundary. Actual phone verification remains separate.
+
 Accepted on 2026-10-24: Application Settings saves each valid change immediately, without Save or Reload buttons. Appearance, keyboard behavior and LAN settings retain failed changes with Retry; rapid edits serialize and competing saves reconcile only the fields changed locally. Language files refresh automatically while Settings is open. App-default colors save as they are adjusted; their picker closes without undoing saved changes. Backup export/import, data deletion and reusable library/chat editors retain their explicit action and confirmation flows. Accepted on 2026-10-25: routine settings saves show no transient status. A save still pending after one second shows an error-style delay banner until it finishes; confirmed failures appear immediately with Retry.
 
 The shared application error banner offers **Retry loading** only for loading failures. Failed actions offer only **Dismiss**, preserving the current editor and unsaved changes. Background loading failures and connection recovery do not replace or dismiss an unresolved action error; retry the original action explicitly after addressing its cause.
