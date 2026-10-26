@@ -44,8 +44,15 @@ export function useTouchScrollGuard(enabled: boolean) {
         if (node === document.body || node === document.documentElement) break;
         const style = getComputedStyle(node);
         const overflow = horizontal ? style.overflowX : style.overflowY;
+        // Story's transcript and details scrollers contain native vertical bounce,
+        // including short content with no scroll range.
+        // Reach it through the normal path walk so nested contained editors keep
+        // their own boundary guard.
+        if (!horizontal && node.matches('.transcript, .chat-details, .story-meta')
+          && /^(auto|scroll)$/.test(overflow) && style.overscrollBehaviorY === 'contain') return;
         const extent = horizontal ? node.scrollWidth - node.clientWidth : node.scrollHeight - node.clientHeight;
-        if (!/^(auto|scroll)$/.test(overflow) || extent <= 1) continue;
+        // A contained scroll area owns its boundary even without overflow.
+        if (!/^(auto|scroll)$/.test(overflow)) continue;
         const position = horizontal ? node.scrollLeft : node.scrollTop;
         const delta = horizontal ? dx : dy;
         // Negative scrollLeft is the normal origin convention for RTL boxes.

@@ -447,7 +447,7 @@ button.danger{background:var(--danger-button);color:var(--on-danger-button);bord
 @media(max-width:480px){.confirmation-dialog{padding:22px}.confirmation-dialog .actions>button{flex:1}}
 
 /* Chat tools retain the current Story sidebar and scroll in the content column. */
-.story-meta{min-width:0;overflow:auto;scrollbar-color:var(--scrollbar) transparent}
+.story-meta{min-width:0;overflow:auto;overscroll-behavior:contain;scrollbar-color:var(--scrollbar) transparent}
 .chat-details>p{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
 .chat-details>.eyebrow{color:var(--accent)}
 .chat-page-actions{display:flex;flex-direction:column;gap:10px}

@@ -1,6 +1,7 @@
 import { openChatTool } from './chat-tools';
 import { test, expect, devices, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
+import { appearanceStatusSchema } from '../../src/shared/appearance';
 
 async function setup(page: Page) {
   const session = await page.request.get('/api/session').then(response => response.json());
@@ -199,6 +200,114 @@ for (const platform of ['iPhone', 'iPad desktop mode', 'Android'] as const) test
     await expect.poll(() => input.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await session.detach();
+  });
+  if (platform === 'iPhone') test('transcript boundary gestures remain native while the outer frame stays still', async ({ page }, testInfo) => {
+    const [chatId] = await setup(page);
+    const transcript = page.locator('.transcript');
+    const boundaries = () => transcript.evaluate(node => {
+      const target = node.querySelector('.prose') ?? node.firstElementChild ?? node;
+      const gesture = (element: Element, dx: number, dy: number) => {
+        const touch = (x: number, y: number) => [new Touch({ identifier: 0, target: element, clientX: x, clientY: y })];
+        element.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: touch(100, 150) }));
+        const move = new TouchEvent('touchmove', { bubbles: true, cancelable: true, touches: touch(100 + dx, 150 + dy) });
+        element.dispatchEvent(move);
+        element.dispatchEvent(new TouchEvent('touchend', { bubbles: true }));
+        return move.defaultPrevented;
+      };
+      node.scrollTop = 0;
+      const top = gesture(target, 0, 25);
+      node.scrollTop = node.scrollHeight;
+      const bottom = gesture(target, 0, -25);
+      const horizontal = gesture(target, 25, 0);
+      // A contained editor inside the transcript still owns its boundaries.
+      const editor = document.createElement('textarea');
+      editor.style.cssText = 'height:44px;min-height:0;overflow:auto;overscroll-behavior:contain';
+      editor.value = 'Nested editor line.\n'.repeat(40);
+      node.append(editor);
+      editor.setSelectionRange(0, 0);
+      editor.scrollTop = 0;
+      const editorTop = gesture(editor, 0, 25);
+      editor.scrollTop = editor.scrollHeight;
+      const editorBottom = gesture(editor, 0, -25);
+      editor.value = '';
+      editor.style.height = '88px';
+      if (editor.scrollHeight > editor.clientHeight + 1) throw new Error('Short editor must not overflow');
+      const shortEditorTop = gesture(editor, 0, 25);
+      const shortEditorBottom = gesture(editor, 0, -25);
+      editor.remove();
+      return { top, bottom, horizontal, editorTop, editorBottom, shortEditorTop, shortEditorBottom };
+    });
+    const expected = { top: false, bottom: false, horizontal: true, editorTop: true, editorBottom: true, shortEditorTop: true, shortEditorBottom: true };
+    await expect.poll(() => transcript.evaluate(node => node.scrollHeight <= node.clientHeight + 1)).toBe(true);
+    expect(await boundaries()).toEqual(expected);
+
+    const imported = await page.request.put(`/api/chats/${chatId}/history`, {
+      headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: 0, turns: [
+        { user: 'Mira enters the archive.', assistant: 'Leon watches the lantern.\n\n'.repeat(100), complete: true },
+      ] },
+    });
+    expect(imported.ok(), await imported.text()).toBe(true);
+    await page.reload();
+    await expect.poll(() => transcript.evaluate(node => node.scrollHeight - node.clientHeight)).toBeGreaterThan(100);
+    expect(await boundaries()).toEqual(expected);
+
+    const originalAppearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+    const session = await page.context().newCDPSession(page);
+    try {
+      const swipe = async (fromTop: boolean, edge: 'top' | 'bottom' = 'top') => {
+        const bounds = await transcript.boundingBox();
+        if (!bounds) throw new Error('Transcript must be visible');
+        const x = bounds.x + bounds.width / 2;
+        const y = bounds.y + bounds.height / 2;
+        await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+        // Touch down stops the previous swipe's momentum. Let resize observers
+        // settle before placing this gesture at its intended boundary.
+        await transcript.evaluate((node, edge) => new Promise<void>(resolve => {
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            node.scrollTop = edge === 'top' ? 0 : node.scrollHeight;
+            resolve();
+          }));
+        }), edge);
+        await expect.poll(() => transcript.evaluate((node, edge) => edge === 'top'
+          ? node.scrollTop : node.scrollHeight - node.clientHeight - node.scrollTop, edge)).toBe(0);
+        for (let step = 1; step <= 6; step++) {
+          await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + (fromTop ? 1 : -1) * step * 12 }] });
+        }
+        await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      };
+      const outerPosition = () => page.evaluate(() => ({
+        x: window.scrollX, y: window.scrollY,
+        viewportX: window.visualViewport?.offsetLeft, viewportY: window.visualViewport?.offsetTop,
+        header: document.querySelector('header')?.getBoundingClientRect().top,
+      }));
+      const initial = await outerPosition();
+      for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+        const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+        const saved = await page.request.put('/api/application/appearance', {
+          headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: appearance.revision, settings: { ...appearance.settings, theme } },
+        });
+        expect(saved.ok()).toBe(true);
+        await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+        for (const width of [390, 1440]) {
+          await page.setViewportSize({ width, height: 844 });
+          await swipe(true);
+          await expect.poll(outerPosition).toEqual(initial);
+          await expect.poll(() => transcript.evaluate(node => node.scrollTop)).toBe(0);
+          await swipe(false);
+          await expect.poll(() => transcript.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+          await swipe(false, 'bottom');
+          await expect.poll(outerPosition).toEqual(initial);
+          await page.screenshot({ path: testInfo.outputPath(`${theme}-transcript-${width}.png`) });
+        }
+      }
+    } finally {
+      await session.detach();
+      const current = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+      const restored = await page.request.put('/api/application/appearance', {
+        headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: current.revision, settings: originalAppearance.settings },
+      });
+      expect(restored.ok()).toBe(true);
+    }
   });
 });
 
