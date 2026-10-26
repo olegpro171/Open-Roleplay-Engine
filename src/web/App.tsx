@@ -596,7 +596,11 @@ export function App() {
             event.preventDefault();
             if (!event.repeat && canSend && !sendInFlight.current) event.currentTarget.form?.requestSubmit();
           }} placeholder={t("app.what_happens_next")} value={draft} disabled={busy} onValueChange={text => { drafts.change(text); setPeek(false); }} />
-          <button className="send-turn" aria-label={t("app.send")} title={sendTitle} disabled={!canSend}><span className="send-icon" aria-hidden="true" /></button>
+          <button className="send-turn" aria-label={t("app.send")} title={sendTitle} disabled={!canSend} onMouseDown={event => {
+            // Touch taps synthesize mousedown before click. Blurring the iOS
+            // composer here changes its padding and moves Send out of the tap.
+            if (isIOS && event.button === 0 && document.activeElement?.id === 'turn-input') event.preventDefault();
+          }}><span className="send-icon" aria-hidden="true" /></button>
         </form>
       </section>
     </ChatWorkspace>}
