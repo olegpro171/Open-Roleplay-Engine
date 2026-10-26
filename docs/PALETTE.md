@@ -105,6 +105,15 @@ for intentional overlays, shadows, image-tool guides and subtle highlights. Whol
 element opacity retains its existing disabled-state behavior; do not use it to
 derive a background because it also fades the content.
 
+Turn actions, Chat details navigation, Library and Settings category selectors,
+Library secondary/quiet actions and the picture viewer close control share one
+explicit palette hover rule using `--surface-raised`. Category navigation has no
+separate hover fill; the selected Library category keeps its persistent accent
+background, border and text, including while hovered. The shared rule
+disables the generic button brightness filter so the approved fill is displayed
+directly. In Light, brightening that fill would nearly match the page and removing
+the filter before the background transition ends would produce a dark flash.
+
 The consolidation keeps the dark page, header, primary button and principal text
 colors. Previously similar panel shades, borders, muted labels, accent highlights
 and status variants now share roles. Chart allocations share the matching Prompt

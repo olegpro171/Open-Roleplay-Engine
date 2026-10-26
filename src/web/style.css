@@ -34,7 +34,6 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 .library-sidebar .eyebrow{margin-bottom:20px}
 .library-tabs{display:flex;flex-direction:column;gap:6px}
 .library-tabs button{text-align:left;min-height:44px;padding:11px 14px;background:none;border-color:transparent;color:var(--muted);font-size:14px;font-weight:500}
-.library-tabs button:hover{background:var(--surface);color:var(--text)}
 .library-panel{min-width:0;padding:34px 42px 70px;scrollbar-color:var(--scrollbar) transparent;overscroll-behavior:contain;container:library / inline-size}
 @media(min-width:801px){.library-workspace .library-panel{padding-top:0}}
 
@@ -372,10 +371,14 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .turn-action svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 /* Touch browsers may retain :hover while Regenerate changes into Cancel. */
 @media (hover: hover) {
+  /* Explicit palette fills must not inherit button brightness: Light's fill
+     would blend into the page, then flash darker as the background fades out. */
+  /* Keep category hover below the persistent selected-category style. */
+  .library-tabs button:where(:hover:enabled),
   .turn-actions .turn-action:hover:enabled,
   .original-picture-viewer>button:hover:enabled,
   .library-layout button:is(.quiet, .secondary):hover:enabled,
-  .chat-page-actions .chat-navigation-action:hover:enabled { background: var(--surface-raised); color: var(--text); }
+  .chat-page-actions .chat-navigation-action:hover:enabled { background: var(--surface-raised); color: var(--text); filter: none; }
   .turn-actions .turn-action-delete:hover:enabled { color: var(--danger-text); }
 }
 .chat-page-actions .chat-navigation-action:focus-visible:enabled { background: var(--surface-raised); color: var(--text); }
