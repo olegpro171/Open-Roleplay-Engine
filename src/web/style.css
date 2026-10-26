@@ -144,9 +144,21 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .summary-span.manual{background:var(--warning-surface);color:var(--warning-text);border-color:var(--warning-border);box-shadow:inset 0 3px 0 var(--warning)}.summary-span.manual.stale{background:var(--danger-surface);color:var(--danger-text);border-color:var(--danger-border)}
 .summary-span.inspected{outline:2px solid var(--header-highlight);outline-offset:2px;z-index:1}
 .summary-span.preparing{background:transparent;color:var(--info-text);border:1px dashed var(--info);pointer-events:none;height:40px;margin-bottom:-5px}
+:root[data-theme="light"] .summary-span{border-color:var(--success-text)}
+:root[data-theme="light"] .summary-span.retained{border-color:var(--muted)}
+:root[data-theme="light"] .summary-span.manual{border-color:var(--warning-text)}
+:root[data-theme="light"] .summary-span:is(.stale,.deleting){border-color:var(--danger-text)}
+:root[data-theme="light"] .summary-span.preparing{border-color:var(--info-text)}
 .turn-tick{position:absolute;bottom:2px;height:22px;background:var(--success);border:1px solid var(--surface-low);color:var(--on-success);font-size:9px;text-align:center;overflow:hidden}.turn-tick.retained{background:var(--border-strong);color:var(--on-retained)}
 .memory-legend{display:flex;flex-wrap:wrap;gap:10px 22px;font-size:11px;margin-top:18px}.memory-legend .active{color:var(--success-text)}.memory-legend .retained{color:var(--muted)}.memory-legend .preparing{color:var(--info-text)}.memory-legend .stale{color:var(--danger-text)}
 .memory-legend .manual{color:var(--warning-text)}
+.memory-legend>span{display:inline-flex;align-items:center;gap:5px}
+.memory-legend-swatch{display:inline-block;width:8px;height:8px;flex:none;border-radius:50%;background:currentColor}
+:root[data-theme="light"] .memory-legend .active .memory-legend-swatch{background:var(--success)}
+:root[data-theme="light"] .memory-legend .preparing .memory-legend-swatch{background:var(--info)}
+:root[data-theme="light"] .memory-legend .retained .memory-legend-swatch{background:var(--border-strong)}
+:root[data-theme="light"] .memory-legend .stale .memory-legend-swatch{background:var(--danger)}
+:root[data-theme="light"] .memory-legend .manual .memory-legend-swatch{background:var(--warning)}
 .reasoning-preview{display:block;width:100%;margin:0 0 14px;padding:10px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface-low);color:var(--muted);text-align:left;font-size:13px;font-weight:400;white-space:normal}
 .reasoning-heading{display:flex;justify-content:space-between;gap:12px;font-size:11px;margin-bottom:4px;color:var(--text-secondary)}
 .reasoning-tail{display:flex;align-items:flex-end;height:4.8em;line-height:1.6;overflow:hidden;mask-image:linear-gradient(to bottom,transparent,var(--mask-opaque) 48%);-webkit-mask-image:linear-gradient(to bottom,transparent,var(--mask-opaque) 48%)}
@@ -186,6 +198,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 @media(max-width:800px){.turn-heading{flex-wrap:wrap;row-gap:4px}.turn-usage{font-size:9px}.prompt-peek{width:calc(100% - 20px);max-height:90dvh}.peek-content{padding:18px}.prompt-message summary{gap:9px;font-size:12px}.allocation-legend{font-size:11px}}
 
 .peek-lore{border:1px solid var(--line);border-radius:8px;background:var(--surface);margin:24px 0;padding:14px}.peek-lore>summary{color:var(--input-lore);font-weight:600}.peek-lore>.lore-inspection{margin:16px 0 0;padding-top:16px}.peek-lore>p{margin:16px 0 0}.peek-prompt-heading{font-size:16px;margin:26px 0 14px;padding-top:20px;border-top:1px solid var(--line)}
+:root[data-theme="light"] .peek-lore>summary{color:var(--info-text)}
 .peek-content{padding-top:0}.peek-heading{position:sticky;top:0;background:var(--surface-low);z-index:1;padding:22px 0 10px;border-bottom:1px solid var(--line);margin-bottom:18px}.peek-heading h2{margin-bottom:8px}
 .author-note-dialog{max-width:700px}
 .author-note-dialog textarea{min-height:240px;max-height:50dvh;resize:vertical}
@@ -220,6 +233,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 @media(pointer:coarse) and (orientation:landscape){.composer textarea{font-size:calc(16px * var(--chat-text-scale,1))}}
 
 .connection-tools .connection-help{margin:14px 0 18px}.connection-success{color:var(--success)}
+:root[data-theme="light"] .connection-success{color:var(--success-text)}
 .messages-marker-option{margin-top:14px}
 .marker-fields{margin:18px 0 0;padding:14px}.marker-fields legend{font-size:13px}.marker-field-options{display:flex;flex-wrap:wrap;gap:12px 20px}
 

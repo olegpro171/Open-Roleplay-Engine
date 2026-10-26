@@ -32,6 +32,29 @@ changes to Dark. Theme implementation should extend the guard for each approved
 palette and retain shared semantic roles, rather than reopening scattered color
 definitions. The palette lock does not authorize new themes or settings by itself.
 
+The user subsequently requested lighter category-bar and input-meter colors in
+Light for visual review. The current refinement lightens the existing accent,
+success, danger, information and allocation base hues, keeping their shared uses.
+Existing text/on-fill roles derive readable foregrounds from those hues; the
+Character allocation uses the lighter accent base and framing uses the existing
+border neutral. No palette entries or meter-specific roles are added for these
+fills; Dark remains unchanged. The user approved these lighter fills, then requested
+matching Summary layers legend swatches and more solid summary fills. Legend
+swatches use the existing fill roles independently of their readable text labels.
+Light's success/danger/warning surface mixes now carry 65–80% status color, and
+warning uses a lighter gold with a dark text derivation. These shared surface roles
+also appear in alerts and repair comparisons. Summary outlines in Light reuse the
+darker status-text roles (muted for retained alternatives), preserving dashed and
+deletion styles; this does not change the shared border roles elsewhere. The user
+accepted the refinement batch for commit on 2026-10-26 after visual review. The
+fixture tracks these authorized values; automated checks remain separate from
+visual acceptance.
+
+Light speech defaults were explicitly set by the user to Character `#343a42` and
+Persona `#562a0a`. These are theme defaults; saved application and card overrides
+retain precedence. The Persona editor seeds a new override from the Persona theme
+role, independently of Character. Dark speech remains unchanged.
+
 ## Ownership
 
 `src/web/palette.css` owns the interface's base colors and derived semantic roles.

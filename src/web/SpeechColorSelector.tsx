@@ -2,7 +2,7 @@ import { t, useLocale } from './localization';
 import { themeSpeechColor } from './theme';
 import { ColorPicker } from './ColorPicker';
 
-export function SpeechColorSelector({ value, change, disabled = false }: { value?: string | null; change: (value: string | null) => void; disabled?: boolean }) {
+export function SpeechColorSelector({ value, change, speaker = 'character', disabled = false }: { value?: string | null; speaker?: 'character' | 'persona'; change: (value: string | null) => void; disabled?: boolean }) {
   useLocale();
   return <fieldset className="full speech-color-selector" aria-label={t("speech_color_selector.speech_color_selection")}>
     <legend>{t("character_editor.speech_color")}</legend>
@@ -12,7 +12,7 @@ export function SpeechColorSelector({ value, change, disabled = false }: { value
         <button type="button" className="secondary" onClick={() => change(null)}>{t("speech_color_selector.clear_color")}</button>
       </> : <>
         <span className="speech-color-unset">{t("character_editor.not_set")}</span>
-        <button type="button" className="secondary" onClick={() => change(themeSpeechColor('character'))}>{t("speech_color_selector.set_color")}</button>
+        <button type="button" className="secondary" onClick={() => change(themeSpeechColor(speaker))}>{t("speech_color_selector.set_color")}</button>
       </>}
     </div>
   </fieldset>;

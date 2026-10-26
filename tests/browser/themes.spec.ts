@@ -39,8 +39,9 @@ for (const width of [1440, 390]) test(`theme saves recover, synchronize and pres
   await expect(settings.getByRole('alert')).toHaveCount(0);
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await expect(observer.locator('html')).toHaveAttribute('data-theme', 'light');
-  await expect(page.getByRole('button', { name: 'Default character speech color', exact: true })).toContainText('#295F9B');
-  await expect(settings.locator('.direct-speech')).toHaveCSS('color', 'rgb(41, 95, 155)');
+  await expect(page.getByRole('button', { name: 'Default character speech color', exact: true })).toContainText('#343A42');
+  await expect(page.getByRole('button', { name: 'Default persona speech color', exact: true })).toContainText('#562A0A');
+  await expect(settings.locator('.direct-speech')).toHaveCSS('color', 'rgb(52, 58, 66)');
   await expect(page.locator('html')).toHaveCSS('color-scheme', 'light');
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#eeebe5');
   await expect(theme).toHaveCSS('background-color', 'rgb(255, 255, 255)');
@@ -71,7 +72,7 @@ for (const width of [1440, 390]) test(`theme saves recover, synchronize and pres
   await expect(settings.locator('.direct-speech')).toHaveCSS('color', 'rgb(118, 84, 50)');
   await settings.getByRole('button', { name: 'Use theme character color', exact: true }).click();
   await expect.poll(async () => (await read()).settings.characterSpeechColor).toBeNull();
-  await expect(settings.locator('.direct-speech')).toHaveCSS('color', 'rgb(41, 95, 155)');
+  await expect(settings.locator('.direct-speech')).toHaveCSS('color', 'rgb(52, 58, 66)');
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   const fresh = await context.browser()?.newContext();
@@ -84,6 +85,22 @@ for (const width of [1440, 390]) test(`theme saves recover, synchronize and pres
     await expect(login.locator('html')).toHaveCSS('background-color', 'rgb(247, 245, 241)');
     await login.screenshot({ path: testInfo.outputPath('light-login.png') });
   } finally { await fresh.close(); }
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  for (const choice of [
+    { category: 'Characters', create: 'New character', kind: 'characters', color: '#343a42' },
+    { category: 'Personas', create: 'New persona', kind: 'personas', color: '#562a0a' },
+  ] as const) {
+    const name = `Light ${choice.kind} default ${width}`;
+    await page.getByRole('button', { name: choice.category, exact: true }).click();
+    await page.getByRole('button', { name: choice.create, exact: true }).click();
+    await page.getByLabel('Name', { exact: true }).fill(name);
+    await page.getByRole('button', { name: 'Set color', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Speech color', exact: true })).toContainText(choice.color.toUpperCase());
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+    const saved: LibrarySnapshot = await page.request.get('/api/library').then(response => response.json());
+    expect(saved[choice.kind].find(item => item.name === name)?.speechColor).toBe(choice.color);
+  }
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('combobox', { name: 'Interface language', exact: true }).click();
   await page.getByRole('option', { name: /Русский/ }).click();
@@ -125,7 +142,7 @@ test('light theme covers story, menus, memory and editable repair at responsive 
     return [['text', 'page'], ['muted', 'page'], ['text-faint', 'page'], ['text', 'input-bg'],
       ['accent', 'chrome'], ['header-highlight', 'chrome'], ['link', 'page'], ['speech-character', 'page'],
       ['on-accent', 'accent'], ['danger-text', 'danger-surface'], ['danger-text-strong', 'danger-surface'],
-      ['warning-text', 'warning-surface'], ['success-text', 'success-surface'], ['info-text', 'info-surface'],
+      ['danger-text-strong', 'danger-surface-strong'], ['warning-text', 'warning-surface'], ['success-text', 'success-surface'], ['info-text', 'info-surface'],
       ['on-danger-button', 'danger-button'], ['on-retained', 'border-strong']].map(([foreground, background]) => {
         const a = luminance(foreground), b = luminance(background);
         return { foreground, background, ratio: (Math.max(a, b) + .05) / (Math.min(a, b) + .05) };
@@ -147,7 +164,8 @@ test('light theme covers story, menus, memory and editable repair at responsive 
   await command(`/api/chats/${chat.id}/history`, { revision: (await state()).revision, turns: Array.from({ length: 10 }, (_, i) => ({ user: `Turn ${i + 1}. "Ready?"\n\n${'Mira offers Leon the brass key. '.repeat(12)}`, assistant: '"Yes."\n\n**The tower** holds a [secret](https://example.com).\n\n`A small key`\n\n| Place | Clue |\n| --- | --- |\n| Tower | Lantern |\n\n' + 'Leon promises to avoid the cellar. '.repeat(12), complete: true })) }, 'PUT');
   await page.evaluate(id => localStorage.setItem('roleplay-chat', id), chat.id);
   await page.reload();
-  await expect(page.locator('.part.assistant .direct-speech').first()).toHaveCSS('color', 'rgb(41, 95, 155)');
+  await expect(page.locator('.part.assistant .direct-speech').first()).toHaveCSS('color', 'rgb(52, 58, 66)');
+  await expect(page.locator('.part.user .direct-speech').first()).toHaveCSS('color', 'rgb(86, 42, 10)');
   await page.getByLabel('Your next turn').fill('Keep this draft while switching themes.');
   for (const width of [1440, 801, 800, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });

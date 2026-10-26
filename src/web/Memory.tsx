@@ -23,6 +23,11 @@ import type { SettingsAutosave } from './settings-autosave';
 import { SettingsSaveStatus, useSettingsState } from './useSettingsAutosave';
 const RepairReview = lazy(() => import('./RepairReview').then(module => ({ default: module.RepairReview })));
 
+// Older custom language packs included the decorative bullet in these labels.
+function legendText(value: string): string {
+  return value.replace(/^●\s*/u, '');
+}
+
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 type JobDetails = { job: ContextJob; steps: ContextStep[] };
 export function Memory({ snapshot, library, busy, run, editPreset, behavior }: { snapshot: ChatToolsSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; editPreset: (id: string) => void; behavior: SettingsAutosave<ChatBehaviorStatus['settings'], ChatBehaviorStatus> }) {
@@ -141,7 +146,14 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior }: {
     <section className="memory-chart"><div className="memory-chart-heading"><div><h2>{t("memory.summary_layers")}</h2><p className="small muted">{t("memory.select_a_summary_to_inspect_its_coverage")}</p></div><label className="checkbox"><input type="checkbox" checked={zoom} onChange={e => setZoom(e.target.checked)} />{t("memory.zoom_timeline")}</label></div>
       <label>{t("memory.inspect_saved_preparation")}<Dropdown aria-label={t("memory.saved_preparation")} value={historyId} onChange={id => { setHistoryId(id); setInspected(null); }} options={[{ value: '', label: t("memory.current_committed_selection") }, ...snapshot.context.jobs.map(job => ({ value: job.id, label: `${new Date(job.createdAt).toLocaleString(locale())} · ${stateLabel(job.mode)} · ${stateLabel(job.status)}` }))]} /></label>
       {details && <label className="snapshot-slider">{t("memory.saved_step", { frame: frame, frameCount: frameCount })}<input type="range" aria-label={t("memory.saved_preparation_step")} min={0} max={frameCount} value={frame} onChange={e => { setFrame(Number(e.target.value)); setInspected(null); }} /><small>{t("memory.history_inspection_only_current_chat_memory_is")}</small></label>}
-      <MemoryTimeline nodes={nodes} selected={selected} stale={stale} archived={archived} turnIds={viewTurnIds} operation={operation} reusable={reusable} levels={levels} zoom={zoom} inspectedId={inspected?.id ?? null} deleting={deletion?.deletedIds} restoring={restoring} inspect={inspectSummary} /><div className="memory-legend"><span className="active">● {summariesEnabled || historyId ? t("memory.active_in_input") : t("memory.saved_selection_disabled")}</span><span className="preparing">{t("memory.next_batch")}</span><span className="retained">{t("memory.retained_alternatives")}</span><span className="stale">{t("memory.out_of_date")}</span><span className="manual">{t("memory.manually_edited")}</span></div>
+      <MemoryTimeline nodes={nodes} selected={selected} stale={stale} archived={archived} turnIds={viewTurnIds} operation={operation} reusable={reusable} levels={levels} zoom={zoom} inspectedId={inspected?.id ?? null} deleting={deletion?.deletedIds} restoring={restoring} inspect={inspectSummary} />
+      <div className="memory-legend">
+        <span className="active"><i className="memory-legend-swatch" aria-hidden="true" />{summariesEnabled || historyId ? t("memory.active_in_input") : t("memory.saved_selection_disabled")}</span>
+        <span className="preparing"><i className="memory-legend-swatch" aria-hidden="true" />{legendText(t("memory.next_batch"))}</span>
+        <span className="retained"><i className="memory-legend-swatch" aria-hidden="true" />{legendText(t("memory.retained_alternatives"))}</span>
+        <span className="stale"><i className="memory-legend-swatch" aria-hidden="true" />{legendText(t("memory.out_of_date"))}</span>
+        <span className="manual"><i className="memory-legend-swatch" aria-hidden="true" />{legendText(t("memory.manually_edited"))}</span>
+      </div>
       {deletionTarget && <section className="summary-deletion" aria-label={t("memory.summary_deletion_preview")}>
         <h3 ref={deletionHeading} tabIndex={-1}>{t("memory.delete_summary_and_dependents")}</h3>
         {deletion ? <>
