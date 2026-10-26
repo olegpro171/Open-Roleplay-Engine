@@ -2,6 +2,7 @@ import { LocalizationStartup } from './localization';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import './palette.css';
 import './style.css';
 import { ConfirmationProvider } from './Confirmation';
 

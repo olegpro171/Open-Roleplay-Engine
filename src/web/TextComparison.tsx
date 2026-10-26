@@ -6,15 +6,20 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { MergeView, goToNextChunk, goToPreviousChunk, unifiedMergeView } from '@codemirror/merge';
 
 const proseTheme = EditorView.theme({
-  '&': { backgroundColor: '#151c25', color: '#e8e8e4', fontSize: '14px' },
+  '&': { backgroundColor: 'var(--input-bg)', color: 'var(--text)', fontSize: '14px' },
   '.cm-content': { padding: '16px 12px', minHeight: '180px', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', lineHeight: '1.7', overflowWrap: 'anywhere' },
   '.cm-scroller': { fontFamily: 'inherit', overflowX: 'hidden' },
-  '.cm-cursor': { borderLeftColor: '#f1c19d' },
-  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: '#42536c' },
-  '.cm-gutters': { backgroundColor: '#151c25', border: 'none' },
+  '.cm-cursor': { borderLeftColor: 'var(--header-highlight)' },
+  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: 'var(--info-surface)' },
+  '.cm-gutters': { backgroundColor: 'var(--input-bg)', border: 'none' },
   '.cm-changedLine': { backgroundColor: 'transparent' },
-  '&.cm-merge-a .cm-changedText, .cm-deletedText': { backgroundColor: '#673d47', textDecoration: 'underline', textDecorationColor: '#e6a6ad' },
-  '&.cm-merge-b .cm-changedText, .cm-insertedText': { backgroundColor: '#254e41', textDecoration: 'underline', textDecorationColor: '#9bd5b4' },
+  // Override the merge extension's colored gradients and gutters as well as its
+  // text fills, so library defaults cannot supply a separate status palette.
+  '&.cm-merge-a .cm-changedText, .cm-deletedText': { backgroundColor: 'var(--diff-remove-bg)', backgroundImage: 'none', textDecoration: 'underline', textDecorationColor: 'var(--diff-remove-text)' },
+  '&.cm-merge-b .cm-changedText, .cm-insertedText': { backgroundColor: 'var(--diff-add-bg)', backgroundImage: 'none', textDecoration: 'underline', textDecorationColor: 'var(--diff-add-text)' },
+  '&.cm-merge-a .cm-changedLineGutter, .cm-deletedLineGutter': { backgroundColor: 'var(--danger)' },
+  '&.cm-merge-b .cm-changedLineGutter': { backgroundColor: 'var(--success)' },
+  '.cm-inlineChangedLineGutter': { backgroundColor: 'var(--input-prompt)' },
 }, { dark: true });
 const nonce = () => EditorView.cspNonce.of(document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content ?? '');
 

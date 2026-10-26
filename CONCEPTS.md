@@ -20,6 +20,27 @@ Reported problems motivating the project include unreliable automatic scene boun
 
 ## 2. User-defined core concepts
 
+Accepted on 2026-10-26: prepare interchangeable shipped themes by first consolidating
+the existing dark interface into a small shared base palette with semantic roles
+and derived shades. Technical verification precedes the user's visual review of
+all screens and states. After visual acceptance, lock the palette with a rule
+requiring explicit agreement for new independent colors or base-palette changes,
+then proceed to themes. The current stage preserves saved appearance preferences
+and Character/Persona colors. Planned themes will own all interface colors,
+background treatment and the default character/persona speech colors; explicit
+Character/Persona speech colors will continue to override those defaults. Theme
+selection and a light theme follow the palette checkpoint as a separate stage.
+See [palette ownership and review](docs/PALETTE.md).
+
+The user visually approved the consolidated dark palette on 2026-10-26 after
+checking application menus and reporting no noticeable difference from the
+previous appearance. The palette is now locked: new colors or derived shades and
+changes to approved values/mix ratios require explicit agreement. Semantic aliases
+may reuse an approved role without changing its color. The approved palette has
+20 base colors; that count was a working target, not a proven minimum or a limit
+on future themes. This acceptance completes the palette checkpoint, not theme
+implementation.
+
 Accepted on 2026-10-24: Application Settings saves each valid change immediately, without Save or Reload buttons. Appearance, keyboard behavior and LAN settings retain failed changes with Retry; rapid edits serialize and competing saves reconcile only the fields changed locally. Language files refresh automatically while Settings is open. App-default colors save as they are adjusted; their picker closes without undoing saved changes. Backup export/import, data deletion and reusable library/chat editors retain their explicit action and confirmation flows. Accepted on 2026-10-25: routine settings saves show no transient status. A save still pending after one second shows an error-style delay banner until it finishes; confirmed failures appear immediately with Retry.
 
 The shared application error banner offers **Retry loading** only for loading failures. Failed actions offer only **Dismiss**, preserving the current editor and unsaved changes. Background loading failures and connection recovery do not replace or dismiss an unresolved action error; retry the original action explicitly after addressing its cause.
