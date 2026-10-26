@@ -4,8 +4,9 @@
 
 The user **visually approved the dark palette on 2026-10-26**, after checking
 application menus and reporting no noticeable difference from the previous colors.
-The consolidation and palette checkpoint are complete. Theme selection and a light
-theme remain a separate implementation stage.
+The consolidation and palette checkpoint are complete. The subsequently authorized
+Dark/Light theme selector and Light palette are implemented. The user also visually
+approved Light on 2026-10-26; both shipped palettes follow this approval boundary.
 
 The approved appearance includes both the base colors and their derived shades.
 Twenty was a working target during consolidation; it is this palette's approved
@@ -33,8 +34,11 @@ definitions. The palette lock does not authorize new themes or settings by itsel
 
 ## Ownership
 
-`src/web/palette.css` owns the interface's 20 independent base colors and its derived
-semantic roles. `src/web/main.tsx` loads it before `style.css`, making the same roles
+`src/web/palette.css` owns the interface's base colors and derived semantic roles.
+The approved Dark interface has 20 base colors; its existing speech default has now
+also moved into this stylesheet. Light overrides bases and selected derivations
+under `:root[data-theme="light"]`, retaining the same semantic roles.
+`src/web/main.tsx` loads it before `style.css`, making the same roles
 available to portals, modal dialogs and the CodeMirror comparison editor. Component
 CSS and editor extensions use `var(--role)` rather than separate color literals.
 
@@ -45,10 +49,11 @@ CSS and editor extensions use `var(--role)` rather than separate color literals.
 | Status | Success, danger, destructive button, information, warning |
 | Additional allocation hues | Purple, gold, teal, pink |
 
-Values live in the stylesheet; the fixture records the visually approved
-definitions for the automated guard. Different roles can share one base without
-becoming the same
-concept: an information indicator and a history allocation can diverge in a later
+Values live in the stylesheet; the original dark fixture records the visually
+approved definitions for the automated guard. A separate `theme-palettes.json`
+fixture records the moved dark speech roles and visually approved light overrides.
+Both fixtures prevent accidental changes to the accepted appearance.
+Different roles can share one base without becoming the same concept: an information indicator and a history allocation can diverge in a later
 approved theme. Reuse existing roles where the meaning matches. A new role may
 alias an approved role when it serves a distinct purpose; a new mix requires
 agreement because it introduces a shade. Avoid creating a
@@ -71,10 +76,12 @@ color comes from `--on-accent` rather than a color embedded inside an SVG URL.
 
 ## Boundaries and exceptions
 
-- **Saved speech colors:** application defaults and Character/Persona overrides
-  retain their existing contracts, values and persistence. They are user data,
-  not additions to the interface palette. Moving default speech colors into themes
-  is deferred to the later theme implementation.
+- **Saved speech colors:** application and Character/Persona overrides
+  remain user data and retain their exact saved values. Null application defaults
+  now follow the active theme’s speech roles; explicit application colors can be
+  cleared using the theme-color actions in Chat appearance. Card overrides retain
+  precedence. New installations follow the theme; legacy saved colors, including
+  the old default blue, remain overrides until explicitly cleared.
 - **Color picker:** preset swatches and HSL channel gradients represent selectable
   user colors. Their data declarations are excluded from the UI-literal guard;
   the picker's frame, labels, buttons, borders and errors still use palette roles.
@@ -83,19 +90,26 @@ color comes from `--on-accent` rather than a color embedded inside an SVG URL.
   mask controls alpha only. Image crop grids and slider-thumb rings use explicit
   shared roles based on black/white to remain visible over arbitrary content.
 - **Initial browser chrome:** `index.html` and `public/site.webmanifest` retain
-  their dark header/page values. The guard verifies those match the palette.
-  Dynamic browser chrome and startup theme selection belong to the theme stage.
+  their dark fallback header/page values, checked by the guard. The server injects
+  the saved theme into the HTML root before CSS loads, including at login; the
+  browser updates theme-color from the active chrome role on startup and live
+  changes. The installed manifest’s launch background remains the static dark
+  fallback; actual phone/browser chrome behavior needs device review.
 - **System accessibility colors:** `Highlight`, `currentColor`, `transparent` and
   inherited colors retain their CSS meaning. Do not replace forced-colors support
   with a palette literal.
 
-No dependency, database migration, saved setting, transcript or model-input change
-is needed for this presentation-only stage. Existing save failures, retries and
-operation recovery are unchanged.
+Theme selection is server-wide in appearance sidecar version 4, using the existing
+revision-checked atomic save and notification paths. Versions 1–3 load without
+rewriting saved colors/revisions and upgrade on the next successful save. Failed
+saves retain the previous committed theme and the latest editable choice with Retry;
+competing saves rebase only locally edited fields. No dependency or SQLite migration
+is needed. Themes and app speech overrides stay outside content backups/import/wipe.
+Transcripts, request history, prompts and operation recovery remain unchanged.
 
 ## Verification and acceptance
 
-`npm test -- tests/palette.test.ts` checks centralized literals, base and derived
+`npm test -- tests/palette.test.ts tests/appearance.test.ts` checks centralized literals, base and derived
 definition changes, local component mixes, reference resolution and initial browser
 colors. The lock permits new aliases to approved roles but rejects new shades,
 changed ratios, removed approved roles and duplicate definitions. Formatting-only
@@ -118,6 +132,14 @@ For future approved appearance changes, the visual checklist is:
   states; allocations and request inspection; additions/removals in repair review.
 - Hover, keyboard focus, selected, disabled, loading and error/retry states.
 
+`tests/browser/themes.spec.ts` checks theme save failures/retry, competing saves,
+cross-window updates, fresh-browser login, reload, Russian controls, theme speech
+defaults and custom overrides. It checks key light text/status contrast pairs and
+captures Story, settings, Library menus, Memory and editable repair at desktop,
+phone-sized and breakpoint-adjacent widths. A live theme change must retain the
+unapproved repair text and composer draft. Existing workflows also run in the full
+suite. These checks do not establish universal accessibility or actual phone support.
+
 Keep visual approval separate from the automated workflow results. The user's
-acceptance above establishes the current baseline. Theme work will require its
-own technical verification and visual review.
+acceptance above establishes the current Dark and Light baselines; actual phone
+verification remains separate.

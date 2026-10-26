@@ -248,6 +248,7 @@ for (const width of [1440, 390]) test(`app color choices save while the picker i
     await picker.press('Escape');
     await expect(picker).toHaveCount(0);
     expect((await appearance()).settings).toEqual(saved.settings);
+    if (saved.settings.characterSpeechColor === null) throw new Error('Expected a saved custom speech color');
     await expect(page.getByRole('button', { name: 'Default character speech color', exact: true })).toContainText(saved.settings.characterSpeechColor.toUpperCase());
     expect(writes).toHaveLength(3);
   } finally {

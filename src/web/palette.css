@@ -2,6 +2,7 @@
    Reuse its roles; color/derivation changes require explicit user agreement.
    See docs/PALETTE.md and tests/fixtures/approved-dark-palette.json. */
 :root {
+  color-scheme: dark;
   --palette-black: #000000;
   --palette-white: #ffffff;
   --palette-page: #12161c;
@@ -109,4 +110,58 @@
   --picker-thumb: var(--palette-white);
   --on-danger-button: var(--palette-white);
   --mask-opaque: var(--palette-black);
+  /* Theme defaults are presentation only; saved card/app overrides take precedence. */
+  --palette-speech: #a8c9f0;
+  --speech-character: var(--palette-speech);
+  --speech-persona: var(--speech-character);
+  --on-retained: var(--text-secondary);
+}
+
+/* Light uses the same semantic roles; all color derivations stay here. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --palette-page: #f7f5f1;
+  --palette-inset: #ffffff;
+  --palette-chrome: #eeebe5;
+  --palette-surface: #ffffff;
+  --palette-raised: #e7e4de;
+  --palette-border: #8b9199;
+  --palette-text: #262b33;
+  --palette-muted: #59616e;
+  --palette-accent: #94512c;
+  --palette-success: #28653c;
+  --palette-danger: #a12d32;
+  --palette-destructive: #ad3533;
+  --palette-info: #295f9b;
+  --palette-warning: #805000;
+  --palette-purple: #7250a0;
+  --palette-gold: #776000;
+  --palette-teal: #1c6c75;
+  --palette-pink: #984a73;
+
+  --text-faint: var(--muted);
+  --on-retained: var(--palette-black);
+  --header-highlight: var(--accent);
+  --on-accent: var(--palette-white);
+  --accent-border: color-mix(in srgb, var(--accent) 75%, var(--page));
+  --accent-line: color-mix(in srgb, var(--accent) 45%, var(--page));
+  --accent-tint: color-mix(in srgb, var(--accent) 8%, var(--page));
+  --accent-selected: color-mix(in srgb, var(--accent) 12%, var(--page));
+  --danger-text: var(--danger);
+  --danger-text-strong: var(--danger);
+  --danger-surface: color-mix(in srgb, var(--danger) 9%, var(--page));
+  --danger-surface-muted: color-mix(in srgb, var(--danger) 5%, var(--page));
+  --danger-surface-strong: color-mix(in srgb, var(--danger) 14%, var(--page));
+  --success-surface: color-mix(in srgb, var(--success) 10%, var(--page));
+  --on-success: var(--palette-white);
+  --info-text: var(--info);
+  --info-surface: color-mix(in srgb, var(--info) 12%, var(--surface));
+  --on-info: var(--palette-white);
+  --warning-surface: color-mix(in srgb, var(--warning) 10%, var(--page));
+  --overlay-bg: color-mix(in srgb, var(--palette-black) 32%, transparent);
+  --overlay-strong: color-mix(in srgb, var(--palette-black) 45%, transparent);
+  --highlight-faint: color-mix(in srgb, var(--palette-black) 2%, transparent);
+  --highlight-soft: color-mix(in srgb, var(--palette-black) 7%, transparent);
+  --swatch-border: color-mix(in srgb, var(--palette-black) 25%, transparent);
+  --palette-speech: #295f9b;
 }

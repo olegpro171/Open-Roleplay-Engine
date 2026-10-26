@@ -1,3 +1,4 @@
+import { useTheme } from './theme';
 import { t, useLocale } from './localization';
 import { useEffect, useRef, useState } from 'react';
 import { Compartment, EditorState } from '@codemirror/state';
@@ -5,13 +6,13 @@ import { EditorView, keymap } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { MergeView, goToNextChunk, goToPreviousChunk, unifiedMergeView } from '@codemirror/merge';
 
-const proseTheme = EditorView.theme({
+function proseTheme(dark: boolean) { return EditorView.theme({
   '&': { backgroundColor: 'var(--input-bg)', color: 'var(--text)', fontSize: '14px' },
   '.cm-content': { padding: '16px 12px', minHeight: '180px', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', lineHeight: '1.7', overflowWrap: 'anywhere' },
   '.cm-scroller': { fontFamily: 'inherit', overflowX: 'hidden' },
   '.cm-cursor': { borderLeftColor: 'var(--header-highlight)' },
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: 'var(--info-surface)' },
-  '.cm-gutters': { backgroundColor: 'var(--input-bg)', border: 'none' },
+  '.cm-gutters': { backgroundColor: 'var(--input-bg)', color: 'var(--muted)', border: 'none' },
   '.cm-changedLine': { backgroundColor: 'transparent' },
   // Override the merge extension's colored gradients and gutters as well as its
   // text fills, so library defaults cannot supply a separate status palette.
@@ -20,7 +21,8 @@ const proseTheme = EditorView.theme({
   '&.cm-merge-a .cm-changedLineGutter, .cm-deletedLineGutter': { backgroundColor: 'var(--danger)' },
   '&.cm-merge-b .cm-changedLineGutter': { backgroundColor: 'var(--success)' },
   '.cm-inlineChangedLineGutter': { backgroundColor: 'var(--input-prompt)' },
-}, { dark: true });
+}, { dark }); }
+const proseThemes = { dark: proseTheme(true), light: proseTheme(false) };
 const nonce = () => EditorView.cspNonce.of(document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content ?? '');
 
 /** Plain text only: both panes use the same editor, typography and wrapping. */
@@ -28,8 +30,9 @@ export function TextComparison({ original, value, onChange, disabled = false, or
   original: string; value: string; onChange?: (value: string) => void; disabled?: boolean; originalLabel?: string; modifiedLabel?: string;
 }) {
   useLocale();
+  const theme = useTheme();
   const container = useRef<HTMLDivElement>(null);
-  const editors = useRef<{ modified: EditorView; merge?: MergeView; editable: Compartment; comparison: Compartment } | null>(null);
+  const editors = useRef<{ modified: EditorView; merge?: MergeView; editable: Compartment; comparison: Compartment; palette: Compartment } | null>(null);
   const change = useRef(onChange); change.current = onChange;
   const initial = useRef(value); initial.current = value;
   const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 760px)').matches);
@@ -41,8 +44,8 @@ export function TextComparison({ original, value, onChange, disabled = false, or
     return () => query.removeEventListener('change', update);
   }, []);
   useEffect(() => {
-    const editable = new Compartment(), comparison = new Compartment();
-    const extensions = [nonce(), proseTheme, EditorView.lineWrapping, history(), keymap.of([...defaultKeymap, ...historyKeymap]),
+    const editable = new Compartment(), comparison = new Compartment(), palette = new Compartment();
+    const extensions = [nonce(), palette.of(proseThemes[theme]), EditorView.lineWrapping, history(), keymap.of([...defaultKeymap, ...historyKeymap]),
       EditorState.transactionFilter.of(transaction => transaction.newDoc.length > 1_000_000 ? [] : transaction),
       editable.of([EditorState.readOnly.of(disabled || !change.current), EditorView.editable.of(!disabled && Boolean(change.current))]),
       EditorView.contentAttributes.of({ 'aria-label': modifiedLabel }),
@@ -52,15 +55,22 @@ export function TextComparison({ original, value, onChange, disabled = false, or
     if (compact) {
       const modified = new EditorView({ parent: container.current!, doc: initial.current, extensions: [...extensions,
         comparison.of(unifiedMergeView({ original, mergeControls: false, highlightChanges: true, syntaxHighlightDeletions: false, diffConfig, collapseUnchanged }))] });
-      editors.current = { modified, editable, comparison };
+      editors.current = { modified, editable, comparison, palette };
     } else {
       const merge = new MergeView({ parent: container.current!,
-        a: { doc: original, extensions: [nonce(), proseTheme, EditorView.lineWrapping, EditorState.readOnly.of(true), EditorView.editable.of(false), EditorView.contentAttributes.of({ 'aria-label': originalLabel })] },
+        a: { doc: original, extensions: [nonce(), palette.of(proseThemes[theme]), EditorView.lineWrapping, EditorState.readOnly.of(true), EditorView.editable.of(false), EditorView.contentAttributes.of({ 'aria-label': originalLabel })] },
         b: { doc: initial.current, extensions }, highlightChanges: true, gutter: true, diffConfig, collapseUnchanged });
-      editors.current = { modified: merge.b, merge, editable, comparison };
+      editors.current = { modified: merge.b, merge, editable, comparison, palette };
     }
     return () => { const view = editors.current; if (view?.merge) view.merge.destroy(); else view?.modified.destroy(); editors.current = null; };
   }, [original, compact, originalLabel, modifiedLabel]);
+  useEffect(() => {
+    const view = editors.current;
+    if (!view) return;
+    const effects = view.palette.reconfigure(proseThemes[theme]);
+    view.modified.dispatch({ effects });
+    view.merge?.a.dispatch({ effects });
+  }, [theme]);
   useEffect(() => {
     const view = editors.current;
     const collapseUnchanged = collapse ? { margin: 2, minSize: 4 } : undefined;

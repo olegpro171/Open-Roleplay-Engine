@@ -4,7 +4,7 @@ import Markdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { SpeechOptions } from './direct-speech';
 import { remarkDirectSpeech } from './remark-direct-speech';
-import { defaultSpeechColor, type ChatTextScale } from '../shared/appearance';
+import type { ChatTextScale } from '../shared/appearance';
 
 // Russian detection can be disabled here independently of quotation styling.
 const defaultSpeechOptions: SpeechOptions = { quotes: true, russianDialogue: true };
@@ -29,7 +29,7 @@ function safeUrl(url: string, key: string): string {
   return /^(?:https?:|mailto:|#)/iu.test(url) ? defaultUrlTransform(url) : '';
 }
 
-export const ChatMarkdown = memo(function ChatMarkdown({ text, speech = defaultSpeechOptions, speechColor = defaultSpeechColor, textScale = 100 }: { text: string; speech?: SpeechOptions; speechColor?: string; textScale?: ChatTextScale }) {
+export const ChatMarkdown = memo(function ChatMarkdown({ text, speech = defaultSpeechOptions, speechColor = 'var(--speech-character)', textScale = 100 }: { text: string; speech?: SpeechOptions; speechColor?: string; textScale?: ChatTextScale }) {
   useLocale();
   const style: CSSProperties & { '--direct-speech-color': string } = { '--direct-speech-color': speechColor, fontSize: `${15 * textScale / 100}px` };
   return <div className="chat-markdown" style={style}><Markdown

@@ -1,3 +1,4 @@
+import { applyTheme } from './theme';
 import { stateLabel } from './localization-labels';
 import type { MessageText } from './localization';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
@@ -65,6 +66,8 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [chatId, setChatId] = useState<string | null>(lastChat);
   const [appearance, setAppearance] = useState<AppearanceStatus>({ revision: 0, settings: defaultAppearance });
+  const [appearanceLoaded, setAppearanceLoaded] = useState(false);
+  useLayoutEffect(() => { if (appearanceLoaded) applyTheme(appearance.settings.theme); }, [appearanceLoaded, appearance.settings.theme]);
   const [chatDefaults, setChatDefaults] = useState<ChatDefaultsStatus>(initialChatDefaults);
   const [appearanceError, setAppearanceError] = useTextState(null);
   const [chatBehavior, setChatBehavior] = useState<ChatBehaviorStatus | null>(null);
@@ -72,7 +75,7 @@ export function App() {
   // Keep settings queues and failed choices through workspace navigation and reopening Settings.
   const appearanceEditor = useSettingsAutosave<AppearanceStatus['settings'], AppearanceStatus>({
     status: appearance, path: '/application/appearance', parse: value => appearanceStatusSchema.parse(value),
-    committed: value => { setAppearance(current => value.revision >= current.revision ? value : current); setAppearanceError(null); },
+    committed: value => { setAppearanceLoaded(true); setAppearance(current => value.revision >= current.revision ? value : current); setAppearanceError(null); },
   });
   const behaviorEditor = useSettingsAutosave<ChatBehaviorStatus['settings'], ChatBehaviorStatus>({
     status: chatBehavior, path: '/application/chat-behavior', parse: value => chatBehaviorStatusSchema.parse(value),
@@ -208,6 +211,7 @@ export function App() {
         // A settings save can commit while this refresh is waiting for chat state.
         if (appearanceResult?.value) {
           const nextAppearance = appearanceResult.value;
+          setAppearanceLoaded(true);
           setAppearance(current => nextAppearance.revision >= current.revision ? nextAppearance : current);
         }
         if (appearanceResult) setAppearanceError(appearanceResult.error);
@@ -560,8 +564,8 @@ export function App() {
               {part === 'assistant' && reasoning && generating && !responseText && <ReasoningPreview text={reasoning.text} />}
               {edit?.turnId === turn.id && edit.part === part ? <form ref={editForm} onSubmit={saveEdit} className="edit-form"><ChatTextarea autoSize aria-label={t("app.edit_text", { part: part })} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><p className="small muted">{snapshot.settings.lorebookId ? t("app.saving_a_history_edit_starts_fresh_lore") : ""}</p><div className="actions"><button disabled={busy}>{t("app.save_edit")}</button><button type="button" className="quiet" onClick={() => setEdit(null)}>{t("app.cancel_edit")}</button></div></form> : <div className="prose">
                 {part === 'assistant' && (!turn.complete || generating)
-                  ? <>{trimBoundaryNewlines(responseText) ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={trimBoundaryNewlines(responseText)} speechColor={selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor} /> : <span className="muted">{generating ? t(preparing ? "app.preparing_memory" : reasoning ? "app.reasoning" : "app.waiting_for_first_token") : cancelled ? t("app.generation_cancelled") : t("app.awaiting_response")}</span>}{generating && <span className="cursor" aria-label={t("app.generating")} />}</>
-                  : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor : selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor} /> : <span className="muted blank">{t("app.blank")}</span>}
+                  ? <>{trimBoundaryNewlines(responseText) ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={trimBoundaryNewlines(responseText)} speechColor={selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor ?? 'var(--speech-character)'} /> : <span className="muted">{generating ? t(preparing ? "app.preparing_memory" : reasoning ? "app.reasoning" : "app.waiting_for_first_token") : cancelled ? t("app.generation_cancelled") : t("app.awaiting_response")}</span>}{generating && <span className="cursor" aria-label={t("app.generating")} />}</>
+                  : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor ?? 'var(--speech-persona)' : selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor ?? 'var(--speech-character)'} /> : <span className="muted blank">{t("app.blank")}</span>}
               </div>}
             </div>)}
             <TurnControls turn={turn} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}

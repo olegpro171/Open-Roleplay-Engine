@@ -38,8 +38,22 @@ previous appearance. The palette is now locked: new colors or derived shades and
 changes to approved values/mix ratios require explicit agreement. Semantic aliases
 may reuse an approved role without changing its color. The approved palette has
 20 base colors; that count was a working target, not a proven minimum or a limit
-on future themes. This acceptance completes the palette checkpoint, not theme
-implementation.
+on future themes. This acceptance completes the palette checkpoint.
+
+Accepted on 2026-10-26: Application Settings → Chat appearance offers Dark and
+Light themes. The selected theme applies to every device using this server and
+saves immediately through the existing appearance settings flow. Dark remains the
+initial theme and retains its approved interface colors. Light uses warm neutral
+surfaces, dark text and theme-specific accent/status colors. Themes own interface
+colors, background treatment and default Character/Persona speech colors; explicit
+card colors take precedence, followed by any saved application speech-color override.
+New application speech defaults follow the theme. Existing saved colors remain
+explicit overrides, including the former default blue; **Use theme character color**
+and **Use theme persona color** clear those application overrides. Theme changes
+update presentation without changing chats, drafts, model input or memory. The user
+visually approved the light theme on 2026-10-26. Both shipped palettes now follow the
+palette approval boundary; this visual acceptance does not establish actual phone
+verification or replace technical checks.
 
 Accepted on 2026-10-24: Application Settings saves each valid change immediately, without Save or Reload buttons. Appearance, keyboard behavior and LAN settings retain failed changes with Retry; rapid edits serialize and competing saves reconcile only the fields changed locally. Language files refresh automatically while Settings is open. App-default colors save as they are adjusted; their picker closes without undoing saved changes. Backup export/import, data deletion and reusable library/chat editors retain their explicit action and confirmation flows. Accepted on 2026-10-25: routine settings saves show no transient status. A save still pending after one second shows an error-style delay banner until it finishes; confirmed failures appear immediately with Retry.
 

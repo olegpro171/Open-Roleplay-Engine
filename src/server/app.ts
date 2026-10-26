@@ -745,7 +745,14 @@ export async function createApp(options: {
       const nonce = randomBytes(24).toString('base64');
       reply.header('Content-Security-Policy', contentSecurityPolicy(nonce));
       reply.header('Cache-Control', 'no-store');
-      return reply.type('text/html').send(index.replace('<head>', `<head><meta name="csp-nonce" content="${nonce}">`));
+      // Appearance failure must not prevent login or recovery; the authenticated read reports it.
+      let theme = 'dark';
+      try {
+        theme = appearance.status().settings.theme;
+      } catch (error) {
+        if (!(error instanceof AppError)) throw error;
+      }
+      return reply.type('text/html').send(index.replace('<html lang="en">', `<html lang="en" data-theme="${theme}">`).replace('<head>', `<head><meta name="csp-nonce" content="${nonce}">`));
     };
     await app.register(staticFiles, { root: options.staticDirectory });
     app.get('/', async (_request, reply) => sendIndex(reply));

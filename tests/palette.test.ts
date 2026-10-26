@@ -2,11 +2,12 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import themePalettes from './fixtures/theme-palettes.json';
 import approvedDarkPalette from './fixtures/approved-dark-palette.json';
 
 // Approved by the user on 2026-10-26. This fixture locks values and derivations,
 // not a target count; update it only for an explicitly agreed palette change.
-const approvedRoles = new Map(Object.entries(approvedDarkPalette));
+const approvedRoles = new Map(Object.entries({ ...approvedDarkPalette, ...themePalettes.darkAdditions }));
 const approvedBaseColors = Object.fromEntries([...approvedRoles]
   .filter(([name]) => name.startsWith('--palette-'))
   .map(([name, value]) => [name.slice('--palette-'.length), value]));
@@ -63,21 +64,32 @@ function paletteDefinitions(source: string): [string, string][] {
     .map(([, name, value]) => [name, value]);
 }
 
-function paletteChanges(definitions: [string, string][]): string[] {
+function paletteChanges(definitions: [string, string][], approved = approvedRoles): string[] {
   const actual = new Map(definitions);
   const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').replace(/\s*([(),])\s*/g, '$1');
   const changes: string[] = [];
-  for (const [name, value] of approvedRoles) {
+  for (const [name, value] of approved) {
     const current = actual.get(name);
     if (current === undefined || normalize(current) !== normalize(value)) changes.push(`Changed or removed approved role: ${name}`);
   }
   for (const [name, value] of actual) {
-    if (approvedRoles.has(name)) continue;
+    if (approved.has(name)) continue;
     const alias = /^var\((--[\w-]+)\)$/.exec(normalize(value));
-    if (name.startsWith('--palette-') || !alias || !approvedRoles.has(alias[1])) changes.push(`Unapproved new color definition: ${name}`);
+    if (name.startsWith('--palette-') || !alias || !approved.has(alias[1])) changes.push(`Unapproved new color definition: ${name}`);
   }
   if (definitions.length !== actual.size) changes.push('Duplicate palette definitions');
   return changes;
+}
+
+function paletteSource(theme: 'dark' | 'light'): string {
+  const source = withoutComments(read('src/web/palette.css'));
+  const rule = /(:root(?:\[data-theme="light"\])?)\s*\{([^}]+)\}/g;
+  const blocks = [...source.matchAll(rule)];
+  expect(source.replace(rule, '').trim(), 'Keep all palette definitions in the checked theme rules').toBe('');
+  expect(blocks.map(match => match[1])).toEqual([':root', ':root[data-theme="light"]']);
+  const body = blocks[theme === 'dark' ? 0 : 1][2];
+  expect(body.replace(/--[\w-]+:\s*[^;]+;|color-scheme:\s*(?:dark|light);/g, '').trim(), 'Only centralized palette declarations and color-scheme belong here').toBe('');
+  return body;
 }
 
 // Picker swatches and HSL ramps represent selectable user colors, not UI chrome.
@@ -90,14 +102,15 @@ function withoutPickerData(source: string): string {
 
 describe('interface palette approval boundary', () => {
   it('keeps independent colors in the approved base palette', () => {
-    const source = withoutComments(read('src/web/palette.css'));
+    expect(Object.keys(themePalettes.darkAdditions).filter(name => Object.hasOwn(approvedDarkPalette, name))).toEqual([]);
+    const source = paletteSource('dark');
     const definitions = [...source.matchAll(/--palette-([\w-]+):\s*(#[\da-f]{6});/g)];
     expect(Object.fromEntries(definitions.map(([, name, color]) => [name, color]))).toEqual(approvedBaseColors);
     expect(unapprovedLiterals(source)).toEqual(definitions.map(([, , color]) => color));
   });
 
   it('locks approved role values and derivations while allowing semantic aliases', () => {
-    expect(paletteChanges(paletteDefinitions(read('src/web/palette.css')))).toEqual([]);
+    expect(paletteChanges(paletteDefinitions(paletteSource('dark')))).toEqual([]);
     const approved: [string, string][] = [...approvedRoles];
     expect(paletteChanges(approved.map(([name, value]) => [name, value.replaceAll(',', ',\n  ')]))).toEqual([]);
     expect(paletteChanges([...approved, ['--new-semantic-role', 'var(--text)']])).toEqual([]);
@@ -107,6 +120,14 @@ describe('interface palette approval boundary', () => {
       .toEqual(['Unapproved new color definition: --new-shade']);
     expect(paletteChanges(approved.filter(([name]) => name !== '--surface'))).toContain('Changed or removed approved role: --surface');
     expect(paletteChanges([...approved, ['--text', 'var(--muted)']])).toContain('Duplicate palette definitions');
+  });
+
+  it('locks the implemented light overrides and supplies every dark role in both themes', () => {
+    const overrides = paletteDefinitions(paletteSource('light'));
+    expect(paletteChanges(overrides, new Map(Object.entries(themePalettes.lightOverrides)))).toEqual([]);
+    const dark = new Map(paletteDefinitions(paletteSource('dark')));
+    const light = new Map([...dark, ...overrides]);
+    expect([...light.keys()].sort()).toEqual([...dark.keys()].sort());
   });
 
   it('requires web components and styles to reuse palette roles', () => {
@@ -135,15 +156,16 @@ describe('interface palette approval boundary', () => {
   });
 
   it('keeps palette roles resolvable without circular or missing references', () => {
-    const definitions = new Map([...withoutComments(read('src/web/palette.css')).matchAll(/(--[\w-]+):\s*([^;]+);/g)]
-      .map(([, name, value]) => [name, value]));
-    function visit(name: string, path: string[]): void {
-      expect(path, `Circular palette reference: ${[...path, name].join(' → ')}`).not.toContain(name);
-      const value = definitions.get(name);
-      if (value === undefined) throw new Error(`Missing palette role ${name}`);
-      for (const [, dependency] of value.matchAll(/var\((--[\w-]+)\)/g)) visit(dependency, [...path, name]);
+    for (const theme of ['dark', 'light'] as const) {
+      const definitions = new Map([...paletteDefinitions(paletteSource('dark')), ...(theme === 'light' ? paletteDefinitions(paletteSource('light')) : [])]);
+      function visit(name: string, path: string[]): void {
+        expect(path, `Circular palette reference: ${[...path, name].join(' → ')}`).not.toContain(name);
+        const value = definitions.get(name);
+        if (value === undefined) throw new Error(`Missing palette role ${name}`);
+        for (const [, dependency] of value.matchAll(/var\((--[\w-]+)\)/g)) visit(dependency, [...path, name]);
+      }
+      for (const name of definitions.keys()) visit(name, []);
     }
-    for (const name of definitions.keys()) visit(name, []);
   });
 
   it('resolves variables used by styles and editor components, including runtime speech and text scale', () => {

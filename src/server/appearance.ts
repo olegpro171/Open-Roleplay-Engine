@@ -5,15 +5,21 @@ import { z } from 'zod';
 import { appearanceSchema, appearanceStatusSchema, defaultAppearance, type AppearanceStatus } from '../shared/appearance.js';
 import { AppError } from '../core/errors.js';
 
+// Legacy colors remain explicit overrides, including values equal to the old default.
+const legacyColors = appearanceSchema.pick({ characterSpeechColor: true, personaSpeechColor: true })
+  .extend({ characterSpeechColor: appearanceSchema.shape.characterSpeechColor.unwrap(), personaSpeechColor: appearanceSchema.shape.personaSpeechColor.unwrap() });
 const legacySavedSchema = appearanceStatusSchema.extend({
-  version: z.literal(1), settings: appearanceSchema.omit({ chatTextScale: true, displayCharacterPicture: true }),
+  version: z.literal(1), settings: legacyColors,
 }).strict().transform(value => ({ ...value, settings: { ...defaultAppearance, ...value.settings } }));
 const version2SavedSchema = appearanceStatusSchema.extend({
-  version: z.literal(2), settings: appearanceSchema.omit({ displayCharacterPicture: true }),
-}).strict().transform(value => ({ ...value, settings: { ...value.settings, displayCharacterPicture: defaultAppearance.displayCharacterPicture } }));
-const savedSchema = z.union([legacySavedSchema, version2SavedSchema, appearanceStatusSchema.extend({ version: z.literal(3) }).strict()]);
+  version: z.literal(2), settings: legacyColors.extend({ chatTextScale: appearanceSchema.shape.chatTextScale }),
+}).strict().transform(value => ({ ...value, settings: { ...defaultAppearance, ...value.settings } }));
+const version3SavedSchema = appearanceStatusSchema.extend({
+  version: z.literal(3), settings: legacyColors.extend({ chatTextScale: appearanceSchema.shape.chatTextScale, displayCharacterPicture: z.boolean() }),
+}).strict().transform(value => ({ ...value, settings: { ...defaultAppearance, ...value.settings } }));
+const savedSchema = z.union([legacySavedSchema, version2SavedSchema, version3SavedSchema, appearanceStatusSchema.extend({ version: z.literal(4) }).strict()]);
 // Older open clients preserve newer appearance preferences when saving.
-const saveSchema = appearanceStatusSchema.extend({ settings: appearanceSchema.partial({ chatTextScale: true, displayCharacterPicture: true }) });
+const saveSchema = appearanceStatusSchema.extend({ settings: appearanceSchema.partial({ theme: true, chatTextScale: true, displayCharacterPicture: true }) });
 
 export class AppearanceSettings {
   constructor(private file: string) {}
@@ -36,13 +42,14 @@ export class AppearanceSettings {
     if (input.revision !== current.revision) throw new AppError(409, 'appearance_conflict', message("errors.chat_appearance_changed_in_another_window_reload_chat"));
     const next = { revision: current.revision + 1, settings: {
       ...input.settings,
+      theme: input.settings.theme ?? current.settings.theme,
       chatTextScale: input.settings.chatTextScale ?? current.settings.chatTextScale,
       displayCharacterPicture: input.settings.displayCharacterPicture ?? current.settings.displayCharacterPicture,
     } };
     const temporary = `${this.file}.${randomUUID()}.tmp`;
     try {
       try {
-        writeFileSync(temporary, JSON.stringify({ version: 3, ...next }), { mode: 0o600, flag: 'wx' });
+        writeFileSync(temporary, JSON.stringify({ version: 4, ...next }), { mode: 0o600, flag: 'wx' });
         renameSync(temporary, this.file);
       } finally {
         if (existsSync(temporary)) unlinkSync(temporary);

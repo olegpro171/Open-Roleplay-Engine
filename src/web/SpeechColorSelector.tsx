@@ -1,5 +1,5 @@
 import { t, useLocale } from './localization';
-import { defaultSpeechColor } from '../shared/appearance';
+import { themeSpeechColor } from './theme';
 import { ColorPicker } from './ColorPicker';
 
 export function SpeechColorSelector({ value, change, disabled = false }: { value?: string | null; change: (value: string | null) => void; disabled?: boolean }) {
@@ -12,7 +12,7 @@ export function SpeechColorSelector({ value, change, disabled = false }: { value
         <button type="button" className="secondary" onClick={() => change(null)}>{t("speech_color_selector.clear_color")}</button>
       </> : <>
         <span className="speech-color-unset">{t("character_editor.not_set")}</span>
-        <button type="button" className="secondary" onClick={() => change(defaultSpeechColor)}>{t("speech_color_selector.set_color")}</button>
+        <button type="button" className="secondary" onClick={() => change(themeSpeechColor('character'))}>{t("speech_color_selector.set_color")}</button>
       </>}
     </div>
   </fieldset>;

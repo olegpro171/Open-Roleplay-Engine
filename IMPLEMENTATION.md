@@ -121,7 +121,7 @@ The composer opts into content sizing in `ChatTextarea.tsx`: measure after value
 
 `useTouchScrollGuard.ts` adds touch containment only to authenticated iOS Story. A non-passive touchmove listener cancels single-finger gestures when no inner scroll area can consume movement in that direction, respecting contained boundaries and RTL horizontal scrolling. It preserves multi-touch/zoom, native selection and long-press selection, focused text-input horizontal movement, range controls and application-owned drag surfaces. Leaving Story removes its listeners. It does not change viewport sizing, header visibility, keyboard timing or scroll positions; the existing composer spacing hook remains unchanged. Browser tests check cancellation decisions and a real Chromium touch scroll. The user tested the touch-only approach on the phone and reported no observed issues; this does not establish coverage of every native gesture or other devices.
 
-The workspace header uses `position: sticky; top: 0` so Safari can sample its opaque background for the top system area. The HTML and manifest theme colors match the header (`#171c24`); the page background and manifest launch background remain `#12161c`. This does not opt into an edge-to-edge viewport, add status-bar overlays, or change keyboard sizing. Browser checks verify the workspace layout. The user confirmed the appearance on their iPhone on 2026-10-26; broader device coverage remains unverified.
+The workspace header uses `position: sticky; top: 0` so Safari can sample its opaque background for the top system area. The HTML and manifest fallback theme colors match the dark header (`#171c24`); the fallback page/manifest launch background remains `#12161c`. The server injects the current theme into the HTML root before styles load, including before login. The browser updates its theme-color metadata from the active palette on startup and committed theme changes; the static manifest remains the dark installation fallback. This does not opt into an edge-to-edge viewport, add status-bar overlays, or change keyboard sizing. Browser checks verify the workspace layout. The user confirmed the appearance on their iPhone on 2026-10-26; broader device coverage remains unverified.
 
 The intended flow is:
 
@@ -343,6 +343,24 @@ Appearance sidecar version 2 includes `chatTextScale`; version-1 files load at 1
 
 Appearance sidecar version 3 adds the boolean `displayCharacterPicture`, initially true. Version-1/2 files load with pictures enabled without changing their saved contents or revision; the next successful save writes version 3. Older clients omitting this field preserve its committed value. The Chat appearance checkbox saves immediately through the shared settings queue. App mounts the shared sidebar portrait only when the committed preference is enabled, covering Story, Chat details and chat tools; disabling it also unmounts any original-picture viewer. Library portraits remain independent. Failed saves retain both the committed visibility and the local checkbox draft.
 
+Appearance sidecar version 4 adds `theme` (`dark` or `light`) and permits nullable
+application speech colors: null follows the active theme, while a hex value remains
+an explicit override below a Character/Persona override. New defaults use null.
+Versions 1–3 load as Dark with all saved colors/revisions intact and upgrade only
+on a successful save. Older writes omitting `theme` preserve the current selection.
+Theme saves share the appearance queue, atomic replacement, conflict/retry and SSE
+notification behavior. The root palette changes only after confirmed authoritative
+state; failed saves retain the chosen draft with Retry. A server-rendered root
+attribute selects the theme before the first styled frame without exposing other
+appearance data before login. Malformed appearance files keep login available in
+Dark and surface the existing authenticated read error without overwriting the file.
+`web/theme.ts` applies the root attribute and browser theme-color, and notifies
+mounted theme-dependent picker controls. Markdown defaults use CSS roles so existing,
+streaming and preview text follow theme changes. Comparison editors use palette
+roles and reconfigure their CodeMirror theme compartment; changing theme preserves
+their document/history.
+No SQLite migration, content backup change or model-input change is involved.
+
 ### Chat behavior and composer shortcuts
 
 `shared/chat-behavior.ts` defines the strict revisioned settings contract and the `ctrl-enter` default; `server/chat-behavior.ts` persists version 2 in the private `<database>.chat-behavior.json` sidecar. Authenticated GET/PUT `/api/application/chat-behavior` use the existing origin/data-epoch guards. Saves compare revisions and replace files atomically, retaining committed settings on failure. Invalid saved files fail explicitly without being overwritten. These application-wide preferences survive content import/wipe and are excluded from SQLite content backups and release artifacts. No transcript/schema migration is required; installations without the file use the defaults. Version-1 keyboard preferences read with the new defaults without rewriting their files; the next save writes version 2. Keyboard-only saves from older callers preserve the new preferences.
@@ -386,13 +404,16 @@ roles, loaded before component styles. Opaque sRGB mixes derive surface, border,
 text and status variants; intentional alpha roles cover overlays, shadows and
 picture tools. `TextComparison` uses the same variables as CSS, including shared
 diff roles. A masked checkbox mark inherits the palette's on-accent color. Saved
-speech colors and picker data remain independent. The user visually approved and
+speech overrides and picker data remain independent; theme speech defaults now live
+in the palette as well. The user visually approved and
 locked this palette on 2026-10-26. `tests/fixtures/approved-dark-palette.json` freezes
 both base and derived role definitions; `tests/palette.test.ts` checks that boundary,
 rejects new shades/local component mixes, allows aliases to approved roles, and
 checks raw UI literals, role references and static browser colors. Palette changes
-require explicit user agreement. Theme implementation remains a separate stage.
-No settings or persistence changes are introduced.
+require explicit user agreement. The subsequently authorized Light theme overrides
+these shared roles under `:root[data-theme="light"]`; the original dark fixture is
+unchanged. `tests/fixtures/theme-palettes.json` guards the moved, existing dark speech
+default and light overrides, visually approved by the user on 2026-10-26.
 See [palette contract and acceptance checklist](docs/PALETTE.md).
 
 Story uses the distinct `StorySnapshot` contract and read-only `StoryReader` through `/api/chats/:chatId/story`. Indexed per-chat positions bound turn/variant prose reads to 15 initial turns and at most 120 per window. Page movement uses a stable first-turn identity, a bounded shift and the captured chat revision; displayed ordinals are computed independently of stored position gaps. Story carries global latest-turn/generation state, page-scoped generation metadata without historical request bodies, and server-derived memory status using the shared source-provenance freshness rule. It is never passed to the engine as a complete `ChatSnapshot`. Memory, Setup/history replacement and Request inspector fetch full snapshots on demand; model assembly and preparation retain complete authoritative reads. `useTranscriptScroll` anchors page replacement by stable turn identity and within-turn progress; the ineffective deferred-layout CSS trial is superseded. Loading, stale-response rejection, recovery, verification and limits are documented in [TRANSCRIPT.md](docs/TRANSCRIPT.md).
