@@ -27,6 +27,12 @@ export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosav
           autosave.update({ displayCharacterPicture: event.target.checked });
         }} />{t("chat_appearance_settings.display_character_picture")}</label>
       </fieldset>
+      <fieldset>
+        <label className="checkbox"><input type="checkbox" checked={draft.showReasoningDuringGeneration} aria-describedby="show-reasoning-help" onChange={event => {
+          autosave.update({ showReasoningDuringGeneration: event.target.checked });
+        }} />{t("chat_appearance_settings.show_reasoning_during_generation")}</label>
+        <p className="small muted" id="show-reasoning-help">{t("chat_appearance_settings.show_reasoning_help")}</p>
+      </fieldset>
       <fieldset><legend>{t("chat_appearance_settings.chat_text_size")}</legend>
         <label htmlFor="chat-text-scale">{draft.chatTextScale === 100 ? t("chat_appearance_settings.text_scale_default", { scale: draft.chatTextScale }) : t("chat_appearance_settings.text_scale", { chatTextScale: draft.chatTextScale, value: '' })}</label>
         <p className="small muted" id="chat-text-scale-help">{t("chat_appearance_settings.adjust_message_text_independently_of_the_rest")}</p>

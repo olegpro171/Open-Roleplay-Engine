@@ -35,7 +35,7 @@ it.each(themeSchema.options)('saves %s app-wide defaults without changing librar
     expect(initial.json()).toEqual({ revision: 0, settings: defaultAppearance });
     const before = instance.store.snapshot();
     const libraryBefore = instance.store.libraries();
-    const settings = { theme, characterSpeechColor: '#EEAA88', personaSpeechColor: '#88cc99', chatTextScale: 120, displayCharacterPicture: false };
+    const settings = { theme, characterSpeechColor: '#EEAA88', personaSpeechColor: '#88cc99', chatTextScale: 120, displayCharacterPicture: false, showReasoningDuringGeneration: true };
     const saved = await instance.app.inject({ method: 'PUT', url: '/api/application/appearance', headers: auth, payload: { revision: 0, settings } });
     expect(saved.statusCode).toBe(200);
     expect(saved.json()).toEqual({ revision: 1, settings: { ...settings, characterSpeechColor: '#eeaa88' } });
@@ -66,7 +66,7 @@ it('retains committed defaults on write/rename failure, removes temporary files 
   const settings = new AppearanceSettings(file);
   const committed = settings.save({ revision: 0, settings: defaultAppearance });
   const saved = fs.readFileSync(file, 'utf8');
-  const next = { revision: 1, settings: { characterSpeechColor: '#112233', personaSpeechColor: '#445566', chatTextScale: 120, displayCharacterPicture: false } };
+  const next = { revision: 1, settings: { characterSpeechColor: '#112233', personaSpeechColor: '#445566', chatTextScale: 120, displayCharacterPicture: false, showReasoningDuringGeneration: true } };
   vi.mocked(fs.writeFileSync).mockImplementationOnce(() => { throw new Error('Synthetic disk full'); });
   expect(() => settings.save(next)).toThrow('Previous settings were retained');
   vi.mocked(fs.renameSync).mockImplementationOnce(() => { throw new Error('Synthetic rename failure'); });
@@ -89,12 +89,12 @@ it('reads version-1 colors with default text size and upgrades on save without l
   const legacy = JSON.stringify({ version: 1, revision: 7, settings: colors });
   fs.writeFileSync(file, legacy);
   const settings = new AppearanceSettings(file);
-  expect(settings.status()).toEqual({ revision: 7, settings: { ...colors, theme: 'dark', chatTextScale: 100, displayCharacterPicture: true } });
+  expect(settings.status()).toEqual({ revision: 7, settings: { ...colors, theme: 'dark', chatTextScale: 100, displayCharacterPicture: true, showReasoningDuringGeneration: false } });
   expect(fs.readFileSync(file, 'utf8')).toBe(legacy);
   settings.save({ revision: 7, settings: { ...colors, theme: 'dark', chatTextScale: 90 } });
-  expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 4, revision: 8, settings: { ...colors, theme: 'dark', chatTextScale: 90, displayCharacterPicture: true } });
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 5, revision: 8, settings: { ...colors, theme: 'dark', chatTextScale: 90, displayCharacterPicture: true, showReasoningDuringGeneration: false } });
   const reopened = new AppearanceSettings(file);
-  expect(reopened.save({ revision: 8, settings: { ...colors, theme: 'dark', personaSpeechColor: '#abcdef' } })).toEqual({ revision: 9, settings: { ...colors, theme: 'dark', personaSpeechColor: '#abcdef', chatTextScale: 90, displayCharacterPicture: true } });
+  expect(reopened.save({ revision: 8, settings: { ...colors, theme: 'dark', personaSpeechColor: '#abcdef' } })).toEqual({ revision: 9, settings: { ...colors, theme: 'dark', personaSpeechColor: '#abcdef', chatTextScale: 90, displayCharacterPicture: true, showReasoningDuringGeneration: false } });
 });
 
 it('defaults version-2 pictures to visible and preserves a hidden preference across older-client saves', () => {
@@ -103,15 +103,15 @@ it('defaults version-2 pictures to visible and preserves a hidden preference acr
   const legacy = JSON.stringify({ version: 2, revision: 12, settings: previous });
   fs.writeFileSync(file, legacy);
   const settings = new AppearanceSettings(file);
-  expect(settings.status()).toEqual({ revision: 12, settings: { ...previous, theme: 'dark', displayCharacterPicture: true } });
+  expect(settings.status()).toEqual({ revision: 12, settings: { ...previous, theme: 'dark', displayCharacterPicture: true, showReasoningDuringGeneration: false } });
   expect(fs.readFileSync(file, 'utf8')).toBe(legacy);
-  const hidden = settings.save({ revision: 12, settings: { ...previous, theme: 'dark', displayCharacterPicture: false } });
+  const hidden = settings.save({ revision: 12, settings: { ...previous, theme: 'dark', displayCharacterPicture: false, showReasoningDuringGeneration: false } });
   expect(hidden.settings.displayCharacterPicture).toBe(false);
-  expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 4, ...hidden });
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 5, ...hidden });
   const reopened = new AppearanceSettings(file);
   expect(reopened.status()).toEqual(hidden);
-  expect(reopened.save({ revision: 13, settings: previous })).toEqual({ revision: 14, settings: { ...previous, theme: 'dark', displayCharacterPicture: false } });
-  expect(reopened.save({ revision: 14, settings: { characterSpeechColor: '#abcdef', personaSpeechColor: previous.personaSpeechColor } })).toEqual({ revision: 15, settings: { ...previous, theme: 'dark', characterSpeechColor: '#abcdef', displayCharacterPicture: false } });
+  expect(reopened.save({ revision: 13, settings: previous })).toEqual({ revision: 14, settings: { ...previous, theme: 'dark', displayCharacterPicture: false, showReasoningDuringGeneration: false } });
+  expect(reopened.save({ revision: 14, settings: { characterSpeechColor: '#abcdef', personaSpeechColor: previous.personaSpeechColor } })).toEqual({ revision: 15, settings: { ...previous, theme: 'dark', characterSpeechColor: '#abcdef', displayCharacterPicture: false, showReasoningDuringGeneration: false } });
 });
 
 it('preserves version-3 colors and revisions, then saves theme defaults and retains theme for older clients', () => {
@@ -120,13 +120,13 @@ it('preserves version-3 colors and revisions, then saves theme defaults and reta
   const legacy = JSON.stringify({ version: 3, revision: 12, settings: previous });
   fs.writeFileSync(file, legacy);
   const settings = new AppearanceSettings(file);
-  expect(settings.status()).toEqual({ revision: 12, settings: { ...previous, theme: 'dark' } });
+  expect(settings.status()).toEqual({ revision: 12, settings: { ...previous, theme: 'dark', showReasoningDuringGeneration: false } });
   expect(fs.readFileSync(file, 'utf8')).toBe(legacy);
-  const light = settings.save({ revision: 12, settings: { ...previous, theme: 'light', characterSpeechColor: null } });
+  const light = settings.save({ revision: 12, settings: { ...previous, theme: 'light', characterSpeechColor: null, showReasoningDuringGeneration: false } });
   expect(new AppearanceSettings(file).status()).toEqual(light);
-  expect(light.settings).toEqual({ ...previous, theme: 'light', characterSpeechColor: null });
+  expect(light.settings).toEqual({ ...previous, theme: 'light', characterSpeechColor: null, showReasoningDuringGeneration: false });
   const next = settings.save({ revision: 13, settings: { ...previous, characterSpeechColor: '#112233' } });
-  expect(next.settings).toEqual({ ...previous, theme: 'light', characterSpeechColor: '#112233' });
+  expect(next.settings).toEqual({ ...previous, theme: 'light', characterSpeechColor: '#112233', showReasoningDuringGeneration: false });
   for (const theme of [null, 'system', '', 1]) {
     expect(() => settings.save({ revision: 14, settings: { ...next.settings, theme } })).toThrow();
     expect(settings.status()).toEqual(next);
@@ -158,4 +158,30 @@ it.each(themeSchema.options)('renders %s before login without exposing saved app
     expect(() => settings.status()).toThrow('could not be read');
     expect(fs.readFileSync(`${database}.appearance.json`, 'utf8')).toBe('malformed');
   } finally { await instance.app.close(); }
+});
+
+it('upgrades version-4 preferences with reasoning hidden and preserves explicit visibility for older clients', () => {
+  const file = join(directory(), 'settings.appearance.json');
+  const { showReasoningDuringGeneration: omitted, ...previous } = defaultAppearance;
+  expect(omitted).toBe(false);
+  const legacy = JSON.stringify({ version: 4, revision: 12, settings: { ...previous, theme: 'light', characterSpeechColor: '#123456' } });
+  fs.writeFileSync(file, legacy);
+  const settings = new AppearanceSettings(file);
+  const loaded = settings.status();
+  expect(loaded).toEqual({ revision: 12, settings: { ...defaultAppearance, theme: 'light', characterSpeechColor: '#123456' } });
+  expect(fs.readFileSync(file, 'utf8')).toBe(legacy);
+  const enabled = settings.save({ revision: 12, settings: { ...loaded.settings, showReasoningDuringGeneration: true } });
+  expect(enabled.settings.showReasoningDuringGeneration).toBe(true);
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 5, ...enabled });
+  const reopened = new AppearanceSettings(file);
+  expect(reopened.status()).toEqual(enabled);
+  const olderSave = reopened.save({ revision: 13, settings: previous });
+  expect(olderSave.settings.showReasoningDuringGeneration).toBe(true);
+  for (const invalid of [null, 0, 1, 'false']) {
+    expect(() => reopened.save({ revision: 14, settings: { ...olderSave.settings, showReasoningDuringGeneration: invalid } })).toThrow();
+    expect(reopened.status()).toEqual(olderSave);
+  }
+  const disabled = reopened.save({ revision: 14, settings: { ...olderSave.settings, showReasoningDuringGeneration: false } });
+  expect(new AppearanceSettings(file).status()).toEqual(disabled);
+  expect(disabled.settings.showReasoningDuringGeneration).toBe(false);
 });

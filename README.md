@@ -276,6 +276,11 @@ In **Libraries → Characters / Personas**, **Speech color** starts at **Not set
 
 **Display character picture in chat.** starts checked in the same section. Uncheck it to automatically save and hide the round portrait in Story, Chat details and chat-tool sidebars. Check it again to restore it. Library pictures stay visible.
 
+**Settings → Chat appearance → Show reasoning during generation** is off by default,
+including after upgrading. Enable it to show the live Reasoning panel above the
+response. The turn’s **Show reasoning** action still opens reasoning during generation
+and afterward regardless of this setting. Reasoning continues to be saved.
+
 Application defaults are saved privately in `<database>.appearance.json` and survive restart and content import/wipe. They are excluded from SQLite content backups; card overrides are included with their library records.
 
 ## Chat behavior

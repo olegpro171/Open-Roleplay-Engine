@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { syntheticReasoningStart, syntheticReasoningTail } from '../support/mock-provider';
@@ -7,7 +8,7 @@ test.afterEach(async ({ request }) => {
   await request.post('/__test/mode', { data: { mode: 'normal' } });
 });
 
-for (const width of [1280, 390, 320]) test(`streams and saves separate turn reasoning at ${width}px`, async ({ page, request }) => {
+for (const theme of themeSchema.options) for (const width of (theme === 'dark' ? [1280, 390, 320] : [1280, 390])) test(`streams and saves separate turn reasoning in ${theme} at ${width}px`, async ({ page, request }) => {
   test.setTimeout(60000);
   await page.setViewportSize({ width, height: 844 });
   const session = await request.get('/api/session').then(response => response.json());
@@ -20,6 +21,12 @@ for (const width of [1280, 390, 320]) test(`streams and saves separate turn reas
     expect(response.ok(), await response.text()).toBe(true);
     return response.json();
   };
+  const appearancePath = '/api/application/appearance';
+  const readAppearance = async () => appearanceStatusSchema.parse(await page.request.get(appearancePath).then(response => response.json()));
+  const initialAppearance = await readAppearance();
+  expect((await page.request.put(appearancePath, { headers: { Origin: 'http://127.0.0.1:4173' }, data: {
+    revision: initialAppearance.revision, settings: { ...initialAppearance.settings, theme, showReasoningDuringGeneration: false },
+  } })).ok()).toBe(true);
   const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
   const { endpoint } = await request.get('/__test/endpoint').then(response => response.json());
   const connection = await command('/api/library', { revision: library.revision, kind: 'connections', data: { name: `Reasoning ${width}`, model: 'synthetic-roleplay', endpoint, contextWindow: 100000, maxOutputTokens: 1000, customParameters: {} } });
@@ -35,13 +42,29 @@ for (const width of [1280, 390, 320]) test(`streams and saves separate turn reas
   const controls = turn.getByRole('group', { name: 'Turn controls', exact: true });
   const showReasoning = controls.getByRole('button', { name: 'Show reasoning', exact: true });
   const reply = turn.locator('.part.assistant > .prose');
+  await expect(showReasoning).toBeVisible();
+  await expect(preview).toHaveCount(0);
+  await showReasoning.click();
+  await expect(page.getByLabel('Model reasoning stream', { exact: true })).toHaveText(syntheticReasoningStart);
+  await page.getByRole('dialog', { name: 'Model reasoning', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
+  await page.reload();
+  await expect(showReasoning).toBeVisible();
+  await expect(preview).toHaveCount(0);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Settings categories' }).getByRole('button', { name: 'Chat appearance', exact: true }).click();
+  const checkbox = page.getByRole('checkbox', { name: 'Show reasoning during generation', exact: true });
+  await expect(checkbox).not.toBeChecked();
+  await page.screenshot({ path: `test-results/reasoning-settings-${theme}-${width}.png`, fullPage: true });
+  await checkbox.check();
+  await expect.poll(async () => (await readAppearance()).settings.showReasoningDuringGeneration).toBe(true);
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
   await expect(preview).toContainText('Reasoning line 80');
   await expect(reply).toHaveText('Reasoning…');
   const previewBox = await preview.boundingBox(), replyBox = await reply.boundingBox();
   expect(previewBox && replyBox && previewBox.y + previewBox.height <= replyBox.y).toBe(true);
   expect(previewBox?.height).toBeLessThan(110);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: `test-results/reasoning-preview-${width}.png`, fullPage: true });
+  await page.screenshot({ path: `test-results/reasoning-preview-${theme}-${width}.png`, fullPage: true });
 
   await showReasoning.focus(); await showReasoning.press('Enter');
   const popup = page.getByRole('dialog', { name: 'Model reasoning', exact: true });
@@ -49,7 +72,7 @@ for (const width of [1280, 390, 320]) test(`streams and saves separate turn reas
   const stream = popup.getByLabel('Model reasoning stream', { exact: true });
   await expect(stream).toHaveText(syntheticReasoningStart);
   await expect.poll(() => stream.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);
-  await page.screenshot({ path: `test-results/reasoning-popup-${width}.png`, fullPage: true });
+  await page.screenshot({ path: `test-results/reasoning-popup-${theme}-${width}.png`, fullPage: true });
   // Reading earlier text must survive incoming chunks without jumping to the tail.
   await stream.evaluate(node => { node.scrollTop = 0; });
   await expect(popup.getByRole('button', { name: 'Latest reasoning', exact: true })).toBeVisible();
@@ -102,10 +125,17 @@ for (const width of [1280, 390, 320]) test(`streams and saves separate turn reas
   const pinnedBox = await selector.boundingBox();
   expect(pinnedBox?.x).toBe(selectorBox.x);
   await controls.getByRole('button', { name: 'Regenerate response', exact: true }).focus();
-  await page.screenshot({ path: `test-results/turn-controls-${width}.png`, fullPage: true });
+  await page.screenshot({ path: `test-results/turn-controls-${theme}-${width}.png`, fullPage: true });
   await page.reload();
   await expect(showReasoning).toBeVisible();
   await expect(preview).toHaveCount(0);
+  // Saved reasoning remains accessible after switching the preview off again.
+  const visibleAppearance = await readAppearance();
+  expect((await page.request.put(appearancePath, { headers: { Origin: 'http://127.0.0.1:4173' }, data: {
+    revision: visibleAppearance.revision, settings: { ...visibleAppearance.settings, showReasoningDuringGeneration: false },
+  } })).ok()).toBe(true);
+  await page.reload();
+  await expect(showReasoning).toBeVisible();
   // A failed reasoning fetch retains the chat and offers an explicit retry.
   const reasoningUrl = `**/api/chats/${chat.id}/generations/*/reasoning`;
   await page.route(reasoningUrl, route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic reasoning fetch failure' }) }));
@@ -116,6 +146,11 @@ for (const width of [1280, 390, 320]) test(`streams and saves separate turn reas
   await expect(stream).toHaveText(syntheticReasoningStart + syntheticReasoningTail);
   await popup.getByRole('button', { name: 'Close', exact: true }).click();
 
+  const hiddenAppearance = await readAppearance();
+  expect((await page.request.put(appearancePath, { headers: { Origin: 'http://127.0.0.1:4173' }, data: {
+    revision: hiddenAppearance.revision, settings: { ...hiddenAppearance.settings, showReasoningDuringGeneration: true },
+  } })).ok()).toBe(true);
+  await page.reload();
   // Cancelling a replacement restores the selected response and its own reasoning.
   await turn.getByRole('button', { name: 'Regenerate response', exact: true }).click();
   await expect(reply).toHaveText('Reasoning…');

@@ -454,6 +454,8 @@ export const russianMessages = {
   "character_import.retry_reviewed_character_import": "Повторить проверенный импорт персонажа",
   "character_import.import": "Импортировать",
   "character_import.cancel": "Отмена",
+  "chat_appearance_settings.show_reasoning_during_generation": "Показывать рассуждения во время генерации",
+  "chat_appearance_settings.show_reasoning_help": "Показывать панель рассуждений, пока модель готовит ответ. Скрытые рассуждения остаются доступны через «Показать рассуждения».",
   "chat_appearance_settings.chat_text_size": "Размер текста чата",
   "chat_appearance_settings.display_character_picture": "Показывать изображение персонажа в чате.",
   "chat_appearance_settings.text_scale": "Масштаб текста — {{chatTextScale}}%{{value}}",

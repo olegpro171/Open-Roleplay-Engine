@@ -68,6 +68,12 @@ Accepted on 2026-10-24: Application Settings saves each valid change immediately
 
 The shared application error banner offers **Retry loading** only for loading failures. Failed actions offer only **Dismiss**, preserving the current editor and unsaved changes. Background loading failures and connection recovery do not replace or dismiss an unresolved action error; retry the original action explicitly after addressing its cause.
 
+Accepted on 2026-10-26: **Chat appearance → Show reasoning during generation** is
+disabled by default, including for existing installations. It controls only the live
+Reasoning panel above a response. The turn’s **Show reasoning** action remains
+available during generation and afterward; reasoning storage and model input are
+unchanged. The preference uses the existing server-wide appearance autosave flow.
+
 ### Connection
 
 A reusable data structure holding the information needed to call a model:

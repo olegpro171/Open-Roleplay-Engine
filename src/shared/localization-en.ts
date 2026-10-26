@@ -447,6 +447,8 @@ export const englishMessages = {
   "character_import.retry_reviewed_character_import": "Retry reviewed character import",
   "character_import.import": "Import",
   "character_import.cancel": "Cancel",
+  "chat_appearance_settings.show_reasoning_during_generation": "Show reasoning during generation",
+  "chat_appearance_settings.show_reasoning_help": "Show the live Reasoning panel while the model responds. Hidden reasoning remains available through “Show reasoning”.",
   "chat_appearance_settings.chat_text_size": "Chat text size",
   "chat_appearance_settings.display_character_picture": "Display character picture in chat.",
   "chat_appearance_settings.text_scale": "Text scale — {{chatTextScale}}%{{value}}",

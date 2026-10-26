@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { appearanceStatusSchema, type AppearanceStatus } from '../../src/shared/appearance';
+import { appearanceStatusSchema, themeSchema, type AppearanceStatus } from '../../src/shared/appearance';
 
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 
@@ -124,10 +124,35 @@ for (const width of [1440, 820, 390, 320]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(await content.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`settings-${width}.png`) });
-    await categories.getByRole('button', { name: 'Chat appearance', exact: true }).click();
-    await expect(page.getByLabel('Default character speech color', { exact: true })).toBeVisible();
-    expect(await content.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
-    await page.screenshot({ path: testInfo.outputPath(`settings-appearance-${width}.png`) });
+    const appearancePath = '/api/application/appearance';
+    const readAppearance = async () => appearanceStatusSchema.parse(await page.request.get(appearancePath).then(response => response.json()));
+    const initialAppearance = await readAppearance();
+    try {
+      for (const theme of themeSchema.options) {
+        const current = await readAppearance();
+        expect((await page.request.put(appearancePath, { headers: { Origin: 'http://127.0.0.1:4173' }, data: {
+          revision: current.revision, settings: { ...current.settings, theme },
+        } })).ok()).toBe(true);
+        await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+        for (const category of ['Chat appearance', 'Chat behavior']) {
+          await categories.getByRole('button', { name: category, exact: true }).click();
+          if (category === 'Chat appearance') await expect(page.getByLabel('Default character speech color', { exact: true })).toBeVisible();
+          const section = page.getByRole('region', { name: category, exact: true });
+          await expect(section.getByRole('heading', { name: category, exact: true })).toBeInViewport();
+          expect(await content.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+          await page.screenshot({ path: testInfo.outputPath(`settings-${category}-${theme}-${width}.png`) });
+          const panels = await section.locator('fieldset:has(> p:last-child)').all();
+          for (const [index, panel] of panels.entries()) {
+            await panel.screenshot({ path: testInfo.outputPath(`settings-help-${category}-${index}-${theme}-${width}.png`) });
+          }
+        }
+      }
+    } finally {
+      const current = await readAppearance();
+      expect((await page.request.put(appearancePath, { headers: { Origin: 'http://127.0.0.1:4173' }, data: {
+        revision: current.revision, settings: initialAppearance.settings,
+      } })).ok()).toBe(true);
+    }
 
     const pageNode = await content.elementHandle();
     await categories.getByRole('button', { name: 'Wipe application data', exact: true }).click();
