@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import sharp from 'sharp';
 import { cardPng, pngChunk, quadrantPicture, pixel } from '../support/pictures';
 import type { LibrarySnapshot } from '../../src/shared/library';
+import { russianPack } from '../../src/shared/localization';
 
 const fields = (name: string) => ({ name, description: 'A quiet keeper of the old observatory. '.repeat(30), personality: '', scenario: '', first_mes: '', mes_example: '', lorebookId: null });
 const row = (page: Page, name: string) => page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
@@ -55,6 +56,68 @@ test('imports a PNG card with a null lorebook and retains its picture and greeti
   await expect(page.getByLabel('Greeting', { exact: true })).toHaveValue(source.data.first_mes);
   await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue(source.data.alternate_greetings[0]);
   await expect(page.getByRole('button', { name: 'Extract embedded lorebook', exact: true })).toHaveCount(0);
+});
+
+test('fits Russian color controls and centers picture actions across the editor breakpoint', async ({ page }, testInfo) => {
+  await login(page);
+  const name = 'Russian picture layout';
+  await page.getByRole('button', { name: 'New character', exact: true }).click();
+  await page.getByLabel('Name', { exact: true }).fill(name);
+  await upload(page, await sharp(await quadrantPicture()).resize(640, 640).png().toBuffer());
+  await page.getByRole('button', { name: 'Set color', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(row(page, name)).toBeVisible();
+  // Layout qualification uses the built-in catalog even after custom-pack workflows.
+  await page.route('**/api/localization/ru', route => route.fulfill({ json: russianPack }));
+  await page.evaluate(() => localStorage.setItem('ore-interface-language', 'ru'));
+  await page.reload();
+  await page.getByRole('button', { name: 'Библиотека', exact: true }).click();
+  await page.getByRole('button', { name: 'Персонажи', exact: true }).click();
+  await row(page, name).getByRole('button', { name, exact: true }).click();
+  const color = page.getByRole('button', { name: 'Цвет прямой речи', exact: true });
+  const picture = page.getByRole('region', { name: 'Изображение персонажа', exact: true });
+  for (const width of [1280, 801, 800, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await color.scrollIntoViewIfNeeded();
+    expect(await color.evaluate(button => {
+      const bounds = button.getBoundingClientRect();
+      return [...button.children].every(child => {
+        const rect = child.getBoundingClientRect();
+        return rect.left >= bounds.left && rect.right <= bounds.right && child.scrollWidth <= child.clientWidth;
+      });
+    })).toBe(true);
+    const before = await page.getByRole('button', { name: 'Сбросить цвет', exact: true }).boundingBox();
+    await page.getByRole('button', { name: 'Сбросить цвет', exact: true }).click();
+    const after = await page.getByRole('button', { name: 'Задать цвет', exact: true }).boundingBox();
+    if (!before || !after) throw new Error('Missing speech color actions');
+    expect(after.x).toBe(before.x);
+    expect(after.y).toBe(before.y);
+    await page.getByRole('button', { name: 'Задать цвет', exact: true }).click();
+    await picture.scrollIntoViewIfNeeded();
+    const square = await picture.locator('.picture-editor-square').boundingBox();
+    const controls = await picture.locator('.picture-editor-controls').boundingBox();
+    if (!square || !controls) throw new Error('Missing picture layout');
+    if (controls.x > square.x + square.width) {
+      expect(Math.abs(controls.y + controls.height / 2 - square.y - square.height / 2)).toBeLessThanOrEqual(1);
+    } else {
+      expect(controls.y).toBeGreaterThanOrEqual(square.y + square.height);
+    }
+    const uploadFont = await picture.locator('.file-button').evaluate(element => {
+      const style = getComputedStyle(element);
+      return { size: style.fontSize, weight: style.fontWeight };
+    });
+    expect(await picture.getByRole('button', { name: 'Обрезать', exact: true }).evaluate(element => {
+      const style = getComputedStyle(element);
+      return { size: style.fontSize, weight: style.fontWeight };
+    })).toEqual(uploadFont);
+    expect(await picture.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`russian-picture-editor-${width}.png`) });
+  }
+  await picture.getByRole('button', { name: 'Обрезать', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('heading', { level: 2 })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(picture.getByRole('button', { name: 'Обрезать', exact: true })).toBeFocused();
 });
 
 test('keeps crop/editor save levels separate, recovers exact saves, and refreshes another tab', async ({ page, context }) => {

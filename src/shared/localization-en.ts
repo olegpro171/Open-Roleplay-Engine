@@ -1333,6 +1333,7 @@ export const englishMessages = {
   "diagnostics.the_manual_correction_for_turns_remains_represented_that": "The manual correction for turns {{value}}–{{value2}} remains represented; that span cannot return to original turns.",
   "diagnostics.character_depth_note_depth": "Character depth note · depth {{depth}}",
   "diagnostics.text": "{{name}} · {{field}} · {{value}}",
+  "diagnostics.turn_input": "Turn {{value}} · input",
   "diagnostics.turn_response": "Turn {{value}} · response",
   "diagnostics.selected_memory_is_out_of_date_generate_a": "Selected memory is out of date. Generate a targeted repair and review its replacements before continuing.",
   "diagnostics.the_selected_summaries_and_prompt_cannot_fit_the": "The selected summaries and prompt cannot fit the input limit with the current promotion settings.",

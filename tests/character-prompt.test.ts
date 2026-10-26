@@ -26,6 +26,11 @@ describe('Character as selectable separate fields', () => {
     expect(combined.budget).toEqual(separate.budget);
     expect(combined.budget.inputTokens).toBe(countInput(combined.body.messages).inputTokens);
     expect(combined.layout?.map(part => part.label)).toEqual(['Name', 'Description', 'Personality', 'Scenario', 'Example dialogue']);
+    expect(combined.layout?.map(part => part.labelMessage?.key)).toEqual([
+      'labels.characterField.name', 'labels.characterField.description', 'labels.characterField.personality',
+      'labels.characterField.scenario', 'labels.characterField.examples',
+    ]);
+    expect(separate.layout?.every(part => part.labelMessage === undefined)).toBe(true);
     expect(combined.layout?.every(part => part.group?.id === 'Character')).toBe(true);
   });
 

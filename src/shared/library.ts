@@ -37,7 +37,6 @@ export function characterLabel(character: { name: string; titleComment?: string 
 export const personaLabel = characterLabel;
 export const characterFields = ['name', 'description', 'personality', 'scenario', 'examples'] as const;
 export type CharacterField = typeof characterFields[number];
-export const characterFieldLabels: Record<CharacterField, string> = { name: 'Name', description: 'Description', personality: 'Personality', scenario: 'Scenario', examples: 'Example dialogue' };
 export const markers = ['character', 'persona', ...characterFields, 'messages', 'summary', 'card_system_prompt', 'card_post_history_instructions'] as const;
 export function markerLabel(marker: typeof markers[number]): string {
   if (marker === 'card_system_prompt') return 'Card system prompt';

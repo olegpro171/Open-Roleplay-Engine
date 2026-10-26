@@ -17,6 +17,24 @@ const sources = (blocks: PromptBlock[]): PromptSources => ({ prompt: { name: 'Cu
 const request = (blocks: PromptBlock[], targetInputTokens = 5_000, history = turns, state = context) => assembleRequest(connection, { ...settings, targetInputTokens }, history, sources(blocks), state);
 
 describe('explicit prompt control', () => {
+  it('identifies generated input labels for translation without changing outgoing text or custom names', () => {
+    const draft: Turn = { ...turns[0], id: 'draft', complete: false,
+      user: { ...turns[0].user, text: 'Literal draft' } };
+    const block: PromptBlock = { id: 'literal', name: 'Unsent input', enabled: true, kind: 'text', role: 'system', text: 'Literal prompt' };
+    const resolved = request([block, messages], 5000, [turns[0], draft]);
+    expect(resolved.layout?.map(part => part.labelMessage)).toEqual([
+      undefined,
+      { key: 'diagnostics.turn_input', fallback: 'Turn 1 · input', params: { value: '1' } },
+      { key: 'diagnostics.turn_response', fallback: 'Turn 1 · response', params: { value: '1' } },
+      { key: 'prompt_peek.unsent_input', fallback: 'Unsent input' },
+    ]);
+    expect(resolved.layout?.[0].label).toBe(block.name);
+    expect(resolved.body.messages).toEqual([
+      { role: 'system', content: block.text }, { role: 'user', content: turns[0].user.text },
+      { role: 'assistant', content: turns[0].assistant.text }, { role: 'user', content: draft.user.text },
+    ]);
+  });
+
   it('starts with explicit base sources and permits empty/missing-marker presets', () => {
     expect(defaultPrompt.blocks.map(block => block.id)).toEqual(['instructions', 'character', 'persona', 'summary', 'messages', 'post-history']);
     expect(promptSchema.parse({ name: 'Empty', blocks: [] }).blocks).toEqual([]);

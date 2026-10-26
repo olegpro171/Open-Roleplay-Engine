@@ -16,7 +16,7 @@ import { CharacterAvatar, PictureSquare } from './Pictures';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ChatWorkspace } from './ChatWorkspace';
 import type { ChatToolsSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
-import { characterLabel, personaLabel, characterFields, characterFieldLabels, defaultPrompt, markers, markerLabel, promptWarnings, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
+import { characterLabel, personaLabel, characterFields, defaultPrompt, markers, markerLabel, promptWarnings, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { upgradePrompt } from '../core/prompt-upgrade';
 import { importChat } from '../core/chat-import';
 import { CharacterImport } from './CharacterImport';

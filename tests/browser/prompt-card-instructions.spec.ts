@@ -4,6 +4,7 @@ import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { legacyRoleplayPrompt } from '../../src/persistence/legacy-prompt';
 import { newLorebook, newLoreEntry } from '../../src/shared/lorebook';
+import { message } from '../../src/shared/localization';
 
 async function choose(page: Page, label: string, value: string) {
   await page.getByRole('combobox', { name: label, exact: true }).click();
@@ -118,5 +119,7 @@ test('edits card instructions, enables preset injection, explains unavailable so
   expect(requests.at(-1)?.body).toEqual(preview.body);
   const savedRequest = (await state()).generations[0].request;
   // Submitting the draft changes only its inspection classification, not input.
-  expect(savedRequest?.layout).toEqual(preview.layout?.map(part => part.kind === 'draft' ? { ...part, kind: 'history', label: 'Turn 2 · input' } : part));
+  expect(savedRequest?.layout).toEqual(preview.layout?.map(part => part.kind === 'draft' ? {
+    ...part, kind: 'history', label: 'Turn 2 · input', labelMessage: message('diagnostics.turn_input', { value: '2' }),
+  } : part));
 });

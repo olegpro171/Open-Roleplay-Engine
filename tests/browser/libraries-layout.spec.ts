@@ -222,9 +222,10 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     const pictureEditor = page.getByRole('region', { name: 'Character picture', exact: true });
     const picture = await pictureEditor.locator('.picture-editor-square').boundingBox();
     const choosePicture = await pictureEditor.locator('.file-button').boundingBox();
-    if (!picture || !choosePicture) throw new Error('Missing picture controls');
+    const pictureControls = await pictureEditor.locator('.picture-editor-controls').boundingBox();
+    if (!picture || !choosePicture || !pictureControls) throw new Error('Missing picture controls');
     expect(choosePicture.x).toBeGreaterThan(picture.x + picture.width);
-    expect(Math.abs(choosePicture.y - picture.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(pictureControls.y + pictureControls.height / 2 - picture.y - picture.height / 2)).toBeLessThanOrEqual(1);
     const greetingGroup = page.getByRole('group', { name: 'Alternate greetings', exact: true });
     const groupBounds = await greetingGroup.boundingBox();
     const addBounds = await greetingGroup.getByRole('button', { name: 'Add alternate greeting', exact: true }).boundingBox();

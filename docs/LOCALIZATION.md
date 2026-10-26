@@ -54,6 +54,8 @@ Interface controls, help, tooltips, accessibility labels and authored messages u
 
 Story text, names, imported cards, lore prose, editable presets/model instructions, reasoning, generated summaries and historical provider request bodies remain literal. Localizing the interface does not translate existing saved content or influence summary language, input selection, token budgeting or provider parameters. Newly created default titles can use the interface language; existing titles are never rewritten.
 
+Prompt peek translates generated inspection labels for turn input/response parts, unsent input and fields expanded by the Character marker. Editable block and marker names remain literal. Labels carry translation metadata separately from model messages; older saved requests without that metadata retain their original labels.
+
 Migration 15 adds a nullable `generations.error_message` field. New terminal outcomes can retain translation metadata alongside `error`; old errors receive no inferred identity and retain their original wording. Preparation JSON supports equivalent optional metadata. Import receipts retain diagnostic metadata across exact-command retries. Backup validation accepts these optional structures, and schemas 12, 13, 14 and 15 remain importable. Older schema definitions are reconstructed and checked without modifying uploads. Language packs and the browser language preference are outside chat backups/import/wipe; saved outcome metadata remains part of the corresponding historical record.
 
 ## Implementation and extending coverage

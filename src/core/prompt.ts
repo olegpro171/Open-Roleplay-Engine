@@ -1,8 +1,7 @@
-import { promptLabel } from '../shared/localization.js';
-import { message } from '../shared/localization.js';
+import { message, promptLabel } from '../shared/localization.js';
 import type { ChatSettings, Connection, Message, PromptEntry, RequestPreview, Turn } from '../shared/contracts.js';
 import { AppError } from './errors.js';
-import { characterFieldLabels, defaultPrompt, hasPromptMarker, promptSchema, promptWarningMessages, type PromptSources } from '../shared/library.js';
+import { defaultPrompt, hasPromptMarker, promptSchema, promptWarningMessages, type PromptSources } from '../shared/library.js';
 import type { ContextState, SummaryNode } from '../shared/context.js';
 import { assertCorrectionSelection } from './context-corrections.js';
 import { selectedContext, sourceOf } from './context.js';
@@ -98,7 +97,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
         const group = groups.get(block.id);
         entries.push({
           message: { role: block.role, content: resolve(part.text) }, kind: 'character',
-          label: group ? characterFieldLabels[part.field] : block.name,
+          ...(group ? promptLabel(message(`labels.characterField.${part.field}`)) : { label: block.name }),
           ...(group ? { group } : {}),
         });
         const placement = part.field === 'description' ? 'after_desc' : part.field;
@@ -118,7 +117,12 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     const result: Entry[] = [];
     const user = modelText(turn.user.text);
     const assistant = turn.complete ? modelText(turn.assistant.text) : '';
-    if (user !== '') result.push({ message: { role: 'user', content: user }, kind: turn.id === 'draft' ? 'draft' : 'history', label: turn.id === 'draft' ? 'Unsent input' : `Turn ${positions.get(turn.id)} · input` });
+    if (user !== '') result.push({
+      message: { role: 'user', content: user }, kind: turn.id === 'draft' ? 'draft' : 'history',
+      ...promptLabel(turn.id === 'draft'
+        ? message('prompt_peek.unsent_input')
+        : message('diagnostics.turn_input', { value: String(positions.get(turn.id)) })),
+    });
     if (assistant !== '') result.push({ message: { role: 'assistant', content: assistant }, kind: 'history', ...promptLabel(message("diagnostics.turn_response", { value: String(positions.get(turn.id)) })) });
     return result;
   };
