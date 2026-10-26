@@ -1,19 +1,32 @@
 import { openLibraryActions } from './library-card-helpers';
 import { openChatTool } from './chat-tools';
-import { test, expect, devices, type Page } from '@playwright/test';
+import { expect, devices, type Page } from '@playwright/test';
+import { test as isolatedTest } from './isolated-app';
+
+const test = isolatedTest.extend<{ phone: Page }>({
+  phone: async ({ browser, browserApp }, use) => {
+    const context = await browser.newContext({ ...devices['iPhone 13'], baseURL: browserApp.url });
+    try { await use(await context.newPage()); }
+    finally { await context.close(); }
+  },
+});
+
+const password = 'browser-synthetic-password';
 
 async function choose(page: Page, label: string, option: string) {
   await page.getByRole('combobox', { name: label, exact: true }).click();
   await page.getByRole('option', { name: option, exact: true }).click();
 }
 
-test('desktop and phone share streaming, recovery, edits, and inspectable requests', async ({ page, browser, request }) => {
-  const password = 'browser-synthetic-password';
-  const { endpoint } = await request.get('/__test/endpoint').then((response) => response.json());
+async function createOwner(page: Page) {
   await page.goto('/');
   await page.getByLabel('Owner password').fill(password);
   await page.getByRole('button', { name: 'Create owner account' }).click();
   await expect(page.getByRole('heading', { name: 'Set up your story' })).toBeVisible();
+}
+
+async function createTowerConnection(page: Page) {
+  const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Connections', exact: true }).click();
   await page.getByRole('button', { name: 'New Connection', exact: true }).click();
@@ -22,6 +35,11 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await page.getByLabel('API base URL').fill(endpoint);
   await page.getByLabel('API key', { exact: true }).fill('browser-api-secret');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
+}
+
+test('desktop and phone share streaming, recovery, edits, and inspectable requests', async ({ page, phone, request }) => {
+  await createOwner(page);
+  await createTowerConnection(page);
   await page.getByRole('button', { name: 'Characters', exact: true }).click();
   await page.getByRole('button', { name: 'New character', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Keeper');
@@ -41,9 +59,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await page.getByRole('button', { name: 'Save and return' }).click();
   await expect(page.getByRole('heading', { name: 'The Lantern Tower' })).toBeVisible();
 
-  const phoneContext = await browser.newContext({ ...devices['iPhone 13'] });
-  const phone = await phoneContext.newPage();
-  await phone.goto('http://127.0.0.1:4173/');
+  await phone.goto('/');
   await phone.getByLabel('Owner password').fill(password);
   await phone.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(phone.getByLabel('Your next turn')).toBeVisible();
@@ -78,7 +94,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await expect(firstTurn.getByRole('textbox', { name: 'Response version', exact: true })).toHaveValue('1');
   await expect(firstTurn.getByRole('textbox', { name: 'Response version', exact: true })).toBeEnabled();
   await expect(firstTurn.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
-  await phone.goto('http://127.0.0.1:4173/');
+  await phone.goto('/');
   await expect(phone.getByLabel('Conversation')).toContainText('The lantern flickers.');
   await expect(phone.getByLabel('Your next turn')).toBeEnabled();
 
@@ -166,13 +182,11 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await expect(phone.getByLabel('API key', { exact: true })).toHaveValue('');
   await expect(phone.getByLabel('API key', { exact: true })).toHaveAttribute('placeholder', 'Saved · leave blank to keep it');
   expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await phoneContext.close();
 });
 
 test('libraries, name substitution, greetings, prompt restoration and reviewed history replacement', async ({ page }) => {
-  await page.goto('/');
-  await page.getByLabel('Owner password').fill('browser-synthetic-password');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await createOwner(page);
+  await createTowerConnection(page);
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Personas', exact: true }).click();
   const persona = { personas: { 'visitor.png': 'Visitor' }, persona_descriptions: { 'visitor.png': { description: '{{user}} is visiting {{char}}.' } } };
@@ -263,9 +277,8 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
 
 
 test('UI controls, prompt collapse and drop position, model completion, and repeated chat deletion', async ({ page }) => {
-  await page.goto('/');
-  await page.getByLabel('Owner password').fill('browser-synthetic-password');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await createOwner(page);
+  await createTowerConnection(page);
   await expect(page.getByRole('combobox', { name: 'Current chat', exact: true })).toHaveCount(0);
   await expect(page.locator('.topbar .tabs button')).toHaveText(['Story', 'Libraries', 'Settings']);
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
