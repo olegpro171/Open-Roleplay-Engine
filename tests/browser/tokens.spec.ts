@@ -1,3 +1,4 @@
+import { enterModel } from './model-picker-helpers';
 import { test, expect } from '@playwright/test';
 
 test('connection diagnostics stay concise, use explicit test calls and distinguish reported usage', async ({ page, request }) => {
@@ -13,7 +14,7 @@ test('connection diagnostics stay concise, use explicit test calls and distingui
   const requests = () => page.request.get('/__test/requests').then(response => response.json() as Promise<{ body: object }[]>);
   const initialCount = (await requests()).length;
   await page.getByLabel('API base URL').fill(endpoint);
-  await page.getByLabel('Model identifier').fill('google/gemma-3-4b-it');
+  await enterModel(page, 'google/gemma-3-4b-it');
   await page.getByLabel('Reserved output tokens', { exact: true }).fill('4096');
   const savedState = await page.request.get('/api/chat').then(response => response.json());
   const savedLibrary = await page.request.get('/api/library').then(response => response.json());
@@ -36,7 +37,7 @@ test('connection diagnostics stay concise, use explicit test calls and distingui
   await expect(tools.locator('pre')).toContainText('"content": "Hi"');
   expect((await requests()).at(-1)?.body).toMatchObject({ max_tokens: 4096 });
   await page.screenshot({ path: 'test-results/connection-token-diagnostics.png', fullPage: true });
-  await page.getByLabel('Model identifier').fill('unrecognized-model');
+  await enterModel(page, 'unrecognized-model');
   await expect(tools).not.toContainText('No supported local tokenizer');
   await expect(tools.locator('.connection-test-result')).toHaveCount(0);
   await page.getByRole('button', { name: 'Send test message', exact: true }).click();

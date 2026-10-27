@@ -76,7 +76,7 @@ Run included `start.command` (Mac/Linux) or `start-app.bat` (Windows). This uses
 ### First chat
 
 1. Create the owner password in the browser on the server computer.
-2. Under **Libraries → Connections**, create a Connection with your provider's API base URL, model identifier, key if required, context window and reserved output limit. Enter a base URL such as `https://api.openai.com/v1`, not the full `/chat/completions` URL. Model discovery is optional; manual identifiers are supported.
+2. Under **Libraries → Connections**, create a Connection with your provider's API base URL, key if required, model identifier, context window and reserved output limit. Enter a base URL such as `https://api.openai.com/v1`, not the full `/chat/completions` URL. **Select model** opens an automatically fetched, searchable list; you can also enter an identifier and press **Submit**, even if discovery fails.
 3. Create/import a Character and Persona, then use **Libraries → Chats → New chat**.
 4. Check the selections and input target in **Chat settings**, then save. Select a Context preset and keep Summary enabled in the Prompt preset to use layered memory.
 

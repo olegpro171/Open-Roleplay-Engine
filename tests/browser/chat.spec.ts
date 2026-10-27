@@ -1,3 +1,4 @@
+import { enterModel } from './model-picker-helpers';
 import { openLibraryActions } from './library-card-helpers';
 import { openChatTool } from './chat-tools';
 import { expect, devices, type Page } from '@playwright/test';
@@ -31,9 +32,9 @@ async function createTowerConnection(page: Page) {
   await page.getByRole('button', { name: 'Connections', exact: true }).click();
   await page.getByRole('button', { name: 'New Connection', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Tower model');
-  await page.getByLabel('Model identifier').fill('synthetic-roleplay');
   await page.getByLabel('API base URL').fill(endpoint);
   await page.getByLabel('API key', { exact: true }).fill('browser-api-secret');
+  await enterModel(page, 'synthetic-roleplay');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
 }
 
@@ -293,14 +294,13 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
     await field.fill(name === 'Model context window' ? '128000' : '3000');
   }
   await expect(page.locator('input[type=number]')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Fetch model list', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('2 models available');
-  const model = page.getByRole('combobox', { name: 'Model identifier', exact: true });
-  await model.fill('roleplay');
-  await expect(page.getByRole('listbox', { name: 'Model identifier', exact: true }).getByRole('option')).toHaveCount(1);
-  await model.press('ArrowDown');
-  await model.press('Enter');
-  await expect(model).toHaveValue('synthetic-roleplay');
+  const model = page.getByRole('button', { name: 'Model identifier', exact: true });
+  await model.click();
+  const picker = page.getByRole('dialog', { name: 'Select model', exact: true });
+  await picker.getByRole('textbox').fill('roleplay');
+  await expect(picker.locator('[data-model]')).toHaveCount(1);
+  await picker.getByRole('button', { name: 'synthetic-roleplay', exact: true }).click();
+  await expect(model).toHaveText('synthetic-roleplay');
   await page.getByLabel('Remove the saved API key').check();
   await expect(page.getByLabel('API key', { exact: true })).toBeDisabled();
   await page.getByLabel('Remove the saved API key').uncheck();

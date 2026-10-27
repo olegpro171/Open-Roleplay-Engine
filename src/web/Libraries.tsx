@@ -21,6 +21,7 @@ import { upgradePrompt } from '../core/prompt-upgrade';
 import { importChat } from '../core/chat-import';
 import { CharacterImport } from './CharacterImport';
 import { ConnectionFileDialog, type ConnectionFileAction } from './ConnectionFileDialog';
+import { ModelField } from './ModelPicker';
 import { CharacterEditor } from './CharacterEditor';
 import { EditorActions, EditorActionsTarget } from './EditorActions';
 import { EditorTextarea } from './EditorTextarea';
@@ -527,21 +528,13 @@ function LibraryEditor({ initial, connections, currentRevision, busy, run, close
   const [data, setData] = useState(initial.data), [key, setKey] = useState(''), [removeKey, setRemoveKey] = useState(false);
   const [parameters, setParameters] = useState(JSON.stringify((initial.data as Connection).customParameters ?? {}, null, 2));
   const [error, setError] = useTextState('');
-  const [models, setModels] = useState<string[]>([]), [fetchingModels, setFetchingModels] = useState(false), [modelNotice, setModelNotice] = useTextState('');
-  const discovery = useRef(0);
-  function resetModels() { discovery.current++; setModels([]); setFetchingModels(false); setModelNotice(''); }
-  async function loadModels() {
-    const attempt = ++discovery.current;
-    setFetchingModels(true); setModelNotice('');
-    try {
-      const result = await api<{ models: string[] }>('/models', 'POST', { endpoint: (data as Connection).endpoint, ...(initial.id ? { connectionId: initial.id } : {}), ...(key || removeKey ? { apiKey: removeKey ? '' : key } : {}) });
-      if (attempt === discovery.current) { setModels(result.models); setModelNotice(result.models.length ? t("libraries.models_available_type_to_filter", { length: result.models.length }) : t("libraries.the_provider_returned_an_empty_model_list")); }
-    } catch (error) { if (attempt === discovery.current) { setModels([]); setModelNotice(errorText(error, msg("libraries.could_not_fetch_models_check_the_api"))); } }
-    finally { if (attempt === discovery.current) setFetchingModels(false); }
-  }
   const stale = initial.revision !== currentRevision;
   async function save(e: FormEvent) {
     e.preventDefault(); setError('');
+    if (initial.kind === 'connections' && !(data as Connection).model.trim()) {
+      setError(msg('model_picker.required'));
+      return;
+    }
     let value = data;
     try { if (initial.kind === 'connections') value = { ...data as Connection, customParameters: JSON.parse(parameters) }; }
     catch { setError(msg("libraries.custom_parameters_must_be_valid_json")); return; }
@@ -555,9 +548,10 @@ function LibraryEditor({ initial, connections, currentRevision, busy, run, close
     {initial.kind === 'personas' && <><label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={(data as LibraryPersona).titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("libraries.an_optional_label_useful_for_distinguishing_between")}</small></label><SpeechColorSelector speaker="persona" value={(data as LibraryPersona).speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || stale} />{textField('description', t("libraries.persona_description"))}</>}
     {initial.kind === 'contexts' && <ContextPresetFields value={data as ContextPreset} change={setData} connections={connections} />}
     {initial.kind === 'connections' && <>
-      <div className="full model-field"><label>{t("libraries.model_identifier")}<Dropdown editable required aria-label={t("libraries.model_identifier")} value={(data as Connection).model} onChange={model => setData({ ...data as Connection, model })} options={models.map(model => ({ value: model, label: model }))} /></label><button className="secondary" type="button" disabled={fetchingModels || !(data as Connection).endpoint} onClick={() => void loadModels()}>{fetchingModels ? t("libraries.fetching") : t("libraries.fetch_model_list")}</button><p className="small muted">{t("libraries.if_your_provider_requires_an_api_key")}</p>{modelNotice && <p className="small muted" role="status">{modelNotice}</p>}</div>
-      <label className="full">{t("libraries.api_base_url")}<input type="url" required value={(data as Connection).endpoint} onChange={e => { setData({ ...data as Connection, endpoint: e.target.value }); resetModels(); }} /></label>
-      <div className="full api-key-row"><label>{t("libraries.api_key")}<input type="password" autoComplete="new-password" disabled={removeKey} placeholder={initial.hasApiKey ? t("libraries.saved_leave_blank_to_keep_it") : t("libraries.optional_for_endpoints_without_authentication")} value={key} onChange={e => { setKey(e.target.value); resetModels(); }} /></label>{initial.hasApiKey && <label className="checkbox"><input type="checkbox" checked={removeKey} onChange={e => { setRemoveKey(e.target.checked); resetModels(); }} />{t("libraries.remove_the_saved_api_key")}</label>}</div>
+      <label className="full">{t("libraries.api_base_url")}<input type="url" required value={(data as Connection).endpoint} onChange={e => setData({ ...data as Connection, endpoint: e.target.value })} /></label>
+      <div className="full api-key-row"><label>{t("libraries.api_key")}<input type="password" autoComplete="new-password" disabled={removeKey} placeholder={initial.hasApiKey ? t("libraries.saved_leave_blank_to_keep_it") : t("libraries.optional_for_endpoints_without_authentication")} value={key} onChange={e => setKey(e.target.value)} /></label>{initial.hasApiKey && <label className="checkbox"><input type="checkbox" checked={removeKey} onChange={e => setRemoveKey(e.target.checked)} />{t("libraries.remove_the_saved_api_key")}</label>}</div>
+      <ModelField value={(data as Connection).model} endpoint={(data as Connection).endpoint} connectionId={initial.id}
+        apiKey={removeKey ? '' : key || undefined} disabled={busy || stale} change={model => setData({ ...data as Connection, model })} />
       <label>{t("libraries.model_context_window")}<NumberInput required value={(data as Connection).contextWindow} onChange={contextWindow => setData({ ...data as Connection, contextWindow })} /></label><label>{t("libraries.reserved_output_tokens")}<NumberInput required max={1_000_000} value={(data as Connection).maxOutputTokens} onChange={maxOutputTokens => setData({ ...data as Connection, maxOutputTokens })} /></label><label className="checkbox full"><input type="checkbox" checked={(data as Connection).requestUsage !== false} onChange={e => setData({ ...data as Connection, requestUsage: e.target.checked })} />{t("libraries.request_token_usage_from_the_endpoint")}</label><p className="small muted full">{t("libraries.turn_statistics_use_counts_supplied_by_the")}</p><label className="full">{t("libraries.custom_request_parameters")}<EditorTextarea className="code-input" value={parameters} onChange={e => setParameters(e.target.value)} /><small>{t("libraries.temperature_top_p_presence_penalty_frequency_penalty")}</small></label>
       <ConnectionTools connection={data as Connection} parameters={parameters} connectionId={initial.id} apiKey={removeKey ? '' : key || undefined} />
     </>}
