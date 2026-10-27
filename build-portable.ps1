@@ -63,7 +63,7 @@ try {
         $env:SHARP_IGNORE_GLOBAL_LIBVIPS = '1'
         $work = Join-Path $stage 'source'
         [IO.Directory]::CreateDirectory($work) | Out-Null
-        $inputs = @('package.json','package-lock.json','tsconfig.json','tsconfig.server.json','vite.config.ts','vitest.config.ts','playwright.config.ts','index.html','src','public','migrations','scripts/release','docs/RELEASES.md','docs/RELEASE_IMPLEMENTATION_BRIEF.md','docs/RELEASE_VERIFICATION.md','docs/WINDOWS_RELEASE_HANDOFF.md','docs/WINDOWS_RELEASE_VERIFICATION.md','docs/TEST_RELEASE.md')
+        $inputs = @('package.json','package-lock.json','tsconfig.json','tsconfig.server.json','vite.config.ts','vitest.config.ts','playwright.config.ts','index.html','src','public','migrations','scripts/release','LICENSE','docs/RELEASES.md')
         if ($Mode -eq 'Release') {
             $export = Join-Path $stage 'source.zip'
             Invoke-Native git (@('-C',$source,'archive','--format=zip',('--output=' + $export),$Commit,'--') + $inputs)

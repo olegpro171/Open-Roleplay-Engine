@@ -7,6 +7,8 @@ data/
 *.sqlite*
 *.db
 *.db-*
+*.orebackup
+*.oreconnection
 *.pem
 *.key
 *.p12

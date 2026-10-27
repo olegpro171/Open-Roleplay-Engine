@@ -1,7 +1,7 @@
 # Compaction lab
 
-A standalone Python/Tkinter experiment for the strategy in [CONCEPTS.md](../CONCEPTS.md)
-and [CONTEXT_EDITING.md](CONTEXT_EDITING.md). This does not select the application stack.
+A standalone Python/Tkinter experiment for the strategy in [product contract](../../CONCEPTS.md)
+and [memory contract](../../docs/CONTEXT.md). This does not select the application stack.
 
 ## Run
 
@@ -11,11 +11,7 @@ Use Python 3.9 or newer with Tkinter:
 python3 experiments/compaction/compaction_visualizer.py
 ```
 
-On this machine, Homebrew Python lacks the Tk extension. The installed Python 3.13 works:
-
-```sh
-/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13 experiments/compaction/compaction_visualizer.py
-```
+Use a Python installation with working Tk support; ordinary application Node/npm commands do not run this lab.
 
 No third-party packages, model calls, API keys, or conversation files are needed.
 
@@ -55,7 +51,7 @@ uses `advance(previous_state, settings)` and keeps the returned final state for 
 request. `prepare(state, settings)` recalculates from an existing state without appending;
 `simulate(n, settings)` sequentially replays from an empty chat. A failed request blocks
 further turns rather than skipping to a batch boundary. The UI's `Replay` only caches
-these core transitions. See the [stability contract](CONTEXT_EDITING.md#stable-selection-across-requests-accepted-direction-and-executable-contract)
+these core transitions. See the [stability contract](../../docs/CONTEXT.md#stable-coverage-and-preparation)
 for persistence and commit requirements in an actual engine.
 
 Budget pressure triggers compaction. First-layer batches are fixed and oldest first;

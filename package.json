@@ -1,6 +1,7 @@
 {
   "name": "roleplay-engine",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22.12 <23 || >=24 <25"

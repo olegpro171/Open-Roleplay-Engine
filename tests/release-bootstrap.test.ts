@@ -13,7 +13,7 @@ function fixture() {
   cpSync(resolve('build-portable.sh'), join(source, 'build-portable.sh'));
   cpSync(resolve('scripts/release'), join(source, 'scripts/release'), { recursive: true });
   for (const directory of ['src', 'public', 'migrations', 'docs']) mkdirSync(join(source, directory));
-  for (const file of ['package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.server.json', 'vite.config.ts', 'vitest.config.ts', 'playwright.config.ts', 'index.html', 'docs/RELEASES.md', 'docs/RELEASE_IMPLEMENTATION_BRIEF.md', 'docs/RELEASE_VERIFICATION.md', 'docs/WINDOWS_RELEASE_HANDOFF.md','docs/WINDOWS_RELEASE_VERIFICATION.md', 'docs/TEST_RELEASE.md']) writeFileSync(join(source, file), '{}');
+  for (const file of ['package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.server.json', 'vite.config.ts', 'vitest.config.ts', 'playwright.config.ts', 'index.html', 'LICENSE', 'docs/RELEASES.md']) writeFileSync(join(source, file), '{}');
   const git = (args: string[]) => execFileSync('git', ['-C', source, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   git(['init', '-b', 'main']); git(['add', '.']); git(['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '-m', 'Synthetic release fixture']);
   const runtime = `node-v24.19.0-${process.platform}-${process.arch}`;

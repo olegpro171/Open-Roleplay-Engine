@@ -2,70 +2,15 @@
 
 ## Approval and lock
 
-The user **visually approved the dark palette on 2026-10-26**, after checking
-application menus and reporting no noticeable difference from the previous colors.
-The consolidation and palette checkpoint are complete. The subsequently authorized
-Dark/Light theme selector and Light palette are implemented. The user also visually
-approved Light and Midnight Black on 2026-10-26; all three shipped palettes follow
-this approval boundary.
+The user visually approved Dark, Light and Midnight Black on 2026-10-26. The approval includes base colors and derived shades, including the Light status/meter/legend refinements and theme speech defaults. Current approved values live in `src/web/palette.css` and `tests/fixtures/approved-dark-palette.json` / `theme-palettes.json`; those files are the exact baseline, not values to reconstruct from a historical narrative. Twenty is the original Dark base count, not a quota for other themes.
 
-The approved appearance includes both the base colors and their derived shades.
-Twenty was a working target during consolidation; it is this palette's approved
-base count, not a demonstrated minimum or a quota for future themes.
+- Reuse semantic roles and centralize all definitions/derivations in the palette. No raw component literals or local mixes.
+- Obtain explicit user agreement for new colors/shades, changed base/derived values, aliases that change color, mix ratios or expanded exceptions. Existing authorization in the current task counts.
+- A meaningful new alias to an approved role is allowed without changing color. Avoid component-specific shade variants.
+- Preserve baseline fixtures and palette guards. Update them only for an agreed appearance change; never regenerate/weaken them merely to pass a check.
+- Authorization for another theme does not authorize changing approved themes. Preserve semantic status, difference and allocation meanings as well as non-color labels/borders.
 
-Future agents must:
-
-- Reuse existing semantic roles in components and keep definitions/derivations in
-  `src/web/palette.css`. Do not insert raw literals or local mixes into components.
-- Obtain explicit user agreement before introducing a new base color or derived
-  shade, changing an existing role's color/alias/mix ratio, or expanding exceptions.
-  Approval already given in the current task counts; do not request it again.
-- Allow a meaningful new semantic alias to an approved role when it changes no
-  color. This needs no new color approval. Avoid component-specific shade variants.
-- Preserve the approved baseline in `tests/fixtures/approved-dark-palette.json` and
-  the checks in `tests/palette.test.ts`. Update that baseline only for an agreed
-  palette change, alongside its source and documentation. Never regenerate it or
-  weaken a guard just because a check failed.
-
-An explicitly authorized new theme may define its own palette within the agreed
-design. It must preserve the approved Dark palette unless the user also authorizes
-changes to Dark. Theme implementation should extend the guard for each approved
-palette and retain shared semantic roles, rather than reopening scattered color
-definitions. The palette lock does not authorize new themes or settings by itself.
-
-The user subsequently requested lighter category-bar and input-meter colors in
-Light for visual review. The current refinement lightens the existing accent,
-success, danger, information and allocation base hues, keeping their shared uses.
-Existing text/on-fill roles derive readable foregrounds from those hues; the
-Character allocation uses the lighter accent base and framing uses the existing
-border neutral. No palette entries or meter-specific roles are added for these
-fills; Dark remains unchanged. The user approved these lighter fills, then requested
-matching Summary layers legend swatches and more solid summary fills. Legend
-swatches use the existing fill roles independently of their readable text labels.
-Light's success/danger/warning surface mixes now carry 65–80% status color, and
-warning uses a lighter gold with a dark text derivation. These shared surface roles
-also appear in alerts and repair comparisons. Summary outlines in Light reuse the
-darker status-text roles (muted for retained alternatives), preserving dashed and
-deletion styles; this does not change the shared border roles elsewhere. The user
-accepted the refinement batch for commit on 2026-10-26 after visual review. The
-fixture tracks these authorized values; automated checks remain separate from
-visual acceptance.
-
-Light speech defaults were explicitly set by the user to Character `#343a42` and
-Persona `#562a0a`. These are theme defaults; saved application and card overrides
-retain precedence. The Persona editor seeds a new override from the Persona theme
-role, independently of Character. Dark speech remains unchanged.
-
-The user requested **Midnight Black** on 2026-10-26: Dark-like presentation with
-pure-black backgrounds and no decorative hues. Its ordinary surfaces, including
-page, header, inputs, panels, dialogs, menus and tooltips, are `#000000`. Text,
-borders, accent controls, links and both speech defaults are neutral; hover,
-selection and primary-control fills use neutral shades to retain interaction cues.
-Status, errors, memory states, repair differences and prompt-category hues retain
-their meaning. Character's category hue is kept separately from the neutral accent.
-Explicit saved speech colors, images and picker data retain their values. The
-`midnightBlackOverrides` fixture records this design, visually approved by the user
-on 2026-10-26. Neither approved Dark nor Light values change.
+Dark and Light retain their approved surfaces/hues. Midnight Black uses pure-black ordinary surfaces and neutral decoration/controls/speech, preserving meaningful status/difference/category hues and explicit user colors. Theme speech defaults yield to explicit application overrides, then Character/Persona overrides. Light's Character/Persona defaults remain distinct; seed Persona overrides from its own role.
 
 ## Ownership
 

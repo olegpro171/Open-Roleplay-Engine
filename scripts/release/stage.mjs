@@ -63,7 +63,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     for (const name of ['native-smoke.mjs', 'package-portable.mjs', 'stage.mjs', ...recoveryFiles]) cpSync(join(work, 'scripts/release', name), join(staging, 'scripts/release', name));
     cpSync(noticeDirectory, join(staging, 'notices'), { recursive: true, verbatimSymlinks: true });
     cpSync(join(work, 'docs/RELEASES.md'), join(staging, 'README.md'));
-    for (const name of ['RELEASES.md', 'RELEASE_IMPLEMENTATION_BRIEF.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'WINDOWS_RELEASE_VERIFICATION.md', 'TEST_RELEASE.md']) cpSync(join(work, 'docs', name), join(staging, name));
+    cpSync(join(work, 'LICENSE'), join(staging, 'LICENSE'));
     const metadata = { kind: mode === '--release' ? 'release' : 'development', commit, schema: databaseSchemaVersion, node: process.versions.node, platform: process.platform, arch: process.arch };
     writeFileSync(join(staging, 'build-info.json'), JSON.stringify(metadata, null, 2));
     const smoke = spawnSync(process.execPath, [join(staging, 'scripts/release/native-smoke.mjs')], { cwd: home, stdio: 'inherit' });

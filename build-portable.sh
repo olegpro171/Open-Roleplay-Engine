@@ -17,7 +17,7 @@ if [ "$mode" = '--release' ]; then
   git -C "$ore_source" merge-base --is-ancestor "$commit" main || fail 'Release commit must be reachable on local main.'
 fi
 # A short, explicit allowlist is also used for developer builds.
-inputs=(package.json package-lock.json tsconfig.json tsconfig.server.json vite.config.ts vitest.config.ts playwright.config.ts index.html src public migrations scripts/release docs/RELEASES.md docs/RELEASE_IMPLEMENTATION_BRIEF.md docs/RELEASE_VERIFICATION.md docs/WINDOWS_RELEASE_HANDOFF.md docs/WINDOWS_RELEASE_VERIFICATION.md docs/TEST_RELEASE.md)
+inputs=(package.json package-lock.json tsconfig.json tsconfig.server.json vite.config.ts vitest.config.ts playwright.config.ts index.html src public migrations scripts/release LICENSE docs/RELEASES.md)
 for input in "${inputs[@]}"; do [ -e "$ore_source/$input" ] || fail "Missing required source input: $input"; done
 case "$(uname -s)" in Darwin) os=darwin;; Linux) os=linux;; *) fail 'Bash delivery targets macOS and glibc Linux. Use the Windows handoff on Windows.';; esac
 case "$(uname -m)" in arm64|aarch64) cpu=arm64;; x86_64) cpu=x64;; *) fail 'Only arm64 and x64 are candidate targets.';; esac

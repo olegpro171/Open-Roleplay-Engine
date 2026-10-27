@@ -93,8 +93,6 @@ Maintain English and Russian in the same change whenever interface meaning chang
 
 Use complete messages with named parameters, avoiding English grammatical fragments in parameters. All Russian cardinal groups require `one`, `few`, `many`, and `other`. Compile-time coverage and tests prevent omissions and malformed substitutions; linguistic accuracy still requires contextual review.
 
-## Verification
+## Checks
 
-`tests/localization.test.ts` covers runtime file discovery/reload, partial packs, preservation of incompatible entries through discovery/import/restart/export, unsupported/unsafe input, detailed structural errors, placeholder reports and whole-group Russian plural fallback, English/legacy fallback, atomic write failure, stale replacements, authentication/origin checks and populated schema-14 upgrade preservation. Existing persistence tests cover import receipt replay and backup compatibility. Built-in Russian browser checks exercise selection without import, settings, libraries, editors, memory, request inspection, language persistence and unchanged model input at desktop and phone-sized widths. Additional browser localization tests use a small synthetic Russian pack at desktop and phone-sized widths; they cover partial import/replacement, incompatible-entry reports and pagination, preserved export entries, correction/reimport, malformed-file rejection, live switching, fallback and composer draft preservation. These are structural/interaction checks, not a review of translation quality or actual phone behavior.
-
-Run `npm run check` with the supported Node runtime and permission to start isolated local test servers. No real provider credentials are needed.
+Use the existing localization unit/browser suites for catalog compatibility, runtime loading/recovery and unchanged model input. Keep EN/RU catalogs together and test mounted-language changes. Follow AGENTS.md for check scope; no translation coverage claim establishes linguistic quality or actual phone support.

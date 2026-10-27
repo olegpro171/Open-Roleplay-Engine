@@ -19,7 +19,8 @@ function fixture() {
   writeFileSync(join(work, 'dist/server/server/main.js'), releaseServer); writeFileSync(join(work, 'dist/server/server/picture-worker.js'), '');
   writeFileSync(join(work, 'dist/client/index.html'), '<title>ORE</title>'); writeFileSync(join(work, 'dist/client/assets/app.js'), 'Synthetic asset');
   writeFileSync(join(work, 'migrations/0014_library_sorting.sql'), '-- Synthetic migration');
-  for (const file of ['RELEASES.md', 'RELEASE_IMPLEMENTATION_BRIEF.md', 'RELEASE_VERIFICATION.md', 'WINDOWS_RELEASE_HANDOFF.md', 'WINDOWS_RELEASE_VERIFICATION.md', 'TEST_RELEASE.md']) writeFileSync(join(work, 'docs', file), 'Synthetic instructions');
+  writeFileSync(join(work, 'docs/RELEASES.md'), 'Synthetic current startup and recovery instructions');
+  writeFileSync(join(work, 'LICENSE'), 'Synthetic project license');
   writeFileSync(join(work, 'node_modules/pkg/bin.js'), ''); symlinkSync('../pkg/bin.js', join(work, 'node_modules/.bin/example'));
   for (const directory of ['data', 'languages', 'tests']) { mkdirSync(join(work, directory)); writeFileSync(join(work, directory, 'PRIVATE'), 'synthetic private fixture'); }
   writeFileSync(join(work, '.env'), 'synthetic private environment');
@@ -78,6 +79,10 @@ describe.skipIf(process.platform === 'win32')('portable artifact boundaries', ()
     const extracted = join(f.root, 'extracted'); mkdirSync(extracted);
     expect(spawnSync('tar', ['-xzf', join(output, archive), '-C', extracted]).status).toBe(0);
     const payload = join(extracted, readdirSync(extracted)[0]);
+    expect(readFileSync(join(payload, 'README.md'), 'utf8')).toBe('Synthetic current startup and recovery instructions');
+    expect(readFileSync(join(payload, 'LICENSE'), 'utf8')).toBe('Synthetic project license');
+    expect(readFileSync(join(f.application, 'LICENSE'), 'utf8')).toBe('Synthetic project license');
+    expect(readdirSync(payload).filter(name => name.endsWith('.md'))).toEqual(['README.md']);
     for (const directory of ['data', 'cache', 'logs', 'languages']) {
       expect(readdirSync(join(payload, directory))).toEqual([]);
       expect(statSync(join(payload, directory)).mode & 0o777).toBe(0o700);
