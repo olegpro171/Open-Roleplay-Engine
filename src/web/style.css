@@ -38,7 +38,7 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 @media(min-width:801px){.library-workspace .library-panel{padding-top:0}}
 
 .library-panel>h1{margin-bottom:24px}
-.library-browse-controls{display:flex;align-items:center;gap:8px;margin-top:8px}
+.library-browse-controls{position:relative;display:flex;align-items:center;gap:8px;margin-top:8px}
 .library-search{position:relative;flex:1;min-width:0}
 .library-sort{flex:0 0 165px;min-width:0}
 .library-sort .select-trigger{font-size:13px;padding:10px 12px;white-space:nowrap;min-height:44px}
@@ -263,17 +263,28 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 
 .file-button:has(input:focus-visible){outline:2px solid var(--muted);outline-offset:3px}
 .file-button:has(input:disabled){opacity:.4;cursor:not-allowed}
-.tag-filter-trigger{display:flex;align-items:center;gap:9px}
+.tag-filter-menu{flex:none}
+.tag-filter-trigger{display:flex;align-items:center;gap:9px;min-height:44px;white-space:nowrap}
 .tag-filter-count{min-width:20px;padding:0 5px;border-radius:10px;background:var(--accent-tint);color:var(--header-highlight);font-size:12px}
-.tag-filter-panel{position:absolute;z-index:5;top:calc(100% + 8px);left:0;width:min(380px,100%);max-height:min(520px,65dvh);overflow:auto;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);box-shadow:0 12px 35px var(--shadow)}
-.tag-filter-panel .tag-chooser{margin:0;padding:16px;border:0;border-radius:0;background:none}
-.tag-filter-panel legend{padding:14px 0 0;font-size:14px;color:inherit}
-.tag-filter-panel .tag-chooser>label{font-size:12px;color:var(--muted)}
-.tag-filter-panel .tag-options{grid-template-columns:1fr;gap:2px;max-height:240px}
+.tag-filter-panel{position:fixed;z-index:60;display:flex;flex-direction:column;overflow:auto;overscroll-behavior:contain;border:1px solid var(--control-border);border-radius:10px;background:var(--surface);box-shadow:0 12px 35px var(--shadow)}
+.tag-filter-panel>.tag-filter-close{display:none;position:absolute;top:6px;right:6px;width:44px;height:44px;justify-content:center}
+@media(max-width:800px){
+  .tag-filter-panel>.tag-filter-close{display:flex}
+  .tag-filter-panel .tag-chooser-title{max-width:calc(100% - 36px)}
+}
+.tag-filter-panel .tag-chooser{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;margin:0;padding:14px 16px 6px;border:0;border-radius:0;background:none}
+.tag-filter-panel .tag-chooser-title{flex:none;margin-bottom:12px;font-size:14px;color:inherit}
+.tag-filter-panel .tag-chooser>label{flex:none;font-size:12px;color:var(--muted)}
+.tag-filter-panel .tag-chooser-results{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+.tag-filter-panel .tag-options{grid-template-columns:1fr;gap:2px;min-height:0;max-height:400px;margin-top:8px;overscroll-behavior:contain}
 .tag-filter-panel .tag-options .checkbox{padding:7px 4px;border-radius:5px;color:inherit}
 .tag-filter-panel .tag-options .checkbox:hover{background:var(--highlight-faint)}
-.tag-filter-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--line);padding:10px 12px}
-.tag-filter-footer small{font-size:12px}
+.tag-filter-footer{display:flex;align-items:center;justify-content:flex-end;flex:none;gap:8px;border-top:1px solid var(--line);padding:6px 12px}
+.tag-pagination{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:9px}
+.tag-pagination>button{width:44px;min-height:44px;justify-content:center;flex:none}
+.tag-pagination>span{min-width:48px;text-align:center;font-variant-numeric:tabular-nums}
+.tag-filter-panel .tag-pagination{flex:none;gap:8px;margin-top:4px}
+.tag-filter-panel .tag-pagination>button{width:36px;min-height:36px}
 .character-active-filters{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin-top:16px}
 .character-active-filters .tag-chips{display:contents}
 .character-active-filters .tag-chip{background:var(--accent-tint);border-color:var(--accent-border);color:var(--header-highlight)}
@@ -377,6 +388,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
   .library-tabs button:where(:hover:enabled),
   .turn-actions .turn-action:hover:enabled,
   .original-picture-viewer>button:hover:enabled,
+  .tag-filter-panel button.quiet:hover:enabled,
   .library-layout button:is(.quiet, .secondary):hover:enabled,
   .chat-page-actions .chat-navigation-action:hover:enabled { background: var(--surface-raised); color: var(--text); filter: none; }
   .turn-actions .turn-action-delete:hover:enabled { color: var(--danger-text); }
@@ -610,8 +622,6 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .library-list-header.is-editing,.library-list-header:has(.character-import-review,.lore-import-review){position:static}
 .library-toolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:stretch;margin:0}
 .library-toolbar>button,.library-toolbar>.file-button{min-width:0;min-height:44px;justify-content:center;padding:10px 12px;font-size:14px;font-weight:600;line-height:1.4;text-align:center;overflow-wrap:anywhere}
-.library-filter-controls{position:relative;margin-top:10px}
-.library-filter-controls .tag-filter-panel{position:static;margin-top:8px}
 .library-notice{margin-top:16px}
 .library-list .library-card{display:flex;flex-direction:column;min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--surface);position:relative;transition:background .15s}
 .library-card-body{display:flex;gap:16px;padding:18px;min-width:0}
@@ -637,6 +647,8 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .library-card-menu>button{min-height:44px;justify-content:flex-start;font-size:13px;overflow-wrap:anywhere;text-align:start}
 .library-card-menu>button>.ui-icon{width:18px;height:18px}
 @container library (max-width:520px){
+  .library-browse-controls:has(.tag-filter-menu){display:grid;grid-template-columns:minmax(0,1fr) auto}
+  .library-browse-controls:has(.tag-filter-menu) .library-sort{grid-column:1/-1}
   .library-card-body{gap:12px;padding:14px}
   .library-card-heading h2{font-size:16px}
   .character-list .library-card-body{--library-picture-size:100px}

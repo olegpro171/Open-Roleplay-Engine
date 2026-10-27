@@ -975,7 +975,7 @@ export const englishMessages = {
   "tags.previous_tags": "Previous tags",
   "tags.next_tags": "Next tags",
   "tags.filter_characters_by_tags": "Filter characters by tags",
-  "tags.match_all_selected_tags": "Match all selected tags",
+  "tags.close_filters": "Close tag filters",
   "tags.could_not_save_tags": "Could not save tags.",
   "tags.organize_your_characters_changes_save_immediately": "Organize your characters. Changes save immediately.",
   "tags.close_tag_manager": "Close tag manager",

@@ -106,7 +106,15 @@ test('keeps search close to the actions on narrow screens and opens reviewed lor
       const sort = content.getByRole('combobox', { name: `Sort ${category.toLowerCase()}`, exact: true });
       const sortBounds = await sort.boundingBox();
       if (!bounds || !actions || !sortBounds) throw new Error('Missing library search, sort or actions');
-      if (width === 320) {
+      if (category === 'Characters') {
+        const tags = await content.getByRole('button', { name: 'Tags', exact: true }).boundingBox();
+        if (!tags) throw new Error('Missing character tag filter');
+        // Search and Tags share the sticky row; sorting spans the row below.
+        expect(Math.abs(bounds.y + bounds.height / 2 - tags.y - tags.height / 2)).toBeLessThanOrEqual(1);
+        expect(sortBounds.y).toBeGreaterThanOrEqual(bounds.y + bounds.height);
+        expect(sortBounds.x).toBe(bounds.x);
+        expect(sortBounds.x + sortBounds.width).toBeCloseTo(tags.x + tags.width, 0);
+      } else if (width === 320) {
         expect(sortBounds.y).toBeGreaterThanOrEqual(bounds.y + bounds.height);
         expect(sortBounds.x).toBe(bounds.x);
         expect(sortBounds.width).toBe(bounds.width);

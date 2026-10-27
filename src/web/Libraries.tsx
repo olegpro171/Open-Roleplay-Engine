@@ -206,13 +206,13 @@ function matchesLibraryRecord(record: LibraryRecord, query: string): boolean {
   if ('model' in record && matches(record.model)) return true;
   return 'entries' in record && record.entries.some(entry => matches(entry.name) || matches(entry.comment) || matches(entry.content) || entry.keys.some(matches) || entry.secondaryKeys.some(matches));
 }
-function LibrarySearch({ section, value, change, sort, changeSort }: { section: LibraryKind | 'chats'; value: string; change: (value: string) => void; sort: LibrarySort; changeSort: (value: string) => void }) {
+function LibrarySearch({ section, value, change, sort, changeSort, children }: { section: LibraryKind | 'chats'; value: string; change: (value: string) => void; sort: LibrarySort; changeSort: (value: string) => void; children?: ReactNode }) {
   useLocale();
   const label = searchLibraryLabel(section);
   return <div className="library-browse-controls"><div className="library-search">
     <Icon name="Search" />
     <input type="search" aria-label={label} placeholder={label} value={value} onChange={event => change(event.target.value)} />
-    </div><div className="library-sort"><Dropdown aria-label={sortLibraryLabel(section)} value={sort} onChange={changeSort} options={sortOptions(section)} /></div>
+    </div>{children}<div className="library-sort"><Dropdown aria-label={sortLibraryLabel(section)} value={sort} onChange={changeSort} options={sortOptions(section)} /></div>
   </div>;
 }
 const libraryIcons: Record<LibraryKind | 'chats', ReactNode> = {
@@ -413,9 +413,10 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
       </div>}
       {!editing && section === 'lorebooks' && <LorebookImport leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_lorebook")}</button>} revision={library.revision} busy={busy} run={run} imported={(_id, message) => setNotice(message)} />}
       {section === 'characters' && <CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_character")}</button>} revision={library.revision} busy={busy} run={run} imported={(result, missing) => { setNotice(missing ? msg("libraries.the_original_import_was_saved_but_its") : msg("libraries.imported_character", { length: result.ids.length, value: result.books.map(book => t("interface.lorebook_entries", { name: String(book.name), entries: String(book.entries) })).join(''), value2: result.tags ? t("libraries.imported_tag_counts", { assigned: result.tags.assigned, created: result.tags.created }) : t("interface.original_tag_report_unavailable"), value3: result.picture ? result.picture.saved ? t("interface.picture_saved") : t("interface.no_picture_saved") : t("interface.original_picture_report_unavailable"), value4: filters.length ? t("interface.the_character_may_be_hidden_by_your_tag") : '' })); setDiagnostics(result.diagnostics); }} />}
-      {!editing && !creatingChat && <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort} />}
+      {!editing && !creatingChat && <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort}>
+        {section === 'characters' && <TagFilterMenu library={library} busy={busy} run={run} selected={filters} change={setFilters} />}
+      </LibrarySearch>}
     </LibraryHeader>
-      {!editing && section === 'characters' && <div className="library-filter-controls"><TagFilterMenu library={library} busy={busy} run={run} selected={filters} change={setFilters} /></div>}
     {notice && <p className="library-notice" role="status">{notice}</p>}<LoreDiagnostics diagnostics={diagnostics} />
     {section === 'chats' ? <>
       {creatingChat && <NewChat library={library} busy={busy} run={run} created={id => { setCreatingChat(false); openChat(id, 'settings'); }} cancel={() => setCreatingChat(false)} />}

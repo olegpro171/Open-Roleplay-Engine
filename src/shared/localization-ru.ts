@@ -982,7 +982,7 @@ export const russianMessages = {
   "tags.previous_tags": "Предыдущие теги",
   "tags.next_tags": "Следующие теги",
   "tags.filter_characters_by_tags": "Фильтр персонажей по тегам",
-  "tags.match_all_selected_tags": "Требовать все выбранные теги",
+  "tags.close_filters": "Закрыть фильтр тегов",
   "tags.could_not_save_tags": "Не удалось сохранить теги.",
   "tags.organize_your_characters_changes_save_immediately": "Организуйте персонажей. Изменения сохраняются сразу.",
   "tags.close_tag_manager": "Закрыть управление тегами",

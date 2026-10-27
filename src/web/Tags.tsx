@@ -2,7 +2,8 @@ import { openModal } from './dialog-focus';
 import { useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { Icon } from './Icon';
 import { useConfirmation } from './Confirmation';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { LibrarySnapshot } from '../shared/library';
 import { canonicalTagName, tagLimits, type Tag, type TagPolicy, type TagReview } from '../shared/tags';
 import { api } from './api';
@@ -15,7 +16,7 @@ export function TagChips({ tags, selected, remove, catalog }: { catalog?: Readon
   const byId = useMemo(() => catalog ?? new Map(tags.map(tag => [tag.id, tag])), [tags, catalog]);
   return <div className="tag-chips">{selected.map(id => <span className="tag-chip" key={id}>{byId.get(id)?.name ?? t("tags.unavailable_tag")}{remove && <button type="button" className="quiet" aria-label={t("tags.remove", { value: byId.get(id)?.name ?? t("interface.unavailable_tag") })} onClick={() => remove(id)}><Icon name="Close" /></button>}</span>)}</div>;
 }
-export function TagChooser({ tags, selected, change, label, disabled = false, showSelected = true }: { tags: Tag[]; selected: string[]; change: (ids: string[]) => void; label: string; disabled?: boolean; showSelected?: boolean }) {
+export function TagChooser({ tags, selected, change, label, disabled = false, showSelected = true, variant = 'assignment', onSearchChange }: { tags: Tag[]; selected: string[]; change: (ids: string[]) => void; label: string; disabled?: boolean; showSelected?: boolean; variant?: 'assignment' | 'filter'; onSearchChange?: (search: string) => void }) {
   useLocale();
   const [search, setSearch] = useState(''), [page, setPage] = useState(0);
   const results = useRef<HTMLDivElement>(null);
@@ -23,57 +24,136 @@ export function TagChooser({ tags, selected, change, label, disabled = false, sh
   const query = canonicalTagName(search), chosen = useMemo(() => new Set(selected), [selected]);
   const matches = useMemo(() => tags.filter(tag => canonicalTagName(tag.name).includes(query)).sort((a, b) => a.name.localeCompare(b.name)), [tags, query]);
   const last = Math.max(0, Math.ceil(matches.length / tagLimits.page) - 1), shown = Math.min(page, last);
-  return <fieldset className="tag-chooser" disabled={disabled}><legend>{label}</legend>
+  const controls = <>
     {showSelected && <TagChips tags={tags} selected={selected} remove={id => change(selected.filter(value => value !== id))} />}
-    <label>{t("tags.search_tags")}<span className="search-field"><Icon name="Search" /><input type="search" value={search} onChange={event => {
+    <label>{variant === 'assignment' && t("tags.search_tags")}<span className="search-field"><Icon name="Search" /><input type="search" disabled={disabled} aria-label={t("tags.search_tags")} placeholder={variant === 'filter' ? t("tags.search_tags") : undefined} value={search} onChange={event => {
       const next = event.target.value;
       // Rows, empty notices and pagination share one reserved area during search,
       // so filtering cannot shrink the page and clamp its scroll position.
-      if (next) setResultsMinHeight(results.current?.getBoundingClientRect().height);
-      else setResultsMinHeight(undefined);
+      if (variant === 'assignment') {
+        if (next) setResultsMinHeight(results.current?.getBoundingClientRect().height);
+        else setResultsMinHeight(undefined);
+      }
+      onSearchChange?.(next);
       setSearch(next); setPage(0);
     }} /></span></label>
     <div className="tag-chooser-results" ref={results} style={{ minHeight: resultsMinHeight }}>
-      <div className="tag-options">{matches.slice(shown * tagLimits.page, (shown + 1) * tagLimits.page).map(tag => <label className="checkbox" key={tag.id}><input type="checkbox" checked={chosen.has(tag.id)} onChange={event => change(event.target.checked ? [...selected, tag.id] : selected.filter(id => id !== tag.id))} /><span className="tag-option-name">{tag.name}</span></label>)}</div>
+      <div className="tag-options">{matches.slice(shown * tagLimits.page, (shown + 1) * tagLimits.page).map(tag => <label className="checkbox" key={tag.id}><input type="checkbox" disabled={disabled} checked={chosen.has(tag.id)} onChange={event => change(event.target.checked ? [...selected, tag.id] : selected.filter(id => id !== tag.id))} /><span className="tag-option-name">{tag.name}</span></label>)}</div>
       {!matches.length && <p className="small muted">{tags.length ? t("tags.no_tags_match_your_search") : t("tags.no_tags_yet_create_one_in_manage")}</p>}
-      {last > 0 && <div className="actions"><button type="button" disabled={shown === 0} onClick={() => setPage(shown - 1)}>{t("tags.previous_tags")}</button><span>{shown + 1} / {last + 1}</span><button type="button" disabled={shown === last} onClick={() => setPage(shown + 1)}>{t("tags.next_tags")}</button></div>}
+      {last > 0 && <div className="tag-pagination"><button type="button" className="quiet" aria-label={t("tags.previous_tags")} title={t("tags.previous_tags")} disabled={disabled || shown === 0} onClick={() => setPage(shown - 1)}><Icon name="ArrowShortBack" /></button><span>{shown + 1} / {last + 1}</span><button type="button" className="quiet" aria-label={t("tags.next_tags")} title={t("tags.next_tags")} disabled={disabled || shown === last} onClick={() => setPage(shown + 1)}><Icon name="ArrowShortForward" /></button></div>}
     </div>
-  </fieldset>;
+  </>;
+  return variant === 'filter'
+    ? <div className="tag-chooser" role="group" aria-label={label} aria-disabled={disabled || undefined}><div className="tag-chooser-title">{label}</div>{controls}</div>
+    : <fieldset className="tag-chooser" disabled={disabled}><legend>{label}</legend>{controls}</fieldset>;
 }
 export function TagFilterMenu({ library, busy, run, selected, change }: { library: LibrarySnapshot; busy: boolean; run: Run; selected: string[]; change: (ids: string[]) => void }) {
   useLocale();
   const [open, setOpen] = useState(false), [manager, setManager] = useState(false);
   const root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const [reservedHeight, setReservedHeight] = useState<number>();
+  const [position, setPosition] = useState({ left: 0, top: 0, width: 380, maxHeight: 624 });
   const panelId = useId();
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!open) {
+      setReservedHeight(undefined);
+      return;
+    }
+    const row = root.current?.parentElement;
+    const workspace = root.current?.closest('.library-workspace');
+    if (!row || !workspace) return;
+    const mobile = window.matchMedia('(max-width: 800px)');
+    const viewport = window.visualViewport;
+    const place = () => {
+      const topEdge = viewport?.offsetTop ?? 0;
+      const leftEdge = viewport?.offsetLeft ?? 0;
+      const viewportWidth = viewport?.width ?? innerWidth;
+      const bottom = topEdge + (viewport?.height ?? innerHeight);
+      const anchor = row.getBoundingClientRect();
+      const width = Math.max(0, Math.min(380, mobile.matches ? viewportWidth - 24 : anchor.width));
+      const top = mobile.matches ? Math.max(topEdge, workspace.getBoundingClientRect().top) + 12 : anchor.bottom + 8;
+      const next = {
+        left: mobile.matches ? leftEdge + viewportWidth - width - 12 : anchor.right - width,
+        top, width,
+        maxHeight: Math.max(0, Math.min(624, bottom - top - 12)),
+      };
+      setPosition(previous => previous.left === next.left && previous.top === next.top && previous.width === next.width && previous.maxHeight === next.maxHeight ? previous : next);
+    };
+    const observer = new ResizeObserver(place);
+    observer.observe(row);
+    observer.observe(workspace);
+    place();
+    mobile.addEventListener('change', place);
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    viewport?.addEventListener('resize', place);
+    viewport?.addEventListener('scroll', place);
+    return () => {
+      observer.disconnect();
+      mobile.removeEventListener('change', place);
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+      viewport?.removeEventListener('resize', place);
+      viewport?.removeEventListener('scroll', place);
+    };
+  }, [open]);
+  useLayoutEffect(() => {
     if (!open || manager) return;
-    const dismiss = (event: Event) => {
-      if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false);
+    const interceptOutside = (event: Event) => {
+      if (!(event.target instanceof Node) || root.current?.contains(event.target) || panel.current?.contains(event.target)) return;
+      // Consume activation before controls receive it, retaining the guard until
+      // click completes. Leaving wheel/touch-move events alone preserves native scrolling.
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.type === 'click') {
+        setOpen(false);
+        trigger.current?.focus({ preventScroll: true });
+      }
     };
     const dismissAfterTab = (event: KeyboardEvent) => {
-      if (event.key === 'Tab' && !root.current?.contains(document.activeElement)) setOpen(false);
+      if (event.key === 'Tab' && !root.current?.contains(document.activeElement) && !panel.current?.contains(document.activeElement)) setOpen(false);
     };
-    // Let an outside action finish before closing: removing the panel can shrink
-    // the scroll area and move the clicked control between pointerdown and click.
-    document.addEventListener('click', dismiss);
+    document.addEventListener('pointerdown', interceptOutside, true);
+    document.addEventListener('pointerup', interceptOutside, true);
+    document.addEventListener('click', interceptOutside, true);
     document.addEventListener('keyup', dismissAfterTab);
     return () => {
-      document.removeEventListener('click', dismiss);
+      document.removeEventListener('pointerdown', interceptOutside, true);
+      document.removeEventListener('pointerup', interceptOutside, true);
+      document.removeEventListener('click', interceptOutside, true);
       document.removeEventListener('keyup', dismissAfterTab);
     };
   }, [open, manager]);
   return <div className="tag-filter-menu" ref={root} onKeyDown={event => {
     if (event.key === 'Escape' && open && !manager) {
-      event.preventDefault(); setOpen(false); trigger.current?.focus();
+      event.preventDefault(); setOpen(false); trigger.current?.focus({ preventScroll: true });
+    }
+    // The panel stays in one portal across viewport changes. Connect its first
+    // control to the trigger in both directions without trapping keyboard focus.
+    if (event.key === 'Tab' && open && !manager) {
+      const first = panel.current?.querySelector<HTMLElement>('input:not(:disabled), button:not(:disabled)');
+      if (!event.shiftKey && event.target === trigger.current && first) {
+        event.preventDefault(); first.focus({ preventScroll: true });
+      } else if (event.shiftKey && event.target === first) {
+        event.preventDefault(); trigger.current?.focus({ preventScroll: true });
+      }
     }
   }}>
     <button type="button" className="secondary tag-filter-trigger" ref={trigger} aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(!open)}>
       {t("character_editor.tags")}{selected.length > 0 && <span className="tag-filter-count">{selected.length}</span>}<Icon name="ArrowShortBottom" />
     </button>
-    {open && <div id={panelId} className="tag-filter-panel">
-      <TagChooser label={t("tags.filter_characters_by_tags")} tags={library.tags} selected={selected} change={change} showSelected={false} />
-      <div className="tag-filter-footer"><small className="muted">{t("tags.match_all_selected_tags")}</small><button type="button" className="quiet" onClick={() => setManager(true)}>{t("character_editor.manage_tags")}</button></div>
-    </div>}
+    {open && createPortal(<div id={panelId} ref={panel} className="tag-filter-panel" style={{ ...position, minHeight: reservedHeight === undefined ? undefined : Math.min(reservedHeight, position.maxHeight) }}>
+        <TagChooser label={t("tags.filter_characters_by_tags")} tags={library.tags} selected={selected} change={change} showSelected={false} variant="filter" onSearchChange={search => {
+          // Reserve the popup rather than its rows: broader searches may grow,
+          // while a shorter viewport can still shrink the list around its controls.
+          setReservedHeight(search ? panel.current?.getBoundingClientRect().height : undefined);
+        }} />
+        <div className="tag-filter-footer"><button type="button" className="quiet" onClick={() => setManager(true)}>{t("character_editor.manage_tags")}</button></div>
+        <button type="button" className="quiet tag-filter-close" aria-label={t("tags.close_filters")} title={t("tags.close_filters")} onClick={() => {
+          setOpen(false); trigger.current?.focus({ preventScroll: true });
+        }}><Icon name="Close" /></button>
+    </div>, document.body)}
     {manager && <TagManager library={library} busy={busy} run={run} close={() => setManager(false)} />}
   </div>;
 }
