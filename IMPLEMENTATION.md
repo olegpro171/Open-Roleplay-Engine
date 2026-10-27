@@ -410,6 +410,8 @@ Import receipt lookup follows bounded metadata extraction/hash and precedes stri
 
 ### Subsequent interface work
 
+`Controls.tsx` owns shared selection dropdowns and editable model suggestions. While expanded, capture-phase scroll, wheel and touch-move listeners dismiss the popup for events outside its option list instead of repositioning it during page movement. List scrolling, including keyboard navigation, stays available; dismissal preserves the current value/draft. Listeners are removed on close or unmount. The separate Tags filter overlay retains its documented placement and dismissal rules. Focused browser coverage in `dropdown-scroll.spec.ts` checks nested scrolling, gesture dismissal, long-list navigation and unchanged values in every theme at desktop and touch-enabled phone sizes.
+
 The dark interface uses `web/palette.css` for 20 base colors and shared semantic
 roles, loaded before component styles. Opaque sRGB mixes derive surface, border,
 text and status variants; intentional alpha roles cover overlays, shadows and

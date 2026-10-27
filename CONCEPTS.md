@@ -357,6 +357,8 @@ Accepted on 2026-10-25: reusable Library Import actions first open a popup with 
 
 ### Library sorting
 
+Shared selection dropdowns, including editable model suggestions, dismiss when outside scrolling starts on desktop or touchscreens. Scrolling inside an option list keeps it open. The separate Tags filter overlay retains its own scrolling behavior below.
+
 Requested on 2026-10-21: compact sort dropdowns share the search row in every library (stacked below search on the narrowest panels after the 2026-10-24 redesign). Offer names, added dates and edited dates in both directions; Chats additionally offers last-message recency. Unedited items fall back to their added date. Sorting combines with search and character tags, and each library remembers its choice in this browser. Defaults are newest added for reusable records and recent messages for Chats. Dates refer to local saved records; unavailable historical dates remain unknown and follow dated items. Sorting changes presentation only, preserving selections, prompts and history.
 
 ### Character pictures

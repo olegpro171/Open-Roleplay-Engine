@@ -36,9 +36,24 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
     place();
     const outside = (event: PointerEvent) => { if (!anchor.current?.contains(event.target as Node) && !popup.current?.contains(event.target as Node)) setOpen(false); };
     const blur = (event: FocusEvent) => { if (!anchor.current?.contains(event.target as Node) && !popup.current?.contains(event.target as Node)) setOpen(false); };
+    const dismissOnScroll = (event: Event) => {
+      // Keep long option lists scrollable, including keyboard-driven scrolling.
+      if (event.target instanceof Node && popup.current?.contains(event.target)) return;
+      setOpen(false);
+    };
     document.addEventListener('pointerdown', outside); document.addEventListener('focusin', blur);
-    window.addEventListener('resize', place); window.addEventListener('scroll', place, true);
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('focusin', blur); window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', dismissOnScroll, true);
+    window.addEventListener('wheel', dismissOnScroll, { capture: true, passive: true });
+    window.addEventListener('touchmove', dismissOnScroll, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('focusin', blur);
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', dismissOnScroll, true);
+      window.removeEventListener('wheel', dismissOnScroll, true);
+      window.removeEventListener('touchmove', dismissOnScroll, true);
+    };
   }, [expanded, visible.length]);
   useEffect(() => { if (expanded) popup.current?.querySelector('[data-active=true]')?.scrollIntoView({ block: 'nearest' }); }, [activeIndex, expanded]);
   function choose(option: Option) { if (!option.disabled && !anchor.current?.querySelector(':disabled')) onChange(option.value); setOpen(false); }

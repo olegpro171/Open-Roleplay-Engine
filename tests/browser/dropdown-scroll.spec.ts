@@ -1,0 +1,112 @@
+import { expect } from '@playwright/test';
+import { test } from './isolated-app';
+import { appearanceStatusSchema } from '../../src/shared/appearance';
+import type { LibrarySnapshot } from '../../src/shared/library';
+
+for (const width of [1280, 390]) {
+  test.describe(`dropdown scrolling at ${width}px`, () => {
+    test.use({ viewport: { width, height: 700 }, hasTouch: width === 390 });
+
+    for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+      test(`${theme} closes on outside scrolling and preserves option-list scrolling`, async ({ page, browserApp }, testInfo) => {
+        await page.goto('/');
+        await page.getByLabel('Owner password').fill('browser-synthetic-password');
+        await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
+        await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible();
+        const headers = { Origin: browserApp.url };
+        const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+        const saved = await page.request.put('/api/application/appearance', {
+          headers, data: { revision: appearance.revision, settings: { ...appearance.settings, theme } },
+        });
+        expect(saved.ok()).toBe(true);
+        for (let index = 0; index < 16; index++) {
+          const library: LibrarySnapshot = await page.request.get('/api/library').then(response => response.json());
+          const response = await page.request.post('/api/library', { headers, data: {
+            kind: 'characters', revision: library.revision,
+            data: { name: `Scroll character ${index}`, description: 'Synthetic scrolling fixture.', personality: '', scenario: '', first_mes: '', mes_example: '' },
+          } });
+          expect(response.ok(), await response.text()).toBe(true);
+        }
+        await page.reload();
+        await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+        await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+        await page.getByRole('button', { name: 'Characters', exact: true }).click();
+        const sort = page.getByRole('combobox', { name: 'Sort characters', exact: true });
+        const sortMenu = page.getByRole('listbox', { name: 'Sort characters', exact: true });
+        const originalSort = await sort.textContent();
+        await sort.click();
+        await expect(sortMenu).toBeVisible();
+        await page.screenshot({ path: testInfo.outputPath('regular-open.png') });
+        // Exercise a real nested scroll without an outside pointer press.
+        const scroller = page.locator(width > 800 ? '.library-panel' : '.library-layout');
+        await scroller.evaluate(node => { node.scrollTop += 80; });
+        await expect.poll(() => scroller.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+        await expect(sortMenu).toHaveCount(0);
+        await expect(sort).toHaveText(originalSort ?? '');
+        await sort.click();
+        await sort.dispatchEvent('wheel', { deltaY: 80 });
+        await expect(sortMenu).toHaveCount(0);
+        await sort.click();
+        await sort.dispatchEvent('touchmove');
+        await expect(sortMenu).toHaveCount(0);
+        await sort.click();
+        await page.getByRole('option', { name: 'Name A–Z', exact: true }).click();
+        await expect(sort).toHaveText('Name A–Z');
+
+        await page.getByRole('button', { name: 'Connections', exact: true }).click();
+        await page.getByRole('button', { name: 'New Connection', exact: true }).click();
+        await page.getByLabel('API base URL').fill('http://127.0.0.1:9999');
+        const models = Array.from({ length: 25 }, (_, index) => `scroll-model-${String(index).padStart(2, '0')}`);
+        await page.route('**/api/models', route => route.fulfill({ json: { models } }));
+        await page.getByRole('button', { name: 'Fetch model list', exact: true }).click();
+        await expect(page.getByRole('status')).toContainText('25 models available');
+        const model = page.getByRole('combobox', { name: 'Model identifier', exact: true });
+        const modelMenu = page.getByRole('listbox', { name: 'Model identifier', exact: true });
+        await model.fill('scroll-model');
+        await expect(modelMenu).toBeVisible();
+        await page.screenshot({ path: testInfo.outputPath('editable-open.png') });
+        await modelMenu.dispatchEvent('wheel', { deltaY: 80 });
+        await modelMenu.dispatchEvent('touchmove');
+        await modelMenu.evaluate(node => { node.scrollTop = 100; });
+        await expect.poll(() => modelMenu.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+        await expect(modelMenu).toBeVisible();
+        const listBounds = await modelMenu.boundingBox();
+        if (!listBounds) throw new Error('Missing model option list');
+        const x = listBounds.x + listBounds.width / 2;
+        const y = listBounds.y + listBounds.height * 0.75;
+        const beforeGesture = await modelMenu.evaluate(node => node.scrollTop);
+        if (width === 390) {
+          const touch = await page.context().newCDPSession(page);
+          try {
+            await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+            for (let step = 1; step <= 6; step++) {
+              await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - step * 10 }] });
+            }
+            await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+          } finally { await touch.detach(); }
+        } else {
+          await page.mouse.move(x, y);
+          await page.mouse.wheel(0, 80);
+        }
+        await expect.poll(() => modelMenu.evaluate(node => node.scrollTop)).toBeGreaterThan(beforeGesture);
+        await expect(modelMenu).toBeVisible();
+        // Keyboard navigation also scrolls the list and must remain usable.
+        await model.click();
+        for (let index = 0; index < models.length - 1; index++) await model.press('ArrowDown');
+        await expect(page.getByRole('option', { name: 'scroll-model-24', exact: true })).toBeInViewport();
+        await model.press('Enter');
+        await expect(model).toHaveValue('scroll-model-24');
+        await expect(modelMenu).toHaveCount(0);
+        await model.fill('scroll-model');
+        await model.dispatchEvent('touchmove');
+        await expect(modelMenu).toHaveCount(0);
+        await expect(model).toHaveValue('scroll-model');
+        await model.click();
+        await model.dispatchEvent('wheel', { deltaY: 80 });
+        await expect(modelMenu).toHaveCount(0);
+        await expect(model).toHaveValue('scroll-model');
+        await page.screenshot({ path: testInfo.outputPath('editable-dismissed.png') });
+      });
+    }
+  });
+}
