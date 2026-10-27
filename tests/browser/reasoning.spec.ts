@@ -1,4 +1,5 @@
-import { test, expect } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './appearance-test';
 import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -8,7 +9,7 @@ test.afterEach(async ({ request }) => {
   await request.post('/__test/mode', { data: { mode: 'normal' } });
 });
 
-for (const theme of themeSchema.options) for (const width of (theme === 'dark' ? [1280, 390, 320] : [1280, 390])) test(`streams and saves separate turn reasoning in ${theme} at ${width}px`, async ({ page, request }) => {
+for (const theme of themeSchema.options) for (const width of (theme === 'dark' ? [1280, 390, 320] : [1280, 390])) test(`streams and saves separate turn reasoning in ${theme} at ${width}px`, async ({ page, request, setAppearance }) => {
   test.setTimeout(60000);
   await page.setViewportSize({ width, height: 844 });
   const session = await request.get('/api/session').then(response => response.json());
@@ -23,10 +24,7 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   };
   const appearancePath = '/api/application/appearance';
   const readAppearance = async () => appearanceStatusSchema.parse(await page.request.get(appearancePath).then(response => response.json()));
-  const initialAppearance = await readAppearance();
-  expect((await page.request.put(appearancePath, { headers: { Origin: 'http://127.0.0.1:4173' }, data: {
-    revision: initialAppearance.revision, settings: { ...initialAppearance.settings, theme, showReasoningDuringGeneration: false },
-  } })).ok()).toBe(true);
+  await setAppearance({ theme, showReasoningDuringGeneration: false });
   const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
   const { endpoint } = await request.get('/__test/endpoint').then(response => response.json());
   const connection = await command('/api/library', { revision: library.revision, kind: 'connections', data: { name: `Reasoning ${width}`, model: 'synthetic-roleplay', endpoint, contextWindow: 100000, maxOutputTokens: 1000, customParameters: {} } });

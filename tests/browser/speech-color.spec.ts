@@ -1,7 +1,8 @@
-import { expect, test, type Page } from '@playwright/test';
+import { test } from './appearance-test';
+import { expect, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import type { ChatSnapshot } from '../../src/shared/contracts';
-import { defaultAppearance, type AppearanceStatus } from '../../src/shared/appearance';
+import type { AppearanceStatus } from '../../src/shared/appearance';
 
 async function chooseColor(page: Page, label: string, color: string) {
   await page.getByRole('button', { name: label, exact: true }).click();
@@ -11,12 +12,13 @@ async function chooseColor(page: Page, label: string, color: string) {
   await expect(picker).toHaveCount(0);
 }
 
-for (const width of [1440, 390]) test(`saves speech colors from both editors and updates existing chat presentation at ${width}px`, async ({ page }, testInfo) => {
+for (const width of [1440, 390]) test(`saves speech colors from both editors and updates existing chat presentation at ${width}px`, async ({ page, setAppearance }, testInfo) => {
   await page.setViewportSize({ width, height: 900 });
   const session = await page.request.get('/api/session').then(response => response.json());
   await page.goto('/');
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+  await setAppearance({ theme: 'dark', characterSpeechColor: null, personaSpeechColor: null, chatTextScale: 100 });
   const library = (): Promise<LibrarySnapshot> => page.request.get('/api/library').then(response => response.json());
   const name = `Speech colors ${width}`;
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
@@ -88,12 +90,13 @@ for (const width of [1440, 390]) test(`saves speech colors from both editors and
   await expect(userSpeech).toHaveCSS('color', 'rgb(168, 201, 240)');
 });
 
-for (const width of [1440, 390]) test(`uses app defaults for unset cards and clears overrides safely at ${width}px`, async ({ page, context }, testInfo) => {
+for (const width of [1440, 390]) test(`uses app defaults for unset cards and clears overrides safely at ${width}px`, async ({ page, context, setAppearance }, testInfo) => {
   await page.setViewportSize({ width, height: 900 });
   const session = await page.request.get('/api/session').then(response => response.json());
   await page.goto('/');
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+  const baseline = await setAppearance({ theme: 'dark', characterSpeechColor: null, personaSpeechColor: null, chatTextScale: 100 });
   await expect(page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
   const headers = { Origin: 'http://127.0.0.1:4173' };
   const library = (): Promise<LibrarySnapshot> => page.request.get('/api/library').then(response => response.json());
@@ -157,7 +160,7 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     await chooseColor(page, 'Default persona speech color', '#88cc99');
     await expect(settings.getByRole('alert')).toContainText('Synthetic appearance save failure.');
     await expect(page.getByRole('button', { name: 'Default persona speech color', exact: true })).toContainText('#88CC99');
-    expect((await appearance()).settings).toEqual({ ...defaultAppearance, chatTextScale: 120 });
+    expect((await appearance()).settings).toEqual({ ...baseline.settings, chatTextScale: 120 });
     await expect(slider).toHaveValue('120');
     await expect(preview).toHaveCSS('font-size', '18px');
     await page.unroute('**/api/application/appearance');
@@ -212,18 +215,16 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     await page.screenshot({ path: testInfo.outputPath('default-speech-colors.png'), fullPage: true });
   } finally {
     await observer.close();
-    const current = await appearance();
-    const restored = await page.request.put('/api/application/appearance', { headers, data: { revision: current.revision, settings: defaultAppearance } });
-    expect(restored.ok()).toBe(true);
   }
 });
 
-for (const width of [1440, 390, 320]) test(`custom HSL picker previews, validates and cancels safely at ${width}px`, async ({ page }, testInfo) => {
+for (const width of [1440, 390, 320]) test(`custom HSL picker previews, validates and cancels safely at ${width}px`, async ({ page, setAppearance }, testInfo) => {
   await page.setViewportSize({ width, height: width === 320 ? 640 : 900 });
   const session = await page.request.get('/api/session').then(response => response.json());
   await page.goto('/');
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+  await setAppearance({ theme: 'dark', characterSpeechColor: null, personaSpeechColor: null, chatTextScale: 100 });
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Personas', exact: true }).click();
   await page.getByRole('button', { name: 'New persona', exact: true }).click();

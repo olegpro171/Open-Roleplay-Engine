@@ -34,11 +34,25 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
       setPosition({ left: rect.left, width: rect.width, top: upwards ? rect.top - Math.min(maxHeight, visible.length * 42 + 12) - 5 : rect.bottom + 5, maxHeight });
     };
     place();
+    const openingScrollPositions = new Map<Element, { left: number; top: number }>();
+    for (let ancestor: HTMLElement | null = anchor.current; ancestor; ancestor = ancestor.parentElement) {
+      openingScrollPositions.set(ancestor, { left: ancestor.scrollLeft, top: ancestor.scrollTop });
+    }
+    const openingViewport = { left: window.scrollX, top: window.scrollY };
     const outside = (event: PointerEvent) => { if (!anchor.current?.contains(event.target as Node) && !popup.current?.contains(event.target as Node)) setOpen(false); };
     const blur = (event: FocusEvent) => { if (!anchor.current?.contains(event.target as Node) && !popup.current?.contains(event.target as Node)) setOpen(false); };
     const dismissOnScroll = (event: Event) => {
       // Keep long option lists scrollable, including keyboard-driven scrolling.
       if (event.target instanceof Node && popup.current?.contains(event.target)) return;
+      if (event.type === 'scroll') {
+        // Focusing/revealing the trigger can queue a scroll event delivered only
+        // after opening. Dismiss only for movement since the menu was placed.
+        if (event.target === document && window.scrollX === openingViewport.left && window.scrollY === openingViewport.top) return;
+        if (event.target instanceof Element) {
+          const opening = openingScrollPositions.get(event.target);
+          if (opening && event.target.scrollLeft === opening.left && event.target.scrollTop === opening.top) return;
+        }
+      }
       setOpen(false);
     };
     document.addEventListener('pointerdown', outside); document.addEventListener('focusin', blur);
@@ -55,7 +69,17 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
       window.removeEventListener('touchmove', dismissOnScroll, true);
     };
   }, [expanded, visible.length]);
-  useEffect(() => { if (expanded) popup.current?.querySelector('[data-active=true]')?.scrollIntoView({ block: 'nearest' }); }, [activeIndex, expanded]);
+  useEffect(() => {
+    const menu = popup.current;
+    const option = menu?.querySelector<HTMLElement>('[data-active=true]');
+    if (!expanded || !menu || !option) return;
+    // Keep scrolling local to the list and recheck after portal placement:
+    // options can wrap differently at the initial, unpositioned width.
+    const top = option.offsetTop;
+    const bottom = top + option.offsetHeight;
+    if (top < menu.scrollTop) menu.scrollTop = top;
+    else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight;
+  }, [activeIndex, expanded, position]);
   function choose(option: Option) { if (!option.disabled && !anchor.current?.querySelector(':disabled')) onChange(option.value); setOpen(false); }
   const props = {
     role: 'combobox' as const, 'aria-label': label, 'aria-expanded': expanded, 'aria-controls': expanded ? id : undefined,

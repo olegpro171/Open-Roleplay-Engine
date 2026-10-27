@@ -1,15 +1,17 @@
-import { test, expect, devices } from '@playwright/test';
+import { expect, devices } from '@playwright/test';
+import { test } from './appearance-test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
 
-test('switches response versions with arrows and a textbox, restores summarized variants and survives reload on desktop and phone', async ({ page, browser, request }) => {
+test('switches response versions with arrows and a textbox, restores summarized variants and survives reload on desktop and phone', async ({ page, browser, request, setAppearance }) => {
   test.setTimeout(60000);
   const session = await request.get('/api/session').then(response => response.json());
   await request.post('/__test/mode', { data: { mode: 'normal' } });
   await page.goto('/'); await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
+  await setAppearance({ theme: 'dark' });
   const libraries = () => page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
   const command = async (url: string, data: unknown, method = 'POST') => {
     const response = await page.request.fetch(url, { method, headers: { Origin: 'http://127.0.0.1:4173' }, data });
