@@ -278,7 +278,7 @@ In **Libraries → Characters / Personas**, **Speech color** starts at **Not set
 
 **Settings → Chat appearance → Text scale** adjusts message and chat textbox text to 90%, 100% (default), 110% or 120%, independently of interface controls. The example below the slider previews the size immediately; each change saves automatically and applies to existing messages, live replies and the chat textbox after the server confirms it.
 
-**Display character picture in chat.** starts checked in the same section. Uncheck it to automatically save and hide the round portrait in Story, Chat details and chat-tool sidebars. Check it again to restore it. Library pictures stay visible.
+**Display character picture in chat.** starts checked in the same section. Uncheck it to automatically save and hide the round portrait in Story, Chat details and chat-tool sidebars. Check it again to restore it. The chat title is centered beneath a visible portrait and left-aligned when the portrait is hidden or absent. Library pictures stay visible.
 
 **Settings → Chat appearance → Show reasoning during generation** is off by default,
 including after upgrading. Enable it to show the live Reasoning panel above the

@@ -3,7 +3,7 @@ import { appearanceStatusSchema } from '../../src/shared/appearance';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { quadrantPicture } from '../support/pictures';
 
-for (const width of [1280, 390]) test(`saves chat picture visibility without changing library pictures at ${width}px`, async ({ page, context }, testInfo) => {
+for (const width of [1280, 801, 800, 390]) test(`saves chat picture visibility without changing library pictures at ${width}px`, async ({ page, context }, testInfo) => {
   await page.setViewportSize({ width, height: 850 });
   const session = await page.request.get('/api/session').then(response => response.json());
   await page.goto('/');
@@ -15,7 +15,7 @@ for (const width of [1280, 390]) test(`saves chat picture visibility without cha
   const appearance = async () => appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
   const initial = await appearance();
   expect(initial.settings.displayCharacterPicture).toBe(true);
-  const name = `Picture visibility ${width}`;
+  const name = `Picture visibility ${width} — A long journey beneath the northern stars`;
   const base64 = (await quadrantPicture()).toString('base64');
   const characterResponse = await page.request.post('/api/library', { headers, data: {
     kind: 'characters', revision: (await library()).revision, requestId: crypto.randomUUID(),
@@ -37,6 +37,28 @@ for (const width of [1280, 390]) test(`saves chat picture visibility without cha
   if (width <= 800) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
   const portrait = page.locator('.chat-character-portrait');
   await expect(portrait).toBeVisible();
+  const title = page.locator('.chat-details h1');
+  const inspectTitle = async (pictured: boolean) => {
+    for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+      const current = await appearance();
+      const saved = await page.request.put('/api/application/appearance', { headers, data: {
+        revision: current.revision, settings: { ...current.settings, theme },
+      } });
+      expect(saved.ok()).toBe(true);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      await expect(title).toHaveCSS('text-align', pictured ? 'center' : /^(start|left)$/);
+      const heading = await title.boundingBox();
+      if (!heading) throw new Error('Missing chat title');
+      if (pictured) {
+        const picture = await portrait.boundingBox();
+        if (!picture) throw new Error('Missing chat portrait');
+        expect(heading.y).toBeGreaterThan(picture.y + picture.height);
+        expect(Math.abs(heading.x + heading.width / 2 - picture.x - picture.width / 2)).toBeLessThanOrEqual(1);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`title-${pictured ? 'pictured' : 'hidden'}-${theme}.png`) });
+    }
+  };
   if (width <= 800) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
   const before = await page.request.get(`/api/chats/${chat.id}`).then(response => response.json());
   const picturesBefore = (await library()).characterPictures;
@@ -44,6 +66,9 @@ for (const width of [1280, 390]) test(`saves chat picture visibility without cha
   await observer.goto('/');
   await expect(observer.locator('.chat-character-portrait')).toBeVisible();
   try {
+    if (width <= 800) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
+    await inspectTitle(true);
+    if (width <= 800) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Settings', exact: true }).click();
     await page.getByRole('navigation', { name: 'Settings categories' }).getByRole('button', { name: 'Chat appearance', exact: true }).click();
     const settings = page.getByRole('region', { name: 'Chat appearance', exact: true });
@@ -57,6 +82,7 @@ for (const width of [1280, 390]) test(`saves chat picture visibility without cha
     await expect(checkbox).not.toBeChecked();
     expect((await appearance()).settings.displayCharacterPicture).toBe(true);
     await expect(observer.locator('.chat-character-portrait')).toBeVisible();
+    await expect(observer.locator('.chat-details h1')).toHaveCSS('text-align', 'center');
     await page.unroute('**/api/application/appearance');
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Libraries', exact: true }).click();
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Settings', exact: true }).click();
@@ -76,6 +102,8 @@ for (const width of [1280, 390]) test(`saves chat picture visibility without cha
     await page.getByRole('button', { name: 'Inspect memory', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Return to chat', exact: true })).toBeVisible();
     await expect(portrait).toHaveCount(0);
+    if (width <= 800) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
+    await inspectTitle(false);
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Libraries', exact: true }).click();
     await page.getByRole('button', { name: 'Chats', exact: true }).click();
     const card = page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });

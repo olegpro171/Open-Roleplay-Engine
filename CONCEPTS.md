@@ -309,6 +309,8 @@ Accepted on 2026-10-21: **Application Settings → Chat appearance** includes a 
 
 Accepted on 2026-10-23: **Settings → Chat appearance** includes **Display character picture in chat.**, checked by default. Saving it unchecked hides the round character portrait in Story, Chat details and shared chat-tool sidebars. Library pictures remain visible. This uses the same server-wide persistence and backup boundaries as the other chat appearance preferences.
 
+Accepted on 2026-10-27: center the chat title beneath the visible character portrait. When the portrait is hidden or absent, keep the title left-aligned.
+
 ### Agent
 
 A task configured for a specific job, with its own instructions and selected Connection. It has read access to chat history, runs manually or automatically, and produces output available through a prompt marker.

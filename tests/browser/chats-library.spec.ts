@@ -165,12 +165,14 @@ test('opens chat cards by pointer and keyboard, keeps deletion separate and show
   await browse();
   await row(page, titles[1]).getByRole('button', { name: titles[1], exact: true }).click();
   await expect(sidebar.locator('.picture-placeholder')).toContainText('Picture unavailable');
+  await expect(sidebar.locator('h1')).toHaveCSS('text-align', 'center');
   await browse();
   await row(page, titles[2]).click({ position: { x: 6, y: 6 } });
   await expect(page.getByLabel('Your next turn')).toBeVisible();
   await expect(page.locator('.story-meta h1')).toHaveText(titles[2]);
   await expect(sidebar.locator('img')).toHaveCount(0);
   await expect(sidebar.locator('.chat-character-portrait')).toHaveCount(0);
+  await expect(sidebar.locator('h1')).toHaveCSS('text-align', /^(start|left)$/);
   await expect(sidebar.getByRole('button', { name: 'View original picture', exact: true })).toHaveCount(0);
   await browse();
   await row(page, titles[3]).getByRole('button', { name: titles[3], exact: true }).click();
