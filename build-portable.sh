@@ -42,7 +42,22 @@ ore_home=$(CDPATH='' cd -- "$destination" && pwd -P)
 mkdir -p -- "$ore_home/cache" "$ore_home/runtime" "$ore_home/app" "$ore_home/logs" "$ore_home/languages" "$ore_home/data" || fail 'Installation is not writable.'
 mkdir "$ore_home/cache/build.lock" 2>/dev/null || fail 'Another build owns cache/build.lock. If interrupted, check that it stopped before removing the lock directory.'
 stage=''
-cleanup() { [ -z "$stage" ] || rm -rf -- "$stage"; rmdir "$ore_home/cache/build.lock"; }
+cleanup() {
+  local build_status=$? attempt
+  trap - EXIT
+  # Finder or another external writer can recreate files during removal. Keep
+  # these diagnostics visible, but do not let optional cleanup prevent startup
+  # or mask the original build failure. Always attempt to release our lock.
+  if [ -n "$stage" ] && cd -- "$ore_home"; then
+    for attempt in 1 2 3; do
+      if rm -rf -- "$stage"; then break; fi
+    done
+  fi
+  if ! rmdir "$ore_home/cache/build.lock"; then
+    if [ "$build_status" -eq 0 ]; then build_status=1; fi
+  fi
+  exit "$build_status"
+}
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM

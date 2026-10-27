@@ -64,6 +64,8 @@ Use `recover.command` in separate Bash installations and `recover-app.bat` on Wi
 
 Updates stage before atomic selection. Existing servers run their original files until stopped. Keep referenced runtimes/apps/toolkits while needed; no automatic pruning occurs. Stop ORE/builds before removing caches or old versions. Deleting the installation can delete data/languages: preserve backups first. After interruption, verify no owner process remains before removing only stale lock directories; never remove locks merely because startup is slow.
 
+The Bash builder makes a bounded retry of temporary-file cleanup and reports removal errors without blocking a successfully activated app. It releases its build lock independently of temporary-file cleanup. Failure to release the lock still stops startup; a genuine build failure retains its original exit status.
+
 ## Working-tree development
 
 `./start-dev.command` rebuilds current local edits with private Node into `ore-development/` and skips main updates. It does not fetch/commit or select that build in `ore-portable/`; build failure does not launch stale code. Downloads can still be required. Its database default is the same repository data: stop normal ORE or use an explicit development database. It is a built snapshot, without live reload; use npm watch commands in the source development guide for that. Its separate installation has its own recovery entry.
