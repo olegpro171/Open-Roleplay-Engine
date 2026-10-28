@@ -11,12 +11,15 @@ try {
     if (!$Mode -or !$Destination) { throw 'Choose Release with exact Commit, Development, or Snapshot with downloaded archive/provenance, and a separate Destination.' }
     if (![Environment]::Is64BitProcess -or $env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw 'This builder targets Windows x64 only. Use 64-bit Windows PowerShell.' }
     $source = $PSScriptRoot
-    if ($Mode -eq 'Development') { $Commit = (Invoke-Native git @('-C',$source,'rev-parse','HEAD')).Trim() }
+    # Retained Git modes export after PATH is restricted to the private toolkit.
+    # Capture the executable now; Snapshot mode must remain independent of Git.
+    if ($Mode -ne 'Snapshot') { $git = (Get-Command git.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source }
+    if ($Mode -eq 'Development') { $Commit = (Invoke-Native $git @('-C',$source,'rev-parse','HEAD')).Trim() }
     if ($Mode -eq 'Release') {
         if ($Commit -cnotmatch '^[0-9a-f]{40}$') { throw 'Release requires the exact full checked-out commit.' }
-        if (Invoke-Native git @('-C',$source,'status','--porcelain','--untracked-files=all')) { throw 'Release source must be clean, including untracked files.' }
-        if ($Commit -cne (Invoke-Native git @('-C',$source,'rev-parse','HEAD')).Trim()) { throw 'Release requires the exact full checked-out commit.' }
-        Invoke-Native git @('-C',$source,'merge-base','--is-ancestor',$Commit,'main')
+        if (Invoke-Native $git @('-C',$source,'status','--porcelain','--untracked-files=all')) { throw 'Release source must be clean, including untracked files.' }
+        if ($Commit -cne (Invoke-Native $git @('-C',$source,'rev-parse','HEAD')).Trim()) { throw 'Release requires the exact full checked-out commit.' }
+        Invoke-Native $git @('-C',$source,'merge-base','--is-ancestor',$Commit,'main')
     }
     if ($Mode -eq 'Snapshot') {
         if ($Commit -cnotmatch '^[0-9a-f]{40}$' -or $env:ORE_SNAPSHOT_SOURCE -cne ('https://github.com/olegpro171/Roleplay-Engine/archive/'+$Commit+'.zip') -or $env:ORE_SNAPSHOT_SHA256 -cnotmatch '^[0-9a-f]{64}$') { throw 'Snapshot requires exact downloaded-main provenance and digest.' }
@@ -57,7 +60,7 @@ try {
         Expand-OreZip $Snapshot ('Roleplay-Engine-'+$Commit) $work -Source
     } elseif ($Mode -eq 'Release') {
         $export = Join-Path $stage 'source.zip'
-        Invoke-Native git (@('-C',$source,'archive','--format=zip',('--output='+$export),$Commit,'--')+$inputs)
+        Invoke-Native $git (@('-C',$source,'archive','--format=zip',('--output='+$export),$Commit,'--')+$inputs)
         [IO.Directory]::CreateDirectory($work) | Out-Null
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         [IO.Compression.ZipFile]::ExtractToDirectory($export,$work)

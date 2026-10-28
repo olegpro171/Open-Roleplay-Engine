@@ -131,6 +131,67 @@ if(process.argv.includes('build')){
 }
 
 describe.skipIf(process.platform !== 'win32')('standalone Windows 5.1 batch launcher',()=>{
+  it('runs the real Release builder with Git outside its sanitized PATH and retains clean-source guards',()=>{
+    const f=fixture();f.archive(a,source=>{
+      for(const directory of ['src','public'])writeFileSync(join(source,directory,'sentinel.txt'),'tracked build input');
+    });
+    const source=join(f.root,`sources-${a}`,`Roleplay-Engine-${a}`);
+    const gitPath=powershell('(Get-Command git.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source').stdout.trim();
+    const git=(...args:string[])=>{
+      const result=spawnSync(gitPath,['-C',source,...args],{encoding:'utf8'});
+      expect(result.status,result.stdout+result.stderr).toBe(0);return result.stdout.trim();
+    };
+    git('init','-q','-b','main');git('config','core.autocrlf','false');git('add','.');
+    git('-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','Synthetic release');
+    const commit=git('rev-parse','HEAD');mkdirSync(join(f.home,'cache'),{recursive:true});
+    cpSync(join(f.root,'toolkit.zip'),join(f.home,`cache/node-v${process.versions.node}-win-x64.zip`));
+    const run=(sha=commit)=>spawnSync(ps,['-NoProfile','-ExecutionPolicy','RemoteSigned','-File',join(source,'build-portable.ps1'),'-Mode','Release','-Commit',sha,'-Destination',f.home],{
+      encoding:'utf8',timeout:40000,env:{...process.env,PATH:`${join(gitPath,'..')};${process.env.SystemRoot}\\System32`},
+    });
+    const built=run();expect(built.status,built.stdout+built.stderr+'\n'+f.logs()).toBe(0);
+    const pointer=readFileSync(join(f.home,'current'),'utf8');const id=pointer.split('\n')[0];
+    expect(JSON.parse(readFileSync(join(f.home,'app',id,'build-info.json'),'utf8'))).toMatchObject({kind:'release',commit});
+    expect(existsSync(join(f.home,'cache/build.lock'))).toBe(false);
+    const wrong=run('0'.repeat(40));expect(wrong.status).not.toBe(0);expect(wrong.stderr).toContain('exact full checked-out commit');
+    writeFileSync(join(source,'src/sentinel.txt'),'dirty');const dirty=run();expect(dirty.status).not.toBe(0);expect(dirty.stderr).toContain('Release source must be clean');
+    expect(readFileSync(join(f.home,'current'),'utf8')).toBe(pointer);
+  },60000);
+  it('reads phases while a write handle is held, waits for complete events, and preserves child failures',()=>{
+    const root=mkdtempSync(join(tmpdir(),'ORE-phase-overlap-'));roots.push(root);
+    const writer=join(root,'writer.mjs'),events=join(root,'events'),ack=join(root,'ack');
+    writeFileSync(writer,`import {appendFileSync,existsSync,writeFileSync} from 'node:fs';
+import {launcherEvent} from ${JSON.stringify(new URL('file:///'+resolve('scripts/release/launcher-messages.mjs').replaceAll('\\','/')).href)};
+const wait=async path=>{const end=Date.now()+5000;while(!existsSync(path)){if(Date.now()>end)throw Error('Reader did not acknowledge event');await new Promise(r=>setTimeout(r,10));}};
+appendFileSync(process.env.ORE_WINDOWS_BUILD_EVENTS,'checking');writeFileSync(process.env.ORE_TEST_PARTIAL,'partial');await wait(process.env.ORE_TEST_RELEASE);
+appendFileSync(process.env.ORE_WINDOWS_BUILD_EVENTS,'Version\\n');await wait(process.env.ORE_TEST_ACK);
+await launcherEvent('activatingVersion');process.exit(Number(process.env.ORE_TEST_EXIT));`);
+    const script=`$ErrorActionPreference='Stop';. $env:ORE_PHASE_TOOLS
+function Show-OreMessage([string]$id){[Console]::WriteLine($id);[IO.File]::WriteAllText($env:ORE_TEST_ACK,$id)}
+# Hold a real writer open across every polling/final read. A default .NET
+# ReadAllText reader cannot coexist with this handle, even between appends.
+$held=[IO.File]::Open($env:ORE_WINDOWS_BUILD_EVENTS,[IO.FileMode]::Create,[IO.FileAccess]::Write,[IO.FileShare]::ReadWrite)
+$gate=Start-Job -ScriptBlock {param($partial,$release)while(![IO.File]::Exists($partial)){Start-Sleep -Milliseconds 20};Start-Sleep -Milliseconds 350;[IO.File]::WriteAllText($release,'continue')} -ArgumentList $env:ORE_TEST_PARTIAL,$env:ORE_TEST_RELEASE
+try{$status=Invoke-OreProcess $env:ORE_PHASE_NODE @($env:ORE_PHASE_WRITER) $env:ORE_PHASE_REPORT -PhaseFile $env:ORE_WINDOWS_BUILD_EVENTS;[Console]::WriteLine('exit='+$status);exit 0}
+finally{$held.Dispose();Stop-Job $gate;Remove-Job $gate}`;
+    for(const code of ['0','42']){
+      for(const file of [events,ack,join(root,'partial'),join(root,'release')])rmSync(file,{force:true});
+      const result=powershell(script,{ORE_PHASE_TOOLS:resolve('scripts/release/windows-standalone-common.ps1'),ORE_PHASE_NODE:process.execPath,ORE_PHASE_WRITER:writer,ORE_PHASE_REPORT:join(root,'report.txt'),ORE_WINDOWS_BUILD_EVENTS:events,ORE_TEST_ACK:ack,ORE_TEST_PARTIAL:join(root,'partial'),ORE_TEST_RELEASE:join(root,'release'),ORE_TEST_EXIT:code});
+      expect(result.status,result.stdout+result.stderr).toBe(0);
+      expect(result.stdout.trim().split(/\r?\n/u)).toEqual(['checkingVersion','activatingVersion','exit='+code]);
+    }
+    for(const [contents,reason] of [
+      ['x'.repeat(129),'Oversized build event'],
+      ['checkingVersion\nactivatingVer','Incomplete build event sequence'],
+      ['activatingVersion\n','Unexpected build phase'],
+    ]){
+      writeFileSync(writer,`import {writeFileSync} from 'node:fs';writeFileSync(process.env.ORE_WINDOWS_BUILD_EVENTS,${JSON.stringify(contents)});`);
+      writeFileSync(events,'');
+      const result=powershell(`$ErrorActionPreference='Stop';. $env:ORE_PHASE_TOOLS
+function Show-OreMessage([string]$id){[Console]::WriteLine('phase='+$id)}
+try{Invoke-OreProcess $env:ORE_PHASE_NODE @($env:ORE_PHASE_WRITER) $env:ORE_PHASE_REPORT -PhaseFile $env:ORE_WINDOWS_BUILD_EVENTS;exit 2}catch{[Console]::WriteLine($_.Exception.Message);exit 1}`,{ORE_PHASE_TOOLS:resolve('scripts/release/windows-standalone-common.ps1'),ORE_PHASE_NODE:process.execPath,ORE_PHASE_WRITER:writer,ORE_PHASE_REPORT:join(root,'report.txt'),ORE_WINDOWS_BUILD_EVENTS:events});
+      expect(result.status,result.stdout+result.stderr).toBe(1);expect(result.stdout).toContain(reason);expect(result.stdout).not.toContain('phase=activatingVersion');
+    }
+  },45000);
   it('preserves the native spawn failure when no child was created',()=>{
     const root=mkdtempSync(join(tmpdir(),'ORE-process-failure-'));roots.push(root);
     const result=powershell(`$ErrorActionPreference='Stop';. $env:ORE_PROCESS_TOOLS

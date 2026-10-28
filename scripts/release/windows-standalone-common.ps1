@@ -172,6 +172,33 @@ function ConvertTo-OreArgument([string]$Value) {
     # CommandLineToArgvW quoting; paths are never evaluated as shell source.
     return '"'+[regex]::Replace([regex]::Replace($Value,'(\\*)"','$1$1\"'),'(\\+)$','$1$1')+'"'
 }
+function Read-OreBuildEvents([string]$Path) {
+    # Readers must permit the stage writer to open/append while polling. Bound
+    # the bytes actually read, including an append racing the initial read.
+    $stream = [IO.File]::Open($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
+    try {
+        $buffer = New-Object byte[] 129
+        $length = 0
+        while ($length -lt $buffer.Length) {
+            $count = $stream.Read($buffer,$length,$buffer.Length-$length)
+            if ($count -eq 0) { break }
+            $length += $count
+        }
+        if ($length -gt 128) { throw 'Oversized build event.' }
+        return [Text.Encoding]::UTF8.GetString($buffer,0,$length)
+    } finally { $stream.Dispose() }
+}
+function Get-OreCompletedBuildEvents([string]$Text) {
+    # An append may be observed mid-line. Only complete frames can advance the
+    # presenter, and polling/final reads enforce the same ordered protocol.
+    $complete = $Text.Substring(0,$Text.LastIndexOf("`n")+1)
+    $events = @($complete.Split("`n") | Where-Object { $_ })
+    $expected = @('checkingVersion','activatingVersion')
+    for ($index = 0; $index -lt $events.Count; $index++) {
+        if ($index -ge $expected.Count -or $events[$index] -cne $expected[$index]) { throw 'Unexpected build phase.' }
+    }
+    return $events
+}
 function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$Report, [switch]$Console, [string]$PhaseFile) {
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $Executable
@@ -198,14 +225,10 @@ function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$R
         do {
             if (Test-OreCancellation) { throw (New-Object OperationCanceledException 'Launcher cancelled.') }
             if ($PhaseFile -and [IO.File]::Exists($PhaseFile)) {
-                if ((New-Object IO.FileInfo $PhaseFile).Length -gt 128) { throw 'Oversized build event.' }
-                $eventText = [IO.File]::ReadAllText($PhaseFile,[Text.Encoding]::UTF8)
-                if ($eventText.Length -gt 128) { throw 'Oversized build event.' }
-                $events = @($eventText.Split("`n") | Where-Object { $_ })
+                $eventText = Read-OreBuildEvents $PhaseFile
+                $events = @(Get-OreCompletedBuildEvents $eventText)
                 while ($phase -lt $events.Count) {
-                    $expected = @('checkingVersion','activatingVersion')[$phase]
-                    if (!$expected -or $events[$phase] -cne $expected) { throw 'Unexpected build phase.' }
-                    Show-OreMessage $expected
+                    Show-OreMessage $events[$phase]
                     $phase++
                 }
             }
@@ -214,10 +237,10 @@ function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$R
         foreach ($task in $tasks) { $task.GetAwaiter().GetResult() | Out-Null }
         # Read final phases after the process and its output have drained.
         if ($PhaseFile) {
-            if ((New-Object IO.FileInfo $PhaseFile).Length -gt 128) { throw 'Oversized build event.' }
-            $finalEvents = [IO.File]::ReadAllText($PhaseFile,[Text.Encoding]::UTF8)
-            foreach ($id in @('checkingVersion','activatingVersion') | Select-Object -Skip $phase) {
-                if ($finalEvents.Contains($id+"`n")) { Show-OreMessage $id; $phase++ }
+            $finalEvents = Read-OreBuildEvents $PhaseFile
+            foreach ($id in @(Get-OreCompletedBuildEvents $finalEvents) | Select-Object -Skip $phase) {
+                Show-OreMessage $id
+                $phase++
             }
             if ($process.ExitCode -eq 0 -and $finalEvents -cne "checkingVersion`nactivatingVersion`n") { throw 'Incomplete build event sequence.' }
             if ($process.ExitCode -ne 0 -and $finalEvents.Contains('activatingVersion')) { $script:OreFailure = 'activationFailed' }
