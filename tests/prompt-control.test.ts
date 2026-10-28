@@ -12,6 +12,7 @@ const turns: Turn[] = Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, positi
   assistant: { id: `a${i}`, revision: 0, text: `Assistant ${i}: ` + 'The cellar is locked. '.repeat(9) } }));
 const summary = { id: 'saved', revision: 0, level: 1, text: 'SAVED MEMORY', turns: turns.slice(0, 4).map(sourceOf), children: [], prior: [], manual: false, approved: true, createdAt: '' };
 const context: ContextState = { revision: 1, selected: [summary], archivedTurnIds: turns.slice(0, 4).map(turn => turn.id), summaries: [summary] };
+const fixed: PromptBlock = { id: 'fixed', name: 'Fixed', enabled: true, kind: 'text', role: 'system', text: 'Continue the story.' };
 const messages = defaultPrompt.blocks.find(block => block.id === 'messages')!;
 const sources = (blocks: PromptBlock[]): PromptSources => ({ prompt: { name: 'Custom', id: 'custom', revision: 0, blocks }, character: null, persona: null });
 const request = (blocks: PromptBlock[], targetInputTokens = 5_000, history = turns, state = context) => assembleRequest(connection, { ...settings, targetInputTokens }, history, sources(blocks), state);
@@ -36,7 +37,6 @@ describe('explicit prompt control', () => {
   });
 
   it('starts with explicit base sources and permits empty/missing-marker presets', () => {
-    expect(defaultPrompt.blocks.map(block => block.id)).toEqual(['instructions', 'character', 'persona', 'summary', 'messages', 'post-history']);
     expect(promptSchema.parse({ name: 'Empty', blocks: [] }).blocks).toEqual([]);
     expect(promptWarnings({ name: 'Empty', blocks: [] })).toHaveLength(4);
     expect(() => request([])).toThrow('resolved prompt is empty');
@@ -81,7 +81,7 @@ describe('explicit prompt control', () => {
 
   it('does not skip an oversized recent turn to include older ones or split an exchange', () => {
     const history = [...turns.slice(0, 2), { ...turns[2], user: { ...turns[2].user, text: 'oversized '.repeat(500) } }];
-    const resolved = request([defaultPrompt.blocks[0], messages], 200, history);
+    const resolved = request([fixed, messages], 200, history);
     expect(resolved.history?.verbatimTurnIds).toEqual([]);
     expect(resolved.body.messages).toHaveLength(1);
   });
@@ -95,7 +95,7 @@ describe('explicit prompt control', () => {
     const onlyMemory = request([marker]);
     expect(onlyMemory.body.messages).toHaveLength(1);
     expect(onlyMemory.history?.verbatimTurnIds).toEqual([]);
-    const onlyText = request([defaultPrompt.blocks[0]]);
+    const onlyText = request([fixed]);
     expect(onlyText.body.messages).toHaveLength(1);
     expect(onlyText.body.messages[0].content).not.toContain('keeper');
   });

@@ -1,7 +1,7 @@
 import { message, promptLabel } from '../shared/localization.js';
 import type { ChatSettings, Connection, Message, PromptEntry, RequestPreview, Turn } from '../shared/contracts.js';
 import { AppError } from './errors.js';
-import { defaultPrompt, hasPromptMarker, promptSchema, promptWarningMessages, type PromptSources } from '../shared/library.js';
+import { hasPromptMarker, promptSchema, promptWarningMessages, type PromptSources } from '../shared/library.js';
 import type { ContextState, SummaryNode } from '../shared/context.js';
 import { assertCorrectionSelection } from './context-corrections.js';
 import { selectedContext, sourceOf } from './context.js';
@@ -13,6 +13,7 @@ import { readCharacterDepthPrompt } from '../shared/card-instructions.js';
 import { resolveCardInstruction } from './card-instructions.js';
 import { injectHistory } from './history-injections.js';
 import { modelText } from './model-text.js';
+import { inlineSettingsPrompt } from './inline-prompt.js';
 import { fitsInputTarget, type InputOvershoot } from './input-target.js';
 export { replaceNameMacros } from './names.js';
 
@@ -26,11 +27,8 @@ export function summaryText(node: SummaryNode, turns: Turn[]): string {
 }
 
 export function assembleRequest(connection: Connection, settings: ChatSettings, turns: Turn[], sources?: PromptSources, context?: ContextState, options: { validateLimits?: boolean; allowStale?: boolean; lore?: LoreResolution | null; overshoot?: InputOvershoot } = {}): RequestPreview {
-  // The default template also supports the legacy inline-settings API. An
-  // explicitly supplied preset, including an empty one, is always authoritative.
-  const preset = sources?.prompt ? promptSchema.parse({ name: sources.prompt.name, blocks: sources.prompt.blocks }) : {
-    ...defaultPrompt, blocks: defaultPrompt.blocks.map(block => block.kind === 'marker' && block.marker === 'card_system_prompt' ? { ...block, fallback: settings.instructions } : block),
-  };
+  // Saved presets are authoritative; legacy inline settings retain their own layout.
+  const preset = sources?.prompt ? promptSchema.parse({ name: sources.prompt.name, blocks: sources.prompt.blocks }) : inlineSettingsPrompt(settings.instructions);
   const summariesEnabled = hasPromptMarker(preset, 'summary');
   if (summariesEnabled && context && !options.allowStale) assertCorrectionSelection(turns, context);
   const resolved = summariesEnabled && context ? selectedContext(turns, context, options.allowStale) : { summaries: [], verbatim: turns };

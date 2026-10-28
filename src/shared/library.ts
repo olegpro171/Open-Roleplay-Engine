@@ -2,6 +2,7 @@ import { message, type LocalizedMessage } from './localization.js';
 import { pictureMutationSchema, type CharacterPicture } from './pictures.js';
 import { tagIdsSchema, type Tag, type CharacterTag } from './tags.js';
 import { z } from 'zod';
+import { factoryPrompt } from './default-prompt.js';
 import { connectionSchema, revisionSchema, type Connection } from './contracts.js';
 import { contextPresetSchema, type ContextPreset } from './context.js';
 import { lorebookSchema, type Lorebook } from './lorebook.js';
@@ -91,16 +92,8 @@ export type LibrarySnapshot = {
   lorebookUses: { bookId: string; characters: { id: string; name: string; titleComment?: string }[]; chats: { id: string; title: string }[] }[];
 };
 export const defaultInstructions = 'Write the next response in this roleplay. Stay consistent with the established story.';
-export const defaultPrompt: PromptPreset = {
-  name: 'Default prompt', blocks: [
-    { id: 'instructions', name: 'Card system prompt', enabled: true, kind: 'marker', role: 'system', marker: 'card_system_prompt', fallback: defaultInstructions },
-    { id: 'character', name: 'Character', enabled: true, kind: 'marker', role: 'system', marker: 'character', fields: [...characterFields] },
-    { id: 'persona', name: 'Persona', enabled: true, kind: 'marker', role: 'system', marker: 'persona' },
-    { id: 'summary', name: 'Summary', enabled: true, kind: 'marker', role: 'system', marker: 'summary' },
-    { id: 'messages', name: 'Messages', enabled: true, kind: 'marker', role: 'system', marker: 'messages', allowDepthPrompt: true },
-    { id: 'post-history', name: 'Card post-history instructions', enabled: true, kind: 'marker', role: 'system', marker: 'card_post_history_instructions', fallback: '' },
-  ],
-};
+export const defaultPrompt: PromptPreset = factoryPrompt;
+
 export function hasPromptMarker(prompt: PromptPreset | null | undefined, marker: typeof markers[number]): boolean {
   return (prompt ?? defaultPrompt).blocks.some(block => block.enabled && block.kind === 'marker' && block.marker === marker);
 }

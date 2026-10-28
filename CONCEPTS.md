@@ -35,7 +35,7 @@ Character expands checked, nonempty Name, Description, Personality, Scenario and
 
 Resolve case-insensitive `{{user}}` and `{{char}}` once in prompt/card/persona text, with You / Character fallback names. Insert names literally, without recursive interpretation. Stored conversation text remains literal. `{{original}}` is scoped to the two card-instruction fields and inserts only the respective marker fallback. Other macros remain literal.
 
-The factory/new/Restore original template is Card system prompt (fallback instructions) → Character → Persona → Summary → Messages (card depth injection permitted) → Card post-history instructions (empty fallback). Existing presets/imports retain their prior blocks and permissions; omitted depth permission means off. New presets are independent copies. Card fields, lore and chat Author's notes follow [compatibility and prompt rules](docs/COMPATIBILITY.md).
+The factory/new/Restore original template ships the supplied GLM Dark Edition Refined preset as **Default prompt**, preserving its ordered blocks and model-bound text. It includes Card system prompt → Instructions → NSFW Policy → Banned Concepts → Character → Persona → Summary → Messages (card depth injection permitted) → Card post-history instructions → NPC Continuity and Behavior → Response Structure. Both card markers have empty fallbacks. Existing saved presets/imports retain their blocks and permissions; omitted depth permission means off. New presets are independent copies. Card fields, lore and chat Author's notes follow [compatibility and prompt rules](docs/COMPATIBILITY.md).
 
 ### Managed and recent-history modes
 

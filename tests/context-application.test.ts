@@ -1,3 +1,4 @@
+import { compactPrompt } from './support/compact-prompt.js';
 import { validateContent } from '../src/persistence/backup-validation.js';
 import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
 import legacyContextPrompts from './fixtures/legacy-context-prompts.json';
@@ -28,6 +29,7 @@ function fixture(count = 48, target = 500, builtInContext = false) {
   const directory = mkdtempSync(join(tmpdir(), 'roleplay-context-'));
   const filename = join(directory, 'chat.sqlite');
   let store = new Store(filename);
+  store.saveLibrary(store.libraryRevision(), 'prompts', compactPrompt, 'default');
   const calls: { request: RequestPreview; apiKey: string }[] = [];
   type OutputMode = 'normal' | 'unchanged' | 'near' | 'placeholder' | 'refusal' | 'length' | 'huge' | 'transport';
   let mode: OutputMode = 'normal';
@@ -597,7 +599,7 @@ describe('durable imported-session preparation', () => {
     const f = fixture();
     await f.idle(f.start());
     const saved = structuredClone(f.state().context);
-    const { defaultPrompt } = await import('../src/shared/library.js');
+    const defaultPrompt = compactPrompt;
     const { assembleRequest } = await import('../src/core/prompt.js');
     const blocks = mode === 'absent' ? defaultPrompt.blocks.filter(block => block.id !== 'summary') : defaultPrompt.blocks.map(block => ({ ...block, enabled: block.id !== 'summary' }));
     f.store.saveLibrary(f.store.libraries().revision, 'prompts', { ...defaultPrompt, blocks }, 'default');
@@ -628,7 +630,7 @@ describe('durable imported-session preparation', () => {
 
   it('allows continuation with unused stale memory while summaries are disabled, and requires repair when enabled', async () => {
     const f = fixture(); await f.idle(f.start());
-    const { defaultPrompt } = await import('../src/shared/library.js');
+    const defaultPrompt = compactPrompt;
     f.store.editPart(f.state().revision, f.state().turns[0].id, 'user', 'The key was never given away.', f.chatId);
     expect(contextPlan(f.state()).stale.length).toBeGreaterThan(0);
     f.store.saveLibrary(f.store.libraries().revision, 'prompts', { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.id !== 'summary') }, 'default');

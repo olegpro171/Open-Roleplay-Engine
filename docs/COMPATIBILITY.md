@@ -22,7 +22,7 @@ A nonblank card field replaces that marker's fallback. An absent/blank field, in
 
 Case-insensitive `{{original}}` in either card field inserts that marker's fallback. `{{user}}` and `{{char}}` resolve once in both sources. The substitution is nonrecursive: fallback text and inserted names cannot execute additional macros; `{{original}}` elsewhere remains literal. Other macros remain literal. No general template engine is enabled.
 
-The factory/new-prompt layout is Card system prompt → Character → Persona → Summary → Messages → Card post-history instructions. The system marker's fallback is the former Instructions text; the closing fallback is empty. Messages permits character depth injection in new templates. Restore original explicitly installs this layout. Existing saved presets and older prompt imports keep their blocks and injection permissions; missing permission means off. New chats selecting an existing saved preset inherit that preset's behavior.
+The factory/new-prompt layout and bundled text are defined in [Prompt authority](../CONCEPTS.md#prompt-authority). Both card marker fallbacks are empty; the separate Instructions block remains active when a card supplies its own system prompt. Messages permits character depth injection. Restore original explicitly installs the current factory preset. Existing saved presets and older prompt imports keep their blocks and injection permissions; missing permission means off. New chats selecting an existing saved preset inherit that preset's behavior. Legacy inline-settings requests without a selected preset retain their earlier layout and explicit inline instructions; they do not inherit bundled factory prose.
 
 ### Character depth note
 

@@ -35,14 +35,14 @@ test('selects Character fields, inspects a flat prompt with remembered lore disc
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Selectable fields proof');
-  await page.getByRole('button', { name: 'Expand block 2', exact: true }).click();
+  await page.getByRole('button', { name: 'Expand block 5', exact: true }).click();
   const fields = page.getByRole('group', { name: 'Included character fields', exact: true });
   await expect(fields.getByRole('checkbox')).toHaveCount(5);
   for (const label of ['Name', 'Personality', 'Example dialogue']) await fields.getByRole('checkbox', { name: label, exact: true }).uncheck();
-  await choose(page, 'Role for block 2', 'user');
-  await choose(page, 'Marker source for block 2', 'Character — selected card fields');
+  await choose(page, 'Role for block 5', 'user');
+  await choose(page, 'Marker source for block 5', 'Character — selected card fields');
   await expect(fields.getByRole('checkbox', { name: 'Personality', exact: true })).not.toBeChecked();
-  await page.getByRole('combobox', { name: 'Marker source for block 2', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Marker source for block 5', exact: true }).click();
   await expect(page.getByRole('option', { name: /Lore/ })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await page.screenshot({ path: 'test-results/character-fields-desktop.png', fullPage: true });
@@ -55,7 +55,7 @@ test('selects Character fields, inspects a flat prompt with remembered lore disc
   if (!saved) throw new Error('Missing saved prompt.');
   const row = page.getByRole('article').filter({ has: page.getByRole('heading', { name: saved.name, exact: true }) });
   await row.getByRole('heading').getByRole('button').click();
-  await page.getByRole('button', { name: 'Expand block 2', exact: true }).click();
+  await page.getByRole('button', { name: 'Expand block 5', exact: true }).click();
   await expect(fields.getByRole('checkbox', { name: 'Name', exact: true })).not.toBeChecked();
   await expect(fields.getByRole('checkbox', { name: 'Description', exact: true })).toBeChecked();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -74,15 +74,16 @@ test('selects Character fields, inspects a flat prompt with remembered lore disc
   await expect(messages).toBeVisible();
   await expect(messages.getByRole('region', { name: 'Character messages', exact: true })).toHaveCount(0);
   expect(await messages.locator(':scope > .prompt-message > summary').allTextContents()).toEqual([
-    expect.stringContaining('Card system prompt'), expect.stringContaining('Description'),
+    expect.stringContaining('Instructions'), expect.stringContaining('NSFW Policy'), expect.stringContaining('Banned Concepts'), expect.stringContaining('Description'),
     expect.stringContaining('Lore · Tower secret'), expect.stringContaining('Scenario'),
     expect.stringContaining('Persona'), expect.stringContaining('Unsent input'), expect.stringContaining('Lore · History lore'),
+    expect.stringContaining('NPC Continuity and Behavior'), expect.stringContaining('Response Structure'),
   ]);
   const colors = await messages.locator(':scope > .prompt-message').evaluateAll(elements => elements.map(element => getComputedStyle(element).borderLeftColor));
-  expect(colors[2]).toBe(colors[6]);
-  expect(new Set([colors[0], colors[1], colors[2], colors[4], colors[5]]).size).toBe(5);
+  expect(colors[4]).toBe(colors[8]);
+  expect(new Set([colors[0], colors[3], colors[4], colors[6], colors[7]]).size).toBe(5);
   const loreLegendColor = await peek.locator('.allocation-legend .allocation.lore').evaluate(element => getComputedStyle(element).backgroundColor);
-  expect(colors[2]).toBe(loreLegendColor);
+  expect(colors[4]).toBe(loreLegendColor);
   const lore = peek.locator('.peek-lore');
   await expect(lore).not.toHaveAttribute('open');
   await expect(lore.getByRole('region', { name: 'Resolved lore' })).not.toBeVisible();
@@ -123,10 +124,13 @@ test('selects Character fields, inspects a flat prompt with remembered lore disc
   await page.screenshot({ path: 'test-results/character-peek-phone.png', fullPage: true });
   await page.getByRole('button', { name: 'Close peek', exact: true }).click();
   const preview: RequestPreview = await command(`/api/chats/${chat.id}/preview`, { revision: (await state()).revision, text: 'I enter the tower.' });
-  expect(preview.body.messages.slice(1)).toEqual([
+  const factoryText = saved.blocks.flatMap(block => block.kind === 'text' ? [{ role: block.role, content: block.text.replaceAll('{{char}}', 'Mira').replaceAll('{{user}}', 'Leon') }] : []);
+  expect(preview.body.messages).toEqual([
+    ...factoryText.slice(0, 3),
     { role: 'user', content: 'Mira keeps the key.' }, { role: 'system', content: 'The key opens the northern vault.' },
     { role: 'user', content: 'A quiet tower.' }, { role: 'system', content: 'A visiting scholar.' },
     { role: 'user', content: 'I enter the tower.' }, { role: 'system', content: 'The moon is rising.' },
+    ...factoryText.slice(3),
   ]);
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect.poll(async () => (await state()).generations[0]?.status).toBe('succeeded');

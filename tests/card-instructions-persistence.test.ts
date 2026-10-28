@@ -153,7 +153,8 @@ describe('server diagnostics and generation integration', () => {
     const pending = store.generationSnapshot(operation.id);
     const assembled = assembleRequest(connection, pending.settings, pending.turns, pending.sources, pending.context);
     expect(assembled.body).toEqual(preview.json<RequestPreview>().body);
-    expect(assembled.body.messages.at(-1)).toEqual({ role: 'assistant', content: 'Valid note' });
+    expect(assembled.body.messages).toContainEqual({ role: 'assistant', content: 'Valid note' });
+    expect(assembled.body.messages.findIndex(message => message.content === 'Valid note')).toBe(assembled.body.messages.length - 3);
     store.finish(operation.id, 'cancelled', '', 'Synthetic cancellation');
     expect(store.libraries().prompts.find(prompt => prompt.id === 'default')?.blocks).toEqual(defaultPrompt.blocks);
   });

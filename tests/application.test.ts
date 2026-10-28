@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createApp } from '../src/server/app.js';
 import type { ChatSnapshot, RequestPreview } from '../src/shared/contracts.js';
-import { defaultPrompt } from '../src/shared/library.js';
+import { compactPrompt } from './support/compact-prompt.js';
 import { defaultChatBehavior } from '../src/shared/chat-behavior.js';
 import { startMockProvider, syntheticReasoningStart, syntheticReasoningTail } from './support/mock-provider.js';
 
@@ -152,7 +152,7 @@ describe('persistent chat and generation', () => {
   });
 
   it('previews and sends the same bounded recent history without creating summary jobs', async () => {
-    instance.store.saveLibrary(instance.store.libraries().revision, 'prompts', { ...defaultPrompt, blocks: defaultPrompt.blocks.filter(block => block.id !== 'summary') }, 'default');
+    instance.store.saveLibrary(instance.store.libraries().revision, 'prompts', { ...compactPrompt, blocks: compactPrompt.blocks.filter(block => block.id !== 'summary') }, 'default');
     instance.store.replaceHistory((await state()).revision, 'main', Array.from({ length: 12 }, (_, i) => ({ user: `Input ${i}. ` + 'A brass key. '.repeat(20), assistant: `Response ${i}. ` + 'The cellar is locked. '.repeat(20), complete: true })));
     const preset = instance.store.libraries().contexts[0];
     instance.store.updateChat((await state()).revision, 'main', { title: 'Recent mode', targetInputTokens: 300, connectionId: 'main', promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id });
