@@ -21,7 +21,7 @@ import { assertRefusalSelection } from '../core/summary-refusals.js';
 import { hasPromptMarker } from '../shared/library.js';
 import { readCharacterAlternateGreetings, characterLabel, characterSchema, libraryCharacterSchema, libraryPersonaSchema, personaSchema, defaultPrompt, defaultInstructions, selectionsSchema, type Character, type LibraryCharacter, type LibraryPersona, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary, type PromptSources } from '../shared/library.js';
 import { lorebookSchema, loreDiagnosticSchema, type Lorebook, type LoreImportPreview, type LoreResolution, type LoreState } from '../shared/lorebook.js';
-import { importLorebook, loreCompatibility, markLoreEdits } from '../core/lorebook-formats.js';
+import { importCharacterLorebook, importLorebook, loreCompatibility, markLoreEdits } from '../core/lorebook-formats.js';
 import { importCharacter } from '../core/cards.js';
 import { semanticFingerprint, unchangedLoreEntries } from '../core/lorebook.js';
 import * as schema from './schema.js';
@@ -628,7 +628,7 @@ export class Store {
     const card = parseImport(() => importCharacter(value));
     const raw = z.record(z.string(), z.unknown()).parse(value);
     const data = raw.spec === 'chara_card_v2' || raw.spec === 'chara_card_v3' ? z.record(z.string(), z.unknown()).parse(raw.data) : raw;
-    const book = data.character_book == null ? null : parseImport(() => importLorebook(data.character_book, randomUUID, raw.spec === 'chara_card_v3' ? 'v3' : 'v2'));
+    const book = data.character_book == null ? null : parseImport(() => importCharacterLorebook(data.character_book, card.name, randomUUID, raw.spec === 'chara_card_v3' ? 'v3' : 'v2'));
     return { card, book, tags: readEmbeddedTags(raw) };
   }
   previewCard(value: unknown): CharacterImportReview {
@@ -697,7 +697,7 @@ export class Store {
       }
       const raw = card.source ?? {}, data = raw.spec === 'chara_card_v2' || raw.spec === 'chara_card_v3' ? z.record(z.string(), z.unknown()).parse(raw.data) : raw;
       if (data.character_book == null) throw new AppError(422, 'no_embedded_book', message("errors.this_character_has_no_preserved_embedded_lorebook"));
-      const preview = parseImport(() => importLorebook(data.character_book, randomUUID, raw.spec === 'chara_card_v3' ? 'v3' : 'v2'));
+      const preview = parseImport(() => importCharacterLorebook(data.character_book, card.name, randomUUID, raw.spec === 'chara_card_v3' ? 'v3' : 'v2'));
       const bookId = this.saveLibrary(this.libraryRevision(), 'lorebooks', preview.book);
       const { id: _id, revision: _revision, ...editable } = card;
       this.saveLibrary(this.libraryRevision(), 'characters', { ...editable, lorebookId: bookId }, characterId);

@@ -211,6 +211,13 @@ export function importLorebook(value: unknown, createId: () => string, embeddedF
   return { format, book, diagnostics: loreCompatibility(book) };
 }
 
+export function importCharacterLorebook(value: unknown, characterName: string, createId: () => string, format: 'v2' | 'v3'): LoreImportPreview {
+  const preview = importLorebook(value, createId, format);
+  // Reserve the suffix within the book-name limit; keep original metadata intact.
+  const name = message('defaults.character_lorebook', { name: characterName.slice(0, 89) }).fallback;
+  return { ...preview, book: { ...preview.book, name } };
+}
+
 const bookKnownFields = new Set([...Object.keys(bookFields), 'entries']);
 const standardKnownFields = new Set(Object.keys(entryFields));
 const worldSupportedFields = new Set(['content', 'key', 'keysecondary', 'uid', 'id', 'name', 'comment', 'constant', 'selective', 'selectiveLogic', 'disable', 'order', 'priority', 'position', 'caseSensitive', 'scanDepth', 'depth', 'role', 'use_regex', 'useRegex', 'extensions']);

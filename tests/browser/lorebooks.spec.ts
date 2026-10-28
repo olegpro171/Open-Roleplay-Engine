@@ -161,12 +161,13 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   await page.getByRole('button', { name: 'Characters', exact: true }).click();
   const character = { spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'Imported harbor keeper', description: 'The keeper waits.', personality: '', scenario: '', first_mes: '', mes_example: '', character_book: { name: 'Embedded harbor book', entries: [{ keys: ['bell'], content: 'The bell is bronze.', enabled: true, insertion_order: 0, extensions: {} }], extensions: {} } } };
   await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'keeper.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(character)) });
+  await expect(page.locator('.character-import-review')).toContainText("Imported harbor keeper's lorebook");
   await page.getByRole('button', { name: 'Import', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Embedded harbor book' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: "Imported harbor keeper's lorebook" })).toBeVisible();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported harbor keeper', exact: true }) }).getByRole('heading').getByRole('button').click();
-  await expect(page.getByRole('combobox', { name: 'Default lorebook', exact: true })).toContainText('Embedded harbor book');
+  await expect(page.getByRole('combobox', { name: 'Default lorebook', exact: true })).toContainText("Imported harbor keeper's lorebook");
   await page.getByRole('button', { name: 'Open book', exact: true }).click();
-  await expect(page.getByLabel('Book name', { exact: true })).toHaveValue('Embedded harbor book');
+  await expect(page.getByLabel('Book name', { exact: true })).toHaveValue("Imported harbor keeper's lorebook");
   await expect(page.getByLabel('Lore content', { exact: true })).toHaveValue('The bell is bronze.');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   const legacySource = { ...character, data: { ...character.data, name: 'Legacy harbor keeper' } };
@@ -176,7 +177,7 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Legacy harbor keeper', exact: true }) }).getByRole('heading').getByRole('button').click();
   await page.getByRole('button', { name: 'Extract embedded lorebook', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Embedded lorebook extracted' })).toBeVisible();
-  await expect(page.getByLabel('Book name', { exact: true })).toHaveValue('Embedded harbor book');
+  await expect(page.getByLabel('Book name', { exact: true })).toHaveValue("Legacy harbor keeper's lorebook");
   const afterExtraction = await library(page);
   expect(afterExtraction.lorebooks.length).toBe(beforeExtraction + 1);
   const linked = afterExtraction.characters.find(item => item.id === legacy.id);

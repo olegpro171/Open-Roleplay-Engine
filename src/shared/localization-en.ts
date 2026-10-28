@@ -1,5 +1,6 @@
 // Stable presentation keys. Editable model prompts and user content do not belong here.
 export const englishMessages = {
+  "defaults.character_lorebook": "{{name}}'s lorebook",
   "author_note.title": "Author’s note",
   "author_note.text": "Note text",
   "author_note.depth": "Depth",

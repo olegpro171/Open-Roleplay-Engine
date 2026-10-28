@@ -7,6 +7,7 @@ type PluralBase = { [K in EnglishKey]: K extends `${infer Base}_one`
 type RussianKey = EnglishKey | `${PluralBase}_${'few' | 'many'}`;
 
 export const russianMessages = {
+  "defaults.character_lorebook": "Лорбук {{name}}",
   "author_note.title": "Заметка автора",
   "author_note.text": "Текст заметки",
   "author_note.depth": "Глубина",

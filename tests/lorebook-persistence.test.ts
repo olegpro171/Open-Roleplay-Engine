@@ -127,8 +127,10 @@ describe('durable lorebook imports', () => {
     const card = character(store, required(result.ids[0]));
     const imported = book(store, required(result.books[0]).id);
     expect(card.lorebookId).toBe(imported.id);
+    expect(imported.name).toBe("Synthetic keeper's lorebook");
     expect(result.books).toEqual([{ id: imported.id, name: imported.name, entries: imported.entries.length }]);
-    expect(exportCharacter(withoutIdentity(card), withoutIdentity(imported))).toMatchObject({ data: { character_book: source.data.character_book } });
+    expect(imported.source?.raw).toEqual(source.data.character_book);
+    expect(exportCharacter(withoutIdentity(card), withoutIdentity(imported))).toMatchObject({ data: { character_book: { ...source.data.character_book, name: "Synthetic keeper's lorebook" } } });
     const savedIds = new Set(imported.entries.map(entry => entry.id));
     expect(result.diagnostics.every(diagnostic => !diagnostic.entryId || savedIds.has(diagnostic.entryId))).toBe(true);
     const before = store.libraries();
@@ -138,6 +140,32 @@ describe('durable lorebook imports', () => {
     const duplicate = store.importCard(before.revision, randomUUID(), source);
     expect(duplicate.ids[0]).not.toBe(card.id);
     expect(duplicate.books[0]?.id).not.toBe(imported.id);
+  });
+
+  it.each(['legacy', 'chara_card_v2', 'chara_card_v3'])('uses the character name in preview and storage for named and unnamed %s books', spec => {
+    const store = open();
+    for (const embedded of [{ name: 'Foreign title', entries: [], extensions: {} }, { entries: [], extensions: {} }]) {
+      const fields = { ...cardFields, name: 'Ирис {{user}}', character_book: embedded };
+      const source = spec === 'legacy' ? fields : { spec, data: fields };
+      const before = store.libraries();
+      expect(store.previewCard(source).book).toEqual({ name: "Ирис {{user}}'s lorebook", entries: 0 });
+      expect(store.libraries()).toEqual(before);
+      const result = store.importCard(before.revision, randomUUID(), source);
+      expect(required(result.books[0]).name).toBe("Ирис {{user}}'s lorebook");
+      const imported = book(store, required(result.books[0]).id);
+      expect(imported.name).toBe("Ирис {{user}}'s lorebook");
+      expect(imported.source?.raw).toEqual(embedded);
+    }
+  });
+
+  it('keeps the lorebook suffix within the name limit for a maximum-length character name', () => {
+    const store = open();
+    const source = { ...cardFields, name: 'A'.repeat(100), character_book: fixtures.v2 };
+    const expectedName = 'A'.repeat(89) + "'s lorebook";
+    expect(store.previewCard(source).book?.name).toBe(expectedName);
+    const result = store.importCard(store.libraryRevision(), randomUUID(), source);
+    expect(book(store, required(result.books[0]).id).name).toBe(expectedName);
+    expect(character(store, required(result.ids[0])).name).toBe(source.name);
   });
 
   it('distinguishes absent and explicitly empty embedded books without creating placeholders', () => {
@@ -309,7 +337,7 @@ describe('lorebook selection and ownership', () => {
     expect(store.snapshot(chatId).sources.lorebook?.id).toBe(override.id);
     const card = character(store, cardId);
     expect(card.lorebookId).toBe(defaultId);
-    expect(exportCharacter(withoutIdentity(card), withoutIdentity(book(store, defaultId)))).toMatchObject({ data: { character_book: fixtures.v2 } });
+    expect(exportCharacter(withoutIdentity(card), withoutIdentity(book(store, defaultId)))).toMatchObject({ data: { character_book: { ...fixtures.v2, name: "Synthetic keeper's lorebook" } } });
     expect(store.libraries().lorebookUses.find(use => use.bookId === defaultId)?.characters).toEqual([{ id: card.id, name: card.name }]);
     expect(store.libraries().lorebookUses.find(use => use.bookId === override.id)?.chats).toEqual([{ id: chatId, title: 'Synthetic chat' }]);
   });
@@ -359,6 +387,7 @@ describe('explicit legacy embedded extraction', () => {
     expect(store.snapshot(chatId).settings.lorebookId).toBeNull();
     const revision = store.libraries().revision, requestId = randomUUID();
     const result = store.extractBook(revision, requestId, cardId);
+    expect(book(store, result.bookId).name).toBe("Synthetic keeper's lorebook");
     expect(character(store, cardId).lorebookId).toBe(result.bookId);
     expect(store.snapshot(chatId).settings.lorebookId).toBeNull();
     expect(store.extractBook(revision, requestId, cardId)).toEqual(result);
