@@ -9,6 +9,17 @@ export function parseSelection(text) {
 }
 export const selectionText = value => `${value.id}\n${value.runtime}\n`;
 export const runtimeExecutable = (home, runtime) => join(home, 'runtime', runtime, runtime.includes('-win32-') ? 'node.exe' : 'bin/node');
+export function publishRename(source, destination) {
+  for (let attempt = 0; ; attempt++) {
+    try { renameSync(source, destination); return; }
+    catch (error) {
+      if (process.platform !== 'win32' || attempt >= 3 || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code)) throw error;
+      // Short sharing/AV contention may clear. Never delete the committed
+      // destination to make replacement succeed; failed rename preserves it.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    }
+  }
+}
 export function readSelection(home, name = 'current') {
   const path = join(home, name);
   return existsSync(path) ? parseSelection(readFileSync(path, 'utf8')) : null;
@@ -16,7 +27,7 @@ export function readSelection(home, name = 'current') {
 export function writeSelection(home, name, value) {
   const temporary = join(home, `${name}-${randomUUID()}.tmp`);
   writeFileSync(temporary, selectionText(value), { flag: 'wx', mode: 0o600 });
-  renameSync(temporary, join(home, name));
+  publishRename(temporary, join(home, name));
 }
 export function markWorking(home, application) {
   const selected = readSelection(home);

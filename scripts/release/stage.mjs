@@ -1,15 +1,16 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { verifyStartup } from './startup-smoke.mjs';
-import { readSelection, writeSelection, runtimeExecutable } from './selection.mjs';
+import { readSelection, writeSelection, runtimeExecutable, publishRename } from './selection.mjs';
 import { launcherEvent } from './launcher-messages.mjs';
 
 const recoveryFiles = ['load-env.sh', 'recover.mjs', 'database-location.mjs', 'selection.mjs', 'startup-smoke.mjs', 'check-database.mjs', 'portable-launch.mjs', 'application-start.mjs', 'application-assets.mjs', 'launcher-messages.mjs', 'launcher-messages.json', 'launcher-lock.mjs', 'macos-install.mjs', 'macos-launcher.sh', 'macos-launcher-protocol', 'update-and-start.sh', 'launcher-protocol', 'windows-common.ps1', 'update-and-start.ps1', 'recover-windows.ps1', 'start-windows.ps1'];
 
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
+recoveryFiles.push('windows-launcher.ps1', 'windows-launcher-protocol', 'windows-install-verify.mjs', 'windows-snapshot.ps1', 'windows-standalone-common.ps1');
 export function inventory(root, directory = root) {
   return readdirSync(directory).sort().flatMap(name => {
     const path = join(directory, name), stat = lstatSync(path), entry = relative(root, path).split('\\').join('/');
@@ -89,23 +90,23 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
       }
     }
     await launcherEvent('activatingVersion');
-    renameSync(staging, application);
+    publishRename(staging, application);
     const toolkit = join(home, 'recovery', id);
     mkdirSync(toolkit, { recursive: true });
     for (const name of recoveryFiles) cpSync(join(application, 'scripts/release', name), join(toolkit, name));
     writeSelection(join(home, 'recovery'), 'current', { id, runtime });
     const recoveryLauncher = join(home, `recover-${randomUUID()}.tmp`);
     cpSync(join(work, 'scripts/release/recover.command'), recoveryLauncher);
-    renameSync(recoveryLauncher, join(home, 'recover.command'));
+    publishRename(recoveryLauncher, join(home, 'recover.command'));
     // Root launcher contract is stable; all evolving logic belongs to the versioned app.
     const launcher = join(home, `start-${randomUUID()}.tmp`);
     cpSync(join(work, 'scripts/release/start.command'), launcher);
-    renameSync(launcher, join(home, 'start.command'));
+    publishRename(launcher, join(home, 'start.command'));
     if (process.platform === 'win32') {
       for (const name of ['start-app.bat', 'recover-app.bat', 'start-windows.ps1', 'recover-windows.ps1', 'windows-common.ps1']) {
         const temporary = join(home, `${name}-${randomUUID()}.tmp`);
         cpSync(join(work, 'scripts/release', name), temporary);
-        renameSync(temporary, join(home, name));
+        publishRename(temporary, join(home, name));
       }
     }
     if (previous) writeSelection(home, 'previous', previous);

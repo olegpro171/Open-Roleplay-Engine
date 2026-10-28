@@ -13,6 +13,11 @@ export function launcherMessage(id, language = 'en', parameters = {}) {
 // are diagnostics, never instructions to the presenter.
 export function launcherEvent(id) {
   if (!['checkingVersion', 'activatingVersion'].includes(id)) throw new Error('Invalid build event.');
+  if (process.platform === 'win32' && process.env.ORE_WINDOWS_BUILD_EVENTS) {
+    // npm never receives this private channel. Windows does not inherit fd 3
+    // through PowerShell/CreateProcess in the same way as the Bash controller.
+    return import('node:fs').then(({ appendFileSync }) => appendFileSync(process.env.ORE_WINDOWS_BUILD_EVENTS, `${id}\n`, { encoding: 'utf8' }));
+  }
   if (process.env.ORE_LAUNCH_EVENTS === '1') {
     return import('node:fs').then(({ writeSync }) => writeSync(3, `${id}\n`));
   }

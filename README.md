@@ -54,11 +54,17 @@ Replace the example with the file's actual absolute path. Keep the double quotes
 
 The candidate has not been published. The accepted permission workaround does not establish clean-machine, Intel or published-download qualification. See [delivery and recovery](docs/RELEASES.md).
 
+### Windows standalone launcher candidate
+
+The local candidate is [ORE-launcher.bat](ORE-launcher.bat). Put this single file in a chosen writable folder and double-click it in Explorer. All installation files, persistent `.env`, data and private logs go into adjacent `ORE-internal/`; unrelated parent files stay in place. First setup downloads exact public-main sources and a checksum-verified private Node/npm toolkit, builds and checks ORE, then starts it. Later runs reuse unchanged builds and caches. Keep the console open while using ORE; stop with **Ctrl+C**. Console messages follow Windows UI language (Russian or English fallback); app language is separate. Set `ORE_OPEN_BROWSER=0` in `ORE-internal/.env` to disable browser opening.
+
+This targets native Windows x64 with built-in 64-bit Windows PowerShell 5.1/.NET. Git, global Node/npm, PowerShell 7 and developer tools are unnecessary. Normal setup in a user-owned directory does not request elevation. The unsigned asset respects Windows trust prompts and organization execution policy; do not weaken global policy. ARM64/emulation, fresh accounts and downloaded-asset trust prompts require separate qualification. The candidate is unpublished: public `main` must contain this implementation before an ordinary external first install can work. See [delivery, configuration and recovery](docs/RELEASES.md).
+
 ### Existing Windows/Linux source startup
 
-Install [Git](https://git-scm.com/), clone the public repository, then run `start-app.bat` (Windows x64) or `./start.sh` (Linux). These existing entries retain their Git-based source updater and repository-local `ore-portable/` layout; they download their own Node/npm. Windows uses PowerShell 5.1; Linux needs Bash, curl, tar and SHA-256 tooling. Their standalone script assets are deferred. The old macOS source entry remains a technical compatibility path; the owner continues using `start-dev.command`.
+Install [Git](https://git-scm.com/), clone the public repository, then run `start-app.bat` (Windows x64) or `./start.sh` (Linux). These existing entries retain their Git-based source updater and repository-local `ore-portable/` layout; they download their own Node/npm. Windows uses PowerShell 5.1; Linux needs Bash, curl, tar and SHA-256 tooling. Linux standalone delivery is deferred. The old macOS source entry remains a technical compatibility path; the owner continues using `start-dev.command`.
 
-Windows x64 has earlier native automated evidence but remaining integration/manual qualification. Linux remains unqualified. Launchers are unsigned. Older portable releases retain their bundled instructions.
+Windows x64 has native synthetic launcher/build evidence; Explorer/download-trust and fresh-machine qualification remain separate. Linux remains unqualified. Launchers are unsigned. Older portable releases retain their bundled instructions.
 
 ### From a portable archive, without updates
 
@@ -89,7 +95,7 @@ Access defaults off and currently uses unencrypted HTTP on the LAN. HTTPS setup 
 
 ## Data and backups
 
-Content and saved Connection keys live on the server computer. The macOS standalone candidate defaults to `ORE-internal/data/roleplay.sqlite`; its configuration is `ORE-internal/.env`, never a parent `.env`. Source/development launchers retain repository `data/roleplay.sqlite`; separate portable installations use their own data directory. Composer drafts are browser/device-local. Content included in requests goes to your configured model endpoint; its privacy policies apply. Remote Markdown images load directly in the browser. Installation/update downloads also use the network.
+Content and saved Connection keys live on the server computer. Standalone candidates default to `ORE-internal/data/roleplay.sqlite`; their configuration is `ORE-internal/.env`, never a parent `.env`. Source/development launchers retain repository `data/roleplay.sqlite`; separate portable installations use their own data directory. Composer drafts are browser/device-local. Content included in requests goes to your configured model endpoint; its privacy policies apply. Remote Markdown images load directly in the browser. Installation/update downloads also use the network.
 
 Local saved keys are not application-encrypted. **Settings → Data backup → Save...** exports chats, memory, pictures, libraries and saved keys. Protect sensitive backups with a nonempty password kept separately; ORE cannot recover it. Anyone with ORE can open a blank-password backup. Backups exclude owner login, browser drafts and machine/application preferences.
 

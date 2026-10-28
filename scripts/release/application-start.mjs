@@ -22,6 +22,7 @@ try {
   delete establishedEnvironment.ORE_LAUNCH_REPORT;
   delete establishedEnvironment.ORE_LAUNCH_EVENTS;
   delete establishedEnvironment.ORE_LAUNCH_LOCK_TOKEN;
+  delete establishedEnvironment.ORE_WINDOWS_BUILD_EVENTS;
   const info = JSON.parse(readFileSync(resolve(application, 'build-info.json'), 'utf8'));
   if (existsSync(database.path)) inspectDatabase(application, database.path, info.schema);
   if (!stopping) {
