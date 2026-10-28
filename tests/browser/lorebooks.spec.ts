@@ -280,3 +280,169 @@ test('keeps unsaved entries on failures and revision conflicts, with bounded edi
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/lorebook-phone.png', fullPage: true });
 });
+
+test('scrolls the entry list within the selected editor height on wide screens', async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
+  await login(page);
+  await command(page, '/api/library', {
+    kind: 'lorebooks', revision: (await library(page)).revision,
+    data: {
+      ...newLorebook(), name: 'Scrolling entry atlas',
+      entries: Array.from({ length: 65 }, (_, index) => ({
+        ...newLoreEntry(`scroll-entry-${index}`), name: `Scroll record ${index}`,
+        keys: [`scroll-key-${index}`], insertionOrder: index,
+        content: index === 49 ? 'A long lore detail.\n'.repeat(150) : 'A short lore detail.',
+      })),
+    },
+  });
+  await books(page);
+  await page.getByRole('heading', { name: 'Scrolling entry atlas', exact: true }).getByRole('button').click();
+  const list = page.getByRole('group', { name: 'Lorebook entries', exact: true });
+  const editor = page.getByRole('region', { name: 'Selected lore entry', exact: true });
+  const search = page.getByLabel('Search entries', { exact: true });
+  const content = page.getByLabel('Lore content', { exact: true });
+  const measure = () => page.locator('.lore-workspace').evaluate(workspace => {
+    const list = workspace.querySelector('.lore-entry-list');
+    const editor = workspace.querySelector('.lore-entry-editor');
+    if (!list || !editor) throw new Error('Missing lore workspace columns');
+    return {
+      workspaceHeight: workspace.getBoundingClientRect().height,
+      listHeight: list.getBoundingClientRect().height,
+      editorHeight: editor.getBoundingClientRect().height,
+      scrollHeight: list.scrollHeight, clientHeight: list.clientHeight,
+    };
+  });
+  const originalAppearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+  try {
+    for (const theme of ['dark', 'light', 'midnight-black']) {
+      const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+      await command(page, '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } }, 'PUT');
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      for (const width of [1440, 801, 800, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        await search.fill('');
+        await list.getByRole('button', { name: /^Scroll record 0 / }).click();
+        const initial = await measure();
+        expect(initial.scrollHeight).toBeGreaterThan(initial.clientHeight);
+        if (width > 800) {
+          expect(Math.abs(initial.listHeight - initial.editorHeight)).toBeLessThanOrEqual(1);
+          expect(Math.abs(initial.workspaceHeight - initial.editorHeight)).toBeLessThanOrEqual(1);
+        } else {
+          expect(initial.listHeight).toBeLessThanOrEqual(270);
+        }
+        await list.getByRole('button', { name: /^Scroll record 49 / }).click();
+        expect(await list.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+        await expect(content).toHaveValue('A long lore detail.\n'.repeat(150));
+        if (width > 800) {
+          await expect.poll(async () => (await measure()).editorHeight).toBeGreaterThan(initial.editorHeight);
+          const expanded = await measure();
+          expect(Math.abs(expanded.listHeight - expanded.editorHeight)).toBeLessThanOrEqual(1);
+        }
+        await list.getByRole('button', { name: 'Next page', exact: true }).click();
+        await list.getByRole('button', { name: /^Scroll record 64 / }).click();
+        await expect(page.getByLabel('Entry name', { exact: true })).toHaveValue('Scroll record 64');
+        await expect(content).toHaveValue('A short lore detail.');
+        if (width > 800) {
+          await expect.poll(async () => (await measure()).listHeight).toBe(initial.listHeight);
+        }
+        await search.fill('scroll-key-64');
+        await expect(list.locator(':scope > button')).toHaveCount(1);
+        expect(await list.getByRole('button').evaluate(button => button.getBoundingClientRect().height)).toBeLessThan(200);
+        await search.fill('');
+        await list.getByRole('button', { name: /^Scroll record 0 / }).click();
+        await editor.getByLabel('Entry name', { exact: true }).scrollIntoViewIfNeeded();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-entries-top.png`) });
+        await list.evaluate(element => { element.scrollTop = element.scrollHeight; });
+        await editor.getByRole('button', { name: 'Delete entry', exact: true }).scrollIntoViewIfNeeded();
+        await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-entries-bottom.png`) });
+      }
+    }
+  } finally {
+    const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+    await command(page, '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme: originalAppearance.settings.theme } }, 'PUT');
+  }
+});
+
+for (const browserName of ['chromium', 'webkit'] as const) {
+  for (const width of [1280, 390]) {
+    test.describe(`${browserName} entry selection at ${width}px`, () => {
+      test('preserves page and list scrolling after replacing selected entry fields', async ({ playwright, baseURL }, testInfo) => {
+        const browser = await playwright[browserName].launch();
+        try {
+          const context = await browser.newContext({ baseURL, locale: 'en-US', viewport: { width, height: 844 }, isMobile: width === 390, hasTouch: width === 390 });
+          const page = await context.newPage();
+          await login(page);
+          const name = `Scroll preservation atlas ${browserName} ${width}`;
+          const shortContent = 'A short saved detail.';
+          const longContent = 'A long saved detail.\n'.repeat(150);
+          await command(page, '/api/library', {
+            kind: 'lorebooks', revision: (await library(page)).revision,
+            data: {
+              ...newLorebook(), name,
+              entries: Array.from({ length: 50 }, (_, index) => ({
+                ...newLoreEntry(`preserved-scroll-${index}`), name: `Anchored record ${index}`,
+                keys: [`anchor-${index}`], insertionOrder: index,
+                content: index === 47 ? longContent : shortContent,
+              })),
+            },
+          });
+          await books(page);
+          await page.getByRole('heading', { name, exact: true }).getByRole('button').click();
+          const list = page.getByRole('group', { name: 'Lorebook entries', exact: true });
+          const scroller = page.locator(width > 800 ? '.library-panel' : 'main.library-layout');
+          const originalAppearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+          try {
+            for (const theme of ['dark', 'light', 'midnight-black']) {
+              const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+              await command(page, '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } }, 'PUT');
+              await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+              for (const index of [49, 48, 47, 48]) {
+                await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; });
+                await list.evaluate(element => { element.scrollTop = element.scrollHeight; });
+                const entry = list.getByRole('button', { name: new RegExp(`^Anchored record ${index} `) });
+                // Reveal the target before measuring: native click/tap navigation
+                // may legitimately scroll to an offscreen button.
+                await entry.scrollIntoViewIfNeeded();
+                const pageTop = await scroller.evaluate(element => element.scrollTop);
+                const listTop = await list.evaluate(element => element.scrollTop);
+                expect(pageTop).toBeGreaterThan(0);
+                expect(listTop).toBeGreaterThan(0);
+                if (width === 390) await entry.tap();
+                else await entry.click();
+                await expect(page.getByLabel('Entry name', { exact: true })).toHaveValue(`Anchored record ${index}`);
+                await expect(page.getByLabel('Primary keys', { exact: true })).toHaveValue(`anchor-${index}`);
+                await expect(page.getByLabel('Lore content', { exact: true })).toHaveValue(index === 47 ? longContent : shortContent);
+                // A shorter entry can reduce the available range; selection must
+                // preserve every offset that still fits after that change.
+                await expect.poll(() => scroller.evaluate((element, before) => Math.abs(element.scrollTop - Math.min(before, element.scrollHeight - element.clientHeight)), pageTop)).toBeLessThanOrEqual(1);
+                await expect.poll(() => list.evaluate((element, before) => Math.abs(element.scrollTop - Math.min(before, element.scrollHeight - element.clientHeight)), listTop)).toBeLessThanOrEqual(1);
+              }
+              await page.screenshot({ path: testInfo.outputPath(`${theme}-preserved-selection.png`) });
+            }
+            const duplicate = page.getByRole('button', { name: 'Duplicate entry', exact: true });
+            await duplicate.scrollIntoViewIfNeeded();
+            const beforeDuplicate = await scroller.evaluate(element => element.scrollTop);
+            await duplicate.click();
+            await expect(page.getByLabel('Entry name', { exact: true })).toHaveValue('Anchored record 48 copy');
+            await expect(page.getByLabel('Primary keys', { exact: true })).toHaveValue('anchor-48');
+            // Duplication opens the next list page, which can be shorter on phones.
+            await expect.poll(() => scroller.evaluate((element, before) => Math.abs(element.scrollTop - Math.min(before, element.scrollHeight - element.clientHeight)), beforeDuplicate)).toBeLessThanOrEqual(1);
+            const beforeDelete = await scroller.evaluate(element => element.scrollTop);
+            await page.getByRole('button', { name: 'Delete entry', exact: true }).click();
+            await page.locator('.confirmation-dialog').getByRole('button', { name: 'Delete entry', exact: true }).click();
+            await expect(page.getByLabel('Entry name', { exact: true })).toHaveValue('Anchored record 0');
+            await expect(page.getByLabel('Primary keys', { exact: true })).toHaveValue('anchor-0');
+            await expect(page.getByLabel('Lore content', { exact: true })).toHaveValue(shortContent);
+            await expect.poll(() => scroller.evaluate((element, before) => Math.abs(element.scrollTop - Math.min(before, element.scrollHeight - element.clientHeight)), beforeDelete)).toBeLessThanOrEqual(1);
+          } finally {
+            const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+            await command(page, '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme: originalAppearance.settings.theme } }, 'PUT');
+          }
+        } finally {
+          await browser.close();
+        }
+      });
+    });
+  }
+}

@@ -17,7 +17,7 @@ Direct npm commands require Node 24 or Node 22.12+ within major 22 (see `package
 | `npm run build` | Typecheck and build client/server |
 | `npm start` | Serve built interface and API through Fastify |
 | `npm test -- tests/context-core.test.ts` | Example focused Vitest invocation |
-| `npx playwright install chromium` | Provision the matching browser when needed |
+| `npx playwright install chromium webkit` | Provision browsers, including WebKit for the Safari lorebook-scroll regression |
 | `npm run test:e2e -- tests/browser/chat.spec.ts` | Example focused browser invocation; build first |
 | `npm run check` | Build, Vitest and browser suites |
 

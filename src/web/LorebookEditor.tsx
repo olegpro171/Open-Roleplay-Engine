@@ -8,7 +8,7 @@ import { Icon } from './Icon';
 import { useConfirmation } from './Confirmation';
 import { EditorActions } from './EditorActions';
 import { EditorTextarea } from './EditorTextarea';
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { LOREBOOK_ENTRY_LIMIT, LOREBOOK_FILE_LIMIT, lorebookSchema, lorePlacements, newLoreEntry, type Lorebook, type LoreDiagnostic, type LoreEntry, type LoreImportPreview, type LorePlacement } from '../shared/lorebook';
 import { api, ApiError } from './api';
 import { Dropdown, NumberInput } from './Controls';
@@ -82,6 +82,18 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
   const formId = useId();
   const confirmAction = useConfirmation();
   const [book, setBook] = useState(initial.data), [selectedId, setSelectedId] = useState(initial.data.entries[0]?.id ?? '');
+  const form = useRef<HTMLFormElement>(null);
+  const selectionScroll = useRef<{ element: HTMLElement; top: number }[]>([]);
+  useLayoutEffect(() => {
+    // Safari can move scrolling ancestors when the keyed entry fields are
+    // removed. Restore their positions after the replacement fields fit their
+    // loaded text; the browser still clamps to a genuinely shorter page.
+    const positions = selectionScroll.current;
+    selectionScroll.current = [];
+    for (const { element, top } of positions) {
+      element.scrollTo({ top, behavior: 'instant' });
+    }
+  }, [selectedId]);
   const [query, setQuery] = useState(''), [page, setPage] = useState(0), [issues, setIssues] = useState<z.core.$ZodIssue[]>([]);
   const compatibility = useMemo(() => loreCompatibility(initial.data), [initial.data]);
   const stale = initial.revision !== currentRevision;
@@ -91,10 +103,19 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
   const last = Math.max(0, Math.ceil(matching.length / pageSize) - 1), shown = Math.min(page, last);
   function update(patch: Partial<Lorebook>) { setBook(value => markBook(value, patch)); }
   function updateEntry(patch: Partial<LoreEntry>) { update({ entries: book.entries.map(entry => entry.id === selectedId ? markEntry(entry, patch) : entry) }); }
+  function selectEntry(id: string) {
+    if (id === selectedId) return;
+    const positions: { element: HTMLElement; top: number }[] = [];
+    for (let element = form.current?.parentElement; element; element = element.parentElement) {
+      if (element.scrollTop > 0) positions.push({ element, top: element.scrollTop });
+    }
+    selectionScroll.current = positions;
+    setSelectedId(id);
+  }
   function add(duplicate?: LoreEntry) {
     const id = newId();
     const entry = duplicate ? { ...structuredClone(duplicate), id, name: `${duplicate.name.slice(0, 190)} copy` } : { ...newLoreEntry(id), insertionOrder: Math.max(-1, ...book.entries.map(item => item.insertionOrder)) + 1 };
-    update({ entries: [...book.entries, entry] }); setSelectedId(id); setQuery(''); setPage(Math.floor(book.entries.length / pageSize));
+    update({ entries: [...book.entries, entry] }); selectEntry(id); setQuery(''); setPage(Math.floor(book.entries.length / pageSize));
   }
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -106,7 +127,7 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
   function error(field: string) { return issues.filter(issue => issue.path.length === 1 && issue.path[0] === field).map((issue, index) => <small role="alert" key={index}>{formatMessage(validationMessage(issue))}</small>); }
   const entryIndex = book.entries.findIndex(entry => entry.id === selectedId);
   const entryIssues = issues.filter(issue => issue.path[0] === 'entries' && issue.path[1] === entryIndex);
-  return <form id={formId} className="lorebook-editor" onSubmit={event => void save(event)}>
+  return <form ref={form} id={formId} className="lorebook-editor" onSubmit={event => void save(event)}>
     <LoreDiagnostics diagnostics={compatibility} />
     <fieldset disabled={busy || stale}><legend>{t("lorebook_editor.lorebook", { value: initial.id ? t("libraries.edit_2") : t("libraries.create") })}</legend><div className="form-grid">
       <label className="full">{t("lorebook_editor.book_name")}<input required maxLength={100} value={book.name} onChange={event => update({ name: event.target.value })} />{error('name')}</label>
@@ -120,12 +141,12 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
       <div className="actions"><button type="button" className="secondary" disabled={book.entries.length >= LOREBOOK_ENTRY_LIMIT} onClick={() => add()}>{t("lorebook_editor.add_entry")}</button></div>
       <label className="lore-search">{t("lorebook_editor.search_entries")}<span className="search-field"><Icon name="Search" /><input type="search" value={query} onChange={event => { setQuery(event.target.value); setPage(0); }} /></span></label>
       <div className="lore-workspace"><div className="lore-entry-list" role="group" aria-label={t("lorebook_editor.lorebook_entries")}>
-        {matching.slice(shown * pageSize, (shown + 1) * pageSize).map(entry => <button type="button" className="secondary" aria-pressed={entry.id === selectedId} key={entry.id} onClick={() => setSelectedId(entry.id)}><strong>{entry.name || t("lorebook_editor.unnamed_entry")}</strong><small>{t("lorebook_editor.order_priority", { value: entry.enabled ? t("interface.enabled") : t("interface.disabled"), insertionOrder: entry.insertionOrder, priority: entry.priority })}</small></button>)}
+        {matching.slice(shown * pageSize, (shown + 1) * pageSize).map(entry => <button type="button" className="secondary" aria-pressed={entry.id === selectedId} key={entry.id} onClick={() => selectEntry(entry.id)}><strong>{entry.name || t("lorebook_editor.unnamed_entry")}</strong><small>{t("lorebook_editor.order_priority", { value: entry.enabled ? t("interface.enabled") : t("interface.disabled"), insertionOrder: entry.insertionOrder, priority: entry.priority })}</small></button>)}
         {matching.length === 0 && <p className="small muted">{book.entries.length ? t("lorebook_editor.no_entries_match_your_search") : t("lorebook_editor.this_book_is_empty_add_an_entry")}</p>}
         {last > 0 && <Pagination page={shown} last={last} change={setPage} />}
-      </div>{selected ? <section className="lore-entry-editor" aria-label={t("lorebook_editor.selected_lore_entry")}><EntryFields key={selected.id} entry={selected} update={updateEntry} issues={entryIssues} /><div className="actions"><button type="button" className="secondary" disabled={book.entries.length >= LOREBOOK_ENTRY_LIMIT} onClick={() => add(selected)}><Icon name="CopyOutline" />{t("lorebook_editor.duplicate_entry")}</button><button type="button" className="quiet" onClick={() => { confirmAction({ title: t("lorebook_editor.delete_lore_entry"), message: t("lorebook_editor.delete_entry_save_the_book_to_commit", { name: selected.name }), actionLabel: t("lorebook_editor.delete_entry"), onConfirm: () => { update({ entries: book.entries.filter(entry => entry.id !== selectedId) }); setSelectedId(book.entries.find(entry => entry.id !== selectedId)?.id ?? ''); } }); }}><Icon name="TrashOutline" />{t("lorebook_editor.delete_entry")}</button></div></section> : <p className="small muted">{t("lorebook_editor.select_an_entry_to_edit_its_content")}</p>}</div>
+      </div>{selected ? <section className="lore-entry-editor" aria-label={t("lorebook_editor.selected_lore_entry")}><EntryFields key={selected.id} entry={selected} update={updateEntry} issues={entryIssues} /><div className="actions"><button type="button" className="secondary" disabled={book.entries.length >= LOREBOOK_ENTRY_LIMIT} onClick={() => add(selected)}><Icon name="CopyOutline" />{t("lorebook_editor.duplicate_entry")}</button><button type="button" className="quiet" onClick={() => { confirmAction({ title: t("lorebook_editor.delete_lore_entry"), message: t("lorebook_editor.delete_entry_save_the_book_to_commit", { name: selected.name }), actionLabel: t("lorebook_editor.delete_entry"), onConfirm: () => { update({ entries: book.entries.filter(entry => entry.id !== selectedId) }); selectEntry(book.entries.find(entry => entry.id !== selectedId)?.id ?? ''); } }); }}><Icon name="TrashOutline" />{t("lorebook_editor.delete_entry")}</button></div></section> : <p className="small muted">{t("lorebook_editor.select_an_entry_to_edit_its_content")}</p>}</div>
     </fieldset>
-    {issues.length > 0 && <div role="alert"><p>{t("lorebook_editor.correct_these_fields_before_saving")}</p><ul>{issues.map((issue, index) => <li key={index}>{issue.path[0] === 'entries' && typeof issue.path[1] === 'number' && book.entries[issue.path[1]] ? <button type="button" className="quiet" onClick={() => setSelectedId(book.entries[Number(issue.path[1])].id)}>{book.entries[Number(issue.path[1])].name}: </button> : null}{issue.path.join('.')}: {formatMessage(validationMessage(issue))}</li>)}</ul></div>}
+    {issues.length > 0 && <div role="alert"><p>{t("lorebook_editor.correct_these_fields_before_saving")}</p><ul>{issues.map((issue, index) => <li key={index}>{issue.path[0] === 'entries' && typeof issue.path[1] === 'number' && book.entries[issue.path[1]] ? <button type="button" className="quiet" onClick={() => selectEntry(book.entries[Number(issue.path[1])].id)}>{book.entries[Number(issue.path[1])].name}: </button> : null}{issue.path.join('.')}: {formatMessage(validationMessage(issue))}</li>)}</ul></div>}
     {stale && <p role="status">{t("lorebook_editor.the_library_changed_your_unsaved_edits_remain")}</p>}
     <p className="small muted">{t("lorebook_editor.saved_changes_apply_to_future_requests_in")}</p>
     <EditorActions formId={formId} disabled={busy || stale} close={close} />
