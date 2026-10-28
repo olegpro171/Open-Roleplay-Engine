@@ -5,8 +5,9 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { verifyStartup } from './startup-smoke.mjs';
 import { readSelection, writeSelection, runtimeExecutable } from './selection.mjs';
+import { launcherEvent } from './launcher-messages.mjs';
 
-const recoveryFiles = ['load-env.sh', 'recover.mjs', 'database-location.mjs', 'selection.mjs', 'startup-smoke.mjs', 'check-database.mjs', 'portable-launch.mjs', 'update-and-start.sh', 'launcher-protocol', 'windows-common.ps1', 'update-and-start.ps1', 'recover-windows.ps1', 'start-windows.ps1'];
+const recoveryFiles = ['load-env.sh', 'recover.mjs', 'database-location.mjs', 'selection.mjs', 'startup-smoke.mjs', 'check-database.mjs', 'portable-launch.mjs', 'application-start.mjs', 'application-assets.mjs', 'launcher-messages.mjs', 'launcher-messages.json', 'launcher-lock.mjs', 'macos-install.mjs', 'macos-launcher.sh', 'macos-launcher-protocol', 'update-and-start.sh', 'launcher-protocol', 'windows-common.ps1', 'update-and-start.ps1', 'recover-windows.ps1', 'start-windows.ps1'];
 
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 export function inventory(root, directory = root) {
@@ -54,7 +55,8 @@ function notices(work, output) {
 }
 async function install(work, home, mode, commit, runtime, runtimeChecksum, noticeDirectory) {
   const { databaseSchemaVersion } = await import(pathToFileURL(join(work, 'dist/server/shared/build-info.js')).href);
-  const id = `${mode === '--release' ? 'release' : 'dev'}-${commit.slice(0, 12)}-${randomUUID()}`;
+  const release = mode === '--release' || mode === '--snapshot';
+  const id = `${release ? 'release' : 'dev'}-${commit.slice(0, 12)}-${randomUUID()}`;
   const staging = join(home, 'cache', `payload-${id}`), application = join(home, 'app', id);
   mkdirSync(staging);
   try {
@@ -64,11 +66,12 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     cpSync(noticeDirectory, join(staging, 'notices'), { recursive: true, verbatimSymlinks: true });
     cpSync(join(work, 'docs/RELEASES.md'), join(staging, 'README.md'));
     cpSync(join(work, 'LICENSE'), join(staging, 'LICENSE'));
-    const metadata = { kind: mode === '--release' ? 'release' : 'development', commit, schema: databaseSchemaVersion, node: process.versions.node, platform: process.platform, arch: process.arch };
+    const metadata = { kind: release ? 'release' : 'development', commit, schema: databaseSchemaVersion, node: process.versions.node, platform: process.platform, arch: process.arch };
     writeFileSync(join(staging, 'build-info.json'), JSON.stringify(metadata, null, 2));
+    await launcherEvent('checkingVersion');
     const smoke = spawnSync(process.execPath, [join(staging, 'scripts/release/native-smoke.mjs')], { cwd: home, stdio: 'inherit' });
     if (smoke.status !== 0) throw new Error('Production dependency smoke failed; previous application remains selected.');
-    const manifest = { ...metadata, runtime, runtimeArchiveSha256: runtimeChecksum, lockfileSha256: hash(join(staging, 'package-lock.json')), files: inventory(staging) };
+    const manifest = { ...metadata, runtime, runtimeArchiveSha256: runtimeChecksum, lockfileSha256: hash(join(staging, 'package-lock.json')), ...(mode === '--snapshot' ? { source: 'github-main-snapshot', sourceArchiveSha256: process.env.ORE_SNAPSHOT_SHA256 } : {}), files: inventory(staging) };
     writeFileSync(join(staging, 'manifest.json'), JSON.stringify(manifest, null, 2));
     console.log('[Verify] Starting the new app with a temporary test database and checking that its interface loads...');
     await verifyStartup(staging, process.execPath, join(home, 'cache'));
@@ -85,6 +88,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
         } catch (error) { console.warn(`Previous selected application could not be verified; it was not marked working: ${error.message}`); }
       }
     }
+    await launcherEvent('activatingVersion');
     renameSync(staging, application);
     const toolkit = join(home, 'recovery', id);
     mkdirSync(toolkit, { recursive: true });

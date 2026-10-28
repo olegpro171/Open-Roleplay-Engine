@@ -96,3 +96,9 @@ Use complete messages with named parameters, avoiding English grammatical fragme
 ## Checks
 
 Use the existing localization unit/browser suites for catalog compatibility, runtime loading/recovery and unchanged model input. Keep EN/RU catalogs together and test mounted-language changes. Follow AGENTS.md for check scope; no translation coverage claim establishes linguistic quality or actual phone support.
+
+## Standalone macOS launcher
+
+The standalone launcher has an explicitly separate localization scope. `scripts/release/launcher-messages.json` owns the approved complete English/Russian console messages; the generator embeds actual UTF-8 strings in `ORE-launcher.command` and the compatible installed helper. It requires matching keys/placeholders, uses literal named substitutions, and the JavaScript presenter falls back to English for missing translations. These messages do not use application language packs or browser preferences.
+
+Read macOS `AppleLanguages[0]` through `defaults`/`plutil` once, treating it as data. Russian variants select Russian; missing, malformed or other preferences select English, including Finder sessions whose `LANG` is C. Propagate the selection to installed helpers, builds and startup. Keep commands, paths, URLs, protocol IDs, exact commits, dependency output and saved content literal. Raw diagnostics belong in private installation logs; the approved catalog is the ordinary console interface. See [delivery](RELEASES.md).

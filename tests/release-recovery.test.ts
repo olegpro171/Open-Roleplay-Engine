@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -18,6 +18,7 @@ function resolveLocation(home: string, database?: string, ready = false) {
   return result;
 }
 function state(home: string) { return JSON.parse(readFileSync(join(home, 'database-location.json'), 'utf8')); }
+function startupReports(home: string) { return readdirSync(join(home, 'logs')).map(name => readFileSync(join(home, 'logs', name), 'utf8')).join('\n'); }
 function recoveryFixture() {
   const directory = root(), home = join(directory, 'ORE');
   mkdirSync(join(home, 'cache'), { recursive: true }); mkdirSync(join(home, 'data'));
@@ -117,7 +118,7 @@ describe('explicit application recovery', () => {
     const result = f.run(['--previous']); expect(result.status).not.toBe(0); expect(result.stderr).toContain('Database schema 14');
     expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(f.current); expect(readFileSync(f.path)).toEqual(before); expect(existsSync(join(f.home, 'updates-paused'))).toBe(false);
     const launch = spawnSync(process.execPath, [join(f.home, 'app/release-current/scripts/release/portable-launch.mjs'), f.home], { encoding: 'utf8', env: { ...process.env, ORE_DATABASE_DEFAULT: 'installation', ROLEPLAY_DATABASE: f.path, ORE_OPEN_BROWSER: '0' } });
-    expect(launch.status).toBe(1); expect(launch.stderr).toContain('Database schema 14'); expect(launch.stdout).not.toContain('Local:'); expect(readFileSync(f.path)).toEqual(before);
+    expect(launch.status).toBe(1); expect(startupReports(f.home)).toContain('Database schema 14'); expect(launch.stdout).not.toContain('Local:'); expect(readFileSync(f.path)).toEqual(before);
     const restored = join(f.home, 'data/restored-copy.sqlite');
     const copy = new Database(restored); copy.exec("CREATE TABLE sentinel (text TEXT); INSERT INTO sentinel VALUES ('older snapshot'); PRAGMA user_version=13;"); copy.close();
     const recovered = f.run(['--previous'], { ROLEPLAY_DATABASE: restored }); expect(recovered.status, recovered.stderr).toBe(0);
@@ -138,7 +139,7 @@ describe('explicit application recovery', () => {
     const recovered = f.run(['--previous']); expect(recovered.status, recovered.stderr).toBe(0);
     const database = new Database(f.path); database.pragma('user_version=14'); database.close();
     const launched = spawnSync(process.platform === 'win32' ? 'powershell.exe' : '/bin/bash', process.platform === 'win32' ? ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-File', join(f.home, 'start-windows.ps1')] : [join(f.home, 'start.command')], { encoding: 'utf8', env: { ...process.env, ORE_SKIP_UPDATE: '1', ORE_OPEN_BROWSER: '0', ROLEPLAY_DATABASE: f.path }, timeout: 20000 });
-    expect(launched.status).toBe(1); expect(launched.stderr).toContain('Database schema 14');
+    expect(launched.status).toBe(1); expect(startupReports(f.home)).toContain('Database schema 14');
     expect(launched.stdout).not.toContain('Local:'); expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(f.previous);
   });
   it('rejects an active database owner and a retained app whose launcher fails without changing selection', () => {

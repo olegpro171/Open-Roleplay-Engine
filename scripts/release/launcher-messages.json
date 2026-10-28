@@ -1,0 +1,158 @@
+{
+  "heading": {
+    "en": "ORE",
+    "ru": "ORE"
+  },
+  "firstSetup": {
+    "en": "First-time setup may take a few minutes.",
+    "ru": "Первоначальная настройка может занять несколько минут."
+  },
+  "checkingUpdates": {
+    "en": "Checking for updates...",
+    "ru": "Проверка обновлений..."
+  },
+  "downloadingVersion": {
+    "en": "Downloading new version...",
+    "ru": "Загрузка новой версии..."
+  },
+  "downloadingToolkit": {
+    "en": "Downloading private toolkit...",
+    "ru": "Загрузка встроенного набора инструментов..."
+  },
+  "preparingVersion": {
+    "en": "Preparing new version...",
+    "ru": "Подготовка новой версии..."
+  },
+  "buildingVersion": {
+    "en": "Building new version...",
+    "ru": "Сборка новой версии..."
+  },
+  "checkingVersion": {
+    "en": "Checking new version...",
+    "ru": "Проверка новой версии..."
+  },
+  "activatingVersion": {
+    "en": "Activating new version...",
+    "ru": "Активация новой версии..."
+  },
+  "upToDate": {
+    "en": "ORE is up to date.",
+    "ru": "Установлена актуальная версия ORE."
+  },
+  "starting": {
+    "en": "Starting ORE...",
+    "ru": "Запуск ORE..."
+  },
+  "openingBrowser": {
+    "en": "Opening your browser...",
+    "ru": "Открытие браузера..."
+  },
+  "stopping": {
+    "en": "Stopping ORE...",
+    "ru": "Завершение работы ORE..."
+  },
+  "stopped": {
+    "en": "ORE stopped.",
+    "ru": "Работа ORE завершена."
+  },
+  "cancelled": {
+    "en": "Cancelled. Run the launcher again to retry.",
+    "ru": "Отменено. Для повторной попытки запустите ORE-launcher ещё раз."
+  },
+  "ready": {
+    "en": "ORE is ready.",
+    "ru": "ORE запущен."
+  },
+  "openUrl": {
+    "en": "Open: {url}",
+    "ru": "Откройте: {url}"
+  },
+  "keepWindow": {
+    "en": "Keep this window open while using ORE.",
+    "ru": "Не закрывайте это окно во время работы с ORE."
+  },
+  "stopHint": {
+    "en": "Press Ctrl+C to stop ORE.",
+    "ru": "Чтобы завершить работу ORE, нажмите Ctrl+C."
+  },
+  "browserFailed": {
+    "en": "Your browser couldn't be opened automatically.",
+    "ru": "Не удалось автоматически открыть браузер."
+  },
+  "logFile": {
+    "en": "Log file: {absolutePath}",
+    "ru": "Файл журнала: {absolutePath}"
+  },
+  "assistance": {
+    "en": "For technical assistance, share this log file:",
+    "ru": "Для получения технической помощи отправьте этот файл журнала:"
+  },
+  "checkFallback": {
+    "en": "Couldn't check for updates. Starting the installed version.",
+    "ru": "Не удалось проверить обновления. Запускается установленная версия."
+  },
+  "updateFallback": {
+    "en": "Couldn't finish the update. Starting the installed version.",
+    "ru": "Не удалось завершить обновление. Запускается установленная версия."
+  },
+  "updatesPaused": {
+    "en": "Updates are paused. Starting the installed version.",
+    "ru": "Обновления приостановлены. Запускается установленная версия."
+  },
+  "downloadFailed": {
+    "en": "ORE couldn't finish downloading. Check your internet connection and try again.",
+    "ru": "Не удалось завершить загрузку ORE. Проверьте подключение к интернету и повторите попытку."
+  },
+  "verificationFailed": {
+    "en": "A downloaded file couldn't be verified. Run the launcher again to retry.",
+    "ru": "Не удалось проверить загруженный файл. Для повторной попытки запустите ORE-launcher ещё раз."
+  },
+  "buildFailed": {
+    "en": "ORE couldn't build the application.",
+    "ru": "Не удалось собрать приложение ORE."
+  },
+  "activationFailed": {
+    "en": "ORE couldn't activate the new version.",
+    "ru": "Не удалось активировать новую версию ORE."
+  },
+  "startupFailed": {
+    "en": "ORE couldn't start.",
+    "ru": "Не удалось запустить ORE."
+  },
+  "folderCollision": {
+    "en": "The folder \"{folder}\" already exists and isn't an ORE installation. Move the launcher to another folder and try again.",
+    "ru": "Папка \"{folder}\" уже существует и не является папкой установки ORE. Переместите ORE-launcher в другую папку и повторите попытку."
+  },
+  "notWritable": {
+    "en": "ORE can't write to its installation folder. Check the folder's permissions and try again.",
+    "ru": "ORE не может записывать файлы в папку установки. Проверьте права доступа к папке и повторите попытку."
+  },
+  "unsupportedSystem": {
+    "en": "This operating system or processor isn't supported.",
+    "ru": "Эта операционная система или процессор не поддерживается."
+  },
+  "invalidEnv": {
+    "en": "There's a problem in .env at line {line}.",
+    "ru": "В файле .env обнаружена ошибка в строке {line}."
+  },
+  "installationLocked": {
+    "en": "ORE's installation is locked. Another launcher may still be working. Check the log before retrying.",
+    "ru": "Установка ORE заблокирована. Возможно, другой экземпляр ORE-launcher ещё работает. Перед повторной попыткой проверьте журнал."
+  },
+  "alreadyRunning": {
+    "en": "ORE is already running.",
+    "ru": "ORE уже запущен."
+  },
+  "portConflict": {
+    "en": "ORE's port is already in use. Check the log for details.",
+    "ru": "Порт ORE уже занят. Подробности указаны в журнале."
+  },
+  "setupFailed": {
+    "en": "ORE couldn't finish setting up.",
+    "ru": "Не удалось завершить настройку ORE."
+  },
+  "logFailed": {
+    "en": "ORE couldn't create its log file. Check the installation folder's permissions and try again.",
+    "ru": "Не удалось создать файл журнала ORE. Проверьте права доступа к папке установки и повторите попытку."
+  }
+}

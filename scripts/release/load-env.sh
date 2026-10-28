@@ -11,11 +11,17 @@ ore_load_env() {
     ore_env_line="${ore_env_line%"${ore_env_line##*[![:space:]]}"}"
     case "$ore_env_line" in ''|\#*) continue;; esac
     if [[ ! "$ore_env_line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*)=(.*)$ ]]; then
+      ORE_ENV_ERROR_LINE=$ore_env_number
       echo "Invalid ORE .env assignment at $ore_env_file:$ore_env_number (expected KEY=value)." >&2
       return 1
     fi
     ore_env_key="${BASH_REMATCH[1]}"
     ore_env_value="${BASH_REMATCH[2]}"
+    if declare -F ore_accept_env_key >/dev/null && ! ore_accept_env_key "$ore_env_key"; then
+      ORE_ENV_ERROR_LINE=$ore_env_number
+      echo "Unsupported ORE .env setting at $ore_env_file:$ore_env_number." >&2
+      return 1
+    fi
     if [[ "$ore_env_value" == \"*\" && ${#ore_env_value} -ge 2 ]] || [[ "$ore_env_value" == \'*\' && ${#ore_env_value} -ge 2 ]]; then
       ore_env_value="${ore_env_value:1:${#ore_env_value}-2}"
     fi

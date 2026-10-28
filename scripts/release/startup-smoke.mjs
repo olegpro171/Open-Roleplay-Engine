@@ -1,5 +1,5 @@
 import { fork } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -23,14 +23,16 @@ export async function verifyStartup(application, executable, cache, launcher = j
     child = fork(launcher, [home, application], { execPath: executable, execArgv: [], cwd: home, env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
     child.stdout.on('data', bytes => { output = (output+bytes).slice(-16000); });
     child.stderr.on('data', bytes => { output = (output+bytes).slice(-16000); });
+    let ownedReady = false;
+    child.on('message', value => { if (value?.type === 'ready' && value.url === url) ownedReady = true; });
     child.once('error', error => { output += error.message; exited = true; exitCode = null; });
     child.once('exit', code => { exited = true; exitCode = code; });
     const deadline = Date.now()+15000;
     let ready = false;
     while (Date.now()<deadline && !exited) {
-      // Requiring this owned child's ready output also protects against a port
+      // Requiring this owned child's ready IPC also protects against a port
       // reservation race accidentally probing an unrelated listening process.
-      if (output.includes(`Local: ${url}`)) {
+      if (ownedReady) {
         try {
           const session = await fetch(`${url}/api/session`, { signal: AbortSignal.timeout(1000) });
           const body = await session.json();
@@ -40,7 +42,11 @@ export async function verifyStartup(application, executable, cache, launcher = j
       }
       await delay(25);
     }
-    if (!ready) throw new Error(`Application startup check failed${exited ? ` (exit ${exitCode})` : ' (timeout)'}. Previous selection retained.\n${output}`);
+    if (!ready) {
+      const logs = join(home, 'logs');
+      const details = existsSync(logs) ? readdirSync(logs).map(name => readFileSync(join(logs, name), 'utf8').slice(-16000)).join('\n') : '';
+      throw new Error(`Application startup check failed${exited ? ` (exit ${exitCode})` : ' (timeout)'}. Previous selection retained.\n${output}\n${details}`);
+    }
     child.disconnect();
     const stopped = Date.now()+5000;
     while (!exited && Date.now()<stopped) await delay(20);

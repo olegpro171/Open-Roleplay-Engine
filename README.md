@@ -38,28 +38,27 @@ Summarization is lossy. Structural checks and refusal detection cannot guarantee
 
 You need a computer, a browser and access to a supported model endpoint. ORE includes neither a model nor an API subscription; a local server can work if it implements the supported Chat Completions protocol.
 
-### From source, with automatic updates
+### macOS standalone launcher candidate
 
-Install [Git](https://git-scm.com/) if needed, then run:
+The local candidate is [ORE-launcher.command](ORE-launcher.command). Once published, the intended download is that single file from [Releases](https://github.com/olegpro171/Roleplay-Engine/releases), placed in your chosen writable folder. All managed files go into its adjacent `ORE-internal/`; unrelated files in the chosen folder are preserved. Git, Node/npm, Homebrew and developer tools are unnecessary. macOS 13.5+ on native arm64/x64 is targeted; Intel and clean-machine qualification remain pending.
+
+The first launch downloads the exact current-main source snapshot and a verified private toolkit, installs locked dependencies, builds and checks the app, then starts it. Later launches check main and skip installation/building when unchanged. Initial setup may take several minutes. Keep the terminal open while using ORE; stop with **Ctrl+C**. The ready URL appears only after the server confirms startup. Approved English/Russian console messages follow the macOS system language; detailed diagnostics stay in `ORE-internal/logs/`.
+
+Safari may save the downloaded script without executable permission. Before the first run, open Terminal and grant permission to that one file:
 
 ```sh
-git clone https://github.com/olegpro171/Roleplay-Engine.git
-cd Roleplay-Engine
+chmod u+x "/absolute/path/ORE-launcher.command"
 ```
 
-Start without arguments:
+Replace the example with the file's actual absolute path. Keep the double quotes, especially when folder names contain spaces; they make the path one command argument. Afterward, double-click the launcher normally. This one-time step grants your account execute permission; it does not approve macOS trust prompts or remove quarantine. If macOS blocks the trusted download, use its separate per-file **System Settings → Privacy & Security → Open Anyway** approval when offered. No global security changes, ZIP, app bundle, installer package or signing solution is required for this delivery stage.
 
-| Platform | Launcher |
-| --- | --- |
-| macOS | Double-click `start-app.command`, or run `./start-app.command` |
-| Windows x64 | Double-click `start-app.bat`, or run `.\start-app.bat` |
-| Linux | Run `./start.sh` |
+The candidate has not been published. The accepted permission workaround does not establish clean-machine, Intel or published-download qualification. See [delivery and recovery](docs/RELEASES.md).
 
-The launcher downloads its own pinned Node runtime and dependencies; no separate Node/npm installation is needed. Git and internet are required for initial installation/updates. Bash platforms also need curl, tar and a SHA-256 tool; Windows uses Windows PowerShell 5.1.
+### Existing Windows/Linux source startup
 
-Initial setup can take several minutes. Keep the terminal open and wait for the browser, or open the printed address (normally `http://127.0.0.1:3000`). Stop with **Ctrl+C**. Later starts check remote `main` and rebuild only when needed; failed updates can visibly fall back to the installed version. Your source checkout is preserved. The installation lives in repository-local `ore-portable/`.
+Install [Git](https://git-scm.com/), clone the public repository, then run `start-app.bat` (Windows x64) or `./start.sh` (Linux). These existing entries retain their Git-based source updater and repository-local `ore-portable/` layout; they download their own Node/npm. Windows uses PowerShell 5.1; Linux needs Bash, curl, tar and SHA-256 tooling. Their standalone script assets are deferred. The old macOS source entry remains a technical compatibility path; the owner continues using `start-dev.command`.
 
-macOS Apple Silicon has the most extensive local evidence. Windows x64 has earlier native automated evidence but remaining integration/manual qualification; macOS Intel and Linux remain unqualified. Platform launchers are unsigned. See [startup and recovery](docs/RELEASES.md) for requirements and limits.
+Windows x64 has earlier native automated evidence but remaining integration/manual qualification. Linux remains unqualified. Launchers are unsigned. Older portable releases retain their bundled instructions.
 
 ### From a portable archive, without updates
 
@@ -90,7 +89,7 @@ Access defaults off and currently uses unencrypted HTTP on the LAN. HTTPS setup 
 
 ## Data and backups
 
-Content and saved Connection keys live on the server computer. Source launchers default to `data/roleplay.sqlite` in the repository; separate portable installations use their own `data/roleplay.sqlite`. Composer drafts are browser/device-local. Content included in requests goes to your configured model endpoint; its privacy policies apply. Remote Markdown images load directly in the browser. Installation/update downloads also use the network.
+Content and saved Connection keys live on the server computer. The macOS standalone candidate defaults to `ORE-internal/data/roleplay.sqlite`; its configuration is `ORE-internal/.env`, never a parent `.env`. Source/development launchers retain repository `data/roleplay.sqlite`; separate portable installations use their own data directory. Composer drafts are browser/device-local. Content included in requests goes to your configured model endpoint; its privacy policies apply. Remote Markdown images load directly in the browser. Installation/update downloads also use the network.
 
 Local saved keys are not application-encrypted. **Settings → Data backup → Save...** exports chats, memory, pictures, libraries and saved keys. Protect sensitive backups with a nonempty password kept separately; ORE cannot recover it. Anyone with ORE can open a blank-password backup. Backups exclude owner login, browser drafts and machine/application preferences.
 

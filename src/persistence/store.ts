@@ -94,7 +94,7 @@ export class Store {
           let alive = true;
           try { process.kill(owner.process_id, 0); }
           catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') alive = false; }
-          if (alive) throw new Error('Another server is already using this database. Stop it before starting another.');
+          if (alive) throw Object.assign(new Error('Another server is already using this database. Stop it before starting another.'), { code: 'ORE_DATABASE_OWNED' });
         }
         this.sqlite.prepare('INSERT INTO runtime_owner (id, process_id, token) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET process_id = excluded.process_id, token = excluded.token').run(process.pid, this.ownerToken);
       }).immediate();

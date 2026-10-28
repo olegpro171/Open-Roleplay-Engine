@@ -8,7 +8,8 @@ Direct npm commands require Node 24 or Node 22.12+ within major 22 (see `package
 
 | Command | Purpose |
 | --- | --- |
-| `./start-app.command` / `start-app.bat` / `./start.sh` | Normal committed-main startup; see [delivery](docs/RELEASES.md) |
+| `./ORE-launcher.command` | Standalone macOS candidate; builds exact public-main archives in adjacent `ORE-internal/` |
+| `start-app.bat` / `./start.sh` | Existing Windows/Linux source startup; see [delivery](docs/RELEASES.md) |
 | `./start-dev.command` | Mac/Bash working-tree rebuild into `ore-development/`, no update check |
 | `npm run dev` and `npm run dev:ui` | Two-terminal server/UI watch mode (ports 3000/5173) |
 | `npm run typecheck` | Strict client/server TypeScript checks |
@@ -97,6 +98,16 @@ macOS uses bounded Bonjour LocalHostName discovery; other platforms depend on ex
 ## Documentation maintenance
 
 Keep each accepted rule in its owning contract and link to it. Update only changed product decisions, non-obvious contracts/safety boundaries and operational commands. Do not add a document for every feature, append completed-test narratives, or maintain historical task assignments. Tests/source hold executable detail; documents explain intent and compatibility that cannot safely be inferred. Preserve third-party notices independently of this policy.
+
+## Contained delivery boundaries
+
+`generate-macos-launcher.mjs` embeds the launcher catalog, literal environment reader, archive policy, runtime verifier and Bash bootstrap into the external asset and versioned installed helper. Regenerate both after source changes; `--check` verifies reproducibility. The generator also refreshes the marked catalog/validation block in the internal `start.command`; shared helper eligibility is owned by `macos-helper.sh`. macOS protocol 1 is separate from legacy source/recovery launcher protocol 2. The external bootstrap delegates once to a compatible selected helper, with retained recovery tooling as a compatibility path; unknown protocols fail closed.
+
+The bootstrap owns adjacent-folder ownership, a foreground lifetime lock, bounded HTTPS metadata/archive transfers, `plutil` metadata parsing, archive validation before extraction and private runtime preparation. `snapshot-input.sh` owns build-input allowlisting. `build-portable.sh --snapshot` accepts a downloaded archive with its complete commit, fixed-source provenance and captured digest; it rechecks bytes and re-extracts the allowlist rather than treating a local directory as a clean Git checkout. Existing release/development Git protections remain separate. Source archive digests record transport bytes, not an independent publisher signature.
+
+`macos-install.mjs` supervises the builder's process group and interprets only a bounded dedicated phase descriptor. Dependency/tool stdout and stderr go to the private report, with that descriptor closed for npm/native commands. `stage.mjs` retains notices, native loads, temporary-database startup/UI probes and atomic selections. Snapshot provenance belongs in the manifest; `build-info.json` retains its shared strict public contract.
+
+`portable-launch.mjs` verifies assets/runtime, owns the foreground application process, presents approved messages and catches browser spawn/exit failures. `application-start.mjs` is the installed application's startup boundary: it resolves established database identity, checks compatibility, invokes the server and records database readiness. Store retains SQLite ownership, missing-file enforcement, snapshots and migrations. Retained older applications without that boundary keep explicit compatible recovery guards. Server readiness and ownership/port failures use structured IPC; console matching cannot establish readiness. Saved-data startup never participates in update fallback.
 
 ## Third-party assets
 

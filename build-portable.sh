@@ -8,16 +8,26 @@ mode=${1:-}
 case "$mode" in
   --release) [ "$#" -eq 3 ] || fail 'Usage: build-portable.sh --release FULL_COMMIT INSTALL_DIRECTORY'; commit=$2; destination=$3 ;;
   --development) [ "$#" -eq 2 ] || fail 'Usage: build-portable.sh --development INSTALL_DIRECTORY'; commit=$(git -C "$ore_source" rev-parse HEAD); destination=$2 ;;
+  --snapshot)
+    [ "$#" -eq 4 ] || fail 'Snapshot input requires a downloaded archive, complete commit and installation.'
+    commit=$2; destination=$3; snapshot=$4
+    [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || fail 'Invalid snapshot commit.'
+    [ "${ORE_SNAPSHOT_SOURCE:-}" = "https://github.com/olegpro171/Roleplay-Engine/archive/$commit.tar.gz" ] || fail 'Missing downloaded-main provenance.'
+    [[ "${ORE_SNAPSHOT_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || fail 'Missing snapshot digest.'
+    [ "$(shasum -a 256 "$snapshot" | awk '{print $1}')" = "$ORE_SNAPSHOT_SHA256" ] || fail 'Snapshot bytes changed after download.'
+    ;;
   *) fail 'Choose --release FULL_COMMIT INSTALL_DIRECTORY or --development INSTALL_DIRECTORY.' ;;
 esac
-for command in git curl tar awk sed; do command -v "$command" >/dev/null || fail "Required tool missing: $command. No system packages were installed."; done
+for command in curl tar awk sed; do command -v "$command" >/dev/null || fail "Required tool missing: $command. No system packages were installed."; done
+if [ "$mode" != --snapshot ]; then command -v git >/dev/null || fail 'Git is required for source-checkout builds.'; fi
 if [ "$mode" = '--release' ]; then
   [ -z "$(git -C "$ore_source" status --porcelain --untracked-files=all)" ] || fail 'Release source must be clean, including untracked files. Commit the intended changes first.'
   [ "$commit" = "$(git -C "$ore_source" rev-parse HEAD)" ] || fail 'Release requires the exact full checked-out commit.'
   git -C "$ore_source" merge-base --is-ancestor "$commit" main || fail 'Release commit must be reachable on local main.'
 fi
 # A short, explicit allowlist is also used for developer builds.
-inputs=(package.json package-lock.json tsconfig.json tsconfig.server.json vite.config.ts vitest.config.ts playwright.config.ts index.html src public migrations scripts/release LICENSE docs/RELEASES.md)
+. "$ore_source/scripts/release/snapshot-input.sh"
+inputs=("${ore_inputs[@]}")
 for input in "${inputs[@]}"; do [ -e "$ore_source/$input" ] || fail "Missing required source input: $input"; done
 case "$(uname -s)" in Darwin) os=darwin;; Linux) os=linux;; *) fail 'Bash delivery targets macOS and glibc Linux. Use the Windows handoff on Windows.';; esac
 case "$(uname -m)" in arm64|aarch64) cpu=arm64;; x86_64) cpu=x64;; *) fail 'Only arm64 and x64 are candidate targets.';; esac
@@ -31,16 +41,13 @@ else
   macos=$(sw_vers -productVersion)
   awk -v version="$macos" 'BEGIN { split(version,v,"."); exit !(v[1]>13 || (v[1]==13 && v[2]>=5)) }' || fail "Node 24 requires macOS 13.5 or newer; detected $macos."
 fi
-. "$ore_source/scripts/release/runtime.conf"
-runtime="node-v$ORE_NODE_VERSION-$os-$cpu"
-archive="$runtime.tar.gz"
-expected=$(awk -v name="$archive" '$2 == name {print $1}' "$ore_source/scripts/release/node-SHASUMS256.txt")
-[ "${#expected}" -eq 64 ] || fail 'Pinned runtime checksum is missing.'
+. "$ore_source/scripts/release/private-runtime.sh"
+ore_runtime_identity "$ore_source/scripts/release/runtime.conf" "$ore_source/scripts/release/node-SHASUMS256.txt" "$os" "$cpu" || fail 'Invalid pinned runtime declaration/checksum.'
 mkdir -p -- "$destination" || fail 'Cannot create installation. Select a user-writable directory.'
 ore_home=$(CDPATH='' cd -- "$destination" && pwd -P)
 [ "$ore_home" != "$ore_source" ] || fail 'Use a separate installation directory, not the source checkout.'
 mkdir -p -- "$ore_home/cache" "$ore_home/runtime" "$ore_home/app" "$ore_home/logs" "$ore_home/languages" "$ore_home/data" || fail 'Installation is not writable.'
-mkdir "$ore_home/cache/build.lock" 2>/dev/null || fail 'Another build owns cache/build.lock. If interrupted, check that it stopped before removing the lock directory.'
+mkdir "$ore_home/cache/build.lock" 2>/dev/null || { echo 'Another build owns cache/build.lock.' >&2; exit 75; }
 stage=''
 cleanup() {
   local build_status=$? attempt
@@ -54,13 +61,14 @@ cleanup() {
     done
   fi
   if ! rmdir "$ore_home/cache/build.lock"; then
-    if [ "$build_status" -eq 0 ]; then build_status=1; fi
+    if [ "$build_status" -eq 0 ]; then build_status=75; fi
   fi
   exit "$build_status"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+trap 'exit 129' HUP
 stage=$(mktemp -d "$ore_home/cache/build.XXXXXXXX")
 export TMPDIR="$stage" TMP="$stage" TEMP="$stage"
 for ore_setting in ${!npm_config_@} ${!NPM_CONFIG_@}; do unset "$ore_setting"; done
@@ -71,37 +79,24 @@ export SHARP_IGNORE_GLOBAL_LIBVIPS=1
 unset NODE_OPTIONS NODE_PATH npm_config_prefix npm_config_arch npm_config_platform npm_config_target npm_config_runtime npm_config_build_from_source || true
 : > "$npm_config_userconfig"
 : > "$npm_config_globalconfig"
-checksum() {
-  if command -v shasum >/dev/null; then shasum -a 256 "$1" | awk '{print $1}';
-  elif command -v sha256sum >/dev/null; then sha256sum "$1" | awk '{print $1}';
-  else fail 'shasum or sha256sum is required to verify downloads.'; fi
-}
+ore_download() { curl -q --fail --location --proto '=https' --proto-redir '=https' --connect-timeout 20 --max-time 600 "$1" -o "$2"; }
+ore_toolkit_phase() { echo "Downloading official Node $ORE_NODE_VERSION for ${os}/${cpu}…"; }
 echo "[Build 1/6] Preparing ORE's private Node.js $ORE_NODE_VERSION runtime..."
-if [ ! -d "$ore_home/runtime/$runtime" ]; then
-  download="$ore_home/cache/$archive"
-  if [ ! -f "$download" ]; then
-    echo "Downloading official Node $ORE_NODE_VERSION for ${os}/${cpu}…"
-    curl -q --fail --location --proto '=https' --proto-redir '=https' --connect-timeout 20 --max-time 600 "https://nodejs.org/dist/v$ORE_NODE_VERSION/$archive" -o "$stage/runtime.part" || fail 'Runtime download failed; installed version is unchanged. Retry explicitly.'
-    [ "$(checksum "$stage/runtime.part")" = "$expected" ] || fail 'Runtime checksum mismatch; nothing was installed. Remove any bad cached archive and retry.'
-    mv -- "$stage/runtime.part" "$download"
-  fi
-  [ "$(checksum "$download")" = "$expected" ] || fail 'Cached runtime checksum mismatch. Remove only that archive from cache and retry.'
-  echo '[Build 1/6] Download verified. Unpacking the private runtime...'
-  tar -xzf "$download" -C "$stage"
-  [ -x "$stage/$runtime/bin/node" ] || fail 'Runtime archive is incomplete.'
-  mv -- "$stage/$runtime" "$ore_home/runtime/$runtime"
-else
-  echo '[Build 1/6] Reusing the runtime already installed for ORE.'
-fi
+runtime_status=0
+ore_private_runtime "$ore_home" "$stage" || runtime_status=$?
+case "$runtime_status" in 0) ;; 20) fail 'Runtime download failed; installed version is unchanged. Retry explicitly.';; 21) fail 'Runtime checksum mismatch or invalid runtime; nothing was installed.';; 22) fail 'Cached runtime checksum mismatch. Remove only that archive from cache and retry.';; *) fail 'Cannot prepare private runtime.';; esac
 export PATH="$ore_home/runtime/$runtime/bin:$PATH"
 node="$ore_home/runtime/$runtime/bin/node"
 npm="$ore_home/runtime/$runtime/lib/node_modules/npm/bin/npm-cli.js"
 [ "$("$node" --version)" = "v$ORE_NODE_VERSION" ] || fail 'Installed private runtime is invalid; restore it from the verified archive.'
 work="$stage/source"
-mkdir "$work"
-if [ "$mode" = '--release' ]; then
+if [ "$mode" = --snapshot ]; then
+  ore_extract_snapshot "$snapshot" "$commit" "$work" "$stage/archive-list" || fail 'Downloaded source archive is invalid.'
+elif [ "$mode" = '--release' ]; then
+  mkdir "$work"
   git -C "$ore_source" archive "$commit" -- "${inputs[@]}" | tar -xf - -C "$work"
 else
+  mkdir "$work"
   for input in "${inputs[@]}"; do
     mkdir -p -- "$work/$(dirname -- "$input")"
     cp -R -- "$ore_source/$input" "$work/$input"
@@ -109,15 +104,15 @@ else
 fi
 cd -- "$work"
 echo '[Build 2/6] Installing the packages needed to build ORE. Downloads may take a few minutes...'
-"$node" "$npm" ci --include=dev --include=optional --ignore-scripts
+"$node" "$npm" ci --include=dev --include=optional --ignore-scripts 3>&-
 # Fail before build if prebuilt native dependencies cannot load. Never compile.
 echo '[Build 3/6] Checking database/image support, then building the interface and server...'
-"$node" scripts/release/native-smoke.mjs || fail 'Locked prebuilt SQLite/sharp dependencies do not work on this OS/CPU/libc. No compiler or global image library was installed.'
-"$node" "$npm" --silent run build
+"$node" scripts/release/native-smoke.mjs 3>&- || fail 'Locked prebuilt SQLite/sharp dependencies do not work on this OS/CPU/libc. No compiler or global image library was installed.'
+"$node" "$npm" --silent run build 3>&-
 echo '[Build 4/6] Collecting third-party licenses and notices...'
 "$node" scripts/release/stage.mjs notices "$work" "$stage/notices"
 echo '[Build 5/6] Preparing the packages needed to run the finished app...'
-"$node" "$npm" ci --omit=dev --ignore-scripts --include=optional --prefer-offline
+"$node" "$npm" ci --omit=dev --ignore-scripts --include=optional --prefer-offline 3>&-
 echo '[Build 6/6] Staging and verifying the new app before activation...'
 "$node" scripts/release/stage.mjs install "$work" "$ore_home" "$mode" "$commit" "$runtime" "$expected" "$stage/notices"
 echo "ORE installed in $ore_home"

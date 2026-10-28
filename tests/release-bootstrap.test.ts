@@ -112,7 +112,7 @@ describe.skipIf(process.platform === 'win32')('Bash staging failure recovery', (
       encoding: 'utf8', timeout: 15000,
       env: { ...process.env, PATH: `${f.bin}:/usr/bin:/bin:/usr/sbin:/sbin` },
     });
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(75);
     expect(result.stderr).toContain('Permission denied');
     expect(existsSync(join(f.home, 'started'))).toBe(false);
     expect(existsSync(join(f.home, 'cache/build.lock'))).toBe(true);

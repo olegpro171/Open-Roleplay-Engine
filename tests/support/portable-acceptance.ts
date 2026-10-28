@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -38,7 +38,7 @@ async function launch(extra: NodeJS.ProcessEnv = {}) {
   processChild.stderr.on('data', bytes => { output += String(bytes); });
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => { processChild.kill('SIGTERM'); reject(new Error(`Packaged start timeout: ${output}`)); }, 15000);
-    const onData = () => { if (output.includes(`Local: ${origin}`)) { clearTimeout(timer); resolve(); } };
+    const onData = () => { if (output.includes(`Open: ${origin}`) || output.includes(`Откройте: ${origin}`)) { clearTimeout(timer); resolve(); } };
     processChild.stdout.on('data', onData);
     processChild.once('error', error => { clearTimeout(timer); reject(error); });
     processChild.once('exit', code => { clearTimeout(timer); reject(new Error(`Packaged start failed (${code}): ${output}`)); });
@@ -68,7 +68,11 @@ async function eventually<T>(read: () => Promise<T>, matches: (value: T) => bool
   throw new Error('Packaged workflow did not reach its expected state.');
 }
 async function rejectedStart(message: RegExp, extra: NodeJS.ProcessEnv = {}) {
-  const processChild = launchEntry(extra);
+  // Exercise database/port authority directly even when the public standalone
+  // entry correctly blocks all simultaneous launchers with its lifetime lock.
+  const [id, runtime] = readFileSync(join(home, 'current'), 'utf8').trim().split('\n');
+  const executable = join(home, 'runtime', runtime, windows ? 'node.exe' : 'bin/node');
+  const processChild = spawn(executable, [join(home, 'app', id, 'scripts/release/portable-launch.mjs'), home], { cwd: home, env: { ...environment, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = ''; processChild.stdout.on('data', bytes => { output += String(bytes); }); processChild.stderr.on('data', bytes => { output += String(bytes); });
   const status = await new Promise<number | null>((resolve, reject) => { const timer = setTimeout(() => { processChild.kill('SIGTERM'); reject(new Error('Duplicate start hung.')); }, 10000); processChild.once('exit', code => { clearTimeout(timer); resolve(code); }); });
   assert.notEqual(status, 0); assert.match(output, message);
@@ -77,7 +81,7 @@ try {
   child = await launch();
   const html = await fetch(origin).then(response => response.text()); assert.match(html, /<title>ORE<\/title>/);
   const session = await request<{ setupRequired: boolean }>('/api/session');
-  await request(session.setupRequired ? '/api/setup' : '/api/login', 'POST', { password: 'synthetic-portable-password' });
+  await request(session.setupRequired ? '/api/setup' : '/api/login', 'POST', { password: process.env.ORE_ACCEPTANCE_PASSWORD ?? 'synthetic-portable-password' });
   const about = await request<{ kind: string; node: string; commit: string }>('/api/about'); assert.equal(about.node, '24.19.0'); assert(about.commit.length === 40);
   const libraries = () => request<LibrarySnapshot>('/api/library');
   async function save(kind: string, data: unknown) { return request<{ id: string }>('/api/library', 'POST', { revision: (await libraries()).revision, kind, data, ...(kind === 'connections' ? { apiKey: 'synthetic-portable-secret' } : {}) }); }
@@ -137,8 +141,8 @@ try {
   const review: BackupReview = await staged.json(); assert(review.overlaps > 0); assert.equal(review.blockers.length, 0);
   await request(`/api/data/stages/${review.stageId}/import`, 'POST', { digest: review.digest, token: review.token, requestId: randomUUID(), overwrite: true });
   assert.deepEqual((await state()).turns, saved.turns);
-  await rejectedStart(/Another server is already using this database/);
-  await rejectedStart(new RegExp(`Port ${port} is occupied`), { ROLEPLAY_DATABASE: join(home, 'data/collision.sqlite') });
+  await rejectedStart(/ORE is already running/);
+  await rejectedStart(/ORE's port is already in use/, { ROLEPLAY_DATABASE: join(home, 'data/collision.sqlite') });
   assert.deepEqual(await request(`${base}/generations/${generation.id}/request`), historical);
   await stop();
   child = await launch(); // No installation commands; default PATH has no Node/npm.
@@ -146,6 +150,7 @@ try {
   assert.deepEqual(await request(`${base}/generations/${generation.id}/request`), historical);
   await stop('SIGKILL'); // IPC parent death shuts the server down; wait for ownership release.
   await eventually(async () => fetch(origin + '/api/session').then(() => false).catch(() => true), value => value);
+  await eventually(async () => !existsSync(join(home, 'cache/update.lock')), value => value);
   child = await launch();
   assert.deepEqual((await state()).turns, saved.turns);
   await stop();

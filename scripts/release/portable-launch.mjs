@@ -1,88 +1,148 @@
-import { createHash } from 'node:crypto';
 import { fork, spawn } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, accessSync, constants, readFileSync } from 'node:fs';
+import { openSync, writeSync, closeSync, existsSync, mkdirSync, accessSync, constants } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveDatabase, recordDatabaseReady } from './database-location.mjs';
+import { finished } from 'node:stream/promises';
 import { markWorking } from './selection.mjs';
-import { inspectDatabase } from './check-database.mjs';
+import { verifyApplication } from './application-assets.mjs';
+import { launcherMessage } from './launcher-messages.mjs';
+import { releaseLostControllerLock } from './launcher-lock.mjs';
 
 const application = resolve(process.argv[3] ?? resolve(dirname(fileURLToPath(import.meta.url)), '../..'));
 const home = resolve(process.argv[2] ?? '');
-const recoveryCommand = process.platform === 'win32' ? 'recover-app.bat' : 'recover.command (recover-app.command from source)';
-let database;
-console.log('[Start] Checking application files, runtime compatibility and saved database compatibility...');
+const concise = typeof process.env.ORE_LAUNCH_REPORT === 'string';
+const language = process.env.ORE_LAUNCH_LANGUAGE === 'ru' ? 'ru' : 'en';
+let report;
+let child;
+let ready = false;
+let stopping = false;
+let failed = false;
+let failureId = 'startupFailed';
+let logBroken = false;
+let browser;
+const say = (id, params = {}) => console.log(launcherMessage(id, language, params));
+function diagnostic(value) {
+  if (logBroken) return false;
+  try { writeSync(report, value); return true; }
+  catch {
+    logBroken = true; failed = true;
+    say('logFailed');
+    stop();
+    return false;
+  }
+}
+function assistance() {
+  if (logBroken) return;
+  say('assistance'); console.log(logPath);
+}
+function stop() {
+  if (stopping) return;
+  stopping = true;
+  if (ready) say('stopping');
+  if (child?.connected) child.disconnect();
+  if (browser?.pid) browser.kill('SIGTERM');
+}
+const parent = process.ppid;
+const monitor = setInterval(() => { if (process.ppid !== parent) stop(); }, 500);
+monitor.unref();
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, stop);
+if (process.platform !== 'win32') process.on('SIGXFSZ', () => {
+  if (logBroken) return;
+  logBroken = true; failed = true; say('logFailed'); stop();
+});
+if (typeof process.send === 'function') process.once('disconnect', stop);
+const logPath = concise ? process.env.ORE_LAUNCH_REPORT : resolve(home, 'logs', `startup-${Date.now()}-${process.pid}.log`);
 try {
-  if (process.env.ROLEPLAY_DATABASE !== undefined && !process.env.ROLEPLAY_DATABASE.trim()) throw new Error('ROLEPLAY_DATABASE must name a database file. Unset it to use the installation default.');
   for (const directory of ['data', 'cache', 'logs', 'languages']) {
     mkdirSync(resolve(home, directory), { recursive: true, mode: 0o700 });
     accessSync(resolve(home, directory), constants.W_OK);
   }
-  for (const file of ['dist/server/server/main.js', 'dist/server/server/picture-worker.js', 'dist/client/index.html', 'migrations/0014_library_sorting.sql', 'build-info.json']) accessSync(resolve(application, file), constants.R_OK);
-  const manifest = JSON.parse(readFileSync(resolve(application, 'manifest.json'), 'utf8'));
-  if (!Array.isArray(manifest.files)) throw new Error('Installation manifest is missing its file list. Rebuild the application.');
-  for (const file of manifest.files) {
-    if (typeof file.path !== 'string' || (!file.path.startsWith('dist/') && !file.path.startsWith('migrations/'))) continue;
-    if (file.path.split('/').some(part => part === '..' || part === '')) throw new Error('Invalid installation manifest path.');
-    const actual = createHash('sha256').update(readFileSync(resolve(application, file.path))).digest('hex');
-    if (actual !== file.sha256) throw new Error(`Application asset differs from its manifest: ${file.path}. Rebuild before starting.`);
+  report = openSync(logPath, concise ? 'a' : 'wx', 0o600);
+  writeSync(report, `Application startup ${application}; Node ${process.versions.node}\n`);
+} catch {
+  say('logFailed'); process.exit(74);
+}
+let legacyDatabase;
+let recordLegacyReady = () => {};
+try {
+  const info = verifyApplication(application);
+  if (!concise) console.log(`Starting ORE · commit ${info.commit}`);
+  diagnostic(`Commit ${info.commit}; schema ${info.schema}; runtime ${info.node}\n`);
+  // Retained old payloads lack application-start. This explicit compatibility
+  // path preserves their recovery guards; new payloads own them at startup.
+  if (!existsSync(resolve(application, 'scripts/release/application-start.mjs'))) {
+    const { resolveDatabase, recordDatabaseReady } = await import('./database-location.mjs');
+    const { inspectDatabase } = await import('./check-database.mjs');
+    legacyDatabase = resolveDatabase(home);
+    recordLegacyReady = () => recordDatabaseReady(home, legacyDatabase);
+    if (existsSync(legacyDatabase.path)) inspectDatabase(application, legacyDatabase.path, info.schema);
   }
-  database = resolveDatabase(home);
-  const info = JSON.parse(readFileSync(resolve(application, 'build-info.json'), 'utf8'));
-  if (info.node !== process.versions.node || info.platform !== process.platform || info.arch !== process.arch) throw new Error('Bundled runtime/OS/CPU does not match this application. Rebuild for this machine.');
-  if (typeof info.commit !== 'string' || !/^[0-9a-f]{40}$/.test(info.commit)) throw new Error('Invalid application commit metadata.');
-  if (!Number.isInteger(info.schema) || info.schema < 1) throw new Error('Invalid application schema metadata.');
-  if (existsSync(database.path)) inspectDatabase(application, database.path, info.schema);
-  console.log(`Starting ORE · commit ${info.commit}`);
+  if (logBroken) process.exit(74);
+  say('starting');
+  child = fork(resolve(application, legacyDatabase ? 'dist/server/server/main.js' : 'scripts/release/application-start.mjs'), legacyDatabase ? [] : [home, application], {
+    execPath: process.execPath, execArgv: [], cwd: application,
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    env: { ...process.env, ORE_PARENT_IPC: '1', ORE_HOME: home, ...(legacyDatabase ? { ROLEPLAY_DATABASE: legacyDatabase.path, ORE_DATABASE_MUST_EXIST: legacyDatabase.mustExist ? '1' : '0' } : {}), TMPDIR: resolve(home, 'cache'), TMP: resolve(home, 'cache'), TEMP: resolve(home, 'cache') },
+  });
+  child.stdout.on('data', bytes => diagnostic(bytes));
+  child.stderr.on('data', bytes => diagnostic(bytes));
+  child.once('error', error => { failed = true; diagnostic(`${error.stack}\n`); });
+  child.on('message', value => {
+    if (stopping || !value || typeof value !== 'object') return;
+    if (value.type === 'startup-error' && ['alreadyRunning', 'portConflict'].includes(value.id)) { failureId = value.id; return; }
+    if (ready || value.type !== 'ready' || typeof value.url !== 'string') return;
+    // Ready URLs are server-generated loopback/TLS endpoints. Reject control
+    // characters instead of allowing a child to inject Terminal instructions.
+    let url;
+    try {
+      url = new URL(value.url);
+      if (!['http:', 'https:'].includes(url.protocol) || /[\x00-\x20\x7f]/u.test(value.url) || url.username || url.password) throw new Error('Invalid ready URL.');
+      if (legacyDatabase) {
+        recordLegacyReady();
+      }
+      markWorking(home, application);
+      if (!diagnostic(`Ready ${value.url}\n`)) return;
+      ready = true;
+      process.send?.({ type: 'ready', url: value.url }, error => { if (error) stop(); });
+    } catch (error) { failed = true; diagnostic(`${error.stack}\n`); stop(); return; }
+    say('ready'); say('openUrl', { url: value.url }); console.log('');
+    say('keepWindow'); say('stopHint');
+    if (process.env.ORE_OPEN_BROWSER === '0') return;
+    say('openingBrowser');
+    const command = process.platform === 'win32' ? 'rundll32.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+    browser = spawn(command, process.platform === 'win32' ? ['url.dll,FileProtocolHandler', value.url] : [value.url], { stdio: 'ignore' });
+    let reported = false;
+    function browserFailed(cause) {
+      if (reported || stopping) return;
+      reported = true; diagnostic(`Browser open failed: ${cause}\n`);
+      say('browserFailed'); say('openUrl', { url: value.url });
+    }
+    browser.once('error', error => browserFailed(error.message));
+    browser.once('exit', (code, signal) => { if (code !== 0) browserFailed(`exit ${code}, signal ${signal}`); });
+  });
+  const status = await new Promise((accept, reject) => { child.once('error', reject); child.once('exit', (code, signal) => accept(code ?? (signal ? 1 : 0))); });
+  // Fork's IPC teardown is independent of stream completion. Drain both pipes
+  // explicitly before closing the report, including the final failure bytes.
+  await Promise.all([finished(child.stdout, { cleanup: true }), finished(child.stderr, { cleanup: true })]);
+  process.exitCode = logBroken ? 74 : failed || !ready ? 1 : status;
+  if (stopping && !ready && !failed) say('cancelled');
+  else if (!ready || failed || status !== 0) {
+    diagnostic(`Startup/server failure; exit ${status}. No older code was launched. Use recover.command --list / --previous for explicit compatible recovery.\n`);
+    if (!logBroken) { say(failureId); assistance(); }
+  } else say('stopped');
 } catch (error) {
-  console.error(`ORE cannot start: ${error.message}\nNo alternative database was selected. Use ${recoveryCommand} --list / --previous to inspect and recover retained versions safely.`);
-  process.exit(1);
-}
-const logPath = resolve(home, 'logs', `startup-${Date.now()}-${process.pid}.log`);
-const log = createWriteStream(logPath, { flags: 'wx', mode: 0o600 });
-console.log(`ORE log: ${logPath}`);
-let failed = false;
-let ready = false;
-log.on('error', error => { failed = true; console.error(`Cannot write ORE log: ${error.message}`); child?.kill('SIGTERM'); });
-let child;
-let stopping = false;
-function stop() {
-  if (stopping) return;
+  diagnostic(`${error.stack}\nNo alternative database was selected. Use recover.command --list / --previous for explicit compatible recovery.\n`);
+  if (!logBroken) {
+    if (!concise) console.error(error.message);
+    say('startupFailed'); assistance();
+  }
+  process.exitCode = logBroken ? 74 : 1;
+} finally {
   stopping = true;
-  if (child?.connected) child.disconnect();
-}
-// These cover a terminal close as well as Ctrl+C. Never kill a foreign PID.
-for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, stop);
-if (typeof process.send === 'function') process.once('disconnect', stop);
-child = fork(resolve(application, 'dist/server/server/main.js'), [], {
-  execPath: process.execPath, execArgv: [], cwd: application,
-  stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-  env: { ...process.env, ORE_PARENT_IPC: '1', ORE_HOME: home, ROLEPLAY_DATABASE: database.path, ORE_DATABASE_MUST_EXIST: database.mustExist ? '1' : '0', TMPDIR: resolve(home, 'cache'), TMP: resolve(home, 'cache'), TEMP: resolve(home, 'cache') },
-});
-child.stdout.on('data', bytes => { process.stdout.write(bytes); log.write(bytes); });
-child.stderr.on('data', bytes => { process.stderr.write(bytes); log.write(bytes); });
-child.once('error', error => { failed = true; console.error(`ORE could not launch: ${error.message}`); log.end(); process.exitCode = 1; if (process.connected) process.disconnect(); });
-child.on('message', message => {
-  if (stopping || message?.type !== 'ready' || typeof message.url !== 'string') return;
-  try {
-    recordDatabaseReady(home, database);
-    markWorking(home, application);
-    ready = true;
-    process.send?.({ type: 'ready', url: message.url }, error => { if (error) stop(); });
-  } catch (error) { failed = true; console.error(`Could not record successful startup: ${error.message}`); stop(); return; }
-  console.log(`ORE is ready. Open ${message.url} in your browser.`);
-  console.log('Keep this terminal window open while using ORE. Press Ctrl+C here to stop the app.');
-  if (process.env.ORE_OPEN_BROWSER === '0') return;
-  console.log('Opening your browser...');
-  // Avoid cmd.exe parsing of a provider-independent URL on Windows.
-  const command = process.platform === 'win32' ? 'rundll32.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-  const browser = spawn(command, process.platform === 'win32' ? ['url.dll,FileProtocolHandler', message.url] : [message.url], { stdio: 'ignore' });
-  browser.on('error', () => console.log(`Open ${message.url} in your browser.`));
-  browser.unref();
-});
-child.once('exit', (code, signal) => {
-  process.exitCode = failed || !ready ? 1 : code ?? (signal ? 1 : 0);
-  if (!ready) console.error(`ORE did not become ready. No older code was launched automatically. Use ${recoveryCommand} --list / --previous; recovery checks the saved database schema first.`);
-  log.end();
+  if (browser?.pid && browser.exitCode === null && browser.signalCode === null) browser.kill('SIGTERM');
+  clearInterval(monitor);
+  try { releaseLostControllerLock(home, parent, process.env.ORE_LAUNCH_LOCK_TOKEN); }
+  catch (error) { diagnostic(`Lock cleanup failed: ${error.stack}\n`); if (!process.exitCode) process.exitCode = 75; }
+  if (report !== undefined) closeSync(report);
   if (process.connected) process.disconnect();
-});
+}

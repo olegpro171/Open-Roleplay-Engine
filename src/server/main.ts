@@ -20,15 +20,25 @@ const certificate = process.env.ROLEPLAY_TLS_CERT;
 const key = process.env.ROLEPLAY_TLS_KEY;
 if (Boolean(certificate) !== Boolean(key)) throw new Error('Set both ROLEPLAY_TLS_CERT and ROLEPLAY_TLS_KEY.');
 if (!['127.0.0.1', 'localhost', '::1'].includes(host) && !certificate) throw new Error('Keep ROLEPLAY_HOST on loopback for HTTP. Enable phone access in Application Settings after local owner setup. Legacy non-loopback startup requires ROLEPLAY_TLS_CERT and ROLEPLAY_TLS_KEY.');
-const { app, lan } = await createApp({
-  ...paths,
-  ...(certificate && key ? { https: { cert: readFileSync(certificate), key: readFileSync(key) } } : {}),
-});
+let services: Awaited<ReturnType<typeof createApp>>;
+try {
+  services = await createApp({
+    ...paths,
+    ...(certificate && key ? { https: { cert: readFileSync(certificate), key: readFileSync(key) } } : {}),
+  });
+} catch (error) {
+  if (error instanceof Error && 'code' in error && error.code === 'ORE_DATABASE_OWNED') process.send?.({ type: 'startup-error', id: 'alreadyRunning' });
+  throw error;
+}
+const { app, lan } = services;
 if (parentDisconnected) { await app.close(); process.exit(0); }
 try { await app.listen({ host, port }); }
 catch (error) {
   await app.close();
-  if (error instanceof Error && 'code' in error && error.code === 'EADDRINUSE') throw new Error(`Port ${port} is occupied. Stop the other ORE terminal or choose ROLEPLAY_PORT. No process was killed.`);
+  if (error instanceof Error && 'code' in error && error.code === 'EADDRINUSE') {
+    process.send?.({ type: 'startup-error', id: 'portConflict' });
+    throw new Error(`Port ${port} is occupied. Stop the other ORE terminal or choose ROLEPLAY_PORT. No process was killed.`);
+  }
   throw error;
 }
 if (parentDisconnected) { await app.close(); process.exit(0); }
