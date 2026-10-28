@@ -91,9 +91,7 @@ function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnap
     submitting.current = true;
     try {
       const character = library.characters.find(item => item.id === characterId);
-      // Keep the Roleplay suffix within the existing 100-character chat-title limit.
-      const suffix = t("libraries.roleplay");
-      const title = character ? `${characterLabel(character).slice(0, 100 - suffix.length)}${suffix}` : t("libraries.a_new_story");
+      const title = character ? character.name.slice(0, 100) : t("libraries.a_new_story");
       const settings = { title, targetInputTokens: 32_000, characterId, personaId, lorebookId: character?.lorebookId ?? null };
       let id = '';
       if (await run(async () => { id = (await api<{ id: string }>('/chats', 'POST', settings)).id; })) created(id);

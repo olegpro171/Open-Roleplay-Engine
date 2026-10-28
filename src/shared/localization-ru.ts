@@ -498,7 +498,6 @@ export const russianMessages = {
   "libraries.persona": "Персона",
   "libraries.context_preset": "Пресет контекста",
   "libraries.lorebook": "Лорбук",
-  "libraries.roleplay": " — ролевая история",
   "libraries.new_chat": "Новый чат",
   "libraries.create_chat": "Создать чат",
   "libraries.could_not_check_prompt_configuration": "Не удалось проверить настройки промпта.",

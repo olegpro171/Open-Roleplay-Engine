@@ -216,7 +216,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await choose(page, 'Character', 'Moon');
   await choose(page, 'Persona', 'Visitor');
   await page.getByRole('button', { name: 'Create chat', exact: true }).click();
-  await expect(page.getByLabel('Chat title')).toHaveValue('Moon - Roleplay');
+  await expect(page.getByLabel('Chat title')).toHaveValue('Moon');
   await page.getByLabel('Chat title').fill('The Observatory');
   await choose(page, 'Connection', 'Tower model');
   await choose(page, 'Prompt preset', 'Observatory prompt');

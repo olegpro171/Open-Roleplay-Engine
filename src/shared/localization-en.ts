@@ -491,7 +491,6 @@ export const englishMessages = {
   "libraries.persona": "Persona",
   "libraries.context_preset": "Context preset",
   "libraries.lorebook": "Lorebook",
-  "libraries.roleplay": " - Roleplay",
   "libraries.new_chat": "New chat",
   "libraries.create_chat": "Create chat",
   "libraries.could_not_check_prompt_configuration": "Could not check prompt configuration.",
