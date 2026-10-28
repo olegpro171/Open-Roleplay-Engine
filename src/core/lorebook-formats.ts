@@ -228,17 +228,65 @@ function bookRaw(book: Lorebook) {
   return source.spec === 'lorebook_v3' ? object(source.data) : source;
 }
 
+/** Suppress only understood no-ops; unknown fields and malformed values stay visible. */
+function harmlessEntryMetadata(field: string, raw: JsonObject, entry: LoreEntry, book: Lorebook): boolean {
+  const value = raw[field];
+  switch (field) {
+    case 'probability':
+      return typeof value === 'number' && value >= 0 && value <= 100
+        && (value === 100 || raw.useProbability === false);
+    case 'useProbability':
+      return value === false || value === true && (raw.probability === undefined || raw.probability === 100);
+    case 'selectiveLogic':
+      return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 3
+        && (value === 0 || !entry.selective || entry.constant);
+    case 'depth':
+      return depthSchema.safeParse(value).success && entry.placement !== 'history';
+    case 'excludeRecursion':
+    case 'preventRecursion':
+      return value === false || value === true && !book.recursiveScanning;
+    case 'delayUntilRecursion':
+      return value === false || value === 0;
+    case 'sticky':
+    case 'cooldown':
+    case 'delay':
+      return value === 0;
+    case 'vectorized':
+    case 'matchWholeWords':
+    case 'linked':
+      return value === false;
+    case 'group':
+      return value === '';
+    case 'characterFilter':
+      return value === null;
+    case 'weight':
+      return typeof value === 'number' && Number.isFinite(value) && value === entry.priority;
+    // Foreign editor bookkeeping does not control prompt content or activation.
+    case 'addMemo':
+    case 'embedded':
+      return typeof value === 'boolean';
+    case 'displayIndex':
+      return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+    default:
+      return false;
+  }
+}
+
 /** Notices describe preserved inactive metadata; they never execute extension behavior. */
 export function loreCompatibility(book: Lorebook): LoreDiagnostic[] {
   const diagnostics: LoreDiagnostic[] = [];
   let omitted = 0;
   const add = (diagnostic: LoreDiagnostic) => { if (diagnostics.length < 200) diagnostics.push(diagnostic); else omitted++; };
-  const extras = (raw: JsonObject, fields: Set<string>, entryId?: string) => {
-    for (const field of Object.keys(raw)) if (!fields.has(field)) add({ code: 'unsupported_field', field, entryId, ...diagnosticMessage(message("interface.is_preserved_for_export_and_has_no_activation", { field: String(field) })) });
+  const extras = (raw: JsonObject, fields: Set<string>, entry?: LoreEntry) => {
+    const entryId = entry?.id;
+    for (const field of Object.keys(raw)) if (!fields.has(field) && !(entry && harmlessEntryMetadata(field, raw, entry, book))) add({ code: 'unsupported_field', field, entryId, ...diagnosticMessage(message("interface.is_preserved_for_export_and_has_no_activation", { field: String(field) })) });
     if (raw.extensions !== undefined) {
       const extensions = objectSchema.safeParse(raw.extensions);
       if (!extensions.success) add({ code: 'invalid_preserved_metadata', field: 'extensions', entryId, ...diagnosticMessage(message("interface.preserved_extension_metadata_is_malformed_it_stays_inactive")) });
-      else for (const field of Object.keys(extensions.data)) add({ code: 'unsupported_extension', field: `extensions.${field}`, entryId, ...diagnosticMessage(message("interface.extension_is_preserved_inactive", { field: String(field) })) });
+      else for (const field of Object.keys(extensions.data)) {
+        if (entry && harmlessEntryMetadata(field, extensions.data, entry, book)) continue;
+        add({ code: 'unsupported_extension', field: `extensions.${field}`, entryId, ...diagnosticMessage(message("interface.extension_is_preserved_inactive", { field: String(field) })) });
+      }
     }
   };
   const source = book.source?.raw ?? {};
@@ -250,9 +298,9 @@ export function loreCompatibility(book: Lorebook): LoreDiagnostic[] {
   }
   for (const entry of book.entries) {
     const raw = entry.source?.raw ?? {};
-    extras(raw, book.source?.format === 'world_info' ? worldSupportedFields : standardKnownFields, entry.id);
+    extras(raw, book.source?.format === 'world_info' ? worldSupportedFields : standardKnownFields, entry);
     if (book.source?.format === 'world_info') {
-      if (raw.selectiveLogic !== undefined && raw.selectiveLogic !== 0) add({ code: 'unsupported_selective_logic', entryId: entry.id, field: 'selectiveLogic', ...diagnosticMessage(message("interface.this_world_info_selective_logic_is_preserved_inactive")) });
+      if (raw.selectiveLogic !== undefined && !harmlessEntryMetadata('selectiveLogic', raw, entry, book)) add({ code: 'unsupported_selective_logic', entryId: entry.id, field: 'selectiveLogic', ...diagnosticMessage(message("interface.this_world_info_selective_logic_is_preserved_inactive")) });
       if (typeof raw.position === 'number' && ![0, 1, 4].includes(raw.position)) add({ code: 'unsupported_position', entryId: entry.id, field: 'position', ...diagnosticMessage(message("interface.this_world_info_position_is_preserved_inactive_the")) });
       if (!entry.useRegex && entry.keys.some(key => /^\/.*\/[a-z]*$/s.test(key))) add({ code: 'literal_regex_text', entryId: entry.id, field: 'key', ...diagnosticMessage(message("interface.regex_like_keys_remain_literal_because_this_entry")) });
     }

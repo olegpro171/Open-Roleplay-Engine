@@ -115,8 +115,10 @@ The upstream prose/type conflict for secondary keys is resolved using its typed 
 | position 0/1/4, role, depth, caseSensitive, scanDepth, explicit useRegex/use_regex | Map bounded before/after/history placement and matching settings. |
 | Other selectiveLogic or positions | Preserve unsupported behavior with notices. Unsupported selective logic uses the standard secondary condition; unsupported positions use after-character placement. These mappings are shown in compatibility notices. |
 | Probability/useProbability, groups/weights, sticky/cooldown/delay, vectorized/whole-word matching, recursion overrides, outlets, author-note/example-message behavior | Preserve inactive and report; no corresponding engine feature is executed. |
-| Unknown fields/extensions | Preserve inactive and report. |
+| Unknown fields/extensions | Preserve inactive and report unless they are recognized harmless metadata as described below. |
 | Invalid supported types/limits, conflicting aliases or ambiguous shapes | Reject; never truncate or silently replace malformed values. |
+
+Compatibility notices identify potentially meaningful unsupported behavior, rather than every preserved property. Across standard and World Info entries, omit recognized neutral values (100% probability, disabled probability gating, zero timers, empty groups and disabled optional matching), inapplicable controls (secondary logic without selective matching; recursion exclusions with book recursion off; extension depth outside history placement), and recognized editor bookkeeping (`displayIndex`, `addMemo`, `embedded`, false `linked`, null `characterFilter`). A preserved `weight` matching normalized priority is redundant for reporting. Keep unknown fields, malformed metadata and nonneutral unsupported settings visible. These rules affect notices only: source metadata stays preserved and no unsupported behavior is activated. Recompute notices from current normalized settings so edits can make a previously irrelevant control worth reporting.
 
 This is interoperability with explicit supported mappings, not complete SillyTavern engine compatibility. The per-format adapter preserves unsupported source values while normalized supported behavior remains inspectable/editable.
 

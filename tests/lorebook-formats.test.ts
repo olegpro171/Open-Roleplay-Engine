@@ -224,6 +224,83 @@ describe('edited lorebook export', () => {
   });
 });
 
+describe('meaningful compatibility notices', () => {
+  function standardEntry(extra: Record<string, unknown> = {}) {
+    return { keys: ['harbor'], content: 'Synthetic prose.', enabled: true, insertion_order: 25, extensions: {},
+      priority: 30, selective: false, secondary_keys: [], position: 'after_char', ...extra };
+  }
+
+  it('omits default and redundant metadata across repeated standard entries without changing exports', () => {
+    const source = { extensions: {}, recursive_scanning: false, entries: Array.from({ length: 6 }, (_, index) => standardEntry({
+      probability: 100, selectiveLogic: 0,
+      extensions: { depth: 4, linked: false, weight: 30, addMemo: true, embedded: true,
+        probability: 100, displayIndex: index, selectiveLogic: 0, useProbability: true,
+        characterFilter: null, excludeRecursion: true },
+    })) };
+    const result = imported(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(exportLorebook(result.book)).toEqual(source);
+    expect(loreCompatibility(result.book)).toEqual([]);
+  });
+
+  it('omits inactive World Info defaults but retains unknown fields even when false', () => {
+    const source = { recursive_scanning: false, entries: { a: { key: ['harbor'], content: 'Prose',
+      probability: 100, useProbability: true, selectiveLogic: 0, sticky: 0, cooldown: 0,
+      delay: 0, group: '', vectorized: false, matchWholeWords: false, excludeRecursion: true,
+      preventRecursion: false, delayUntilRecursion: false, foreign_field: false } } };
+    const result = imported(source);
+    expect(result.diagnostics.map(item => item.field)).toEqual(['foreign_field']);
+    expect(exportLorebook(result.book)).toEqual(source);
+  });
+
+  it.each([false, true])('reports nondefault probability only when enabled (extensions: %s)', extension => {
+    const raw = { probability: 35, useProbability: false };
+    const source = { extensions: {}, entries: [standardEntry(extension ? { extensions: raw } : raw)] };
+    const result = imported(source);
+    expect(result.diagnostics).toEqual([]);
+    const active = imported({ entries: [standardEntry(extension
+      ? { extensions: { ...raw, useProbability: true } } : { ...raw, useProbability: true })] });
+    expect(active.diagnostics.some(item => item.field === (extension ? 'extensions.probability' : 'probability'))).toBe(true);
+    expect(exportLorebook(result.book)).toEqual(source);
+  });
+
+  it('rechecks dependent controls after supported settings change', () => {
+    const result = imported({ entries: [standardEntry({ selectiveLogic: 2,
+      extensions: { excludeRecursion: true, depth: 4, weight: 30 } })] });
+    expect(result.diagnostics).toEqual([]);
+    const changed = { ...result.book, recursiveScanning: true,
+      entries: [{ ...first(result.book), selective: true, secondaryKeys: ['fog'], priority: 40, placement: 'history' as const }] };
+    expect(loreCompatibility(changed).map(item => item.field)).toEqual([
+      'selectiveLogic', 'extensions.excludeRecursion', 'extensions.depth', 'extensions.weight',
+    ]);
+  });
+
+  it.each(['v2', 'v3', 'world_info'] as const)('retains meaningful unsupported controls in %s', format => {
+    const settings = { probability: 45, useProbability: true, selectiveLogic: 2,
+      sticky: 2, cooldown: 3, delay: 1, vectorized: true, matchWholeWords: true,
+      group: 'weather', excludeRecursion: true, preventRecursion: true, delayUntilRecursion: 2 };
+    const entry = format === 'world_info'
+      ? { key: ['harbor'], keysecondary: ['fog'], selective: true, content: 'Prose', ...settings }
+      : standardEntry({ selective: true, secondary_keys: ['fog'], use_regex: false, ...settings });
+    const raw = { recursive_scanning: true, extensions: {}, entries: format === 'world_info' ? { a: entry } : [entry] };
+    const source = format === 'v3' ? { spec: 'lorebook_v3', data: raw } : raw;
+    const result = imported(source);
+    for (const field of Object.keys(settings)) {
+      expect(result.diagnostics.some(item => item.field === field), field).toBe(true);
+    }
+    expect(exportLorebook(result.book)).toEqual(source);
+  });
+
+  it('keeps malformed known values and unknown extensions visible', () => {
+    const result = imported({ entries: [standardEntry({ probability: '100',
+      extensions: { displayIndex: '0', embedded: 'true', depth: '4', characterFilter: {}, mystery: null } })] });
+    expect(result.diagnostics.map(item => item.field)).toEqual([
+      'probability', 'extensions.displayIndex', 'extensions.embedded', 'extensions.depth',
+      'extensions.characterFilter', 'extensions.mystery',
+    ]);
+  });
+});
+
 describe('World Info compatibility', () => {
   it('maps the supported subset and diagnoses unsupported activation settings without executing them', () => {
     const result = imported(fixtures.worldInfo);
@@ -249,7 +326,7 @@ describe('World Info compatibility', () => {
   });
 
   it('preserves unsupported positions while explicitly reporting its after-character fallback', () => {
-    const source = { entries: { a: { key: [], content: 'Prose', position: 7, selectiveLogic: 2, delay: 3, vectorized: true, matchWholeWords: true } } };
+    const source = { entries: { a: { key: [], content: 'Prose', position: 7, selective: true, keysecondary: ['fog'], selectiveLogic: 2, delay: 3, vectorized: true, matchWholeWords: true } } };
     const result = imported(source);
     expect(first(result.book).placement).toBe('after_char');
     expect(result.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'unsupported_position', message: expect.stringContaining('after-character') }), expect.objectContaining({ code: 'unsupported_selective_logic' })]));
