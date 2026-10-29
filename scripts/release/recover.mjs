@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readSelection, writeSelection, runtimeExecutable } from './selection.mjs';
-import { resolveDatabase, selectDatabase } from './database-location.mjs';
+import { resolveDatabase, selectDatabase, ownsWindowsPackageLease } from './database-location.mjs';
 import { verifyStartup } from './startup-smoke.mjs';
 
 const [homeArgument, action = '--list', ...args] = process.argv.slice(2);
@@ -33,7 +33,7 @@ async function recover() {
   const locks = [];
   try {
     mkdirSync(join(home, 'cache'), { recursive: true, mode: 0o700 });
-    for (const name of ['update.lock', 'build.lock']) {
+    for (const name of ownsWindowsPackageLease(home) ? [] : ['update.lock', 'build.lock']) {
       const lock = join(home, 'cache', name);
       try { mkdirSync(lock); } catch (error) { if (error.code !== 'EEXIST') throw error; throw new Error(`Recovery cannot run while ${name} exists. Stop active work; remove a stale lock only after confirming its process stopped.`); }
       locks.push(lock);

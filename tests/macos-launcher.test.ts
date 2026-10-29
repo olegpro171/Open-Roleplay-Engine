@@ -337,6 +337,9 @@ describe.skipIf(process.platform !== 'darwin')('standalone macOS launcher', () =
   });
   it('shuts down its server and releases only its own lock after controller loss', async () => {
     const f=fixture(); const pending=observe(f.run()); await pending.until('ORE is ready.');
+    // Ready and the address are separate stdout writes; the pipe may deliver
+    // them in different chunks. Wait for output following the complete URL.
+    await pending.until('Keep this window open while using ORE.');
     const match=pending.output().match(/Open: (http:\/\/127\.0\.0\.1:\d+)/u); expect(match).not.toBeNull();
     if(!match) throw Error('Missing owned server URL');
     pending.child.kill('SIGKILL'); await pending.done;

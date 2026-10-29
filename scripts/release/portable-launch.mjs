@@ -80,7 +80,11 @@ try {
   }
   if (logBroken) process.exit(74);
   say('starting');
-  child = fork(resolve(application, legacyDatabase ? 'dist/server/server/main.js' : 'scripts/release/application-start.mjs'), legacyDatabase ? [] : [home, application], {
+  // A retained recovery controller uses its complete startup toolkit when the
+  // selected application's helper files are incomplete. The target application
+  // still owns its server, schema maximum and native SQLite implementation.
+  const startupBoundary = resolve(dirname(fileURLToPath(import.meta.url)), 'application-start.mjs');
+  child = fork(legacyDatabase ? resolve(application, 'dist/server/server/main.js') : startupBoundary, legacyDatabase ? [] : [home, application], {
     execPath: process.execPath, execArgv: [], cwd: application,
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     env: { ...process.env, ORE_PARENT_IPC: '1', ORE_HOME: home, ...(legacyDatabase ? { ROLEPLAY_DATABASE: legacyDatabase.path, ORE_DATABASE_MUST_EXIST: legacyDatabase.mustExist ? '1' : '0' } : {}), TMPDIR: resolve(home, 'cache'), TMP: resolve(home, 'cache'), TEMP: resolve(home, 'cache') },

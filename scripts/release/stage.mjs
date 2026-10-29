@@ -7,12 +7,13 @@ import { verifyStartup } from './startup-smoke.mjs';
 import { readSelection, writeSelection, runtimeExecutable, publishRename } from './selection.mjs';
 import { launcherEvent } from './launcher-messages.mjs';
 import { buildPhase } from './build-timing.mjs';
+import { windowsRootTools } from './windows-package-files.mjs';
 
 const recoveryFiles = ['load-env.sh', 'recover.mjs', 'database-location.mjs', 'selection.mjs', 'startup-smoke.mjs', 'check-database.mjs', 'portable-launch.mjs', 'application-start.mjs', 'application-assets.mjs', 'launcher-messages.mjs', 'launcher-messages.json', 'launcher-lock.mjs', 'macos-install.mjs', 'macos-launcher.sh', 'macos-launcher-protocol', 'update-and-start.sh', 'launcher-protocol', 'windows-common.ps1', 'update-and-start.ps1', 'recover-windows.ps1', 'start-windows.ps1'];
 
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 recoveryFiles.push('windows-launcher.ps1', 'windows-launcher-protocol', 'windows-install-verify.mjs', 'windows-snapshot.ps1', 'windows-standalone-common.ps1');
-recoveryFiles.push('build-timing.mjs');
+recoveryFiles.push('build-timing.mjs', 'windows-package-launcher.ps1', 'windows-package-protocol', 'windows-package-install.mjs', 'windows-package-lock.ps1', 'windows-package.ps1', 'windows-package-files.mjs');
 export function inventory(root, directory = root) {
   return readdirSync(directory).sort().flatMap(name => {
     const path = join(directory, name), stat = lstatSync(path), entry = relative(root, path).split('\\').join('/');
@@ -121,7 +122,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     cpSync(join(work, 'scripts/release/start.command'), launcher);
     publishRename(launcher, join(home, 'start.command'));
     if (process.platform === 'win32') {
-      for (const name of ['start-app.bat', 'recover-app.bat', 'start-windows.ps1', 'recover-windows.ps1', 'windows-common.ps1']) {
+      for (const name of windowsRootTools) {
         const temporary = join(home, `${name}-${randomUUID()}.tmp`);
         cpSync(join(work, 'scripts/release', name), temporary);
         publishRename(temporary, join(home, name));

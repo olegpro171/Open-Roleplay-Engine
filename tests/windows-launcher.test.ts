@@ -1,3 +1,4 @@
+import { legacyWindowsLauncher } from '../scripts/release/generate-windows-launcher.mjs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -73,7 +74,7 @@ function Get-OreHttps([string]$Url,[string]$Output,[int]$Seconds) {
 }
 `;
   const instrument = (text: string) => text.replace('# Installed mode never delegates again.', transport+'\n[IO.File]::WriteAllText($env:ORE_TEST_PID,[string]$PID)\n# Installed mode never delegates again.').replace('$preference = [Globalization.CultureInfo]::CurrentUICulture.Name', `$preference = ${quote(locale)}`);
-  const entry = join(parent,'ORE-launcher.bat'); writeFileSync(entry,instrument(readFileSync('ORE-launcher.bat','utf8')));
+  const entry = join(parent,'ORE-launcher.bat'); writeFileSync(entry,instrument(legacyWindowsLauncher()));
   writeFileSync(join(root,'main.json'),JSON.stringify({sha:a}));
   writeFileSync(join(root,'compare.json'),JSON.stringify({status:'ahead',base_commit:{sha:a},merge_base_commit:{sha:a}}));
   const runtimeRoot = join(root,'toolkit',`node-v${process.versions.node}-win-x64`);

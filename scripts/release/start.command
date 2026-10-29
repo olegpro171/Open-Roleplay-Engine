@@ -83,6 +83,8 @@ ore_message() {
     setupFailed:ru) printf '%s' 'Не удалось завершить настройку ORE.';;
     logFailed:en) printf '%s' 'ORE couldn'\''t create its log file. Check the installation folder'\''s permissions and try again.';;
     logFailed:ru) printf '%s' 'Не удалось создать файл журнала ORE. Проверьте права доступа к папке установки и повторите попытку.';;
+    legacyRestart:en) printf '%s' 'An earlier ORE installation was interrupted. Restart Windows, then run this launcher again. Your saved data will be kept.';;
+    legacyRestart:ru) printf '%s' 'Предыдущая установка ORE была прервана. Перезагрузите Windows и снова запустите этот файл. Ваши данные будут сохранены.';;
     *) return 1;;
   esac
 }

@@ -1,0 +1,79 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, cpSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { inventory } from '../scripts/release/stage.mjs';
+import { installWindowsPackage, verifyWindowsPackage } from '../scripts/release/windows-package-install.mjs';
+
+const roots: string[] = [];
+const commit = 'a'.repeat(40), nextCommit = 'b'.repeat(40);
+const runtime = 'node-v24.19.0-win32-x64';
+afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+function fixture() {
+ const root = mkdtempSync(join(tmpdir(), 'ORE-package-publication-')); roots.push(root);
+ const home = join(root, 'home'); mkdirSync(home);
+ for (const directory of ['data', 'languages']) { mkdirSync(join(home, directory)); writeFileSync(join(home, directory, 'retained'), 'synthetic private content'); }
+ for (const file of ['.env', 'database-location.json', 'updates-paused']) writeFileSync(join(home, file), 'retained '+file);
+ function packageFor(sha = commit) {
+  const payload = join(root, 'payload-'+sha), id = 'release-'+sha;
+  for (const directory of ['data', 'languages', 'cache', 'logs', `app/${id}/scripts/release`, `runtime/${runtime}`, `recovery/${id}`]) mkdirSync(join(payload, directory), { recursive: true });
+  const selection = `${id}\n${runtime}\n`;
+  writeFileSync(join(payload, 'current'), selection); writeFileSync(join(payload, 'recovery/current'), selection);
+  for (const file of ['start.command', 'recover.command', 'start-app.bat', 'recover-app.bat', 'start-windows.ps1', 'recover-windows.ps1', 'windows-common.ps1', 'windows-snapshot.ps1', 'windows-package-lock.ps1', 'windows-package.ps1', 'windows-standalone-common.ps1', 'README.md', 'LICENSE']) writeFileSync(join(payload, file), 'synthetic '+file);
+  writeFileSync(join(payload, 'app', id, 'build-info.json'), JSON.stringify({ commit: sha, platform: 'win32', arch: 'x64', kind: 'release' }));
+  writeFileSync(join(payload, 'runtime', runtime, 'node.exe'), 'synthetic runtime');
+  for (const tools of [join(payload, 'app', id, 'scripts/release'), join(payload, 'recovery', id)]) {
+   writeFileSync(join(tools, 'windows-package-protocol'), '2\n'); writeFileSync(join(tools, 'windows-package-launcher.ps1'), 'synthetic helper');
+  }
+  const seal = () => writeFileSync(join(payload, 'checksums.json'), JSON.stringify(inventory(payload).filter(file => file.path !== 'checksums.json')));
+  seal(); return { payload, id, selection, seal };
+ }
+ return { root, home, packageFor };
+}
+
+describe('Windows package verification and atomic code publication', () => {
+ it('installs immutable code while preserving all mutable installation state', () => {
+  const f = fixture(), p = f.packageFor();
+  installWindowsPackage(p.payload, f.home, commit);
+  expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(p.selection);
+  for (const file of ['.env', 'database-location.json', 'updates-paused']) expect(readFileSync(join(f.home, file), 'utf8')).toBe('retained '+file);
+  for (const directory of ['data', 'languages']) expect(readFileSync(join(f.home, directory, 'retained'), 'utf8')).toBe('synthetic private content');
+  expect(readFileSync(join(f.home, 'recovery/current'), 'utf8')).toBe(p.selection);
+ });
+ it('retains the actually working selection across a forward update and reuses the identical runtime', () => {
+  const f = fixture(), first = f.packageFor(); installWindowsPackage(first.payload, f.home, commit);
+  writeFileSync(join(f.home, 'working'), first.selection);
+  const next = f.packageFor(nextCommit); installWindowsPackage(next.payload, f.home, nextCommit);
+  expect(readFileSync(join(f.home, 'previous'), 'utf8')).toBe(first.selection);
+  expect(readFileSync(join(f.home, 'working'), 'utf8')).toBe(first.selection);
+  expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(next.selection);
+  expect(existsSync(join(f.home, 'app', first.id))).toBe(true);
+ });
+ it('retries an interrupted publication with complete immutable orphan directories', () => {
+  const f = fixture(), p = f.packageFor();
+  mkdirSync(join(f.home, 'app')); cpSync(join(p.payload, 'app', p.id), join(f.home, 'app', p.id), { recursive: true });
+  installWindowsPackage(p.payload, f.home, commit);
+  expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(p.selection);
+ });
+ it('preserves selection and differing existing runtime on failed publication', () => {
+  const f = fixture(), p = f.packageFor(); writeFileSync(join(f.home, 'current'), 'release-retained\n'+runtime+'\n');
+  mkdirSync(join(f.home, 'runtime', runtime), { recursive: true }); writeFileSync(join(f.home, 'runtime', runtime, 'node.exe'), 'different runtime');
+  expect(() => installWindowsPackage(p.payload, f.home, commit)).toThrow('immutable payload differs');
+  expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe('release-retained\n'+runtime+'\n');
+  expect(readFileSync(join(f.home, 'runtime', runtime, 'node.exe'), 'utf8')).toBe('different runtime');
+ });
+ it('rejects changed or unlisted files before publishing any payload', () => {
+  const f = fixture(), p = f.packageFor(); writeFileSync(join(p.payload, 'runtime', runtime, 'node.exe'), 'changed');
+  expect(() => installWindowsPackage(p.payload, f.home, commit)).toThrow('checksums'); expect(existsSync(join(f.home, 'app'))).toBe(false);
+ });
+ it.each(['data/story.sqlite', '.env'])('refuses user data even with a matching package inventory: %s', file => {
+  const f = fixture(), p = f.packageFor(); writeFileSync(join(p.payload, file), 'private data'); p.seal();
+  expect(() => verifyWindowsPackage(p.payload, commit)).toThrow(); expect(existsSync(join(f.home, 'current'))).toBe(false);
+ });
+ it('rejects another commit and unsupported helper protocol', () => {
+  const f = fixture(), p = f.packageFor();
+  expect(() => verifyWindowsPackage(p.payload, nextCommit)).toThrow('identity');
+  writeFileSync(join(p.payload, 'recovery', p.id, 'windows-package-protocol'), '99'); p.seal();
+  expect(() => verifyWindowsPackage(p.payload, commit)).toThrow('Unsupported');
+ });
+});

@@ -1,3 +1,4 @@
+import { legacyWindowsLauncher } from '../../scripts/release/generate-windows-launcher.mjs';
 // Explicit unpublished-candidate qualification. GitHub metadata/source transport
 // is synthetic; official runtime checks, npm, build, SQLite and server are real.
 import assert from 'node:assert/strict';
@@ -26,7 +27,7 @@ function Get-OreHttps([string]$Url,[string]$Output,[int]$Seconds) {
 }
 `;
 const instrument=(source:string)=>source.replace('# Installed mode never delegates again.',transport+'\nif($env:ORE_ACCEPTANCE_OWNER){[IO.File]::WriteAllText($env:ORE_ACCEPTANCE_OWNER,[string]$PID)}\n# Installed mode never delegates again.').replace('$preference = [Globalization.CultureInfo]::CurrentUICulture.Name',"$preference = 'en-US'");
-const entry=join(parent,'ORE-launcher.bat');writeFileSync(entry,instrument(readFileSync('ORE-launcher.bat','utf8')));
+const entry=join(parent,'ORE-launcher.bat');writeFileSync(entry,instrument(legacyWindowsLauncher()));
 const inputs=['build-portable.ps1','package.json','package-lock.json','tsconfig.json','tsconfig.server.json','vite.config.ts','vitest.config.ts','playwright.config.ts','index.html','src','public','migrations','scripts/release','LICENSE','docs/RELEASES.md'];
 const a='c'.repeat(40),b='d'.repeat(40);
 function archive(commit:string){

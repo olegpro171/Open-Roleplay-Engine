@@ -77,6 +77,10 @@ function chooseDatabase(home, selected) {
 }
 
 function withLocationLock(home, action) {
+  // Windows package startup/recovery holds an exclusive OS lease for the
+  // entire operation. Its temporary probes use another home and still take
+  // the local lock. Avoid a second persistent crash marker for leased writes.
+  if (ownsWindowsPackageLease(home)) return action();
   mkdirSync(resolve(home, 'cache'), { recursive: true, mode: 0o700 });
   const lock = resolve(home, 'cache/database-location.lock');
   try { mkdirSync(lock); }
@@ -85,6 +89,11 @@ function withLocationLock(home, action) {
     throw new Error('Another launcher owns database-location.lock. Retry after it finishes; remove a stale lock only after confirming its process stopped.');
   }
   try { return action(); } finally { rmdirSync(lock); }
+}
+export function ownsWindowsPackageLease(home) {
+  const leasedHome = process.env.ORE_PACKAGE_LEASE_HOME;
+  if (process.platform !== 'win32' || typeof leasedHome !== 'string' || !isAbsolute(leasedHome)) return false;
+  return resolve(leasedHome).toLowerCase() === resolve(home).toLowerCase();
 }
 export function resolveDatabase(home, env = process.env, persist = true) {
   return persist ? withLocationLock(home, () => resolveDatabaseState(home, env, true)) : resolveDatabaseState(home, env, false);

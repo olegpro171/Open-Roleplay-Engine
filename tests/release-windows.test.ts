@@ -80,7 +80,7 @@ $app=Join-Path $Destination ('app/release-'+$Commit)
     result = f.run(); expect(result.status, result.stdout + result.stderr).toBe(0); expect(result.stdout).toContain('local changes');
     expect(readFileSync(dirty, 'utf8')).toBe('preserve me'); expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(current);
     mkdirSync(join(f.home, 'cache/update.lock'));
-    result = f.run(); expect(result.status).not.toBe(0); expect(result.stderr).toContain('Another startup'); expect(result.stdout).not.toContain('SYNTHETIC LAUNCH');
+    result = f.run(); expect(result.status).not.toBe(0); expect(result.stderr).toContain('Legacy ownership cannot be disproved'); expect(result.stdout).not.toContain('SYNTHETIC LAUNCH');
   }, 120000);
   it('fails first install offline, visibly falls back offline, and supports explicit no-check startup', () => {
     const f = fixture();
@@ -136,7 +136,7 @@ $app=Join-Path $Destination ('app/release-'+$Commit)
       owner.kill(); await exited;
       await expect.poll(() => { try { process.kill(builder, 0); return true; } catch { return false; } }).toBe(false);
       expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(before);
-      const blocked = f.run(); expect(blocked.status).not.toBe(0); expect(blocked.stderr).toContain('stale lock');
+      const blocked = f.run(); expect(blocked.status).not.toBe(0); expect(blocked.stderr).toContain('Legacy ownership cannot be disproved');
     } finally { owner.kill(); }
   }, 60000);
   it('rejects a corrupted cached official-runtime archive before activation or dependency installation', () => {

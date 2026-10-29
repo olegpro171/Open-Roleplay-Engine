@@ -4,6 +4,7 @@ $ErrorActionPreference = 'Stop'
 $OutputEncoding = [Console]::OutputEncoding
 $buildStatus = 1
 $stage = $null; $lock = $null
+$packageLease = $null
 $toolLog = $null
 $buildClock = [Diagnostics.Stopwatch]::StartNew()
 function Write-BuildTiming([string]$Phase, [long]$Started) {
@@ -14,6 +15,8 @@ try {
     . (Join-Path $PSScriptRoot 'scripts/release/windows-common.ps1')
     . (Join-Path $PSScriptRoot 'scripts/release/windows-snapshot.ps1')
     . (Join-Path $PSScriptRoot 'scripts/release/windows-standalone-common.ps1')
+    . (Join-Path $PSScriptRoot 'scripts/release/windows-source-tools.ps1')
+    . (Join-Path $PSScriptRoot 'scripts/release/windows-package-lock.ps1')
     if (!$Mode -or !$Destination) { throw 'Choose Release with exact Commit, Development, or Snapshot with downloaded archive/provenance, and a separate Destination.' }
     if (![Environment]::Is64BitProcess -or $env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw 'This builder targets Windows x64 only. Use 64-bit Windows PowerShell.' }
     $source = $PSScriptRoot
@@ -37,6 +40,13 @@ try {
     $installation = if ($Mode -eq 'Snapshot') { Initialize-OreStandaloneHome $Destination } else { Initialize-OreHome $Destination }
     Initialize-OreJob
     Initialize-OreCancellation
+    # Snapshot builds are children of the protocol-1 standalone controller;
+    # source updates explicitly forward their leased installation identity.
+    # Both parents retain the lease until their child finishes.
+    if ($Mode -ne 'Snapshot' -and !(Test-OrePackageLeaseHome $installation)) {
+        $packageLease = Acquire-OrePackageLease $installation
+        Assert-OreLegacyQuiescent $installation
+    }
     $lockPath = Join-Path $installation 'cache/build.lock'
     New-Item -ItemType Directory -Path $lockPath -ErrorAction Stop | Out-Null
     $lock = $lockPath
@@ -131,5 +141,6 @@ finally {
     if ($lock) { try { [IO.Directory]::Delete($lock) } catch { [Console]::Error.WriteLine('Build lock cleanup: '+$_.Exception.Message); if ($buildStatus -eq 0) { $buildStatus = 75 } } }
     Write-BuildTiming 'cleanup-build-work' $cleanupStarted
     Write-BuildTiming 'total-build' 0
+    if ($packageLease) { $packageLease.Dispose() }
 }
 exit $buildStatus

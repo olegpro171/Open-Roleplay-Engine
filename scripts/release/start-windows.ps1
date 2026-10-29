@@ -13,6 +13,17 @@ try {
         $installation = $PSScriptRoot
         $source = ''
     }
+    if (!$source -and [IO.File]::Exists((Join-Path $installation '.ore-installation'))) {
+        . (Join-Path $PSScriptRoot 'windows-snapshot.ps1')
+        . (Join-Path $PSScriptRoot 'windows-package.ps1')
+        . (Join-Path $PSScriptRoot 'windows-standalone-common.ps1')
+        $helper = Get-OrePackageHelper $installation
+        if ($helper) {
+            $language = if ([Globalization.CultureInfo]::CurrentUICulture.Name -match '^ru(?:[-_]|$)') { 'ru' } else { 'en' }
+            & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -ExecutionPolicy RemoteSigned -File $helper -Installed -Installation $installation -Invoking (Get-Location).Path -Language $language
+            exit $LASTEXITCODE
+        }
+    }
     if ((Test-Path -LiteralPath $installation) -and ((Get-Item -LiteralPath $installation).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'ore-portable must be a real directory, not a link or junction.' }
     Import-OreEnvironment (Join-Path $installation '.env')
     if (Test-Path Env:ROLEPLAY_DATABASE) {

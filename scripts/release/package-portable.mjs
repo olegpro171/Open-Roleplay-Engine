@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { inventory } from './stage.mjs';
+import { windowsRootTools } from './windows-package-files.mjs';
 
 // Preserve private mutable directories when the portable archive is extracted.
 process.umask(0o077);
@@ -28,7 +29,7 @@ try {
   cpSync(application, join(payload, 'app', id), { recursive: true, verbatimSymlinks: true });
   cpSync(join(home, 'runtime', runtime), join(payload, 'runtime', runtime), { recursive: true, verbatimSymlinks: true });
   for (const file of ['start.command', 'current', 'recover.command']) cpSync(join(home, file), join(payload, file));
-  if (windows) for (const file of ['start-app.bat', 'recover-app.bat', 'start-windows.ps1', 'recover-windows.ps1', 'windows-common.ps1']) cpSync(join(home, file), join(payload, file));
+  if (windows) for (const file of windowsRootTools) cpSync(join(home, file), join(payload, file));
   // Export only the active recovery toolkit, never saved selections/DB paths.
   const toolkitPointer = readFileSync(join(home, 'recovery/current'), 'utf8').trim().split('\n');
   if (!/^(release|dev)-[a-z0-9-]+$/u.test(toolkitPointer[0])) throw new Error('Invalid recovery toolkit pointer.');

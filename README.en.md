@@ -53,7 +53,9 @@ The installation script is `ORE-launcher.bat`. Download it from [Releases](https
 
 Place this file in the folder where you want to install ORE and double-click it.
 
-The script installs ORE into `ORE-internal/`. On the first installation, it downloads the latest source code from the `main` branch and an isolated toolkit, then builds, checks, and starts ORE.
+The script downloads the latest published Windows package, verifies it, installs it into `ORE-internal/`, and starts ORE. The package includes its own Node runtime; no development tools or local build are needed. Keep using the same launcher for later starts and updates. Saved data, settings, and language packs are preserved. If an update cannot be downloaded, an existing verified installation can still start.
+
+If you used the earlier launcher that built ORE on your computer, download the new `ORE-launcher.bat` once and replace the old file in the same folder. Keep the existing `ORE-internal/` folder; it contains your saved data.
 
 The supported platform is Windows x64 with built-in 64-bit Windows PowerShell 5.1/.NET.
 

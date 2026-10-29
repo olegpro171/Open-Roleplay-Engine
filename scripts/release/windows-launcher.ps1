@@ -40,6 +40,7 @@ $OreMessages = @{
     'portConflict' = @{en='ORE''s port is already in use. Check the log for details.';ru='Порт ORE уже занят. Подробности указаны в журнале.'}
     'setupFailed' = @{en='ORE couldn''t finish setting up.';ru='Не удалось завершить настройку ORE.'}
     'logFailed' = @{en='ORE couldn''t create its log file. Check the installation folder''s permissions and try again.';ru='Не удалось создать файл журнала ORE. Проверьте права доступа к папке установки и повторите попытку.'}
+    'legacyRestart' = @{en='An earlier ORE installation was interrupted. Restart Windows, then run this launcher again. Your saved data will be kept.';ru='Предыдущая установка ORE была прервана. Перезагрузите Windows и снова запустите этот файл. Ваши данные будут сохранены.'}
 }
 $ErrorActionPreference = 'Stop'
 # Literal assignments only: never evaluate configuration as PowerShell code.
@@ -156,10 +157,17 @@ function Assert-OreTree([string]$Root) {
         if ([IO.Directory]::Exists($entry)) { Assert-OreTree $entry }
     }
 }
-function Expand-OreZip([string]$Archive, [string]$ExpectedRoot, [string]$Destination, [switch]$Source) {
+function Expand-OreZip([string]$Archive, [string]$ExpectedRoot, [string]$Destination, [switch]$Source, [switch]$LongPaths) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    Assert-OrePath $Destination $Destination | Out-Null
-    if ([IO.Directory]::Exists($Destination) -or [IO.File]::Exists($Destination)) { throw 'Extraction destination must be new.' }
+    if ($LongPaths) {
+        if ($Source) { throw 'Long-path extraction is reserved for prepared packages.' }
+        Initialize-OreLongPaths
+        [OreLongPaths]::Assert($Destination,$Destination) | Out-Null
+        if ([OreLongPaths]::Exists($Destination)) { throw 'Extraction destination must be new.' }
+    } else {
+        Assert-OrePath $Destination $Destination | Out-Null
+        if ([IO.Directory]::Exists($Destination) -or [IO.File]::Exists($Destination)) { throw 'Extraction destination must be new.' }
+    }
     $zip = [IO.Compression.ZipFile]::OpenRead($Archive)
     try {
         $seen = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
@@ -192,7 +200,8 @@ function Expand-OreZip([string]$Archive, [string]$ExpectedRoot, [string]$Destina
             }
         }
         # The complete listing has passed before the first output is created.
-        [IO.Directory]::CreateDirectory($Destination) | Out-Null
+        if ($LongPaths) { [OreLongPaths]::CreateDirectory($Destination,$Destination) }
+        else { [IO.Directory]::CreateDirectory($Destination) | Out-Null }
         foreach ($entry in $entries) {
             $relative = $entry.FullName.Substring($ExpectedRoot.Length).TrimStart('/')
             if (!$relative) { continue }
@@ -203,11 +212,18 @@ function Expand-OreZip([string]$Archive, [string]$ExpectedRoot, [string]$Destina
                 }
                 if (!$allowed) { continue }
             }
-            $target = Assert-OrePath $Destination (Join-Path $Destination $relative.Replace('/','\'))
-            if ($entry.FullName.EndsWith('/')) { [IO.Directory]::CreateDirectory($target) | Out-Null; continue }
-            [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target)) | Out-Null
+            $targetPath = $Destination.TrimEnd('\')+'\'+$relative.Replace('/','\')
+            if ($LongPaths) {
+                $target = [OreLongPaths]::Assert($Destination,$targetPath)
+                if ($entry.FullName.EndsWith('/')) { [OreLongPaths]::CreateDirectory($Destination,$target); continue }
+                [OreLongPaths]::CreateDirectory($Destination,[OreLongPaths]::Parent($target))
+            } else {
+                $target = Assert-OrePath $Destination $targetPath
+                if ($entry.FullName.EndsWith('/')) { [IO.Directory]::CreateDirectory($target) | Out-Null; continue }
+                [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target)) | Out-Null
+            }
             $inputStream = $entry.Open()
-            $outputStream = [IO.File]::Open($target,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+            $outputStream = if ($LongPaths) { [OreLongPaths]::CreateFile($Destination,$target) } else { [IO.File]::Open($target,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None) }
             try { $inputStream.CopyTo($outputStream) } finally { $outputStream.Dispose(); $inputStream.Dispose() }
         }
         if ($Source) {
@@ -217,6 +233,142 @@ function Expand-OreZip([string]$Archive, [string]$ExpectedRoot, [string]$Destina
         }
     } finally { $zip.Dispose() }
 }
+
+# Windows PowerShell 5.1 can retain legacy .NET path handling even on a current
+# OS. Prepared packages use Unicode Win32 I/O with extended paths, avoiding any
+# registry, host configuration or machine-policy change. Normal paths remain
+# the public API so Node arguments and persisted selections are unchanged.
+function Initialize-OreLongPaths {
+    if ('OreLongPaths' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Text;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using Microsoft.Win32.SafeHandles;
+public static class OreLongPaths {
+    const uint InvalidAttributes = 0xffffffff, DirectoryFlag = 0x10, ReparseFlag = 0x400;
+    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+    struct FindData {
+        public uint Attributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME Created, Accessed, Written;
+        public uint SizeHigh, SizeLow, Reserved0, Reserved1;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=260)] public string Name;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=14)] public string AlternateName;
+    }
+    [DllImport("api-ms-win-core-path-l1-1-0.dll",CharSet=CharSet.Unicode,ExactSpelling=true)] static extern int PathCchCanonicalizeEx(StringBuilder output,UIntPtr length,string path,uint flags);
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true,ExactSpelling=true)] static extern uint GetFileAttributesW(string path);
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true,ExactSpelling=true)] static extern bool CreateDirectoryW(string path,IntPtr attributes);
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true,ExactSpelling=true)] static extern SafeFileHandle CreateFileW(string path,uint access,uint share,IntPtr attributes,uint mode,uint flags,IntPtr template);
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true,ExactSpelling=true)] static extern IntPtr FindFirstFileW(string path,out FindData data);
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true,ExactSpelling=true)] static extern bool FindNextFileW(IntPtr handle,out FindData data);
+    [DllImport("kernel32.dll",SetLastError=true)] static extern bool FindClose(IntPtr handle);
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true,ExactSpelling=true)] static extern bool DeleteFileW(string path);
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true,ExactSpelling=true)] static extern bool RemoveDirectoryW(string path);
+    static string Normalize(string path) {
+        path=path.Replace('/','\\');
+        if (path.StartsWith(@"\\?\UNC\",StringComparison.OrdinalIgnoreCase)) path=@"\\"+path.Substring(8);
+        else if (path.StartsWith(@"\\?\",StringComparison.Ordinal)) path=path.Substring(4);
+        if (path.StartsWith(@"\\.\",StringComparison.Ordinal) || !(path.StartsWith(@"\\",StringComparison.Ordinal) || (path.Length>=3 && char.IsLetter(path[0]) && path[1]==':' && path[2]=='\\'))) throw new IOException("Expected an absolute filesystem path.");
+        var buffer=new StringBuilder(32768);
+        // PATHCCH_ALLOW_LONG_PATHS canonicalizes beyond MAX_PATH without the
+        // caller's long-path opt-in. Normalize separators before comparison.
+        int result=PathCchCanonicalizeEx(buffer,new UIntPtr((uint)buffer.Capacity),path,1);
+        if (result<0) Marshal.ThrowExceptionForHR(result);
+        string normalized=buffer.ToString();
+        if (normalized.StartsWith(@"\\?\UNC\",StringComparison.OrdinalIgnoreCase)) normalized=@"\\"+normalized.Substring(8);
+        else if (normalized.StartsWith(@"\\?\",StringComparison.Ordinal)) normalized=normalized.Substring(4);
+        return normalized.Length==3 && normalized[1]==':' ? normalized : normalized.TrimEnd('\\');
+    }
+    static string Native(string path) { return path.StartsWith(@"\\",StringComparison.Ordinal) ? @"\\?\UNC\"+path.Substring(2) : @"\\?\"+path; }
+    public static string Parent(string path) {
+        int index=path.LastIndexOf('\\');
+        if (index<0 || index==2) return null;
+        if (path.StartsWith(@"\\",StringComparison.Ordinal) && index<=path.IndexOf('\\',2)) return null;
+        return path.Substring(0,index);
+    }
+    static uint Attributes(string path) {
+        uint value=GetFileAttributesW(Native(path));
+        if (value!=InvalidAttributes) return value;
+        int error=Marshal.GetLastWin32Error();
+        if (error==2 || error==3) return 0;
+        throw new Win32Exception(error);
+    }
+    public static string Assert(string root,string path) {
+        root=Normalize(root); path=Normalize(path);
+        if (!path.Equals(root,StringComparison.OrdinalIgnoreCase) && !path.StartsWith(root+"\\",StringComparison.OrdinalIgnoreCase)) throw new IOException("Managed path escapes installation.");
+        for (string cursor=path;cursor!=null;cursor=Parent(cursor)) if ((Attributes(cursor)&ReparseFlag)!=0) throw new IOException("Reparse point in managed path.");
+        return path;
+    }
+    public static bool Exists(string path) { path=Assert(path,path); return Attributes(path)!=0; }
+    public static void CreateDirectory(string root,string path) {
+        path=Assert(root,path);
+        uint attributes=Attributes(path);
+        if ((attributes&DirectoryFlag)!=0) return;
+        if (attributes!=0) throw new IOException("Managed directory collides with a file.");
+        string parent=Parent(path);
+        if (parent!=null && Attributes(parent)==0) CreateDirectory(root,parent);
+        if (!CreateDirectoryW(Native(path),IntPtr.Zero)) throw new Win32Exception();
+    }
+    static FileStream Open(string root,string path,bool create) {
+        path=Assert(root,path);
+        var handle=CreateFileW(Native(path),create?0x40000000u:0x80000000u,create?0u:1u,IntPtr.Zero,create?1u:3u,0x80u,IntPtr.Zero);
+        if (handle.IsInvalid) { int error=Marshal.GetLastWin32Error();handle.Dispose();throw new Win32Exception(error); }
+        try { return new FileStream(handle,create?FileAccess.Write:FileAccess.Read,65536,false); }
+        catch { handle.Dispose();throw; }
+    }
+    public static FileStream CreateFile(string root,string path) { return Open(root,path,true); }
+    public static FileStream OpenRead(string root,string path) { return Open(root,path,false); }
+    public static long Length(string root,string path) { using(var stream=Open(root,path,false)) return stream.Length; }
+    public static string Hash(string root,string path) {
+        using(var stream=Open(root,path,false)) using(var sha=SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-","").ToLowerInvariant();
+    }
+    static List<FindData> Entries(string root,string directory) {
+        directory=Assert(root,directory);
+        FindData data;
+        IntPtr handle=FindFirstFileW(Native(directory)+@"\*",out data);
+        if (handle==new IntPtr(-1)) { int error=Marshal.GetLastWin32Error();if(error==2)return new List<FindData>();throw new Win32Exception(error); }
+        var entries=new List<FindData>();
+        try {
+            do {
+                if (data.Name=="." || data.Name=="..") continue;
+                if ((data.Attributes&ReparseFlag)!=0) throw new IOException("Reparse point in managed path.");
+                entries.Add(data);
+            } while(FindNextFileW(handle,out data));
+            int error=Marshal.GetLastWin32Error();
+            if(error!=18) throw new Win32Exception(error);
+        } finally { FindClose(handle); }
+        return entries;
+    }
+    static void Walk(string root,string directory,List<string> files) {
+        foreach(var entry in Entries(root,directory)) {
+            string path=Assert(root,directory+"\\"+entry.Name);
+            if ((entry.Attributes&DirectoryFlag)!=0) Walk(root,path,files);
+            else { files.Add(path);if(files.Count>100000)throw new IOException("Managed file count exceeded."); }
+        }
+    }
+    public static string[] Files(string root) { root=Assert(root,root);var files=new List<string>();Walk(root,root,files);return files.ToArray(); }
+    public static void DeleteTree(string root) { root=Assert(root,root);DeleteDirectory(root,root); }
+    static void DeleteDirectory(string root,string directory) {
+        foreach(var entry in Entries(root,directory)) {
+            string path=Assert(root,directory+"\\"+entry.Name);
+            if((entry.Attributes&DirectoryFlag)!=0) DeleteDirectory(root,path);
+            else if(!DeleteFileW(Native(path))) throw new Win32Exception();
+        }
+        if(!RemoveDirectoryW(Native(directory))) throw new Win32Exception();
+    }
+}
+'@
+}
+function Assert-OreLongPath([string]$Root,[string]$Path) { Initialize-OreLongPaths; return [OreLongPaths]::Assert($Root,$Path) }
+function Assert-OreLongTree([string]$Root) { Initialize-OreLongPaths; [OreLongPaths]::Files($Root) | Out-Null }
+function Get-OreLongFiles([string]$Root) { Initialize-OreLongPaths; return [OreLongPaths]::Files($Root) }
+function Get-OreLongHash([string]$Root,[string]$Path) { Initialize-OreLongPaths; return [OreLongPaths]::Hash($Root,$Path) }
+function Get-OreLongLength([string]$Root,[string]$Path) { Initialize-OreLongPaths; return [OreLongPaths]::Length($Root,$Path) }
+function Remove-OreLongTree([string]$Root) { Initialize-OreLongPaths; [OreLongPaths]::DeleteTree($Root) }
 
 # Shared by the generated external/helper entries and archive builder.
 function Initialize-OreCancellation {
@@ -285,7 +437,7 @@ function Initialize-OreStandaloneHome([string]$Path) {
 }
 function Clear-OreInjection {
     foreach ($entry in @(Get-ChildItem Env:)) {
-        if ($entry.Name -match '^(NODE_.*|NPM_.*|npm_config_.*|GYP_.*|SHARP_.*|ORE_LAUNCH_.*|ORE_SNAPSHOT_.*|ORE_DATABASE_.*|ORE_WINDOWS_BUILD_EVENTS)$') { [Environment]::SetEnvironmentVariable($entry.Name,$null,'Process') }
+        if ($entry.Name -match '^(NODE_.*|NPM_.*|npm_config_.*|GYP_.*|SHARP_.*|ORE_LAUNCH_.*|ORE_SNAPSHOT_.*|ORE_DATABASE_.*|ORE_WINDOWS_BUILD_EVENTS|ORE_PACKAGE_LEASE_HOME)$') { [Environment]::SetEnvironmentVariable($entry.Name,$null,'Process') }
     }
 }
 function Import-OreStandaloneEnvironment([string]$Path) {
@@ -314,37 +466,6 @@ function Get-OreSelection([string]$HomePath, [string]$Pointer = 'current') {
     $node = Assert-OrePath $HomePath (Join-Path $HomePath ('runtime/'+$lines[1]+'/node.exe'))
     return @{Id=$lines[0]; Runtime=$lines[1]; Application=$application; Node=$node}
 }
-function Get-OreHelper([string]$HomePath) {
-    foreach ($pointer in @('current','recovery/current')) {
-        $selection = Get-OreSelection $HomePath $pointer
-        if (!$selection) { continue }
-        $directory = if ($pointer -eq 'current') { Join-Path $selection.Application 'scripts/release' } else { Join-Path $HomePath ('recovery/'+$selection.Id) }
-        $protocol = Assert-OrePath $HomePath (Join-Path $directory 'windows-launcher-protocol')
-        $helper = Assert-OrePath $HomePath (Join-Path $directory 'windows-launcher.ps1')
-        if ([IO.Directory]::Exists($protocol)) { throw 'Invalid helper protocol.' }
-        if (![IO.File]::Exists($protocol)) { continue }
-        if ([IO.File]::ReadAllText($protocol).Trim() -cne '1') { throw 'Unsupported standalone helper protocol.' }
-        $complete = $true
-        foreach ($name in @('portable-launch.mjs','windows-install-verify.mjs','application-assets.mjs','selection.mjs','launcher-messages.mjs','launcher-messages.json','launcher-lock.mjs','application-start.mjs','database-location.mjs','check-database.mjs')) {
-            $dependency = Assert-OrePath $HomePath (Join-Path $directory $name)
-            try {
-                if (![IO.File]::Exists($dependency) -or !(New-Object IO.FileInfo $dependency).Length) { $complete = $false; break }
-                $readable = [IO.File]::OpenRead($dependency); $readable.Dispose()
-            } catch [IO.IOException] { $complete = $false; break } catch [UnauthorizedAccessException] { $complete = $false; break }
-        }
-        if (!$complete) { continue }
-        if (![IO.File]::Exists($helper)) { continue }
-        try {
-            $sourceText = [IO.File]::ReadAllText($helper,[Text.Encoding]::UTF8)
-            $tokens = $null; $parseErrors = $null
-            [Management.Automation.Language.Parser]::ParseInput($sourceText,[ref]$tokens,[ref]$parseErrors) | Out-Null
-            if (!$sourceText.Trim() -or $parseErrors.Count) { continue }
-        } catch [IO.IOException] { continue } catch [UnauthorizedAccessException] { continue }
-        return $helper
-    }
-    if ([IO.File]::Exists((Join-Path $HomePath 'current')) -or [IO.File]::Exists((Join-Path $HomePath 'recovery/current'))) { throw 'No complete compatible standalone helper.' }
-    return $null
-}
 function Get-OreHttps([string]$Url, [string]$Output, [int]$Seconds = 60) {
     # HttpClient bounds the whole transfer (including headers/body); redirects
     # are followed explicitly and may only stay on the expected HTTPS hosts.
@@ -361,7 +482,7 @@ function Get-OreHttps([string]$Url, [string]$Output, [int]$Seconds = 60) {
     try {
         $uri = [Uri]$Url
         for ($redirect = 0; $redirect -le 5; $redirect++) {
-            if ($uri.Scheme -cne 'https' -or $uri.UserInfo -or $uri.Host -notin @('api.github.com','github.com','codeload.github.com','nodejs.org')) { throw 'Unapproved download redirect.' }
+            if ($uri.Scheme -cne 'https' -or $uri.UserInfo -or $uri.Host -notin @('api.github.com','github.com','codeload.github.com','nodejs.org','release-assets.githubusercontent.com','objects.githubusercontent.com')) { throw 'Unapproved download redirect.' }
             $response = $client.GetAsync($uri,[Net.Http.HttpCompletionOption]::ResponseHeadersRead,$cancel.Token).GetAwaiter().GetResult()
             if ([int]$response.StatusCode -in @(301,302,303,307,308)) {
                 $uri = New-Object Uri $uri,$response.Headers.Location
@@ -482,6 +603,39 @@ function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$R
         }
         $process.Dispose()
     }
+}
+
+# Retained source-building entry points only; never embedded in the package downloader.
+function Get-OreHelper([string]$HomePath) {
+    foreach ($pointer in @('current','recovery/current')) {
+        $selection = Get-OreSelection $HomePath $pointer
+        if (!$selection) { continue }
+        $directory = if ($pointer -eq 'current') { Join-Path $selection.Application 'scripts/release' } else { Join-Path $HomePath ('recovery/'+$selection.Id) }
+        $protocol = Assert-OrePath $HomePath (Join-Path $directory 'windows-launcher-protocol')
+        $helper = Assert-OrePath $HomePath (Join-Path $directory 'windows-launcher.ps1')
+        if ([IO.Directory]::Exists($protocol)) { throw 'Invalid helper protocol.' }
+        if (![IO.File]::Exists($protocol)) { continue }
+        if ([IO.File]::ReadAllText($protocol).Trim() -cne '1') { throw 'Unsupported standalone helper protocol.' }
+        $complete = $true
+        foreach ($name in @('portable-launch.mjs','windows-install-verify.mjs','application-assets.mjs','selection.mjs','launcher-messages.mjs','launcher-messages.json','launcher-lock.mjs','application-start.mjs','database-location.mjs','check-database.mjs')) {
+            $dependency = Assert-OrePath $HomePath (Join-Path $directory $name)
+            try {
+                if (![IO.File]::Exists($dependency) -or !(New-Object IO.FileInfo $dependency).Length) { $complete = $false; break }
+                $readable = [IO.File]::OpenRead($dependency); $readable.Dispose()
+            } catch [IO.IOException] { $complete = $false; break } catch [UnauthorizedAccessException] { $complete = $false; break }
+        }
+        if (!$complete) { continue }
+        if (![IO.File]::Exists($helper)) { continue }
+        try {
+            $sourceText = [IO.File]::ReadAllText($helper,[Text.Encoding]::UTF8)
+            $tokens = $null; $parseErrors = $null
+            [Management.Automation.Language.Parser]::ParseInput($sourceText,[ref]$tokens,[ref]$parseErrors) | Out-Null
+            if (!$sourceText.Trim() -or $parseErrors.Count) { continue }
+        } catch [IO.IOException] { continue } catch [UnauthorizedAccessException] { continue }
+        return $helper
+    }
+    if ([IO.File]::Exists((Join-Path $HomePath 'current')) -or [IO.File]::Exists((Join-Path $HomePath 'recovery/current'))) { throw 'No complete compatible standalone helper.' }
+    return $null
 }
 function Get-OreRuntime([string]$HomePath, [string]$SourcePath, [string]$StagePath) {
     $config = [IO.File]::ReadAllText((Join-Path $SourcePath 'scripts/release/runtime.conf'))

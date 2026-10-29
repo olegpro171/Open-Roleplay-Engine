@@ -1,6 +1,9 @@
 param([Parameter(Mandatory=$true)][string]$Installation, [string]$SourceHint = '')
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'windows-common.ps1')
+. (Join-Path $PSScriptRoot 'windows-snapshot.ps1')
+. (Join-Path $PSScriptRoot 'windows-package-lock.ps1')
+$packageLease = $null
 function Read-Installed {
     $pointer = Join-Path $installation 'current'
     if (!(Test-Path -LiteralPath $pointer)) { return $null }
@@ -15,6 +18,9 @@ try {
     Import-OreEnvironment (Join-Path $Installation '.env')
     $installation = Initialize-OreHome $Installation
     Initialize-OreJob
+    $packageLease = Acquire-OrePackageLease $installation
+    Assert-OreLegacyQuiescent $installation
+    $env:ORE_PACKAGE_LEASE_HOME = $installation
     if ($env:ORE_SKIP_UPDATE -and $env:ORE_SKIP_UPDATE -notin @('0','1')) { throw 'ORE_SKIP_UPDATE must be 0 or 1.' }
     if ($env:ORE_SKIP_UPDATE -ne '1' -and !(Test-Path -LiteralPath (Join-Path $installation 'updates-paused'))) {
         $lock = Join-Path $installation 'cache/update.lock'
@@ -93,3 +99,7 @@ try {
     Invoke-Native $installed.Node @($controller,$installation,$installed.App)
     exit 0
 } catch { [Console]::Error.WriteLine('ORE: ' + $_.Exception.Message); exit 1 }
+finally {
+    [Environment]::SetEnvironmentVariable('ORE_PACKAGE_LEASE_HOME',$null,'Process')
+    if ($packageLease) { $packageLease.Dispose() }
+}
