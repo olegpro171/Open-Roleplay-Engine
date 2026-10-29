@@ -51,7 +51,7 @@ export function CharacterImport({ revision, busy, run, imported, leadingAction, 
   }
   return <section className="character-import" aria-label={t("character_import.character_import")} hidden={hidden}>
     <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}>{leadingAction}
-    <LibraryImport label={t("character_import.import_character")} accept=".json,.png" disabled={busy || working || Boolean(pending)} onChange={async event => {
+    <LibraryImport label={t("character_import.import_character")} description={t('library_import.character_description')} accept=".json,.png" disabled={busy || working || Boolean(pending)} onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
       const current = ++attempt.current; setWorking(true); setError('');
       try {

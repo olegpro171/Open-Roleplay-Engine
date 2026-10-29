@@ -5,8 +5,9 @@ import { Icon } from './Icon';
 import { t, useLocale } from './localization';
 
 /** File selection only; validation and import/recovery remain with the caller. */
-export function LibraryImport({ label, inputLabel = label, accept, disabled, onChange }: {
+export function LibraryImport({ label, description, inputLabel = label, accept, disabled, onChange }: {
   label: string;
+  description: string;
   inputLabel?: string;
   accept: string;
   disabled: boolean;
@@ -26,7 +27,7 @@ export function LibraryImport({ label, inputLabel = label, accept, disabled, onC
       setOpen(false);
       onChange(event);
     }} />
-    {open && <ImportPopup title={label} disabled={disabled} close={() => setOpen(false)} browse={() => input.current?.click()} drop={files => {
+    {open && <ImportPopup title={label} description={description} formats={accept.split(',').map(value => value.trim()).filter(value => value.startsWith('.')).join(', ').toUpperCase()} disabled={disabled} close={() => setOpen(false)} browse={() => input.current?.click()} drop={files => {
       const node = input.current;
       if (!node || disabled || files.length !== 1) return;
       node.files = files;
@@ -35,8 +36,10 @@ export function LibraryImport({ label, inputLabel = label, accept, disabled, onC
   </>;
 }
 
-function ImportPopup({ title, disabled, close, browse, drop }: {
+function ImportPopup({ title, description, formats, disabled, close, browse, drop }: {
   title: string;
+  description: string;
+  formats: string;
   disabled: boolean;
   close: () => void;
   browse: () => void;
@@ -45,6 +48,9 @@ function ImportPopup({ title, disabled, close, browse, drop }: {
   useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useId();
+  const descriptionId = useId();
+  const dropLabel = useId();
+  const formatsId = useId();
   const [dragging, setDragging] = useState(false);
   const [multiple, setMultiple] = useState(false);
   useLayoutEffect(() => {
@@ -56,13 +62,14 @@ function ImportPopup({ title, disabled, close, browse, drop }: {
       if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
     };
   }, []);
-  return createPortal(<dialog ref={dialog} className="confirmation-dialog library-import-dialog" aria-labelledby={heading}
+  return createPortal(<dialog ref={dialog} className="confirmation-dialog library-import-dialog" aria-labelledby={heading} aria-describedby={descriptionId}
     onCancel={event => { event.preventDefault(); close(); }}
     onDragOver={event => event.preventDefault()} onDrop={event => event.preventDefault()}>
-    <div className="library-import-heading"><h2 id={heading}>{title}</h2>
+    <div className="library-import-heading"><div><h2 id={heading}>{title}</h2>
+      <p id={descriptionId}>{description}</p></div>
       <button type="button" className="secondary" aria-label={t('library_import.close')} title={t('library_import.close')} onClick={close}><Icon name="Close" /></button>
     </div>
-    <button type="button" className={`secondary library-import-drop${dragging ? ' is-dragging' : ''}`} disabled={disabled} onClick={browse}
+    <button type="button" className={`secondary library-import-drop${dragging ? ' is-dragging' : ''}`} aria-labelledby={dropLabel} aria-describedby={formatsId} disabled={disabled} onClick={browse}
       onDragEnter={event => { event.preventDefault(); setDragging(true); }}
       onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = disabled ? 'none' : 'copy'; }}
       onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget instanceof Node ? event.relatedTarget : null)) setDragging(false); }}
@@ -71,7 +78,7 @@ function ImportPopup({ title, disabled, close, browse, drop }: {
         if (disabled) return;
         setMultiple(event.dataTransfer.files.length > 1);
         drop(event.dataTransfer.files);
-      }}><Icon name="Import" />{t('library_import.drop_here')}</button>
+      }}><Icon name="Import" /><span id={dropLabel}>{t('library_import.drop_here')}</span><span id={formatsId} className="small muted">{formats}</span></button>
     {multiple && <p role="alert">{t('library_import.one_file')}</p>}
   </dialog>, document.body);
 }

@@ -697,3 +697,4 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .library-import-drop.is-dragging{background:var(--surface);border-style:solid;outline:2px solid var(--muted);outline-offset:3px}
 .library-import-drop .ui-icon{width:32px;height:32px;pointer-events:none}
 .library-import-dialog p{margin:16px 0 0}
+.library-import-heading p{margin:8px 0 0}

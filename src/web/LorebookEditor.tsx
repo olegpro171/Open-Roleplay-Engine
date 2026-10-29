@@ -38,7 +38,7 @@ export function LorebookImport({ leadingAction, revision, busy, run, imported }:
   const attempt = useRef(0);
   useEffect(() => () => { attempt.current++; }, []);
   return <div className="lore-import">
-    <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}>{leadingAction}<LibraryImport label={t("lorebook_editor.import_lorebook")} inputLabel={t("lorebook_editor.lorebook_json_file")} accept=".json,application/json" disabled={busy || reading} onChange={async event => {
+    <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}>{leadingAction}<LibraryImport label={t("lorebook_editor.import_lorebook")} description={t('library_import.lorebook_description')} inputLabel={t("lorebook_editor.lorebook_json_file")} accept=".json,application/json" disabled={busy || reading} onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
       const current = ++attempt.current; setReview(null); setError(''); setReading(true); setAttempted(false);
       try {
