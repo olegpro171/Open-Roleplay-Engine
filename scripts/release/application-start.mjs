@@ -17,6 +17,7 @@ function send(value) {
 process.once('disconnect', stop);
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(signal, stop);
 try {
+  send({ type: 'startup-progress', stage: 'resolving-database' });
   const database = resolveDatabase(home);
   const establishedEnvironment = { ...process.env };
   delete establishedEnvironment.ORE_LAUNCH_REPORT;
@@ -24,8 +25,10 @@ try {
   delete establishedEnvironment.ORE_LAUNCH_LOCK_TOKEN;
   delete establishedEnvironment.ORE_WINDOWS_BUILD_EVENTS;
   const info = JSON.parse(readFileSync(resolve(application, 'build-info.json'), 'utf8'));
+  send({ type: 'startup-progress', stage: 'checking-database' });
   if (existsSync(database.path)) inspectDatabase(application, database.path, info.schema);
   if (!stopping) {
+    send({ type: 'startup-progress', stage: 'loading-server' });
     child = fork(resolve(application, 'dist/server/server/main.js'), [], {
       execPath: process.execPath, execArgv: [], cwd: application,
       stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
@@ -33,6 +36,7 @@ try {
     });
     child.on('message', value => {
       if (stopping || !value || typeof value !== 'object') return;
+      if (value.type === 'startup-progress') { send(value); return; }
       if (value.type === 'startup-error') { send(value); return; }
       if (value.type !== 'ready' || typeof value.url !== 'string') return;
       try { recordDatabaseReady(home, database); send(value); }

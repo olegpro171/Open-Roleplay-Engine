@@ -74,6 +74,9 @@ try{
  const chat=await response.json();
  const content=async()=>{const saved=await fetch(origin+'/api/chats/'+chat.id,{headers:{cookie}});assert(saved.ok);const value=await saved.json();return{settings:value.settings,turns:value.turns};};
  const saved=await content();await stop();const first=readFileSync(join(home,'current'),'utf8');
+ const firstApp=join(home,'app',first.split('\n')[0]);
+ for(const name of ['vite','vitest','tsx'])assert(!existsSync(join(firstApp,'node_modules',name)),'Development-only package retained: '+name);
+ assert.deepEqual(readFileSync(join(firstApp,'package-lock.json')),readFileSync(join(repository,'package-lock.json')));
  writeFileSync(join(home,'languages/synthetic.json'),'{"preserve":"synthetic pack"}');
  await launch();assert(output.includes('ORE is up to date.'));assert.deepEqual(await content(),saved);await stop();
  archive(b);writeFileSync(join(root,'compare.json'),JSON.stringify({status:'ahead',base_commit:{sha:a},merge_base_commit:{sha:a}}));
@@ -90,6 +93,8 @@ try{
  assert.equal(readFileSync(join(home,'languages/synthetic.json'),'utf8'),'{"preserve":"synthetic pack"}');assert.equal(readFileSync(join(parent,'unrelated.txt'),'utf8'),'preserve parent');
  const report=readdirSync(join(home,'logs')).filter(name=>name.endsWith('.txt')).map(name=>readFileSync(join(home,'logs',name),'utf8')).join('\n');
  assert(report.includes('Native/runtime smoke passed:'));assert(!report.includes('synthetic-windows-password'));
+ for(const phase of ['install-locked-dependencies','remove-build-dependencies','stage-application-files','hash-application-files','verify-application-startup','total-build'])assert(report.includes('[Timing] '+phase+':'),'Missing phase timing: '+phase);
+ for(const stage of ['resolving-database','loading-server','initializing-services','binding-listener'])assert(report.includes('] '+stage+'\n'),'Missing startup milestone: '+stage);
  console.log('PASS: official private runtime; real locked build/native/probe; same-main reuse; populated restart/forward update; compatible recovery; missing-database refusal; retained config/languages/parent.');
  console.log('Candidate installation: '+home);
 }finally{await stop();}

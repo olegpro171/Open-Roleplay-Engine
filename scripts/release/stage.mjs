@@ -1,4 +1,4 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -6,11 +6,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { verifyStartup } from './startup-smoke.mjs';
 import { readSelection, writeSelection, runtimeExecutable, publishRename } from './selection.mjs';
 import { launcherEvent } from './launcher-messages.mjs';
+import { buildPhase } from './build-timing.mjs';
 
 const recoveryFiles = ['load-env.sh', 'recover.mjs', 'database-location.mjs', 'selection.mjs', 'startup-smoke.mjs', 'check-database.mjs', 'portable-launch.mjs', 'application-start.mjs', 'application-assets.mjs', 'launcher-messages.mjs', 'launcher-messages.json', 'launcher-lock.mjs', 'macos-install.mjs', 'macos-launcher.sh', 'macos-launcher-protocol', 'update-and-start.sh', 'launcher-protocol', 'windows-common.ps1', 'update-and-start.ps1', 'recover-windows.ps1', 'start-windows.ps1'];
 
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 recoveryFiles.push('windows-launcher.ps1', 'windows-launcher-protocol', 'windows-install-verify.mjs', 'windows-snapshot.ps1', 'windows-standalone-common.ps1');
+recoveryFiles.push('build-timing.mjs');
 export function inventory(root, directory = root) {
   return readdirSync(directory).sort().flatMap(name => {
     const path = join(directory, name), stat = lstatSync(path), entry = relative(root, path).split('\\').join('/');
@@ -54,14 +56,26 @@ function notices(work, output) {
   }
   writeFileSync(join(output, 'README.txt'), `ORE third-party inventory\n\npackages.json includes build-time UI packages as well as server packages. Their supplied license/notice/readme files accompany it. Node's full license and bundled component notices are in runtime/<version>/LICENSE.\n\nsharp/libvips native component versions and upstream combined notices are retained with the @img packages. Rebuilding/replacing those dynamic libraries is permitted by their licenses; ORE does not embed them into its executable. Source/build recipes: https://github.com/lovell/sharp-libvips/tree/v1.3.4 and the pinned versions.json. Full GPL/LGPL texts, exact native component source/patch URLs and the pinned build recipe are in native-sources/. No publication/signing is performed by these scripts.\n`);
 }
-async function install(work, home, mode, commit, runtime, runtimeChecksum, noticeDirectory) {
+async function install(work, home, mode, commit, runtime, runtimeChecksum, noticeDirectory, transfer = 'copy') {
+  if (!['copy', 'move-dependencies'].includes(transfer)) throw new Error('Unknown dependency staging mode.');
+  if (transfer === 'move-dependencies') {
+    // Only disposable build work inside this installation may be consumed.
+    const withinCache = relative(realpathSync(join(home, 'cache')), realpathSync(work));
+    if (!withinCache || isAbsolute(withinCache) || withinCache === '..' || withinCache.startsWith('..' + (process.platform === 'win32' ? '\\' : '/')) || !lstatSync(join(work, 'node_modules')).isDirectory()) {
+      throw new Error('Dependency transfer requires disposable build work inside the installation cache.');
+    }
+  }
   const { databaseSchemaVersion } = await import(pathToFileURL(join(work, 'dist/server/shared/build-info.js')).href);
   const release = mode === '--release' || mode === '--snapshot';
   const id = `${release ? 'release' : 'dev'}-${commit.slice(0, 12)}-${randomUUID()}`;
   const staging = join(home, 'cache', `payload-${id}`), application = join(home, 'app', id);
   mkdirSync(staging);
   try {
-    for (const input of ['dist', 'migrations', 'package.json', 'package-lock.json', 'node_modules']) cpSync(join(work, input), join(staging, input), { recursive: true, verbatimSymlinks: true });
+    await buildPhase('stage-application-files', () => {
+      for (const input of ['dist', 'migrations', 'package.json', 'package-lock.json']) cpSync(join(work, input), join(staging, input), { recursive: true, verbatimSymlinks: true });
+      if (transfer === 'move-dependencies') publishRename(join(work, 'node_modules'), join(staging, 'node_modules'));
+      else cpSync(join(work, 'node_modules'), join(staging, 'node_modules'), { recursive: true, verbatimSymlinks: true });
+    });
     mkdirSync(join(staging, 'scripts/release'), { recursive: true });
     for (const name of ['native-smoke.mjs', 'package-portable.mjs', 'stage.mjs', ...recoveryFiles]) cpSync(join(work, 'scripts/release', name), join(staging, 'scripts/release', name));
     cpSync(noticeDirectory, join(staging, 'notices'), { recursive: true, verbatimSymlinks: true });
@@ -70,12 +84,16 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     const metadata = { kind: release ? 'release' : 'development', commit, schema: databaseSchemaVersion, node: process.versions.node, platform: process.platform, arch: process.arch };
     writeFileSync(join(staging, 'build-info.json'), JSON.stringify(metadata, null, 2));
     await launcherEvent('checkingVersion');
-    const smoke = spawnSync(process.execPath, [join(staging, 'scripts/release/native-smoke.mjs')], { cwd: home, stdio: 'inherit' });
-    if (smoke.status !== 0) throw new Error('Production dependency smoke failed; previous application remains selected.');
-    const manifest = { ...metadata, runtime, runtimeArchiveSha256: runtimeChecksum, lockfileSha256: hash(join(staging, 'package-lock.json')), ...(mode === '--snapshot' ? { source: 'github-main-snapshot', sourceArchiveSha256: process.env.ORE_SNAPSHOT_SHA256 } : {}), files: inventory(staging) };
+    await buildPhase('verify-production-native-packages', () => {
+      const smoke = spawnSync(process.execPath, [join(staging, 'scripts/release/native-smoke.mjs')], { cwd: home, stdio: 'inherit' });
+      if (smoke.error) throw smoke.error;
+      if (smoke.status !== 0) throw new Error('Production dependency smoke failed; previous application remains selected.');
+    });
+    const files = await buildPhase('hash-application-files', () => inventory(staging));
+    const manifest = { ...metadata, runtime, runtimeArchiveSha256: runtimeChecksum, lockfileSha256: hash(join(staging, 'package-lock.json')), ...(mode === '--snapshot' ? { source: 'github-main-snapshot', sourceArchiveSha256: process.env.ORE_SNAPSHOT_SHA256 } : {}), files };
     writeFileSync(join(staging, 'manifest.json'), JSON.stringify(manifest, null, 2));
     console.log('[Verify] Starting the new app with a temporary test database and checking that its interface loads...');
-    await verifyStartup(staging, process.execPath, join(home, 'cache'));
+    await buildPhase('verify-application-startup', () => verifyStartup(staging, process.execPath, join(home, 'cache')));
     console.log('[Verify] New app passed its startup check. Preparing activation...');
     let previous = readSelection(home, 'working');
     if (previous && !existsSync(join(home, 'app', previous.id, 'scripts/release/portable-launch.mjs'))) previous = null;
@@ -117,7 +135,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [action, ...args] = process.argv.slice(2);
-  if (action === 'notices') notices(...args);
+  if (action === 'notices') await buildPhase('collect-third-party-notices', () => notices(...args));
   else if (action === 'install') await install(...args);
   else throw new Error('Expected notices or install.');
 }

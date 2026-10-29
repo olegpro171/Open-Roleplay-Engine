@@ -61,6 +61,38 @@ describe.skipIf(process.platform === 'win32')('portable artifact boundaries', ()
     expect(readFileSync(join(f.home, 'current'), 'utf8')).not.toBe(previous);
     expect(existsSync(join(f.home, 'recover.command'))).toBe(true);
   });
+  it('moves disposable dependencies into a verified replacement and retains the selected app on a later failure', () => {
+    const f = fixture();
+    const previous = readFileSync(join(f.home, 'current'), 'utf8');
+    const disposable = join(f.home, 'cache/build-test/source');
+    cpSync(f.work, disposable, { recursive: true, verbatimSymlinks: true });
+    const install = () => spawnSync(process.execPath, [resolve('scripts/release/stage.mjs'), 'install', disposable, f.home, '--development', 'c'.repeat(40), `node-v24.19.0-${process.platform}-${process.arch}`, 'b'.repeat(64), join(f.root, 'notices'), 'move-dependencies'], { encoding: 'utf8' });
+    const inode = statSync(join(disposable, 'node_modules/pkg/bin.js')).ino;
+    const success = install(); expect(success.status, success.stdout + success.stderr).toBe(0);
+    const selected = readFileSync(join(f.home, 'current'), 'utf8');
+    expect(selected).not.toBe(previous);
+    expect(existsSync(join(disposable, 'node_modules'))).toBe(false);
+    const application = join(f.home, 'app', selected.split('\n')[0]);
+    expect(statSync(join(application, 'node_modules/pkg/bin.js')).ino).toBe(inode);
+    expect(readFileSync(join(application, 'node_modules/.bin/example'), 'utf8')).toBe('');
+    cpSync(join(f.work, 'node_modules'), join(disposable, 'node_modules'), { recursive: true, verbatimSymlinks: true });
+    writeFileSync(join(disposable, 'dist/server/server/main.js'), 'throw new Error("Synthetic moved-payload failure");');
+    const failed = install(); expect(failed.status).not.toBe(0);
+    expect(failed.stderr).toContain('Synthetic moved-payload failure');
+    expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(selected);
+    expect(readFileSync(join(application, 'node_modules/pkg/bin.js'), 'utf8')).toBe('');
+    expect(readFileSync(join(f.home, 'data/PRIVATE'), 'utf8')).toBe('synthetic installed private data');
+    expect(readdirSync(join(f.home, 'cache'))).toEqual(['build-test']);
+  });
+  it('refuses to consume dependencies from source outside disposable installation work', () => {
+    const f = fixture();
+    const selected = readFileSync(join(f.home, 'current'), 'utf8');
+    const result = spawnSync(process.execPath, [resolve('scripts/release/stage.mjs'), 'install', f.work, f.home, '--development', 'c'.repeat(40), `node-v24.19.0-${process.platform}-${process.arch}`, 'b'.repeat(64), join(f.root, 'notices'), 'move-dependencies'], { encoding: 'utf8' });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('disposable build work');
+    expect(existsSync(join(f.work, 'node_modules/pkg/bin.js'))).toBe(true);
+    expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(selected);
+  });
   it('preserves internal npm symlinks and ships only app/runtime files with empty mutable directories', () => {
     const f = fixture(), output = join(f.root, 'output');
     for (const file of ['build-info.json', 'manifest.json']) {

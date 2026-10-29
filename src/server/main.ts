@@ -21,6 +21,7 @@ const key = process.env.ROLEPLAY_TLS_KEY;
 if (Boolean(certificate) !== Boolean(key)) throw new Error('Set both ROLEPLAY_TLS_CERT and ROLEPLAY_TLS_KEY.');
 if (!['127.0.0.1', 'localhost', '::1'].includes(host) && !certificate) throw new Error('Keep ROLEPLAY_HOST on loopback for HTTP. Enable phone access in Application Settings after local owner setup. Legacy non-loopback startup requires ROLEPLAY_TLS_CERT and ROLEPLAY_TLS_KEY.');
 let services: Awaited<ReturnType<typeof createApp>>;
+if (process.connected) process.send?.({ type: 'startup-progress', stage: 'initializing-services' }, error => { if (error) parentDisconnected = true; });
 try {
   services = await createApp({
     ...paths,
@@ -32,6 +33,7 @@ try {
 }
 const { app, lan } = services;
 if (parentDisconnected) { await app.close(); process.exit(0); }
+if (process.connected) process.send?.({ type: 'startup-progress', stage: 'binding-listener' }, error => { if (error) parentDisconnected = true; });
 try { await app.listen({ host, port }); }
 catch (error) {
   await app.close();

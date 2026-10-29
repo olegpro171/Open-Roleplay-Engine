@@ -4,6 +4,12 @@ $ErrorActionPreference = 'Stop'
 $OutputEncoding = [Console]::OutputEncoding
 $buildStatus = 1
 $stage = $null; $lock = $null
+$toolLog = $null
+$buildClock = [Diagnostics.Stopwatch]::StartNew()
+function Write-BuildTiming([string]$Phase, [long]$Started) {
+    $elapsed = $buildClock.ElapsedMilliseconds - $Started
+    if ($toolLog) { [IO.File]::AppendAllText($toolLog,('[Timing] '+$Phase+': '+$elapsed+" ms`n"),(New-Object Text.UTF8Encoding $false)) }
+}
 try {
     . (Join-Path $PSScriptRoot 'scripts/release/windows-common.ps1')
     . (Join-Path $PSScriptRoot 'scripts/release/windows-snapshot.ps1')
@@ -36,7 +42,11 @@ try {
     $lock = $lockPath
     $stage = Join-Path $installation ('cache/build-'+[guid]::NewGuid())
     [IO.Directory]::CreateDirectory($stage) | Out-Null
+    $toolLog = Join-Path $installation ('logs/build-'+[guid]::NewGuid()+'.txt')
+    Write-Utf8 $toolLog ''
+    $phaseStarted = $buildClock.ElapsedMilliseconds
     $runtime = Get-OreRuntime $installation $source $stage
+    Write-BuildTiming 'prepare-private-runtime' $phaseStarted
     $node = $runtime.Node; $npm = $runtime.Npm
     $snapshotSource = $env:ORE_SNAPSHOT_SOURCE; $snapshotDigest = $env:ORE_SNAPSHOT_SHA256
     $eventFile = $env:ORE_WINDOWS_BUILD_EVENTS
@@ -56,6 +66,7 @@ try {
     $env:SHARP_IGNORE_GLOBAL_LIBVIPS = '1'
     $work = Join-Path $stage 'source'
     $inputs = $OreSourceInputs
+    $phaseStarted = $buildClock.ElapsedMilliseconds
     if ($Mode -eq 'Snapshot') {
         Expand-OreZip $Snapshot ('Open-Roleplay-Engine-'+$Commit) $work -Source
     } elseif ($Mode -eq 'Release') {
@@ -74,12 +85,13 @@ try {
             Copy-Item -LiteralPath (Join-Path $source $inputPath) -Destination $target -Recurse
         }
     }
+    Write-BuildTiming 'extract-build-inputs' $phaseStarted
     # Native stderr is diagnostic data, not PowerShell ErrorRecord success.
     # Each tool runs under this controller's job, with both streams in its log.
-    $toolLog = Join-Path $installation ('logs/build-'+[guid]::NewGuid()+'.txt')
-    Write-Utf8 $toolLog ''
-    function Build-Tool([string[]]$ArgumentList) {
-        $status = Invoke-OreProcess $node $ArgumentList $toolLog
+    function Build-Tool([string]$Phase, [string[]]$ArgumentList) {
+        $started = $buildClock.ElapsedMilliseconds
+        try { $status = Invoke-OreProcess $node $ArgumentList $toolLog }
+        finally { Write-BuildTiming $Phase $started }
         if ($status -ne 0) {
             [Console]::Error.Write([IO.File]::ReadAllText($toolLog))
             throw ('Native command failed ('+$status+').')
@@ -90,21 +102,22 @@ try {
     [Environment]::CurrentDirectory = $work
     try {
         Write-Host '[Build] Installing locked build dependencies...'
-        Build-Tool @($npm,'ci','--include=dev','--include=optional','--ignore-scripts')
-        Build-Tool @('scripts/release/native-smoke.mjs')
-        Build-Tool @('scripts/release/build-windows.mjs')
+        Build-Tool 'install-locked-dependencies' @($npm,'ci','--include=dev','--include=optional','--ignore-scripts')
+        Build-Tool 'verify-build-native-packages' @('scripts/release/native-smoke.mjs')
+        Build-Tool 'build-application' @('scripts/release/build-windows.mjs')
         $notices = Join-Path $stage 'notices'
-        Build-Tool @('scripts/release/stage.mjs','notices',$work,$notices)
-        Build-Tool @($npm,'ci','--omit=dev','--include=optional','--ignore-scripts','--prefer-offline')
+        Build-Tool 'collect-notices' @('scripts/release/stage.mjs','notices',$work,$notices)
+        Build-Tool 'prepare-production-dependencies' @('scripts/release/prepare-windows-dependencies.mjs',$npm)
         $stageMode = if ($Mode -eq 'Release') { '--release' } elseif ($Mode -eq 'Snapshot') { '--snapshot' } else { '--development' }
         $env:ORE_SNAPSHOT_SOURCE = $snapshotSource; $env:ORE_SNAPSHOT_SHA256 = $snapshotDigest
         if ($eventFile) { Assert-OrePath $installation $eventFile | Out-Null; $env:ORE_WINDOWS_BUILD_EVENTS = $eventFile }
-        Build-Tool @('scripts/release/stage.mjs','install',$work,$installation,$stageMode,$Commit,$runtime.Id,$runtime.Checksum,$notices)
+        Build-Tool 'stage-and-verify-application' @('scripts/release/stage.mjs','install',$work,$installation,$stageMode,$Commit,$runtime.Id,$runtime.Checksum,$notices,'move-dependencies')
         [Console]::Write([IO.File]::ReadAllText($toolLog))
     } finally { [Environment]::CurrentDirectory = $oldDirectory; Pop-Location }
     $buildStatus = 0
 } catch { [Console]::Error.WriteLine('ORE build: '+$_.Exception.ToString()) }
 finally {
+    $cleanupStarted = $buildClock.ElapsedMilliseconds
     if ($stage) {
         try {
             Assert-OrePath (Join-Path $installation 'cache') $stage | Out-Null
@@ -116,5 +129,7 @@ finally {
         } catch { [Console]::Error.WriteLine('Temporary cleanup: '+$_.Exception.Message) }
     }
     if ($lock) { try { [IO.Directory]::Delete($lock) } catch { [Console]::Error.WriteLine('Build lock cleanup: '+$_.Exception.Message); if ($buildStatus -eq 0) { $buildStatus = 75 } } }
+    Write-BuildTiming 'cleanup-build-work' $cleanupStarted
+    Write-BuildTiming 'total-build' 0
 }
 exit $buildStatus

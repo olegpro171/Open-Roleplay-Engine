@@ -20,6 +20,7 @@ let failed = false;
 let failureId = 'startupFailed';
 let logBroken = false;
 let browser;
+const startupStarted = performance.now();
 const say = (id, params = {}) => console.log(launcherMessage(id, language, params));
 function diagnostic(value) {
   if (logBroken) return false;
@@ -89,6 +90,12 @@ try {
   child.once('error', error => { failed = true; diagnostic(`${error.stack}\n`); });
   child.on('message', value => {
     if (stopping || !value || typeof value !== 'object') return;
+    if (value.type === 'startup-progress' && typeof value.stage === 'string' && /^[a-z-]{1,80}$/u.test(value.stage)) {
+      if (diagnostic(`[Startup +${Math.round(performance.now() - startupStarted)}ms] ${value.stage}\n`)) {
+        process.send?.({ type: 'startup-progress', stage: value.stage }, error => { if (error) stop(); });
+      }
+      return;
+    }
     if (value.type === 'startup-error' && ['alreadyRunning', 'portConflict'].includes(value.id)) { failureId = value.id; return; }
     if (ready || value.type !== 'ready' || typeof value.url !== 'string') return;
     // Ready URLs are server-generated loopback/TLS endpoints. Reject control

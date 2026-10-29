@@ -217,6 +217,11 @@ catch { $cause=$_.Exception;while($cause.InnerException){$cause=$cause.InnerExce
     // Abrupt console owner loss may leave the conservative directory lock.
     rmSync(join(f.home,'cache/update.lock'),{recursive:true,force:true});
     const buildCalls=readFileSync(join(f.root,'build-calls'),'utf8');
+    expect(buildCalls.match(/ci --include=dev/gu)).toHaveLength(1);
+    expect(buildCalls.match(/prune --omit=dev/gu)).toHaveLength(1);
+    expect(buildCalls).not.toContain('ci --omit=dev');
+    expect(f.logs()).toContain('[Timing] install-locked-dependencies:');
+    expect(f.logs()).toContain('[Timing] total-build:');
     const second=observe(f.run()); try { await second.until('ORE is ready.'); } catch(error) { throw new Error(String(error)+'\n'+f.logs()); }
     expect(second.output()).toContain('ORE is up to date.');await second.stop();
     rmSync(join(f.home,'cache/update.lock'),{recursive:true,force:true});
