@@ -50,6 +50,14 @@ describe('chat Markdown presentation', () => {
     expect(render('— Пора, — `я потянулся к двери`, — идём.')).not.toContain('class="direct-speech"');
   });
 
+  it('recognizes expanded attributions across emphasis without borrowing code or link destinations', () => {
+    const html = render('— Не уходи! — *взмолилась* я.');
+    expect(html).toContain('<strong class="direct-speech">— Не уходи!</strong> — <em>взмолилась</em> я.');
+    expect(render('— Правда? — `переспросила` я.')).not.toContain('class="direct-speech"');
+    const linked = render('— Смотри! — [надпись](https://example.com/переспросила).');
+    expect(linked).toContain('<strong class="direct-speech">надпись</strong>');
+  });
+
   it('keeps quoted speech styled across inline formatting and link labels', () => {
     const html = render('Mara asked "**Stay** *here* [with me](https://example.com/?q=%22plain%22)".');
     expect(html).toContain('Mara asked <strong class="direct-speech">&quot;</strong>');
