@@ -77,7 +77,7 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
   await choose(page, 'Character', 'Moon keeper');
   await page.getByRole('button', { name: 'Create chat', exact: true }).click();
-  await expect(page.getByLabel('Chat title')).toHaveValue('Moon keeper - Roleplay');
+  await expect(page.getByLabel('Chat title')).toHaveValue('Moon keeper');
   await expect(page.getByRole('combobox', { name: 'Lorebook', exact: true })).toContainText('Moon Gate atlas');
   await page.getByLabel('Chat title').fill('Lore browser story');
   await choose(page, 'Connection', 'Lore browser model');

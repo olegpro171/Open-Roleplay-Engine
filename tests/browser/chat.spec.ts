@@ -3,6 +3,7 @@ import { openLibraryActions } from './library-card-helpers';
 import { openChatTool } from './chat-tools';
 import { expect, devices, type Page } from '@playwright/test';
 import { test as isolatedTest } from './isolated-app';
+import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 
 const test = isolatedTest.extend<{ phone: Page }>({
   phone: async ({ browser, browserApp }, use) => {
@@ -203,13 +204,18 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await page.getByLabel('Name', { exact: true }).fill('Observatory prompt');
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
   await page.getByLabel('Fallback text').fill('Play {{char}} in a story with {{user}}.');
+  for (const [index, block] of defaultPrompt.blocks.entries()) {
+    if (block.kind === 'text') await page.getByRole('checkbox', { name: `Enable block ${index + 1}`, exact: true }).uncheck();
+  }
+  const textPosition = defaultPrompt.blocks.length + 1;
+  const markerPosition = textPosition + 1;
   await page.getByRole('button', { name: 'Add text block', exact: true }).click();
-  await page.getByRole('button', { name: 'Expand block 7', exact: true }).click();
+  await page.getByRole('button', { name: `Expand block ${textPosition}`, exact: true }).click();
   await page.getByLabel('Block text').fill('After history: {{char}} answers.');
   await page.getByRole('button', { name: 'Add marker', exact: true }).click();
-  await page.getByRole('button', { name: 'Expand block 8', exact: true }).click();
-  await choose(page, 'Marker source for block 8', 'Character scenario');
-  await page.getByRole('button', { name: 'Move block 8 up', exact: true }).click();
+  await page.getByRole('button', { name: `Expand block ${markerPosition}`, exact: true }).click();
+  await choose(page, `Marker source for block ${markerPosition}`, 'Character scenario');
+  await page.getByRole('button', { name: `Move block ${markerPosition} up`, exact: true }).click();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
@@ -263,7 +269,9 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await page.locator('.confirmation-dialog').getByRole('button', { name: 'Restore', exact: true }).click();
   await builtIn.getByRole('heading').getByRole('button').click();
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
-  await expect(page.getByLabel('Fallback text')).toHaveValue('Write the next response in this roleplay. Stay consistent with the established story.');
+  await expect(page.getByLabel('Fallback text')).toHaveValue('');
+  const restored: LibrarySnapshot = await page.request.get('/api/library').then(response => response.json());
+  expect(restored.prompts.find(prompt => prompt.id === 'default')?.blocks).toEqual(defaultPrompt.blocks);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -308,8 +316,9 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
   const first = page.getByRole('region', { name: 'Prompt block 1', exact: true });
-  const last = page.getByRole('region', { name: 'Prompt block 6', exact: true });
-  await expect(page.locator('.block-toggle[aria-expanded=false]')).toHaveCount(6);
+  const blockCount = defaultPrompt.blocks.length;
+  const last = page.getByRole('region', { name: `Prompt block ${blockCount}`, exact: true });
+  await expect(page.locator('.block-toggle[aria-expanded=false]')).toHaveCount(blockCount);
   await expect(page.locator('.block-content')).toHaveCount(0);
   await expect(first.getByRole('textbox', { name: 'Fallback text', exact: true })).toHaveCount(0);
   await expect(first.getByLabel('Block name', { exact: true })).toBeVisible();
@@ -328,9 +337,9 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await last.dispatchEvent('drop', { dataTransfer: transfer, clientY: rect.y + rect.height - 1 });
   await expect(last.getByLabel('Block name', { exact: true })).toHaveValue(firstName);
   await expect(page.locator('.drop-before, .drop-after')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Move block 6 up', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Prompt block 5', exact: true }).getByLabel('Block name', { exact: true })).toHaveValue(firstName);
-  const handle = page.getByLabel('Drag block 5', { exact: true });
+  await page.getByRole('button', { name: `Move block ${blockCount} up`, exact: true }).click();
+  await expect(page.getByRole('region', { name: `Prompt block ${blockCount - 1}`, exact: true }).getByLabel('Block name', { exact: true })).toHaveValue(firstName);
+  const handle = page.getByLabel(`Drag block ${blockCount - 1}`, { exact: true });
   await handle.scrollIntoViewIfNeeded();
   const source = (await handle.boundingBox())!;
   await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);

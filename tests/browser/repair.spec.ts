@@ -4,6 +4,7 @@ import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { ContextJobDetails } from '../../src/shared/context';
 import { defaultContextPreset } from '../../src/shared/context';
 import type { LibrarySnapshot } from '../../src/shared/library';
+import { createCompactPrompt } from './compact-prompt';
 
 test('reviews a repair queue with matching panes, source diffs, regenerate, discard on Close and phone layout', async ({ page, request }) => {
   test.setTimeout(60_000);
@@ -22,7 +23,8 @@ test('reviews a repair queue with matching panes, source diffs, regenerate, disc
   };
   const connection = await command('/api/library', { revision: (await libraries()).revision, kind: 'connections', data: { name: 'Repair comparison model', model: 'synthetic-summary', endpoint, contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
   const preset = await command('/api/library', { revision: (await libraries()).revision, kind: 'contexts', data: { ...defaultContextPreset, name: 'Repair comparison context', connectionId: connection.id, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 } });
-  const chat = await command('/api/chats', { title: 'Continuous repair proof', targetInputTokens: 500, connectionId: connection.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id });
+  const promptId = await createCompactPrompt(page);
+  const chat = await command('/api/chats', { title: 'Continuous repair proof', targetInputTokens: 500, connectionId: connection.id, promptId, characterId: null, personaId: null, contextPresetId: preset.id });
   const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
   const requests = () => request.get('/__test/requests').then(response => response.json() as Promise<unknown[]>);
   await command(`/api/chats/${chat.id}/history`, { revision: (await state()).revision, turns: Array.from({ length: 18 }, (_, i) => ({ user: `Turn ${i + 1}. Mira gives Leon the brass key. ${'The quiet room. '.repeat(10)}`, assistant: 'Leon accepts the key. ' + 'He promises to return. '.repeat(10), complete: true })) }, 'PUT');

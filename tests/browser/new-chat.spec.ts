@@ -31,7 +31,7 @@ for (const width of [1440, 390]) {
       return (await response.json()).id;
     }
     const characterName = width === 390 ? 'Long character '.padEnd(100, 'x') : 'Chat starter';
-    const title = width === 390 ? `${characterName.slice(0, 89)} - Roleplay` : 'Chat starter - Roleplay';
+    const title = characterName;
     const book = newLorebook();
     book.name = `Starter lore ${width}`;
     const bookId = await add('lorebooks', book);

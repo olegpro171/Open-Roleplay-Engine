@@ -5,6 +5,7 @@ import type { LibrarySnapshot } from '../../src/shared/library';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultContextPreset } from '../../src/shared/context';
 import { openChatTool } from './chat-tools';
+import { createCompactPrompt } from './compact-prompt';
 
 const themeCases = [
   { theme: 'light', label: 'Light', russian: 'Светлая', character: '#343a42', persona: '#562a0a', speech: 'rgb(52, 58, 66)', chrome: '#eeebe5', page: 'rgb(247, 245, 241)', input: 'rgb(255, 255, 255)', scheme: 'light' },
@@ -189,7 +190,8 @@ for (const choice of themeCases) test(`${choice.theme} covers story, menus, memo
   await command('/api/library', { revision: (await library()).revision, kind: 'contexts', data: { ...defaultContextPreset, name: 'Theme memory', connectionId: connection.id, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 } });
   const preset = (await library()).contexts.find(item => item.name === 'Theme memory');
   if (!preset) throw new Error('Missing context preset');
-  await command('/api/chats', { title: 'Theme review', targetInputTokens: 800, connectionId: connection.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id });
+  const promptId = await createCompactPrompt(page);
+  await command('/api/chats', { title: 'Theme review', targetInputTokens: 800, connectionId: connection.id, promptId, characterId: null, personaId: null, contextPresetId: preset.id });
   const chat = (await library()).chats.find(item => item.title === 'Theme review');
   if (!chat) throw new Error('Missing chat');
   const state = (): Promise<ChatSnapshot> => page.request.get(`/api/chats/${chat.id}`).then(response => response.json());

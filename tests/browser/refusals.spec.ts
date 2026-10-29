@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultContextPreset } from '../../src/shared/context';
 import type { LibrarySnapshot } from '../../src/shared/library';
+import { createCompactPrompt } from './compact-prompt';
 
 test('discovers saved refusals, keeps false positives, regenerates without refusal input, and previews suffix deletion on desktop and phone', async ({ page, request }) => {
   test.setTimeout(60_000);
@@ -20,7 +21,8 @@ test('discovers saved refusals, keeps false positives, regenerates without refus
   };
   const connection = await command('/api/library', { revision: (await library()).revision, kind: 'connections', data: { name: 'Refusal recovery model', model: 'synthetic-summary', endpoint, contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
   const preset = await command('/api/library', { revision: (await library()).revision, kind: 'contexts', data: { ...defaultContextPreset, name: 'Refusal recovery context', connectionId: connection.id, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 } });
-  const chat = await command('/api/chats', { title: 'Saved refusal recovery', targetInputTokens: 500, connectionId: connection.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id });
+  const promptId = await createCompactPrompt(page);
+  const chat = await command('/api/chats', { title: 'Saved refusal recovery', targetInputTokens: 500, connectionId: connection.id, promptId, characterId: null, personaId: null, contextPresetId: preset.id });
   const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
   const requests = () => request.get('/__test/requests').then(response => response.json() as Promise<{ body: unknown }[]>);
   await command(`/api/chats/${chat.id}/history`, { revision: (await state()).revision, turns: Array.from({ length: 8 }, (_, index) => ({ user: `Turn ${index + 1}. Mira gives Leon a brass key. ${'The quiet room. '.repeat(14)}`, assistant: `Leon promises to return it. ${'The cellar remains closed. '.repeat(12)}`, complete: true })) }, 'PUT');

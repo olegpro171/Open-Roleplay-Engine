@@ -3,6 +3,7 @@ import { test, expect, devices, type Page } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { ContextPlan } from '../../src/shared/context';
 import type { LibrarySnapshot } from '../../src/shared/library';
+import { createCompactPrompt } from './compact-prompt';
 
 async function choose(page: Page, label: string, option: string) {
   await page.getByRole('combobox', { name: label, exact: true }).click();
@@ -46,7 +47,8 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   const contextId = (await libraries()).contexts.find(preset => preset.name === 'Imported story memory')!.id;
   expect((await libraries()).contexts.find(preset => preset.id === contextId)?.repairPrompt).toContain('Keep unaffected wording exactly');
-  const chat = await post('/api/chats', { title: 'Imported compaction proof', targetInputTokens: 700, connectionId: roleplay.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId });
+  const promptId = await createCompactPrompt(page);
+  const chat = await post('/api/chats', { title: 'Imported compaction proof', targetInputTokens: 700, connectionId: roleplay.id, promptId, characterId: null, personaId: null, contextPresetId: contextId });
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported compaction proof', exact: true }) }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();

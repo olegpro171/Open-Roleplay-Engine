@@ -10,6 +10,7 @@ import type { Provider } from '../src/provider/openai.js';
 import type { RequestPreview } from '../src/shared/contracts.js';
 import { defaultContextPreset, type SummaryNode } from '../src/shared/context.js';
 import { sourceOf, staleSummaries } from '../src/core/context.js';
+import { compactPrompt } from './support/compact-prompt.js';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const dispose of cleanup.splice(0)) await dispose(); });
@@ -20,6 +21,7 @@ function required<T>(value: T | null | undefined): T {
 function fixture(count = 1) {
   const directory = mkdtempSync(join(tmpdir(), 'ore-variants-')), filename = join(directory, 'chat.sqlite');
   let store = new Store(filename);
+  store.saveLibrary(store.libraryRevision(), 'prompts', compactPrompt, 'default');
   const calls: RequestPreview[] = [];
   let output = 'Alternative B.', fail = false, hold = false, release: (() => void) | undefined;
   const provider: Provider = { async stream(request, _key, _signal, onText) {

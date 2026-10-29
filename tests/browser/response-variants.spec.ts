@@ -3,6 +3,7 @@ import { test } from './appearance-test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
+import { createCompactPrompt } from './compact-prompt';
 
 test('switches response versions with arrows and a textbox, restores summarized variants and survives reload on desktop and phone', async ({ page, browser, request, setAppearance }) => {
   test.setTimeout(60000);
@@ -20,7 +21,8 @@ test('switches response versions with arrows and a textbox, restores summarized 
   const { endpoint } = await request.get('/__test/endpoint').then(response => response.json());
   const connection = await command('/api/library', { revision: (await libraries()).revision, kind: 'connections', data: { name: 'Variant model', model: 'synthetic-roleplay', endpoint, contextWindow: 100000, maxOutputTokens: 1000, customParameters: {} } });
   const preset = await command('/api/library', { revision: (await libraries()).revision, kind: 'contexts', data: { ...defaultContextPreset, connectionId: connection.id, minTail: 1, batchSize: 1, retainedPerLevel: 0 } });
-  const chat = await command('/api/chats', { title: 'Variant proof', targetInputTokens: 10000, connectionId: connection.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id });
+  const promptId = await createCompactPrompt(page);
+  const chat = await command('/api/chats', { title: 'Variant proof', targetInputTokens: 10000, connectionId: connection.id, promptId, characterId: null, personaId: null, contextPresetId: preset.id });
   const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
   await command(`/api/chats/${chat.id}/history`, { revision: (await state()).revision, turns: [{ user: 'An invitation. ' + 'The rain falls. '.repeat(100), assistant: 'Original A.', complete: true }] }, 'PUT');
   await page.reload();
@@ -196,7 +198,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('article')).toHaveCount(2);
   await expect(page.getByLabel('Your next turn')).toBeEnabled();
-  await command(`/api/chats/${chat.id}/selections`, { revision: (await state()).revision, settings: { title: 'Variant proof', targetInputTokens: 200, connectionId: connection.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id } }, 'PUT');
+  await command(`/api/chats/${chat.id}/selections`, { revision: (await state()).revision, settings: { title: 'Variant proof', targetInputTokens: 200, connectionId: connection.id, promptId, characterId: null, personaId: null, contextPresetId: preset.id } }, 'PUT');
   await command(`/api/chats/${chat.id}/context/prepare`, { revision: (await state()).revision, requestId: crypto.randomUUID(), mode: 'prepare' });
   await expect.poll(async () => (await state()).context.jobs[0]?.status).toBe('succeeded');
   await page.reload();

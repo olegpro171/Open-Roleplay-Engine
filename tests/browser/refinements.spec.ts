@@ -6,11 +6,13 @@ import type { LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
 import { assembleRequest } from '../../src/core/prompt';
 import type { SummaryNode } from '../../src/shared/context';
+import { createCompactPrompt } from './compact-prompt';
 
 test('live input inspection, budget recovery, provider usage and clearing every memory layer', async ({ page, browser, request, setAppearance }) => {
   const password = 'browser-synthetic-password';
   const session = await request.get('/api/session').then(response => response.json());
   const { endpoint } = await request.get('/__test/endpoint').then(response => response.json());
+  await request.post('/__test/mode', { data: { mode: 'normal' } });
   await page.goto('/');
   await page.getByLabel('Owner password').fill(password);
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
@@ -24,7 +26,8 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   const { id: connectionId } = await command('/api/library', { revision: (await libraries()).revision, kind: 'connections', data: { name: 'Refinement model', endpoint, model: 'synthetic-roleplay', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
   const preset = { ...defaultContextPreset, name: 'Refinement memory', connectionId, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 };
   const { id: contextId } = await command('/api/library', { revision: (await libraries()).revision, kind: 'contexts', data: preset });
-  const { id: chatId } = await command('/api/chats', { title: 'Refinement proof', targetInputTokens: 35_000, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId });
+  const promptId = await createCompactPrompt(page);
+  const { id: chatId } = await command('/api/chats', { title: 'Refinement proof', targetInputTokens: 35_000, connectionId, promptId, characterId: null, personaId: null, contextPresetId: contextId });
   const state = () => page.request.get(`/api/chats/${chatId}`).then(response => response.json() as Promise<ChatSnapshot>);
   await command(`/api/chats/${chatId}/history`, { revision: (await state()).revision, turns: Array.from({ length: 8 }, (_, i) => ({ user: `Turn ${i + 1}. ${'Mira offers Leon her brass key. '.repeat(7)}`, assistant: 'Leon promises to stay out of the cellar. '.repeat(7), complete: true })) }, 'PUT');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
@@ -84,7 +87,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   const tail = saved.turns.filter(turn => !saved.context.archivedTurnIds.includes(turn.id));
   const required = assembleRequest(saved.connection!, saved.settings, tail, saved.sources, undefined, { validateLimits: false }).budget.inputTokens;
   await command(`/api/library/${contextId}`, { revision: (await libraries()).revision, kind: 'contexts', data: { ...preset, minTail: tail.length } }, 'PUT');
-  await command(`/api/chats/${chatId}/selections`, { revision: (await state()).revision, settings: { title: saved.settings.title, targetInputTokens: required + 1, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId } }, 'PUT');
+  await command(`/api/chats/${chatId}/selections`, { revision: (await state()).revision, settings: { title: saved.settings.title, targetInputTokens: required + 1, connectionId, promptId, characterId: null, personaId: null, contextPresetId: contextId } }, 'PUT');
   await command(`/api/chats/${chatId}/context/prepare`, { revision: (await state()).revision, requestId: crypto.randomUUID(), mode: 'prepare' });
   await expect(page.getByTestId('memory-status')).toContainText('retained-summary floor');
   await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();

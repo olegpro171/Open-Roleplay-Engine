@@ -4,6 +4,7 @@ import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
 import { countText } from '../../src/core/tokens';
+import { createCompactPrompt } from './compact-prompt';
 
 test('inspects alternate identities and old versions without timeline collisions on desktop and phone', async ({ page, request }) => {
   const session = await request.get('/api/session').then(response => response.json());
@@ -21,13 +22,14 @@ test('inspects alternate identities and old versions without timeline collisions
   const libraries = () => page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
   const connection = await command('/api/library', { revision: (await libraries()).revision, kind: 'connections', data: { name: 'Alternative inspector', endpoint, model: 'synthetic-summary', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
   const preset = await command('/api/library', { revision: (await libraries()).revision, kind: 'contexts', data: { ...defaultContextPreset, name: 'Alternative context', connectionId: connection.id, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 } });
-  const chat = await command('/api/chats', { title: 'Alternate memories', targetInputTokens: 500, connectionId: connection.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id });
+  const promptId = await createCompactPrompt(page);
+  const chat = await command('/api/chats', { title: 'Alternate memories', targetInputTokens: 500, connectionId: connection.id, promptId, characterId: null, personaId: null, contextPresetId: preset.id });
   const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
   const prepare = async () => {
     await command(`/api/chats/${chat.id}/context/prepare`, { revision: (await state()).revision, requestId: crypto.randomUUID(), mode: 'prepare' });
     await expect.poll(async () => (await state()).context.jobs[0]?.status).toBe('succeeded');
   };
-  const target = async (value: number) => command(`/api/chats/${chat.id}/selections`, { revision: (await state()).revision, settings: { title: 'Alternate memories', targetInputTokens: value, connectionId: connection.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id } }, 'PUT');
+  const target = async (value: number) => command(`/api/chats/${chat.id}/selections`, { revision: (await state()).revision, settings: { title: 'Alternate memories', targetInputTokens: value, connectionId: connection.id, promptId, characterId: null, personaId: null, contextPresetId: preset.id } }, 'PUT');
   await command(`/api/chats/${chat.id}/history`, { revision: (await state()).revision, turns: Array.from({ length: 12 }, (_, i) => ({ user: `Turn ${i}. Mira gives Leon the key. ${'Rain on the roof. '.repeat(10)}`, assistant: 'Leon keeps the key. ' + 'The room is quiet. '.repeat(10), complete: true })) }, 'PUT');
   await prepare();
   const old = (await state()).context.summaries.find(node => node.level === 1)!;

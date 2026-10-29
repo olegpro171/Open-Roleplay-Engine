@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createApp } from '../src/server/app.js';
 import type { ChatToolsSnapshot, GenerationPage, RequestEstimate } from '../src/shared/contracts.js';
 import { changeSchema, type Change } from '../src/shared/changes.js';
+import { compactPrompt } from './support/compact-prompt.js';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -16,6 +17,7 @@ afterEach(async () => {
 async function fixture() {
   const directory = mkdtempSync(join(tmpdir(), 'ore-lightweight-reads-'));
   const f = await createApp({ database: join(directory, 'state.sqlite') });
+  f.store.saveLibrary(f.store.libraryRevision(), 'prompts', compactPrompt, 'default');
   cleanup.push(async () => { try { await f.app.close(); } finally { rmSync(directory, { recursive: true, force: true }); } });
   const setup = await f.app.inject({ method: 'POST', url: '/api/setup', headers: { host: 'localhost', origin: 'http://localhost' }, payload: { password: 'synthetic-performance-password' } });
   const headers = { host: 'localhost', origin: 'http://localhost', cookie: String(setup.headers['set-cookie']).split(';')[0] };

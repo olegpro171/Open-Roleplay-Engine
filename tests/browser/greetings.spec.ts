@@ -51,8 +51,8 @@ for (const width of [1440, 390]) {
     await page.getByRole('combobox', { name: 'Character', exact: true }).click();
     await page.getByRole('option', { name, exact: true }).click();
     await page.getByRole('button', { name: 'Create chat', exact: true }).click();
-    await expect(page.getByLabel('Chat title')).toHaveValue(`${name} - Roleplay`);
-    const chat = (await library(page)).chats.find(chat => chat.title === `${name} - Roleplay`);
+    await expect(page.getByLabel('Chat title')).toHaveValue(name);
+    const chat = (await library(page)).chats.find(chat => chat.title === name);
     if (!chat) throw new Error('Missing created chat');
     const state = (): Promise<ChatSnapshot> => page.request.get(`/api/chats/${chat.id}`).then(response => response.json());
     await page.getByRole('button', { name: 'Story', exact: true }).click();

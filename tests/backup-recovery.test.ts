@@ -19,6 +19,7 @@ import { PictureProcessor } from '../src/server/pictures.js';
 import { quadrantPicture } from './support/pictures.js';
 import { createApp } from '../src/server/app.js';
 import { backupLimits, type BackupReview } from '../src/shared/backups.js';
+import { compactPrompt } from './support/compact-prompt.js';
 
 let directory: string;
 const stores: Store[] = [], services: BackupService[] = [], coordinators: GenerationCoordinator[] = [], processors: PictureProcessor[] = [];
@@ -34,6 +35,7 @@ const model = { name: 'Synthetic',endpoint: 'http://localhost:1234/v1',model: 's
 
 it('round trips variants, corrected selected memory, picture links, exact requests and approved preparation progress through wipe/import/restart',async () => {
   let db = open('roundtrip'), backups = backup(db,'roundtrip');
+  db.saveLibrary(db.libraryRevision(), 'prompts', compactPrompt, 'default');
   const connectionId = db.saveLibrary(db.libraryRevision(),'connections',model,undefined,'synthetic-story-key');
   const contextId = db.saveLibrary(db.libraryRevision(),'contexts',{ ...defaultContextPreset,connectionId,minTail: 2,batchSize: 2,promotionGroup: 2,retainedPerLevel: 1 });
   const processor = new PictureProcessor(); processors.push(processor); const image = await processor.process(await quadrantPicture());

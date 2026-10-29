@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
+import { createCompactPrompt } from './compact-prompt';
 
 test('keeps chat and memory budget panels mounted during debounced and delayed refreshes', async ({ page, request }) => {
   const session = await request.get('/api/session').then(response => response.json());
@@ -19,7 +20,8 @@ test('keeps chat and memory budget panels mounted during debounced and delayed r
   };
   const { id: connectionId } = await command('/api/library', { revision: (await libraries()).revision, kind: 'connections', data: { name: 'Stable UI model', endpoint, model: 'synthetic-roleplay', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
   const { id: contextId } = await command('/api/library', { revision: (await libraries()).revision, kind: 'contexts', data: { ...defaultContextPreset, name: 'Stable UI memory', connectionId, minTail: 2, batchSize: 2, retainedPerLevel: 1, promotionGroup: 2 } });
-  const { id: chatId } = await command('/api/chats', { title: 'Stable budget proof', targetInputTokens: 20_000, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId });
+  const promptId = await createCompactPrompt(page);
+  const { id: chatId } = await command('/api/chats', { title: 'Stable budget proof', targetInputTokens: 20_000, connectionId, promptId, characterId: null, personaId: null, contextPresetId: contextId });
   await command(`/api/chats/${chatId}/history`, { revision: 0, turns: Array.from({ length: 8 }, () => ({ user: 'Mira offers Leon her brass key. '.repeat(12), assistant: 'Leon promises to avoid the cellar. '.repeat(12), complete: true })) }, 'PUT');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Stable budget proof', exact: true }) }).click();

@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import { startMockProvider, syntheticReasoningStart } from './support/mock-provider.js';
 import type { ChatSnapshot } from '../src/shared/contracts.js';
 import { defaultContextPreset } from '../src/shared/context.js';
+import { compactPrompt } from './support/compact-prompt.js';
 
 it.each(['hold', 'reasoning'] as const)('recovers a real server crash during %s with checkpointed output and no automatic provider retry', async mode => {
   const directory = mkdtempSync(join(tmpdir(), 'roleplay-crash-'));
@@ -93,7 +94,8 @@ it('keeps committed summaries after a real process crash and resumes only on an 
     cookie = setup.headers.get('set-cookie')!.split(';')[0];
     const connection = await post('/api/library', { revision: (await library()).revision, kind: 'connections', data: { name: 'Synthetic', endpoint: mock.url, model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
     const context = await post('/api/library', { revision: (await library()).revision, kind: 'contexts', data: { ...defaultContextPreset, connectionId: connection.id, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 } });
-    chatId = (await post('/api/chats', { title: 'Crash proof', targetInputTokens: 2_200, connectionId: connection.id, promptId: 'default', characterId: null, personaId: null, contextPresetId: context.id })).id;
+    const prompt = await post('/api/library', { revision: (await library()).revision, kind: 'prompts', data: compactPrompt });
+    chatId = (await post('/api/chats', { title: 'Crash proof', targetInputTokens: 2_200, connectionId: connection.id, promptId: prompt.id, characterId: null, personaId: null, contextPresetId: context.id })).id;
     const imported = Array.from({ length: 24 }, (_, i) => ({ user: `Turn ${i}. ${'Mira offers the brass key. '.repeat(10)}`, assistant: 'Leon promises to avoid the cellar. '.repeat(8), complete: true }));
     const replace = await fetch(`${address}/api/chats/${chatId}/history`, { method: 'PUT', headers: { cookie, Origin: address, 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: (await state()).revision, turns: imported }) });
     expect(replace.ok).toBe(true);

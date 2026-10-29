@@ -1,6 +1,6 @@
 import { devices, expect, test, type Page } from '@playwright/test';
 import { openChatTool } from './chat-tools';
-import type { ChatSnapshot } from '../../src/shared/contracts';
+import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 
 async function setup(page: Page, targetInputTokens = 20_000) {
@@ -62,8 +62,8 @@ for (const width of [1440, 390]) test(`next request updates automatically and re
     await expect(page.getByRole('button', { name: 'Prompt peek', exact: true })).toBeDisabled();
   } finally { release(); }
   const response = await refreshed;
-  const result = await response.json();
-  expect(result.body.messages.at(-1).content).toBe('A new unsent turn.');
+  const result: RequestPreview = await response.json();
+  expect(result.body.messages.filter(message => message.role === 'user').at(-1)?.content).toBe('A new unsent turn.');
   await expect(page.getByRole('button', { name: 'Retry preview', exact: true })).toHaveCount(0);
   await expect(page.getByText('Preview temporarily unavailable.', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Prompt peek', exact: true })).toBeEnabled();

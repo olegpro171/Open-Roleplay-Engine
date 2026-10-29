@@ -89,7 +89,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('option', { name: medieval, exact: true })).toBeVisible();
     await page.getByRole('option', { name: university, exact: true }).click();
     await page.getByRole('button', { name: 'Create chat', exact: true }).click();
-    await expect(page.getByLabel('Chat title')).toHaveValue(`${university} - Roleplay`);
+    await expect(page.getByLabel('Chat title')).toHaveValue(name);
     await expect(page.getByRole('combobox', { name: 'Character', exact: true })).toContainText(university);
     await choose(page, medieval);
     await expect(page.getByRole('combobox', { name: 'Character', exact: true })).toContainText(medieval);

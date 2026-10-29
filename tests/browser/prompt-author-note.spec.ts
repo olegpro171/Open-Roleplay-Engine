@@ -76,17 +76,23 @@ for (const width of [1280, 390]) test(`autosaves the per-chat note and sends it 
   const previewResponse = await page.request.post(`/api/chats/${id}/preview`, { headers, data: { revision: current.revision, text: 'Continue the scene.' } });
   expect(previewResponse.ok()).toBe(true);
   const preview: RequestPreview = await previewResponse.json();
-  expect(preview.body.messages.slice(-2)).toEqual([{ role: 'assistant', content: 'Let Character trust You.' }, { role: 'user', content: 'Continue the scene.' }]);
+  const inputIndex = preview.body.messages.findIndex(message => message.role === 'user' && message.content === 'Continue the scene.');
+  expect(inputIndex).toBeGreaterThan(0);
+  expect(preview.body.messages.slice(inputIndex - 1, inputIndex + 1)).toEqual([{ role: 'assistant', content: 'Let Character trust You.' }, { role: 'user', content: 'Continue the scene.' }]);
   await page.request.post('/__test/mode', { data: { mode: 'hold' } });
-  await send.click();
-  await expect.poll(async () => (await state(page, id)).generations[0]?.status).toBe('running');
-  const locked = await openNote(page);
-  await expect(locked.getByLabel('Note text')).toBeDisabled();
-  await expect(locked.getByLabel('Depth', { exact: true })).toBeDisabled();
-  await expect(locked.getByLabel('Role', { exact: true })).toBeDisabled();
-  await page.keyboard.press('Escape');
-  await expect(locked).not.toBeVisible();
-  await page.request.post('/__test/finish');
+  try {
+    await send.click();
+    await expect.poll(async () => (await state(page, id)).generations[0]?.status).toBe('running');
+    const locked = await openNote(page);
+    await expect(locked.getByLabel('Note text')).toBeDisabled();
+    await expect(locked.getByLabel('Depth', { exact: true })).toBeDisabled();
+    await expect(locked.getByLabel('Role', { exact: true })).toBeDisabled();
+    await page.keyboard.press('Escape');
+    await expect(locked).not.toBeVisible();
+  } finally {
+    await page.request.post('/__test/finish');
+    await page.request.post('/__test/mode', { data: { mode: 'normal' } });
+  }
   await expect.poll(async () => (await state(page, id)).generations[0]?.status).toBe('succeeded');
   expect((await state(page, id)).generations[0].request?.body).toEqual(preview.body);
   await page.reload();

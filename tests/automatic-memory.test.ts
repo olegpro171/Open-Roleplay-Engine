@@ -12,6 +12,7 @@ import { assembleRequest } from '../src/core/prompt.js';
 import { fitsInputTarget } from '../src/core/input-target.js';
 import { contextPlan } from '../src/core/context-plan.js';
 import { validateContent } from '../src/persistence/backup-validation.js';
+import { compactPrompt } from './support/compact-prompt.js';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -19,6 +20,7 @@ function fixture(behavior: Partial<ChatBehavior> = {}) {
   const folder = mkdtempSync(join(tmpdir(), 'ore-auto-memory-'));
   const filename = join(folder, 'chat.sqlite');
   let store = new Store(filename);
+  store.saveLibrary(store.libraryRevision(), 'prompts', compactPrompt, 'default');
   const settings: ChatBehavior = { ...defaultChatBehavior, autoRetryMemory: false, ...behavior };
   const calls: string[] = [];
   let holdSummaryAt = Number.POSITIVE_INFINITY, failSummaries = 0, reply = 'Leon waits. ';
