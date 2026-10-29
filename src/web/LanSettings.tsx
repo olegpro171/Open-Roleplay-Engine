@@ -33,7 +33,14 @@ export function LanSettings({ autosave }: { autosave: SettingsAutosave<Settings,
         <label>{t("lan_settings.lan_port")}<NumberInput min={1024} max={65535} required value={draft.port} disabled={disabled} onChange={port => { if (lanSettingsSchema.shape.port.safeParse(port).success) autosave.update({ port }); }} /></label>
       </div>}
     </div>}
-    {status?.runtime.state === 'listening' && <label className="lan-address">{t("lan_settings.open_this_address_on_your_phone")}<input aria-label={t("lan_settings.phone_address")} type="text" readOnly spellCheck={false} value={status.runtime.url} /></label>}
+    {status?.runtime.state === 'listening' && <>
+      {status.runtime.hostname.state === 'available'
+        ? <label className="lan-address">{t('lan_settings.hostname_recommended')}<input aria-label={t('lan_settings.hostname_address')} aria-describedby="lan-address-help" type="text" readOnly spellCheck={false} value={status.runtime.hostname.url} /></label>
+        : <p role="status">{formatMessage(status.runtime.hostname.localized)}</p>}
+      <label className="lan-address">{t('lan_settings.ipv4_fallback')}<input aria-label={t('lan_settings.ipv4_address')} aria-describedby="lan-address-help" type="text" readOnly spellCheck={false} value={status.runtime.ipv4Url} />
+        <small id="lan-address-help">{t('lan_settings.address_help')}</small>
+      </label>
+    </>}
     {status && !draft?.automatic && status.interfaces.length === 0 && <p>{t("lan_settings.no_supported_private_ipv4_network_is_available")}</p>}
   </section>;
 }

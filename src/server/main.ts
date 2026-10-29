@@ -58,7 +58,11 @@ if (!['127.0.0.1', 'localhost', '::1'].includes(host)) {
   }
 } else {
   const status = lan.status(true);
-  if (status.runtime.state === 'listening') console.log(`LAN: ${status.runtime.url}`);
+  if (status.runtime.state === 'listening') {
+    if (status.runtime.hostname.state === 'available') console.log(`LAN: ${status.runtime.hostname.url}`);
+    else console.log(status.runtime.hostname.localized.fallback);
+    console.log(`LAN: ${status.runtime.ipv4Url}`);
+  }
   else if (status.runtime.state === 'unavailable') console.log(`LAN: ${status.runtime.message}`);
   else console.log('LAN access is off. Enable it in Application Settings → Phone / LAN access.');
 }

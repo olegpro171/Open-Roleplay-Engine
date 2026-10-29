@@ -3,6 +3,8 @@ import { createServer, request } from 'node:http';
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { AppError } from '../src/core/errors.js';
+import { message } from '../src/shared/localization.js';
 import { createApp } from '../src/server/app.js';
 import { allowedLanHost, allowedLanPeer, isPrivateIPv4, lanInterfaces } from '../src/server/lan-policy.js';
 import { lanStatusSchema, type LanInterface, type LanSettings } from '../src/shared/lan.js';
@@ -81,7 +83,7 @@ it('starts off, requires owner authentication, and applies saved LAN settings wi
   const localAddress = instance.app.server.address();
   const enabled = await save();
   expect(enabled.statusCode).toBe(200);
-  expect(lanStatusSchema.parse(enabled.json()).runtime).toEqual({ state: 'listening', url: `http://ore-fixture.local:${port}` });
+  expect(lanStatusSchema.parse(enabled.json()).runtime).toEqual({ state: 'listening', url: `http://ore-fixture.local:${port}`, ipv4Url: `http://127.0.0.1:${port}`, hostname: { state: 'available', url: `http://ore-fixture.local:${port}` } });
   expect(instance.app.server.address()).toEqual(localAddress);
   expect((await phone('/api/chat')).status).toBe(401);
   expect((await phone('/api/session', { host: `ORE-FIXTURE.LOCAL:${port}` })).status).toBe(200);
@@ -105,9 +107,10 @@ it('starts off, requires owner authentication, and applies saved LAN settings wi
 
 it('rejects foreign hosts, origins, peers, forwarded addresses, remote setup and remote configuration', async () => {
   expect((await save()).statusCode).toBe(200);
-  for (const host of ['attacker.example', `localhost:${port}`, `127.0.0.1.attacker.example:${port}`, '127.0.0.1', `ore-fixture.local.attacker.example:${port}`, `ore-fixture.local:${port + 1}`]) expect((await phone('/api/session', { host })).status).toBe(403);
+  for (const host of ['attacker.example', `192.168.1.5:${port}`, `127.0.0.1:${port + 1}`, `localhost:${port}`, `127.0.0.1.attacker.example:${port}`, '127.0.0.1', `ore-fixture.local.attacker.example:${port}`, `ore-fixture.local:${port + 1}`]) expect((await phone('/api/session', { host })).status).toBe(403);
   expect((await phone('/api/session', { host: 'attacker.example', forwarded: '127.0.0.1' })).status).toBe(403);
   expect((await phone('/api/login', { method: 'POST', origin: 'http://attacker.example', body: { password: 'synthetic-lan-password' } })).status).toBe(403);
+  expect((await phone('/api/login', { method: 'POST', origin: `http://ore-fixture.local:${port}`, body: { password: 'synthetic-lan-password' } })).status).toBe(403);
   expect((await phone('/api/setup', { method: 'POST', origin: `http://127.0.0.1:${port}`, body: { password: 'synthetic-lan-password' } })).status).toBe(403);
   expect((await phone('/api/application/lan', { method: 'PUT', origin: `http://127.0.0.1:${port}`, authenticated: true, body: { revision: 1, enabled: false, automatic: false, interfaceId: null, port } })).status).toBe(403);
   const forged = await instance.app.inject({ url: '/api/session', headers: { host: '192.168.1.20:3000', 'x-forwarded-for': '127.0.0.1' } });
@@ -267,4 +270,43 @@ it('limits peers to private addresses in the selected subnet and offers only eli
   expect(isPrivateIPv4('172.16.0.1')).toBe(true);
   expect(isPrivateIPv4('172.31.255.254')).toBe(true);
   expect(isPrivateIPv4('172.32.0.1')).toBe(false);
+});
+
+it.each(['discovery', 'invalid'])('serves authenticated numeric-origin reads and writes with %s hostname failure, including restart', async failure => {
+  hostname = failure === 'discovery'
+    ? async () => { throw new AppError(503, 'lan_hostname_unavailable', message('errors.the_computer_s_local_hostname_could_not_be')); }
+    : async () => 'ore.local.attacker.example';
+  expect((await save()).statusCode).toBe(200);
+  const committed = await status();
+  expect(committed.runtime).toMatchObject({ state: 'listening', url: `http://127.0.0.1:${port}`, ipv4Url: `http://127.0.0.1:${port}`, hostname: { state: 'unavailable' } });
+  const saved = readFileSync(join(directory, 'chat.sqlite.lan.json'), 'utf8');
+  for (const host of [`ore-fixture.local:${port}`, `ore.local.attacker.example:${port}`, `null:${port}`, `undefined:${port}`, `127.0.0.1:${port + 1}`]) {
+    expect((await phone('/api/session', { host })).status).toBe(403);
+  }
+  const login = await phone('/api/login', { method: 'POST', origin: `http://127.0.0.1:${port}`, body: { password: 'synthetic-lan-password' } });
+  expect(login.status).toBe(200);
+  const token = login.headers['set-cookie']?.[0]?.split(';')[0];
+  if (!token) throw new Error('Missing numeric-host session cookie.');
+  expect((await phone('/api/chat', { token })).status).toBe(200);
+  const created = await phone('/api/chats', { method: 'POST', origin: `http://127.0.0.1:${port}`, token,
+    body: { title: 'Numeric-origin story', targetInputTokens: 10000, connectionId: null, promptId: 'default', characterId: null, personaId: null } });
+  expect(created.status).toBe(200);
+  const id = JSON.parse(created.body).id;
+  await instance.app.close();
+  await start();
+  expect((await status()).runtime).toEqual(committed.runtime);
+  expect(readFileSync(join(directory, 'chat.sqlite.lan.json'), 'utf8')).toBe(saved);
+  const reopened = await phone(`/api/chats/${id}`, { token });
+  expect(reopened.status).toBe(200);
+  expect(JSON.parse(reopened.body).settings.title).toBe('Numeric-origin story');
+  expect((await save({ enabled: false })).statusCode).toBe(200);
+  await expect(phone()).rejects.toThrow();
+});
+
+it('admits only the selected IPv4 when hostname metadata is unavailable', () => {
+  const selected = { ...syntheticInterface, address: '192.168.5.10' };
+  expect(allowedLanHost('192.168.5.10:3000', selected, 3000, null)).toBe(true);
+  for (const host of ['192.168.5.11:3000', '192.168.5.10:3001', 'ore.local:3000', 'null:3000', 'undefined:3000', undefined]) {
+    expect(allowedLanHost(host, selected, 3000, null)).toBe(false);
+  }
 });

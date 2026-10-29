@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { lanCommandSchema, lanInterfaceSchema, lanSettingsSchema, type LanInterface, type LanSettings, type LanStatus } from '../shared/lan.js';
 import { allowedLanHost, allowedLanPeer, lanInterfaces, sameInterface } from './lan-policy.js';
-import { localLanHostname } from './lan-hostname.js';
+import { localLanHostname, normalizeLocalHostname } from './lan-hostname.js';
 import { listenLan, type LanRoute, type LanTransport, type ListenLan } from './lan-listener.js';
 
 const savedSchema = z.object({
@@ -14,7 +14,8 @@ const savedSchema = z.object({
 }).strict();
 const legacySchema = savedSchema.extend({ version: z.literal(1), settings: lanSettingsSchema.omit({ automatic: true }) });
 type Saved = z.infer<typeof savedSchema>;
-type Listener = { transport: LanTransport; authority: symbol; binding: LanInterface; port: number; hostname: string };
+type Hostname = { state: 'available'; name: string } | { state: 'unavailable'; localized: LocalizedMessage };
+type Listener = { transport: LanTransport; authority: symbol; binding: LanInterface; port: number; hostname: Hostname };
 type Options = {
   interfaces?: () => LanInterface[];
   hostname?: () => Promise<string>;
@@ -93,7 +94,12 @@ export class LanAccess {
         ? { state: 'unavailable', message: this.message }
         : { state: 'unavailable', message: this.message.fallback, localized: this.message };
     } else if (this.listener) {
-      runtime = { state: 'listening', url: `http://${this.listener.hostname}:${this.listener.port}` };
+      const { binding, port, hostname } = this.listener;
+      const ipv4Url = `http://${binding.address}:${port}`;
+      const address = hostname.state === 'available'
+        ? { state: 'available' as const, url: `http://${hostname.name}:${port}` }
+        : hostname;
+      runtime = { state: 'listening', ipv4Url, hostname: address, url: address.state === 'available' ? address.url : ipv4Url };
     } else {
       runtime = { state: 'off' };
     }
@@ -198,13 +204,26 @@ export class LanAccess {
     }
   }
   private async open(binding: LanInterface, port: number): Promise<Listener> {
-    const hostname = await this.hostname();
+    let hostname: Hostname;
+    try {
+      const name = normalizeLocalHostname(await this.hostname());
+      if (!name) throw new AppError(503, 'lan_hostname_invalid', message('errors.the_computer_needs_a_valid_local_hostname_before'));
+      hostname = { state: 'available', name };
+    } catch (error) {
+      // Only discovery/validation failures are metadata failures. Programming
+      // errors must still fail the operation instead of claiming successful LAN.
+      if (!(error instanceof AppError) || !error.localized
+        || (error.code !== 'lan_hostname_unavailable' && error.code !== 'lan_hostname_invalid')) throw error;
+      hostname = { state: 'unavailable', localized: error.localized };
+    }
     if (this.closed) throw new AppError(409, 'lan_stopping', message("errors.ore_is_stopping"));
+    if (!this.current(binding)) throw new AppError(409, 'lan_network_changed', message('errors.the_local_network_changed'));
+    const admittedHostname = hostname.state === 'available' ? hostname.name : null;
     const authority = Symbol('LAN listener');
     const transport = await this.listen(binding, port, (request, response) => {
       this.checkNetwork();
       if (this.closed || this.listener?.authority !== authority || !allowedLanPeer(request.socket.remoteAddress, binding)
-        || request.socket.localAddress !== binding.address || !allowedLanHost(request.headers.host, binding, port, hostname)) {
+        || request.socket.localAddress !== binding.address || !allowedLanHost(request.headers.host, binding, port, admittedHostname)) {
         response.writeHead(403, { 'Content-Type': 'application/json', Connection: 'close' });
         response.end(JSON.stringify({ code: 'lan_access_denied', message: 'LAN access is unavailable for this address or network. Open ORE locally on the server computer.' }));
         return;

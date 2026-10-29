@@ -91,7 +91,7 @@ You can also continue an existing story. Import a SillyTavern-format `.jsonl` fi
 
 ## Phone access
 
-Enable **Settings → Phone / LAN access** on the server computer. Open the displayed address on a phone on the same local network. The computer must remain on and awake.
+Enable **Settings → Phone / LAN access** on the server computer. Open the recommended hostname address on a phone on the same local network. If it does not work, try the local IPv4 address shown alongside it; IPv4 is also available when hostname discovery fails. Both addresses reach the same installation. Switching addresses may require signing in again; browser drafts and language preferences are separate for each address. IPv4 can change, so check Settings for the current address. The computer must remain on and awake.
 
 Closing the phone's browser tab or losing the connection does not cancel generation.
 

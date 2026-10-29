@@ -17,7 +17,16 @@ export const lanStatusSchema = z.object({
   interfaces: z.array(lanInterfaceSchema),
   runtime: z.discriminatedUnion('state', [
     z.object({ state: z.literal('off') }),
-    z.object({ state: z.literal('listening'), url: z.string().url() }),
+    z.object({
+      state: z.literal('listening'),
+      // Retained for existing consumers: prefer the hostname when available.
+      url: z.string().url(),
+      ipv4Url: z.string().url(),
+      hostname: z.discriminatedUnion('state', [
+        z.object({ state: z.literal('available'), url: z.string().url() }),
+        z.object({ state: z.literal('unavailable'), localized: localizedMessageSchema }),
+      ]),
+    }),
     z.object({ state: z.literal('unavailable'), message: z.string(), localized: localizedMessageSchema.optional() }),
   ]),
   canConfigure: z.boolean(),

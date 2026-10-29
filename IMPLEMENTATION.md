@@ -94,7 +94,7 @@ Keep local loopback available separately from the optional listener. `lan-policy
 
 Automatic mode persists enabled intent and recovers offline/busy port 3000 without browser interaction, preferring the existing adapter then stable interface order. Manual mode prepares a replacement listener before the atomic settings commit and preserves the old binding on failure. A serialized queue owns save/recovery/shutdown; recheck interface identity/address/netmask per request and on a three-second monitor. Disable revokes authority and closes LAN sockets before acknowledgement but does not cancel accepted work. Shutdown rejects late bind results and releases timers/sockets.
 
-macOS uses bounded Bonjour LocalHostName discovery; other platforms depend on existing OS hostname resolution. No DNS service, router rule or certificate installer is provided. Treat hostname/device/suspension coverage as platform qualification, not a consequence of browser emulation.
+macOS uses bounded Bonjour LocalHostName discovery; other platforms depend on existing OS hostname resolution. Live status derives both URLs from the committed listener binding and port, with an explicit hostname availability state. Known discovery/normalization failures allow IPv4 startup with a localized hostname notice; unexpected errors remain failures. Only the validated, present hostname and the selected IPv4 are admitted. The compatibility `runtime.url` prefers hostname when available and otherwise uses IPv4; these URLs require no saved-settings upgrade. No DNS service, router rule or certificate installer is provided. Treat hostname/device/suspension coverage as platform qualification, not a consequence of browser emulation.
 
 ## Documentation maintenance
 

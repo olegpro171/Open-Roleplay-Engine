@@ -38,6 +38,6 @@ export function allowedLanPeer(address: string | undefined, selected: LanInterfa
   return peer !== undefined && isPrivateIPv4(peer)
     && (ipv4Number(peer) & ipv4Number(selected.netmask)) === (ipv4Number(selected.address) & ipv4Number(selected.netmask));
 }
-export function allowedLanHost(host: string | undefined, selected: LanInterface, port: number, hostname: string) {
-  return host?.toLowerCase() === `${hostname}:${port}` || host === `${selected.address}:${port}`;
+export function allowedLanHost(host: string | undefined, selected: LanInterface, port: number, hostname: string | null) {
+  return (hostname !== null && host?.toLowerCase() === `${hostname}:${port}`) || host === `${selected.address}:${port}`;
 }
