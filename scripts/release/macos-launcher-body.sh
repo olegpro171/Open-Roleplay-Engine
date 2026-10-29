@@ -189,7 +189,7 @@ ore_update() {
   ore_update_status=1
   ore_failure=downloadFailed
   ore_say checkingUpdates
-  ore_download 'https://api.github.com/repos/olegpro171/Roleplay-Engine/commits/main' "$ore_stage/main.json" 30 || return 1
+  ore_download 'https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/commits/main' "$ore_stage/main.json" 30 || return 1
   ore_target=$(plutil -extract sha raw -expect string -o - "$ore_stage/main.json") || return 1
   [[ "$ore_target" =~ ^[0-9a-f]{40}$ ]] || { ore_note 'Invalid full commit in main metadata.'; return 1; }
   ore_note "Resolved main $ore_target"
@@ -197,12 +197,12 @@ ore_update() {
     ore_commit=$(plutil -extract commit raw -expect string -o - "$ore_application/build-info.json") || return 1
     [[ "$ore_commit" =~ ^[0-9a-f]{40}$ ]] || return 1
     if [ "$ore_commit" = "$ore_target" ]; then ore_say upToDate; return 0; fi
-    ore_download "https://api.github.com/repos/olegpro171/Roleplay-Engine/compare/$ore_commit...$ore_target?per_page=1" "$ore_stage/compare.json" 30 || return 1
+    ore_download "https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/compare/$ore_commit...$ore_target?per_page=1" "$ore_stage/compare.json" 30 || return 1
     [ "$(plutil -extract status raw -expect string -o - "$ore_stage/compare.json")" = ahead ] && [ "$(plutil -extract base_commit.sha raw -expect string -o - "$ore_stage/compare.json")" = "$ore_commit" ] && [ "$(plutil -extract merge_base_commit.sha raw -expect string -o - "$ore_stage/compare.json")" = "$ore_commit" ] || { ore_note 'Main ancestry was not verified as a forward continuation.'; return 1; }
   fi
   ore_fallback=updateFallback
   ore_say downloadingVersion
-  ore_download "https://github.com/olegpro171/Roleplay-Engine/archive/$ore_target.tar.gz" "$ore_stage/source.tar.gz" 300 || return 1
+  ore_download "https://github.com/olegpro171/Open-Roleplay-Engine/archive/$ore_target.tar.gz" "$ore_stage/source.tar.gz" 300 || return 1
   ore_failure=verificationFailed
   ore_say preparingVersion
   ore_extract_snapshot "$ore_stage/source.tar.gz" "$ore_target" "$ore_stage/source" "$ore_stage/list" || { ore_note 'Source archive path/type/input validation failed.'; return 1; }

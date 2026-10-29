@@ -44,10 +44,10 @@ esac
 const inputs=['build-portable.sh','package.json','package-lock.json','tsconfig.json','tsconfig.server.json','vite.config.ts','vitest.config.ts','playwright.config.ts','index.html','src','public','migrations','scripts/release','LICENSE','docs/RELEASES.md'];
 const commitA='c'.repeat(40),commitB='d'.repeat(40);
 function archive(commit:string) {
- const source=join(root,`Roleplay-Engine-${commit}`); mkdirSync(source);
+ const source=join(root,`Open-Roleplay-Engine-${commit}`); mkdirSync(source);
  for(const input of inputs) cpSync(join(repository,input),join(source,input),{recursive:true});
  writeFileSync(join(source,'scripts/release/macos-launcher.sh'),instrument(readFileSync('scripts/release/macos-launcher.sh','utf8')));
- assert.equal(spawnSync('/usr/bin/tar',['-czf',join(root,'source.tar.gz'),'-C',root,`Roleplay-Engine-${commit}`]).status,0);
+ assert.equal(spawnSync('/usr/bin/tar',['-czf',join(root,'source.tar.gz'),'-C',root,`Open-Roleplay-Engine-${commit}`]).status,0);
  writeFileSync(join(root,'main.json'),JSON.stringify({sha:commit}));
 }
 const reservation=createServer(); await new Promise<void>(accept=>reservation.listen(0,'127.0.0.1',accept));

@@ -12,7 +12,7 @@ case "$mode" in
     [ "$#" -eq 4 ] || fail 'Snapshot input requires a downloaded archive, complete commit and installation.'
     commit=$2; destination=$3; snapshot=$4
     [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || fail 'Invalid snapshot commit.'
-    [ "${ORE_SNAPSHOT_SOURCE:-}" = "https://github.com/olegpro171/Roleplay-Engine/archive/$commit.tar.gz" ] || fail 'Missing downloaded-main provenance.'
+    [ "${ORE_SNAPSHOT_SOURCE:-}" = "https://github.com/olegpro171/Open-Roleplay-Engine/archive/$commit.tar.gz" ] || fail 'Missing downloaded-main provenance.'
     [[ "${ORE_SNAPSHOT_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || fail 'Missing snapshot digest.'
     [ "$(shasum -a 256 "$snapshot" | awk '{print $1}')" = "$ORE_SNAPSHOT_SHA256" ] || fail 'Snapshot bytes changed after download.'
     ;;

@@ -45,7 +45,7 @@ update_application() (
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP
-  repository='https://github.com/olegpro171/Roleplay-Engine.git'
+  repository='https://github.com/olegpro171/Open-Roleplay-Engine.git'
   if [ -f "$ore_home/update-source.txt" ]; then repository=$(cat "$ore_home/update-source.txt"); fi
   if [ -n "$ore_source_hint" ]; then repository=$(git -C "$ore_source_hint" remote get-url origin); fi
   case "$repository" in ''|*$'\n'*|http://*@*|https://*@*) echo 'Invalid update source. Use a Git URL without embedded credentials and authenticate with Git.' >&2; exit 1;; esac

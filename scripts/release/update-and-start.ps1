@@ -29,7 +29,7 @@ try {
             Write-Host ('Installation folder: ' + $installation)
             try {
                 if (!(Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git is required for updates. Install/configure Git separately; no global tools were installed.' }
-                $repository = 'https://github.com/olegpro171/Roleplay-Engine.git'
+                $repository = 'https://github.com/olegpro171/Open-Roleplay-Engine.git'
                 $sourceFile = Join-Path $installation 'update-source.txt'
                 if (Test-Path -LiteralPath $sourceFile) { $repository = [IO.File]::ReadAllText($sourceFile).Trim() }
                 if ($SourceHint) { $repository = (Invoke-Native git @('-C',$SourceHint,'remote','get-url','origin')).Trim() }

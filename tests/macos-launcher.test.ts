@@ -76,7 +76,7 @@ if (process.argv.includes('build')) {
   expect(spawnSync('/usr/bin/tar', ['-czf', join(root, 'toolkit.tar.gz'), '-C', join(root, 'toolkit'), runtimeId]).status).toBe(0);
   const runtimeDigest = createHash('sha256').update(readFileSync(join(root, 'toolkit.tar.gz'))).digest('hex');
   function archive(commit = commitA, edit?: (source: string) => void) {
-    const source = join(root, `Roleplay-Engine-${commit}`);
+    const source = join(root, `Open-Roleplay-Engine-${commit}`);
     mkdirSync(source);
     cpSync('scripts/release', join(source, 'scripts/release'), { recursive: true });
     cpSync('build-portable.sh', join(source, 'build-portable.sh'));
@@ -87,7 +87,7 @@ if (process.argv.includes('build')) {
     for (const path of ['tsconfig.json','tsconfig.server.json','vite.config.ts','vitest.config.ts','playwright.config.ts','index.html','LICENSE','docs/RELEASES.md','package-lock.json','migrations/0014_library_sorting.sql']) writeFileSync(join(source, path), '');
     writeFileSync(join(source, 'package.json'), '{"type":"module"}');
     edit?.(source);
-    expect(spawnSync('/usr/bin/tar', ['-czf', join(root, 'source.tar.gz'), '-C', root, `Roleplay-Engine-${commit}`]).status).toBe(0);
+    expect(spawnSync('/usr/bin/tar', ['-czf', join(root, 'source.tar.gz'), '-C', root, `Open-Roleplay-Engine-${commit}`]).status).toBe(0);
     return source;
   }
   archive();
@@ -118,7 +118,10 @@ describe.skipIf(process.platform !== 'darwin')('standalone macOS launcher', () =
   it('installs an exact archive without adjacent files/global tools, reuses unchanged main and forwards updates', async () => {
     const f = fixture();
     writeFileSync(join(f.parent, '.env'), 'invalid parent secret never read');
-    const first = observe(f.run()); await first.until('ORE is ready.'); await first.stop();
+    const first = observe(f.run());
+    try { await first.until('ORE is ready.'); }
+    catch (error) { throw new Error(`${String(error)}\n${f.logs()}`); }
+    await first.stop();
     expect(first.output()).toContain('Checking new version...\nActivating new version...');
     expect(first.output()).not.toContain('SYNTHETIC');
     expect(first.output()).not.toContain('Opening your browser');
@@ -139,7 +142,9 @@ describe.skipIf(process.platform !== 'darwin')('standalone macOS launcher', () =
     const third = observe(f.run()); await third.until('ORE is ready.'); await third.stop();
     expect(readFileSync(join(f.home, 'previous'), 'utf8')).toBe(selectedA);
     expect(readFileSync(join(f.home, 'current'), 'utf8')).toContain(commitB.slice(0,12));
-    expect(f.calls()).toContain(`https://github.com/olegpro171/Roleplay-Engine/archive/${commitB}.tar.gz`);
+    expect(f.calls()).toContain(`https://github.com/olegpro171/Open-Roleplay-Engine/archive/${commitB}.tar.gz`);
+    expect(f.calls()).toContain('https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/commits/main');
+    expect(f.calls()).toContain(`https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/compare/${commitA}...${commitB}?per_page=1`);
     expect(f.logs()).toContain(commitA); expect(f.logs()).toContain(commitB);
     expect(f.logs()).not.toContain('$(exit 42) %s $HOME');
     expect(readFileSync(join(f.home, '.env'), 'utf8')).toContain('$(exit 42)');
@@ -151,7 +156,7 @@ describe.skipIf(process.platform !== 'darwin')('standalone macOS launcher', () =
     const result = await completed(f.run());
     expect(result.status).not.toBe(0);
     expect(readdirSync(join(f.home,'logs')).every(name=>name.endsWith('.txt'))).toBe(true);
-    expect(f.logs()).toContain('HTTPS request: https://api.github.com/repos/olegpro171/Roleplay-Engine/commits/main');
+    expect(f.logs()).toContain('HTTPS request: https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/commits/main');
     expect(result.output).toContain(locale === 'ru' || locale === 'ru-RU' || locale === 'ru_RU' ? 'Не удалось завершить загрузку ORE.' : "ORE couldn't finish downloading.");
     expect(result.output).not.toContain('curl:');
   });
@@ -209,11 +214,11 @@ describe.skipIf(process.platform !== 'darwin')('standalone macOS launcher', () =
     // the individual readiness bound, including under concurrent native builds.
   },15000);
   it('rejects source links before extraction/execution and permits safe explicit retry', async () => {
-    const f = fixture(); rmSync(join(f.root,`Roleplay-Engine-${commitA}`),{recursive:true});
+    const f = fixture(); rmSync(join(f.root,`Open-Roleplay-Engine-${commitA}`),{recursive:true});
     f.archive(commitA,source=>symlinkSync('/tmp',join(source,'src','escape')));
     const bad = await completed(f.run()); expect(bad.output).toContain("A downloaded file couldn't be verified."); expect(existsSync(join(f.root,'build-calls'))).toBe(false);
     expect(existsSync(join(f.home,'cache/update.lock'))).toBe(false);
-    rmSync(join(f.root,`Roleplay-Engine-${commitA}`),{recursive:true}); f.archive();
+    rmSync(join(f.root,`Open-Roleplay-Engine-${commitA}`),{recursive:true}); f.archive();
     const good = observe(f.run()); await good.until('ORE is ready.'); await good.stop();
   });
   it('rejects malformed metadata, unverified runtime bytes, log creation failure and unsupported systems', async () => {
@@ -308,9 +313,18 @@ describe.skipIf(process.platform !== 'darwin')('standalone macOS launcher', () =
   });
   it.each(['../escape','/absolute-escape'])('refuses archive path rewriting to %s before extraction', async replacement => {
     const f=fixture();
-    expect(spawnSync('/usr/bin/tar',['-czf',join(f.root,'source.tar.gz'),'-s',`,Roleplay-Engine-${commitA}/src,${replacement},`,'-C',f.root,`Roleplay-Engine-${commitA}`]).status).toBe(0);
+    expect(spawnSync('/usr/bin/tar',['-czf',join(f.root,'source.tar.gz'),'-s',`,Open-Roleplay-Engine-${commitA}/src,${replacement},`,'-C',f.root,`Open-Roleplay-Engine-${commitA}`]).status).toBe(0);
     const result=await completed(f.run()); expect(result.output).toContain("A downloaded file couldn't be verified.");
     expect(existsSync(join(f.root,'build-calls'))).toBe(false);
+  });
+  it.each([`Roleplay-Engine-${commitA}`, `Other-Repository-${commitA}`, `Open-Roleplay-Engine-${commitB}`])('rejects a mismatched archive root %s before building', async root => {
+    const f = fixture();
+    expect(spawnSync('/usr/bin/tar', ['-czf', join(f.root, 'source.tar.gz'), '-s', `,Open-Roleplay-Engine-${commitA},${root},`, '-C', f.root, `Open-Roleplay-Engine-${commitA}`]).status).toBe(0);
+    const result = await completed(f.run());
+    expect(result.status).not.toBe(0);
+    expect(result.output).toContain("A downloaded file couldn't be verified.");
+    expect(existsSync(join(f.root, 'build-calls'))).toBe(false);
+    expect(existsSync(join(f.home, 'current'))).toBe(false);
   });
   it('reports later report write failure instead of promising a usable report', async () => {
     const f=fixture();
@@ -405,7 +419,7 @@ describe.skipIf(process.platform !== 'darwin')('standalone macOS launcher', () =
     const [id]=readFileSync(join(f.home,'current'),'utf8').split('\n');
     expect(JSON.parse(readFileSync(join(f.home,'app',id,'build-info.json'),'utf8')).commit).toBe(commitA);
     expect(JSON.parse(readFileSync(join(f.root,'main.json'),'utf8')).sha).toBe(commitB);
-    expect(f.calls().filter(url=>url.includes('/archive/'))).toEqual([`https://github.com/olegpro171/Roleplay-Engine/archive/${commitA}.tar.gz`]);
+    expect(f.calls().filter(url=>url.includes('/archive/'))).toEqual([`https://github.com/olegpro171/Open-Roleplay-Engine/archive/${commitA}.tar.gz`]);
   });
   it('uses retained compatible recovery tooling independently of its original payload', async () => {
     const f=fixture(); const first=observe(f.run()); await first.until('ORE is ready.'); await first.stop();

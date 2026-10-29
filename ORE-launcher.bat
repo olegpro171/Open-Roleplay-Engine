@@ -648,8 +648,8 @@ try {
             $script:OreFailure = 'downloadFailed'
             Show-OreMessage 'checkingUpdates'
             $mainFile = Join-Path $stage 'main.json'
-            Write-OreDiagnostic 'HTTPS request: https://api.github.com/repos/olegpro171/Roleplay-Engine/commits/main'
-            Get-OreHttps 'https://api.github.com/repos/olegpro171/Roleplay-Engine/commits/main' $mainFile 30
+            Write-OreDiagnostic 'HTTPS request: https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/commits/main'
+            Get-OreHttps 'https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/commits/main' $mainFile 30
             $main = [IO.File]::ReadAllText($mainFile,[Text.Encoding]::UTF8) | ConvertFrom-Json
             $commit = $main.sha
             if ($commit -isnot [string] -or $commit -cnotmatch '^[0-9a-f]{40}$') { throw 'Malformed main identity.' }
@@ -660,7 +660,7 @@ try {
                 $same = $info.commit -ceq $commit
                 if (!$same) {
                     $compareFile = Join-Path $stage 'compare.json'
-                    $compareUrl = 'https://api.github.com/repos/olegpro171/Roleplay-Engine/compare/'+$info.commit+'...'+$commit+'?per_page=1'
+                    $compareUrl = 'https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/compare/'+$info.commit+'...'+$commit+'?per_page=1'
                     Write-OreDiagnostic ('HTTPS request: '+$compareUrl)
                     Get-OreHttps $compareUrl $compareFile 30
                     $compare = [IO.File]::ReadAllText($compareFile,[Text.Encoding]::UTF8) | ConvertFrom-Json
@@ -671,13 +671,13 @@ try {
                 $fallback = 'updateFallback'
                 Show-OreMessage 'downloadingVersion'
                 $archive = Join-Path $stage 'source.zip'
-                $sourceUrl = 'https://github.com/olegpro171/Roleplay-Engine/archive/'+$commit+'.zip'
+                $sourceUrl = 'https://github.com/olegpro171/Open-Roleplay-Engine/archive/'+$commit+'.zip'
                 Write-OreDiagnostic ('HTTPS request: '+$sourceUrl)
                 Get-OreHttps $sourceUrl $archive 300
                 $script:OreFailure = 'verificationFailed'
                 Show-OreMessage 'preparingVersion'
                 $sourcePath = Join-Path $stage 'source'
-                Expand-OreZip $archive ('Roleplay-Engine-'+$commit) $sourcePath -Source
+                Expand-OreZip $archive ('Open-Roleplay-Engine-'+$commit) $sourcePath -Source
                 if ([IO.File]::ReadAllText((Join-Path $sourcePath 'scripts/release/windows-launcher-protocol')).Trim() -cne '1') { throw 'Unsupported source helper protocol.' }
                 $runtime = Get-OreRuntime $Installation $sourcePath $stage
                 $digest = Get-OreHash $archive

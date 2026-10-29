@@ -102,7 +102,7 @@ if(process.argv.includes('build')){
   zip(join(root,'toolkit'),join(root,'toolkit.zip'));
   const digest = createHash('sha256').update(readFileSync(join(root,'toolkit.zip'))).digest('hex');
   function archive(commit = a, edit?: (path: string) => void) {
-    const source = join(root,`sources-${commit}`,`Roleplay-Engine-${commit}`); mkdirSync(source,{recursive:true});
+    const source = join(root,`sources-${commit}`,`Open-Roleplay-Engine-${commit}`); mkdirSync(source,{recursive:true});
     cpSync('scripts/release',join(source,'scripts/release'),{recursive:true});
     cpSync('build-portable.ps1',join(source,'build-portable.ps1'));
     writeFileSync(join(source,'scripts/release/windows-launcher.ps1'),instrument(readFileSync('scripts/release/windows-launcher.ps1','utf8')));
@@ -135,7 +135,7 @@ describe.skipIf(process.platform !== 'win32')('standalone Windows 5.1 batch laun
     const f=fixture();f.archive(a,source=>{
       for(const directory of ['src','public'])writeFileSync(join(source,directory,'sentinel.txt'),'tracked build input');
     });
-    const source=join(f.root,`sources-${a}`,`Roleplay-Engine-${a}`);
+    const source=join(f.root,`sources-${a}`,`Open-Roleplay-Engine-${a}`);
     const gitPath=powershell('(Get-Command git.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source').stdout.trim();
     const git=(...args:string[])=>{
       const result=spawnSync(gitPath,['-C',source,...args],{encoding:'utf8'});
@@ -227,7 +227,9 @@ catch { $cause=$_.Exception;while($cause.InnerException){$cause=$cause.InnerExce
     const third=observe(f.run());await third.until('ORE is ready.');await third.stop();
     expect(readFileSync(join(f.home,'previous'),'utf8')).toBe(selected);
     expect(f.calls().filter(url=>url.includes('nodejs.org'))).toHaveLength(1);
-    expect(f.calls()).toContain(`https://github.com/olegpro171/Roleplay-Engine/archive/${b}.zip`);
+    expect(f.calls()).toContain(`https://github.com/olegpro171/Open-Roleplay-Engine/archive/${b}.zip`);
+    expect(f.calls()).toContain('https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/commits/main');
+    expect(f.calls()).toContain(`https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/compare/${a}...${b}?per_page=1`);
     expect(readFileSync(join(f.home,'languages/sentinel.json'),'utf8')).toBe('preserved user pack');
     expect(readFileSync(join(f.parent,'unrelated.txt'),'utf8')).toBe('preserve');
     expect(f.logs()).toContain('SYNTHETIC NPM WARNING');expect(f.logs()).toContain('SYNTHETIC SERVER WARNING');
@@ -313,7 +315,7 @@ catch { $cause=$_.Exception;while($cause.InnerException){$cause=$cause.InnerExce
   it('requires captured snapshot bytes and owned destinations before changing permissions or installing tools',()=>{
     const f=fixture();f.archive();mkdirSync(f.home);writeFileSync(join(f.home,'unrelated'),'preserve');
     const digest=createHash('sha256').update(readFileSync(join(f.root,'source.zip'))).digest('hex');
-    const run=(sha:string)=>spawnSync(ps,['-NoProfile','-ExecutionPolicy','RemoteSigned','-File',resolve('build-portable.ps1'),'-Mode','Snapshot','-Commit',a,'-Destination',f.home,'-Snapshot',join(f.root,'source.zip')],{encoding:'utf8',env:{...process.env,ORE_SNAPSHOT_SOURCE:`https://github.com/olegpro171/Roleplay-Engine/archive/${a}.zip`,ORE_SNAPSHOT_SHA256:sha}});
+    const run=(sha:string)=>spawnSync(ps,['-NoProfile','-ExecutionPolicy','RemoteSigned','-File',resolve('build-portable.ps1'),'-Mode','Snapshot','-Commit',a,'-Destination',f.home,'-Snapshot',join(f.root,'source.zip')],{encoding:'utf8',env:{...process.env,ORE_SNAPSHOT_SOURCE:`https://github.com/olegpro171/Open-Roleplay-Engine/archive/${a}.zip`,ORE_SNAPSHOT_SHA256:sha}});
     const changed=run('0'.repeat(64));expect(changed.status).not.toBe(0);expect(changed.stderr).toContain('Snapshot bytes changed');
     const collision=run(digest);expect(collision.status).not.toBe(0);expect(collision.stderr).toContain('folderCollision');
     expect(readdirSync(f.home)).toEqual(['unrelated']);expect(readFileSync(join(f.home,'unrelated'),'utf8')).toBe('preserve');
@@ -378,14 +380,15 @@ try {
   },45000);
   it('validates every ZIP name/type/collision before writing any extracted content',()=>{
     const root=mkdtempSync(join(tmpdir(),'ORE-zip-policy-'));roots.push(root);
-    const cases=[['Roleplay-Engine-'+a+'/src/a','Roleplay-Engine-'+a+'/../escape'],['X/src/a'],['Roleplay-Engine-'+a+'/src/CON.txt'],['Roleplay-Engine-'+a+'/src/a:stream'],['Roleplay-Engine-'+a+'/src/A','Roleplay-Engine-'+a+'/src/a'],['Roleplay-Engine-'+a+'/src/name.'],['Roleplay-Engine-'+a+'/src/file','Roleplay-Engine-'+a+'/src/file/nested'],['Roleplay-Engine-'+a+'/C:/x'],['Roleplay-Engine-'+a+'/src/link']];
+    const cases=[['Open-Roleplay-Engine-'+a+'/src/a','Open-Roleplay-Engine-'+a+'/../escape'],['X/src/a'],['Open-Roleplay-Engine-'+a+'/src/CON.txt'],['Open-Roleplay-Engine-'+a+'/src/a:stream'],['Open-Roleplay-Engine-'+a+'/src/A','Open-Roleplay-Engine-'+a+'/src/a'],['Open-Roleplay-Engine-'+a+'/src/name.'],['Open-Roleplay-Engine-'+a+'/src/file','Open-Roleplay-Engine-'+a+'/src/file/nested'],['Open-Roleplay-Engine-'+a+'/C:/x'],['Open-Roleplay-Engine-'+a+'/src/link']];
+    cases.push(['Roleplay-Engine-'+a+'/src/a'], ['Open-Roleplay-Engine-'+b+'/src/a']);
     for(let index=0;index<cases.length;index++){
       const archive=join(root,`bad-${index}.zip`),destination=join(root,`out-${index}`);
       const result=powershell(`$ErrorActionPreference='Stop';Add-Type -AssemblyName System.IO.Compression;Add-Type -AssemblyName System.IO.Compression.FileSystem
 $z=[IO.Compression.ZipFile]::Open($env:ORE_BAD_ARCHIVE,[IO.Compression.ZipArchiveMode]::Create)
 foreach($name in ($env:ORE_BAD_NAMES|ConvertFrom-Json)){$entry=$z.CreateEntry($name);if($name.EndsWith('/link')){$entry.ExternalAttributes=-1610612736}}
 $z.Dispose();. $env:ORE_ZIP_POLICY
-try{Expand-OreZip $env:ORE_BAD_ARCHIVE ('Roleplay-Engine-'+$env:ORE_BAD_COMMIT) $env:ORE_BAD_OUTPUT -Source;exit 2}catch{if([IO.Directory]::Exists($env:ORE_BAD_OUTPUT)){exit 3};exit 0}`,{ORE_BAD_ARCHIVE:archive,ORE_BAD_NAMES:JSON.stringify(cases[index]),ORE_ZIP_POLICY:resolve('scripts/release/windows-snapshot.ps1'),ORE_BAD_COMMIT:a,ORE_BAD_OUTPUT:destination});
+try{Expand-OreZip $env:ORE_BAD_ARCHIVE ('Open-Roleplay-Engine-'+$env:ORE_BAD_COMMIT) $env:ORE_BAD_OUTPUT -Source;exit 2}catch{if([IO.Directory]::Exists($env:ORE_BAD_OUTPUT)){exit 3};exit 0}`,{ORE_BAD_ARCHIVE:archive,ORE_BAD_NAMES:JSON.stringify(cases[index]),ORE_ZIP_POLICY:resolve('scripts/release/windows-snapshot.ps1'),ORE_BAD_COMMIT:a,ORE_BAD_OUTPUT:destination});
       expect(result.status,`${index}: ${result.stdout+result.stderr}`).toBe(0);expect(existsSync(destination)).toBe(false);
     }
   },30000);

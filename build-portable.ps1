@@ -22,7 +22,7 @@ try {
         Invoke-Native $git @('-C',$source,'merge-base','--is-ancestor',$Commit,'main')
     }
     if ($Mode -eq 'Snapshot') {
-        if ($Commit -cnotmatch '^[0-9a-f]{40}$' -or $env:ORE_SNAPSHOT_SOURCE -cne ('https://github.com/olegpro171/Roleplay-Engine/archive/'+$Commit+'.zip') -or $env:ORE_SNAPSHOT_SHA256 -cnotmatch '^[0-9a-f]{64}$') { throw 'Snapshot requires exact downloaded-main provenance and digest.' }
+        if ($Commit -cnotmatch '^[0-9a-f]{40}$' -or $env:ORE_SNAPSHOT_SOURCE -cne ('https://github.com/olegpro171/Open-Roleplay-Engine/archive/'+$Commit+'.zip') -or $env:ORE_SNAPSHOT_SHA256 -cnotmatch '^[0-9a-f]{64}$') { throw 'Snapshot requires exact downloaded-main provenance and digest.' }
         if (!$Snapshot -or (Get-OreHash $Snapshot) -cne $env:ORE_SNAPSHOT_SHA256) { throw 'Snapshot bytes changed after download.' }
     }
     if ([IO.Path]::GetFullPath($Destination) -eq $source) { throw 'Use a separate installation directory.' }
@@ -57,7 +57,7 @@ try {
     $work = Join-Path $stage 'source'
     $inputs = $OreSourceInputs
     if ($Mode -eq 'Snapshot') {
-        Expand-OreZip $Snapshot ('Roleplay-Engine-'+$Commit) $work -Source
+        Expand-OreZip $Snapshot ('Open-Roleplay-Engine-'+$Commit) $work -Source
     } elseif ($Mode -eq 'Release') {
         $export = Join-Path $stage 'source.zip'
         Invoke-Native $git (@('-C',$source,'archive','--format=zip',('--output='+$export),$Commit,'--')+$inputs)

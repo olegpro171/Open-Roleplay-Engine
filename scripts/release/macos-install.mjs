@@ -55,7 +55,7 @@ async function buildSnapshot() {
     if (cancelled) return;
     const env = {
       ...process.env, ORE_LAUNCH_EVENTS: '1',
-      ORE_SNAPSHOT_SOURCE: `https://github.com/olegpro171/Roleplay-Engine/archive/${commit}.tar.gz`,
+      ORE_SNAPSHOT_SOURCE: `https://github.com/olegpro171/Open-Roleplay-Engine/archive/${commit}.tar.gz`,
       ORE_SNAPSHOT_SHA256: digest.digest('hex'),
     };
     for (const name of ['NODE_OPTIONS', 'NODE_PATH', 'BASH_ENV', 'ENV']) delete env[name];

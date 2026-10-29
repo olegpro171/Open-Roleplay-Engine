@@ -30,7 +30,7 @@ const entry=join(parent,'ORE-launcher.bat');writeFileSync(entry,instrument(readF
 const inputs=['build-portable.ps1','package.json','package-lock.json','tsconfig.json','tsconfig.server.json','vite.config.ts','vitest.config.ts','playwright.config.ts','index.html','src','public','migrations','scripts/release','LICENSE','docs/RELEASES.md'];
 const a='c'.repeat(40),b='d'.repeat(40);
 function archive(commit:string){
- const sourceParent=join(root,'source-'+commit),source=join(sourceParent,'Roleplay-Engine-'+commit);mkdirSync(source,{recursive:true});
+ const sourceParent=join(root,'source-'+commit),source=join(sourceParent,'Open-Roleplay-Engine-'+commit);mkdirSync(source,{recursive:true});
  for(const input of inputs)cpSync(join(repository,input),join(source,input),{recursive:true});
  writeFileSync(join(source,'scripts/release/windows-launcher.ps1'),instrument(readFileSync('scripts/release/windows-launcher.ps1','utf8')));
  rmSync(join(root,'source.zip'),{force:true});
