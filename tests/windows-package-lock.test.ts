@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -26,7 +26,7 @@ $ErrorActionPreference='Stop'
 function Get-OreWindowsBootTime { [DateTime]::Parse('2026-10-28T00:00:00Z').ToUniversalTime() }
 `;
   function fixture() {
-    const home = mkdtempSync(join(tmpdir(), 'ORE package ownership-история-')); roots.push(home);
+    const home = realpathSync(mkdtempSync(join(tmpdir(), 'ORE package ownership-история-'))); roots.push(home);
     mkdirSync(join(home, 'cache'));
     writeFileSync(join(home, '.env'), 'private synthetic setting');
     writeFileSync(join(home, 'database-location.json'), 'retained location');
@@ -34,6 +34,8 @@ function Get-OreWindowsBootTime { [DateTime]::Parse('2026-10-28T00:00:00Z').ToUn
       ...process.env, ORE_TEST_HOME: home,
       ORE_TEST_PATH_TOOLS: resolve('scripts/release/windows-snapshot.ps1'),
       ORE_TEST_LOCK_TOOLS: resolve('scripts/release/windows-package-lock.ps1'),
+      ORE_TEST_COMMON_NATIVE: resolve('scripts/release/windows-common.ps1'),
+      ORE_TEST_COMMON_TOOLS: resolve('scripts/release/windows-standalone-common.ps1'),
     };
     function run(code: string) {
       return spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-Command', setup + code], { encoding: 'utf8', env, timeout: 15000 });
@@ -55,6 +57,24 @@ function Get-OreWindowsBootTime { [DateTime]::Parse('2026-10-28T00:00:00Z').ToUn
       const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', '$tokens=$null;$errors=$null;[Management.Automation.Language.Parser]::ParseFile($env:ORE_TEST_PARSE,[ref]$tokens,[ref]$errors)|Out-Null;if($errors.Count){$errors|Out-String|Write-Output;exit 1}'], { encoding: 'utf8', env: { ...f.env, ORE_TEST_PARSE: resolve(file) } });
       expect(result.status, file + '\n' + result.stdout + result.stderr).toBe(0);
     }
+  });
+
+  it('initializes every native helper with a Unicode private compilation directory', () => {
+    const f = fixture();
+    const result = f.run(`
+. $env:ORE_TEST_COMMON_NATIVE
+. $env:ORE_TEST_COMMON_TOOLS
+$directory=Join-Path $env:ORE_TEST_HOME 'cache/compilation-история'
+[IO.Directory]::CreateDirectory($directory)|Out-Null
+$env:TEMP=$directory;$env:TMP=$directory
+Initialize-OreJob
+Initialize-OreCancellation
+Initialize-OreLongPaths
+$lease=Acquire-OrePackageLease $env:ORE_TEST_HOME
+$lease.Dispose()
+if([IO.Directory]::EnumerateFileSystemEntries($directory).GetEnumerator().MoveNext()){throw 'Compilation left temporary files.'}
+`);
+    expect(result.status, result.stdout+result.stderr).toBe(0);
   });
 
   it('selects retained recovery tooling when a selected dependency is missing or unreadable', async () => {

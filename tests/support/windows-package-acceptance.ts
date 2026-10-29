@@ -68,6 +68,7 @@ function release(commit: string) {
  writeFileSync(join(app, 'manifest.json'), JSON.stringify(manifest));
  writeFileSync(join(payload, 'checksums.json'), JSON.stringify(inventory(payload).filter(file => file.path !== 'checksums.json')));
  powershell(`Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.IO.Compression
 Initialize-OreLongPaths
 $zip=[IO.Compression.ZipFile]::Open($env:ORE_TEST_ARCHIVE,[IO.Compression.ZipArchiveMode]::Create)
 try {

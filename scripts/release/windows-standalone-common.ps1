@@ -1,7 +1,7 @@
 # Shared by the generated external/helper entries and archive builder.
 function Initialize-OreCancellation {
     if ('OreCancellation' -as [type]) { return }
-    Add-Type -TypeDefinition @'
+    Add-OreType -TypeDefinition @'
 using System;
 using System.Threading;
 using System.Runtime.InteropServices;
@@ -28,15 +28,6 @@ public static class OreCancellation {
 }
 function Test-OreCancellation {
     return ('OreCancellation' -as [type]) -and [OreCancellation]::IsCancelled
-}
-function Set-OrePrivate([string]$Path) {
-    Assert-OrePath $Path $Path | Out-Null
-    $acl = [IO.Directory]::GetAccessControl($Path,[Security.AccessControl.AccessControlSections]::Access)
-    $acl.SetAccessRuleProtection($true,$false)
-    foreach ($rule in @($acl.Access)) { $acl.RemoveAccessRuleSpecific($rule) }
-    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')))
-    [IO.Directory]::SetAccessControl($Path,$acl)
 }
 function Initialize-OreStandaloneHome([string]$Path) {
     $full = Assert-OrePath $Path $Path

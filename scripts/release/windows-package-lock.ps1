@@ -2,7 +2,7 @@
 # Its file may survive a crash; its exclusive handle cannot survive one.
 function Initialize-OrePackageJobType {
     if ('OrePackageJob' -as [type]) { return }
-    Add-Type -TypeDefinition @'
+    Add-OreType -TypeDefinition @'
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -89,7 +89,7 @@ function Acquire-OrePackageLease([string]$HomePath) {
         $temporary = Assert-OrePath $HomePath (Join-Path $cache ('package-owner-'+[guid]::NewGuid().ToString()+'.tmp'))
         $record = @{version=1;job=$jobName} | ConvertTo-Json -Compress
         [IO.File]::WriteAllText($temporary,$record,(New-Object Text.UTF8Encoding $false))
-        if ([IO.File]::Exists($ownerPath)) { [IO.File]::Replace($temporary,$ownerPath,$null) }
+        if ([IO.File]::Exists($ownerPath)) { [IO.File]::Replace($temporary,$ownerPath,[NullString]::Value) }
         else { [IO.File]::Move($temporary,$ownerPath) }
         $temporary = $null
         return $lease

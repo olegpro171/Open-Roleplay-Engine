@@ -60,7 +60,7 @@ function Initialize-OreJob {
     if ('OreJob' -as [type]) { return }
     # Built-in .NET interop only. Assign this controller before spawning any
     # tools: descendants inherit the job without a spawn/assignment race.
-    Add-Type -TypeDefinition @'
+    Add-OreType -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class OreJob {

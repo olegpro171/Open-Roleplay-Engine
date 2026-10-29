@@ -1,3 +1,4 @@
+import { expectPrivateFile } from './support/private-file.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -57,7 +58,7 @@ it.each(themeSchema.options)('saves %s app-wide defaults without changing librar
     instance = await createApp({ database });
     const restored = await instance.app.inject({ method: 'GET', url: '/api/application/appearance', headers: auth });
     expect(appearanceStatusSchema.parse(restored.json())).toEqual(saved.json());
-    expect(fs.statSync(`${database}.appearance.json`).mode & 0o777).toBe(0o600);
+    expectPrivateFile(`${database}.appearance.json`);
   } finally { await instance.app.close(); }
 });
 

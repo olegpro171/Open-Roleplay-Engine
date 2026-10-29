@@ -134,7 +134,7 @@ describe('explicit application recovery', () => {
     writeFileSync(join(f.home, 'recovery/current'), f.current);
     cpSync(resolve('scripts/release/start.command'), join(f.home, 'start.command'));
     if (process.platform === 'win32') {
-      for (const name of ['start-windows.ps1', 'windows-common.ps1']) cpSync(resolve('scripts/release', name), join(f.home, name));
+      for (const name of ['start-windows.ps1', 'windows-common.ps1', 'windows-snapshot.ps1', 'windows-package-lock.ps1']) cpSync(resolve('scripts/release', name), join(f.home, name));
     }
     const recovered = f.run(['--previous']); expect(recovered.status, recovered.stderr).toBe(0);
     const database = new Database(f.path); database.pragma('user_version=14'); database.close();

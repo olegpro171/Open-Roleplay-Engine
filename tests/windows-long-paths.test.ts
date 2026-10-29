@@ -25,6 +25,7 @@ describe.skipIf(process.platform !== 'win32')('Windows PowerShell 5.1 package Un
     const path = join(f.destination, 'app', 'nested', 'story.txt');
     expect(path.length).toBeGreaterThan(300);
     const source = `Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.IO.Compression
 $zip=[IO.Compression.ZipFile]::Open($env:ORE_LONG_ARCHIVE,[IO.Compression.ZipArchiveMode]::Create)
 try {
   $zip.CreateEntry('package/app/empty/')|Out-Null

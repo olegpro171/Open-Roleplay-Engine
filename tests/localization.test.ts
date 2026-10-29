@@ -1,3 +1,4 @@
+import { expectPrivateFile } from './support/private-file.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -170,7 +171,7 @@ it('discovers, installs and reloads partial packs without a build, retaining the
   expect(languages.get('ru').messages).toEqual(russianPack.messages);
   const saved = languages.save(russian, null);
   expect(saved.languages.find(item => item.locale === 'ru')).toMatchObject({ translated: 1, custom: true });
-  expect(fs.statSync(join(path, 'ru.json')).mode & 0o777).toBe(0o600);
+  expectPrivateFile(join(path, 'ru.json'));
   expect(new Languages(path).get('ru')).toEqual(russian);
   expect(() => languages.save(russian, null)).toThrow('another window');
   fs.writeFileSync(join(path, 'ru.json'), '{bad JSON');

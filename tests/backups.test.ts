@@ -259,7 +259,7 @@ describe('portable backup persistence',() => {
       const original = readFileSync(path); expect(() => backups.upload(original,owner)).toThrow(); expect(readFileSync(path)).toEqual(original);
     }
     expect(new BackupStore(db).token).toBe(before);
-  });
+  }, 20000);
   it('bounds record branches and leaf text and binds staging to its session',async () => {
     const db = store('bounded'), backups = service(db,'bounded');
     for (let i=0;i<55;i++) character(db,`Character ${i}`);

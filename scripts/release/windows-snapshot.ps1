@@ -1,5 +1,37 @@
+function Set-OrePrivate([string]$Path) {
+    Assert-OrePath $Path $Path | Out-Null
+    $acl = [IO.Directory]::GetAccessControl($Path,[Security.AccessControl.AccessControlSections]::Access)
+    $acl.SetAccessRuleProtection($true,$false)
+    foreach ($rule in @($acl.Access)) { $acl.RemoveAccessRuleSpecific($rule) }
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')))
+    [IO.Directory]::SetAccessControl($Path,$acl)
+}
+
 # Windows PowerShell 5.1 archive policy, also embedded in the standalone asset.
 $OreSourceInputs = @('build-portable.ps1','package.json','package-lock.json','tsconfig.json','tsconfig.server.json','vite.config.ts','vitest.config.ts','playwright.config.ts','index.html','src','public','migrations','scripts/release','LICENSE','docs/RELEASES.md')
+function Add-OreType([string]$TypeDefinition) {
+    # Framework CodeDOM's default elevated temp-directory creation uses a
+    # legacy native path API. An explicit private TempFiles directory avoids
+    # that path, including for Unicode installation names, without global edits.
+    $directory = Join-Path ([IO.Path]::GetTempPath()) ('ore-types-'+[guid]::NewGuid().ToString('N'))
+    [IO.Directory]::CreateDirectory($directory) | Out-Null
+    Set-OrePrivate $directory
+    $provider = New-Object Microsoft.CSharp.CSharpCodeProvider
+    $parameters = New-Object CodeDom.Compiler.CompilerParameters
+    $parameters.GenerateInMemory = $true
+    $parameters.TempFiles = New-Object CodeDom.Compiler.TempFileCollection($directory,$false)
+    $parameters.ReferencedAssemblies.Add('System.dll') | Out-Null
+    try {
+        $result = $provider.CompileAssemblyFromSource($parameters,$TypeDefinition)
+        if ($result.Errors.HasErrors) { throw ($result.Errors | Out-String) }
+        $result.CompiledAssembly | Out-Null
+    } finally {
+        $parameters.TempFiles.Dispose()
+        $provider.Dispose()
+        [IO.Directory]::Delete($directory,$true)
+    }
+}
 function Assert-OrePath([string]$Root, [string]$Path) {
     $rootPath = [IO.Path]::GetFullPath($Root).TrimEnd('\')
     $full = [IO.Path]::GetFullPath($Path)
@@ -107,7 +139,7 @@ function Expand-OreZip([string]$Archive, [string]$ExpectedRoot, [string]$Destina
 # the public API so Node arguments and persisted selections are unchanged.
 function Initialize-OreLongPaths {
     if ('OreLongPaths' -as [type]) { return }
-    Add-Type -TypeDefinition @'
+    Add-OreType -TypeDefinition @'
 using System;
 using System.IO;
 using System.Text;

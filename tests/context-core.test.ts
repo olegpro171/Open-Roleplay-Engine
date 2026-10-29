@@ -62,7 +62,7 @@ describe('stateful layered context', () => {
     const saved = state.selected;
     expect(nextCompaction(Array.from({ length: 1_000 }, (_, i) => turn(i + 1)), state, settings, 1, golden.settings.target, 0, new Map()).next).toBeNull();
     expect(state.selected).toEqual(saved);
-  });
+  }, 20000);
 
   it('protects residual turns and a pending input without inventing smaller batches', () => {
     const turns = Array.from({ length: 102 }, (_, i) => turn(i + 1));

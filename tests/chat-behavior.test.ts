@@ -1,3 +1,4 @@
+import { expectPrivateFile } from './support/private-file.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -58,7 +59,7 @@ it('defaults to Ctrl+Enter, validates authenticated revisioned saves and restore
     await instance.app.close();
     instance = await createApp({ database });
     expect((await instance.app.inject({ method: 'GET', url, headers: auth })).json()).toEqual(saved);
-    expect(fs.statSync(`${database}.chat-behavior.json`).mode & 0o777).toBe(0o600);
+    expectPrivateFile(`${database}.chat-behavior.json`);
   } finally { await instance.app.close(); }
 });
 
