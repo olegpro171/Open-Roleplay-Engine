@@ -43,6 +43,13 @@ describe('chat Markdown presentation', () => {
     expect(render(source)).toBe(html);
   });
 
+  it('recognizes punctuation interruptions across formatting while respecting code barriers', () => {
+    const html = render('— Пора, — *я потянулся к двери*, — **идём**.');
+    expect(html).toContain('<strong class="direct-speech">— Пора,</strong> — <em>я потянулся к двери</em>, ');
+    expect(html).toContain('<strong><strong class="direct-speech">идём</strong></strong>');
+    expect(render('— Пора, — `я потянулся к двери`, — идём.')).not.toContain('class="direct-speech"');
+  });
+
   it('keeps quoted speech styled across inline formatting and link labels', () => {
     const html = render('Mara asked "**Stay** *here* [with me](https://example.com/?q=%22plain%22)".');
     expect(html).toContain('Mara asked <strong class="direct-speech">&quot;</strong>');

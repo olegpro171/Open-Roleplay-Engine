@@ -87,6 +87,27 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
     await expect(prose).toContainText(fixture.narration);
     await expect(prose).toHaveText(fixture.text);
     await page.screenshot({ path: testInfo.outputPath(`russian-dialogue-${index + 1}.png`), fullPage: true });
+    if (index === 0) {
+      const original = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+      try {
+        for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+          const current = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+          const saved = await page.request.put('/api/application/appearance', {
+            headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: current.revision, settings: { ...current.settings, theme } },
+          });
+          expect(saved.ok()).toBe(true);
+          await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+          await expect(prose.locator('.direct-speech')).toHaveText(fixture.speech);
+          await prose.screenshot({ path: testInfo.outputPath(`interrupted-dialogue-${theme}.png`) });
+        }
+      } finally {
+        const current = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+        const restored = await page.request.put('/api/application/appearance', {
+          headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: current.revision, settings: original.settings },
+        });
+        expect(restored.ok()).toBe(true);
+      }
+    }
   }
   await page.reload();
   await expect(prose.locator('.direct-speech')).toHaveText(['— А ты чего тут делаешь?']);

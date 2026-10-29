@@ -27,7 +27,7 @@ describe('quoted direct speech', () => {
 describe('optional Russian dialogue heuristic', () => {
   it.each(russianDialogueRegressions)('excludes the reported narration: $narration', fixture => {
     expect(speech(fixture.text)).toEqual(fixture.speech);
-    expect(speech(fixture.text, { russianDialogue: false })).toEqual([]);
+    expect(speech(fixture.text, { russianDialogue: false })).toEqual(fixture.quotedSpeech ?? []);
   });
 
   it.each([
@@ -38,6 +38,8 @@ describe('optional Russian dialogue heuristic', () => {
     ['— Привет! — отвечает она.', ['— Привет!']],
     ['— Ты здесь? — она после долгой и очень неловкой паузы буркнула в ответ.', ['— Ты здесь?']],
     ['— Тише! — пробормотали они. — Нас услышат.', ['— Тише!', '— Нас услышат.']],
+    ['— Там выход, — я указала на дверь, — идём.', ['— Там выход,', '— идём.']],
+    ['— Вот он! — мы показали на дом. — Уже близко.', ['— Вот он!', '— Уже близко.']],
   ])('recognizes related narration beyond the reported wording in %s', (text, expected) => {
     expect(speech(text)).toEqual(expected);
   });
@@ -50,6 +52,7 @@ describe('optional Russian dialogue heuristic', () => {
     '— Послушай! — «Она буркнула в ответ» — вот что он написал.',
     '— Слушай! — голос у неё как колокольчик.',
     '— Это — она отшатнулась от двери.',
+    '— Там кто-то есть! — мне показалось, понимаешь?',
   ])('keeps ambiguous spoken asides highlighted in %s', text => {
     expect(speech(text)).toEqual([text]);
   });
@@ -75,5 +78,35 @@ describe('optional Russian dialogue heuristic', () => {
     expect(speech(text, { russianDialogue: false })).toEqual(['«До встречи»']);
     expect(speech(text, { quotes: false })).toEqual(['— Привет,']);
     expect(speech(text, { quotes: false, russianDialogue: false })).toEqual([]);
+  });
+
+  it.each([
+    ['— Пора, — короткая пауза, — идём.', ['— Пора,', '— идём.']],
+    ['— Готово? — Мара проверяет замок: — Заходи.', ['— Готово?', '— Заходи.']],
+    ['— Стой… — Лена у двери. — Подожди.', ['— Стой…', '— Подожди.']],
+    ['— Пора, — я потянулся к двери, — идём, — Мара взяла сумку. — Скорее.', ['— Пора,', '— идём,', '— Скорее.']],
+    ['—\u202fПора,\u202f—\u202fя потянулся к двери,\u202f—\u202fидём.', ['—\u202fПора,', '—\u202fидём.']],
+  ])('recognizes punctuated interruptions independently of verb vocabulary: %s', (text, expected) => {
+    expect(speech(text)).toEqual(expected);
+    expect(speech(text, { quotes: false })).toEqual(expected);
+  });
+
+  it.each([
+    '— Это — я достал ключи, — всё объясняет.',
+    '— Пора, — я потянулся к двери',
+    '— Пора, — я потянулся к двери, — ',
+    '— Пора, — я потянулся к двери — идём.',
+    '— Пора, — я потянулся к двери,\n— Идём.',
+    '— План: — первый пункт, — второй пункт.',
+    '— Пора, — , — идём.',
+  ])('requires a complete punctuation pair for an unknown attribution: %s', text => {
+    expect(speech(text)).toEqual(text.split('\n').map(line => line.trimEnd()));
+  });
+
+  it('recomputes an interruption as streamed text completes its punctuation pair', () => {
+    const prefix = '— Пора, — я потянулся к двери,';
+    expect(speech(prefix)).toEqual([prefix]);
+    expect(speech(prefix + ' — ')).toEqual([prefix + ' —']);
+    expect(speech(prefix + ' — идём.')).toEqual(['— Пора,', '— идём.']);
   });
 });

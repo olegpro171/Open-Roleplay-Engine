@@ -1,7 +1,8 @@
 import type { SpeechRange } from './quoted-speech';
 
-// Explicit speech/action vocabulary plus a guarded structural fallback; neither is a grammar parser.
+// Punctuation identifies complete interruptions; vocabulary supports incomplete/ambiguous ones.
 const authorVerbs = [
+  /^(?:показал|указал)[аи]?$/iu,
   /^(?:сказал[аи]?|говорил[аи]?|ответил[аи]?|спросил[аи]?|произн[её]с(?:ла|ли)?|проговорил[аи]?|промолвил[аи]?|воскликнул[аи]?|возмутил(?:ся|ась|ись)|прошептал[аи]?|шепнул[аи]?|крикнул[аи]?|выкрикнул[аи]?|добавил[аи]?|продолжил[аи]?|заметил[аи]?|уточнил[аи]?|повторил[аи]?|перебил[аи]?|соврал[аи]?|солгал[аи]?|подумал[аи]?|усмехнул(?:ся|ась|ись)|улыбнул(?:ся|ась|ись)|вздохнул[аи]?|замолчал[аи]?|помолчал[аи]?|кивнул[аи]?|пожал[аи]?|покачал[аи]?|посмотрел[аи]?|взглянул[аи]?|нахмурил(?:ся|ась|ись))$/iu,
   /^(?:передразнил|буркнул|бурчал|пробурчал|ворчал|проворчал|бормотал|пробормотал|твердил|прошипел|процедил|выпалил|рявкнул|прорычал|протянул|выдохнул|пискнул|пролепетал|отрезал|возразил|предупредил|напомнил|пояснил|объяснил|заявил)[аи]?$/iu,
   /^(?:говорит|говорят|отвечает|отвечают|спрашивает|спрашивают|шепчет|шепчут|кричит|кричат|бормочет|бормочут|добавляет|добавляют|продолжает|продолжают|твердит|твердят)$/iu,
@@ -38,12 +39,16 @@ function isThirdPersonAction(words: string[]): boolean {
   return false;
 }
 
-function isAuthorClause(text: string, punctuatedSpeech: boolean): boolean {
+function isAuthorClause(text: string, speechPunctuation: string, resumesSpeech: boolean): boolean {
   if (/^\s*["'«“„‘]/u.test(text)) return false;
   const words = leadingClauseWords(text);
+  // A complete «speech, — narration, — speech» pair does not need a known verb.
+  // Sentence endings and a colon before resumed speech also support this structure.
+  // Require actual text on both sides; streaming fragments must not complete the pair.
+  if (resumesSpeech && words.length > 0 && /[,.!?…]/u.test(speechPunctuation) && /[,.:]\s*$/u.test(text)) return true;
   if (words.some(word => authorVerbs.some(pattern => pattern.test(word)))) return true;
   // Structural evidence needs a speech punctuation boundary, not just any em-dash pause.
-  return punctuatedSpeech && isThirdPersonAction(words);
+  return /[,.:!?…]/u.test(speechPunctuation) && isThirdPersonAction(words);
 }
 
 /** Optional line-oriented heuristic. Quoted spans protect internal dashes from splitting. */
@@ -72,7 +77,8 @@ export function russianDialogueRanges(text: string, quotations: readonly SpeechR
         if (speechStart !== null) {
           let speechEnd = dash;
           while (speechEnd > speechStart && /\s/u.test(text[speechEnd - 1])) speechEnd--;
-          if (isAuthorClause(text.slice(dash + 1, next), /[,.:!?…]/u.test(text[speechEnd - 1] ?? ''))) {
+          const resumesSpeech = next < lineEnd && /\S/u.test(text.slice(next + 1, dashes[index + 2] ?? lineEnd));
+          if (isAuthorClause(text.slice(dash + 1, next), text[speechEnd - 1] ?? '', resumesSpeech)) {
             ranges.push({ start: speechStart, end: speechEnd });
             speechStart = null;
             clauseStart = dash + 1;
