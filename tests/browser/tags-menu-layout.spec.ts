@@ -55,8 +55,10 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
       await expect(next).toBeEnabled();
       await panel.evaluate(element => { element.scrollTop = element.scrollHeight; });
       await expect(next).toBeInViewport({ ratio: 1 });
+      const fullPage = await panel.boundingBox();
       await next.click();
       await expect(filter.getByRole('checkbox')).toHaveCount(4);
+      expect(await panel.boundingBox()).toEqual(fullPage);
       await expect(next).toBeDisabled();
       await expect(previous).toBeEnabled();
       await filter.getByRole('checkbox').first().check();

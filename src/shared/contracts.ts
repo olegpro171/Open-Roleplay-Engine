@@ -58,7 +58,7 @@ export type RequestBody = {
 } & z.infer<typeof customParametersSchema>;
 export type PromptEntry = { messageIndex: number; kind: 'prompt' | 'character' | 'persona' | 'memory' | 'history' | 'draft' | 'lore'; label: string; labelMessage?: import('./localization.js').LocalizedMessage; tokens: number; group?: { id: string; label: string } };
 export type TokenUsage = { inputTokens: number; outputTokens: number; totalTokens: number };
-export type ConnectionDiagnostic = { message: string; request?: RequestPreview; usage?: TokenUsage | null; response?: string };
+export type ConnectionDiagnostic = { message: string; localized?: import('./localization.js').LocalizedMessage; request?: RequestPreview; usage?: TokenUsage | null; response?: string };
 export type TokenCounting = {
   kind: 'reference' | 'model' | 'fallback'; tokenizer: string | null;
   implementation?: string; tokenizerRevision?: string;

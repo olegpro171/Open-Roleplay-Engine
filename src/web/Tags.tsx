@@ -16,14 +16,31 @@ export function TagChips({ tags, selected, remove, catalog }: { catalog?: Readon
   const byId = useMemo(() => catalog ?? new Map(tags.map(tag => [tag.id, tag])), [tags, catalog]);
   return <div className="tag-chips">{selected.map(id => <span className="tag-chip" key={id}>{byId.get(id)?.name ?? t("tags.unavailable_tag")}{remove && <button type="button" className="quiet" aria-label={t("tags.remove", { value: byId.get(id)?.name ?? t("interface.unavailable_tag") })} onClick={() => remove(id)}><Icon name="Close" /></button>}</span>)}</div>;
 }
-export function TagChooser({ tags, selected, change, label, disabled = false, showSelected = true, variant = 'assignment', onSearchChange }: { tags: Tag[]; selected: string[]; change: (ids: string[]) => void; label: string; disabled?: boolean; showSelected?: boolean; variant?: 'assignment' | 'filter'; onSearchChange?: (search: string) => void }) {
+function TagPagination({ shown, last, disabled = false, change }: { shown: number; last: number; disabled?: boolean; change: (page: number) => void }) {
+  useLocale();
+  if (!last) return null;
+  return <div className="tag-pagination">
+    <button type="button" className="quiet" aria-label={t("tags.previous_tags")} title={t("tags.previous_tags")} disabled={disabled || shown === 0} onClick={() => change(shown - 1)}><Icon name="ArrowShortBack" /></button>
+    <span>{shown + 1} / {last + 1}</span>
+    <button type="button" className="quiet" aria-label={t("tags.next_tags")} title={t("tags.next_tags")} disabled={disabled || shown === last} onClick={() => change(shown + 1)}><Icon name="ArrowShortForward" /></button>
+  </div>;
+}
+export function TagChooser({ tags, selected, change, label, disabled = false, showSelected = true, variant = 'assignment', onSearchChange, onPageChange }: { tags: Tag[]; selected: string[]; change: (ids: string[]) => void; label: string; disabled?: boolean; showSelected?: boolean; variant?: 'assignment' | 'filter'; onSearchChange?: (search: string) => void; onPageChange?: () => void }) {
   useLocale();
   const [search, setSearch] = useState(''), [page, setPage] = useState(0);
   const results = useRef<HTMLDivElement>(null);
+  const pageScroll = useRef<{ element: HTMLElement; top: number }[]>([]);
   const [resultsMinHeight, setResultsMinHeight] = useState<number>();
   const query = canonicalTagName(search), chosen = useMemo(() => new Set(selected), [selected]);
   const matches = useMemo(() => tags.filter(tag => canonicalTagName(tag.name).includes(query)).sort((a, b) => a.name.localeCompare(b.name)), [tags, query]);
   const last = Math.max(0, Math.ceil(matches.length / tagLimits.page) - 1), shown = Math.min(page, last);
+  useLayoutEffect(() => {
+    // WebKit can move scrolling ancestors when the old checkbox rows disappear,
+    // even when the reserved result area keeps exactly the same dimensions.
+    const positions = pageScroll.current;
+    pageScroll.current = [];
+    for (const { element, top } of positions) element.scrollTo({ top, behavior: 'instant' });
+  }, [shown]);
   const controls = <>
     {showSelected && <TagChips tags={tags} selected={selected} remove={id => change(selected.filter(value => value !== id))} />}
     <label>{variant === 'assignment' && t("tags.search_tags")}<span className="search-field"><Icon name="Search" /><input type="search" disabled={disabled} aria-label={t("tags.search_tags")} placeholder={variant === 'filter' ? t("tags.search_tags") : undefined} value={search} onChange={event => {
@@ -40,7 +57,16 @@ export function TagChooser({ tags, selected, change, label, disabled = false, sh
     <div className="tag-chooser-results" ref={results} style={{ minHeight: resultsMinHeight }}>
       <div className="tag-options">{matches.slice(shown * tagLimits.page, (shown + 1) * tagLimits.page).map(tag => <label className="checkbox" key={tag.id}><input type="checkbox" disabled={disabled} checked={chosen.has(tag.id)} onChange={event => change(event.target.checked ? [...selected, tag.id] : selected.filter(id => id !== tag.id))} /><span className="tag-option-name">{tag.name}</span></label>)}</div>
       {!matches.length && <p className="small muted">{tags.length ? t("tags.no_tags_match_your_search") : t("tags.no_tags_yet_create_one_in_manage")}</p>}
-      {last > 0 && <div className="tag-pagination"><button type="button" className="quiet" aria-label={t("tags.previous_tags")} title={t("tags.previous_tags")} disabled={disabled || shown === 0} onClick={() => setPage(shown - 1)}><Icon name="ArrowShortBack" /></button><span>{shown + 1} / {last + 1}</span><button type="button" className="quiet" aria-label={t("tags.next_tags")} title={t("tags.next_tags")} disabled={disabled || shown === last} onClick={() => setPage(shown + 1)}><Icon name="ArrowShortForward" /></button></div>}
+      <TagPagination shown={shown} last={last} disabled={disabled} change={next => {
+        const positions: { element: HTMLElement; top: number }[] = [];
+        for (let element = results.current?.parentElement; element; element = element.parentElement) {
+          if (element.scrollTop > 0) positions.push({ element, top: element.scrollTop });
+        }
+        pageScroll.current = positions;
+        if (variant === 'assignment') setResultsMinHeight(results.current?.getBoundingClientRect().height);
+        onPageChange?.();
+        setPage(next);
+      }} />
     </div>
   </>;
   return variant === 'filter'
@@ -148,7 +174,7 @@ export function TagFilterMenu({ library, busy, run, selected, change }: { librar
           // Reserve the popup rather than its rows: broader searches may grow,
           // while a shorter viewport can still shrink the list around its controls.
           setReservedHeight(search ? panel.current?.getBoundingClientRect().height : undefined);
-        }} />
+        }} onPageChange={() => setReservedHeight(panel.current?.getBoundingClientRect().height)} />
         <div className="tag-filter-footer"><button type="button" className="quiet" onClick={() => setManager(true)}>{t("character_editor.manage_tags")}</button></div>
         <button type="button" className="quiet tag-filter-close" aria-label={t("tags.close_filters")} title={t("tags.close_filters")} onClick={() => {
           setOpen(false); trigger.current?.focus({ preventScroll: true });
@@ -163,12 +189,13 @@ export function TagManager({ library, busy, run, committed, close }: { library: 
   const [search, setSearch] = useState(''), [name, setName] = useState(''), [rename, setRename] = useState<{ id: string; name: string; revision: number } | null>(null);
   const [error, setError] = useTextState(''), [pending, setPending] = useState(false), [page, setPage] = useState(0);
   const dialog = useRef<HTMLDialogElement>(null);
+  const backdropPointer = useRef(false);
   const titleId = useId();
-  useEffect(() => {
+  useLayoutEffect(() => {
     const trigger = document.activeElement;
     const node = dialog.current;
     openModal(node);
-    return () => { node?.close(); if (trigger instanceof HTMLElement) trigger.focus(); };
+    return () => { node?.close(); if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true }); };
   }, []);
   const query = canonicalTagName(search);
   const matches = useMemo(() => library.tags.filter(tag => canonicalTagName(tag.name).includes(query)).sort((a, b) => a.name.localeCompare(b.name)), [library.tags, query]);
@@ -185,7 +212,16 @@ export function TagManager({ library, busy, run, committed, close }: { library: 
     });
     setPending(false); return ok;
   }
-  return <dialog ref={dialog} className="tag-manager" aria-labelledby={titleId} onCancel={event => { event.preventDefault(); if (!pending) close(); }}>
+  function outsideDialog(x: number, y: number) {
+    const bounds = dialog.current?.getBoundingClientRect();
+    return bounds !== undefined && (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom);
+  }
+  return <dialog ref={dialog} className="tag-manager" aria-labelledby={titleId} onCancel={event => { event.preventDefault(); if (!pending) close(); }} onPointerDown={event => {
+    backdropPointer.current = event.target === event.currentTarget && outsideDialog(event.clientX, event.clientY);
+  }} onClick={event => {
+    if (!pending && backdropPointer.current && event.target === event.currentTarget && outsideDialog(event.clientX, event.clientY)) close();
+    backdropPointer.current = false;
+  }}>
     <header className="tag-manager-heading"><div><h2 id={titleId}>{t("character_editor.manage_tags")}</h2><p className="small muted">{t("tags.organize_your_characters_changes_save_immediately")}</p></div><button type="button" className="quiet" aria-label={t("tags.close_tag_manager")} disabled={pending} onClick={close}><Icon name="Close" /></button></header>
     <div className="tag-manager-controls">
       <form onSubmit={async event => { event.preventDefault(); if (await mutate('POST', '/library/tags', { revision: library.revision, name })) setName(''); }}><label>{t("tags.new_tag_name")}<input required value={name} onChange={event => setName(event.target.value)} /></label><button disabled={busy || pending}>{t("tags.create_tag")}</button></form>
@@ -197,11 +233,15 @@ export function TagManager({ library, busy, run, committed, close }: { library: 
         <label>{t("tags.rename_tag")}<input required value={rename.name} onChange={event => setRename({ ...rename, name: event.target.value })} /></label>
         <div className="actions"><button disabled={busy || pending || rename.revision !== library.revision}>{t("tags.save_tag_name")}</button><button type="button" className="quiet" disabled={pending} onClick={() => setRename(null)}>{t("tags.cancel_rename")}</button></div>
         {rename.revision !== library.revision && <p role="status">{t("tags.the_catalog_changed_your_draft_remains_here")}</p>}
-      </form> : <><span>{tag.name}<small>{tag.usageCount} {tag.usageCount === 1 ? 'character' : 'characters'}</small></span><div className="actions"><button type="button" className="quiet" aria-label={t("tags.rename", { name: tag.name })} disabled={busy || pending} onClick={() => setRename({ id: tag.id, name: tag.name, revision: library.revision })}>{t("tags.rename_2")}</button><button type="button" className="quiet" aria-label={t("tags.delete", { name: tag.name })} disabled={busy || pending} onClick={() => { confirmAction({ title: t("tags.delete_tag"), message: t("tags.delete_characters_will_lose_this_local_assignment", { name: tag.name, usageCount: tag.usageCount }), actionLabel: t("tags.delete_tag_2"), onConfirm: () => { void mutate('DELETE', `/library/tags/${tag.id}`, { revision: library.revision }, tag.id); } }); }}><Icon name="TrashOutline" />{t("libraries.delete_2")}</button></div></>}
-    </div>)}</div>
+      </form> : <><span>{tag.name}<small>{t('tags.character_count', { count: tag.usageCount })}</small></span><div className="actions"><button type="button" className="quiet" aria-label={t("tags.rename", { name: tag.name })} disabled={busy || pending} onClick={() => setRename({ id: tag.id, name: tag.name, revision: library.revision })}>{t("tags.rename_2")}</button><button type="button" className="quiet" aria-label={t("tags.delete", { name: tag.name })} disabled={busy || pending} onClick={() => { confirmAction({ title: t("tags.delete_tag"), message: t("tags.delete_characters_will_lose_this_local_assignment", { name: tag.name, usageCount: tag.usageCount }), actionLabel: t("tags.delete_tag_2"), onConfirm: () => { void mutate('DELETE', `/library/tags/${tag.id}`, { revision: library.revision }, tag.id); } }); }}><Icon name="TrashOutline" />{t("libraries.delete_2")}</button></div></>}
+    </div>)}
     {!matches.length && <p className="muted tag-manager-empty">{library.tags.length ? t("tags.no_tags_match_your_search") : t("tags.no_tags_yet_create_your_first_tag")}</p>}
-    <footer className="tag-manager-footer"><span className="small muted">{matches.length} {matches.length === 1 ? 'tag' : 'tags'}{search && ' found'}</span>
-      {last > 0 && <div className="actions"><button type="button" className="quiet" disabled={!shown} onClick={() => setPage(shown - 1)}>{t("tags.previous_tags")}</button><span className="small">{shown + 1} / {last + 1}</span><button type="button" className="quiet" disabled={shown === last} onClick={() => setPage(shown + 1)}>{t("tags.next_tags")}</button></div>}
+    </div>
+    <footer className="tag-manager-footer"><span className="small muted">{t(search ? 'tags.found_count' : 'tags.catalog_count', { count: matches.length })}</span>
+      <TagPagination shown={shown} last={last} disabled={pending} change={next => {
+        setPage(next);
+        dialog.current?.querySelector('.tag-catalog')?.scrollTo({ top: 0 });
+      }} />
     </footer>
   </dialog>;
 }

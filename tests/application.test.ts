@@ -226,10 +226,12 @@ describe('persistent chat and generation', () => {
     const check = await command('/api/connections/diagnose', { ...input, action: 'check' });
     expect(check.statusCode).toBe(200);
     expect(check.json().message).toBe('The endpoint accepted the connection check');
+    expect(check.json().localized).toMatchObject({ key: 'libraries.connection_check_completed' });
     expect(mock.modelRequests.at(-1)?.authorization).toBe('Bearer synthetic-api-secret');
     const test = await command('/api/connections/diagnose', { ...input, action: 'test' });
     expect(test.statusCode).toBe(200);
     const result = test.json();
+    expect(result.localized).toMatchObject({ key: 'libraries.connection_test_completed' });
     expect(result.request.body).toEqual(mock.requests[0].body);
     expect(result.request.body.messages).toEqual([{ role: 'user', content: 'Hi' }]);
     expect(result.request.body.max_tokens).toBe(4096);

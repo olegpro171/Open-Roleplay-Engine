@@ -312,7 +312,7 @@ it('upgrades populated schema 14 without rewriting legacy errors or historical r
     expect(after.generations[0].error).toBe('Legacy error stays literal');
     expect(after.generations[0].errorMessage).toBeNull();
     expect(after.generations[0].request).toEqual(before.generations[0].request);
-    expect(after.generations[0].request?.body.messages.at(-1)?.content).toBe('Preserve this input');
+    expect(after.generations[0].request?.body.messages).toContainEqual({ role: 'user', content: 'Preserve this input' });
     expect(store.sqlite.pragma('user_version', { simple: true })).toBe(15);
   } finally { store.close(); }
 });

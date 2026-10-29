@@ -35,8 +35,8 @@ export function SettingsSaveStatus({ saving, error, retry }: { saving: boolean; 
     return () => window.clearTimeout(timer);
   }, [saving]);
   return <>
-    {saving && slow && error == null && <div className="error-banner" role="alert">{t('settings.save_slow')}</div>}
-    {error != null && <div className="error-banner" role="alert"><p>{t('settings.save_failed', { error: formatMessage(errorText(error)) })}</p>
+    {saving && slow && error == null && <div className="error-banner settings-save-status" role="alert">{t('settings.save_slow')}</div>}
+    {error != null && <div className="error-banner settings-save-status" role="alert"><p>{t('settings.save_failed', { error: formatMessage(errorText(error)) })}</p>
       <button type="button" className="secondary" disabled={saving} onClick={() => void retry()}>{t('settings.retry')}</button></div>}
   </>;
 }

@@ -325,7 +325,8 @@ export async function createApp(options: {
     const apiKey = connectionKey({ ...input, endpoint: input.connection.endpoint });
     if (input.action === 'check') {
       await fetchModels(input.connection.endpoint, apiKey);
-      return { message: 'The endpoint accepted the connection check' };
+      const localized = message('libraries.connection_check_completed');
+      return { message: localized.fallback, localized };
     }
     const connection = input.connection;
     const preview = assembleRequest(connection, { title: 'Connection test', instructions: '', character: '', persona: '', targetInputTokens: connection.contextWindow - connection.maxOutputTokens }, [{ id: 'test', position: 1, complete: false, user: { id: 'test-user', revision: 0, text: 'Hi' }, assistant: { id: 'test-assistant', revision: 0, text: '' } }]);
@@ -333,7 +334,8 @@ export async function createApp(options: {
     try {
       const completion = await provider.stream(preview, apiKey, AbortSignal.timeout(30_000), text => { response += text; });
       if (!response.trim()) throw new AppError(502, 'empty_response', message("errors.the_model_returned_no_text"));
-      return { message: 'Test completed.', request: preview, response, usage: completion?.usage ?? null };
+      const localized = message('libraries.connection_test_completed');
+      return { message: localized.fallback, localized, request: preview, response, usage: completion?.usage ?? null };
     } catch (error) {
       // Diagnostics have no saved turn to retry or delete.
       if (error instanceof AppError && ['empty_response', 'incomplete_stream'].includes(error.code)) {

@@ -47,6 +47,7 @@ for (const width of [1280, 801, 800, 390]) test(`saves chat picture visibility w
       expect(saved.ok()).toBe(true);
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
       await expect(title).toHaveCSS('text-align', pictured ? 'center' : /^(start|left)$/);
+      await expect(page.locator('.chat-details h1 + p')).toHaveCSS('text-align', pictured ? 'center' : /^(start|left)$/);
       const heading = await title.boundingBox();
       if (!heading) throw new Error('Missing chat title');
       if (pictured) {

@@ -49,7 +49,7 @@ ORE — приложение для ролевого общения с ИИ на
 
 ### Лаунчер для Windows
 
-Скрипт установки находится в файле [ORE-launcher.bat](ORE-launcher.bat).
+Скрипт установки находится в файле `ORE-launcher.bat`. Загрузите его со страницы [Releases](https://github.com/olegpro171/Roleplay-Engine/releases).
 
 Поместите этот файл в папку где Вы хотите установить ORE и запустите двойным щелчком.
 
@@ -59,7 +59,7 @@ ORE — приложение для ролевого общения с ИИ на
 
 ### Лаунчер для macOS
 
-Скрипт установки находится в файле [ORE-launcher.command](ORE-launcher.command).
+Скрипт установки находится в файле `ORE-launcher.command`. Загрузите его со страницы [Releases](https://github.com/olegpro171/Roleplay-Engine/releases).
 
 Поместите этот файл в папку где Вы хотите установить ORE.
 

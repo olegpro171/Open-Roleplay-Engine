@@ -579,7 +579,7 @@ function ConnectionTools({ connection, parameters, connectionId, apiKey }: { con
     <p className="small muted connection-help">{t("libraries.enter_your_provider_s_api_key_above")}</p>
     {testing && <p className="small" role="status">{t("libraries.testing_connection")}</p>}
     {error && <p role="alert">{error}</p>}
-    {result && <div className="connection-test-result" role="status"><p className="small connection-success">{result.message}</p>{result.request && <><p className="small">{result.usage ? t("libraries.token_usage_input_output", { value: result.usage.inputTokens.toLocaleString(locale()), value2: result.usage.outputTokens.toLocaleString(locale()) }) : t("libraries.token_usage_unavailable")}</p><details><summary>{t("libraries.test_request_and_response")}</summary><pre>{JSON.stringify({ request: result.request, response: result.response, usage: result.usage }, null, 2)}</pre></details></>}</div>}
+    {result && <div className="connection-test-result" role="status"><p className="small connection-success">{formatMessage(result.localized ?? result.message)}</p>{result.request && <><p className="small">{result.usage ? t("libraries.token_usage_input_output", { value: result.usage.inputTokens.toLocaleString(locale()), value2: result.usage.outputTokens.toLocaleString(locale()) }) : t("libraries.token_usage_unavailable")}</p><details><summary>{t("libraries.test_request_and_response")}</summary><pre>{JSON.stringify({ request: result.request, response: result.response, usage: result.usage }, null, 2)}</pre></details></>}</div>}
   </div>;
 }
 function ContextPresetFields({ value, change, connections }: { value: ContextPreset; change: (value: ContextPreset) => void; connections: Saved<Connection>[] }) {

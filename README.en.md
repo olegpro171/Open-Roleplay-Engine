@@ -49,7 +49,7 @@ You need a computer, a browser, and access to a model provider.
 
 ### Windows launcher
 
-The installation script is [ORE-launcher.bat](ORE-launcher.bat).
+The installation script is `ORE-launcher.bat`. Download it from [Releases](https://github.com/olegpro171/Roleplay-Engine/releases).
 
 Place this file in the folder where you want to install ORE and double-click it.
 
@@ -59,7 +59,7 @@ The supported platform is Windows x64 with built-in 64-bit Windows PowerShell 5.
 
 ### macOS launcher
 
-The installation script is [ORE-launcher.command](ORE-launcher.command).
+The installation script is `ORE-launcher.command`. Download it from [Releases](https://github.com/olegpro171/Roleplay-Engine/releases).
 
 Place this file in the folder where you want to install ORE.
 
