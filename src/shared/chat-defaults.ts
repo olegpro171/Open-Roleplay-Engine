@@ -11,7 +11,7 @@ export const chatDefaultCommandSchema = z.object({
   revision: revisionSchema, libraryRevision: revisionSchema, kind: chatDefaultKindSchema, id: identity,
 }).strict();
 export type ChatDefaultsStatus = z.infer<typeof chatDefaultsStatusSchema>;
-export const initialChatDefaults: ChatDefaultsStatus = { revision: 0, settings: { prompts: null, connections: null, contexts: null } };
+export const initialChatDefaults: ChatDefaultsStatus = { revision: 0, settings: { prompts: 'default', connections: null, contexts: 'default-context' } };
 
 /** Deleted selections fall back to the original new-chat behavior. */
 export function resolveChatDefaults(settings: ChatDefaultsStatus['settings'], library: Pick<LibrarySnapshot, ChatDefaultKind>) {

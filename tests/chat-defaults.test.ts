@@ -38,6 +38,9 @@ it('applies current authenticated defaults only to new chats, preserves override
     const cookie = login.headers['set-cookie']?.toString().split(';')[0];
     if (!cookie) throw new Error('Missing session cookie');
     const auth = { ...headers, cookie };
+    expect((await instance.app.inject({ method: 'GET', url, headers: auth })).json()).toEqual({
+      revision: 0, settings: { prompts: 'default', connections: null, contexts: 'default-context' },
+    });
     const cmd = (kind: ChatDefaultKind, id: string | null, revision: number, libraryRevision = instance.store.libraryRevision()) =>
       instance.app.inject({ method: 'PUT', url, headers: auth, payload: { kind, id, revision, libraryRevision } });
     const create = async (settings: object = newChat) => {
@@ -50,7 +53,11 @@ it('applies current authenticated defaults only to new chats, preserves override
     const prompt = instance.store.saveLibrary(instance.store.libraryRevision(), 'prompts', { ...defaultPrompt, name: 'Chosen prompt' });
     const context = instance.store.saveLibrary(instance.store.libraryRevision(), 'contexts', { ...defaultContextPreset, name: 'Chosen context', connectionId: selected });
     const existing = await create();
-    expect(existing.settings).toMatchObject({ promptId: 'default', connectionId: first, contextPresetId: null });
+    expect(existing.settings).toMatchObject({ promptId: 'default', connectionId: first, contextPresetId: 'default-context' });
+    expect(existing.context.preset?.id).toBe('default-context');
+    await instance.app.close();
+    instance = await createApp({ database });
+    expect((await create()).settings).toMatchObject({ promptId: 'default', connectionId: first, contextPresetId: 'default-context' });
     const libraryBefore = instance.store.libraries();
     expect((await cmd('prompts', prompt, 0)).statusCode).toBe(200);
     expect((await cmd('connections', selected, 1)).statusCode).toBe(200);
@@ -79,6 +86,12 @@ it('applies current authenticated defaults only to new chats, preserves override
     expect((await cmd('prompts', null, 5)).statusCode).toBe(200);
     expect((await create()).settings).toMatchObject({ promptId: 'default', connectionId: first, contextPresetId: null });
     expect(instance.store.snapshot(created.id)).toEqual(created);
+    await instance.app.close();
+    instance = await createApp({ database });
+    expect((await instance.app.inject({ method: 'GET', url, headers: auth })).json()).toEqual({
+      revision: 6, settings: { prompts: null, connections: null, contexts: null },
+    });
+    expect((await create()).settings).toMatchObject({ promptId: 'default', connectionId: first, contextPresetId: null });
   } finally { await instance.app.close(); }
 });
 
@@ -87,7 +100,7 @@ it('retains committed defaults on write failure and rejects malformed settings w
   const file = join(folder, 'defaults.json');
   const store = new Store(join(folder, 'test.sqlite'));
   const settings = new ChatDefaultsSettings(file);
-  const save = () => settings.save({ revision: settings.status().revision, libraryRevision: store.libraryRevision(), kind: 'prompts', id: 'default' }, store);
+  const save = () => settings.save({ revision: settings.status().revision, libraryRevision: store.libraryRevision(), kind: 'contexts', id: null }, store);
   try {
     expect(settings.status()).toEqual(initialChatDefaults);
     fs.writeFileSync(file, JSON.stringify({ version: 1, ...initialChatDefaults }));
@@ -107,6 +120,20 @@ it('retains committed defaults on write failure and rejects malformed settings w
     expect(save).toThrow('could not be read');
     expect(fs.readFileSync(file, 'utf8')).toBe('{invalid json');
   } finally { store.close(); }
+});
+
+it('preserves previously saved empty bookmarks rather than applying factory selections', async () => {
+  const database = join(directory(), 'test.sqlite');
+  const store = new Store(database);
+  store.close();
+  const saved = JSON.stringify({ version: 1, revision: 0, settings: { prompts: null, connections: null, contexts: null } });
+  fs.writeFileSync(`${database}.chat-defaults.json`, saved);
+  const instance = await createApp({ database });
+  try {
+    const settings = new ChatDefaultsSettings(`${database}.chat-defaults.json`);
+    expect(settings.status()).toEqual({ revision: 0, settings: { prompts: null, connections: null, contexts: null } });
+    expect(fs.readFileSync(`${database}.chat-defaults.json`, 'utf8')).toBe(saved);
+  } finally { await instance.app.close(); }
 });
 
 it('falls back safely after unused defaults are deleted without changing other saved choices', async () => {

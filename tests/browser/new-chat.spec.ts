@@ -74,7 +74,7 @@ for (const width of [1440, 390]) {
     const saved: ChatSnapshot = await page.request.get(`/api/chats/${chat.id}`).then(response => response.json());
     expect(saved.settings).toMatchObject({
       title, characterId, personaId, lorebookId: bookId, promptId: 'default',
-      connectionId: before.connections[0]?.id ?? null, contextPresetId: null, targetInputTokens: 32_000,
+      connectionId: before.connections[0]?.id ?? null, contextPresetId: 'default-context', targetInputTokens: 32_000,
     });
     expect(saved.turns).toHaveLength(1);
     expect(saved.turns[0]?.assistant.text).toBe(`Welcome, Starter visitor ${width}.`);

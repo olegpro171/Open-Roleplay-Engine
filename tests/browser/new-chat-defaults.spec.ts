@@ -3,10 +3,55 @@ import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
 import type { ChatDefaultsStatus, ChatDefaultKind } from '../../src/shared/chat-defaults';
 import type { ChatSnapshot } from '../../src/shared/contracts';
+import { appearanceStatusSchema } from '../../src/shared/appearance';
+import { test as isolatedTest } from './isolated-app';
 
 const headers = { Origin: 'http://127.0.0.1:4173' };
 const readLibrary = (page: Page): Promise<LibrarySnapshot> => page.request.get('/api/library').then(response => response.json());
 const readDefaults = (page: Page): Promise<ChatDefaultsStatus> => page.request.get('/api/application/chat-defaults').then(response => response.json());
+
+for (const width of [1440, 390]) {
+  isolatedTest(`fresh installations bookmark both factory presets at ${width}px`, async ({ page, browserApp }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await page.getByLabel('Owner password').fill('browser-synthetic-password');
+    await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
+    expect((await readDefaults(page)).settings).toEqual({ prompts: 'default', connections: null, contexts: 'default-context' });
+    const library = await readLibrary(page);
+    const builtIns = [
+      { category: 'Prompts', preset: library.prompts.find(item => item.id === 'default') },
+      { category: 'Context presets', preset: library.contexts.find(item => item.id === 'default-context') },
+    ];
+    const headers = { Origin: browserApp.url };
+    for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+      const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+      const saved = await page.request.put('/api/application/appearance', { headers, data: { revision: appearance.revision, settings: { ...appearance.settings, theme } } });
+      expect(saved.ok()).toBe(true);
+      await page.reload();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+      for (const { category, preset } of builtIns) {
+        if (!preset) throw new Error('Missing factory preset');
+        await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: category, exact: true }).click();
+        await expect(page.getByRole('button', { name: `Clear ${preset.name} as default`, exact: true })).toHaveAttribute('aria-pressed', 'true');
+        await page.screenshot({ path: testInfo.outputPath(`${theme}-${preset.id}-${width}.png`), animations: 'disabled' });
+      }
+    }
+    await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Chats', exact: true }).click();
+    await page.getByRole('button', { name: 'New chat', exact: true }).click();
+    await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Chat settings', exact: true })).toBeVisible();
+    for (const { category, preset } of builtIns) {
+      if (!preset) throw new Error('Missing factory preset');
+      await expect(page.getByRole('combobox', { name: category === 'Prompts' ? 'Prompt preset' : 'Context preset', exact: true })).toContainText(preset.name);
+    }
+    const created = (await readLibrary(page)).chats.find(chat => !library.chats.some(old => old.id === chat.id));
+    if (!created) throw new Error('Missing created chat');
+    const snapshot: ChatSnapshot = await page.request.get(`/api/chats/${created.id}`).then(response => response.json());
+    expect(snapshot.settings).toMatchObject({ promptId: 'default', contextPresetId: 'default-context' });
+  });
+}
 
 for (const width of [1440, 390]) {
   test(`bookmarks persist defaults for all new-chat selections at ${width}px`, async ({ page }, testInfo) => {
