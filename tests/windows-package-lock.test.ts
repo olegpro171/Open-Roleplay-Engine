@@ -88,21 +88,21 @@ if([IO.Directory]::EnumerateFileSystemEntries($directory).GetEnumerator().MoveNe
     const env = { ...f.env, ORE_TEST_COMMON_TOOLS: resolve('scripts/release/windows-standalone-common.ps1'), ORE_TEST_PACKAGE_TOOLS: resolve('scripts/release/windows-package.ps1') };
     const select = () => spawnSync('powershell.exe', ['-NoProfile', '-Command', setup + '. $env:ORE_TEST_COMMON_TOOLS\n. $env:ORE_TEST_PACKAGE_TOOLS\nGet-OrePackageHelper $env:ORE_TEST_HOME'], { encoding: 'utf8', env });
     const first = select(); expect(first.status, first.stdout + first.stderr).toBe(0);
-    expect(first.stdout.trim()).toBe(join(selected, 'windows-package-launcher.ps1'));
+    expect(realpathSync.native(first.stdout.trim())).toBe(realpathSync.native(join(selected, 'windows-package-launcher.ps1')));
     const dependency = join(selected, 'check-database.mjs'), original = readFileSync(dependency);
     rmSync(dependency);
     const missing = select(); expect(missing.status, missing.stdout + missing.stderr).toBe(0);
-    expect(missing.stdout.trim()).toBe(join(recovery, 'windows-package-launcher.ps1'));
+    expect(realpathSync.native(missing.stdout.trim())).toBe(realpathSync.native(join(recovery, 'windows-package-launcher.ps1')));
     writeFileSync(dependency, original);
     const marker = join(f.home, 'dependency-locked');
     const reader = spawn('powershell.exe', ['-NoProfile', '-Command', '$s=[IO.File]::Open($env:ORE_TEST_DEPENDENCY,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::None);[IO.File]::WriteAllText($env:ORE_TEST_MARKER,"ready");try{Start-Sleep -Seconds 60}finally{$s.Dispose()}'], { env: { ...env, ORE_TEST_DEPENDENCY: dependency, ORE_TEST_MARKER: marker }, stdio: 'ignore' });
     children.add(reader);
     await expect.poll(() => existsSync(marker), { timeout: 10000 }).toBe(true);
     const unreadable = select(); expect(unreadable.status, unreadable.stdout + unreadable.stderr).toBe(0);
-    expect(unreadable.stdout.trim()).toBe(join(recovery, 'windows-package-launcher.ps1'));
+    expect(realpathSync.native(unreadable.stdout.trim())).toBe(realpathSync.native(join(recovery, 'windows-package-launcher.ps1')));
     const exited = new Promise<void>(accept => reader.once('exit', () => accept())); reader.kill(); await exited;
     const restored = select(); expect(restored.status, restored.stdout + restored.stderr).toBe(0);
-    expect(restored.stdout.trim()).toBe(join(selected, 'windows-package-launcher.ps1'));
+    expect(realpathSync.native(restored.stdout.trim())).toBe(realpathSync.native(join(selected, 'windows-package-launcher.ps1')));
   }, 30000);
 
   it('rejects a simultaneous controller and releases ownership automatically after abrupt termination', async () => {

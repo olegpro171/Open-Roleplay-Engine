@@ -43,6 +43,9 @@ $OreMessages = @{
     'legacyRestart' = @{en='An earlier ORE installation was interrupted. Restart Windows, then run this launcher again. Your saved data will be kept.';ru='Предыдущая установка ORE была прервана. Перезагрузите Windows и снова запустите этот файл. Ваши данные будут сохранены.'}
 }
 $ErrorActionPreference = 'Stop'
+# A Desktop controller may be launched from PowerShell Core. Load only the
+# matching Windows modules rather than inheriting Core's incompatible modules.
+if ($PSVersionTable.PSEdition -eq 'Desktop') { $env:PSModulePath = Join-Path $PSHOME 'Modules' }
 # Literal assignments only: never evaluate configuration as PowerShell code.
 function Import-OreEnvironment([string]$Path) {
     if (!(Test-Path -LiteralPath $Path)) { return }

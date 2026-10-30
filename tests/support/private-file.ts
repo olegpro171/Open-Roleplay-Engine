@@ -14,7 +14,7 @@ export function expectPrivateFile(path: string) {
 $ErrorActionPreference='Stop'
 $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $allowed=@($sid,'S-1-5-18','S-1-5-32-544')
-$rules=(Get-Acl -LiteralPath $env:ORE_TEST_PRIVATE_FILE).GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])
+$rules=([IO.File]::GetAccessControl($env:ORE_TEST_PRIVATE_FILE)).GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])
 $unexpected=@($rules|Where-Object {$_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -notin $allowed})
 if($unexpected.Count){throw 'Private file grants access beyond its owner, SYSTEM and administrators.'}
 `], { encoding: 'utf8', env: { ...process.env, ORE_TEST_PRIVATE_FILE: path } });
