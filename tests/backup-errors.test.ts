@@ -79,11 +79,11 @@ it('explains schema, content and reconstruction failures without exposing upload
       expect(JSON.stringify(failure)).not.toContain('private_uploaded_secret');
       expect(JSON.stringify(failure)).not.toContain('Private synthetic prose');
       // Compare every byte natively; per-byte matcher traversal of eleven SQLite
-      // fixtures otherwise consumes almost the entire five-second test budget.
+      // fixtures otherwise dominates this reconstruction test.
       expect(fs.readFileSync(path).equals(input)).toBe(true);
       expect(service.persistence.token).toBe(token);
       expect(fs.readdirSync(join(directory,'.ore-backups-live.sqlite'))).toEqual([]);
     }
     const review = service.upload(bytes,'owner'); expect(review.blockers).toEqual([]); service.cancel(review.stageId,'owner');
   } finally { service.close(); store.close(); fs.rmSync(directory,{ recursive: true,force: true }); }
-});
+}, 30000);

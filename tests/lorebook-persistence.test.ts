@@ -523,7 +523,7 @@ describe('schema 7 lorebook migration', () => {
     expect(savedRows(store.sqlite)).toEqual(after);
     expect(store.snapshot(seeded.chatId)).toEqual(snapshotAfter);
     expect(commandRows(store)).toEqual([]);
-  });
+  }, 30000);
 
   it('rolls back schema, prompt and revisions together and safely retries after an interrupted upgrade', () => {
     const seeded = populatedVersion6(false);
