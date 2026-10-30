@@ -32,7 +32,7 @@ try {
   const extracted = join(temporary, 'extracted');
   const payload = join(extracted, name);
   mkdirSync(extracted);
-  run('powershell.exe', ['-NoProfile', '-Command', "$ErrorActionPreference='Stop'; . $env:ORE_CI_TOOLS; Expand-OreZip $env:ORE_CI_ARCHIVE $env:ORE_CI_ROOT $env:ORE_CI_EXTRACTED -LongPaths"], { ...process.env, ORE_CI_TOOLS: resolve('scripts/release/windows-snapshot.ps1'), ORE_CI_ARCHIVE: join(output, 'ORE-windows-x64.zip'), ORE_CI_ROOT: name, ORE_CI_EXTRACTED: payload });
+  run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-Command', "$ErrorActionPreference='Stop'; . $env:ORE_CI_TOOLS; Expand-OreZip $env:ORE_CI_ARCHIVE $env:ORE_CI_ROOT $env:ORE_CI_EXTRACTED -LongPaths"], { ...process.env, ORE_CI_TOOLS: resolve('scripts/release/windows-snapshot.ps1'), ORE_CI_ARCHIVE: join(output, 'ORE-windows-x64.zip'), ORE_CI_ROOT: name, ORE_CI_EXTRACTED: payload });
   if (JSON.stringify(readdirSync(extracted)) !== JSON.stringify([name])) throw new Error('Unexpected archive root.');
   const checksums = JSON.parse(readFileSync(join(payload, 'checksums.json'), 'utf8'));
   const actual = inventory(payload).filter(file => file.path !== 'checksums.json');
