@@ -1,9 +1,8 @@
 // CI only: package an exact, clean Windows build, then verify the extracted bytes.
 import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import { inventory } from './stage.mjs';
 import { parseSelection, runtimeExecutable } from './selection.mjs';
 import { verifyStartup } from './startup-smoke.mjs';
@@ -18,7 +17,9 @@ const application = join(home, 'app', selected.id);
 const info = JSON.parse(readFileSync(join(application, 'build-info.json'), 'utf8'));
 if (info.commit !== commit || info.kind !== 'release' || info.platform !== 'win32' || info.arch !== 'x64') throw new Error('Installed application does not match the Windows release commit.');
 mkdirSync(output);
-const temporary = mkdtempSync(join(tmpdir(), 'ORE-release-verification-'));
+// The runner's TEMP and output may be on different drives. Keep the verified
+// archive beside its destination so promotion remains an atomic rename.
+const temporary = mkdtempSync(join(dirname(output), 'ORE-release-verification-'));
 function run(executable, args, env = process.env) {
   const result = spawnSync(executable, args, { stdio: 'inherit', env });
   if (result.error) throw result.error;
