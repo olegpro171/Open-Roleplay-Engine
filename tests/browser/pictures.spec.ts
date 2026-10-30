@@ -197,7 +197,14 @@ test('keeps mixed library rows bounded and crop controls usable at desktop, phon
     const analysis = bytes ? await command(page, '/pictures/preview', { base64: bytes.toString('base64') }) : undefined;
     await command(page, '/library', { kind: 'characters', revision: (await library(page)).revision, requestId: crypto.randomUUID(), data, tagIds: index === 3 ? [] : tagIds, expectedPicture: null, ...(bytes ? { picture: { mode: 'replace', base64: bytes.toString('base64'), crop: analysis.crop } } : {}) });
   }
-  await page.route('**/picture/*/thumbnail', async route => { if (route.request().url().includes('/characters/')) { const last = (await library(page)).characters.find(card => card.name.startsWith('Picture visual 2')); if (last && route.request().url().includes(last.id)) return route.abort(); } await route.continue(); });
+  const unavailable = (await library(page)).characters.find(card => card.name === 'Picture visual 2');
+  if (!unavailable) throw new Error('Missing synthetic character for unavailable picture');
+  // Resolve the fixture before intercepting images: thumbnail callbacks must
+  // not start API requests that can outlive this page during test teardown.
+  await page.route('**/picture/*/thumbnail', route => {
+    const url = new URL(route.request().url());
+    return url.pathname.includes(`/characters/${unavailable.id}/`) ? route.abort() : route.continue();
+  });
   await page.reload(); await page.getByRole('button', { name: 'Libraries', exact: true }).click(); await page.getByRole('button', { name: 'Characters', exact: true }).click();
   await row(page, 'Picture visual 2').scrollIntoViewIfNeeded(); await expect(row(page, 'Picture visual 2')).toContainText('Picture unavailable');
   for (const width of [1280, 390, 320]) {
@@ -253,6 +260,7 @@ test('keeps mixed library rows bounded and crop controls usable at desktop, phon
   expect(await page.locator('.document-panel').evaluate(element => element.scrollWidth <= element.clientWidth && element.getBoundingClientRect().right <= innerWidth)).toBe(true);
   await row(page, 'Picture visual 0').scrollIntoViewIfNeeded(); await page.screenshot({ path: 'test-results/pictures-zoom200.png', fullPage: true });
   await zoomSession.send('Emulation.clearDeviceMetricsOverride'); await zoomSession.detach();
+  await page.unrouteAll({ behavior: 'wait' });
 });
 
 test('ignores a closed editor’s delayed picture analysis and preserves the next editor draft', async ({ page }) => {
