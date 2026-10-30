@@ -11,24 +11,36 @@ function Set-OrePrivate([string]$Path) {
 # Windows PowerShell 5.1 archive policy, also embedded in the standalone asset.
 $OreSourceInputs = @('build-portable.ps1','package.json','package-lock.json','tsconfig.json','tsconfig.server.json','vite.config.ts','vitest.config.ts','playwright.config.ts','index.html','src','public','migrations','scripts/release','LICENSE','docs/RELEASES.md')
 function Add-OreType([string]$TypeDefinition) {
-    # Framework CodeDOM's default elevated temp-directory creation uses a
-    # legacy native path API. An explicit private TempFiles directory avoids
-    # that path, including for Unicode installation names, without global edits.
+    # Framework csc uses an ANSI API for its own TEMP/TMP scratch files even
+    # though CodeDOM's explicit source/output paths support Unicode. A relative
+    # temp path in the private working directory avoids code-page conversion;
+    # no short aliases, shared scratch directory or machine changes are needed.
     $directory = Join-Path ([IO.Path]::GetTempPath()) ('ore-types-'+[guid]::NewGuid().ToString('N'))
     [IO.Directory]::CreateDirectory($directory) | Out-Null
-    Set-OrePrivate $directory
-    $provider = New-Object Microsoft.CSharp.CSharpCodeProvider
-    $parameters = New-Object CodeDom.Compiler.CompilerParameters
-    $parameters.GenerateInMemory = $true
-    $parameters.TempFiles = New-Object CodeDom.Compiler.TempFileCollection($directory,$false)
-    $parameters.ReferencedAssemblies.Add('System.dll') | Out-Null
+    $workingDirectory = [Environment]::CurrentDirectory
+    $temporary = $env:TEMP
+    $temporaryAlternative = $env:TMP
+    $provider = $null
+    $parameters = $null
     try {
+        Set-OrePrivate $directory
+        [Environment]::CurrentDirectory = $directory
+        $env:TEMP = '.'
+        $env:TMP = '.'
+        $provider = New-Object Microsoft.CSharp.CSharpCodeProvider
+        $parameters = New-Object CodeDom.Compiler.CompilerParameters
+        $parameters.GenerateInMemory = $true
+        $parameters.TempFiles = New-Object CodeDom.Compiler.TempFileCollection($directory,$false)
+        $parameters.ReferencedAssemblies.Add('System.dll') | Out-Null
         $result = $provider.CompileAssemblyFromSource($parameters,$TypeDefinition)
         if ($result.Errors.HasErrors) { throw ($result.Errors | Out-String) }
         $result.CompiledAssembly | Out-Null
     } finally {
-        $parameters.TempFiles.Dispose()
-        $provider.Dispose()
+        [Environment]::CurrentDirectory = $workingDirectory
+        $env:TEMP = $temporary
+        $env:TMP = $temporaryAlternative
+        if ($parameters) { $parameters.TempFiles.Dispose() }
+        if ($provider) { $provider.Dispose() }
         [IO.Directory]::Delete($directory,$true)
     }
 }

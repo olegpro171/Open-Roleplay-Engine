@@ -103,7 +103,7 @@ $app=Join-Path $Destination ('app/release-'+$Commit)
     const script = join(f.root, 'owner.ps1');
     const workerScript = join(f.root, 'worker.cjs');
     writeFileSync(workerScript, 'require("node:fs").writeFileSync(process.argv[2],String(process.pid));setInterval(()=>{},1000)');
-    writeFileSync(script, '. $env:ORE_TEST_TOOLS\nInitialize-OreJob\n& $env:ORE_TEST_NODE $env:ORE_TEST_WORKER $env:ORE_TEST_MARKER');
+    writeFileSync(script, '. $env:ORE_TEST_TOOLS\n. (Join-Path ([IO.Path]::GetDirectoryName($env:ORE_TEST_TOOLS)) "windows-snapshot.ps1")\nInitialize-OreJob\n& $env:ORE_TEST_NODE $env:ORE_TEST_WORKER $env:ORE_TEST_MARKER');
     const owner = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-File', script], { stdio: 'ignore', env: { ...process.env, ORE_TEST_TOOLS: join(f.source, 'scripts/release/windows-common.ps1'), ORE_TEST_NODE: process.execPath, ORE_TEST_WORKER: workerScript, ORE_TEST_MARKER: marker } });
     const exited = new Promise(resolve => owner.once('exit', resolve));
     let worker: number | undefined;

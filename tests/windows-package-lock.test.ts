@@ -64,15 +64,36 @@ function Get-OreWindowsBootTime { [DateTime]::Parse('2026-10-28T00:00:00Z').ToUn
     const result = f.run(`
 . $env:ORE_TEST_COMMON_NATIVE
 . $env:ORE_TEST_COMMON_TOOLS
-$directory=Join-Path $env:ORE_TEST_HOME 'cache/compilation-история'
+$directory=Join-Path $env:ORE_TEST_HOME ('cache/compilation space-'+[char]0x6f22+'-&()')
 [IO.Directory]::CreateDirectory($directory)|Out-Null
-$env:TEMP=$directory;$env:TMP=$directory
+$env:TEMP=$directory;$env:TMP=$directory+'\\'
+$workingDirectory=[Environment]::CurrentDirectory
 Initialize-OreJob
 Initialize-OreCancellation
 Initialize-OreLongPaths
 $lease=Acquire-OrePackageLease $env:ORE_TEST_HOME
 $lease.Dispose()
+if($env:TEMP -cne $directory -or $env:TMP -cne ($directory+'\\') -or [Environment]::CurrentDirectory -cne $workingDirectory){throw 'Compilation changed the caller environment.'}
 if([IO.Directory]::EnumerateFileSystemEntries($directory).GetEnumerator().MoveNext()){throw 'Compilation left temporary files.'}
+`);
+    expect(result.status, result.stdout+result.stderr).toBe(0);
+  });
+
+  it('restores the compiler environment and removes scratch files after a compilation error', () => {
+    const f = fixture();
+    const result = f.run(`
+$directory=Join-Path $env:ORE_TEST_HOME ('cache/failed compilation-'+[char]0x6f22)
+[IO.Directory]::CreateDirectory($directory)|Out-Null
+$env:TEMP=$directory;$env:TMP=$directory+'\\'
+$workingDirectory=[Environment]::CurrentDirectory
+$failed=$false
+try { Add-OreType 'public class Invalid { this is invalid CSharp; }' }
+catch { if($_.Exception.Message -notmatch 'CS[0-9]+'){throw};$failed=$true }
+if(!$failed){throw 'Invalid CSharp unexpectedly compiled.'}
+if($env:TEMP -cne $directory -or $env:TMP -cne ($directory+'\\') -or [Environment]::CurrentDirectory -cne $workingDirectory){throw 'Failed compilation changed the caller environment.'}
+if([IO.Directory]::EnumerateFileSystemEntries($directory).GetEnumerator().MoveNext()){throw 'Failed compilation left temporary files.'}
+Add-OreType 'public static class OreCompilerRecovery { public static int Value() { return 42; } }'
+if([OreCompilerRecovery]::Value() -ne 42){throw 'Compilation did not recover.'}
 `);
     expect(result.status, result.stdout+result.stderr).toBe(0);
   });
@@ -86,7 +107,7 @@ if([IO.Directory]::EnumerateFileSystemEntries($directory).GetEnumerator().MoveNe
     writeFileSync(join(f.home, 'current'), `release-selected\n${runtime}\n`);
     writeFileSync(join(f.home, 'recovery/current'), `release-retained\n${runtime}\n`);
     const env = { ...f.env, ORE_TEST_COMMON_TOOLS: resolve('scripts/release/windows-standalone-common.ps1'), ORE_TEST_PACKAGE_TOOLS: resolve('scripts/release/windows-package.ps1') };
-    const select = () => spawnSync('powershell.exe', ['-NoProfile', '-Command', setup + '. $env:ORE_TEST_COMMON_TOOLS\n. $env:ORE_TEST_PACKAGE_TOOLS\nGet-OrePackageHelper $env:ORE_TEST_HOME'], { encoding: 'utf8', env });
+    const select = () => spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-Command', setup + '. $env:ORE_TEST_COMMON_TOOLS\n. $env:ORE_TEST_PACKAGE_TOOLS\nGet-OrePackageHelper $env:ORE_TEST_HOME'], { encoding: 'utf8', env });
     const first = select(); expect(first.status, first.stdout + first.stderr).toBe(0);
     expect(realpathSync.native(first.stdout.trim())).toBe(realpathSync.native(join(selected, 'windows-package-launcher.ps1')));
     const dependency = join(selected, 'check-database.mjs'), original = readFileSync(dependency);
