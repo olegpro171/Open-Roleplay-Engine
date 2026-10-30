@@ -19,9 +19,12 @@ const legacyShared = `$OreMessages = @{\n${entries.join('\n')}\n}\n` + ['windows
 const batch = `@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "ORE_BOOTSTRAP_FILE=%~f0"\r\nset "ORE_BOOTSTRAP_PS=%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"\r\nif exist "%SystemRoot%\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe" set "ORE_BOOTSTRAP_PS=%SystemRoot%\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe"\r\n"%ORE_BOOTSTRAP_PS%" -NoProfile -ExecutionPolicy RemoteSigned -Command "$s=[IO.File]::ReadAllText($env:ORE_BOOTSTRAP_FILE,[Text.Encoding]::UTF8);$m='# ORE_POWERSHELL_PAYLOAD';$i=$s.LastIndexOf($m); & ([scriptblock]::Create($s.Substring($i+$m.Length)))"\r\nexit /b %errorlevel%\r\n# ORE_POWERSHELL_PAYLOAD\r\n`;
 export const legacyWindowsLauncher = () => batch + header + legacyShared;
 const packageShared = `$OreMessages = @{\n${entries.join('\n')}\n}\n` + ['windows-common.ps1','windows-snapshot.ps1','windows-standalone-common.ps1','windows-package-lock.ps1','windows-package.ps1','windows-package-body.ps1'].map(read).join('\n');
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) for (const [name, content] of [['ORE-launcher.bat', batch + header + packageShared], ['scripts/release/windows-launcher.ps1', '\ufeff' + header + legacyShared], ['scripts/release/windows-package-launcher.ps1', '\ufeff' + header + packageShared]]) {
+// cmd.exe requires a CRLF batch envelope even when generation runs on POSIX.
+export const packageWindowsLauncher = () => (batch + header + packageShared).replaceAll('\r\n', '\n').replaceAll('\n', '\r\n');
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) for (const [name, content] of [['ORE-launcher.bat', packageWindowsLauncher()], ['scripts/release/windows-launcher.ps1', '\ufeff' + header + legacyShared], ['scripts/release/windows-package-launcher.ps1', '\ufeff' + header + packageShared]]) {
   const path = resolve(root, name);
   if (process.argv.includes('--check')) {
-    if (readFileSync(path, 'utf8').replaceAll('\r\n', '\n') !== content.replaceAll('\r\n', '\n')) throw new Error(`Regenerate ${name}`);
-  } else writeFileSync(path, content.replaceAll('\r\n', '\n'));
+    const actual = readFileSync(path, 'utf8');
+    if (name === 'ORE-launcher.bat' ? actual !== content : actual.replaceAll('\r\n', '\n') !== content.replaceAll('\r\n', '\n')) throw new Error(`Regenerate ${name}`);
+  } else writeFileSync(path, name === 'ORE-launcher.bat' ? content : content.replaceAll('\r\n', '\n'));
 }

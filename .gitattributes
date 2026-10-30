@@ -1,0 +1,2 @@
+# The published hybrid batch/PowerShell asset must survive native cmd parsing.
+ORE-launcher.bat text eol=crlf

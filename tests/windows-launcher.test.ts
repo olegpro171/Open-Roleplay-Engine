@@ -1,4 +1,4 @@
-import { legacyWindowsLauncher } from '../scripts/release/generate-windows-launcher.mjs';
+import { legacyWindowsLauncher, packageWindowsLauncher } from '../scripts/release/generate-windows-launcher.mjs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -132,6 +132,17 @@ if(process.argv.includes('build')){
 }
 
 describe.skipIf(process.platform !== 'win32')('standalone Windows 5.1 batch launcher',()=>{
+  it('executes the generated production batch entry before any private runtime exists', async () => {
+    const f = fixture();
+    writeFileSync(f.entry, f.instrument(packageWindowsLauncher()));
+    writeFileSync(join(f.root, 'offline'), '');
+    const run = observe(f.run());
+    expect(await run.done).not.toBe(0);
+    expect(run.output()).toContain("ORE couldn't finish downloading.");
+    expect(f.logs()).toContain('SYNTHETIC offline');
+    expect(readdirSync(join(f.home, 'runtime'))).toEqual([]);
+    expect(readFileSync(join(f.parent, 'unrelated.txt'), 'utf8')).toBe('preserve');
+  }, 30000);
   it('runs the real Release builder with Git outside its sanitized PATH and retains clean-source guards',()=>{
     const f=fixture();f.archive(a,source=>{
       for(const directory of ['src','public'])writeFileSync(join(source,directory,'sentinel.txt'),'tracked build input');
