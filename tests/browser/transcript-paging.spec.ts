@@ -42,10 +42,17 @@ for (const width of [1380, 390]) test(`loads a bounded transcript window without
   let releasePage: () => void = () => {};
   let gate = new Promise<void>(resolve => { releasePage = resolve; });
   let olderRequested = false;
+  let releaseNewerPage: () => void = () => {};
+  const newerGate = new Promise<void>(resolve => { releaseNewerPage = resolve; });
+  let newerRequested = false;
   await page.route('**/api/chats/*/story?*', async route => {
-    const hold = new URL(route.request().url()).searchParams.get('shift') === '-40' && !olderRequested;
+    const shift = new URL(route.request().url()).searchParams.get('shift');
+    const hold = shift === '-40' && !olderRequested;
+    const holdNewer = shift === '40' && !newerRequested;
+    if (holdNewer) newerRequested = true;
     const response = await route.fetch();
     if (hold) { olderRequested = true; await gate; }
+    if (holdNewer) await newerGate;
     await route.fulfill({ response });
   });
   await transcript.evaluate(node => { node.scrollTop = 0; });
@@ -76,10 +83,19 @@ for (const width of [1380, 390]) test(`loads a bounded transcript window without
   await page.getByRole('article', { name: 'Turn 300', exact: true }).evaluate(node => node.scrollIntoView({ block: 'center' }));
   await page.getByRole('button', { name: 'Cancel edit', exact: true }).evaluate(button => (button as HTMLButtonElement).click());
   await page.screenshot({ path: `test-results/transcript-history-${width}.png` });
+  // Closing the editor can reveal the newer sentinel before this explicit
+  // scroll. Hold that first page so a second scroll cannot race it to the tail.
   await transcript.evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await expect.poll(() => newerRequested).toBe(true);
+  releaseNewerPage();
   await expect(transcript.locator('.turn').first()).toHaveAttribute('aria-label', 'Turn 304');
   await expect(transcript.locator('.turn')).toHaveCount(120);
+  const latestRequested = page.waitForRequest(request => {
+    const url = new URL(request.url());
+    return url.pathname === `/api/chats/${id}/story` && url.searchParams.size === 0;
+  });
   await page.getByRole('button', { name: 'Latest turn', exact: false }).click();
+  await latestRequested;
   await expect(page.getByRole('article', { name: 'Turn 438', exact: true })).toBeInViewport();
   await expect(transcript.locator('.turn')).toHaveCount(15);
   await expect.poll(bottomGap).toBeLessThan(2);
