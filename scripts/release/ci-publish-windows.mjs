@@ -1,10 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { readWindowsRelease, releaseRepository, validateCommit, windowsReleaseAssets } from './ci-release-files.mjs';
+import { join } from 'node:path';
+import { readWindowsRelease, validateCommit, windowsReleaseAssets } from './ci-release-files.mjs';
 
-function githubClient(repository) {
+export function githubClient(repository) {
   function gh(args, input) {
     const result = spawnSync('gh', args, { encoding: 'utf8', input, maxBuffer: 4 * 1024 * 1024 });
     if (result.error) throw result.error;
@@ -82,10 +81,4 @@ export async function publishWindowsRelease(directory, commit, client) {
   }
   await client.request(`releases/${release.id}`, 'PATCH', { draft: false, make_latest: latest ? 'true' : 'false' });
   return { tag, published: true, latest, reused: false };
-}
-
-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  const [directory, commit] = process.argv.slice(2);
-  if (!directory || process.env.GITHUB_REPOSITORY !== releaseRepository || !process.env.GH_TOKEN) throw new Error('Publishing requires the release repository, GH_TOKEN, release directory and commit.');
-  console.log(await publishWindowsRelease(resolve(directory), commit, githubClient(releaseRepository)));
 }

@@ -1,4 +1,4 @@
-param([ValidateSet('Release','Development','Snapshot')][string]$Mode, [string]$Commit, [string]$Destination, [string]$Snapshot)
+param([ValidateSet('Release','Development','Snapshot')][string]$Mode, [string]$Commit, [string]$Destination, [string]$Snapshot, [ValidateSet('main','staging')][string]$ReleaseBranch = 'main')
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
 $OutputEncoding = [Console]::OutputEncoding
@@ -28,7 +28,9 @@ try {
         if ($Commit -cnotmatch '^[0-9a-f]{40}$') { throw 'Release requires the exact full checked-out commit.' }
         if (Invoke-Native $git @('-C',$source,'status','--porcelain','--untracked-files=all')) { throw 'Release source must be clean, including untracked files.' }
         if ($Commit -cne (Invoke-Native $git @('-C',$source,'rev-parse','HEAD')).Trim()) { throw 'Release requires the exact full checked-out commit.' }
-        Invoke-Native $git @('-C',$source,'merge-base','--is-ancestor',$Commit,'main')
+        # Staging builds retain the real triggering SHA; only main promotion publishes them.
+        $releaseReference = if ($ReleaseBranch -eq 'staging') { 'refs/remotes/origin/staging' } else { 'main' }
+        Invoke-Native $git @('-C',$source,'merge-base','--is-ancestor',$Commit,$releaseReference)
     }
     if ($Mode -eq 'Snapshot') {
         if ($Commit -cnotmatch '^[0-9a-f]{40}$' -or $env:ORE_SNAPSHOT_SOURCE -cne ('https://github.com/olegpro171/Open-Roleplay-Engine/archive/'+$Commit+'.zip') -or $env:ORE_SNAPSHOT_SHA256 -cnotmatch '^[0-9a-f]{64}$') { throw 'Snapshot requires exact downloaded-main provenance and digest.' }

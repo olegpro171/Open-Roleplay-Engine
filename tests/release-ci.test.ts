@@ -110,3 +110,69 @@ describe('Windows CI publication', () => {
     expect(result.events).toEqual([]);
   });
 });
+
+function qualification(scenario = '', action = 'select') {
+  const source = `
+const {selectQualification,requireQualification,requireFastForward}=await import(${JSON.stringify(pathToFileURL(resolve('scripts/release/ci-promote-windows.mjs')).href)});
+const commit=${JSON.stringify(commit)},before=${JSON.stringify(newer)},scenario=${JSON.stringify(scenario)},action=${JSON.stringify(action)};
+const repository='olegpro171/Open-Roleplay-Engine',path='.github/workflows/windows-qualify.yml';
+const run={id:12,workflow_id:7,path,head_sha:commit,head_branch:'staging',event:'push',status:'completed',conclusion:'success',repository:{full_name:repository},head_repository:{full_name:repository}};
+const artifact={id:34,name:'windows-x64-'+commit,expired:false,expires_at:'2099-01-01T00:00:00Z',size_in_bytes:123,digest:'sha256:'+'a'.repeat(64),workflow_run:{id:12,head_sha:commit,head_branch:'staging'}};
+if(scenario==='sha')run.head_sha=before;
+if(scenario==='branch')run.head_branch='develop';
+if(scenario==='workflow')run.workflow_id=99;
+if(scenario==='event')run.event='pull_request';
+if(scenario==='failed')run.conclusion='failure';
+if(scenario==='pending')run.status='in_progress';
+if(scenario==='fork')run.head_repository.full_name='someone/ORE';
+if(scenario==='expired')artifact.expired=true;
+if(scenario==='expiry')artifact.expires_at='2020-01-01T00:00:00Z';
+if(scenario==='artifact-sha')artifact.workflow_run.head_sha=before;
+if(scenario==='digest')artifact.digest='';
+const events=[];
+const client={async request(url){events.push(url);
+if(url.includes('/runs?'))return{workflow_runs:scenario==='missing'?[]:[run]};
+if(url==='actions/workflows/windows-qualify.yml')return{id:7,path};
+if(url==='actions/runs/12')return run;
+if(url.includes('/artifacts?'))return{total_count:1,artifacts:scenario==='missing-artifact'?[]:scenario==='duplicate'?[artifact,artifact]:[artifact]};
+if(url.startsWith('compare/'))return{status:scenario==='diverged'?'diverged':'ahead',base_commit:{sha:before},merge_base_commit:{sha:before}};
+throw Error('Unexpected request '+url);
+}};
+try{const result=action==='fast-forward'?await requireFastForward(before,commit,client):action==='recheck'?await requireQualification(commit,client,12,scenario==='wrong-id'?35:34):await selectQualification(commit,client);console.log(JSON.stringify({result,events}));}
+catch(error){console.log(JSON.stringify({error:error.message,events}));}
+`;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], { encoding: 'utf8' });
+  expect(result.status, result.stderr).toBe(0);
+  return JSON.parse(result.stdout);
+}
+
+describe('Staging qualification and exact artifact promotion', () => {
+  it('selects and rechecks the immutable artifact from the exact successful staging commit', () => {
+    expect(qualification().result).toEqual({ runId: 12, artifactId: 34 });
+    expect(qualification('', 'recheck').result).toEqual({ runId: 12, artifactId: 34 });
+  });
+  it.each(['missing', 'sha', 'branch', 'workflow', 'event', 'failed', 'pending', 'fork', 'expired', 'expiry', 'artifact-sha', 'digest', 'missing-artifact', 'duplicate'])('blocks publication for invalid qualification: %s', scenario => {
+    expect(qualification(scenario).error).toBeTruthy();
+  });
+  it('rejects replacement artifact identity between selection and publication', () => {
+    expect(qualification('wrong-id', 'recheck').error).toContain('incompatible');
+  });
+  it('allows forward promotion and rejects replacement main history', () => {
+    expect(qualification('', 'fast-forward').error).toBeUndefined();
+    expect(qualification('diverged', 'fast-forward').error).toContain('fast-forward');
+  });
+  it('checks the qualified archive and launcher against the promoted source without modifying either', () => {
+    const f = fixture(), launcher = join(f.root, 'ORE-launcher.bat');
+    const source = `const {verifyPromotedFiles}=await import(${JSON.stringify(pathToFileURL(resolve('scripts/release/ci-promote-windows.mjs')).href)});verifyPromotedFiles(process.argv[1],process.argv[2],process.argv[3]);`;
+    const verify = (expected: string) => spawnSync(process.execPath, ['--input-type=module', '-e', source, f.root, commit, expected], { encoding: 'utf8' });
+    // Expected source lives outside the artifact's strict four-file directory.
+    const expectedRoot = mkdtempSync(join(tmpdir(), 'ORE promoted source-')); roots.push(expectedRoot);
+    const expected = join(expectedRoot, 'ORE-launcher.bat'); writeFileSync(expected, readFileSync(launcher));
+    expect(verify(expected).status).toBe(0);
+    writeFileSync(expected, 'different launcher');
+    expect(verify(expected).stderr).toContain('launcher differs');
+    expect(readFileSync(launcher, 'utf8')).toBe('@echo off\r\n');
+    writeFileSync(join(f.root, 'ORE-windows-x64.zip'), 'corrupted');
+    expect(verify(launcher).stderr).toContain('archive differs');
+  });
+});

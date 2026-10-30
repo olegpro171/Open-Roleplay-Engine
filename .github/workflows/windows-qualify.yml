@@ -1,0 +1,71 @@
+name: Windows x64 qualification
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    if: github.ref == 'refs/heads/staging' && github.repository == 'olegpro171/Open-Roleplay-Engine'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - name: Install locked dependencies and browser engines
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx playwright install chromium webkit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify sources
+        shell: pwsh
+        run: |
+          node scripts/release/generate-windows-launcher.mjs --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build exact staging commit with the private Windows runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\build-portable.ps1 -Mode Release -ReleaseBranch staging -Commit $env:GITHUB_SHA -Destination "$env:RUNNER_TEMP\ORE-ci-install"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package and verify extracted release
+        shell: pwsh
+        run: |
+          node scripts/release/ci-package-windows.mjs "$env:RUNNER_TEMP\ORE-ci-install" "$env:RUNNER_TEMP\ORE-release" $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --import tsx tests/support/windows-package-acceptance.ts "$env:RUNNER_TEMP\ORE-release" $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain verified release files for publication
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-x64-${{ github.sha }}
+          path: ${{ runner.temp }}/ORE-release/*
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+      - name: Retain failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/ORE-ci-install/logs/
+            ${{ runner.temp }}/ORE-package-acceptance-logs/
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7

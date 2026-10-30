@@ -157,15 +157,25 @@ describe.skipIf(process.platform !== 'win32')('standalone Windows 5.1 batch laun
     git('-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','Synthetic release');
     const commit=git('rev-parse','HEAD');mkdirSync(join(f.home,'cache'),{recursive:true});
     cpSync(join(f.root,'toolkit.zip'),join(f.home,`cache/node-v${process.versions.node}-win-x64.zip`));
-    const run=(sha=commit)=>spawnSync(ps,['-NoProfile','-ExecutionPolicy','RemoteSigned','-File',join(source,'build-portable.ps1'),'-Mode','Release','-Commit',sha,'-Destination',f.home],{
+    const run=(sha=commit,branch='main')=>spawnSync(ps,['-NoProfile','-ExecutionPolicy','RemoteSigned','-File',join(source,'build-portable.ps1'),'-Mode','Release','-ReleaseBranch',branch,'-Commit',sha,'-Destination',f.home],{
       encoding:'utf8',timeout:40000,env:{...process.env,PATH:`${join(gitPath,'..')};${process.env.SystemRoot}\\System32`},
     });
     const built=run();expect(built.status,built.stdout+built.stderr+'\n'+f.logs()).toBe(0);
+    // A staging candidate keeps its actual SHA even before it belongs to main.
+    const mainCommit=commit;
+    writeFileSync(join(source,'src/sentinel.txt'),'staging candidate');git('add','.');
+    git('-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','Synthetic staging candidate');
+    const stagedCommit=git('rev-parse','HEAD');
+    git('checkout','--detach',stagedCommit);
+    git('update-ref','refs/heads/main',mainCommit);
+    git('update-ref','refs/remotes/origin/staging',stagedCommit);
+    const notMain=run(stagedCommit);expect(notMain.status).not.toBe(0);
+    const staged=run(stagedCommit,'staging');expect(staged.status,staged.stdout+staged.stderr+'\n'+f.logs()).toBe(0);
     const pointer=readFileSync(join(f.home,'current'),'utf8');const id=pointer.split('\n')[0];
-    expect(JSON.parse(readFileSync(join(f.home,'app',id,'build-info.json'),'utf8'))).toMatchObject({kind:'release',commit});
+    expect(JSON.parse(readFileSync(join(f.home,'app',id,'build-info.json'),'utf8'))).toMatchObject({kind:'release',commit:stagedCommit});
     expect(existsSync(join(f.home,'cache/build.lock'))).toBe(false);
-    const wrong=run('0'.repeat(40));expect(wrong.status).not.toBe(0);expect(wrong.stderr).toContain('exact full checked-out commit');
-    writeFileSync(join(source,'src/sentinel.txt'),'dirty');const dirty=run();expect(dirty.status).not.toBe(0);expect(dirty.stderr).toContain('Release source must be clean');
+    const wrong=run('0'.repeat(40),'staging');expect(wrong.status).not.toBe(0);expect(wrong.stderr).toContain('exact full checked-out commit');
+    writeFileSync(join(source,'src/sentinel.txt'),'dirty');const dirty=run(stagedCommit,'staging');expect(dirty.status).not.toBe(0);expect(dirty.stderr).toContain('Release source must be clean');
     expect(readFileSync(join(f.home,'current'),'utf8')).toBe(pointer);
   },60000);
   it('reads phases while a write handle is held, waits for complete events, and preserves child failures',()=>{
