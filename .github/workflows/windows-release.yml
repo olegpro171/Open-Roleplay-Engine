@@ -15,7 +15,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $ascii=Join-Path $env:RUNNER_TEMP ('native-probe-'+[guid]::NewGuid().ToString('N'))
-          $unicode=Join-Path $ascii 'Chosen space-история-&()'
+          $unicode=Join-Path $ascii ('Chosen space-'+[char]0x0438+'-&()')
           [IO.Directory]::CreateDirectory($unicode)|Out-Null
           foreach($environment in @($ascii,$unicode)) {
             foreach($output in @($ascii,$unicode)) {
