@@ -86,4 +86,4 @@ it('explains schema, content and reconstruction failures without exposing upload
     }
     const review = service.upload(bytes,'owner'); expect(review.blockers).toEqual([]); service.cancel(review.stageId,'owner');
   } finally { service.close(); store.close(); fs.rmSync(directory,{ recursive: true,force: true }); }
-}, 30000);
+});

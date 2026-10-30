@@ -52,7 +52,7 @@ it.each([false, true])('upgrades a populated schema 11 without rewriting existin
     store.close(); store = new Store(filename);
     expect(store.snapshot()).toEqual(before);
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
-}, 30000);
+});
 
 it('rejects late reasoning after cancellation and keeps it isolated to its saved attempt', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'ore-reasoning-cancel-'));
