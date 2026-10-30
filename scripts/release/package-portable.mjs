@@ -39,9 +39,11 @@ try {
   for (const file of ['README.md', 'LICENSE']) cpSync(join(application, file), join(payload, file));
   for (const directory of ['data', 'cache', 'logs', 'languages']) mkdirSync(join(payload, directory));
   writeFileSync(join(payload, 'checksums.json'), JSON.stringify(inventory(payload), null, 2));
-  // Use the platform ZIP library, without cmd.exe or wildcard path expansion.
+  // PowerShell 5.1 targets an older Framework compatibility profile. Opt this
+  // writer process into standard ZIP separators; leave machine configuration
+  // and the extractor's strict rejection of backslashes unchanged.
   const result = windows
-    ? spawnSync('powershell.exe', ['-NoProfile', '-Command', 'Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory($env:ORE_EXPORT_SOURCE, $env:ORE_EXPORT_TARGET)'], { stdio: 'inherit', env: { ...process.env, ORE_EXPORT_SOURCE: temporary, ORE_EXPORT_TARGET: `${archive}.part` } })
+    ? spawnSync('powershell.exe', ['-NoProfile', '-Command', "$ErrorActionPreference='Stop'; [AppContext]::SetSwitch('Switch.System.IO.Compression.ZipFile.UseBackslash',$false); Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory($env:ORE_EXPORT_SOURCE, $env:ORE_EXPORT_TARGET)"], { stdio: 'inherit', env: { ...process.env, ORE_EXPORT_SOURCE: temporary, ORE_EXPORT_TARGET: `${archive}.part` } })
     : spawnSync('tar', ['-czf', `${archive}.part`, '-C', temporary, name], { stdio: 'inherit' });
   if (result.status !== 0) throw new Error('Artifact archive failed.');
   const { renameSync } = await import('node:fs');

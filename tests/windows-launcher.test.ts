@@ -1,7 +1,7 @@
 import { legacyWindowsLauncher } from '../scripts/release/generate-windows-launcher.mjs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -58,7 +58,7 @@ function observe(child: ChildProcess) {
   return { child, done, until, output: () => output, stop: async () => { stopOwned(child); return done; } };
 }
 function fixture(locale = 'en-US') {
-  const root = mkdtempSync(join(tmpdir(), 'ORE-standalone-')); roots.push(root);
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ORE-standalone-'))); roots.push(root);
   const parent = join(root, "Chosen папка ' &() % ! $"), home = join(parent, 'ORE-internal');
   mkdirSync(parent); writeFileSync(join(parent,'unrelated.txt'),'preserve');
   const transport = `

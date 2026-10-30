@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
@@ -12,7 +12,7 @@ import { inventory } from '../../scripts/release/stage.mjs';
 const [releaseArgument, originalCommit] = process.argv.slice(2);
 if (process.platform !== 'win32' || !releaseArgument || !/^[a-f0-9]{40}$/u.test(originalCommit ?? '')) throw Error('Expected Windows release directory and full commit.');
 const releaseDirectory = resolve(releaseArgument);
-const root = mkdtempSync(join(tmpdir(), 'ORE-package-история-'));
+const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ORE-package-история-')));
 const parent = join(root, 'chosen folder'), home = join(parent, 'ORE-internal');
 mkdirSync(parent); writeFileSync(join(parent, 'unrelated.txt'), 'preserved');
 const entry = join(parent, 'ORE-launcher.bat');

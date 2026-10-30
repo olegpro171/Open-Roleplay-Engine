@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, cpSync } from 'node:fs';
-import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, cpSync, realpathSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { inventory } from '../scripts/release/stage.mjs';
 import { installWindowsPackage, verifyWindowsPackage } from '../scripts/release/windows-package-install.mjs';
@@ -10,7 +11,7 @@ const commit = 'a'.repeat(40), nextCommit = 'b'.repeat(40);
 const runtime = 'node-v24.19.0-win32-x64';
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture() {
- const root = mkdtempSync(join(tmpdir(), 'ORE-package-publication-')); roots.push(root);
+ const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ORE-package-publication-'))); roots.push(root);
  const home = join(root, 'home'); mkdirSync(home);
  for (const directory of ['data', 'languages']) { mkdirSync(join(home, directory)); writeFileSync(join(home, directory, 'retained'), 'synthetic private content'); }
  for (const file of ['.env', 'database-location.json', 'updates-paused']) writeFileSync(join(home, file), 'retained '+file);
@@ -32,6 +33,27 @@ function fixture() {
 }
 
 describe('Windows package verification and atomic code publication', () => {
+ it.skipIf(process.platform !== 'win32')('exports a ZIP that the strict native extractor accepts, preserving Unicode files and empty mutable directories', () => {
+  const f = fixture(), p = f.packageFor(), app = join(p.payload, 'app', p.id);
+  mkdirSync(join(app, 'nested'));
+  writeFileSync(join(app, 'nested/story 漢.txt'), 'Synthetic Unicode story');
+  writeFileSync(join(app, 'README.md'), 'Synthetic instructions'); writeFileSync(join(app, 'LICENSE'), 'Synthetic license');
+  writeFileSync(join(app, 'manifest.json'), JSON.stringify({ commit, kind: 'release', platform: 'win32', arch: 'x64', files: inventory(app) }));
+  writeFileSync(join(p.payload, 'data/saved.sqlite'), 'private synthetic data');
+  writeFileSync(join(p.payload, '.env'), 'private synthetic configuration');
+  const output = join(f.root, 'output');
+  const packed = spawnSync(process.execPath, [resolve('scripts/release/package-portable.mjs'), p.payload, output], { encoding: 'utf8' });
+  expect(packed.status, packed.stdout+packed.stderr).toBe(0);
+  const name = `ORE-${commit.slice(0, 12)}-release-win32-x64`, extracted = join(f.root, 'extracted');
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-Command', "$ErrorActionPreference='Stop'; . $env:ORE_ZIP_TOOLS; Expand-OreZip $env:ORE_ZIP_ARCHIVE $env:ORE_ZIP_ROOT $env:ORE_ZIP_DESTINATION -LongPaths"], {
+   encoding: 'utf8', env: { ...process.env, ORE_ZIP_TOOLS: resolve('scripts/release/windows-snapshot.ps1'), ORE_ZIP_ARCHIVE: join(output, name+'.zip'), ORE_ZIP_ROOT: name, ORE_ZIP_DESTINATION: extracted },
+  });
+  expect(result.status, result.stdout+result.stderr).toBe(0);
+  expect(readFileSync(join(extracted, 'app', p.id, 'nested/story 漢.txt'), 'utf8')).toBe('Synthetic Unicode story');
+  expect(inventory(extracted).filter(file => file.path !== 'checksums.json')).toEqual(JSON.parse(readFileSync(join(extracted, 'checksums.json'), 'utf8')));
+  for (const directory of ['data', 'cache', 'logs', 'languages']) expect(inventory(join(extracted, directory))).toEqual([]);
+  expect(existsSync(join(extracted, '.env'))).toBe(false);
+ });
  it('installs immutable code while preserving all mutable installation state', () => {
   const f = fixture(), p = f.packageFor();
   installWindowsPackage(p.payload, f.home, commit);

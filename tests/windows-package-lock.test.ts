@@ -26,7 +26,7 @@ $ErrorActionPreference='Stop'
 function Get-OreWindowsBootTime { [DateTime]::Parse('2026-10-28T00:00:00Z').ToUniversalTime() }
 `;
   function fixture() {
-    const home = realpathSync(mkdtempSync(join(tmpdir(), 'ORE package ownership-история-'))); roots.push(home);
+    const home = realpathSync.native(mkdtempSync(join(tmpdir(), 'ORE package ownership-история-'))); roots.push(home);
     mkdirSync(join(home, 'cache'));
     writeFileSync(join(home, '.env'), 'private synthetic setting');
     writeFileSync(join(home, 'database-location.json'), 'retained location');
