@@ -817,11 +817,15 @@ function Get-OreRelease([string]$StagePath) {
 }
 function Test-OrePackageFiles([string]$Directory) {
     Assert-OreLongTree $Directory
-    $records = @(Read-OreJson (Join-Path $Directory 'checksums.json') 16MB)
-    if (!$records.Count -or $records.Count -gt 100000) { throw 'Invalid package file inventory.' }
+    # Desktop ConvertFrom-Json emits a top-level array as one pipeline object.
+    # Capture that array directly; @() would wrap it in a second array.
+    $records = Read-OreJson (Join-Path $Directory 'checksums.json') 16MB
+    if ($records -isnot [array] -or !$records.Count -or $records.Count -gt 100000) { throw 'Invalid package file inventory.' }
     $seen = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     foreach ($file in $records) {
-        if ($file.path -isnot [string] -or $file.path -match '(^/|\\|:|(^|/)\.\.?(/|$))' -or $file.path -ceq 'checksums.json' -or $file.sha256 -isnot [string] -or $file.sha256 -cnotmatch '^[a-f0-9]{64}$' -or !$seen.Add($file.path) -or $file.link) { throw 'Invalid package file record.' }
+        if ($file -isnot [Management.Automation.PSCustomObject]) { throw 'Invalid package file record.' }
+        $integerSize = $file.bytes -is [long] -or $file.bytes -is [int]
+        if ($file.path -isnot [string] -or $file.path -match '(^/|\\|:|(^|/)\.\.?(/|$))' -or $file.path -ceq 'checksums.json' -or $file.sha256 -isnot [string] -or $file.sha256 -cnotmatch '^[a-f0-9]{64}$' -or !$seen.Add($file.path) -or $file.link -or !$integerSize -or $file.bytes -lt 0) { throw 'Invalid package file record.' }
         $path = Assert-OreLongPath $Directory ($Directory.TrimEnd('\')+'\'+$file.path.Replace('/','\'))
         if ((Get-OreLongLength $Directory $path) -ne $file.bytes -or (Get-OreLongHash $Directory $path) -cne $file.sha256) { throw 'Package file checksum mismatch.' }
     }

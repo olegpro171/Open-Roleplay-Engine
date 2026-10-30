@@ -33,6 +33,28 @@ function fixture() {
 }
 
 describe('Windows package verification and atomic code publication', () => {
+ it.skipIf(process.platform !== 'win32').each([1, 2])('validates a native inventory with %i files and rejects corruption and malformed inventories', count => {
+  const f = fixture(), directory = join(f.root, 'inventory'); mkdirSync(directory);
+  for (let index = 0; index < count; index++) writeFileSync(join(directory, `story-${index}.txt`), 'Synthetic saved story');
+  const records = inventory(directory), checksumFile = join(directory, 'checksums.json');
+  const save = (value: unknown) => writeFileSync(checksumFile, JSON.stringify(value));
+  const run = () => spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-Command', "$ErrorActionPreference='Stop'; . $env:ORE_ZIP_TOOLS; . $env:ORE_PACKAGE_TOOLS; Test-OrePackageFiles $env:ORE_PACKAGE_DIRECTORY"], {
+   encoding: 'utf8', env: { ...process.env, ORE_ZIP_TOOLS: resolve('scripts/release/windows-snapshot.ps1'), ORE_PACKAGE_TOOLS: resolve('scripts/release/windows-package.ps1'), ORE_PACKAGE_DIRECTORY: directory },
+  });
+  save(records);
+  const valid = run(); expect(valid.status, valid.stdout+valid.stderr).toBe(0);
+  writeFileSync(join(directory, 'story-0.txt'), 'Changed content');
+  const changed = run(); expect(changed.status).not.toBe(0); expect(changed.stderr).toContain('Package file checksum mismatch');
+  writeFileSync(join(directory, 'story-0.txt'), 'Synthetic saved story');
+  writeFileSync(join(directory, 'unlisted.txt'), 'Unexpected content');
+  const unlisted = run(); expect(unlisted.status).not.toBe(0); expect(unlisted.stderr).toContain('Unlisted package files');
+  rmSync(join(directory, 'unlisted.txt'));
+  for (const invalid of [records[0], [], [records], [...records, records[0]], records.map(record => ({ ...record, bytes: '21' }))]) {
+   save(invalid);
+   const rejected = run(); expect(rejected.status, JSON.stringify(invalid)+'\n'+rejected.stderr).not.toBe(0); expect(rejected.stderr).toMatch(/Invalid package file (inventory|record)/u);
+  }
+  expect(readFileSync(join(directory, 'story-0.txt'), 'utf8')).toBe('Synthetic saved story');
+ });
  it.skipIf(process.platform !== 'win32')('exports a ZIP that the strict native extractor accepts, preserving Unicode files and empty mutable directories', () => {
   const f = fixture(), p = f.packageFor(), app = join(p.payload, 'app', p.id);
   mkdirSync(join(app, 'nested'));
