@@ -3,7 +3,8 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
 $OutputEncoding = [Console]::OutputEncoding
 $buildStatus = 1
-$stage = $null; $lock = $null
+$stage = $null
+$buildLease = $null
 $packageLease = $null
 $toolLog = $null
 $buildClock = [Diagnostics.Stopwatch]::StartNew()
@@ -49,9 +50,11 @@ try {
         $packageLease = Acquire-OrePackageLease $installation
         Assert-OreLegacyQuiescent $installation
     }
-    $lockPath = Join-Path $installation 'cache/build.lock'
-    New-Item -ItemType Directory -Path $lockPath -ErrorAction Stop | Out-Null
-    $lock = $lockPath
+    # The file can survive console loss; its exclusive handle cannot. The
+    # enclosing package job fences surviving workers before a source rebuild.
+    # Snapshot builds also need this gate under their legacy outer controller.
+    $lockPath = Assert-OrePath $installation (Join-Path $installation 'cache/source-build.lease')
+    $buildLease = [IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
     $stage = Join-Path $installation ('cache/build-'+[guid]::NewGuid())
     [IO.Directory]::CreateDirectory($stage) | Out-Null
     $toolLog = Join-Path $installation ('logs/build-'+[guid]::NewGuid()+'.txt')
@@ -140,7 +143,7 @@ finally {
             }
         } catch { [Console]::Error.WriteLine('Temporary cleanup: '+$_.Exception.Message) }
     }
-    if ($lock) { try { [IO.Directory]::Delete($lock) } catch { [Console]::Error.WriteLine('Build lock cleanup: '+$_.Exception.Message); if ($buildStatus -eq 0) { $buildStatus = 75 } } }
+    if ($buildLease) { $buildLease.Dispose() }
     Write-BuildTiming 'cleanup-build-work' $cleanupStarted
     Write-BuildTiming 'total-build' 0
     if ($packageLease) { $packageLease.Dispose() }

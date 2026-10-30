@@ -178,6 +178,47 @@ describe.skipIf(process.platform !== 'win32')('standalone Windows 5.1 batch laun
     writeFileSync(join(source,'src/sentinel.txt'),'dirty');const dirty=run(stagedCommit,'staging');expect(dirty.status).not.toBe(0);expect(dirty.stderr).toContain('Release source must be clean');
     expect(readFileSync(join(f.home,'current'),'utf8')).toBe(pointer);
   },60000);
+  it('rebuilds after a killed development builder without clearing locks or changing retained state',async()=>{
+    const f=fixture();f.archive();
+    const source=join(f.root,`sources-${a}`,`Open-Roleplay-Engine-${a}`);
+    const gitPath=powershell('(Get-Command git.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source').stdout.trim();
+    const git=(...args:string[])=>{
+      const result=spawnSync(gitPath,['-C',source,...args],{encoding:'utf8'});
+      expect(result.status,result.stdout+result.stderr).toBe(0);
+    };
+    git('init','-q','-b','main');git('add','.');
+    git('-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','Synthetic development source');
+    mkdirSync(join(f.home,'cache'),{recursive:true});
+    cpSync(join(f.root,'toolkit.zip'),join(f.home,`cache/node-v${process.versions.node}-win-x64.zip`));
+    const args=['-NoProfile','-ExecutionPolicy','RemoteSigned','-File',join(source,'build-portable.ps1'),'-Mode','Development','-Destination',f.home];
+    const env={...process.env,PATH:`${join(gitPath,'..')};${process.env.SystemRoot}\\System32`};
+    const build=()=>spawnSync(ps,args,{encoding:'utf8',timeout:40000,env});
+    const first=build();expect(first.status,first.stdout+first.stderr+'\n'+f.logs()).toBe(0);
+    const pointer=readFileSync(join(f.home,'current'),'utf8');
+    const database=join(f.home,'data/retained.sqlite');writeFileSync(database,'synthetic retained data');
+    writeFileSync(join(f.home,'.env'),'SYNTHETIC_SETTING=preserved\n');
+    writeFileSync(join(f.root,'hold-build'),'');
+    // Exercise two consecutive controller losses, including dirty working-tree
+    // input. Killing the real builder bypasses PowerShell finally cleanup.
+    for(const edit of ['first local edit','different local edit']){
+      writeFileSync(join(source,'src/local-edit.txt'),edit);
+      rmSync(join(f.root,'build-entered'),{force:true});
+      const child=spawn(ps,args,{env,stdio:['ignore','pipe','pipe']});
+      const running=observe(child);
+      await expect.poll(()=>existsSync(join(f.root,'build-entered')),{timeout:30000}).toBe(true);
+      const blocked=build();expect(blocked.status,blocked.stdout+blocked.stderr).not.toBe(0);
+      expect(readFileSync(join(f.home,'current'),'utf8')).toBe(pointer);
+      expect(readFileSync(database,'utf8')).toBe('synthetic retained data');
+      child.kill();await running.done;
+      expect(existsSync(join(f.home,'cache/build.lock'))).toBe(false);
+    }
+    rmSync(join(f.root,'hold-build'));
+    const restarted=build();expect(restarted.status,restarted.stdout+restarted.stderr+'\n'+f.logs()).toBe(0);
+    expect(readFileSync(join(f.home,'current'),'utf8')).not.toBe(pointer);
+    expect(readFileSync(database,'utf8')).toBe('synthetic retained data');
+    expect(readFileSync(join(f.home,'.env'),'utf8')).toBe('SYNTHETIC_SETTING=preserved\n');
+    expect(existsSync(join(f.home,'cache/build.lock'))).toBe(false);
+  },120000);
   it('reads phases while a write handle is held, waits for complete events, and preserves child failures',()=>{
     const root=mkdtempSync(join(tmpdir(),'ORE-phase-overlap-'));roots.push(root);
     const writer=join(root,'writer.mjs'),events=join(root,'events'),ack=join(root,'ack');

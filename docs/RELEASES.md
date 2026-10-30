@@ -123,7 +123,9 @@ The Bash builder makes a bounded retry of temporary-file cleanup and reports rem
 
 ## Working-tree development
 
-`./start-dev.command` rebuilds current local edits with private Node into `ore-development/` and skips main updates. It does not fetch/commit or select that build in `ore-portable/`; build failure does not launch stale code. Downloads can still be required. Its database default is the same repository data: stop normal ORE or use an explicit development database. It is a built snapshot, without live reload; use npm watch commands in the source development guide for that. Its separate installation has its own recovery entry.
+`start-dev.bat` on Windows x64 and `./start-dev.command` on Mac/Bash rebuild current local edits with private Node into `ore-development/` and skip main updates. They do not fetch/commit or select that build in `ore-portable/`; build failure does not launch stale code. Downloads can still be required. Their database default is the same repository data: stop normal ORE or use an explicit development database. This is a built snapshot, without live reload; use npm watch commands in the source development guide for that. The separate installation has its own recovery entry.
+
+Windows source builds use an exclusive `cache/source-build.lease` file handle in addition to their outer controller ownership. Closing the console releases the handle; the next source build waits for the recorded Windows job to stop before rebuilding. The lease file itself may remain and must not be deleted to unlock a running build. Interrupted staging directories remain disposable cache; the last committed selection and saved data are retained. Older `cache/build.lock` directories still require the legacy ownership checks described above; do not remove them without proving their owners and workers have stopped.
 
 ## Exact release and archive procedure
 

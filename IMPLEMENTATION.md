@@ -11,7 +11,7 @@ Direct npm commands require Node 24 or Node 22.12+ within major 22 (see `package
 | `./ORE-launcher.command` | Standalone macOS candidate; builds exact public-main archives in adjacent `ORE-internal/` |
 | `ORE-launcher.bat` | Windows x64 package installer/updater; built-in PowerShell 5.1, downloads a published application/runtime into adjacent `ORE-internal/` |
 | `start-app.bat` / `./start.sh` | Existing Windows/Linux source startup; see [delivery](docs/RELEASES.md) |
-| `./start-dev.command` | Mac/Bash working-tree rebuild into `ore-development/`, no update check |
+| `start-dev.bat` / `./start-dev.command` | Windows / Mac/Bash working-tree rebuild into `ore-development/`, no update check |
 | `npm run dev` and `npm run dev:ui` | Two-terminal server/UI watch mode (ports 3000/5173) |
 | `npm run typecheck` | Strict client/server TypeScript checks |
 | `npm run build` | Typecheck and build client/server |
@@ -21,7 +21,7 @@ Direct npm commands require Node 24 or Node 22.12+ within major 22 (see `package
 | `npm run test:e2e -- tests/browser/chat.spec.ts` | Example focused browser invocation; build first |
 | `npm run check` | Build, Vitest and browser suites |
 
-No lint script exists. Tests need loopback servers and temporary-file access. Use synthetic fixtures/keys and real temporary SQLite databases, mocking external provider transport. Never use active user data for destructive testing. `start-dev.command` and watch mode use repository data by default: stop the normal app before sharing that database, or explicitly set `ROLEPLAY_DATABASE` to a development path. The standalone Python lab has [its own instructions](experiments/compaction/README.md).
+No lint script exists. Tests need loopback servers and temporary-file access. Use synthetic fixtures/keys and real temporary SQLite databases, mocking external provider transport. Never use active user data for destructive testing. Both start-dev entries and watch mode use repository data by default: stop the normal app before sharing that database, or explicitly set `ROLEPLAY_DATABASE` to a development path. The standalone Python lab has [its own instructions](experiments/compaction/README.md).
 
 ## Module map
 
