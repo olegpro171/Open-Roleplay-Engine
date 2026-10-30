@@ -3,7 +3,7 @@
 // candidate exactly. Its synthetic commit is never published or pushed.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -26,22 +26,17 @@ const root = mkdtempSync(join(base, 'ORE-ci-'));
 const source = join(root, 'source');
 const home = join(root, 'Chosen space-漢-&()', 'installation');
 const output = join(root, 'release');
-mkdirSync(source);
 const ps = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
 let succeeded = false;
 console.log(`Candidate ${candidate}; isolated release fixture: ${root}`);
 try {
-  const archive = join(root, 'candidate.zip');
-  git(['archive', '--format=zip', `--output=${archive}`, 'HEAD']);
-  run(ps, ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-Command', "$ErrorActionPreference='Stop';Add-Type -AssemblyName System.IO.Compression.FileSystem;[IO.Compression.ZipFile]::ExtractToDirectory($env:ORE_ACCEPTANCE_ARCHIVE,$env:ORE_ACCEPTANCE_SOURCE)"], {
-    env: { ...process.env, ORE_ACCEPTANCE_ARCHIVE: archive, ORE_ACCEPTANCE_SOURCE: source },
-  });
-  git(['init', '--initial-branch=main'], source);
-  git(['config', 'core.autocrlf', 'false'], source);
+  // A Git checkout preserves executable modes and avoids archive conversion
+  // through the developer's core.autocrlf setting. No working files/data copy.
+  git(['clone', '--no-checkout', '--no-hardlinks', '-c', 'core.autocrlf=false', repository, source]);
+  git(['checkout', '-B', 'main', candidate], source);
   git(['config', 'user.name', 'ORE release acceptance'], source);
   git(['config', 'user.email', 'release-acceptance@example.invalid'], source);
-  git(['add', '--force', '--all'], source);
-  git(['-c', 'commit.gpgsign=false', 'commit', '-qm', `Isolated acceptance fixture for ${candidate}`], source);
+  git(['-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', `Isolated acceptance fixture for ${candidate}`], source);
   assert.equal(git(['rev-parse', 'HEAD^{tree}'], source), tree, 'Release fixture must contain the exact candidate tree.');
   const commit = git(['rev-parse', 'HEAD'], source);
   run(ps, ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-File', join(source, 'build-portable.ps1'), '-Mode', 'Release', '-Commit', commit, '-Destination', home]);
