@@ -38,9 +38,13 @@ describe('Windows package verification and atomic code publication', () => {
   for (let index = 0; index < count; index++) writeFileSync(join(directory, `story-${index}.txt`), 'Synthetic saved story');
   const records = inventory(directory), checksumFile = join(directory, 'checksums.json');
   const save = (value: unknown) => writeFileSync(checksumFile, JSON.stringify(value));
-  const run = () => spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-Command', "$ErrorActionPreference='Stop'; . $env:ORE_ZIP_TOOLS; . $env:ORE_PACKAGE_TOOLS; Test-OrePackageFiles $env:ORE_PACKAGE_DIRECTORY"], {
-   encoding: 'utf8', timeout: 10000, env: { ...process.env, ORE_ZIP_TOOLS: resolve('scripts/release/windows-snapshot.ps1'), ORE_PACKAGE_TOOLS: resolve('scripts/release/windows-package.ps1'), ORE_PACKAGE_DIRECTORY: directory },
-  });
+  const run = () => {
+   const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-Command', "$ErrorActionPreference='Stop'; . $env:ORE_ZIP_TOOLS; . $env:ORE_PACKAGE_TOOLS; Test-OrePackageFiles $env:ORE_PACKAGE_DIRECTORY"], {
+    encoding: 'utf8', timeout: 10000, env: { ...process.env, ORE_ZIP_TOOLS: resolve('scripts/release/windows-snapshot.ps1'), ORE_PACKAGE_TOOLS: resolve('scripts/release/windows-package.ps1'), ORE_PACKAGE_DIRECTORY: directory },
+   });
+   expect(result.error, result.stdout+result.stderr).toBeUndefined();
+   return result;
+  };
   save(records);
   const valid = run(); expect(valid.status, valid.stdout+valid.stderr).toBe(0);
   writeFileSync(join(directory, 'story-0.txt'), 'Changed content');
