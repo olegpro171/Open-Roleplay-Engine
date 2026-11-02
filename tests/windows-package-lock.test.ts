@@ -59,6 +59,64 @@ function Get-OreWindowsBootTime { [DateTime]::Parse('2026-10-28T00:00:00Z').ToUn
     }
   });
 
+  it('waits out a temporary executable handle before publishing a runtime directory', () => {
+    const f = fixture();
+    const result = f.run(`
+. (Join-Path (Split-Path $env:ORE_TEST_COMMON_NATIVE) 'windows-source-tools.ps1')
+$source=Join-Path $env:ORE_TEST_HOME 'runtime-candidate'
+$target=Join-Path $env:ORE_TEST_HOME 'runtime-published'
+$ready=Join-Path $env:ORE_TEST_HOME 'file-held'
+[IO.Directory]::CreateDirectory($source)|Out-Null
+$executable=Join-Path $source 'node.exe'
+[IO.File]::WriteAllText($executable,'synthetic runtime bytes')
+$worker=Start-Job -ScriptBlock {
+ param($path,$ready)
+ $stream=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+ try { [IO.File]::WriteAllText($ready,'held');Start-Sleep -Milliseconds 500 }
+ finally { $stream.Dispose() }
+} -ArgumentList $executable,$ready
+try {
+ $deadline=[DateTime]::UtcNow.AddSeconds(5)
+ while(![IO.File]::Exists($ready)){if([DateTime]::UtcNow -gt $deadline){throw 'File holder did not start.'};Start-Sleep -Milliseconds 10}
+ $blocked=$false
+ try{[IO.Directory]::Move($source,$target)}catch [IO.IOException]{$blocked=$true}
+ if(!$blocked){throw 'The executable handle did not reproduce sharing contention.'}
+ Move-OreRuntimeDirectory $source $target
+ if([IO.File]::ReadAllText((Join-Path $target 'node.exe')) -cne 'synthetic runtime bytes'){throw 'Runtime bytes changed.'}
+} finally { Stop-Job $worker;Remove-Job $worker }
+`);
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+  });
+
+  it('preserves an already private directory and repairs broader or non-inheriting permissions', () => {
+    const f = fixture();
+    const result = f.run(`
+. $env:ORE_TEST_COMMON_NATIVE
+$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User
+Set-OrePrivate $env:ORE_TEST_HOME
+$acl=[IO.Directory]::GetAccessControl($env:ORE_TEST_HOME)
+if(!(Test-OrePrivateDirectoryAcl $acl $sid)){throw 'Private permissions were not established.'}
+$original=$acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+Initialize-OreHome $env:ORE_TEST_HOME|Out-Null
+Set-OrePrivate $env:ORE_TEST_HOME
+$same=[IO.Directory]::GetAccessControl($env:ORE_TEST_HOME).GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+if($same -cne $original){throw 'Already private permissions changed.'}
+$extra=New-Object Security.Principal.SecurityIdentifier 'S-1-1-0'
+$acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($extra,'Read','Allow')))
+if(Test-OrePrivateDirectoryAcl $acl $sid){throw 'Broader permissions were accepted.'}
+[IO.Directory]::SetAccessControl($env:ORE_TEST_HOME,$acl)
+Initialize-OreHome $env:ORE_TEST_HOME|Out-Null
+$repaired=[IO.Directory]::GetAccessControl($env:ORE_TEST_HOME)
+if(!(Test-OrePrivateDirectoryAcl $repaired $sid)){throw 'Broader permissions were not repaired.'}
+$missingInheritance=New-Object Security.AccessControl.DirectorySecurity
+$missingInheritance.SetAccessRuleProtection($true,$false)
+$missingInheritance.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid,'FullControl','Allow')))
+if(Test-OrePrivateDirectoryAcl $missingInheritance $sid){throw 'Missing child inheritance was accepted.'}
+if([IO.File]::ReadAllText((Join-Path $env:ORE_TEST_HOME 'database-location.json')) -cne 'retained location'){throw 'Permission repair changed saved identity.'}
+`);
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+  });
+
   it('initializes every native helper with a Unicode private compilation directory', () => {
     const f = fixture();
     const result = f.run(`

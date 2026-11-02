@@ -11,7 +11,10 @@ for (const [phase, tool, ...args] of [
   ['emit-server', 'typescript/bin/tsc', '-p', 'tsconfig.server.json', '--noCheck'],
 ]) {
   await buildPhase(phase, () => {
-    const result = spawnSync(process.execPath, [resolve('node_modules', tool), ...args], { stdio: 'inherit', env: process.env });
+    // The private Node runtime can load our TypeScript config directly. Keep
+    // Vite's temporary bundled configs out of shared development dependencies.
+    const configLoader = phase === 'bundle-interface' && process.argv.includes('--local-development') ? ['--configLoader', 'native'] : [];
+    const result = spawnSync(process.execPath, [resolve('node_modules', tool), ...args, ...configLoader], { stdio: 'inherit', env: process.env });
     if (result.error) throw result.error;
     if (result.status !== 0) throw new Error(`${phase} failed (exit ${result.status}, signal ${result.signal}).`);
   });

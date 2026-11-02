@@ -20,8 +20,9 @@ function fixture() {
   }
   cpSync('start-dev.bat', join(source, 'start-dev.bat'));
   writeFileSync(join(source, 'build-portable.ps1'), `
-param([string]$Mode, [string]$Destination)
+param([string]$Mode, [string]$Destination, [switch]$ReuseDevelopmentDependencies)
 if ($Mode -ne 'Development' -or $Destination -ne (Join-Path $PSScriptRoot 'ore-development')) { exit 41 }
+if (!$ReuseDevelopmentDependencies) { exit 46 }
 [IO.File]::WriteAllText((Join-Path $PSScriptRoot 'built'), 'local edits')
 if ($env:ORE_TEST_FAIL_BUILD -eq '1') { exit 42 }
 exit 0

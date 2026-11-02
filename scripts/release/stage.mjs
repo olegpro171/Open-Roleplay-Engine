@@ -14,15 +14,16 @@ const recoveryFiles = ['load-env.sh', 'recover.mjs', 'database-location.mjs', 's
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 recoveryFiles.push('windows-launcher.ps1', 'windows-launcher-protocol', 'windows-install-verify.mjs', 'windows-snapshot.ps1', 'windows-standalone-common.ps1');
 recoveryFiles.push('build-timing.mjs', 'windows-package-launcher.ps1', 'windows-package-protocol', 'windows-package-install.mjs', 'windows-package-lock.ps1', 'windows-package.ps1', 'windows-package-files.mjs');
-export function inventory(root, directory = root) {
+export function inventory(root, directory = root, developmentModules = null) {
   return readdirSync(directory).sort().flatMap(name => {
     const path = join(directory, name), stat = lstatSync(path), entry = relative(root, path).split('\\').join('/');
     if (stat.isSymbolicLink()) {
+      if (developmentModules && directory === root && name === 'node_modules' && realpathSync(path) === developmentModules) return inventory(root, path, developmentModules);
       const link = readlinkSync(path), target = relative(root, resolve(dirname(path), link));
       if (isAbsolute(link) || target === '..' || target.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) throw new Error(`External symlink forbidden: ${entry}`);
       return [{ path: entry, link }];
     }
-    if (stat.isDirectory()) return inventory(root, path);
+    if (stat.isDirectory()) return inventory(root, path, developmentModules);
     if (!stat.isFile()) throw new Error(`Unsupported packaged file: ${entry}`);
     return [{ path: entry, sha256: hash(path), bytes: stat.size }];
   });
@@ -58,13 +59,18 @@ function notices(work, output) {
   writeFileSync(join(output, 'README.txt'), `ORE third-party inventory\n\npackages.json includes build-time UI packages as well as server packages. Their supplied license/notice/readme files accompany it. Node's full license and bundled component notices are in runtime/<version>/LICENSE.\n\nsharp/libvips native component versions and upstream combined notices are retained with the @img packages. Rebuilding/replacing those dynamic libraries is permitted by their licenses; ORE does not embed them into its executable. Source/build recipes: https://github.com/lovell/sharp-libvips/tree/v1.3.4 and the pinned versions.json. Full GPL/LGPL texts, exact native component source/patch URLs and the pinned build recipe are in native-sources/. No publication/signing is performed by these scripts.\n`);
 }
 async function install(work, home, mode, commit, runtime, runtimeChecksum, noticeDirectory, transfer = 'copy') {
-  if (!['copy', 'move-dependencies'].includes(transfer)) throw new Error('Unknown dependency staging mode.');
-  if (transfer === 'move-dependencies') {
+  if (!['copy', 'move-dependencies', 'development-dependencies'].includes(transfer)) throw new Error('Unknown dependency staging mode.');
+  const developmentDependencies = transfer === 'development-dependencies';
+  if (developmentDependencies && (mode !== '--development' || process.platform !== 'win32')) throw new Error('Shared development dependencies are only supported for local Windows development.');
+  const dependencyCache = developmentDependencies ? JSON.parse(readFileSync(join(work, '.development-dependencies.json'), 'utf8')) : null;
+  const developmentModules = dependencyCache ? realpathSync(dependencyCache.modules) : null;
+  if (transfer !== 'copy') {
     // Only disposable build work inside this installation may be consumed.
     const withinCache = relative(realpathSync(join(home, 'cache')), realpathSync(work));
-    if (!withinCache || isAbsolute(withinCache) || withinCache === '..' || withinCache.startsWith('..' + (process.platform === 'win32' ? '\\' : '/')) || !lstatSync(join(work, 'node_modules')).isDirectory()) {
+    if (!withinCache || isAbsolute(withinCache) || withinCache === '..' || withinCache.startsWith('..' + (process.platform === 'win32' ? '\\' : '/')) || (!developmentDependencies && !lstatSync(join(work, 'node_modules')).isDirectory())) {
       throw new Error('Dependency transfer requires disposable build work inside the installation cache.');
     }
+    if (developmentDependencies && (developmentModules !== realpathSync(join(home, 'cache/development-dependencies', dependencyCache.directory, 'node_modules')) || !developmentModules.startsWith(realpathSync(join(home, 'cache/development-dependencies')) + '\\'))) throw new Error('Development dependencies must stay inside their installation cache.');
   }
   const { databaseSchemaVersion } = await import(pathToFileURL(join(work, 'dist/server/shared/build-info.js')).href);
   const release = mode === '--release' || mode === '--snapshot';
@@ -74,7 +80,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
   try {
     await buildPhase('stage-application-files', () => {
       for (const input of ['dist', 'migrations', 'package.json', 'package-lock.json']) cpSync(join(work, input), join(staging, input), { recursive: true, verbatimSymlinks: true });
-      if (transfer === 'move-dependencies') publishRename(join(work, 'node_modules'), join(staging, 'node_modules'));
+      if (transfer !== 'copy') publishRename(join(work, 'node_modules'), join(staging, 'node_modules'));
       else cpSync(join(work, 'node_modules'), join(staging, 'node_modules'), { recursive: true, verbatimSymlinks: true });
     });
     mkdirSync(join(staging, 'scripts/release'), { recursive: true });
@@ -90,8 +96,16 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
       if (smoke.error) throw smoke.error;
       if (smoke.status !== 0) throw new Error('Production dependency smoke failed; previous application remains selected.');
     });
-    const files = await buildPhase('hash-application-files', () => inventory(staging));
-    const manifest = { ...metadata, runtime, runtimeArchiveSha256: runtimeChecksum, lockfileSha256: hash(join(staging, 'package-lock.json')), ...(mode === '--snapshot' ? { source: 'github-main-snapshot', sourceArchiveSha256: process.env.ORE_SNAPSHOT_SHA256 } : {}), files };
+    const files = await buildPhase('hash-application-files', () => inventory(staging, staging, developmentModules));
+    if (developmentDependencies) {
+      const actual = files.filter(file => file.path.startsWith('node_modules/')).map(file => ({ path: file.path.slice('node_modules/'.length), sha256: file.sha256 }));
+      if (JSON.stringify(actual) !== JSON.stringify(dependencyCache.files)) {
+        if (!/^[a-f0-9]{64}$/.test(dependencyCache.key)) throw new Error('Invalid development dependency cache key.');
+        rmSync(join(home, 'cache/development-dependencies', `${dependencyCache.key}.json`));
+        throw new Error('Development dependency cache changed. Run the build again to reinstall dependencies. Previous selection retained.');
+      }
+    }
+    const manifest = { ...metadata, runtime, runtimeArchiveSha256: runtimeChecksum, lockfileSha256: hash(join(staging, 'package-lock.json')), ...(developmentDependencies ? { localDevelopmentDependencies: true } : {}), ...(mode === '--snapshot' ? { source: 'github-main-snapshot', sourceArchiveSha256: process.env.ORE_SNAPSHOT_SHA256 } : {}), files };
     writeFileSync(join(staging, 'manifest.json'), JSON.stringify(manifest, null, 2));
     console.log('[Verify] Starting the new app with a temporary test database and checking that its interface loads...');
     await buildPhase('verify-application-startup', () => verifyStartup(staging, process.execPath, join(home, 'cache')));

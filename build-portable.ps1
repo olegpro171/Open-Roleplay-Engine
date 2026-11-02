@@ -1,9 +1,10 @@
-param([ValidateSet('Release','Development','Snapshot')][string]$Mode, [string]$Commit, [string]$Destination, [string]$Snapshot, [ValidateSet('main','staging')][string]$ReleaseBranch = 'main')
+param([ValidateSet('Release','Development','Snapshot')][string]$Mode, [string]$Commit, [string]$Destination, [string]$Snapshot, [ValidateSet('main','staging')][string]$ReleaseBranch = 'main', [switch]$ReuseDevelopmentDependencies)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
 $OutputEncoding = [Console]::OutputEncoding
 $buildStatus = 1
 $stage = $null
+$work = $null
 $buildLease = $null
 $packageLease = $null
 $toolLog = $null
@@ -19,6 +20,7 @@ try {
     . (Join-Path $PSScriptRoot 'scripts/release/windows-source-tools.ps1')
     . (Join-Path $PSScriptRoot 'scripts/release/windows-package-lock.ps1')
     if (!$Mode -or !$Destination) { throw 'Choose Release with exact Commit, Development, or Snapshot with downloaded archive/provenance, and a separate Destination.' }
+    if ($ReuseDevelopmentDependencies -and $Mode -ne 'Development') { throw 'Dependency reuse is only supported for local Development builds.' }
     if (![Environment]::Is64BitProcess -or $env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw 'This builder targets Windows x64 only. Use 64-bit Windows PowerShell.' }
     $source = $PSScriptRoot
     # Retained Git modes export after PATH is restricted to the private toolkit.
@@ -41,15 +43,18 @@ try {
     Assert-OrePath $Destination $Destination | Out-Null
     foreach ($name in @('cache','runtime','app','logs','languages','data','recovery','current','previous','working','recovery/current')) { Assert-OrePath $Destination (Join-Path $Destination $name) | Out-Null }
     $installation = if ($Mode -eq 'Snapshot') { Initialize-OreStandaloneHome $Destination } else { Initialize-OreHome $Destination }
-    Initialize-OreJob
-    Initialize-OreCancellation
     # Snapshot builds are children of the protocol-1 standalone controller;
     # source updates explicitly forward their leased installation identity.
     # Both parents retain the lease until their child finishes.
     if ($Mode -ne 'Snapshot' -and !(Test-OrePackageLeaseHome $installation)) {
         $packageLease = Acquire-OrePackageLease $installation
         Assert-OreLegacyQuiescent $installation
+    } else {
+        # An inherited outer lease outlives this builder. Give the builder its
+        # own kill-on-close job as well; an owned package lease already has one.
+        Initialize-OreJob
     }
+    Initialize-OreCancellation
     # The file can survive console loss; its exclusive handle cannot. The
     # enclosing package job fences surviving workers before a source rebuild.
     # Snapshot builds also need this gate under their legacy outer controller.
@@ -116,23 +121,39 @@ try {
     $oldDirectory = [Environment]::CurrentDirectory
     [Environment]::CurrentDirectory = $work
     try {
-        Write-Host '[Build] Installing locked build dependencies...'
-        Build-Tool 'install-locked-dependencies' @($npm,'ci','--include=dev','--include=optional','--ignore-scripts')
+        if ($ReuseDevelopmentDependencies) {
+            Write-Host '[Build] Preparing cached build dependencies...'
+            Build-Tool 'prepare-development-dependencies' @('scripts/release/development-dependencies.mjs',$npm,$installation,$runtime.Id,$runtime.Checksum)
+        } else {
+            Write-Host '[Build] Installing locked build dependencies...'
+            Build-Tool 'install-locked-dependencies' @($npm,'ci','--include=dev','--include=optional','--ignore-scripts')
+        }
         Build-Tool 'verify-build-native-packages' @('scripts/release/native-smoke.mjs')
-        Build-Tool 'build-application' @('scripts/release/build-windows.mjs')
+        $buildArguments = @('scripts/release/build-windows.mjs')
+        if ($ReuseDevelopmentDependencies) { $buildArguments += '--local-development' }
+        Build-Tool 'build-application' $buildArguments
         $notices = Join-Path $stage 'notices'
         Build-Tool 'collect-notices' @('scripts/release/stage.mjs','notices',$work,$notices)
-        Build-Tool 'prepare-production-dependencies' @('scripts/release/prepare-windows-dependencies.mjs',$npm)
+        if (!$ReuseDevelopmentDependencies) { Build-Tool 'prepare-production-dependencies' @('scripts/release/prepare-windows-dependencies.mjs',$npm) }
         $stageMode = if ($Mode -eq 'Release') { '--release' } elseif ($Mode -eq 'Snapshot') { '--snapshot' } else { '--development' }
         $env:ORE_SNAPSHOT_SOURCE = $snapshotSource; $env:ORE_SNAPSHOT_SHA256 = $snapshotDigest
         if ($eventFile) { Assert-OrePath $installation $eventFile | Out-Null; $env:ORE_WINDOWS_BUILD_EVENTS = $eventFile }
-        Build-Tool 'stage-and-verify-application' @('scripts/release/stage.mjs','install',$work,$installation,$stageMode,$Commit,$runtime.Id,$runtime.Checksum,$notices,'move-dependencies')
+        $dependencyTransfer = if ($ReuseDevelopmentDependencies) { 'development-dependencies' } else { 'move-dependencies' }
+        Build-Tool 'stage-and-verify-application' @('scripts/release/stage.mjs','install',$work,$installation,$stageMode,$Commit,$runtime.Id,$runtime.Checksum,$notices,$dependencyTransfer)
         [Console]::Write([IO.File]::ReadAllText($toolLog))
     } finally { [Environment]::CurrentDirectory = $oldDirectory; Pop-Location }
     $buildStatus = 0
 } catch { [Console]::Error.WriteLine('ORE build: '+$_.Exception.ToString()) }
 finally {
     $cleanupStarted = $buildClock.ElapsedMilliseconds
+    if ($ReuseDevelopmentDependencies -and $work) {
+        try {
+            $modulesLink = Join-Path $work 'node_modules'
+            if ([IO.Directory]::Exists($modulesLink) -and ((Get-Item -LiteralPath $modulesLink -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                [IO.Directory]::Delete($modulesLink)
+            }
+        } catch { [Console]::Error.WriteLine('Dependency link cleanup: '+$_.Exception.Message); if ($buildStatus -eq 0) { $buildStatus = 75 } }
+    }
     if ($stage) {
         try {
             Assert-OrePath (Join-Path $installation 'cache') $stage | Out-Null

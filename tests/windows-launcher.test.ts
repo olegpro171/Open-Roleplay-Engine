@@ -1,7 +1,7 @@
 import { legacyWindowsLauncher, packageWindowsLauncher } from '../scripts/release/generate-windows-launcher.mjs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -91,12 +91,14 @@ server.once('listening',()=>{if(process.env.ROLEPLAY_PORT==='0')appendFileSync($
 const {mkdirSync,writeFileSync,appendFileSync,existsSync}=require('node:fs');
 appendFileSync(${JSON.stringify(join(root,'build-calls'))},process.argv.slice(2).join(' ')+'\\n');
 console.error('SYNTHETIC NPM WARNING');
-if(process.argv.includes('build')){
- if(existsSync(${JSON.stringify(join(root,'hold-build'))})){writeFileSync(${JSON.stringify(join(root,'build-entered'))},String(process.pid));Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,60000);}
- if(existsSync(${JSON.stringify(join(root,'fail-build'))}))process.exit(42);
+if(process.argv.includes('ci')||process.argv.includes('build')){
+ if(process.argv.includes('build')&&existsSync(${JSON.stringify(join(root,'hold-build'))})){writeFileSync(${JSON.stringify(join(root,'build-entered'))},String(process.pid));Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,60000);}
+ if(process.argv.includes('build')&&existsSync(${JSON.stringify(join(root,'fail-build'))}))process.exit(42);
  for(const path of ['dist/client','dist/server/server','dist/server/shared','node_modules/better-sqlite3'])mkdirSync(path,{recursive:true});
- writeFileSync('node_modules/better-sqlite3/package.json','{"name":"better-sqlite3","version":"fixture","main":"index.cjs"}');
- writeFileSync('node_modules/better-sqlite3/index.cjs',${JSON.stringify(`module.exports=require(${JSON.stringify(resolve('node_modules/better-sqlite3'))});`)});
+ if(!existsSync('node_modules/better-sqlite3/package.json')){
+  writeFileSync('node_modules/better-sqlite3/package.json','{"name":"better-sqlite3","version":"fixture","main":"index.cjs"}');
+  writeFileSync('node_modules/better-sqlite3/index.cjs',${JSON.stringify(`module.exports=require(${JSON.stringify(resolve('node_modules/better-sqlite3'))});`)});
+ }
  writeFileSync('dist/server/server/main.js',${JSON.stringify(server)});writeFileSync('dist/server/server/picture-worker.js','');
  writeFileSync('dist/server/shared/build-info.js','export const databaseSchemaVersion=15;');writeFileSync('dist/client/index.html','<title>ORE</title>');
 }`);
@@ -190,7 +192,7 @@ describe.skipIf(process.platform !== 'win32')('standalone Windows 5.1 batch laun
     git('-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','Synthetic development source');
     mkdirSync(join(f.home,'cache'),{recursive:true});
     cpSync(join(f.root,'toolkit.zip'),join(f.home,`cache/node-v${process.versions.node}-win-x64.zip`));
-    const args=['-NoProfile','-ExecutionPolicy','RemoteSigned','-File',join(source,'build-portable.ps1'),'-Mode','Development','-Destination',f.home];
+    const args=['-NoProfile','-ExecutionPolicy','RemoteSigned','-File',join(source,'build-portable.ps1'),'-Mode','Development','-ReuseDevelopmentDependencies','-Destination',f.home];
     const env={...process.env,PATH:`${join(gitPath,'..')};${process.env.SystemRoot}\\System32`};
     const build=()=>spawnSync(ps,args,{encoding:'utf8',timeout:40000,env});
     const first=build();expect(first.status,first.stdout+first.stderr+'\n'+f.logs()).toBe(0);
@@ -218,6 +220,40 @@ describe.skipIf(process.platform !== 'win32')('standalone Windows 5.1 batch laun
     expect(readFileSync(database,'utf8')).toBe('synthetic retained data');
     expect(readFileSync(join(f.home,'.env'),'utf8')).toBe('SYNTHETIC_SETTING=preserved\n');
     expect(existsSync(join(f.home,'cache/build.lock'))).toBe(false);
+    const installs=()=>readFileSync(join(f.root,'build-calls'),'utf8').match(/ci --include=dev/gu)?.length ?? 0;
+    expect(installs()).toBe(1);
+    const packaged=spawnSync(process.execPath,[join(source,'scripts/release/package-portable.mjs'),f.home,join(f.root,'artifacts')],{encoding:'utf8'});
+    expect(packaged.status).not.toBe(0);
+    expect(packaged.stderr).toContain('Create a normal portable build before packaging');
+    expect(existsSync(join(f.root,'artifacts'))).toBe(false);
+    // Source edits reused dependencies above; either package input must instead
+    // invalidate the cache, even when the other file remains byte-for-byte equal.
+    writeFileSync(join(source,'package.json'),'{"type":"module","private":true}');
+    const manifestChanged=build();expect(manifestChanged.status,manifestChanged.stdout+manifestChanged.stderr).toBe(0);
+    expect(installs()).toBe(2);
+    writeFileSync(join(source,'package-lock.json'),'changed synthetic lockfile');
+    const lockChanged=build();expect(lockChanged.status,lockChanged.stdout+lockChanged.stderr).toBe(0);
+    expect(installs()).toBe(3);
+    const retained=readFileSync(join(f.home,'current'),'utf8');
+    writeFileSync(join(source,'scripts/release/native-smoke.mjs'),'throw Error("SYNTHETIC native verification failed");');
+    const nativeFailed=build();expect(nativeFailed.status).not.toBe(0);
+    expect(nativeFailed.stdout+nativeFailed.stderr).toContain('SYNTHETIC native verification failed');
+    expect(installs()).toBe(3);
+    expect(readFileSync(join(f.home,'current'),'utf8')).toBe(retained);
+    writeFileSync(join(source,'scripts/release/native-smoke.mjs'),'// Native verification restored.');
+    const retry=build();expect(retry.status,retry.stdout+retry.stderr).toBe(0);
+    expect(installs()).toBe(4);
+    const ready=readFileSync(join(f.home,'current'),'utf8');
+    const dependency=join(f.home,'app',ready.split('\n')[0],'node_modules/better-sqlite3/index.cjs');
+    chmodSync(dependency,0o644);
+    writeFileSync(dependency,readFileSync(dependency,'utf8')+'\n// Simulated changed cache bytes.');
+    chmodSync(dependency,0o444);
+    const damaged=build();expect(damaged.status).not.toBe(0);
+    expect(damaged.stdout+damaged.stderr).toContain('Development dependency cache changed');
+    expect(readFileSync(join(f.home,'current'),'utf8')).toBe(ready);
+    const repaired=build();expect(repaired.status,repaired.stdout+repaired.stderr).toBe(0);
+    expect(installs()).toBe(5);
+    expect(readFileSync(database,'utf8')).toBe('synthetic retained data');
   },120000);
   it('reads phases while a write handle is held, waits for complete events, and preserves child failures',()=>{
     const root=mkdtempSync(join(tmpdir(),'ORE-phase-overlap-'));roots.push(root);

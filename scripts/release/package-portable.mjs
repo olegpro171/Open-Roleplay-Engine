@@ -15,6 +15,7 @@ const [id, runtime] = readFileSync(join(home, 'current'), 'utf8').trim().split('
 if (!/^(release|dev)-[a-z0-9-]+$/.test(id) || !/^node-v[0-9.]+-(darwin|linux|win32)-(arm64|x64)$/.test(runtime)) throw new Error('Invalid installed pointer.');
 const application = join(home, 'app', id);
 const manifest = JSON.parse(readFileSync(join(application, 'manifest.json'), 'utf8'));
+if (manifest.localDevelopmentDependencies) throw new Error('This local development build shares cached dependencies. Create a normal portable build before packaging.');
 const actual = inventory(application).filter(file => file.path !== 'manifest.json');
 if (JSON.stringify(actual) !== JSON.stringify(manifest.files)) throw new Error('Installed application differs from its manifest; rebuild before packaging.');
 mkdirSync(output, { recursive: true });

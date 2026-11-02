@@ -92,11 +92,15 @@ function Initialize-OreHome([string]$Installation) {
     # including SQLite snapshots, inherit this ACL rather than POSIX mode bits.
     $acl = [IO.Directory]::GetAccessControl($resolved, [Security.AccessControl.AccessControlSections]::Access)
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-    $acl.SetAccessRuleProtection($true, $false)
-    foreach ($existing in @($acl.Access)) { $acl.RemoveAccessRuleSpecific($existing) }
-    $rule = New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
-    $acl.AddAccessRule($rule)
-    [IO.Directory]::SetAccessControl($resolved, $acl)
+    # Reapplying an unchanged inheritable ACL makes Windows walk every installed
+    # dependency again. Repair differing permissions, preserving the same policy.
+    if (!(Test-OrePrivateDirectoryAcl $acl $sid)) {
+        $acl.SetAccessRuleProtection($true, $false)
+        foreach ($existing in @($acl.Access)) { $acl.RemoveAccessRuleSpecific($existing) }
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+        $acl.AddAccessRule($rule)
+        [IO.Directory]::SetAccessControl($resolved, $acl)
+    }
     $env:ORE_HOME = $resolved
     $env:TEMP = Join-Path $resolved 'cache'
     $env:TMP = $env:TEMP
@@ -134,12 +138,24 @@ public static class OreJob {
     [OreJob]::Attach()
 }
 
+function Test-OrePrivateDirectoryAcl($Acl, $Sid) {
+    if (!$Acl.AreAccessRulesProtected) { return $false }
+    $rules = @($Acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+    if ($rules.Count -ne 1) { return $false }
+    $rule = $rules[0]
+    return !$rule.IsInherited -and $rule.IdentityReference.Value -eq $Sid.Value -and
+        $rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+        $rule.FileSystemRights -eq [Security.AccessControl.FileSystemRights]::FullControl -and
+        $rule.InheritanceFlags -eq ([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit) -and
+        $rule.PropagationFlags -eq [Security.AccessControl.PropagationFlags]::None
+}
 function Set-OrePrivate([string]$Path) {
     Assert-OrePath $Path $Path | Out-Null
     $acl = [IO.Directory]::GetAccessControl($Path,[Security.AccessControl.AccessControlSections]::Access)
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    if (Test-OrePrivateDirectoryAcl $acl $sid) { return }
     $acl.SetAccessRuleProtection($true,$false)
     foreach ($rule in @($acl.Access)) { $acl.RemoveAccessRuleSpecific($rule) }
-    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
     $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')))
     [IO.Directory]::SetAccessControl($Path,$acl)
 }
@@ -675,6 +691,17 @@ function Get-OreHelper([string]$HomePath) {
     if ([IO.File]::Exists((Join-Path $HomePath 'current')) -or [IO.File]::Exists((Join-Path $HomePath 'recovery/current'))) { throw 'No complete compatible standalone helper.' }
     return $null
 }
+function Move-OreRuntimeDirectory([string]$SourcePath, [string]$Destination) {
+    # Windows can briefly retain executable/AV handles after validation exits.
+    # Retry the rename without deleting either directory or replacing a runtime.
+    for ($attempt = 0; ; $attempt++) {
+        try { [IO.Directory]::Move($SourcePath,$Destination); return }
+        catch [IO.IOException] {
+            if ($attempt -ge 10) { throw }
+            Start-Sleep -Milliseconds 100
+        }
+    }
+}
 function Get-OreRuntime([string]$HomePath, [string]$SourcePath, [string]$StagePath) {
     $config = [IO.File]::ReadAllText((Join-Path $SourcePath 'scripts/release/runtime.conf'))
     if ($config -notmatch '(?m)^ORE_NODE_VERSION=([0-9]+\.[0-9]+\.[0-9]+)\s*$') { throw 'Invalid runtime pin.' }
@@ -705,7 +732,7 @@ function Get-OreRuntime([string]$HomePath, [string]$SourcePath, [string]$StagePa
         $candidate = Join-Path $unpacked 'node.exe'
         if ((Invoke-OreProcess $candidate $validateArguments $runtimeReport) -ne 0) { throw 'Runtime version/platform mismatch.' }
         if (![IO.File]::Exists((Join-Path $unpacked 'node_modules/npm/bin/npm-cli.js')) -or ![IO.File]::Exists((Join-Path $unpacked 'LICENSE'))) { throw 'Incomplete private toolkit.' }
-        [IO.Directory]::Move($unpacked,$runtimePath)
+        Move-OreRuntimeDirectory $unpacked $runtimePath
     }
     Assert-OreTree $runtimePath
     $node = Join-Path $runtimePath 'node.exe'

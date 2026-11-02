@@ -1,9 +1,21 @@
+function Test-OrePrivateDirectoryAcl($Acl, $Sid) {
+    if (!$Acl.AreAccessRulesProtected) { return $false }
+    $rules = @($Acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+    if ($rules.Count -ne 1) { return $false }
+    $rule = $rules[0]
+    return !$rule.IsInherited -and $rule.IdentityReference.Value -eq $Sid.Value -and
+        $rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+        $rule.FileSystemRights -eq [Security.AccessControl.FileSystemRights]::FullControl -and
+        $rule.InheritanceFlags -eq ([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit) -and
+        $rule.PropagationFlags -eq [Security.AccessControl.PropagationFlags]::None
+}
 function Set-OrePrivate([string]$Path) {
     Assert-OrePath $Path $Path | Out-Null
     $acl = [IO.Directory]::GetAccessControl($Path,[Security.AccessControl.AccessControlSections]::Access)
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    if (Test-OrePrivateDirectoryAcl $acl $sid) { return }
     $acl.SetAccessRuleProtection($true,$false)
     foreach ($rule in @($acl.Access)) { $acl.RemoveAccessRuleSpecific($rule) }
-    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
     $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')))
     [IO.Directory]::SetAccessControl($Path,$acl)
 }

@@ -92,11 +92,15 @@ function Initialize-OreHome([string]$Installation) {
     # including SQLite snapshots, inherit this ACL rather than POSIX mode bits.
     $acl = [IO.Directory]::GetAccessControl($resolved, [Security.AccessControl.AccessControlSections]::Access)
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-    $acl.SetAccessRuleProtection($true, $false)
-    foreach ($existing in @($acl.Access)) { $acl.RemoveAccessRuleSpecific($existing) }
-    $rule = New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
-    $acl.AddAccessRule($rule)
-    [IO.Directory]::SetAccessControl($resolved, $acl)
+    # Reapplying an unchanged inheritable ACL makes Windows walk every installed
+    # dependency again. Repair differing permissions, preserving the same policy.
+    if (!(Test-OrePrivateDirectoryAcl $acl $sid)) {
+        $acl.SetAccessRuleProtection($true, $false)
+        foreach ($existing in @($acl.Access)) { $acl.RemoveAccessRuleSpecific($existing) }
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+        $acl.AddAccessRule($rule)
+        [IO.Directory]::SetAccessControl($resolved, $acl)
+    }
     $env:ORE_HOME = $resolved
     $env:TEMP = Join-Path $resolved 'cache'
     $env:TMP = $env:TEMP
@@ -134,12 +138,24 @@ public static class OreJob {
     [OreJob]::Attach()
 }
 
+function Test-OrePrivateDirectoryAcl($Acl, $Sid) {
+    if (!$Acl.AreAccessRulesProtected) { return $false }
+    $rules = @($Acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+    if ($rules.Count -ne 1) { return $false }
+    $rule = $rules[0]
+    return !$rule.IsInherited -and $rule.IdentityReference.Value -eq $Sid.Value -and
+        $rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+        $rule.FileSystemRights -eq [Security.AccessControl.FileSystemRights]::FullControl -and
+        $rule.InheritanceFlags -eq ([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit) -and
+        $rule.PropagationFlags -eq [Security.AccessControl.PropagationFlags]::None
+}
 function Set-OrePrivate([string]$Path) {
     Assert-OrePath $Path $Path | Out-Null
     $acl = [IO.Directory]::GetAccessControl($Path,[Security.AccessControl.AccessControlSections]::Access)
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    if (Test-OrePrivateDirectoryAcl $acl $sid) { return }
     $acl.SetAccessRuleProtection($true,$false)
     foreach ($rule in @($acl.Access)) { $acl.RemoveAccessRuleSpecific($rule) }
-    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
     $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')))
     [IO.Directory]::SetAccessControl($Path,$acl)
 }

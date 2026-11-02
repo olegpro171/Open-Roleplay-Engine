@@ -30,6 +30,17 @@ function Get-OreHelper([string]$HomePath) {
     if ([IO.File]::Exists((Join-Path $HomePath 'current')) -or [IO.File]::Exists((Join-Path $HomePath 'recovery/current'))) { throw 'No complete compatible standalone helper.' }
     return $null
 }
+function Move-OreRuntimeDirectory([string]$SourcePath, [string]$Destination) {
+    # Windows can briefly retain executable/AV handles after validation exits.
+    # Retry the rename without deleting either directory or replacing a runtime.
+    for ($attempt = 0; ; $attempt++) {
+        try { [IO.Directory]::Move($SourcePath,$Destination); return }
+        catch [IO.IOException] {
+            if ($attempt -ge 10) { throw }
+            Start-Sleep -Milliseconds 100
+        }
+    }
+}
 function Get-OreRuntime([string]$HomePath, [string]$SourcePath, [string]$StagePath) {
     $config = [IO.File]::ReadAllText((Join-Path $SourcePath 'scripts/release/runtime.conf'))
     if ($config -notmatch '(?m)^ORE_NODE_VERSION=([0-9]+\.[0-9]+\.[0-9]+)\s*$') { throw 'Invalid runtime pin.' }
@@ -60,7 +71,7 @@ function Get-OreRuntime([string]$HomePath, [string]$SourcePath, [string]$StagePa
         $candidate = Join-Path $unpacked 'node.exe'
         if ((Invoke-OreProcess $candidate $validateArguments $runtimeReport) -ne 0) { throw 'Runtime version/platform mismatch.' }
         if (![IO.File]::Exists((Join-Path $unpacked 'node_modules/npm/bin/npm-cli.js')) -or ![IO.File]::Exists((Join-Path $unpacked 'LICENSE'))) { throw 'Incomplete private toolkit.' }
-        [IO.Directory]::Move($unpacked,$runtimePath)
+        Move-OreRuntimeDirectory $unpacked $runtimePath
     }
     Assert-OreTree $runtimePath
     $node = Join-Path $runtimePath 'node.exe'

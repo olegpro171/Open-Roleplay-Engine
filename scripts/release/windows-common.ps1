@@ -48,11 +48,15 @@ function Initialize-OreHome([string]$Installation) {
     # including SQLite snapshots, inherit this ACL rather than POSIX mode bits.
     $acl = [IO.Directory]::GetAccessControl($resolved, [Security.AccessControl.AccessControlSections]::Access)
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-    $acl.SetAccessRuleProtection($true, $false)
-    foreach ($existing in @($acl.Access)) { $acl.RemoveAccessRuleSpecific($existing) }
-    $rule = New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
-    $acl.AddAccessRule($rule)
-    [IO.Directory]::SetAccessControl($resolved, $acl)
+    # Reapplying an unchanged inheritable ACL makes Windows walk every installed
+    # dependency again. Repair differing permissions, preserving the same policy.
+    if (!(Test-OrePrivateDirectoryAcl $acl $sid)) {
+        $acl.SetAccessRuleProtection($true, $false)
+        foreach ($existing in @($acl.Access)) { $acl.RemoveAccessRuleSpecific($existing) }
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+        $acl.AddAccessRule($rule)
+        [IO.Directory]::SetAccessControl($resolved, $acl)
+    }
     $env:ORE_HOME = $resolved
     $env:TEMP = Join-Path $resolved 'cache'
     $env:TMP = $env:TEMP
