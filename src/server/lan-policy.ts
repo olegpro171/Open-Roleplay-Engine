@@ -32,6 +32,11 @@ export function lanInterfaces(interfaces = networkInterfaces()): LanInterface[] 
 export function sameInterface(left: LanInterface, right: LanInterface) {
   return left.id === right.id && left.name === right.name && left.address === right.address && left.netmask === right.netmask && left.prefix === right.prefix;
 }
+export function lanSubnet(selected: LanInterface) {
+  const network = (ipv4Number(selected.address) & ipv4Number(selected.netmask)) >>> 0;
+  const address = [24, 16, 8, 0].map(shift => (network >>> shift) & 255).join('.');
+  return `${address}/${selected.prefix}`;
+}
 export function allowedLanPeer(address: string | undefined, selected: LanInterface) {
   if (isLoopback(address)) return true;
   const peer = address?.replace(/^::ffff:/, '');

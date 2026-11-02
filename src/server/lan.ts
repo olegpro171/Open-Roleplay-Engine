@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { lanCommandSchema, lanInterfaceSchema, lanSettingsSchema, type LanInterface, type LanSettings, type LanStatus } from '../shared/lan.js';
-import { allowedLanHost, allowedLanPeer, lanInterfaces, sameInterface } from './lan-policy.js';
+import { allowedLanHost, allowedLanPeer, lanInterfaces, lanSubnet, sameInterface } from './lan-policy.js';
 import { localLanHostname, normalizeLocalHostname } from './lan-hostname.js';
 import { listenLan, type LanRoute, type LanTransport, type ListenLan } from './lan-listener.js';
 
@@ -99,7 +99,7 @@ export class LanAccess {
       const address = hostname.state === 'available'
         ? { state: 'available' as const, url: `http://${hostname.name}:${port}` }
         : hostname;
-      runtime = { state: 'listening', ipv4Url, hostname: address, url: address.state === 'available' ? address.url : ipv4Url };
+      runtime = { state: 'listening', ipv4Url, subnet: lanSubnet(binding), hostname: address, url: address.state === 'available' ? address.url : ipv4Url };
     } else {
       runtime = { state: 'off' };
     }

@@ -492,6 +492,8 @@ export const englishMessages = {
   "lan_settings.hostname_address": "Hostname address",
   "lan_settings.ipv4_fallback": "Local IPv4 — try this if the hostname does not work",
   "lan_settings.ipv4_address": "Local IPv4 address",
+  "lan_settings.vpn_help": "If you’re using a VPN and can’t connect to ORE over the local network, check the VPN settings on both the computer running ORE and the device you’re connecting from. Wherever a VPN is active, add this subnet to its exclusions (split tunneling).",
+  "lan_settings.local_subnet": "Local subnet",
   "lan_settings.address_help": "Switching addresses may require signing in again; drafts and language preferences stay separate. Your saved chats stay in this installation. IPv4 may change; check Settings for the current address.",
   "lan_settings.no_supported_private_ipv4_network_is_available": "No supported private IPv4 network is available. Connect this computer to Wi-Fi or Ethernet; available networks update automatically.",
   "libraries.a_new_story": "A new story",

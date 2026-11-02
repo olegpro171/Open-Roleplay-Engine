@@ -53,7 +53,7 @@ afterEach(async () => {
 it('defaults to automatic selection, uses port 3000, and recovers IP/subnet/interface changes without browser commands', async () => {
   expect(lan.status(true).settings).toEqual({ enabled: false, automatic: true, interfaceId: null, port: 3000 });
   expect(opened).toHaveLength(0);
-  expect((await enable()).runtime).toEqual({ state: 'listening', url: 'http://ore-fixture.local:3000', ipv4Url: 'http://192.168.1.5:3000', hostname: { state: 'available', url: 'http://ore-fixture.local:3000' } });
+  expect((await enable()).runtime).toEqual({ state: 'listening', subnet: '192.168.1.0/24', url: 'http://ore-fixture.local:3000', ipv4Url: 'http://192.168.1.5:3000', hostname: { state: 'available', url: 'http://ore-fixture.local:3000' } });
   const saved = readFileSync(file, 'utf8');
   expect(lan.status(true).settings).toEqual({ enabled: true, automatic: true, interfaceId: null, port: 3000 });
   expect(opened[0].port).toBe(3000);
@@ -65,7 +65,7 @@ it('defaults to automatic selection, uses port 3000, and recovers IP/subnet/inte
   await vi.advanceTimersByTimeAsync(3000);
   expect(opened[0].closed).toBe(true);
   expect(opened[1].binding.address).toBe('192.168.2.9');
-  expect(lan.status(true).runtime).toMatchObject({ ipv4Url: 'http://192.168.2.9:3000' });
+  expect(lan.status(true).runtime).toMatchObject({ ipv4Url: 'http://192.168.2.9:3000', subnet: '192.168.2.0/24' });
   available = [{ ...ethernet }];
   await vi.advanceTimersByTimeAsync(3000);
   expect(opened[1].closed).toBe(true);
@@ -74,7 +74,7 @@ it('defaults to automatic selection, uses port 3000, and recovers IP/subnet/inte
   await vi.advanceTimersByTimeAsync(3000);
   expect(opened[2].closed).toBe(true);
   expect(opened[3].binding.prefix).toBe(16);
-  expect(lan.status(true).runtime).toEqual({ state: 'listening', url: 'http://ore-fixture.local:3000', ipv4Url: 'http://10.0.0.5:3000', hostname: { state: 'available', url: 'http://ore-fixture.local:3000' } });
+  expect(lan.status(true).runtime).toEqual({ state: 'listening', subnet: '10.0.0.0/16', url: 'http://ore-fixture.local:3000', ipv4Url: 'http://10.0.0.5:3000', hostname: { state: 'available', url: 'http://ore-fixture.local:3000' } });
   expect(lan.status(true).revision).toBe(1);
   expect(readFileSync(file, 'utf8')).toBe(saved);
 });
@@ -83,6 +83,7 @@ it('keeps checking through offline startup, occupied ports, listener failure and
   available = [];
   expect((await enable()).runtime.state).toBe('unavailable');
   expect(lan.status(true).runtime).not.toHaveProperty('ipv4Url');
+  expect(lan.status(true).runtime).not.toHaveProperty('subnet');
   await lan.close();
   lan = controller();
   await lan.start();

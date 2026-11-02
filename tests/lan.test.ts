@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { AppError } from '../src/core/errors.js';
 import { message } from '../src/shared/localization.js';
 import { createApp } from '../src/server/app.js';
-import { allowedLanHost, allowedLanPeer, isPrivateIPv4, lanInterfaces } from '../src/server/lan-policy.js';
+import { allowedLanHost, allowedLanPeer, isPrivateIPv4, lanInterfaces, lanSubnet } from '../src/server/lan-policy.js';
 import { lanStatusSchema, type LanInterface, type LanSettings } from '../src/shared/lan.js';
 import { startMockProvider } from './support/mock-provider.js';
 
@@ -83,7 +83,7 @@ it('starts off, requires owner authentication, and applies saved LAN settings wi
   const localAddress = instance.app.server.address();
   const enabled = await save();
   expect(enabled.statusCode).toBe(200);
-  expect(lanStatusSchema.parse(enabled.json()).runtime).toEqual({ state: 'listening', url: `http://ore-fixture.local:${port}`, ipv4Url: `http://127.0.0.1:${port}`, hostname: { state: 'available', url: `http://ore-fixture.local:${port}` } });
+  expect(lanStatusSchema.parse(enabled.json()).runtime).toEqual({ state: 'listening', subnet: '127.0.0.0/8', url: `http://ore-fixture.local:${port}`, ipv4Url: `http://127.0.0.1:${port}`, hostname: { state: 'available', url: `http://ore-fixture.local:${port}` } });
   expect(instance.app.server.address()).toEqual(localAddress);
   expect((await phone('/api/chat')).status).toBe(401);
   expect((await phone('/api/session', { host: `ORE-FIXTURE.LOCAL:${port}` })).status).toBe(200);
@@ -250,6 +250,16 @@ it('disconnects LAN observers on disable while preserving server-owned generatio
   expect(instance.store.snapshot().generations[0].status).toBe('running');
   mock.finishAll();
   await expect.poll(() => instance.store.snapshot().generations[0].status).toBe('succeeded');
+});
+
+it.each([
+  ['192.168.1.11', '255.255.255.0', 24, '192.168.1.0/24'],
+  ['192.168.3.199', '255.255.254.0', 23, '192.168.2.0/23'],
+  ['172.20.91.7', '255.255.0.0', 16, '172.20.0.0/16'],
+  ['10.91.8.3', '255.0.0.0', 8, '10.0.0.0/8'],
+  ['192.168.1.254', '255.255.255.252', 30, '192.168.1.252/30'],
+])('advertises the network range for %s rather than the host address', (address, netmask, prefix, expected) => {
+  expect(lanSubnet({ ...syntheticInterface, address, netmask, prefix })).toBe(expected);
 });
 
 it('limits peers to private addresses in the selected subnet and offers only eligible interface addresses', () => {

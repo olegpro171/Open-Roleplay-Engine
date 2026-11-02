@@ -41,6 +41,12 @@ export function LanSettings({ autosave }: { autosave: SettingsAutosave<Settings,
         <small id="lan-address-help">{t('lan_settings.address_help')}</small>
       </label>
     </>}
+    {draft?.enabled && <fieldset className="settings-subsection" aria-describedby="lan-vpn-help">
+      <p id="lan-vpn-help">{t('lan_settings.vpn_help')}</p>
+      {status?.runtime.state === 'listening' && <label className="lan-address">{t('lan_settings.local_subnet')}
+        <input aria-label={t('lan_settings.local_subnet')} aria-describedby="lan-vpn-help" type="text" readOnly spellCheck={false} value={status.runtime.subnet} />
+      </label>}
+    </fieldset>}
     {status && !draft?.automatic && status.interfaces.length === 0 && <p>{t("lan_settings.no_supported_private_ipv4_network_is_available")}</p>}
   </section>;
 }

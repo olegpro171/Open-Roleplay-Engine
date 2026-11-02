@@ -22,6 +22,7 @@ export const lanStatusSchema = z.object({
       // Retained for existing consumers: prefer the hostname when available.
       url: z.string().url(),
       ipv4Url: z.string().url(),
+      subnet: z.cidrv4(),
       hostname: z.discriminatedUnion('state', [
         z.object({ state: z.literal('available'), url: z.string().url() }),
         z.object({ state: z.literal('unavailable'), localized: localizedMessageSchema }),

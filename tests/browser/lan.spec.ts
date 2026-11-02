@@ -188,12 +188,21 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) for (const wid
       const settings = page.locator('.lan-settings');
       await expect(settings.getByRole('textbox', { name: 'Hostname address', exact: true })).toHaveValue(`http://ore-${'w'.repeat(59)}.local:${port}`);
       await expect(settings.getByRole('textbox', { name: 'Local IPv4 address', exact: true })).toHaveValue(`http://127.0.0.1:${port}`);
+      const subnet = settings.getByRole('textbox', { name: 'Local subnet', exact: true });
+      await expect(subnet).toHaveValue('127.0.0.0/8');
+      await expect(subnet).toHaveAttribute('readonly', '');
+      await expect(settings).toContainText('Wherever a VPN is active, add this subnet to its exclusions (split tunneling).');
+      await subnet.focus();
+      await subnet.press('ControlOrMeta+A');
+      expect(await subnet.evaluate((input: HTMLInputElement) => input.value.slice(input.selectionStart ?? 0, input.selectionEnd ?? 0))).toBe('127.0.0.0/8');
       await expect(settings).toContainText('Hostname — recommended');
       await expect(settings).toContainText('try this if the hostname does not work');
       await settings.getByRole('textbox', { name: 'Hostname address', exact: true }).focus();
       await expect(settings.getByRole('textbox', { name: 'Hostname address', exact: true })).toBeFocused();
       expect(await settings.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await subnet.scrollIntoViewIfNeeded();
+      await expect(subnet).toBeInViewport();
       await settings.screenshot({ path: testInfo.outputPath('addresses-en.png') });
       const language = page.getByRole('combobox', { name: 'Interface language', exact: true });
       await page.getByRole('navigation', { name: 'Settings categories' }).getByRole('button', { name: 'Language', exact: true }).click();
@@ -204,8 +213,11 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) for (const wid
       await expect(settings.getByRole('textbox', { name: 'Адрес по имени компьютера', exact: true })).toHaveValue(`http://ore-${'w'.repeat(59)}.local:${port}`);
       await expect(settings).toContainText('Имя компьютера — рекомендуется');
       await expect(settings).toContainText('попробуйте, если имя компьютера не работает');
+      await expect(settings.getByRole('textbox', { name: 'Локальная подсеть', exact: true })).toHaveValue('127.0.0.0/8');
+      await expect(settings).toContainText('На каждом устройстве с активным VPN добавьте эту подсеть в исключения');
       await settings.getByRole('textbox', { name: 'Адрес локального IPv4', exact: true }).focus();
       expect(await settings.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await settings.getByRole('textbox', { name: 'Локальная подсеть', exact: true }).scrollIntoViewIfNeeded();
       await settings.screenshot({ path: testInfo.outputPath('addresses-ru.png') });
       // A real rebind changes metadata. Polling must show IP-only service and
       // remove the old hostname without requiring a page reload.
@@ -229,10 +241,12 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) for (const wid
       await expect(settings.getByRole('textbox', { name: 'Local IPv4 address', exact: true })).toHaveValue(`http://127.0.0.1:${fallbackPort}`);
       await save(false);
       await expect(settings.locator('input[readonly]')).toHaveCount(0, { timeout: 8000 });
+      await expect(settings).not.toContainText('Wherever a VPN is active');
       const off = await read();
-      await page.route('**/api/application/lan', route => route.fulfill({ json: { ...off, runtime: { state: 'unavailable', message: 'Synthetic unavailable transport' } } }));
+      await page.route('**/api/application/lan', route => route.fulfill({ json: { ...off, settings: { ...off.settings, enabled: true }, runtime: { state: 'unavailable', message: 'Synthetic unavailable transport' } } }));
       await expect(settings.getByRole('alert')).toContainText('Synthetic unavailable transport', { timeout: 8000 });
       await expect(settings.locator('input[readonly]')).toHaveCount(0);
+      await expect(settings).toContainText('Wherever a VPN is active');
       await settings.screenshot({ path: testInfo.outputPath('transport-unavailable-en.png') });
     } finally { await save(false); }
   });
