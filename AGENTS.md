@@ -100,7 +100,7 @@ Choose checks by the behavior at risk and the reach of the change, not by line c
 | Persistence, migration, or operation lifecycle | Tests using real temporary SQLite databases/coordinators: successful commit plus relevant rollback, stale revision, duplicate command, cancellation, or reopen/restart cases. |
 | Provider or request assembly | Controlled mock-provider tests of exact outgoing input/parameters, credential exclusion, and affected malformed/failed/incomplete stream cases. |
 | User workflow, interaction or UI state | Build, relevant Playwright workflows with meaningful state assertions, and affected unit tests. Inspect desktop and phone-sized rendering when layout changes. |
-| Broad refactoring, dependencies, build/test infrastructure, or uncertain impact | Full `npm run check`, plus focused evidence for changed behavior that existing suites do not cover. |
+| Broad refactoring, dependencies, build/test infrastructure, or uncertain impact | User-run full `npm run check`, plus agent-run focused evidence for changed behavior that existing suites do not cover. |
 
 - Combine the applicable rows for mixed changes and expand verification when shared consumers or failures reveal wider impact. Do not classify a behavior change as cosmetic because its diff is small.
 - For new or changed UI, inspect affected controls and states in every shipped theme at relevant desktop and phone sizes. Check readability, surfaces, borders, icons, interaction states and semantic colors. Extend existing theme tests where appropriate; duplicating the entire workflow suite for every theme is unnecessary.
@@ -112,10 +112,12 @@ Choose checks by the behavior at risk and the reach of the change, not by line c
 
 ### Full-suite checkpoints and efficient execution
 
-- The checks above are sufficient for an ordinary handoff within their stated scope; a full suite is not required after every application edit or commit. Keep the existing suites and run `npm run check` before distributing an updated version, at the completion of a substantial batch of related application changes, and for broad or uncertain changes listed above. A batch checkpoint means completing a larger feature or a group of changes across workflows, not each small cosmetic task.
-- Use broader verification for changes that put saved data, authentication, context coverage or operation recovery at risk when focused checks cannot establish the affected boundaries. Explain the concrete risk when expanding the scope; do not run every suite solely because a server or shared file was touched.
-- Use focused checks while iterating. Do not repeat successful checks against unchanged relevant code, dependencies and test configuration unless a new failure or unresolved concern justifies it. At a full-suite checkpoint, successful constituent commands against the final state are equivalent to `npm run check`; rerun only checks whose inputs changed. A build already includes typechecking.
-- Build before browser checks when application sources changed because they serve `dist/client`; do not validate against a stale build. Select relevant browser files or test names instead of running the entire browser suite for a local change.
+- **Full-suite execution belongs to the user.** Agents must not run `npm run check`, unfiltered `npm test`, unfiltered `npm run test:e2e`, or equivalent commands that execute a complete test suite. Do not bypass this restriction through wrappers, background processes, CI dispatches, or splitting the complete suite into batches. Existing automatic release CI qualification remains unchanged; agents must not trigger it to offload a development verification run.
+- Agents own investigation, implementation, regression prevention, and targeted verification. Select explicit test files or test names relevant to the affected behavior. Builds and typechecks remain agent-run when required; a build already includes typechecking. Build before browser checks when application sources changed because they serve `dist/client`.
+- The checks above are sufficient for an ordinary handoff within their stated scope; a full suite is not required after every application edit or commit. Preserve user-run full-suite checkpoints before distributing an updated version, at the completion of a substantial batch of related application changes, and for broad or uncertain changes listed above. A batch checkpoint means completing a larger feature or a group of changes across workflows, not each small cosmetic task. Request broader verification when focused checks cannot establish affected saved-data, authentication, context-coverage or operation-recovery boundaries, explaining the concrete risk; touching a server or shared file alone does not require it.
+- At a full-suite checkpoint, complete targeted verification and final review, then give the user the exact command, working directory, and reason for the broader run. End the turn with full verification explicitly pending. Do not monitor or poll a user-run suite, schedule follow-ups, or remain active waiting for completion. Resume when the user supplies results: the final summary and failure details or a log path. Distinguish failed, interrupted, and not-executed stages; `npm run check` stops at the first failed stage.
+- Fix reported failures using focused reproduction and regression checks, then hand back any required full-suite rerun. Do not repeat successful checks against unchanged relevant code, dependencies and test configuration unless new evidence justifies it. Successful constituent commands against the final state may satisfy a checkpoint; account for stages that never ran and rerun only checks whose inputs changed.
+- Full-suite execution by the user does not transfer responsibility for code quality or failure investigation. Report agent-run checks separately from user-reported results. Never claim complete verification while a required checkpoint remains pending.
 
 ### Commands
 
@@ -125,12 +127,12 @@ Use the supported Node/npm environment from README.md; better-sqlite3 is native,
 | --- | --- |
 | `npm ci` | Install the locked dependencies when needed. |
 | `npm run typecheck` | Strict client/server TypeScript checks. |
-| `npm test` | All Vitest core/server/persistence tests. |
+| `npm test` | User-run only: all Vitest core/server/persistence tests. |
 | `npm test -- tests/context-core.test.ts` | Example of a focused existing Vitest suite; select the suite relevant to the change. |
 | `npm run build` | Typecheck and build the interface/server. |
-| `npm run test:e2e` | Browser workflows against the built interface and an isolated test server. |
+| `npm run test:e2e` | User-run only: all browser workflows against the built interface and an isolated test server. |
 | `npm run test:e2e -- tests/browser/libraries-layout.spec.ts` | Example of focused browser verification; select files or test names relevant to the change. |
-| `npm run check` | Build, Vitest, and browser suites together. |
+| `npm run check` | User-run only: build, Vitest, and browser suites together. |
 
 If an environment restriction prevents a required check, report the exact missing verification and reason rather than claiming completion of validation. Chromium installation and local-server requirements are documented in README.md. There is no separate lint script; do not claim to have run one.
 
