@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { defaultPrompt } from '../../src/shared/library';
 
 async function openTool(page: Page, name: string) {
-  const toggle = page.getByRole('button', { name: 'Сведения о чате', exact: true });
+  const toggle = page.getByRole('button', { name: 'О чате', exact: true });
   if (await toggle.isVisible() && await toggle.getAttribute('aria-expanded') === 'false') await toggle.click();
   await page.getByRole('button', { name, exact: true }).click();
 }
@@ -80,7 +80,7 @@ for (const width of [1440, 390, 320]) test(`built-in Russian needs no import and
   await expect(page.getByLabel('Ваш следующий ход')).toHaveValue(draft);
   expect((await preview()).body).toEqual(before.body);
   await page.screenshot({ path: testInfo.outputPath(`russian-story-${width}.png`) });
-  if (width <= 800) await page.getByRole('button', { name: 'Сведения о чате', exact: true }).click();
+  if (width <= 800) await page.getByRole('button', { name: 'О чате', exact: true }).click();
   await page.getByRole('button', { name: 'Просмотр промпта', exact: true }).click();
   const peek = page.getByRole('dialog', { name: 'Просмотр промпта', exact: true });
   await expect(peek.locator('.prompt-message.history > summary')).toHaveText([

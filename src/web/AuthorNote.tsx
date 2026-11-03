@@ -20,14 +20,14 @@ export function AuthorNoteSaveStatus({ saving, error, retry, disabled = false }:
     return () => window.clearTimeout(timer);
   }, [saving]);
   return <>
-    {saving && slow && error == null && <div className="error-banner" role="alert">{t('author_note.slow')}</div>}
+    {saving && slow && error == null && <div className="error-banner author-note-save-delay" role="alert">{t('author_note.slow')}</div>}
     {error != null && <div className="error-banner" role="alert"><p>{t('author_note.failed', { error: formatMessage(errorText(error)) })}</p>
       <button type="button" className="secondary" disabled={saving || disabled} onClick={() => void retry()}>{t('settings.retry')}</button></div>}
   </>;
 }
 
-export function AuthorNoteDialog({ note, editor, locked, missingMessages, saving, error, storageError, close }: {
-  note: Note; editor: SettingsAutosave<Note, AuthorNoteStatus>; locked: boolean; missingMessages: boolean;
+export function AuthorNoteDialog({ note, editor, locked, preparing, missingMessages, saving, error, storageError, close }: {
+  note: Note; editor: SettingsAutosave<Note, AuthorNoteStatus>; locked: boolean; preparing: boolean; missingMessages: boolean;
   saving: boolean; error: unknown; storageError: boolean; close: () => void;
 }) {
   useLocale();
@@ -51,7 +51,7 @@ export function AuthorNoteDialog({ note, editor, locked, missingMessages, saving
     <div className="peek-content">
       <div className="peek-heading"><h2 id={title}>{t('author_note.title')}</h2>
         <button type="button" className="secondary" aria-label={t('author_note.close')} onClick={close}><Icon name="Close" /></button></div>
-      {locked && <p role="status">{t('author_note.locked')}</p>}
+      {locked && <p className="warning-banner" role="status">{t(preparing ? 'app.preparing_memory' : 'author_note.locked')}</p>}
       <label>{t('author_note.text')}<textarea rows={12} maxLength={100_000} value={note.prompt} disabled={locked}
         onChange={event => editor.update({ prompt: event.target.value })} /></label>
       <div className="author-note-controls">
@@ -66,10 +66,10 @@ export function AuthorNoteDialog({ note, editor, locked, missingMessages, saving
           if (role === 'system' || role === 'user' || role === 'assistant') editor.update({ role });
         }} options={(['system', 'user', 'assistant'] as const).map(role => ({ value: role, label: stateLabel(role) }))} /></label>
       </div>
-      {!validDepth && <p role="alert">{t('author_note.depth_invalid')}</p>}
+      {!validDepth && <p className="error-banner" role="alert">{t('author_note.depth_invalid')}</p>}
       <p className="small muted">{t('author_note.depth_help')}</p>
-      {missingMessages && note.prompt.trim() && <p role="status">{t('author_note.messages_missing')}</p>}
-      {storageError && <p role="alert">{t('author_note.storage_failed')}</p>}
+      {missingMessages && note.prompt.trim() && <p className="warning-banner" role="status">{t('author_note.messages_missing')}</p>}
+      {storageError && <p className="error-banner" role="alert">{t('author_note.storage_failed')}</p>}
       <AuthorNoteSaveStatus saving={saving} error={error} retry={editor.retry} disabled={locked} />
     </div>
   </dialog>, document.body);

@@ -4,7 +4,7 @@ Read [CONCEPTS.md](CONCEPTS.md) for accepted product behavior and [AGENTS.md](AG
 
 ## Development commands
 
-Direct npm commands require Node 24 or Node 22.12+ within major 22 (see `package.json`); the contained launcher pins its own Node. Do not reuse native `node_modules` across Node majors. Install locked dependencies with `npm ci` when needed.
+Direct npm commands require Node 24 or Node 22.14+ within major 22 (see `package.json`); the contained launcher pins its own Node. The SQLite native binding requires Node-API 10, which Node 22.12/22.13 do not provide. Do not reuse native `node_modules` across Node majors. Install locked dependencies with `npm ci` when needed.
 
 | Command | Purpose |
 | --- | --- |
@@ -82,7 +82,7 @@ Private revisioned sidecars beside the database store LAN, appearance, new-chat 
 
 Composer drafts synchronously store exact text and staged command identity/revision per chat in localStorage. Ack clears only submitted content, preserving later edits. Definite rejections permit a fresh explicit command; uncertain outcomes retain identity across reload for safe retry. Storage failures retain memory text and prompt copy-before-leaving. Dataset changes require explicit recovered-draft reconciliation. Never persist repair candidates under the composer recovery policy.
 
-Author's notes use chat settings JSON with empty/system/depth-2 defaults, per-chat revision/idle guards, and no backfill for old records. Their autosave queue keeps explicit pending field changes (including reverts after uncertain writes) in epoch/chat browser keys. Requests time out after 15 seconds, retain edits, and expose Retry even outside the popup. Send/retry/regenerate wait for note reconciliation. Closing the popup retains accepted saves; chat switches cannot apply stale responses elsewhere. Notes are ordinary backed-up chat content, excluded from summary inputs. See compatibility for placement.
+Author's notes use chat settings JSON with empty/system/depth-0 defaults, per-chat revision/idle guards, and no backfill for old records. Their autosave queue keeps explicit pending field changes (including reverts after uncertain writes) in epoch/chat browser keys. Requests time out after 15 seconds, retain edits, and expose Retry even outside the popup. Send/retry/regenerate wait for note reconciliation. Closing the popup retains accepted saves; chat switches cannot apply stale responses elsewhere. Notes are ordinary backed-up chat content, excluded from summary inputs. See compatibility for placement.
 
 The shared banner retains error origin: command failures offer Dismiss, loading failures Retry loading, and connection recovery has explicit classification. Background failures/reconnect cannot erase an unresolved action failure or retry a write. Failed editors retain user input; only accepted discard workflows delete drafts.
 

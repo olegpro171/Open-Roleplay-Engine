@@ -61,11 +61,18 @@ function characterDropdownOptions(library: LibrarySnapshot) {
   const pictures = new Map(library.characterPictures.map(picture => [picture.characterId, picture.thumbnailUrl]));
   return [
     { value: '', label: t("character_editor.none_selected") },
-    ...library.characters.map(character => ({
+    ...sortLibraryItems(library.characters, readLibrarySort('characters'), characterLabel, item => library.dates[item.id]).map(character => ({
       value: character.id,
       label: characterLabel(character),
       leading: <CharacterAvatar url={pictures.get(character.id)} />,
     })),
+  ];
+}
+function personaDropdownOptions(library: LibrarySnapshot) {
+  return [
+    { value: '', label: t("character_editor.none_selected") },
+    ...sortLibraryItems(library.personas, readLibrarySort('personas'), personaLabel, item => library.dates[item.id])
+      .map(item => ({ value: item.id, label: personaLabel(item) })),
   ];
 }
 function SelectionFields({ value, change, library }: { value: Selection; change: (value: Selection) => void; library: LibrarySnapshot }) {
@@ -76,7 +83,7 @@ function SelectionFields({ value, change, library }: { value: Selection; change:
     {(['connectionId', 'promptId', 'characterId', 'personaId', 'contextPresetId', 'lorebookId'] as const).map((key, i) => {
       const names = [t("libraries.connection"), t("libraries.prompt_preset"), t("app.character"), t("libraries.persona"), t("libraries.context_preset"), t("libraries.lorebook")];
       const lists = [library.connections, library.prompts, library.characters, library.personas, library.contexts, library.lorebooks];
-      return <label key={key}>{names[i]}<Dropdown aria-label={names[i]} value={value[key] ?? ''} onChange={selected => change({ ...value, [key]: selected || null })} options={key === 'characterId' ? characterDropdownOptions(library) : [...(key !== 'promptId' ? [{ value: '', label: t("character_editor.none_selected") }] : []), ...lists[i].map(item => ({ value: item.id, label: key === 'personaId' ? personaLabel(item) : item.name }))]} /></label>;
+      return <label key={key}>{names[i]}<Dropdown aria-label={names[i]} value={value[key] ?? ''} onChange={selected => change({ ...value, [key]: selected || null })} options={key === 'characterId' ? characterDropdownOptions(library) : key === 'personaId' ? personaDropdownOptions(library) : [...(key !== 'promptId' ? [{ value: '', label: t("character_editor.none_selected") }] : []), ...lists[i].map(item => ({ value: item.id, label: item.name }))]} /></label>;
     })}
   </div>;
 }
@@ -102,7 +109,7 @@ function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnap
   return <form onSubmit={create}><fieldset disabled={busy}><legend>{t("libraries.new_chat")}</legend>
     <div className="form-grid">
       <label>{t("app.character")}<Dropdown aria-label={t("app.character")} value={characterId ?? ''} onChange={id => setCharacterId(id || null)} options={characterDropdownOptions(library)} /></label>
-      <label>{t("libraries.persona")}<Dropdown aria-label={t("libraries.persona")} value={personaId ?? ''} onChange={id => setPersonaId(id || null)} options={[{ value: '', label: t("character_editor.none_selected") }, ...library.personas.map(item => ({ value: item.id, label: personaLabel(item) }))]} /></label>
+      <label>{t("libraries.persona")}<Dropdown aria-label={t("libraries.persona")} value={personaId ?? ''} onChange={id => setPersonaId(id || null)} options={personaDropdownOptions(library)} /></label>
     </div>
     <div className="actions"><button>{t("libraries.create_chat")}</button><button type="button" className="quiet" onClick={cancel}>{t("character_import.cancel")}</button></div>
   </fieldset></form>;
@@ -148,12 +155,10 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
         if (committed && mounted.current) saved();
       } finally { submitting.current = false; if (mounted.current) setSaving(false); }
     }}><fieldset disabled={busy}><legend>{t("libraries.selections")}</legend><SelectionFields value={value} change={setValue} library={library} /></fieldset>
-      <p className="small muted">{t("libraries.with_summary_enabled_a_context_preset_prepares")}</p>
       {revision !== snapshot.revision && <p role="status">{t("libraries.this_chat_changed_reopen_chat_settings_to")}</p>}
-    </form><section className="import-panel" aria-label={t("libraries.prompt_configuration_warnings")}><h2>{t("libraries.prompt_configuration_warnings")}</h2>
-      <p className="small muted">{t("libraries.checks_the_selections_shown_above_keyword_matches")}</p>
-      {diagnostics?.key !== diagnosticsKey ? <p role="status">{t("libraries.checking_prompt_configuration")}</p> : diagnostics.error ? <><p role="alert">{formatMessage(diagnostics.error)}</p><button type="button" className="secondary" onClick={() => setDiagnosticsRetry(value => value + 1)}>{t("libraries.check_again")}</button></> : diagnostics.warnings.length ? <ul>{diagnostics.warnings.map(warning => <li key={warning.code}><p>{formatMessage(warning.localized ?? warning.message)}</p><button type="button" className="secondary" onClick={() => openWarning(warning)}><Icon name="EditOutline" />{t("libraries.edit", { value: warning.target === 'prompts' ? t("interface.prompt_preset") : warning.target === 'characters' ? t("app.character") : t("libraries.lorebook") })}</button></li>)}</ul> : <p>{t("libraries.no_prompt_configuration_warnings")}</p>}
-    </section><HistoryImport snapshot={snapshot} busy={busy} run={run} committed={(before, after) => {
+    </form>{(diagnostics?.key !== diagnosticsKey || diagnostics.error || diagnostics.warnings.length > 0) && <section className="import-panel" aria-label={t("libraries.prompt_configuration_warnings")}><h2>{t("libraries.prompt_configuration_warnings")}</h2>
+      {diagnostics?.key !== diagnosticsKey ? <p role="status">{t("libraries.checking_prompt_configuration")}</p> : diagnostics.error ? <><p role="alert">{formatMessage(diagnostics.error)}</p><button type="button" className="secondary" onClick={() => setDiagnosticsRetry(value => value + 1)}>{t("libraries.check_again")}</button></> : diagnostics.warnings.length ? <ul>{diagnostics.warnings.map(warning => <li key={warning.code}><p>{formatMessage(warning.localized ?? warning.message)}</p><button type="button" className="secondary" onClick={() => openWarning(warning)}><Icon name="EditOutline" />{t("libraries.edit", { value: warning.target === 'prompts' ? t("interface.prompt_preset") : warning.target === 'characters' ? t("app.character") : t("libraries.lorebook") })}</button></li>)}</ul> : null}
+    </section>}<HistoryImport snapshot={snapshot} busy={busy} run={run} committed={(before, after) => {
       // Adopt only our own import, never a revision changed by another editor.
       setRevision(current => current === before ? after : current);
     }} />
@@ -411,7 +416,7 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
         {(section === 'prompts' || section === 'contexts') && <LibraryImport label={t("libraries.import", { value: section === 'contexts' ? t("interface.context_preset") : t("interface.prompt_preset") })} description={t(section === 'contexts' ? 'library_import.context_description' : 'library_import.prompt_description')} accept=".json" disabled={busy} onChange={async e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) await run(async () => { if (file.size > 1_000_000) throw new LocalizedError(msg("libraries.preset_file_is_too_large")); const value: unknown = JSON.parse(await file.text()); await api('/library', 'POST', { kind: section, revision: library.revision, data: section === 'prompts' ? upgradePrompt(value) : value }); }); }} />}
       </div>}
       {!editing && section === 'lorebooks' && <LorebookImport leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_lorebook")}</button>} revision={library.revision} busy={busy} run={run} imported={(_id, message) => setNotice(message)} />}
-      {section === 'characters' && <CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_character")}</button>} revision={library.revision} busy={busy} run={run} imported={(result, missing) => { setNotice(missing ? msg("libraries.the_original_import_was_saved_but_its") : msg("libraries.imported_character", { length: result.ids.length, value: result.books.map(book => t("interface.lorebook_entries", { name: String(book.name), entries: String(book.entries) })).join(''), value2: result.tags ? t("libraries.imported_tag_counts", { assigned: result.tags.assigned, created: result.tags.created }) : t("interface.original_tag_report_unavailable"), value3: result.picture ? result.picture.saved ? t("interface.picture_saved") : t("interface.no_picture_saved") : t("interface.original_picture_report_unavailable"), value4: filters.length ? t("interface.the_character_may_be_hidden_by_your_tag") : '' })); setDiagnostics(result.diagnostics); }} />}
+      {section === 'characters' && <CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_character")}</button>} revision={library.revision} busy={busy} run={run} imported={(result, missing) => { setNotice(missing ? msg("libraries.the_original_import_was_saved_but_its") : ""); setDiagnostics(result.diagnostics); }} />}
       {!editing && !creatingChat && <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort}>
         {section === 'characters' && <TagFilterMenu library={library} busy={busy} run={run} selected={filters} change={setFilters} />}
       </LibrarySearch>}
@@ -487,7 +492,7 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
     </section>
   </main>{connectionFile && <ConnectionFileDialog action={connectionFile} cancel={() => setConnectionFile(null)} complete={kind => {
     setConnectionFile(null);
-    setNotice(msg(kind === 'import' ? 'connection_files.imported' : 'connection_files.exported'));
+    setNotice(kind === 'import' ? msg('connection_files.imported') : '');
     if (kind === 'import') void run(async () => {});
   }} />}</div></EditorActionsTarget.Provider>;
 }

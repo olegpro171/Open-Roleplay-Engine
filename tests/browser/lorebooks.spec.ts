@@ -163,8 +163,11 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'keeper.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(character)) });
   await expect(page.locator('.character-import-review')).toContainText("Imported harbor keeper's lorebook");
   await page.getByRole('button', { name: 'Import', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: "Imported harbor keeper's lorebook" })).toBeVisible();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported harbor keeper', exact: true }) }).getByRole('heading').getByRole('button').click();
+  await expect(page.locator('.character-import-review')).toHaveCount(0);
+  const keeper = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported harbor keeper', exact: true }) });
+  await expect(keeper).toBeVisible();
+  await expect(page.locator('.library-notice')).toHaveCount(0);
+  await keeper.getByRole('heading').getByRole('button').click();
   await expect(page.getByRole('combobox', { name: 'Default lorebook', exact: true })).toContainText("Imported harbor keeper's lorebook");
   await page.getByRole('button', { name: 'Open book', exact: true }).click();
   await expect(page.getByLabel('Book name', { exact: true })).toHaveValue("Imported harbor keeper's lorebook");

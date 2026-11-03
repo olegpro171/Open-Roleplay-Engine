@@ -9,7 +9,7 @@ let parentDisconnected = launchedByParent && !process.connected;
 if (launchedByParent) process.once('disconnect', () => { parentDisconnected = true; });
 
 const [major, minor] = process.versions.node.split('.').map(Number);
-if (!(major === 24 || (major === 22 && minor >= 12))) throw new Error('Use Node.js 22.12+ or 24 LTS. Start portable installations with their supplied launcher.');
+if (!(major === 24 || (major === 22 && minor >= 14))) throw new Error('Use Node.js 22.14+ or 24 LTS. Start portable installations with their supplied launcher.');
 const paths = startupPaths();
 // Vite serves source development separately; only built delivery requires UI assets.
 if (import.meta.url.endsWith('.js')) validateInstalledAssets(paths);

@@ -62,6 +62,7 @@ for (const width of [1440, 390]) test(`Connection export/import with optional ke
     expect(await download.failure()).toBeNull();
     expect(bytes.includes(Buffer.from('synthetic-profile-export-secret'))).toBe(false);
     await expect(dialog).toHaveCount(0);
+    await expect(page.locator(".library-notice")).toHaveCount(0);
     const before = await library(page);
     const chooser = page.waitForEvent('filechooser');
     await page.getByRole('button', { name: 'Import Connection...', exact: true }).click();

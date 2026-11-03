@@ -107,13 +107,16 @@ test('reviews every import mode before commit, cancels without writes and safely
       await page.getByRole('button', { name: 'Retry reviewed character import', exact: true }).click(); await expect(row(page, 'Tag import all')).toBeVisible();
       expect(commands).toHaveLength(2); expect(commands[1]).toEqual(commands[0]); await page.unroute('**/api/library/import');
     } else { await page.getByRole('button', { name: 'Import', exact: true }).click(); await expect(row(page, `Tag import ${mode}`)).toBeVisible(); }
+    await expect(page.locator('.library-notice')).toHaveCount(0);
     const saved = await library(page), card = saved.characters.find(card => card.name === `Tag import ${mode}`);
     expect(saved.characterTags.filter(link => link.characterId === card?.id)).toHaveLength(mode === 'all' ? 2 : mode === 'existing' ? 1 : 0);
   }
   await openFilters(page); await filters(page).getByRole('checkbox', { name: /import-adventure/ }).check();
   await page.keyboard.press('Escape');
   await page.getByLabel('Import character', { exact: true }).setInputFiles(file('Tag hidden import')); await page.getByText('Review tags', { exact: true }).click(); await page.getByRole('radio', { name: 'Import none', exact: true }).check(); await page.getByRole('button', { name: 'Import', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'may be hidden by your tag filters' })).toBeVisible(); await expect(row(page, 'Tag hidden import')).toHaveCount(0);
+  await expect(page.locator('.library-notice')).toHaveCount(0);
+  await expect(row(page, 'Tag hidden import')).toHaveCount(0);
+  expect((await library(page)).characters.some(card => card.name === 'Tag hidden import')).toBe(true);
   await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
   await row(page, 'Tag import none').getByRole('heading').getByRole('button').click(); await page.getByLabel('Character description').fill('Unsaved text during apply');
   await page.getByRole('button', { name: 'Review embedded tags', exact: true }).click(); await page.getByText('Review tags', { exact: true }).click(); await page.getByRole('radio', { name: 'Import all', exact: true }).check(); await page.getByRole('button', { name: 'Apply reviewed tags', exact: true }).click();

@@ -127,7 +127,7 @@ it('preserves populated chats and immutable requests through note writes, rollba
   const store = new Store(path);
   store.saveSettings(0, connection, settings);
   const before = store.snapshot();
-  expect(store.authorNote('main')).toEqual({ revision: before.revision, settings: defaultAuthorNote });
+  expect(store.authorNote('main')).toEqual({ revision: before.revision, settings: { prompt: '', depth: 0, role: 'system' } });
   const operation = store.begin(before.revision, randomUUID(), 'Continue');
   const running = store.snapshot();
   const request = assembleRequest(connection, running.settings, running.turns, running.sources, running.context);

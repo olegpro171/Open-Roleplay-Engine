@@ -10,7 +10,7 @@ import { newId } from './uuid';
 import { Icon } from './Icon';
 import { ApplicationSettings } from './ApplicationSettings';
 import { useConfirmation } from './Confirmation';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import type { ChatToolsSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError, datasetChanged } from './api';
 import { changeSchema } from '../shared/changes';
@@ -518,7 +518,7 @@ export function App() {
         <button aria-current={tab === 'data' ? 'page' : undefined} onClick={() => setTab('data')}>{t("app.settings")}</button>
       </nav>
       <div className="chat-details-slot" ref={setChatDetailsTarget} />
-      <div className="connection-status"><span className={online ? 'dot online' : 'dot'} />{online ? t("app.connected") : t("app.reconnecting")}</div>
+      <div className="connection-status" role="img" aria-label={online ? t("app.connected") : t("app.reconnecting")}><span className={online ? 'dot online' : 'dot'} /></div>
       <button className="quiet signout" onClick={() => void command(async () => { await api('/logout', 'POST', {}); setSnapshot(null); await refreshSession(); })}>{t("app.sign_out")}</button>
     </header>
     {dataChanged && <div className="error-banner" role="alert"><span>{t("app.application_data_was_imported_or_wiped_in")}</span><button onClick={() => window.location.reload()}>{t("app.reload_current_data")}</button></div>}
@@ -541,7 +541,7 @@ export function App() {
         {Boolean(snapshot.memory.refusalCount) && <div className="recovery" role="status"><div><strong>{t('refusals.notice', { count: snapshot.memory.refusalCount })}</strong></div><button className="secondary" onClick={() => setTab('memory')}>{t('refusals.review')}</button></div>}
         {memoryStale && !snapshot.memory.refusalCount && <div className="recovery" role="status"><div><strong>{t("app.memory_needs_review")}</strong><p>{t("app.archived_history_changed_repair_the_affected_summaries")}</p></div><button className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button></div>}
         {pageError && <div className="recovery" role="alert">{pageError}<button className="secondary" onClick={() => setPageError('')}>{t("app.dismiss")}</button></div>}
-        <div className="transcript-frame">{preparing && !active && <div className="memory-preparation-status" role="status">{t("app.preparing_memory")}</div>}<div className="transcript" ref={transcript}>
+        <div className="transcript-frame"><div className="transcript" ref={transcript}>
           {snapshot.page.hasOlder && <div className="history-page-control" data-history-direction="older"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('older')}>{pageLoading ? t("app.loading_history") : t("app.load_older_turns")}</button></div>}
           {snapshot.totalTurns === 0 && <div className="empty-state"><h2>{t("app.set_up_your_story")}</h2><button className="secondary" onClick={() => setTab('settings')}>{t("app.open_chat_settings")}</button></div>}
           {snapshot.page.turns.map((turn) => {
@@ -583,7 +583,10 @@ export function App() {
           })}
           {snapshot.page.hasNewer && <div className="history-page-control" data-history-direction="newer"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('newer')}>{pageLoading ? t("app.loading_history") : t("app.load_newer_turns")}</button></div>}
           {edit && !snapshot.page.turns.some(turn => turn.id === edit.turnId) && <div className="recovery" role="alert"><div><p>{t("app.the_edited_turn_was_removed_or_replaced")}</p><ChatTextarea aria-label={t("app.unsaved_turn_edit")} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><button onClick={() => setEdit(null)}>{t("app.close_edit")}</button></div></div>}
-        </div>{(awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}</div>
+        </div><div className="transcript-overlays">
+          {(awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}
+          {preparing && !active && <div className="memory-preparation-status" role="status">{t("app.preparing_memory")}</div>}
+        </div></div>
         {!active && pending && <div className="recovery" role="status"><div><strong>{t("app.last_turn_is_still_pending")}</strong><p>{latest?.status === 'cancelled' ? t("app.response_cancelled_generate_response_before_next_turn") : (latest?.errorMessage ? formatMessage(latest.errorMessage) : latest?.error) ?? t("app.generate_response_before_next_turn")}</p>{partial && <small>{t("app.partial_text_is_preserved_for_inspection_it")}</small>}</div><button className="secondary" disabled={busy || working || authorNote.pending} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: newId() }))}>{t("app.retry_response")}</button></div>}
         {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{(latest.errorMessage ? formatMessage(latest.errorMessage) : latest.error) ?? t("app.regeneration_did_not_finish_try_again")}</p>}
         {drafts.needsReview && <div className="recovery" role="alert"><p>{t("app.this_browser_draft_predates_a_backup_import")}</p><button onClick={drafts.review}>{t("app.use_recovered_draft")}</button></div>}
@@ -622,7 +625,7 @@ export function App() {
     </section></ChatWorkspace>}
     {peek && <PromptPeek stale={memoryStale} request={inspectionCurrent ? preview.request : null} error={inspectionError} retry={preview.retry} close={() => setPeek(false)} />}
     {authorNoteOpen && tab === 'story' && snapshot && authorNote.draft && <AuthorNoteDialog key={snapshot.id} note={authorNote.draft} editor={authorNote.editor}
-      locked={working || busy || dataChanged} missingMessages={!hasPromptMarker(snapshot.sources.prompt, 'messages')}
+      locked={working || busy || dataChanged} preparing={Boolean(preparing)} missingMessages={!hasPromptMarker(snapshot.sources.prompt, 'messages')}
       saving={authorNote.saving} error={authorNote.error} storageError={authorNote.storageError} close={() => setAuthorNoteOpen(false)} />}
 
   </div></ChatDetailsTarget.Provider>;
@@ -631,11 +634,14 @@ export function App() {
 function Login({ session, onLogin }: { session: Session; onLogin: () => Promise<void> }) {
   useLocale();
   const [password, setPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const passwordId = useId();
+  useEffect(() => { setPasswordVisible(false); }, [session.setupRequired]);
   const [error, setError] = useTextState('');
   const [busy, setBusy] = useState(false);
   return <main className="login"><div className="login-card"><span className="brand-mark">{t("app.o")}</span><h1>{session.setupRequired ? t("app.your_stories_start_here") : t("app.welcome_back")}</h1>{session.setupRequired && <p>{t("app.create_the_owner_password_on_the_server")}</p>}<form onSubmit={async (event) => {
     event.preventDefault(); setBusy(true); setError('');
-    try { await api(session.setupRequired ? '/setup' : '/login', 'POST', { password }); setPassword(''); await onLogin(); }
+    try { await api(session.setupRequired ? '/setup' : '/login', 'POST', { password }); setPassword(''); setPasswordVisible(false); await onLogin(); }
     catch (error) { setError(errorText(error, msg("app.could_not_sign_in"))); } finally { setBusy(false); }
-  }}><label>{t("app.owner_password")}<input type="password" required minLength={12} maxLength={256} autoComplete={session.setupRequired ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <p role="alert">{error}</p>}<button disabled={busy}>{busy ? t("app.opening") : session.setupRequired ? t("app.create_owner_account") : t("app.sign_in")}</button></form></div></main>;
+  }}><label htmlFor={passwordId}>{t("app.owner_password")}</label><div className="password-input-row"><input id={passwordId} type={passwordVisible ? 'text' : 'password'} required minLength={12} maxLength={256} autoComplete={session.setupRequired ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="secondary" aria-label={t(passwordVisible ? "app.hide_password" : "app.show_password")} title={t(passwordVisible ? "app.hide_password" : "app.show_password")} onClick={() => setPasswordVisible(value => !value)}><Icon name={passwordVisible ? "EyeOffOutline" : "EyeOutline"} /></button></div>{error && <p role="alert">{error}</p>}<button disabled={busy}>{busy ? t("app.opening") : session.setupRequired ? t("app.create_owner_account") : t("app.sign_in")}</button></form></div></main>;
 }

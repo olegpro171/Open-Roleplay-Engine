@@ -87,7 +87,7 @@ Maintain English and Russian in the same change whenever interface meaning chang
 | Summary | Сводка | Saved narrative representation of sources |
 | Prepare chat / repair summaries | Подготовить чат / исправить сводки | Budget preparation / reviewed dependency repair |
 | Verbatim / archived | Дословно / архив | Original text in input / represented through memory |
-| Retained alternative | Сохранённая альтернатива | Saved but not active in model input |
+| Archived / inactive | Архив / неактивно | Timeline legend for archived original turns and saved summaries not active in model input |
 | Promotion | Объединение на следующем уровне | Compress a fixed group of summaries |
 | Stale / fresh | Устарело / актуально | Structural dependency freshness, not factual quality |
 

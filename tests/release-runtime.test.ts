@@ -35,6 +35,20 @@ it('keeps source development independent of a compiled image worker and validate
   expect(readdirSync(directory)).toEqual([]);
 });
 
+it.each([
+  ['22.12.0', false], ['22.13.1', false], ['22.14.0', true], ['24.0.0', true],
+])('checks runtime compatibility before touching saved data on Node %s', (version, supported) => {
+  const directory = temporary();
+  const code = `Object.defineProperty(process.versions, 'node', { value: ${JSON.stringify(version)} });
+    try { await import(${JSON.stringify(pathToFileURL(resolve('src/server/main.ts')).href)}); }
+    catch (error) { console.log(error.message); }`;
+  const result = execFileSync(process.execPath, ['--import', pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href, '--input-type=module', '-e', code], {
+    cwd: directory, env: { ...process.env, ROLEPLAY_PORT: 'invalid', ROLEPLAY_DATABASE: join(directory, 'unused.sqlite') }, encoding: 'utf8',
+  });
+  expect(result).toContain(supported ? 'ROLEPLAY_PORT must be an integer' : 'Use Node.js');
+  expect(readdirSync(directory)).toEqual([]);
+});
+
 it('exits cleanly if its launcher disconnects before startup completes', async () => {
   const directory = temporary(), database = join(directory, 'startup.sqlite');
   const reservation = createServer();

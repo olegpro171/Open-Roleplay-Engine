@@ -109,6 +109,8 @@ Request content is sent to your configured model endpoint and is subject to that
 
 Before changing the application, read [AGENTS.md](AGENTS.md), the [product contract](CONCEPTS.md), and the [architecture and development guide](IMPLEMENTATION.md). These documents link to detailed subsystem contracts. No separate contribution or issue-reporting process is required at this stage.
 
+For source development, use Node 24 or Node 22.14+ within major 22.
+
 ```sh
 npm run build     # Typecheck and build
 npm test          # Core/server/persistence tests

@@ -148,7 +148,7 @@ Literal key editors split commas and line breaks together, trimming/ignoring emp
 
 ## Chat Author's notes
 
-Each chat owns an independent note, separate from character cards and reusable presets. Open **Chat details → Author’s note**, directly below **Inspect memory**. The popup uses the Yandex TagOutline icon, a multiline textbox, depth and the shared custom role dropdown. New/older chats without a saved note start with empty text, depth 2 and System role. Text is limited to 100,000 characters; depth is an integer from 0 through 1,000. System, User and Assistant roles are supported. Only valid depths save; leaving an invalid depth field restores its last valid value. The role menu stays inside the modal; Escape closes an open menu before closing the popup.
+Each chat owns an independent note, separate from character cards and reusable presets. Open **Chat details → Author’s note**, directly below **Inspect memory**. The popup uses the Yandex TagOutline icon, a multiline textbox, depth and the shared custom role dropdown. New/older chats without a saved note start with empty text, depth 0 and System role. Existing saved depth values are preserved. Text is limited to 100,000 characters; depth is an integer from 0 through 1,000. System, User and Assistant roles are supported. Only valid depths save; leaving an invalid depth field restores its last valid value. The role menu stays inside the modal; Escape closes an open menu before closing the popup.
 
 ### Placement and input
 

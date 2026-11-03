@@ -45,7 +45,7 @@ for (const width of [1280, 390]) test(`autosaves the per-chat note and sends it 
   const send = page.getByRole('button', { name: 'Send', exact: true });
   await composer.fill('Continue the scene.');
   const dialog = await openNote(page);
-  await expect(dialog.getByLabel('Depth', { exact: true })).toHaveValue('2');
+  await expect(dialog.getByLabel('Depth', { exact: true })).toHaveValue('0');
   const role = dialog.getByRole('combobox', { name: 'Role', exact: true });
   await expect(role).toHaveText('system');
   await role.click();

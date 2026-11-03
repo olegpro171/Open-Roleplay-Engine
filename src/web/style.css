@@ -222,13 +222,19 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .author-note-dialog textarea{min-height:240px;max-height:50dvh;resize:vertical}
 .author-note-controls{display:flex;gap:18px;margin:18px 0}
 .author-note-controls>label{width:140px;min-width:0}
+.author-note-dialog .warning-banner,.author-note-dialog .error-banner{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:0 0 16px;padding:12px 14px;border:1px solid var(--danger-border);border-radius:8px;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.author-note-dialog .warning-banner,.author-note-dialog .author-note-save-delay{background:var(--warning-surface);border-color:var(--warning-border);color:var(--warning-text)}
+.author-note-dialog .error-banner>p{flex:1;min-width:0;margin:0}
+.author-note-dialog .error-banner>button{flex-shrink:0}
+
 @media(max-width:800px){.peek-content{padding-top:0}.peek-heading{padding-top:18px}}
 
 /* The scroll hook preserves the reading position during viewport resize. */
 .transcript-frame{position:relative;display:flex;flex:1;min-height:0;min-width:0}
 .transcript{min-height:0;overflow-anchor:none}
 .history-page-control{display:flex;justify-content:center;align-items:center;min-height:64px;padding:8px 0}
-.latest-turn{position:absolute;right:24px;bottom:14px;font-size:12px;box-shadow:0 4px 16px var(--shadow)}
+.transcript-overlays{position:absolute;z-index:2;left:24px;right:24px;bottom:14px;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
+.latest-turn{align-self:flex-end;pointer-events:auto;font-size:12px;box-shadow:0 4px 16px var(--shadow)}
 .composer{--composer-control-height:44px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:10px 14px}
 .composer textarea{min-height:var(--composer-control-height);line-height:calc(22px * var(--chat-text-scale,1));resize:none;overflow-y:auto}
 .composer .send-turn{display:inline-flex;align-items:center;justify-content:center;width:var(--composer-control-height);height:var(--composer-control-height);padding:0}
@@ -237,7 +243,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .composer textarea:focus-visible{outline:none}
 .composer-ios .send-turn{border-radius:50%}
 .send-icon{display:block;width:22px;height:22px;background:currentColor;mask:url("./assets/send-one-svgrepo-com.svg") center/contain no-repeat}
-.memory-preparation-status{position:absolute;z-index:2;top:12px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);padding:7px 12px;border:1px solid var(--line);border-radius:18px;background:var(--surface);color:var(--muted);font-size:11px;box-shadow:0 2px 8px var(--shadow-soft);pointer-events:none}
+.memory-preparation-status{max-width:100%;padding:7px 12px;border:1px solid var(--line);border-radius:18px;background:var(--surface);color:var(--muted);font-size:11px;box-shadow:0 2px 8px var(--shadow-soft)}
 .request-details[open]>summary{margin-bottom:22px}
 .timeline-layout{display:grid;grid-template-columns:36px minmax(0,1fr);margin-top:26px}
 .timeline-labels{position:relative;color:var(--muted);font-size:11px}
@@ -245,7 +251,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .timeline-labels>.turn-layer-label{bottom:2px;height:22px;font-size:9px}
 .turn-tick.turn-band{border:0;min-width:1px}
 .timeline-tooltip{position:fixed;z-index:200;pointer-events:none;transform:translateX(-50%);width:max-content;max-width:270px;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;background:var(--tooltip-bg);color:var(--text);font-size:12px;box-shadow:0 4px 14px var(--shadow)}
-@media(max-width:800px){.composer{column-gap:10px}.latest-turn{right:18px}}
+@media(max-width:800px){.composer{column-gap:10px}.transcript-overlays{left:18px;right:18px}}
 @media(max-width:800px){.composer-ios{padding-left:max(26px,env(safe-area-inset-left));padding-right:max(26px,env(safe-area-inset-right));padding-bottom:max(28px,env(safe-area-inset-bottom))}}
 .composer-ios[data-keyboard-visible]{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right));padding-bottom:8px}
 @media(pointer:coarse) and (orientation:landscape){.composer textarea{font-size:calc(16px * var(--chat-text-scale,1))}}
@@ -704,3 +710,7 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .library-import-drop .ui-icon{width:32px;height:32px;pointer-events:none}
 .library-import-dialog p{margin:16px 0 0}
 .library-import-heading p{margin:8px 0 0}
+
+.password-input-row{display:flex;gap:8px;min-width:0}
+.password-input-row input{min-width:0;flex:1}
+.password-input-row button{flex:none;min-height:44px;padding:8px 12px}

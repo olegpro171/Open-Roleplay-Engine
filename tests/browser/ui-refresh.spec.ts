@@ -136,5 +136,5 @@ for (const width of [1280, 801, 800, 390, 320]) test(`automatically clears the s
   await page.screenshot({ path: test.info().outputPath(`server-warning-${width}.png`) });
   await page.context().setOffline(false);
   await expect(page.locator('.error-banner')).toHaveCount(0, { timeout: 10_000 });
-  await expect(page.locator('.connection-status')).toHaveText('Connected', { timeout: 10_000 });
+  await expect(page.locator('.connection-status')).toHaveAttribute('aria-label', 'Connected', { timeout: 10_000 });
 });
