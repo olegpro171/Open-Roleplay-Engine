@@ -1,3 +1,4 @@
+import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -204,7 +205,7 @@ it.each([false, true])('upgrades populated schema 10 atomically and preserves le
   }
   await f.reopen();
   const after = f.state();
-  expect(f.store.sqlite.pragma('user_version', { simple: true })).toBe(15);
+  expect(f.store.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion);
   expect(Object.fromEntries(tables.map(table => [table, legacyRows(f.store.sqlite, table)]))).toEqual(records);
   expect(after.turns.map(turn => ({ id: turn.id, complete: turn.complete, user: turn.user, text: turn.assistant.text, revision: turn.assistant.revision })))
     .toEqual(before.turns.map(turn => ({ id: turn.id, complete: turn.complete, user: turn.user, text: turn.assistant.text, revision: turn.assistant.revision })));

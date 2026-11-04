@@ -131,7 +131,7 @@ it('interrupts running work, discards unapproved repair candidates, and makes no
   db.replaceHistory(db.snapshot(chatId).revision,chatId,[{ user: 'The key changes hands.',assistant: 'Mara takes it.',complete: true }]);
   const snap = db.snapshot(chatId), nodeId = randomUUID(), jobId = randomUUID(), stepId = randomUUID();
   const node: SummaryNode = { id: nodeId,revision: 0,level: 1,text: 'UNAPPROVED_REPAIR_TEXT',turns: [],children: [],prior: [],approved: false,manual: false,createdAt: new Date().toISOString() };
-  db.sqlite.prepare('INSERT INTO summaries VALUES (?,?,?,?)').run(nodeId,0,chatId,JSON.stringify(node));
+  db.sqlite.prepare('INSERT INTO summaries (id,revision,chat_id,data) VALUES (?,?,?,?)').run(nodeId,0,chatId,JSON.stringify(node));
   const job: ContextJob = { id: jobId,chatId,status: 'awaiting_review',mode: 'repair',generationId: null,config: requireValue(snap.context.preset),sourceRevision: snap.revision,historyTurnIds: snap.turns.map(turn => turn.id),stepCount: 1,error: null,createdAt: '',updatedAt: '' };
   db.sqlite.prepare('INSERT INTO context_jobs VALUES (?,?,?,?,?)').run(jobId,chatId,randomUUID(),'{}',JSON.stringify(job));
   db.sqlite.prepare('INSERT INTO context_steps VALUES (?,?,?)').run(stepId,jobId,JSON.stringify({ id: stepId,jobId,operation: { level: 1,turnIds: [],children: [] },request: null,status: 'candidate',result: { id: nodeId,revision: 0 },before: { selected: [],archivedTurnIds: [] },after: null,inputBefore: 1,inputAfter: null,error: null,createdAt: '' }));

@@ -1,0 +1,103 @@
+import { readFile } from 'node:fs/promises';
+import { expect } from '@playwright/test';
+import { test } from './isolated-app';
+import { appearanceStatusSchema } from '../../src/shared/appearance';
+import type { StorySnapshot } from '../../src/shared/transcript';
+
+test('forks through a completed turn and downloads only the selected branch', async ({ page, browserApp }, testInfo) => {
+  async function openBranches() {
+    const button = page.getByRole('button', { name: 'Chat branches', exact: true });
+    if (!(await button.isVisible())) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
+    await button.click();
+  }
+  await page.goto('/');
+  await page.getByLabel('Owner password').fill('browser-synthetic-password');
+  await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Chat settings', exact: true })).toBeVisible();
+  const details = page.getByRole('complementary', { name: 'Current chat' });
+  const settingsIcon = await details.getByRole('button', { name: 'Chat settings' }).locator('svg').boundingBox();
+  const branchesIcon = await details.getByRole('button', { name: 'Chat branches' }).locator('svg').boundingBox();
+  expect(branchesIcon).toMatchObject({ width: settingsIcon?.width, height: settingsIcon?.height });
+  const story = await page.request.get('/api/chats/main/story').then(response => response.json() as Promise<StorySnapshot>);
+  const headers = { Origin: browserApp.url };
+  const saved = await page.request.put('/api/chats/main/history', { headers, data: {
+    revision: story.revision,
+    turns: [
+      { user: 'Do you see the lighthouse?', assistant: 'Yes. Its light is **green**.', complete: true },
+      { user: 'Later in the source', assistant: 'This event should stay in Main.', complete: true },
+    ],
+  } });
+  expect(saved.ok(), await saved.text()).toBe(true);
+  await page.getByLabel('Your next turn').fill('Draft for Main');
+  const sourceTurn = page.locator('article').filter({ hasText: 'Do you see the lighthouse?' });
+  await sourceTurn.getByRole('button', { name: 'Branch from here' }).click();
+  const fork = page.getByRole('dialog', { name: 'Branch through turn 1' });
+  await fork.getByLabel('Branch name').fill('Lighthouse');
+  await fork.getByRole('button', { name: 'Create branch' }).click();
+  await expect(page.getByText('Current branch · Lighthouse')).toBeVisible();
+  await expect(page.getByText('Later in the source')).toHaveCount(0);
+  await expect(page.getByLabel('Your next turn')).toHaveValue('');
+  await openBranches();
+  const manager = page.getByRole('dialog', { name: 'Chat branches' });
+  await manager.getByRole('searchbox', { name: 'Search branches' }).fill('LIGHT');
+  await expect(manager.getByPlaceholder('Search branches')).toHaveValue('LIGHT');
+  await expect(manager.getByRole('article')).toHaveCount(1);
+  const menu = manager.getByRole('menu');
+  async function openActions(name: string) {
+    await manager.getByRole('button', { name: `Actions for ${name}`, exact: true }).click();
+    await expect(menu).toBeVisible();
+  }
+  const button = menu.getByRole('menuitem', { name: 'Export chat as JSONL' });
+  for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+    const path = '/api/application/appearance';
+    const appearance = appearanceStatusSchema.parse(await page.request.get(path).then(response => response.json()));
+    expect((await page.request.put(path, { headers, data: { revision: appearance.revision, settings: { ...appearance.settings, theme } } })).ok()).toBe(true);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    for (const width of [1280, 801, 800, 390, 320]) {
+      await page.setViewportSize({ width, height: 850 });
+      expect((await manager.boundingBox())?.width).toBeLessThanOrEqual(640);
+      expect(await manager.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await openActions('Lighthouse');
+      await expect(button).toBeInViewport();
+      if (width === 1280 || width === 390) await page.screenshot({ path: testInfo.outputPath(`branches-${theme}-${width}.png`) });
+      await page.keyboard.press('Escape');
+      await expect(menu).toHaveCount(0);
+      await expect(manager.getByRole('button', { name: 'Actions for Lighthouse' })).toBeFocused();
+    }
+  }
+  await openActions('Lighthouse');
+  const download = page.waitForEvent('download');
+  await button.click();
+  const file = await download;
+  expect(file.suggestedFilename()).toMatch(/\.jsonl$/);
+  const path = await file.path();
+  if (!path) throw new Error('Missing transcript download');
+  const [metadata, user, assistant] = (await readFile(path, 'utf8')).trimEnd().split('\n').map(line => JSON.parse(line));
+  expect(metadata).toHaveProperty('chat_metadata');
+  expect(user).toMatchObject({ mes: 'Do you see the lighthouse?', is_user: true });
+  expect(assistant).toMatchObject({ mes: 'Yes. Its light is **green**.', is_user: false });
+  await manager.getByRole('searchbox').clear();
+  await openActions('Lighthouse');
+  await menu.getByRole('menuitem', { name: 'Rename branch' }).click();
+  await manager.getByLabel('Branch name').fill('Green lighthouse');
+  await manager.locator('form').getByRole('button', { name: 'Rename branch' }).click();
+  await openActions('Green lighthouse');
+  await menu.getByRole('menuitem', { name: 'Duplicate branch' }).click();
+  await manager.getByLabel('Branch name').fill('Copy of lighthouse');
+  await manager.getByRole('button', { name: 'Create branch' }).click();
+  await expect(page.getByText('Current branch · Copy of lighthouse')).toBeVisible();
+  await openBranches();
+  const duplicate = manager.getByRole('article').filter({ has: page.getByRole('button', { name: 'Copy of lighthouse', exact: true }) });
+  await openActions('Copy of lighthouse');
+  await menu.getByRole('menuitem', { name: 'Delete branch' }).click();
+  await manager.locator('form').getByRole('button', { name: 'Delete branch' }).click();
+  await expect(manager).toHaveCount(0);
+  await openBranches();
+  await expect(duplicate).toHaveCount(0);
+  await manager.getByRole('button', { name: 'Main', exact: true }).click();
+  await expect(page.getByText('Later in the source')).toBeVisible();
+  await expect(page.getByLabel('Your next turn')).toHaveValue('Draft for Main');
+  await openBranches();
+  await page.mouse.click(2, 2);
+  await expect(manager).toHaveCount(0);
+});

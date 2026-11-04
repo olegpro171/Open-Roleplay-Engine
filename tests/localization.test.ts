@@ -1,3 +1,5 @@
+import { removeBranchSchema } from './support/schema-15.js';
+import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { expectPrivateFile } from './support/private-file.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
@@ -305,7 +307,7 @@ it('upgrades populated schema 14 without rewriting legacy errors or historical r
   store.saveRequest(operation.id, historical);
   store.finish(operation.id, 'failed', '', 'Legacy error stays literal');
   const before = store.snapshot(); store.close();
-  const legacy = new Database(path); legacy.exec('ALTER TABLE generations DROP COLUMN error_message; PRAGMA user_version = 14'); legacy.close();
+  const legacy = new Database(path); removeBranchSchema(legacy); legacy.exec('ALTER TABLE generations DROP COLUMN error_message; PRAGMA user_version = 14'); legacy.close();
   store = new Store(path);
   try {
     const after = store.snapshot();
@@ -314,7 +316,7 @@ it('upgrades populated schema 14 without rewriting legacy errors or historical r
     expect(after.generations[0].errorMessage).toBeNull();
     expect(after.generations[0].request).toEqual(before.generations[0].request);
     expect(after.generations[0].request?.body.messages).toContainEqual({ role: 'user', content: 'Preserve this input' });
-    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(15);
+    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion);
   } finally { store.close(); }
 });
 

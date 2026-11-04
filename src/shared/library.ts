@@ -79,7 +79,7 @@ export type LibraryKind = 'personas' | 'characters' | 'prompts' | 'connections' 
 export type Saved<T> = T & { id: string; revision: number };
 export type PromptSources = { prompt: Saved<PromptPreset> | null; character: Saved<Character> | null; persona: Saved<Persona> | null; lorebook?: Saved<Lorebook> | null };
 export type LibraryDates = { createdAt: string | null; updatedAt: string | null };
-export type ChatSummary = LibraryDates & { lastMessageAt: string | null; id: string; title: string; characterId: string | null; revision: number; turnCount: number; running: boolean };
+export type ChatSummary = LibraryDates & { lastMessageAt: string | null; id: string; groupId?: string; branchName?: string | null; title: string; characterId: string | null; revision: number; turnCount: number; running: boolean };
 export type UnchangedLibrary = { unchanged: true; revision: number; chats: ChatSummary[] };
 export type LibrarySnapshot = {
   dates: Record<string, LibraryDates>;

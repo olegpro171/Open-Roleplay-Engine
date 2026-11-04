@@ -7,7 +7,7 @@ import { message } from '../shared/localization.js';
 type Source = { bytes: Buffer } | { path: string; cleanup: () => void };
 type Download = { owner: string; filename: string; source: Source; length: number; expires: number; readers: number };
 
-// Only completed ciphertext is retained, never passwords or plaintext snapshots.
+// Retain only completed attachments. Backup and Connection attachments are encrypted.
 export class Downloads {
   private readonly entries = new Map<string, Download>();
   private readonly timer: ReturnType<typeof setInterval>;

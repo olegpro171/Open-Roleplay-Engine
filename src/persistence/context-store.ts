@@ -90,6 +90,9 @@ export class ContextStore {
   sourceRequest(chatId: string, ref: SummaryRef): RequestPreview | null {
     const row = this.sqlite.prepare("SELECT context_steps.data FROM context_steps JOIN context_jobs ON context_jobs.id = context_steps.job_id WHERE context_jobs.chat_id = ? AND json_extract(context_steps.data, '$.result.id') = ? AND json_extract(context_steps.data, '$.result.revision') = ? AND json_type(context_steps.data, '$.request') = 'object' ORDER BY context_steps.rowid DESC LIMIT 1").get(chatId, ref.id, ref.revision) as JsonRow | undefined;
     if (row) return (JSON.parse(row.data) as ContextStep).request;
+    const inherited = this.sqlite.prepare('SELECT fork_source_request AS data FROM summaries WHERE chat_id = ? AND id = ? AND revision = ? AND fork_source_request IS NOT NULL')
+      .get(chatId, ref.id, ref.revision) as JsonRow | undefined;
+    if (inherited) return JSON.parse(inherited.data) as RequestPreview;
     const node = nodeFor(this.store.engineSnapshot(chatId).context, ref);
     return node?.basedOn ? this.sourceRequest(chatId, node.basedOn) : null;
   }

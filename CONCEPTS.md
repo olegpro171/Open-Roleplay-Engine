@@ -11,7 +11,8 @@ Read [IMPLEMENTATION.md](IMPLEMENTATION.md) for module ownership and development
 | Connection | Endpoint/protocol, credentials, model, physical limits, supported custom parameters |
 | Prompt preset | Ordered enabled text blocks and source markers, their roles and configuration |
 | Context preset | Reusable memory settings and extraction, compression and repair prompts; optional summarization Connection |
-| Chat | Character/Persona and preset selections, working input target, transcript, memory and operation state |
+| Chat | Shared title, Connection, Character/Persona, prompt and context selections, lorebook selection and working input target |
+| Branch | Transcript, response variants, Author’s note, memory and cutoff, lore activation, requests and operation state |
 | Character / Persona | Separate reusable records for the model's identity / user's identity |
 | Generation | Server-owned request assembly, transport, streaming and response persistence |
 | Product agent | A possible future auxiliary task with instructions, a Connection, conversation access, triggers and marker output; not a coding subagent |
@@ -67,9 +68,15 @@ Shared reusable edits affect future requests in selecting chats and retain exist
 
 New chat initially asks for Character and Persona, saves the character name as its title within the 100-character limit (or A new story), copies greetings/default lore, and opens Chat settings. Owner-level bookmarks choose new-chat Connection, Prompt and Context preset defaults. Installations without saved bookmarks start with the built-in Default prompt and Default context preset bookmarked; saved choices, including cleared bookmarks, are preserved. Clearing/deleting a choice restores the original fallback (first Connection/None, built-in Prompt, no Context preset). Defaults never alter existing chats. Existing chats keep their lorebook when Character changes. Any idle chat, including the final chat, may be deleted; do not recreate it on restart.
 
-JSONL replacement previews counts and atomically replaces only the selected chat's history and dependent variants/memory/request records, retaining its settings. Import active original messages even if foreign compaction flags hide them. Pair ordinary user/assistant messages; retain consecutive same-speaker messages as separate turns with empty opposite parts. Assistant-only openings and historical user-only turns are complete; only the final unmatched user input is pending. Reject unsupported system/group formats; never modify the source file.
+JSONL replacement previews counts and atomically replaces only the selected branch's history and dependent variants, memory and requests, retaining its settings and Author’s note. JSONL export downloads the selected branch’s full saved transcript, including archived original messages and selected responses. Import active original messages even if foreign compaction flags hide them. Pair ordinary user/assistant messages; retain consecutive same-speaker messages as separate turns with empty opposite parts. Assistant-only openings and historical user-only turns are complete; only the final unmatched user input is pending. Reject unsupported system/group formats; never modify the source file.
 
 Character/Persona Title / comment and Speech color are local metadata, excluded from model text and compatible exports. Local tag assignments are independent of preserved embedded card tags. Pictures are Character-only; they do not enter model input. Organization/presentation-only saves must not invalidate narrative memory or reset lore. Duplication copies local metadata and independent picture associations, sharing reusable lorebook/tag identities as specified.
+
+## Chat branches
+
+Every chat has at least one branch. Chat branches opens after Inspect memory and supports name search, selection, rename, duplicate, transcript export and deletion. The Chats library lists the chat once. Branch selection changes the current view and uses that branch's composer draft. Deleting a branch requires confirmation and leaves the other branches usable. Delete chat removes all branches and checks every branch's saved revision.
+
+Duplicate copies the committed story, memory, requests, current saved Author’s note and lore activation state. Branch from here copies the story through the chosen completed turn and the current saved note, then opens the new branch. An earlier fork copies only memory versions whose source turns and complete dependency chain remain in the fork. Omit crossing versions, including manual corrections, without review or changes to the source branch. Start fresh lore activation for an earlier fork. Reselect compatible saved memory using the current full input budget and prefer recent original turns within the existing coverage and correction rules. If saved memory is insufficient, leave ordinary preparation available. Neither copy operation starts a model request.
 
 ## Interface and recovery behavior
 
@@ -97,6 +104,6 @@ Failed checks/builds before live startup may visibly use a verified installed ap
 
 ## Open decisions and scope
 
-These remain open/future decisions, not tasks or permanent prohibitions: branching/earlier-turn regeneration, product agents/triggers, retrieval and scene detection, character-specific memory permissions, broad provider adaptation, multimedia/multiplayer/plugins, additional formats/bounded CHARX extraction, persona portraits/current-artwork PNG export, semantic authority for conflicting manual additions, handwritten memory with new coverage, accepting partial/empty generated responses, automatic restoration, future summary schemas/strategies, pruning/backup schedules, HTTPS provisioning, stronger local credential protection, signing/platform qualification, and optional startup at login.
+These remain open/future decisions, not tasks or permanent prohibitions: earlier-turn regeneration, product agents/triggers, retrieval and scene detection, character-specific memory permissions, broad provider adaptation, multimedia/multiplayer/plugins, additional formats/bounded CHARX extraction, persona portraits/current-artwork PNG export, semantic authority for conflicting manual additions, handwritten memory with new coverage, accepting partial/empty generated responses, automatic restoration, future summary schemas/strategies, pruning/backup schedules, HTTPS provisioning, stronger local credential protection, signing/platform qualification, and optional startup at login.
 
 Do not infer acceptance from an old proposal or implement an unresolved policy merely because related code exists. Ask only when the missing decision materially affects behavior, compatibility, preservation or scope. Current platform checks and real-model/device limits are summarized in README; synthetic fixtures do not establish semantic quality, pristine-machine installation or actual phone support.

@@ -1,3 +1,4 @@
+import { removeBranchSchema } from './support/schema-15.js';
 import { Readable } from 'node:stream';
 import { removeSortingSchema } from './support/legacy-sorting.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -95,6 +96,8 @@ describe('portable backup persistence',() => {
   });
 
   it.each([
+    { sourceEnding: 'LF', targetEnding: 'CRLF', version: 16 },
+    { sourceEnding: 'CRLF', targetEnding: 'LF', version: 16 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 15 },
     { sourceEnding: 'CRLF', targetEnding: 'LF', version: 15 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 14 },
@@ -125,6 +128,13 @@ describe('portable backup persistence',() => {
     const expectedTurns = source.snapshot(chatId).turns;
     const path = join(directory,'input.sqlite');
     writeFileSync(path,await bytes(sourceBackups));
+    if (version < 16) {
+      const legacy = new Database(path);
+      removeBranchSchema(legacy);
+      legacy.pragma('user_version = 15');
+      legacy.exec("UPDATE backup_metadata SET data = json_set(data, '$.schema', 15)");
+      legacy.close();
+    }
     if (version === 14) {
       const legacy = new Database(path);
       legacy.exec('ALTER TABLE generations DROP COLUMN error_message; PRAGMA user_version = 14');
@@ -273,6 +283,7 @@ describe('portable backup persistence',() => {
   it('supports migration from a populated schema-12 input without modifying its source',async () => {
     const db = store('old'), backups = service(db,'old'); const cid = character(db,'Old guide'), chatId = chat(db,cid,'Old story');
     const path = join(directory,'old-input.sqlite'); writeFileSync(path,await bytes(backups)); const old = new Database(path);
+    removeBranchSchema(old);
     removeSortingSchema(old);
     old.exec('DROP TABLE backup_metadata; DROP TABLE dataset_state; DROP TABLE data_commands; PRAGMA user_version = 12'); old.close(); const source = readFileSync(path);
     const review = await backups.inspect(Readable.from([source]), owner); expect(review.metadata).toBeNull(); expect(review.blockers).toEqual([]);

@@ -1,3 +1,4 @@
+import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { removeSortingSchema } from './support/legacy-sorting.js';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync, cpSync, appendFileSync } from 'node:fs';
@@ -43,7 +44,7 @@ it.each([false, true])('upgrades a populated schema 11 without rewriting existin
       } finally { old.close(); }
     }
     store = new Store(filename);
-    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(15);
+    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion);
     expect(store.snapshot()).toEqual(before);
     expect(store.generation(completed.id)?.reasoningText).toBe('');
     expect(store.generation(pending.id)?.reasoningText).toBe('');

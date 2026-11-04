@@ -10,6 +10,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { upgradeSingleBranches } from './branch-upgrade.js';
 import { savePreUpgradeSnapshot } from './schema-backup.js';
 import { databaseSchemaVersion } from '../shared/build-info.js';
 import { AppError } from '../core/errors.js';
@@ -39,6 +40,10 @@ import { characterImportResultSchema, tagPolicySchema, type TagPolicy, type Char
 import { upgradePrompt } from '../core/prompt-upgrade.js';
 import { cardInstructionFields, readCardInstruction, readCharacterDepthPrompt } from '../shared/card-instructions.js';
 import { authorNoteSchema, defaultAuthorNote, type AuthorNoteStatus } from '../shared/author-note.js';
+import { contextAtFork } from '../core/branch-context.js';
+import { copyBranchContent } from './branch-copy.js';
+import type { CopyBranch } from '../shared/branches.js';
+import type { ContextState } from '../shared/context.js';
 
 function parseImport<T>(parse: () => T): T {
   try { return parse(); }
@@ -260,22 +265,66 @@ export class Store {
         })();
         version = 15;
       }
-      if (version !== 15) throw new Error('Unsupported database schema version.');
+      if (version === 15) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0016_chat_branches.sql'), 'utf8'));
+          upgradeSingleBranches(this.sqlite);
+          this.sqlite.pragma('user_version = 16');
+        })();
+        version = 16;
+      }
+      if (version !== databaseSchemaVersion) throw new Error('Unsupported database schema version.');
       this.pictures = new PictureStore(this.sqlite, () => this.bumpLibrary());
       this.contexts = new ContextStore(this);
       this.tags = new TagStore(this.sqlite, expected => this.checkLibrary(expected), () => this.bumpLibrary());
       if (newDatabase) this.db.update(schema.library).set({ createdAt: new Date().toISOString() }).run();
-      if (newDatabase) this.db.insert(schema.chats).values({ id: 'main', revision: 0, settings: initialSettings }).onConflictDoNothing().run();
+      if (newDatabase) this.sqlite.transaction(() => this.insertChat('main', initialSettings))();
     } catch (error) {
       this.sqlite.prepare('DELETE FROM runtime_owner WHERE token = ?').run(this.ownerToken);
       this.sqlite.close(); throw error;
     }
   }
 
+  private insertChat(id: string, settings: ChatSettings) {
+    const { authorNote, ...shared } = settings;
+    this.db.insert(schema.chatGroups).values({ id, settings: shared }).run();
+    this.db.insert(schema.chats).values({ id, groupId: id, revision: 0, settings: { authorNote } }).run();
+  }
+  private chatRecords() {
+    return this.db.select({ row: schema.chats, group: schema.chatGroups }).from(schema.chats)
+      .innerJoin(schema.chatGroups, eq(schema.chats.groupId, schema.chatGroups.id));
+  }
+  private readChatRecord(record: { row: typeof schema.chats.$inferSelect; group: typeof schema.chatGroups.$inferSelect }) {
+    return { ...record.row, groupId: record.group.id, settings: { ...record.group.settings, authorNote: record.row.settings.authorNote } };
+  }
   private chat(chatId: string) {
-    const row = this.db.select({ id: schema.chats.id, revision: schema.chats.revision, settings: schema.chats.settings }).from(schema.chats).where(eq(schema.chats.id, chatId)).get();
+    const row = this.chatRecords().where(eq(schema.chats.id, chatId)).get();
     if (!row) throw new AppError(404, 'chat_not_found', message("errors.chat_not_found"));
-    return row;
+    return this.readChatRecord(row);
+  }
+  private chats() {
+    return this.chatRecords().all().map(row => this.readChatRecord(row));
+  }
+  private siblingIds(groupId: string) {
+    return this.db.select({ id: schema.chats.id }).from(schema.chats).where(eq(schema.chats.groupId, groupId)).all().map(row => row.id);
+  }
+  private saveSharedSettings(chatId: string, settings: ChatSettings) {
+    const previous = this.chat(chatId);
+    const siblings = this.siblingIds(previous.groupId);
+    for (const id of siblings) {
+      this.ensureIdle(id);
+      if (settings.contextPresetId === null && this.contexts.snapshot(id, null).archivedTurnIds.length) {
+        throw new AppError(409, 'restore_context_first', message("errors.clear_memory_in_memory_before_disabling_the_context"));
+      }
+    }
+    const { authorNote, ...shared } = settings;
+    this.db.update(schema.chatGroups).set({ settings: shared }).where(eq(schema.chatGroups.id, previous.groupId)).run();
+    this.db.update(schema.chats).set({ updatedAt: new Date().toISOString() }).where(eq(schema.chats.groupId, previous.groupId)).run();
+    this.db.update(schema.chats).set({ settings: { authorNote } }).where(eq(schema.chats.id, chatId)).run();
+    for (const id of siblings) {
+      if (settings.characterId !== previous.settings.characterId || settings.personaId !== previous.settings.personaId) this.resetLoreEpoch(id);
+      this.bumpRevision(id);
+    }
   }
   private selected<T>(id: string | null | undefined, kind: LibraryKind): Saved<T> | null {
     if (!id) return null;
@@ -313,7 +362,7 @@ export class Store {
     const connection = connectionId ? this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get()?.settings ?? null : null;
     const hasApiKey = Boolean(connectionId && this.db.select().from(schema.credentials).where(eq(schema.credentials.id, connectionId)).get()?.apiKey);
     return {
-      id: chatId, revision: chat.revision,
+      id: chatId, groupId: chat.groupId, branchName: chat.branchName, revision: chat.revision,
       settings: { ...chat.settings, lorebookId: chat.settings.lorebookId ?? null }, connection, hasApiKey,
       sources: {
         prompt: this.selected<PromptPreset>(chat.settings.promptId, 'prompts'),
@@ -417,7 +466,9 @@ export class Store {
     if (this.contexts.running(chatId)) throw new AppError(409, 'context_running', message("errors.stop_or_wait_for_memory_preparation_before_editing"));
   }
   bumpRevision(chatId = 'main') {
-    const revision = this.chat(chatId).revision + 1;
+    const row = this.db.select({ revision: schema.chats.revision }).from(schema.chats).where(eq(schema.chats.id, chatId)).get();
+    if (!row) throw new AppError(404, 'chat_not_found', message("errors.chat_not_found"));
+    const revision = row.revision + 1;
     this.db.update(schema.chats).set({ revision }).where(eq(schema.chats.id, chatId)).run();
     return revision;
   }
@@ -427,12 +478,17 @@ export class Store {
     this.ensureIdle();
   }
   private bumpLibrary() { this.sqlite.prepare('UPDATE library_state SET revision = revision + 1 WHERE id = 1').run(); }
-  private bumpAffected(kind: LibraryKind, id: string) {
+  private bumpAffected(kind: LibraryKind, id: string, exceptGroup?: string) {
     const key = kind === 'personas' ? 'personaId' : kind === 'characters' ? 'characterId' : kind === 'prompts' ? 'promptId' : kind === 'contexts' ? 'contextPresetId' : kind === 'lorebooks' ? 'lorebookId' : 'connectionId';
-    for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings[key] === id || (kind === 'connections' && (id === 'main' && chat.settings.connectionId === undefined || this.contextPreset(chat.settings.contextPresetId)?.connectionId === id))) this.bumpRevision(chat.id);
+    for (const chat of this.chats()) {
+      if (chat.groupId === exceptGroup) continue;
+      const usesConnection = kind === 'connections'
+        && ((id === 'main' && chat.settings.connectionId === undefined) || this.contextPreset(chat.settings.contextPresetId)?.connectionId === id);
+      if (chat.settings[key] === id || usesConnection) this.bumpRevision(chat.id);
+    }
   }
   private chatSummaries(): ChatSummary[] {
-    return this.db.select().from(schema.chats).all().map(chat => ({ id: chat.id, title: chat.settings.title, characterId: chat.settings.characterId ?? null, revision: chat.revision,
+    return this.chats().map(chat => ({ id: chat.id, groupId: chat.groupId, branchName: chat.branchName, title: chat.settings.title, characterId: chat.settings.characterId ?? null, revision: chat.revision,
       createdAt: chat.createdAt, updatedAt: chat.updatedAt,
       lastMessageAt: this.db.select({ date: sql<string | null>`max(${schema.turns.messageAt})` }).from(schema.turns).where(eq(schema.turns.chatId, chat.id)).get()?.date ?? null,
       turnCount: (this.sqlite.prepare('SELECT count(*) AS n FROM turns WHERE chat_id = ?').get(chat.id) as { n: number }).n,
@@ -458,7 +514,7 @@ export class Store {
       lorebooks: list<Lorebook>('lorebooks'),
       lorebookUses: list<Lorebook>('lorebooks').map(book => ({ bookId: book.id,
         characters: list<LibraryCharacter>('characters').filter(card => card.lorebookId === book.id).map(card => ({ id: card.id, name: card.name, ...(card.titleComment ? { titleComment: card.titleComment } : {}) })),
-        chats: this.db.select().from(schema.chats).all().filter(chat => chat.settings.lorebookId === book.id).map(chat => ({ id: chat.id, title: chat.settings.title })),
+        chats: this.db.select().from(schema.chatGroups).all().filter(chat => chat.settings.lorebookId === book.id).map(chat => ({ id: chat.id, title: chat.settings.title })),
       })),
       connections: this.db.select().from(schema.connections).all().map(r => ({ ...r.settings, id: r.id, revision: r.revision, hasApiKey: Boolean(this.db.select().from(schema.credentials).where(eq(schema.credentials.id, r.id)).get()?.apiKey) })),
       chats: this.chatSummaries(),
@@ -515,7 +571,7 @@ export class Store {
           if (depthPrompt !== undefined) instructions.depth_prompt = depthPrompt;
           const updated: LibraryCharacter = { ...this.promptCharacter(card), ...instructions, ...(alternate_greetings !== undefined ? { alternate_greetings } : {}), ...(lorebookId !== undefined ? { lorebookId } : {}), ...(titleComment ? { titleComment } : {}), ...(speechColor ? { speechColor } : {}) };
           data = updated;
-          if (previous && previous.name !== card.name) for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.characterId === identity) this.resetLoreEpoch(chat.id);
+          if (previous && previous.name !== card.name) for (const chat of this.chats()) if (chat.settings.characterId === identity) this.resetLoreEpoch(chat.id);
           if (old && previous && isDeepStrictEqual(this.comparableCharacter(previous), this.comparableCharacter(updated))) {
             const metadataChanged = !isDeepStrictEqual(old.data, data);
             if (metadataChanged) this.db.update(schema.library).set({ data }).where(eq(schema.library.id, identity)).run();
@@ -534,7 +590,7 @@ export class Store {
           const speechColor = persona.speechColor === undefined ? previous?.speechColor : persona.speechColor;
           const updated: LibraryPersona = { ...this.promptPersona(persona), ...(titleComment ? { titleComment } : {}), ...(speechColor ? { speechColor } : {}) };
           data = updated;
-          if (previous && previous.name !== updated.name) for (const chat of this.db.select().from(schema.chats).all()) if (chat.settings.personaId === identity) this.resetLoreEpoch(chat.id);
+          if (previous && previous.name !== updated.name) for (const chat of this.chats()) if (chat.settings.personaId === identity) this.resetLoreEpoch(chat.id);
           if (old && previous && isDeepStrictEqual(this.promptPersona(previous), this.promptPersona(updated))) {
             if (!isDeepStrictEqual(old.data, updated)) {
               this.db.update(schema.library).set({ data: updated, updatedAt: new Date().toISOString() }).where(eq(schema.library.id, identity)).run();
@@ -752,7 +808,7 @@ export class Store {
         const uses = this.libraries().lorebookUses.find(use => use.bookId === id);
         if (uses && (uses.characters.length || uses.chats.length)) throw new AppError(409, 'item_in_use', message("errors.this_lorebook_is_used_by_choose_none_or", { value: String([...uses.characters.map(card => `character “${characterLabel(card)}”`), ...uses.chats.map(chat => `chat “${chat.title}”`)].join(', ')) }));
       }
-      if (this.db.select().from(schema.chats).all().some(c => c.settings[key] === id || (kind === 'connections' && id === 'main' && c.settings.connectionId === undefined))) throw new AppError(409, 'item_in_use', message("errors.select_a_different_item_in_the_chats_using"));
+      if (this.chats().some(c => c.settings[key] === id || (kind === 'connections' && id === 'main' && c.settings.connectionId === undefined))) throw new AppError(409, 'item_in_use', message("errors.select_a_different_item_in_the_chats_using"));
       if (kind === 'connections') {
         if (this.libraries().contexts.some(preset => preset.connectionId === id)) throw new AppError(409, 'item_in_use', message("errors.a_context_preset_uses_this_summarization_connection_change"));
         this.db.delete(schema.credentials).where(eq(schema.credentials.id, id)).run();
@@ -775,7 +831,7 @@ export class Store {
       const card = this.selected<Character>(input.characterId, 'characters');
       const lorebookId = input.lorebookId === undefined ? card?.lorebookId ?? null : input.lorebookId;
       this.selected(lorebookId, 'lorebooks');
-      this.db.insert(schema.chats).values({ id, revision: 0, settings: { ...initialSettings, ...input, lorebookId } }).run();
+      this.insertChat(id, { ...initialSettings, ...input, lorebookId });
       const persona = this.selected<Persona>(input.personaId, 'personas');
       const alternateGreetings = readCharacterAlternateGreetings(card ?? {});
       if (!alternateGreetings.success) throw new AppError(422, 'invalid_alternate_greetings', message("errors.this_character_has_invalid_preserved_alternate_greetings_open"));
@@ -790,12 +846,9 @@ export class Store {
   updateChat(expected: number, chatId: string, input: ReturnType<typeof selectionsSchema.parse>) {
     this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId); this.ensureIdle(chatId); this.validateSelections(input);
-      if (input.contextPresetId === null && this.contexts.snapshot(chatId, null).archivedTurnIds.length) throw new AppError(409, 'restore_context_first', message("errors.clear_memory_in_memory_before_disabling_the_context"));
       const previous = this.chat(chatId).settings;
-      if (input.characterId !== previous.characterId || input.personaId !== previous.personaId) this.resetLoreEpoch(chatId);
       const settings = { ...previous, ...input, instructions: '', character: '', persona: '' };
-      this.db.update(schema.chats).set({ settings, updatedAt: new Date().toISOString() }).where(eq(schema.chats.id, chatId)).run();
-      this.bumpRevision(chatId);
+      this.saveSharedSettings(chatId, settings);
       // Lorebook usage labels and links are cached with the library revision.
       if (settings.title !== previous.title || settings.lorebookId !== previous.lorebookId) this.bumpLibrary();
     })();
@@ -812,16 +865,89 @@ export class Store {
       const chat = this.chat(chatId);
       const previous = chat.settings.authorNote ?? defaultAuthorNote;
       if (isDeepStrictEqual(previous, note)) return this.authorNote(chatId);
-      this.db.update(schema.chats).set({ settings: { ...chat.settings, authorNote: note }, updatedAt: new Date().toISOString() })
+      this.db.update(schema.chats).set({ settings: { authorNote: note }, updatedAt: new Date().toISOString() })
         .where(eq(schema.chats.id, chatId)).run();
       this.bumpRevision(chatId);
       return this.authorNote(chatId);
     })();
   }
-  deleteChat(expected: number, chatId: string) {
+  deleteChat(expected: number, chatId: string, branches?: { id: string; revision: number }[]) {
     this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId); this.ensureIdle(chatId);
-      this.db.delete(schema.chats).where(eq(schema.chats.id, chatId)).run(); this.bumpLibrary();
+      const { groupId } = this.chat(chatId);
+      const siblings = this.siblingIds(groupId);
+      if (siblings.length > 1 || branches !== undefined) {
+        const revisions = new Map(branches?.map(branch => [branch.id, branch.revision]));
+        if (revisions.size !== siblings.length || siblings.some(id => revisions.get(id) !== this.chat(id).revision)) {
+          throw new AppError(409, 'branch_list_changed', message('branches.delete_stale'));
+        }
+      }
+      for (const id of siblings) this.ensureIdle(id);
+      this.db.delete(schema.chatGroups).where(eq(schema.chatGroups.id, groupId)).run();
+      this.bumpLibrary();
+    })();
+  }
+  private checkBranchIdle(chatId: string) {
+    this.ensureIdle(chatId);
+    if (this.sqlite.prepare("SELECT 1 FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) {
+      throw new AppError(409, 'repair_awaits_review', message('errors.approve_or_discard_the_existing_repair_candidate_before'));
+    }
+  }
+  forkSource(chatId: string, input: CopyBranch): { snapshot: EngineSnapshot; earlier: boolean } {
+    this.checkRevision(input.revision, chatId);
+    this.checkBranchIdle(chatId);
+    const snapshot = this.engineSnapshot(chatId);
+    if (!input.through) return { snapshot, earlier: false };
+    const position = snapshot.turns.findIndex(turn => turn.id === input.through && turn.complete);
+    if (position < 0) throw new AppError(409, 'fork_turn_unavailable', message('branches.turn_unavailable'));
+    if (position === snapshot.turns.length - 1) return { snapshot, earlier: false };
+    const turns = snapshot.turns.slice(0, position + 1);
+    return { earlier: true, snapshot: { ...snapshot, turns, context: contextAtFork(snapshot.context, turns), loreState: { epoch: 0, entries: {} } } };
+  }
+  private branchCommand(chatId: string, input: CopyBranch) {
+    return JSON.stringify({ chatId, name: input.name, through: input.through ?? null });
+  }
+  copiedBranch(chatId: string, input: CopyBranch) {
+    const row = this.sqlite.prepare('SELECT command, result FROM branch_commands WHERE id = ?').get(input.requestId);
+    if (row === undefined) return null;
+    const record = z.object({ command: z.string(), result: z.string() }).parse(row);
+    if (record.command !== this.branchCommand(chatId, input)) throw new AppError(409, 'request_id_conflict', message('errors.that_request_identity_was_already_used_for_a'));
+    return record.result;
+  }
+  commitBranch(chatId: string, input: CopyBranch, source: ReturnType<Store['forkSource']>, state: ContextState) {
+    return this.sqlite.transaction(() => {
+      const existing = this.copiedBranch(chatId, input);
+      if (existing) return existing;
+      this.checkRevision(input.revision, chatId);
+      this.checkBranchIdle(chatId);
+      const chat = this.chat(chatId);
+      const id = randomUUID();
+      this.db.insert(schema.chats).values({ id, groupId: chat.groupId, branchName: input.name,
+        revision: chat.revision, settings: { authorNote: chat.settings.authorNote } }).run();
+      copyBranchContent(this.sqlite, source.snapshot, id, state, source.earlier);
+      this.sqlite.prepare('INSERT INTO branch_commands VALUES (?, ?, ?)').run(input.requestId, this.branchCommand(chatId, input), id);
+      this.bumpLibrary();
+      return id;
+    })();
+  }
+  renameBranch(chatId: string, revision: number, name: string) {
+    this.sqlite.transaction(() => {
+      this.checkRevision(revision, chatId);
+      this.ensureIdle(chatId);
+      this.db.update(schema.chats).set({ branchName: name }).where(eq(schema.chats.id, chatId)).run();
+      this.bumpRevision(chatId);
+      this.bumpLibrary();
+    })();
+  }
+  deleteBranch(chatId: string, revision: number) {
+    return this.sqlite.transaction(() => {
+      this.checkRevision(revision, chatId);
+      this.checkBranchIdle(chatId);
+      const sibling = this.siblingIds(this.chat(chatId).groupId).find(id => id !== chatId);
+      if (!sibling) throw new AppError(409, 'last_branch', message('branches.last_branch'));
+      this.db.delete(schema.chats).where(eq(schema.chats.id, chatId)).run();
+      this.bumpLibrary();
+      return sibling;
     })();
   }
   private insertTurn(chatId: string, position: number, turn: ImportedTurn, alternatives: string[] = []) {
@@ -856,15 +982,16 @@ export class Store {
       this.selected(settings.promptId, 'prompts'); this.selected(settings.characterId, 'characters'); this.selected(settings.personaId, 'personas');
       this.contextPreset(settings.contextPresetId);
       this.selected(settings.lorebookId, 'lorebooks');
-      const previous = this.chat(chatId).settings;
-      if (settings.characterId !== previous.characterId || settings.personaId !== previous.personaId) this.resetLoreEpoch(chatId);
-      if (settings.contextPresetId === null && this.contexts.snapshot(chatId, null).archivedTurnIds.length) throw new AppError(409, 'restore_context_first', message("errors.clear_memory_in_memory_before_disabling_the_context"));
+      const { groupId, settings: previous } = this.chat(chatId);
       const connectionId = settings.connectionId ?? 'main';
       const old = this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get();
       this.db.insert(schema.connections).values({ id: connectionId, settings: connection, revision: (old?.revision ?? -1) + 1 }).onConflictDoUpdate({ target: schema.connections.id, set: { updatedAt: new Date().toISOString(), settings: connection, revision: (old?.revision ?? -1) + 1 } }).run();
       if (apiKey !== undefined) this.db.insert(schema.credentials).values({ id: connectionId, apiKey }).onConflictDoUpdate({ target: schema.credentials.id, set: { apiKey } }).run();
-      this.db.update(schema.chats).set({ updatedAt: new Date().toISOString(), settings: { ...settings, authorNote: settings.authorNote ?? previous.authorNote, connectionId, lorebookId: settings.lorebookId === undefined ? previous.lorebookId ?? null : settings.lorebookId, contextPresetId: settings.contextPresetId === undefined ? previous.contextPresetId ?? null : settings.contextPresetId } }).where(eq(schema.chats.id, chatId)).run();
-      this.bumpAffected('connections', connectionId); this.bumpLibrary();
+      this.saveSharedSettings(chatId, { ...settings, authorNote: settings.authorNote ?? previous.authorNote, connectionId,
+        lorebookId: settings.lorebookId === undefined ? previous.lorebookId ?? null : settings.lorebookId,
+        contextPresetId: settings.contextPresetId === undefined ? previous.contextPresetId ?? null : settings.contextPresetId });
+      this.bumpAffected('connections', connectionId, groupId);
+      this.bumpLibrary();
     })();
   }
   begin(expected: number, requestId: string, text?: string, chatId = 'main'): { id: string; fresh: boolean } {

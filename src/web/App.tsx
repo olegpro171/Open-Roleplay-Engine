@@ -1,3 +1,4 @@
+import { ChatBranches } from './ChatBranches';
 import { applyTheme } from './theme';
 import { stateLabel } from './localization-labels';
 import type { MessageText } from './localization';
@@ -123,8 +124,9 @@ export function App() {
   const [edit, setEdit] = useState<Edit | null>(null);
   const editForm = useRef<HTMLFormElement>(null);
   const [peek, setPeek] = useState(false);
+  const [branchDialog, setBranchDialog] = useState<{ through?: { id: string; ordinal: number } } | null>(null);
   const [authorNoteOpen, setAuthorNoteOpen] = useState(false);
-  useEffect(() => { setAuthorNoteOpen(false); }, [chatId, tab]);
+  useEffect(() => { setAuthorNoteOpen(false); setBranchDialog(null); }, [chatId, tab]);
   const [contextExpanded, setContextExpanded] = useState(false);
   const [chatDetailsTarget, setChatDetailsTarget] = useState<HTMLDivElement | null>(null);
   const [generationId, setGenerationId] = useState('');
@@ -177,7 +179,10 @@ export function App() {
         if (!cached || cached.revision !== update.revision) throw new LocalizedError(msg("app.library_refresh_has_no_matching_saved_version"));
         items = { ...cached, chats: update.chats };
       } else items = update;
-      const selected = items.chats.find(chat => chat.id === chatId)?.id ?? items.chats[0]?.id ?? null;
+      const previousGroup = snapshotRef.current?.groupId;
+      const selected = items.chats.find(chat => chat.id === chatId)?.id
+        ?? (previousGroup ? items.chats.find(chat => chat.groupId === previousGroup)?.id : undefined)
+        ?? items.chats[0]?.id ?? null;
       const current = forceLatest.current ? null : snapshotRef.current;
       const keepWindow = current?.id === selected && (current.page.hasNewer || !followingLatest() || Boolean(editRef.current));
       const parameters = new URLSearchParams({ limit: String(current?.id === selected ? Math.max(transcriptInitialSize, current.page.turns.length) : transcriptInitialSize) });
@@ -485,6 +490,7 @@ export function App() {
     setTab(destination);
     setEdit(null);
     setPeek(false);
+    setBranchDialog(null);
     setGenerationId('');
     if (snapshotRef.current?.id !== id) {
       snapshotRef.current = null;
@@ -499,6 +505,8 @@ export function App() {
   const selectedCharacterName = selectedCharacter?.name ?? snapshot?.sources.character?.name ?? t("app.character");
   const selectedPersonaName = selectedPersona?.name ?? snapshot?.sources.persona?.name ?? t("app.you");
 
+  const activeBranch = library.chats.find(branch => branch.id === snapshot?.id);
+  const chatBranches = activeBranch ? library.chats.filter(branch => (branch.groupId ?? branch.id) === (activeBranch.groupId ?? activeBranch.id)) : [];
   const sidebar = snapshot && <>
         <p className="eyebrow">{t("app.current_chat")}</p>
         {appearance.settings.displayCharacterPicture && <ChatCharacterPortrait key={`${snapshot.id}:${selectedCharacterPicture?.key ?? ''}`} picture={selectedCharacterPicture} />}
@@ -534,10 +542,12 @@ export function App() {
     {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} navigation actions={<>
         <button className="quiet chat-navigation-action" aria-label={t("app.chat_settings")} onClick={() => setTab('settings')}><Icon name="Settings" />{t("app.chat_settings_2", { value: snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : '' })}</button>
         <button className="quiet chat-navigation-action" onClick={() => setTab('memory')}><Icon name="List" />{t("app.inspect_memory")}</button>
+        <button className="quiet chat-navigation-action" aria-haspopup="dialog" onClick={() => setBranchDialog({})}><Icon name="GitBranch" />{t("branches.title")}</button>
         <button className="quiet chat-navigation-action" onClick={() => setAuthorNoteOpen(true)}><Icon name="TagOutline" />{t('author_note.title')}</button>
         <button className="quiet chat-navigation-action" onClick={() => setTab('request')}><Icon name="Menu" />{t("app.request_inspector")}</button>
       </>}>
       <section className="conversation" aria-label={t("app.conversation")}>
+        {activeBranch && (chatBranches.length > 1 || activeBranch.branchName) && <p className="small muted current-branch-label">{t('branches.current')} · {activeBranch.branchName ?? t('branches.main')}</p>}
         {Boolean(snapshot.memory.refusalCount) && <div className="recovery" role="status"><div><strong>{t('refusals.notice', { count: snapshot.memory.refusalCount })}</strong></div><button className="secondary" onClick={() => setTab('memory')}>{t('refusals.review')}</button></div>}
         {memoryStale && !snapshot.memory.refusalCount && <div className="recovery" role="status"><div><strong>{t("app.memory_needs_review")}</strong><p>{t("app.archived_history_changed_repair_the_affected_summaries")}</p></div><button className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button></div>}
         {pageError && <div className="recovery" role="alert">{pageError}<button className="secondary" onClick={() => setPageError('')}>{t("app.dismiss")}</button></div>}
@@ -569,6 +579,7 @@ export function App() {
               </div>}
             </div>)}
             <TurnControls turn={turn} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}
+              fork={turn.complete ? { disabled: authorNote.pending, open: () => setBranchDialog({ through: { id: turn.id, ordinal: turn.ordinal } }) } : undefined}
               action={generating
                 ? { kind: 'cancel', disabled: busy, run: () => void command(() => api(`/generations/${active.id}/cancel`, 'POST', {})) }
                 : turn.complete && turn.id === snapshot.latestTurn?.id && snapshot.connection
@@ -623,6 +634,9 @@ export function App() {
       {shownGeneration?.usage && <p className="small">{t("app.provider_reported_input_output_tokens", { value: shownGeneration.usage.inputTokens.toLocaleString(locale()), value2: shownGeneration.usage.outputTokens.toLocaleString(locale()) })}</p>}
       {shownRequest && <>{shownRequest.warnings?.map((warning, index) => <p role="status" key={warning}>{formatMessage(shownRequest.warningMessages?.[index] ?? warning)}</p>)}<div className="budget"><strong>{t("app.estimated_input_2", { value: shownRequest.budget.inputTokens.toLocaleString(locale()), value2: shownRequest.budget.targetInputTokens.toLocaleString(locale()) })}</strong><InputMeter input={shownRequest.budget.inputTokens} limit={Math.min(shownRequest.budget.targetInputTokens, shownRequest.budget.contextWindow - shownRequest.budget.reservedOutputTokens)} /><span>{t("app.reserved_output_model_window", { value: shownRequest.budget.reservedOutputTokens.toLocaleString(locale()), value2: shownRequest.budget.contextWindow.toLocaleString(locale()) })}</span></div>{shownRequest.layout && <BudgetBreakdown request={shownRequest} />}<LoreInspection request={shownRequest} historical={Boolean(generationId)} /><details className="request-details"><summary>{t("app.endpoint_and_request_body")}</summary><h2>{t("app.endpoint")}</h2><pre>{shownRequest.endpoint}</pre><h2>{t("app.request_body")}</h2><pre data-testid="request-body">{JSON.stringify(shownRequest.body, null, 2)}</pre></details><details><summary>{t("app.turn_identities_and_source_revisions")}</summary><pre>{JSON.stringify(shownRequest.coverage, null, 2)}</pre></details></>}
     </section></ChatWorkspace>}
+    {branchDialog && activeBranch && tab === 'story' && <ChatBranches current={{ ...activeBranch, revision: snapshot?.revision ?? activeBranch.revision }}
+      branches={chatBranches} fork={branchDialog.through} locked={authorNote.pending} close={() => setBranchDialog(null)}
+      open={id => openChat(id)} refresh={refresh} />}
     {peek && <PromptPeek stale={memoryStale} request={inspectionCurrent ? preview.request : null} error={inspectionError} retry={preview.retry} close={() => setPeek(false)} />}
     {authorNoteOpen && tab === 'story' && snapshot && authorNote.draft && <AuthorNoteDialog key={snapshot.id} note={authorNote.draft} editor={authorNote.editor}
       locked={working || busy || dataChanged} preparing={Boolean(preparing)} missingMessages={!hasPromptMarker(snapshot.sources.prompt, 'messages')}

@@ -1,3 +1,4 @@
+import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { rowSchema } from '../src/persistence/backup-validation.js';
 import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -31,7 +32,7 @@ async function image() { const p = new PictureProcessor(); processors.push(p); r
 function withPicture(command: CharacterSaveCommand, image: PreparedPicture): CharacterSaveCommand { return { ...command, picture: { mode: 'replace', base64: image.original.toString('base64'), crop: image.crop } }; }
 function rows(store: Store, excluded = ['runtime_owner', 'library_state', 'character_pictures', 'picture_assets'], legacy = false) {
   const tables = store.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[];
-  return Object.fromEntries(tables.filter(table => !excluded.includes(table.name) && (!legacy || table.name !== 'response_variants')).map(table => [table.name, legacy ? legacyRows(store.sqlite, table.name) : store.sqlite.prepare(`SELECT * FROM "${table.name}" ORDER BY rowid`).all()]));
+  return Object.fromEntries(tables.filter(table => !excluded.includes(table.name) && (!legacy || !['response_variants', 'chat_groups', 'branch_commands'].includes(table.name))).map(table => [table.name, legacy ? legacyRows(store.sqlite, table.name) : store.sqlite.prepare(`SELECT * FROM "${table.name}" ORDER BY rowid`).all()]));
 }
 
 it('keeps whole PNG artwork, JSON bytes and expanded/base64 metadata limits independent', async () => {
@@ -155,7 +156,7 @@ describe('migration 10', () => {
       expect(() => new Store(path)).toThrow('synthetic upgrade failure'); const db = new Database(path);
       expect(db.pragma('user_version', { simple: true })).toBe(9); expect(db.prepare("SELECT name FROM sqlite_master WHERE name='picture_assets'").get()).toBeUndefined(); expect(db.prepare('SELECT revision FROM library_state').get()).toEqual({ revision }); db.exec('DROP TRIGGER reject_picture_migration'); db.close();
     }
-    store = open(path); expect(store.sqlite.pragma('user_version', { simple: true })).toBe(15); expect(rows(store, undefined, true)).toEqual(before); expect(store.pictures.list()).toEqual([]); expect(store.libraryRevision()).toBe(revision + 2);
+    store = open(path); expect(store.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion); expect(rows(store, undefined, true)).toEqual(before); expect(store.pictures.list()).toEqual([]); expect(store.libraryRevision()).toBe(revision + 2);
     const saved = store.libraries(); store.close(); store = open(path); expect(store.libraries()).toEqual(saved);
   });
 });

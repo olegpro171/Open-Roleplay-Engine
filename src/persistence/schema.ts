@@ -9,11 +9,17 @@ const libraryDates = () => ({
   updatedAt: text('updated_at'),
 });
 
+export const chatGroups = sqliteTable('chat_groups', {
+  id: text('id').primaryKey(),
+  settings: text('settings', { mode: 'json' }).$type<Omit<ChatSettings, 'authorNote'>>().notNull(),
+});
 export const chats = sqliteTable('chats', {
   id: text('id').primaryKey(), revision: integer('revision').notNull(),
   ...libraryDates(),
-  settings: text('settings', { mode: 'json' }).$type<ChatSettings>().notNull(),
-});
+  settings: text('settings', { mode: 'json' }).$type<Pick<ChatSettings, 'authorNote'>>().notNull(),
+  groupId: text('group_id').references(() => chatGroups.id, { onDelete: 'cascade' }),
+  branchName: text('branch_name'),
+}, table => [index('chats_group').on(table.groupId)]);
 export const connections = sqliteTable('connections', {
   ...libraryDates(),
   id: text('id').primaryKey(), settings: text('settings', { mode: 'json' }).$type<Connection>().notNull(),

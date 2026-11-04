@@ -16,6 +16,9 @@ import { backupLimits, backupTables, type BackupTable, type BackupReview, type B
 import { AppError, BackupValidationError } from '../core/errors.js';
 import { isProtectedFile, protectedPayloadMaxBytes, protectFile, unprotectFile, validateFilePassword } from './protected-files.js';
 
+import { prepareTranscriptExport } from './transcript-export.js';
+import { upgradeSingleBranches } from '../persistence/branch-upgrade.js';
+
 const masterSchema = z.array(z.object({ type: z.string(), name: z.string(), tbl_name: z.string(), sql: z.string().nullable() }));
 const schemaEntries = (db: Database.Database) => masterSchema.parse(db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name").all());
 // SQLite retains migration-file line endings; platform checkout settings can differ.
@@ -29,6 +32,7 @@ export class BackupService {
   private readonly directory: string;
   private readonly template: Buffer;
   private readonly schema: ReturnType<typeof schemaEntries>;
+  private readonly schema15: ReturnType<typeof schemaEntries>;
   private readonly schema14: ReturnType<typeof schemaEntries>;
   private readonly legacySchema: ReturnType<typeof schemaEntries>;
   private readonly build = buildInfo().commit ?? 'unrecorded-development';
@@ -48,6 +52,14 @@ export class BackupService {
     try {
       this.template = factory.sqlite.serialize();
       this.schema = schemaEntries(factory.sqlite);
+      factory.sqlite.exec(`DROP INDEX chats_group;
+        DROP INDEX context_step_source_request;
+        ALTER TABLE summaries DROP COLUMN fork_source_request;
+        ALTER TABLE chats DROP COLUMN branch_name;
+        ALTER TABLE chats DROP COLUMN group_id;
+        DROP TABLE chat_groups;
+        DROP TABLE branch_commands;`);
+      this.schema15 = schemaEntries(factory.sqlite);
       factory.sqlite.exec('ALTER TABLE generations DROP COLUMN error_message');
       this.schema14 = schemaEntries(factory.sqlite);
       // Reconstruct exact shipped older table definitions for strict upload validation.
@@ -77,8 +89,8 @@ export class BackupService {
   }
   private validateSchema(db: Database.Database) {
     const version = db.pragma('user_version',{ simple: true });
-    if (version !== 12 && version !== 13 && version !== 14 && version !== databaseSchemaVersion) throw invalidBackup(`Unsupported database schema version ${String(version)}; supported versions are 12, 13, 14 and ${databaseSchemaVersion}.`);
-    const expected = (version === databaseSchemaVersion ? this.schema : version === 14 ? this.schema14 : this.legacySchema).filter(entry => version !== 12 || !['dataset_state','data_commands'].includes(entry.tbl_name));
+    if (version !== 12 && version !== 13 && version !== 14 && version !== 15 && version !== databaseSchemaVersion) throw invalidBackup(`Unsupported database schema version ${String(version)}; supported versions are 12 through ${databaseSchemaVersion}.`);
+    const expected = (version === databaseSchemaVersion ? this.schema : version === 15 ? this.schema15 : version === 14 ? this.schema14 : this.legacySchema).filter(entry => version !== 12 || !['dataset_state','data_commands'].includes(entry.tbl_name));
     const maxObjects = expected.length + 1;
     const maxSqlLength = Math.max(metadataSql.length, ...expected.map(entry => entry.sql?.length ?? 0)) * 2 + 1;
     const actual = masterSchema.parse(db.prepare(`SELECT substr(type, 1, 50) AS type, substr(name, 1, 200) AS name,
@@ -185,14 +197,16 @@ export class BackupService {
       source = new Database(original,{ readonly: true, fileMustExist: true }); source.pragma('trusted_schema = OFF');
       phase = 'Validating database schema and backup metadata';
       const metadata = this.validateSchema(source);
+      const singleBranches = source.pragma('user_version', { simple: true }) !== databaseSchemaVersion;
       // Never migrate/open the upload with Store. Rebuild rows using only the shipped trusted schema.
       writeFileSync(path,this.template,{ mode: 0o600, flag: 'wx' });
       trusted = new Database(path); trusted.pragma('foreign_keys = ON'); trusted.pragma('temp_store = FILE');
       trusted.transaction(() => {
         trusted?.pragma('defer_foreign_keys = ON');
-        trusted?.exec('DELETE FROM chats; DELETE FROM library;');
+        trusted?.exec('DELETE FROM chat_groups; DELETE FROM library;');
         let count = 0;
         for (const table of backupTables) {
+          if (singleBranches && table === 'chat_groups') continue;
           phase = `Reading table ${table}`;
           checkUploadedFieldSizes(sourceDatabase(), table);
           let ordinal = 0;
@@ -203,6 +217,7 @@ export class BackupService {
             insertRow(trustedDatabase(),table,row);
           }
         }
+        if (singleBranches) upgradeSingleBranches(trustedDatabase());
         phase = 'Committing reconstructed backup tables';
       })();
       phase = 'Validating reconstructed backup content';
@@ -262,7 +277,8 @@ export class BackupService {
       const where = !chat ? '' : ['turns','generations','summaries','context_states','context_jobs','lore_states','lore_epochs','lore_operations'].includes(table) ? ' WHERE chat_id = ?' : table === 'response_variants' ? ' WHERE turn_id IN (SELECT id FROM turns WHERE chat_id = ?)' : table === 'context_steps' ? ' WHERE job_id IN (SELECT id FROM context_jobs WHERE chat_id = ?)' : '';
       const params = where ? [chat] : [];
       const total = z.object({ n: z.number() }).parse(db.prepare(`SELECT count(*) n FROM "${table}"${where}`).get(...params)).n;
-      const labelExpression = table === 'chats' ? "json_extract(settings,'$.title')"
+      const labelExpression = table === 'chat_groups' ? "json_extract(settings,'$.title')"
+        : table === 'chats' ? "(SELECT json_extract(settings,'$.title') FROM chat_groups WHERE id = chats.group_id) || coalesce(' · ' || branch_name, '')"
         : table === 'library' ? "json_extract(data,'$.name')"
         : table === 'connections' ? "json_extract(settings,'$.name')"
         : table === 'tags' ? 'name'
@@ -311,6 +327,9 @@ export class BackupService {
       const row = db.prepare(`SELECT ${table === 'picture_assets' ? 'preview' : 'thumbnail'} AS image FROM ${table} WHERE rowid = ?`).get(key);
       return z.object({ image: z.instanceof(Buffer) }).parse(row).image;
     } finally { db.close(); }
+  }
+  exportTranscript(chatId: string, revision: number) {
+    return prepareTranscriptExport(this.store, this.directory, chatId, revision);
   }
   async export(password = '') {
     validateFilePassword(password);

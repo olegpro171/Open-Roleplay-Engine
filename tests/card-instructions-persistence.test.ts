@@ -1,3 +1,4 @@
+import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -50,7 +51,7 @@ it('reads existing populated records without rewriting presets, requests, source
   f.store.close();
   const reopened = new Store(path);
   disposers.push(() => reopened.close());
-  expect(reopened.sqlite.pragma('user_version', { simple: true })).toBe(15);
+  expect(reopened.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion);
   expect(reopened.snapshot(f.chatId)).toEqual(before);
   expect(reopened.libraries()).toEqual(library);
   expect(reopened.libraries().prompts.find(prompt => prompt.id === 'default')?.blocks).toEqual(legacyRoleplayPrompt.blocks);

@@ -73,7 +73,7 @@ const diagnosticFields = new Set(['id','revision','name','title','text','level',
   'messages','body','request','usage','inputTokens','outputTokens','totalTokens','status','jobId','chatId','result',
   'selected','archivedTurnIds','complete','turnId','settings','data','scanDepth','tokenBudget','entries','key',
   'description','personality','scenario','greeting','width','height','x','y']);
-function parseRecord<T>(schema: z.ZodType<T>, row: BackupRow, table: BackupTable, field = 'data'): T {
+export function parseRecord<T>(schema: z.ZodType<T>, row: BackupRow, table: BackupTable, field = 'data'): T {
   try { return schema.parse(json(row,field)); }
   catch (error) {
     if (!(error instanceof z.ZodError)) throw error;
@@ -88,7 +88,7 @@ const id = z.string().min(1).max(100);
 const integer = z.number().int().nonnegative().safe();
 const ref = z.object({ id, revision: integer });
 const refs = z.array(ref).max(backupLimits.rows);
-const selection = z.object({ selected: refs, archivedTurnIds: z.array(id).max(backupLimits.rows) });
+export const selection = z.object({ selected: refs, archivedTurnIds: z.array(id).max(backupLimits.rows) });
 const source = z.object({ turnId: id, userRevision: integer, assistantRevision: integer, complete: z.boolean() });
 const node = z.object({ refusalCheck: summaryRefusalCheckSchema.optional(), regeneration: z.literal('refusal').optional(), id, revision: integer, level: integer.positive(), text: z.string().max(1_000_000), turns: z.array(source), children: refs, prior: refs, corrections: refs.optional(), basedOn: ref.optional(), approved: z.boolean(), manual: z.boolean(), createdAt: z.string() }) satisfies z.ZodType<SummaryNode>;
 const entryState = z.object({ fingerprint: z.string(), matches: integer });
@@ -103,17 +103,18 @@ const loreResolution = z.object({
   diagnostics: z.array(diagnostic), tokens: integer, pressure: z.boolean(), stateBefore: z.record(z.string(),entryState), stateDelta: z.record(z.string(),entryState),
 });
 const usageSchema = z.object({ inputTokens: integer, outputTokens: integer, totalTokens: integer });
-const requestSchema = z.object({
+export const requestSchema = z.object({
   layout: z.array(z.object({ messageIndex: integer, kind: z.enum(['prompt','character','persona','memory','history','draft','lore']), label: z.string(), labelMessage: localizedMessageSchema.optional(), tokens: integer, group: z.object({ id: z.string(), label: z.string() }).optional() })).optional(),
   warnings: z.array(z.string()).optional(), warningMessages: z.array(localizedMessageSchema).optional(), context: selection.optional(), history: z.object({ mode: z.enum(['managed','recent']), verbatimTurnIds: z.array(id) }).optional(),
   lore: loreResolution.nullable().optional(), summarySources: z.array(z.object({ turnId: id, user: z.string(), assistant: z.string() })).optional(),
-  endpoint: z.string(), body: z.object({ model: z.string(), messages: z.array(z.object({ role: z.enum(['system','user','assistant']), content: z.string() })), stream: z.literal(true), max_tokens: integer.positive() }),
+  // Historical provider parameters are inspection data. A branch copy preserves them verbatim.
+  endpoint: z.string(), body: z.looseObject({ model: z.string(), messages: z.array(z.object({ role: z.enum(['system','user','assistant']), content: z.string() })), stream: z.literal(true), max_tokens: integer.positive() }),
   coverage: z.array(source), budget: z.object({ inputTokens: integer, targetInputTokens: integer.positive(), reservedOutputTokens: integer.positive(), contextWindow: integer.positive(), method: z.string(), verified: z.literal(false), counting: z.object({ kind: z.enum(['reference','model','fallback']), tokenizer: z.string().nullable(), implementation: z.string().optional(), tokenizerRevision: z.string().optional(), framing: z.enum(['estimated-recipe','fallback']), fallbackReason: z.string().nullable(), limitations: z.string() }).optional() }),
 }) satisfies z.ZodType<RequestPreview>;
 const operation = z.object({ level: integer.positive(), turnIds: z.array(id), children: refs, repair: ref.optional(), reconcile: refs.optional() });
 const refreshSchema = z.object({ before: selection, after: selection, inputBefore: integer, inputAfter: integer, verbatimBefore: integer, verbatimAfter: integer, changed: z.boolean(), protectedSummaries: integer, limited: z.boolean(), limitation: z.string().optional(), limitationMessage: localizedMessageSchema.optional() });
-const jobSchema = z.object({ automatic: z.literal(true).optional(), errorMessage: localizedMessageSchema.optional(), retry: summaryRetrySchema.optional(), refresh: refreshSchema.optional(), finalRefresh: refreshSchema.optional(), repairCommands: z.record(z.string(),z.string()).optional(), outcome: z.object({ inputTokens: integer, verbatimTurns: integer }).optional(), reusedCount: integer.optional(), generatedCount: integer.optional(), reviewedCount: integer.optional(), unchangedCount: integer.optional(), revalidatedCount: integer.optional(), id, chatId: id, status: z.enum(['running','awaiting_review','succeeded','failed','cancelled','interrupted']), mode: z.enum(['prepare','step','repair','refresh']), generationId: id.nullable(), sourceRevision: integer, config: contextPresetSchema.extend({ id, revision: integer }), stepCount: integer, error: z.string().nullable(), historyTurnIds: z.array(id), createdAt: z.string(), updatedAt: z.string() }) satisfies z.ZodType<ContextJob>;
-const stepSchema = z.object({ rejectedText: z.string().max(4_000_000).optional(), errorMessage: localizedMessageSchema.optional(), resultDeleted: z.literal(true).optional(), reused: z.boolean().optional(), repairOutcome: z.enum(['model_unchanged','inputs_unchanged']).optional(), id, jobId: id, status: z.enum(['running','saved','candidate','discarded','failed','interrupted']), operation, request: requestSchema.nullable(), result: ref.nullable(), before: selection, after: selection.nullable(), inputBefore: integer, inputAfter: integer.nullable(), error: z.string().nullable(), createdAt: z.string() }) satisfies z.ZodType<ContextStep>;
+export const jobSchema = z.object({ automatic: z.literal(true).optional(), errorMessage: localizedMessageSchema.optional(), retry: summaryRetrySchema.optional(), refresh: refreshSchema.optional(), finalRefresh: refreshSchema.optional(), repairCommands: z.record(z.string(),z.string()).optional(), outcome: z.object({ inputTokens: integer, verbatimTurns: integer }).optional(), reusedCount: integer.optional(), generatedCount: integer.optional(), reviewedCount: integer.optional(), unchangedCount: integer.optional(), revalidatedCount: integer.optional(), id, chatId: id, status: z.enum(['running','awaiting_review','succeeded','failed','cancelled','interrupted']), mode: z.enum(['prepare','step','repair','refresh']), generationId: id.nullable(), sourceRevision: integer, config: contextPresetSchema.extend({ id, revision: integer }), stepCount: integer, error: z.string().nullable(), historyTurnIds: z.array(id), createdAt: z.string(), updatedAt: z.string() }) satisfies z.ZodType<ContextJob>;
+export const stepSchema = z.object({ rejectedText: z.string().max(4_000_000).optional(), errorMessage: localizedMessageSchema.optional(), resultDeleted: z.literal(true).optional(), reused: z.boolean().optional(), repairOutcome: z.enum(['model_unchanged','inputs_unchanged']).optional(), id, jobId: id, status: z.enum(['running','saved','candidate','discarded','failed','interrupted']), operation, request: requestSchema.nullable(), result: ref.nullable(), before: selection, after: selection.nullable(), inputBefore: integer, inputAfter: integer.nullable(), error: z.string().nullable(), createdAt: z.string() }) satisfies z.ZodType<ContextStep>;
 
 function validateRendition(bytes: Buffer, edge: number) {
   const signature = Buffer.from([137,80,78,71,13,10,26,10]);
@@ -206,6 +207,13 @@ export function validateContent(db: Database.Database) {
     const insertEdge = db.prepare('INSERT INTO backup_summary_edges VALUES (?, ?, ?, ?, ?)');
     for (const row of rows(db, 'summaries')) {
       const value = parseRecord(node, row, 'summaries');
+      if (row.fork_source_request !== null) {
+        const request = parseRecord(requestSchema, row, 'summaries', 'fork_source_request');
+        for (const source of [...request.coverage, ...request.summarySources ?? []]) {
+          const owner = turnChat.get(source.turnId);
+          if (owner !== undefined && owner !== row.chat_id) throw invalidBackup('An inherited memory source belongs to another branch.');
+        }
+      }
       if (value.id !== row.id || value.revision !== row.revision) throw invalidBackup('A summary identity or revision differs from its stored data.');
       const coveredIds = value.turns.map(source => source.turnId);
       if (new Set(coveredIds).size !== coveredIds.length) throw invalidBackup('A summary covers the same turn more than once.');
@@ -302,9 +310,16 @@ export function validateContent(db: Database.Database) {
     }
   }
   const earlierPending = db.prepare('SELECT 1 FROM turns WHERE chat_id = ? AND complete != 1 AND position < (SELECT max(position) FROM turns WHERE chat_id = ?) LIMIT 1');
-  for (const row of rows(db, 'chats')) {
-    id.parse(row.id); num(row, 'revision'); const settings = parseRecord(chatSettingsSchema,row,'chats','settings');
+  for (const row of rows(db, 'chat_groups')) {
+    id.parse(row.id);
+    if (!db.prepare('SELECT 1 FROM chats WHERE group_id = ?').get(row.id)) throw invalidBackup('A chat has no branches.');
+    const settings = parseRecord(chatSettingsSchema.omit({ authorNote: true }),row,'chat_groups','settings');
     requireConnection(settings.connectionId); requireLibrary(settings.promptId, 'prompts'); requireLibrary(settings.characterId, 'characters'); requireLibrary(settings.personaId, 'personas'); requireLibrary(settings.contextPresetId, 'contexts'); requireLibrary(settings.lorebookId, 'lorebooks');
+  }
+  for (const row of rows(db, 'chats')) {
+    id.parse(row.id); num(row, 'revision'); id.parse(row.group_id);
+    z.string().trim().min(1).max(100).nullable().parse(row.branch_name);
+    parseRecord(chatSettingsSchema.pick({ authorNote: true }),row,'chats','settings');
     if (earlierPending.get(row.id, row.id)) throw invalidBackup('A pending turn occurs before the latest turn.');
   }
   for (const row of rows(db, 'lore_states')) {

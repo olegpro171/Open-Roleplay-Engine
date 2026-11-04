@@ -21,7 +21,7 @@ import { dataCommandSchema } from '../shared/backups';
 import { useConfirmation } from './Confirmation';
 
 const labels: Record<BackupTable,string> = {
-  chats: 'Chats and selections', turns: 'Turns and parts', response_variants: 'Response variants', generations: 'Saved requests and generations',
+  chat_groups: 'Shared chat settings', chats: 'Chats and selections', turns: 'Turns and parts', response_variants: 'Response variants', generations: 'Saved requests and generations',
   summaries: 'Memory versions and corrections', context_states: 'Selected memory and cutoff', context_jobs: 'Preparation history', context_steps: 'Preparation steps and requests',
   library: 'Characters, personas, prompts, context presets and lorebooks', connections: 'Connections', credentials: 'Credential presence', tags: 'Tag catalog', character_tags: 'Character tags',
   picture_assets: 'Original pictures and previews', character_pictures: 'Picture associations and crops', lore_epochs: 'Lore epochs', lore_states: 'Lore activation state', lore_operations: 'Saved lore provenance',
@@ -208,7 +208,7 @@ function BackupBranch({ stageId,table,chat }: { stageId: string; table: BackupTa
     api<BackupPage>(`/data/stages/${stageId}/records/${table}?offset=${offset}${chat ? `&chat=${encodeURIComponent(chat)}` : ''}`,'GET',undefined,controller.signal).then(setPage).catch(error => { if (!controller.signal.aborted) setError(errorText(error)); });
     return () => controller.abort();
   },[open,offset,attempt,stageId,table,chat]);
-  return <details open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary>{labels[table]}</summary>{open && <>
+  return <details open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary>{table === 'chat_groups' ? t('branches.shared_settings') : labels[table]}</summary>{open && <>
     {error ? <p role="alert">{error} <button onClick={() => setAttempt(value => value+1)}>{t("application_settings.retry_branch")}</button></p> : !page ? <p role="status">{t("application_settings.loading_records")}</p> : <>
       {page.total === 0 && <p>{t("application_settings.no_saved_records")}</p>}{page.items.map(item => <BackupRecord key={item.key} stageId={stageId} table={table} item={item} />)}
       <div className="actions"><button className="secondary" disabled={offset === 0} onClick={() => setOffset(value => Math.max(0,value-backupLimits.page))}>{t("application_settings.previous_records")}</button><span>{t("application_settings.records_page", { total: page.total, value: Math.floor(offset/backupLimits.page)+1 })}</span><button className="secondary" disabled={offset+backupLimits.page >= page.total} onClick={() => setOffset(value => value+backupLimits.page)}>{t("application_settings.next_records")}</button></div>

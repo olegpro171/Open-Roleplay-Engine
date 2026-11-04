@@ -1,6 +1,8 @@
 import { Readable } from 'node:stream';
 import { message } from '../shared/localization.js';
 import { authorNoteStatusSchema } from '../shared/author-note.js';
+import { copyBranchSchema, deleteChatSchema, renameBranchSchema } from '../shared/branches.js';
+import { refreshContext } from '../core/context-refresh.js';
 import { defaultContextPreset, summaryRetrySchema } from '../shared/context.js';
 import { buildInfo } from './installation.js';
 import { BackupService } from './backups.js';
@@ -26,7 +28,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { ServerOptions } from 'node:https';
 import { importPersonas, exportCharacter, exportPersona } from '../core/cards.js';
 import { tagIdsSchema, tagNameSchema, tagPolicySchema } from '../shared/tags.js';
-import { defaultPrompt, libraryCommandSchema, selectionsSchema, createChatSchema, replaceHistorySchema } from '../shared/library.js';
+import { hasPromptMarker, defaultPrompt, libraryCommandSchema, selectionsSchema, createChatSchema, replaceHistorySchema } from '../shared/library.js';
 import { resolveChatDefaults } from '../shared/chat-defaults.js';
 import { ChatDefaultsSettings } from './chat-defaults.js';
 import { readCardFile, readCharacterCardFile } from './card-import.js';
@@ -545,7 +547,7 @@ export async function createApp(options: {
   });
   app.put('/api/chats/:chatId/selections', async request => {
     const input = z.object({ revision: revisionSchema, settings: selectionsSchema }).strict().parse(request.body);
-    store.updateChat(input.revision, chatId(request.params), input.settings); coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return mutationSnapshot(request);
+    store.updateChat(input.revision, chatId(request.params), input.settings); coordinator.changed({ kind: 'library' }); return mutationSnapshot(request);
   });
   app.post('/api/chats/:chatId/prompt-diagnostics', async request => {
     const input = z.object({ revision: revisionSchema, settings: selectionsSchema }).strict().parse(request.body);
@@ -560,14 +562,53 @@ export async function createApp(options: {
     return result;
   });
   app.delete('/api/chats/:chatId', async request => {
+    const { revision, branches } = deleteChatSchema.parse(request.body);
+    store.deleteChat(revision, chatId(request.params), branches); coordinator.changed({ kind: 'library' }); return { ok: true };
+  });
+  app.post('/api/chats/:chatId/branches', async request => {
+    const sourceId = chatId(request.params);
+    const input = copyBranchSchema.parse(request.body);
+    const existing = store.copiedBranch(sourceId, input);
+    if (existing) return { id: existing };
+    const source = store.forkSource(sourceId, input);
+    const { snapshot } = source;
+    let state = snapshot.context;
+    if (source.earlier && snapshot.connection && snapshot.context.preset && hasPromptMarker(snapshot.sources.prompt, 'summary')) {
+      try {
+        const loreResolution = await resolveRequestLore(snapshot, coordinator.loreRegex);
+        state = { ...snapshot.context, ...refreshContext({ ...snapshot, loreResolution }, { allowOverflowFallback: true }).state };
+      } catch (error) {
+        // A saved-state planning conflict can be resolved later in Memory.
+        // Preserve the valid fork prefix and any compatible saved corrections.
+        if (!(error instanceof AppError) || error.status !== 422 || error.code === 'invalid_context') throw error;
+      }
+    }
+    const id = store.commitBranch(sourceId, input, source, state);
+    coordinator.changed({ kind: 'library' });
+    return { id };
+  });
+  app.patch('/api/chats/:chatId/branch', async request => {
+    const input = renameBranchSchema.parse(request.body);
+    store.renameBranch(chatId(request.params), input.revision, input.name);
+    coordinator.changed({ kind: 'library' });
+    return { ok: true };
+  });
+  app.delete('/api/chats/:chatId/branch', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-    store.deleteChat(revision, chatId(request.params)); coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return { ok: true };
+    const id = store.deleteBranch(chatId(request.params), revision);
+    coordinator.changed({ kind: 'library' });
+    return { id };
   });
   app.put('/api/chats/:chatId/history', { bodyLimit: 25_000_000 }, async request => {
     const input = replaceHistorySchema.parse(request.body);
     const revision = store.replaceHistory(input.revision, chatId(request.params), input.turns);
     coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' });
     return { ok: true, revision };
+  });
+  app.post('/api/chats/:chatId/export', async request => {
+    const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
+    const file = backups.exportTranscript(chatId(request.params), revision);
+    return downloads.add(owner(request.cookies.session), file.filename, file.source);
   });
   app.get('/api/chats/:chatId/story', async request => {
     const snapshot = storyReader.read(chatId(request.params), transcriptQuerySchema.parse(request.query));

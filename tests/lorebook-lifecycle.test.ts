@@ -154,7 +154,8 @@ it('rejects a late state delta if the captured selection changed, even when a ca
   const id = f.coordinator.start(f.snapshot().revision, randomUUID(), 'The key.', f.chatId).generationId;
   await expect.poll(() => f.calls.length).toBe(1);
   const settings = { ...f.snapshot().settings, lorebookId: null };
-  f.store.sqlite.prepare('UPDATE chats SET settings = ? WHERE id = ?').run(JSON.stringify(settings), f.chatId);
+  const { authorNote: _authorNote, ...shared } = settings;
+  f.store.sqlite.prepare('UPDATE chat_groups SET settings = ? WHERE id = ?').run(JSON.stringify(shared), f.chatId);
   f.release(); await f.idle(id);
   expect(f.store.generation(id)?.status).toBe('failed'); expect(f.matches()).toBe(0); expect(f.snapshot().turns[0].complete).toBe(false);
 });

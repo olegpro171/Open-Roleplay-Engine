@@ -40,7 +40,7 @@ export function insertRow(db: Database.Database, table: BackupTable, row: Backup
 }
 export function sanitizePortable(db: Database.Database) {
   db.transaction(() => {
-    db.exec('DELETE FROM sessions; DELETE FROM owners; DELETE FROM runtime_owner; DELETE FROM lore_commands; DELETE FROM data_commands;');
+    db.exec('DELETE FROM sessions; DELETE FROM owners; DELETE FROM runtime_owner; DELETE FROM lore_commands; DELETE FROM data_commands; DELETE FROM branch_commands;');
     db.prepare("UPDATE dataset_state SET epoch = 'initial' WHERE id = 1").run();
     const interrupted = message('outcome.backupInterrupted');
     db.prepare("UPDATE generations SET status = 'interrupted', error = ?, error_message = ? WHERE status = 'running'").run(interrupted.fallback, JSON.stringify(interrupted));
@@ -70,20 +70,34 @@ function childCount(db: Database.Database, chatId: string): number {
     + z.object({ n: z.number() }).parse(db.prepare('SELECT count(*) n FROM response_variants JOIN turns ON turns.id = response_variants.turn_id WHERE turns.chat_id = ?').get(chatId)).n
     + z.object({ n: z.number() }).parse(db.prepare('SELECT count(*) n FROM context_steps JOIN context_jobs ON context_jobs.id = context_steps.job_id WHERE context_jobs.chat_id = ?').get(chatId)).n;
 }
+function groupChildCount(db: Database.Database, groupId: string): number {
+  const branches = db.prepare('SELECT id FROM chats WHERE group_id = ?');
+  let count = 0;
+  for (const value of branches.iterate(groupId)) {
+    count += 1 + childCount(db, str(rowSchema.parse(value), 'id'));
+  }
+  return count;
+}
 export function importUnits(current: Database.Database, incoming: Database.Database): BackupUnit[] {
   const units: BackupUnit[] = [];
   for (const kind of ['chats','connections','library','tags'] as const) {
-    for (const row of rows(incoming,kind)) {
-      const old = current.prepare(`SELECT id FROM ${kind} WHERE id = ?`).get(row.id);
+    const table = kind === 'chats' ? 'chat_groups' : kind;
+    for (const row of rows(incoming,table)) {
+      const old = current.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(row.id);
       const data = kind === 'tags' ? { name: row.name } : z.record(z.string(),z.unknown()).parse(json(row,kind === 'library' ? 'data' : 'settings'));
-      units.push({ kind, id: str(row,'id'), name: z.string().parse(data.name ?? data.title), overlap: Boolean(old), children: kind === 'chats' && old ? childCount(current,str(row,'id')) : 0 });
+      units.push({ kind, id: str(row,'id'), name: z.string().parse(data.name ?? data.title), overlap: Boolean(old), children: kind === 'chats' && old ? groupChildCount(current, str(row, 'id')) : 0 });
     }
   }
   return units;
 }
 
 export function mergeContent(destination: Database.Database, incoming: Database.Database) {
-  const hasIncomingChat = incoming.prepare('SELECT 1 FROM chats WHERE id = ?');
+  const hasIncomingChat = incoming.prepare('SELECT 1 FROM chat_groups WHERE id = ?');
+  const getGroup = destination.prepare('SELECT * FROM chat_groups WHERE id = ?');
+  for (const branch of rows(incoming, 'chats', 'id, group_id')) {
+    const current = destination.prepare('SELECT group_id FROM chats WHERE id = ?').pluck().get(branch.id);
+    if (current !== undefined && current !== branch.group_id) throw new AppError(422, 'backup_ownership_conflict', message("errors.a_child_identity_belongs_to_a_different_chat"));
+  }
   const incomingLibrary = incoming.prepare('SELECT * FROM library WHERE id = ?');
   const incomingConnection = incoming.prepare('SELECT 1 FROM connections WHERE id = ?');
   const library = destination.prepare('SELECT * FROM library WHERE id = ?');
@@ -122,8 +136,9 @@ export function mergeContent(destination: Database.Database, incoming: Database.
   const retainedEffects: { id: string; title: string; reason: string }[] = [];
   const hasIncomingLibrary = incoming.prepare('SELECT 1 FROM library WHERE id = ?');
   for (const row of rows(destination,'chats')) {
-    if (hasIncomingChat.get(row.id)) continue;
-    const settings = z.record(z.string(),z.unknown()).parse(json(row,'settings'));
+    if (hasIncomingChat.get(row.group_id)) continue;
+    const group = rowSchema.parse(getGroup.get(row.group_id));
+    const settings = z.record(z.string(),z.unknown()).parse(json(group,'settings'));
     const context = typeof settings.contextPresetId === 'string' ? library.get(settings.contextPresetId) : undefined;
     const summaryConnection = context ? z.record(z.string(),z.unknown()).parse(json(rowSchema.parse(context))).connectionId : null;
     const affected = ['promptId','characterId','personaId','contextPresetId','lorebookId'].some(key => typeof settings[key] === 'string' && hasIncomingLibrary.get(settings[key])) || incomingConnection.get(String(settings.connectionId)) || incomingConnection.get(String(summaryConnection));
@@ -157,7 +172,7 @@ export function mergeContent(destination: Database.Database, incoming: Database.
       destination.prepare('UPDATE lore_states SET data = ? WHERE chat_id = ? AND book_id = ?').run(JSON.stringify(Object.fromEntries(Object.entries(entries).filter(([entryId]) => retained.has(entryId)))),state.chat_id,incomingBook.id);
     }
   }
-  for (const row of rows(incoming, 'chats', 'id')) destination.prepare('DELETE FROM chats WHERE id = ?').run(row.id);
+  for (const row of rows(incoming, 'chat_groups', 'id')) destination.prepare('DELETE FROM chat_groups WHERE id = ?').run(row.id);
   for (const row of rows(incoming, 'library', 'id')) {
     destination.prepare('DELETE FROM character_tags WHERE character_id = ?').run(row.id);
     destination.prepare('DELETE FROM character_pictures WHERE character_id = ?').run(row.id);
@@ -258,7 +273,7 @@ export class BackupStore {
         if (!input.overwrite && importUnits(this.store.sqlite,incoming).some(unit => unit.overlap)) throw new AppError(409,'overwrite_required',message("errors.explicit_overwrite_approval_is_required_for_overlapping_identities"));
         mergeContent(this.store.sqlite,incoming);
       } else {
-        this.store.sqlite.exec('DELETE FROM chats; DELETE FROM credentials; DELETE FROM character_tags; DELETE FROM character_pictures; DELETE FROM picture_assets; DELETE FROM tags; DELETE FROM library; DELETE FROM connections; DELETE FROM lore_commands;');
+        this.store.sqlite.exec('DELETE FROM chat_groups; DELETE FROM branch_commands; DELETE FROM credentials; DELETE FROM character_tags; DELETE FROM character_pictures; DELETE FROM picture_assets; DELETE FROM tags; DELETE FROM library; DELETE FROM connections; DELETE FROM lore_commands;');
         const createdAt = new Date().toISOString();
         insertRow(this.store.sqlite,'library',{ created_at: createdAt, id: 'default', kind: 'prompts', revision: 0, data: JSON.stringify(defaultPrompt) });
         insertRow(this.store.sqlite,'library',{ created_at: createdAt, id: 'default-context', kind: 'contexts', revision: 0, data: JSON.stringify(defaultContextPreset) });

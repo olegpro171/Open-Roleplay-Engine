@@ -44,7 +44,7 @@ it('rejects unexpected executable schema names, binary text, wrong selected vari
       'CREATE TRIGGER sqliteXhidden AFTER INSERT ON chats BEGIN DELETE FROM chats; END',
       "UPDATE turns SET user_text = X'616263'",
       "UPDATE turns SET selected_variant_id = 'missing-variant'",
-      `INSERT INTO summaries VALUES ('cycle',0,'main','{"id":"cycle","revision":0,"level":1,"text":"Memory","turns":[],"children":[],"prior":[{"id":"cycle","revision":0}],"approved":true,"manual":false,"createdAt":""}')`,
+      `INSERT INTO summaries (id,revision,chat_id,data) VALUES ('cycle',0,'main','{"id":"cycle","revision":0,"level":1,"text":"Memory","turns":[],"children":[],"prior":[{"id":"cycle","revision":0}],"approved":true,"manual":false,"createdAt":""}')`,
     ]) {
       const path = join(directory,'malformed.sqlite'); fs.writeFileSync(path,bytes); const db = new Database(path); db.exec(sql); db.close();
       await expect(service.inspect(Readable.from([fs.readFileSync(path)]), 'owner')).rejects.toThrow(); expect(new BackupStore(store).token).toBe(token);
@@ -70,7 +70,7 @@ it('explains schema, content and reconstruction failures without exposing upload
       { sql: "UPDATE turns SET selected_variant_id = 'private_uploaded_secret'", reason: 'missing or inconsistent selected response variant' },
       { sql: "UPDATE turns SET chat_id = 'private_uploaded_secret'", reason: 'SQLITE_CONSTRAINT_FOREIGNKEY' },
       { sql: "UPDATE chats SET settings = '{private_uploaded_secret'", reason: 'Column settings contains malformed JSON' },
-      { sql: `UPDATE chats SET settings = json_set(settings, '$.title', json('[]'))`, reason: 'Table chats, column settings: title: invalid_type' },
+      { sql: `UPDATE chat_groups SET settings = json_set(settings, '$.title', json('[]'))`, reason: 'Table chat_groups, column settings: title: invalid_type' },
     ];
     for (const { sql,reason } of cases) {
       const path = join(directory,'input.sqlite'); fs.writeFileSync(path,bytes);

@@ -1,3 +1,5 @@
+import { removeBranchSchema } from './support/schema-15.js';
+import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
@@ -271,7 +273,7 @@ describe('lorebook selection and ownership', () => {
     expect(store.snapshot(none).settings.lorebookId).toBeNull();
     expect(store.snapshot(none).sources.lorebook).toBeNull();
     expect(store.snapshot().settings.lorebookId).toBeNull();
-    const raw = store.sqlite.prepare("SELECT json_extract(settings, '$.lorebookId') AS selected, json_type(settings, '$.lorebookId') AS type FROM chats WHERE id = ?").get(none);
+    const raw = store.sqlite.prepare("SELECT json_extract(settings, '$.lorebookId') AS selected, json_type(settings, '$.lorebookId') AS type FROM chat_groups WHERE id = ?").get(none);
     expect(raw).toEqual({ selected: null, type: 'null' });
   });
 
@@ -461,6 +463,7 @@ function populatedVersion6(customized: boolean) {
   const database = new Database(filename);
   try {
     database.pragma('foreign_keys = ON');
+    removeBranchSchema(database);
     database.exec('DROP TABLE character_pictures; DROP TABLE picture_assets; DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags; DROP TABLE lore_operations; DROP TABLE lore_commands; DROP TABLE lore_states; DROP TABLE lore_epochs');
     database.prepare("UPDATE chats SET settings = json_remove(settings, '$.lorebookId')").run();
     removeVariantSchema(database);
@@ -472,7 +475,7 @@ function populatedVersion6(customized: boolean) {
 describe('schema 7 lorebook migration', () => {
   it('creates fresh durable storage and explicit None without an activated placeholder book', () => {
     const store = open();
-    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(15);
+    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion);
     expect(store.libraries().lorebooks).toEqual([]);
     expect(store.snapshot().settings.lorebookId).toBeNull();
     expect(store.snapshot().loreState).toEqual({ epoch: 0, entries: {} });
@@ -512,11 +515,12 @@ describe('schema 7 lorebook migration', () => {
     const previousChats = seeded.records.chats;
     expect(Array.isArray(previousChats)).toBe(true);
     // The custom prompt also gains an explicit field selection in version 8.
-    const customRaw = store.sqlite.prepare('SELECT * FROM chats WHERE id = ?').get(seeded.customChat);
+    const customRaw = store.sqlite.prepare(`SELECT chats.id, chats.revision, chat_groups.settings, chats.created_at, chats.updated_at
+      FROM chats JOIN chat_groups ON chat_groups.id = chats.group_id WHERE chats.id = ?`).get(seeded.customChat);
     const previousCustom = previousChats.find(row => typeof row === 'object' && row !== null && 'id' in row && row.id === seeded.customChat);
     if (typeof previousCustom !== 'object' || previousCustom === null || !('revision' in previousCustom) || typeof previousCustom.revision !== 'number') throw new Error('Missing fixture chat.');
     expect(customRaw).toEqual({ ...previousCustom, revision: previousCustom.revision + 1, created_at: null, updated_at: null });
-    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(15);
+    expect(store.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion);
     const after = savedRows(store.sqlite), snapshotAfter = store.snapshot(seeded.chatId);
     store.close();
     store = open(seeded.filename);
@@ -540,9 +544,9 @@ describe('schema 7 lorebook migration', () => {
       failed.exec('DROP TRIGGER reject_lore_migration');
     } finally { failed.close(); }
     const recovered = open(seeded.filename);
-    expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(15);
+    expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion);
     expect(withoutIdentity(required(recovered.libraries().prompts.find(prompt => prompt.id === 'default')))).toEqual(legacyRoleplayPrompt);
     expect(savedRows(recovered.sqlite, true).generations).toEqual(seeded.records.generations);
-    expect(savedRows(recovered.sqlite).summaries).toEqual(seeded.records.summaries);
+    expect(savedRows(recovered.sqlite, true).summaries).toEqual(seeded.records.summaries);
   });
 });

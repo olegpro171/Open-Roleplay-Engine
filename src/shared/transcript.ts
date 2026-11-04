@@ -16,6 +16,8 @@ export type TranscriptTurn = Turn & { ordinal: number; archived: boolean };
 
 // This display window is deliberately distinct from the complete engine snapshot.
 export type StorySnapshot = Pick<ChatSnapshot, 'id' | 'revision' | 'settings' | 'connection' | 'hasApiKey' | 'sources' | 'promptDiagnostics'> & {
+  groupId?: string;
+  branchName?: string | null;
   totalTurns: number;
   latestTurn: { id: string; complete: boolean } | null;
   latestGeneration: StoryGeneration | null;

@@ -1,5 +1,6 @@
 import { LibraryImport } from './LibraryImport';
 import { LibraryCardMenu } from './LibraryCardMenu';
+import { LibrarySearchField } from './LibrarySearchField';
 import type { MessageText } from './localization';
 import { libraryEditorTitle, newLibraryLabel, searchLibraryLabel, sortLibraryLabel } from './localization-labels';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
@@ -212,11 +213,9 @@ function matchesLibraryRecord(record: LibraryRecord, query: string): boolean {
 }
 function LibrarySearch({ section, value, change, sort, changeSort, children }: { section: LibraryKind | 'chats'; value: string; change: (value: string) => void; sort: LibrarySort; changeSort: (value: string) => void; children?: ReactNode }) {
   useLocale();
-  const label = searchLibraryLabel(section);
-  return <div className="library-browse-controls"><div className="library-search">
-    <Icon name="Search" />
-    <input type="search" aria-label={label} placeholder={label} value={value} onChange={event => change(event.target.value)} />
-    </div>{children}<div className="library-sort"><Dropdown aria-label={sortLibraryLabel(section)} value={sort} onChange={changeSort} options={sortOptions(section)} /></div>
+  return <div className="library-browse-controls">
+    <LibrarySearchField label={searchLibraryLabel(section)} value={value} change={change} />
+    {children}<div className="library-sort"><Dropdown aria-label={sortLibraryLabel(section)} value={sort} onChange={changeSort} options={sortOptions(section)} /></div>
   </div>;
 }
 const libraryIcons: Record<LibraryKind | 'chats', ReactNode> = {
@@ -330,7 +329,17 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
   const tagIndex = useMemo(() => characterTagIndex(library.characterTags), [library.characterTags]);
   useEffect(() => { const ids = new Set(library.tags.map(tag => tag.id)); setFilters(previous => previous.filter(id => ids.has(id))); }, [library.tags]);
   const query = search.normalize('NFC').toLowerCase();
-  const visibleChats = useMemo(() => sortLibraryItems(library.chats.filter(chat => matchesSearch(chat.title, query)), sort, chat => chat.title, chat => chat), [library.chats, query, sort]);
+  const visibleChats = useMemo(() => {
+    const groups = new Map<string, (typeof library.chats)[number]>();
+    for (const branch of library.chats) {
+      const key = branch.groupId ?? branch.id;
+      const previous = groups.get(key);
+      const chosen = !previous || branch.id === currentChatId ? branch : previous;
+      const dates = [previous?.lastMessageAt, branch.lastMessageAt].filter(date => date != null).sort();
+      groups.set(key, { ...chosen, running: Boolean(previous?.running || branch.running), lastMessageAt: dates.at(-1) ?? null });
+    }
+    return sortLibraryItems([...groups.values()].filter(chat => matchesSearch(chat.title, query)), sort, chat => chat.title, chat => chat);
+  }, [library.chats, currentChatId, query, sort]);
   const defaultContextLabel = t("libraries.default_context_preset");
   const defaultPromptLabel = t("libraries.default_prompt");
   const visibleRecords = useMemo<Saved<LibraryRecord>[]>(() => {
@@ -434,7 +443,12 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
             </div>
           </div>
           <button type="button" className="quiet chat-card-delete" disabled={busy || item.running} onClick={() => {
-            confirmAction({ title: t("libraries.delete_chat"), message: t("libraries.delete_and_all_its_turns_and_requests", { title: item.title }), actionLabel: t("libraries.delete_chat_2"), onConfirm: () => { void run(() => api(`/chats/${item.id}`, 'DELETE', { revision: item.revision })); } });
+            const branches = library.chats.filter(branch => (branch.groupId ?? branch.id) === (item.groupId ?? item.id))
+              .map(({ id, revision }) => ({ id, revision }));
+            confirmAction({ title: t("libraries.delete_chat"),
+              message: t(branches.length > 1 ? 'branches.delete_chat' : 'libraries.delete_and_all_its_turns_and_requests', { title: item.title }),
+              actionLabel: t("libraries.delete_chat_2"),
+              onConfirm: () => { void run(() => api(`/chats/${item.id}`, 'DELETE', { revision: item.revision, branches })); } });
           }}><Icon name="TrashOutline" />{t("libraries.delete_chat_2")}</button>
         </article>)}
         {library.chats.length === 0 && <p className="muted">{t("libraries.create_a_chat_to_start_your_next")}</p>}

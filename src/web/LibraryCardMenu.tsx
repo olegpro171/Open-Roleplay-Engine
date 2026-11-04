@@ -48,7 +48,10 @@ export function LibraryCardMenu({ name, disabled, revision, children }: {
     const outside = (event: Event) => {
       if (event.target instanceof Node && !button.contains(event.target) && !menu.contains(event.target)) close();
     };
-    const dismiss = () => close(menu.contains(document.activeElement));
+    const dismiss = (event: Event) => {
+      if (event.target instanceof Node && menu.contains(event.target)) return;
+      close(menu.contains(document.activeElement));
+    };
     // Capture nested Library scrolling as well as window scrolling. Wheel/touch
     // close at gesture start, before momentum can detach the panel from its card.
     document.addEventListener('pointerdown', outside);
@@ -71,6 +74,8 @@ export function LibraryCardMenu({ name, disabled, revision, children }: {
     };
   }, [open, label]);
 
+  // A modal makes content outside its own tree inert, including body portals.
+  const menuHost = open ? trigger.current?.closest('dialog[open]') ?? document.body : null;
   return <>
     <button ref={trigger} type="button" className="quiet library-card-more" disabled={disabled}
       aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined}
@@ -81,7 +86,7 @@ export function LibraryCardMenu({ name, disabled, revision, children }: {
           setOpenedAt(revision);
         }
       }}><Icon name="MoreHorizontal" /></button>
-    {open && createPortal(<div ref={panel} id={id} role="menu" aria-label={label}
+    {menuHost && createPortal(<div ref={panel} id={id} role="menu" aria-label={label}
       className="library-card-menu floating-controls" style={position}
       onClickCapture={event => {
         if (event.target instanceof Element && event.target.closest('button:not(:disabled)')) {
@@ -106,6 +111,6 @@ export function LibraryCardMenu({ name, disabled, revision, children }: {
             : (active + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
           buttons[next]?.focus({ preventScroll: true });
         }
-      }}>{children}</div>, document.body)}
+      }}>{children}</div>, menuHost)}
   </>;
 }

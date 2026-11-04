@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const backupLimits = { rows: 100_000, textBytes: 16 * 1024 * 1024, page: 40, ttlMs: 30 * 60_000 } as const;
-export const backupTables = ['connections', 'library', 'tags', 'chats', 'turns', 'generations', 'response_variants', 'context_states', 'summaries', 'context_jobs', 'context_steps', 'lore_epochs', 'lore_states', 'lore_operations', 'character_tags', 'picture_assets', 'character_pictures', 'credentials'] as const;
+export const backupTables = ['connections', 'library', 'tags', 'chat_groups', 'chats', 'turns', 'generations', 'response_variants', 'context_states', 'summaries', 'context_jobs', 'context_steps', 'lore_epochs', 'lore_states', 'lore_operations', 'character_tags', 'picture_assets', 'character_pictures', 'credentials'] as const;
 export type BackupTable = typeof backupTables[number];
 export const backupTableSchema = z.enum(backupTables);
 export type BackupMetadata = { format: 'ore-sqlite'; version: 1; schema: number; build: string; createdAt: string };
