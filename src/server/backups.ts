@@ -3,16 +3,18 @@ import Database from 'better-sqlite3';
 import { databaseSchemaVersion } from '../shared/build-info.js';
 import { buildInfo } from './installation.js';
 import { createHash, randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statfsSync, statSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statfsSync, statSync, closeSync, createWriteStream, openSync, readSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { PassThrough, Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { z } from 'zod';
 import { Store } from '../persistence/store.js';
 import { BackupStore, insertRow, sanitizePortable } from '../persistence/backup-store.js';
-import { invalidBackup, rows, rowSchema, validateContent } from '../persistence/backup-validation.js';
-import { backupFileMaxBytes, backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type BackupMetadata, type DataOutcome } from '../shared/backups.js';
+import { checkUploadedFieldSizes, invalidBackup, rows, rowSchema, validateContent } from '../persistence/backup-validation.js';
+import { backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type BackupMetadata, type DataOutcome } from '../shared/backups.js';
 import { AppError, BackupValidationError } from '../core/errors.js';
-import { isProtectedFile, protectFile, unprotectBytes, validateFilePassword } from './protected-files.js';
+import { isProtectedFile, protectedPayloadMaxBytes, protectFile, unprotectFile, validateFilePassword } from './protected-files.js';
 
 const masterSchema = z.array(z.object({ type: z.string(), name: z.string(), tbl_name: z.string(), sql: z.string().nullable() }));
 const schemaEntries = (db: Database.Database) => masterSchema.parse(db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name").all());
@@ -33,14 +35,15 @@ export class BackupService {
   private readonly stages = new Map<string, { path: string; owner: string; digest: string; expires: number; metadata: BackupMetadata | null; plan?: ReturnType<BackupStore['preflight']> }>();
   private readonly timer: ReturnType<typeof setInterval>;
   private closed = false;
+  private readonly uploads = new Set<AbortController>();
   constructor(private store: Store, filename: string, migrationsDirectory?: string) {
-    this.persistence = new BackupStore(store);
     if (filename === ':memory:') this.directory = mkdtempSync(join(tmpdir(),'ore-backups-'));
     else {
       this.directory = join(dirname(filename),`.ore-backups-${basename(filename)}`);
       // Only this database's private staging directory; never the source upload path.
       rmSync(this.directory,{ recursive: true, force: true }); mkdirSync(this.directory,{ mode: 0o700 });
     }
+    this.persistence = new BackupStore(store, this.directory);
     const factory = new Store(':memory:',migrationsDirectory);
     try {
       this.template = factory.sqlite.serialize();
@@ -76,7 +79,11 @@ export class BackupService {
     const version = db.pragma('user_version',{ simple: true });
     if (version !== 12 && version !== 13 && version !== 14 && version !== databaseSchemaVersion) throw invalidBackup(`Unsupported database schema version ${String(version)}; supported versions are 12, 13, 14 and ${databaseSchemaVersion}.`);
     const expected = (version === databaseSchemaVersion ? this.schema : version === 14 ? this.schema14 : this.legacySchema).filter(entry => version !== 12 || !['dataset_state','data_commands'].includes(entry.tbl_name));
-    const actual = schemaEntries(db);
+    const maxObjects = expected.length + 1;
+    const maxSqlLength = Math.max(metadataSql.length, ...expected.map(entry => entry.sql?.length ?? 0)) * 2 + 1;
+    const actual = masterSchema.parse(db.prepare(`SELECT substr(type, 1, 50) AS type, substr(name, 1, 200) AS name,
+      substr(tbl_name, 1, 200) AS tbl_name, substr(sql, 1, ?) AS sql
+      FROM sqlite_master LIMIT ?`).all(maxSqlLength, maxObjects + 1));
     const portableMetadata = actual.find(entry => entry.name === 'backup_metadata');
     if (portableMetadata && normalizeSchemaSql(portableMetadata.sql) !== normalizeSchemaSql(metadataSql)) throw invalidBackup('Backup metadata table definition differs from the shipped definition.');
     const content = actual.filter(entry => entry.name !== 'backup_metadata');
@@ -90,49 +97,104 @@ export class BackupService {
     }
     if (content.length !== expected.length) throw invalidBackup('The database contains unexpected schema objects (tables, indexes, views or triggers).');
     if (!portableMetadata) return null;
-    const records = db.prepare('SELECT data FROM backup_metadata').all();
-    if (records.length !== 1) throw invalidBackup('Expected exactly one backup metadata record.');
-    const metadata = metadataSchema.parse(JSON.parse(z.object({ data: z.string().max(1000) }).parse(records[0]).data));
+    const count = db.prepare('SELECT count(*) FROM backup_metadata').pluck().get();
+    const record = db.prepare("SELECT data FROM backup_metadata WHERE typeof(data) = 'text' AND length(CAST(data AS BLOB)) <= 4000 LIMIT 1").get();
+    if (count !== 1 || !record) throw invalidBackup('Expected exactly one backup metadata record.');
+    const metadata = metadataSchema.parse(JSON.parse(z.object({ data: z.string().max(1000) }).parse(record).data));
     if (metadata.schema !== version) throw invalidBackup('Backup metadata schema version does not match the database version.');
     return metadata;
   }
-  async inspect(bytes: Buffer, owner: string, password = ''): Promise<BackupReview> {
-    validateFilePassword(password);
-    if (bytes.length > backupFileMaxBytes) throw invalidBackup('File exceeds the 128 MiB payload limit plus protected-file overhead.');
-    if (!isProtectedFile(bytes)) return this.upload(bytes, owner);
-    const plaintext = await unprotectBytes(bytes, 'backup', password, backupLimits.bytes);
-    try { return this.stageUpload(plaintext, owner, createHash('sha256').update(bytes).digest('hex')); }
-    finally { plaintext.fill(0); }
-  }
-  upload(bytes: Buffer, owner: string): BackupReview {
-    return this.stageUpload(bytes, owner, createHash('sha256').update(bytes).digest('hex'));
-  }
-  private stageUpload(bytes: Buffer, owner: string, digest: string): BackupReview {
+  private beginUpload() {
     this.expire();
     if (this.closed) throw new AppError(503,'server_stopping',message("errors.the_server_is_stopping"));
-    if (this.stages.size >= 3) throw new AppError(429,'backup_staging_full',message("errors.cancel_an_existing_backup_inspection_before_selecting_another"));
-    if (bytes.length > backupLimits.bytes) throw invalidBackup('File exceeds the 128 MiB backup limit.');
-    if (bytes.length < 100) throw invalidBackup('File is shorter than a SQLite database header (100 bytes).');
-    if (bytes.subarray(0,16).toString('binary') !== 'SQLite format 3\0') throw invalidBackup('File does not have the SQLite 3 header signature.');
-    this.space(bytes.length);
-    const id = randomUUID(), directory = mkdtempSync(join(this.directory,'stage-'));
-    const original = join(directory,'upload.sqlite'), path = join(directory,'content.sqlite');
+    if (this.stages.size + this.uploads.size >= 3) throw new AppError(429,'backup_staging_full',message("errors.cancel_an_existing_backup_inspection_before_selecting_another"));
+    this.space(0);
+    return mkdtempSync(join(this.directory, 'stage-'));
+  }
+  async inspect(stream: Readable, owner: string, password = ''): Promise<BackupReview> {
+    validateFilePassword(password);
+    const directory = this.beginUpload();
+    const controller = new AbortController();
+    this.uploads.add(controller);
+    const upload = join(directory, 'upload');
+    const hash = createHash('sha256');
+    let bytes = 0;
+    let nextSpaceCheck = 0;
+    // Pipeline may destroy its source on disk failure. Keep the HTTP request
+    // alive long enough for Fastify to return the upload error.
+    const input = new PassThrough();
+    const onError = (error: Error) => { input.destroy(error); };
+    const onClose = () => { if (!stream.readableEnded) input.destroy(new Error('Backup upload interrupted.')); };
+    stream.once('error', onError);
+    stream.once('close', onClose);
+    try {
+      const checkSpace = () => this.space(bytes);
+      const transfer = pipeline(input, new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          bytes += chunk.length;
+          try {
+            if (bytes >= nextSpaceCheck) {
+              checkSpace();
+              nextSpaceCheck = bytes + 8 * 1024 * 1024;
+            }
+            hash.update(chunk);
+            callback(null, chunk);
+          } catch (error) { callback(error instanceof Error ? error : new Error('Backup upload failed.')); }
+        },
+      }), createWriteStream(upload, { flags: 'wx', mode: 0o600 }), { signal: controller.signal });
+      if (stream.destroyed && !stream.readableEnded) onClose();
+      else stream.pipe(input);
+      await transfer;
+      this.space(bytes);
+      let source = upload;
+      if (isProtectedFile(this.header(upload))) {
+        source = join(directory, 'decrypted.sqlite');
+        await unprotectFile(upload, source, 'backup', password, controller.signal);
+        rmSync(upload);
+      }
+      if (this.closed) throw new AppError(503,'server_stopping',message("errors.the_server_is_stopping"));
+      return this.stageUpload(source, owner, hash.digest('hex'));
+    } catch (error) {
+      rmSync(directory, { recursive: true, force: true });
+      if (this.closed) throw new AppError(503,'server_stopping',message("errors.the_server_is_stopping"));
+      if (error instanceof Error && 'code' in error && error.code === 'ENOSPC') {
+        throw new AppError(507,'backup_disk_space',message("errors.backup_staging_ran_out_of_disk_space_free"));
+      }
+      throw error;
+    } finally {
+      stream.unpipe(input);
+      stream.off('error', onError);
+      stream.off('close', onClose);
+      this.uploads.delete(controller);
+      if (this.closed && this.uploads.size === 0) rmSync(this.directory, { recursive: true, force: true });
+    }
+  }
+  private header(path: string) {
+    const fd = openSync(path, 'r');
+    const bytes = Buffer.alloc(16);
+    try { return bytes.subarray(0, readSync(fd, bytes)); }
+    finally { closeSync(fd); }
+  }
+  private stageUpload(original: string, owner: string, digest: string): BackupReview {
+    const id = randomUUID(), directory = dirname(original), path = join(directory,'content.sqlite');
+    if (statSync(original).size < 100) throw invalidBackup('File is shorter than a SQLite database header (100 bytes).');
+    if (this.header(original).toString('binary') !== 'SQLite format 3\0') throw invalidBackup('File does not have the SQLite 3 header signature.');
     let source: Database.Database | undefined, trusted: Database.Database | undefined;
     let phase = 'Opening uploaded SQLite database';
     try {
-      writeFileSync(original,bytes,{ mode: 0o600, flag: 'wx' });
       source = new Database(original,{ readonly: true, fileMustExist: true }); source.pragma('trusted_schema = OFF');
       phase = 'Validating database schema and backup metadata';
       const metadata = this.validateSchema(source);
       // Never migrate/open the upload with Store. Rebuild rows using only the shipped trusted schema.
       writeFileSync(path,this.template,{ mode: 0o600, flag: 'wx' });
-      trusted = new Database(path); trusted.pragma('foreign_keys = ON');
+      trusted = new Database(path); trusted.pragma('foreign_keys = ON'); trusted.pragma('temp_store = FILE');
       trusted.transaction(() => {
         trusted?.pragma('defer_foreign_keys = ON');
         trusted?.exec('DELETE FROM chats; DELETE FROM library;');
         let count = 0;
         for (const table of backupTables) {
           phase = `Reading table ${table}`;
+          checkUploadedFieldSizes(sourceDatabase(), table);
           let ordinal = 0;
           for (const row of rows(sourceDatabase(),table)) {
             phase = `Reconstructing table ${table}, record ${++ordinal}`;
@@ -155,7 +217,7 @@ export class BackupService {
       return this.review(id,owner);
     } catch (error) {
       if (trusted?.open) trusted.close(); if (source?.open) source.close();
-      this.stages.delete(id); rmSync(directory,{ recursive: true, force: true });
+      this.stages.delete(id);
       if (error instanceof BackupValidationError) throw invalidBackup(`${phase}: ${error.details}`);
       if (error instanceof AppError) throw error;
       if (error instanceof Error && 'code' in error && ['ENOSPC','SQLITE_FULL'].includes(String(error.code))) throw new AppError(507,'backup_disk_space',message("errors.backup_staging_ran_out_of_disk_space_free"));
@@ -253,7 +315,6 @@ export class BackupService {
   async export(password = '') {
     validateFilePassword(password);
     const size = z.number().parse(this.store.sqlite.pragma('page_count',{ simple: true })) * z.number().parse(this.store.sqlite.pragma('page_size',{ simple: true }));
-    if (size > backupLimits.bytes) throw new AppError(413,'backup_too_large',message("errors.the_database_exceeds_the_supported_128_mib_backup"));
     this.space(size);
     const directory = mkdtempSync(join(this.directory,'download-')), path = join(directory,'backup.sqlite');
     try {
@@ -261,7 +322,7 @@ export class BackupService {
       if (this.closed) throw new AppError(503,'server_stopping',message("errors.the_server_is_stopping_try_again_after_restart"));
       const db = new Database(path);
       try {
-        db.pragma('secure_delete = ON'); sanitizePortable(db);
+        db.pragma('temp_store = FILE'); db.pragma('secure_delete = ON'); sanitizePortable(db);
         validateContent(db);
         db.exec(metadataSql);
         const metadata: BackupMetadata = { format: 'ore-sqlite',version: 1,schema: databaseSchemaVersion,build: this.build,createdAt: new Date().toISOString() };
@@ -269,7 +330,7 @@ export class BackupService {
         // Rebuild pages so removed login/repair secrets cannot remain in free pages or WAL frames.
         db.pragma('journal_mode = DELETE'); db.exec('VACUUM');
       } finally { db.close(); }
-      if (statSync(path).size > backupLimits.bytes) throw new AppError(413,'backup_too_large',message("errors.the_completed_backup_exceeds_the_supported_128_mib"));
+      if (statSync(path).size > protectedPayloadMaxBytes) throw new AppError(413,'backup_too_large',message("errors.backup_exceeds_encryption_capacity"));
       const protectedPath = join(directory, 'backup.orebackup');
       await protectFile(path, protectedPath, 'backup', password);
       if (this.closed) throw new AppError(503,'server_stopping',message("errors.the_server_is_stopping_try_again_after_restart"));
@@ -277,5 +338,11 @@ export class BackupService {
       return { path: protectedPath,cleanup: () => rmSync(directory,{ recursive: true,force: true }) };
     } catch (error) { rmSync(directory,{ recursive: true,force: true }); throw error; }
   }
-  close() { this.closed = true; clearInterval(this.timer); this.stages.clear(); if (existsSync(this.directory)) rmSync(this.directory,{ recursive: true,force: true }); }
+  close() {
+    this.closed = true;
+    clearInterval(this.timer);
+    this.stages.clear();
+    for (const upload of this.uploads) upload.abort();
+    if (this.uploads.size === 0) rmSync(this.directory, { recursive: true, force: true });
+  }
 }

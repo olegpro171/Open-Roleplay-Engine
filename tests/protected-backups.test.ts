@@ -1,12 +1,13 @@
+import { Readable } from 'node:stream';
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createReadStream, statSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { createApp } from '../src/server/app.js';
 import { BackupService } from '../src/server/backups.js';
 import { protectFile, unprotectBytes } from '../src/server/protected-files.js';
-import { backupLimits, type BackupReview } from '../src/shared/backups.js';
+import { type BackupReview } from '../src/shared/backups.js';
 
 let directory: string;
 const applications: Awaited<ReturnType<typeof createApp>>[] = [];
@@ -81,7 +82,7 @@ it.each(['', '\uFEFF  Личный пароль 🔑  '])('imports protected cre
 it('accepts older plaintext SQLite uploads and still rejects protected content with an invalid inner database', async () => {
   const application = await open('legacy');
   const encrypted = await application.export('secret');
-  const plaintext = await unprotectBytes(encrypted.rawPayload, 'backup', 'secret', backupLimits.bytes);
+  const plaintext = await unprotectBytes(encrypted.rawPayload, 'backup', 'secret', Number.MAX_SAFE_INTEGER);
   const legacy = await application.inspect(plaintext);
   expect(legacy.statusCode, legacy.body).toBe(200);
   const review = legacy.json<BackupReview>();
@@ -127,11 +128,58 @@ it('requires owner authentication and same origin for password-bearing exports a
   expect(malformed.json().code).toBe('invalid_file_password');
 });
 
-it('rejects late decrypted results after shutdown without recreating staging', async () => {
+it('rejects a pending upload on shutdown without recreating staging', async () => {
   const application = await open('shutdown'), service = new BackupService(application.store, join(directory, 'shutdown-separate.sqlite'));
   const encrypted = await application.export('secret');
-  const pending = service.inspect(encrypted.rawPayload, 'owner', 'secret');
+  const pending = service.inspect(Readable.from([encrypted.rawPayload]), 'owner', 'secret');
   service.close();
   await expect(pending).rejects.toMatchObject({ code: 'server_stopping' });
   expect(readdirSync(directory)).not.toContain('.ore-backups-shutdown-separate.sqlite');
 });
+
+it('streams an encrypted backup above 128 MiB into an already-large destination', async () => {
+  const source = await open('large-source');
+  const destination = await open('large-destination');
+  const count = 34;
+  const fieldBytes = 4 * 1024 * 1024;
+  for (const [store, marker] of [[source.store, 'source'], [destination.store, 'destination']] as const) {
+    store.replaceHistory(store.snapshot().revision, 'main', Array.from({ length: count }, () => ({
+      user: 'input', assistant: 'response', complete: true,
+    })));
+    // Generate one large field at a time inside SQLite. The file and transcript
+    // never become a fixture-sized JavaScript Buffer or snapshot.
+    store.sqlite.prepare("UPDATE turns SET user_text = replace(hex(zeroblob(?)), '0', 'a') || ? || position")
+      .run(fieldBytes / 2, marker);
+  }
+  const prepared = await source.app.inject({
+    method: 'POST', url: '/api/data/backup',
+    headers: { ...source.headers, accept: 'application/json' },
+    payload: { password: 'secret' },
+  });
+  expect(prepared.statusCode, prepared.body).toBe(200);
+  const stageDirectory = join(directory, '.ore-backups-large-source.sqlite');
+  const exportDirectory = readdirSync(stageDirectory).find(name => name.startsWith('download-'));
+  expect(exportDirectory).toBeDefined();
+  const file = join(stageDirectory, exportDirectory ?? '', 'backup.orebackup');
+  expect(statSync(file).size).toBeGreaterThan(128 * 1024 * 1024);
+  const inspection = await destination.app.inject({
+    method: 'POST', url: '/api/data/stages',
+    headers: { ...destination.headers, 'content-type': 'application/octet-stream',
+      'x-ore-file-password': Buffer.from('secret').toString('base64') },
+    payload: createReadStream(file),
+  });
+  expect(inspection.statusCode, inspection.body).toBe(200);
+  const review = inspection.json<BackupReview>();
+  expect(review.blockers).toEqual([]);
+  const countMarked = (marker: string) => destination.store.sqlite.prepare(
+    'SELECT count(*) FROM turns WHERE length(user_text) > ? AND substr(user_text, ?, ?) = ?',
+  ).pluck().get(fieldBytes, fieldBytes + 1, marker.length, marker);
+  expect(countMarked('destination')).toBe(count);
+  const result = await destination.command(`/api/data/stages/${review.stageId}/import`, {
+    requestId: randomUUID(), digest: review.digest, token: review.token, overwrite: true,
+  });
+  expect(result.statusCode, result.body).toBe(200);
+  expect(countMarked('source')).toBe(count);
+  expect(countMarked('destination')).toBe(0);
+  expect(readdirSync(join(directory, '.ore-backups-large-destination.sqlite'))).toEqual([]);
+}, 120_000);

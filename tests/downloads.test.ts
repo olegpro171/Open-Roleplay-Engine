@@ -6,7 +6,6 @@ import { Downloads } from '../src/server/downloads.js';
 import { createApp } from '../src/server/app.js';
 import { unprotectBytes } from '../src/server/protected-files.js';
 import { downloadLifetimeMs, downloadLimit, preparedDownloadSchema } from '../src/shared/downloads.js';
-import { backupLimits } from '../src/shared/backups.js';
 import { connectionPlaintextMaxBytes } from '../src/shared/connection-files.js';
 
 let directory: string;
@@ -133,7 +132,7 @@ it('streams a prepared encrypted backup and removes its temporary directory afte
   const download = await application.app.inject({ url: ticket.url, headers: application.headers });
   expect(download.statusCode, download.body).toBe(200);
   expect(download.headers['content-length']).toBe(String(download.rawPayload.length));
-  expect((await unprotectBytes(download.rawPayload, 'backup', 'backup passphrase', backupLimits.bytes)).subarray(0, 16).toString()).toBe('SQLite format 3\0');
+  expect((await unprotectBytes(download.rawPayload, 'backup', 'backup passphrase', Number.MAX_SAFE_INTEGER)).subarray(0, 16).toString()).toBe('SQLite format 3\0');
   await expect.poll(() => readdirSync(join(directory, '.ore-backups-application.sqlite'))).toEqual([]);
   expect(application.store.libraries()).toEqual(before);
 });

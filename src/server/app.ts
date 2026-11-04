@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { message } from '../shared/localization.js';
 import { authorNoteStatusSchema } from '../shared/author-note.js';
 import { defaultContextPreset, summaryRetrySchema } from '../shared/context.js';
@@ -5,7 +6,7 @@ import { buildInfo } from './installation.js';
 import { BackupService } from './backups.js';
 import { Downloads } from './downloads.js';
 import { downloadTokenSchema } from '../shared/downloads.js';
-import { backupFileMaxBytes, backupLimits, backupTableSchema, dataCommandSchema } from '../shared/backups.js';
+import { backupLimits, backupTableSchema, dataCommandSchema } from '../shared/backups.js';
 import { protectedFilePasswordSchema } from '../shared/protected-files.js';
 import { filePasswordFromHeader } from './protected-files.js';
 import { connectionExportSchema, connectionImportSchema } from '../shared/connection-files.js';
@@ -102,7 +103,7 @@ export async function createApp(options: {
   await app.register(cookie);
   const backups = new BackupService(store, options.database, options.migrationsDirectory);
   const downloads = new Downloads();
-  app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: backupFileMaxBytes }, (_request, body, done) => done(null, body));
+  app.addContentTypeParser('application/octet-stream', (_request, payload, done) => done(null, payload));
   const mutations = new Set<string>();
   const executingMutations = new Set<string>();
   const isMutation = (request: FastifyRequest) => request.url.startsWith('/api/')
@@ -262,9 +263,14 @@ export async function createApp(options: {
     reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename="${filename}"`);
     return reply.send(stream);
   });
-  app.post('/api/data/stages', { bodyLimit: backupFileMaxBytes }, async request => {
-    const bytes = z.instanceof(Buffer).parse(request.body);
-    return backups.inspect(bytes, owner(request.cookies.session), filePasswordFromHeader(request.headers['x-ore-file-password']));
+  app.post('/api/data/stages', async (request, reply) => {
+    const stream = z.instanceof(Readable).parse(request.body);
+    try {
+      return await backups.inspect(stream, owner(request.cookies.session), filePasswordFromHeader(request.headers['x-ore-file-password']));
+    } catch (error) {
+      if (!request.raw.complete) reply.header('Connection', 'close');
+      throw error;
+    }
   });
   app.get('/api/data/stages/:stageId', async request => {
     const { stageId } = stageParams.parse(request.params);

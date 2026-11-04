@@ -14,7 +14,7 @@ import { Dropdown } from './Controls';
 import type { SettingsAutosave } from './settings-autosave';
 import type { LanSettings as LanConfiguration, LanStatus } from '../shared/lan';
 import { useEffect, useRef, useState } from 'react';
-import { backupFileMaxBytes, backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type DataOutcome } from '../shared/backups';
+import { backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type DataOutcome } from '../shared/backups';
 import { api, ApiError } from './api';
 import { z } from 'zod';
 import { dataCommandSchema } from '../shared/backups';
@@ -91,7 +91,6 @@ export function ApplicationSettings({ openLibraries, appearance, chatBehavior, l
   }
   async function select(file: File, importPassword: string) {
     await run(async () => {
-      if (file.size > backupFileMaxBytes) throw new LocalizedError(msg("application_settings.backup_file_too_large"));
       if (stage.current) { await api(`/data/stages/${stage.current}`,'DELETE',{}); stage.current = null; setReview(null); }
       const passwordHeader = btoa(String.fromCharCode(...new TextEncoder().encode(importPassword)));
       const response = await fetch('/api/data/stages',{ method: 'POST',credentials: 'same-origin',headers: { 'Content-Type': 'application/octet-stream', 'X-ORE-File-Password': passwordHeader },body: file });

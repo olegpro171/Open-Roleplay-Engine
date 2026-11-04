@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,25 +8,29 @@ import { Store } from '../src/persistence/store.js';
 import { BackupService } from '../src/server/backups.js';
 import { unprotectBytes } from '../src/server/protected-files.js';
 import { BackupStore } from '../src/persistence/backup-store.js';
-import { backupLimits } from '../src/shared/backups.js';
 
 vi.mock('node:fs',async original => {
   const actual = await original<typeof import('node:fs')>();
   return { ...actual,statfsSync: vi.fn(actual.statfsSync),writeFileSync: vi.fn(actual.writeFileSync) };
 });
 afterEach(() => vi.clearAllMocks());
-it('rejects oversized inputs and disk-space/write failures, cleans staging, and retains usable current data',async () => {
+it('rejects disk-space and write failures, cleans staging, and retains usable current data',async () => {
   const directory = fs.mkdtempSync(join(tmpdir(),'ore-backup-errors-')), filename = join(directory,'live.sqlite');
   const store = new Store(filename), service = new BackupService(store,filename);
   try {
-    const file = await service.export(), bytes = await unprotectBytes(fs.readFileSync(file.path), 'backup', '', backupLimits.bytes); file.cleanup(); const token = new BackupStore(store).token;
-    const oversized = Buffer.alloc(backupLimits.bytes+1); expect(() => service.upload(oversized,'owner')).toThrow();
+    const file = await service.export(), bytes = await unprotectBytes(fs.readFileSync(file.path), 'backup', '', Number.MAX_SAFE_INTEGER); file.cleanup(); const token = new BackupStore(store).token;
     const space = fs.statfsSync(directory); vi.mocked(fs.statfsSync).mockReturnValueOnce({ ...space,bavail: 0 });
-    expect(() => service.upload(bytes,'owner')).toThrow('not enough free disk space');
+    await expect(service.inspect(Readable.from([bytes]), 'owner')).rejects.toThrow('not enough free disk space');
     vi.mocked(fs.writeFileSync).mockImplementationOnce(() => { throw Object.assign(new Error('Synthetic disk full'),{ code: 'ENOSPC' }); });
-    expect(() => service.upload(bytes,'owner')).toThrow(); expect(fs.readdirSync(join(directory,'.ore-backups-live.sqlite'))).toEqual([]);
+    await expect(service.inspect(Readable.from([bytes]), 'owner')).rejects.toThrow(); expect(fs.readdirSync(join(directory,'.ore-backups-live.sqlite'))).toEqual([]);
+    const interrupted = Readable.from((async function* () {
+      yield bytes.subarray(0, 4096);
+      throw new Error('Synthetic client disconnect');
+    })());
+    await expect(service.inspect(interrupted, 'owner')).rejects.toThrow('Synthetic client disconnect');
+    expect(fs.readdirSync(join(directory, '.ore-backups-live.sqlite'))).toEqual([]);
     expect(new BackupStore(store).token).toBe(token);
-    const review = service.upload(bytes,'owner'); expect(review.blockers).toEqual([]); service.cancel(review.stageId,'owner');
+    const review = await service.inspect(Readable.from([bytes]), 'owner'); expect(review.blockers).toEqual([]); service.cancel(review.stageId,'owner');
   } finally { service.close(); store.close(); fs.rmSync(directory,{ recursive: true,force: true }); }
 });
 
@@ -34,7 +39,7 @@ it('rejects unexpected executable schema names, binary text, wrong selected vari
   const store = new Store(filename), service = new BackupService(store,filename);
   try {
     store.replaceHistory(store.snapshot().revision,'main',[{ user: 'Input',assistant: 'Saved response',complete: true }]);
-    const file = await service.export(), bytes = await unprotectBytes(fs.readFileSync(file.path), 'backup', '', backupLimits.bytes); file.cleanup(); const token = new BackupStore(store).token;
+    const file = await service.export(), bytes = await unprotectBytes(fs.readFileSync(file.path), 'backup', '', Number.MAX_SAFE_INTEGER); file.cleanup(); const token = new BackupStore(store).token;
     for (const sql of [
       'CREATE TRIGGER sqliteXhidden AFTER INSERT ON chats BEGIN DELETE FROM chats; END',
       "UPDATE turns SET user_text = X'616263'",
@@ -42,7 +47,7 @@ it('rejects unexpected executable schema names, binary text, wrong selected vari
       `INSERT INTO summaries VALUES ('cycle',0,'main','{"id":"cycle","revision":0,"level":1,"text":"Memory","turns":[],"children":[],"prior":[{"id":"cycle","revision":0}],"approved":true,"manual":false,"createdAt":""}')`,
     ]) {
       const path = join(directory,'malformed.sqlite'); fs.writeFileSync(path,bytes); const db = new Database(path); db.exec(sql); db.close();
-      expect(() => service.upload(fs.readFileSync(path),'owner')).toThrow(); expect(new BackupStore(store).token).toBe(token);
+      await expect(service.inspect(Readable.from([fs.readFileSync(path)]), 'owner')).rejects.toThrow(); expect(new BackupStore(store).token).toBe(token);
     }
   } finally { service.close(); store.close(); fs.rmSync(directory,{ recursive: true,force: true }); }
 });
@@ -52,7 +57,7 @@ it('explains schema, content and reconstruction failures without exposing upload
   const store = new Store(filename), service = new BackupService(store,filename);
   try {
     store.replaceHistory(store.snapshot().revision,'main',[{ user: 'Private synthetic prose',assistant: 'Saved response',complete: true }]);
-    const file = await service.export(), bytes = await unprotectBytes(fs.readFileSync(file.path), 'backup', '', backupLimits.bytes); file.cleanup();
+    const file = await service.export(), bytes = await unprotectBytes(fs.readFileSync(file.path), 'backup', '', Number.MAX_SAFE_INTEGER); file.cleanup();
     const token = service.persistence.token;
     const cases = [
       { sql: 'PRAGMA user_version = 999', reason: 'Unsupported database schema version 999' },
@@ -74,7 +79,7 @@ it('explains schema, content and reconstruction failures without exposing upload
       try { db.unsafeMode(true); db.pragma('foreign_keys = OFF'); db.exec(sql); } finally { db.close(); }
       const input = fs.readFileSync(path);
       let failure: unknown;
-      try { service.upload(input,'owner'); } catch (error) { failure = error; }
+      try { await service.inspect(Readable.from([input]), 'owner'); } catch (error) { failure = error; }
       expect(failure).toMatchObject({ code: 'invalid_backup',message: 'This file is not a valid ORE backup.',details: expect.stringContaining(reason) });
       expect(JSON.stringify(failure)).not.toContain('private_uploaded_secret');
       expect(JSON.stringify(failure)).not.toContain('Private synthetic prose');
@@ -84,6 +89,6 @@ it('explains schema, content and reconstruction failures without exposing upload
       expect(service.persistence.token).toBe(token);
       expect(fs.readdirSync(join(directory,'.ore-backups-live.sqlite'))).toEqual([]);
     }
-    const review = service.upload(bytes,'owner'); expect(review.blockers).toEqual([]); service.cancel(review.stageId,'owner');
+    const review = await service.inspect(Readable.from([bytes]), 'owner'); expect(review.blockers).toEqual([]); service.cancel(review.stageId,'owner');
   } finally { service.close(); store.close(); fs.rmSync(directory,{ recursive: true,force: true }); }
 });

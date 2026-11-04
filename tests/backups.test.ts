@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { removeSortingSchema } from './support/legacy-sorting.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -25,7 +26,7 @@ function store(name: string, migrationsDirectory?: string) { const result = new 
 function service(db: Store,name: string, migrationsDirectory?: string) { const result = new BackupService(db,join(directory,`${name}.sqlite`),migrationsDirectory); services.push(result); return result; }
 function receipt(review: BackupReview,overwrite = true) { return { requestId: randomUUID(),digest: review.digest,token: review.token,overwrite }; }
 // Schema-corruption and crash fixtures need the inner SQLite snapshot.
-async function bytes(backups: BackupService) { const file = await backups.export(); try { return await unprotectBytes(readFileSync(file.path), 'backup', '', backupLimits.bytes); } finally { file.cleanup(); } }
+async function bytes(backups: BackupService) { const file = await backups.export(); try { return await unprotectBytes(readFileSync(file.path), 'backup', '', Number.MAX_SAFE_INTEGER); } finally { file.cleanup(); } }
 function character(db: Store,name: string,id?: string) { return db.saveLibrary(db.libraryRevision(),'characters',{ name, description: 'A patient guide',personality: '',scenario: '',first_mes: 'Welcome, traveler.',mes_example: '' },id); }
 function chat(db: Store,characterId: string,title: string) { return db.createChat({ title,characterId,personaId: null,connectionId: null,promptId: 'default',contextPresetId: null,targetInputTokens: 32000,lorebookId: null }); }
 beforeEach(() => { directory = mkdtempSync(join(tmpdir(),'ore-backup-test-')); });
@@ -39,7 +40,7 @@ describe('portable backup persistence',() => {
     const other = source.createChat({ title: 'Older chat', targetInputTokens: 32000, connectionId: null, promptId: 'default', characterId: null, personaId: null, contextPresetId: null });
     const before = source.snapshot(), older = source.snapshot(other);
     const destination = store('note-target'), target = service(destination, 'note-target');
-    const review = target.upload(await bytes(backups), owner);
+    const review = await target.inspect(Readable.from([await bytes(backups)]), owner);
     expect(review.blockers).toEqual([]);
     target.commit(review.stageId, owner, receipt(review));
     expect(destination.snapshot().settings).toEqual(before.settings);
@@ -58,7 +59,7 @@ describe('portable backup persistence',() => {
     for (const node of summaries) source.sqlite.prepare('INSERT INTO summaries (id, revision, chat_id, data) VALUES (?, ?, ?, ?)').run(node.id, node.revision, 'main', JSON.stringify(node));
     source.sqlite.prepare('INSERT INTO context_states (chat_id, revision, data) VALUES (?, ?, ?)').run('main', 1, JSON.stringify({ selected: summaries.map(({ id, revision }) => ({ id, revision })), archivedTurnIds: before.turns.map(turn => turn.id) }));
     const destination = store('refusal-target'), target = service(destination, 'refusal-target');
-    const review = target.upload(await bytes(backups), owner);
+    const review = await target.inspect(Readable.from([await bytes(backups)]), owner);
     expect(review.blockers).toEqual([]);
     target.commit(review.stageId, owner, receipt(review));
     expect(destination.snapshot().context.summaries).toEqual(summaries);
@@ -69,7 +70,7 @@ describe('portable backup persistence',() => {
   it('records the creating commit and still reads historical package-version metadata', async () => {
     const source = store('identity'), backups = service(source, 'identity');
     const snapshot = await bytes(backups);
-    const review = backups.upload(snapshot, owner);
+    const review = await backups.inspect(Readable.from([snapshot]), owner);
     expect(review.metadata?.build).toBe(execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
     const path = join(directory, 'historical.sqlite');
     writeFileSync(path, snapshot);
@@ -77,14 +78,14 @@ describe('portable backup persistence',() => {
     try {
       historical.prepare('UPDATE backup_metadata SET data = ? WHERE id = 1').run(JSON.stringify({ ...review.metadata, build: 'retired-package-version' }));
     } finally { historical.close(); }
-    expect(backups.upload(readFileSync(path), owner).metadata?.build).toBe('retired-package-version');
+    expect((await backups.inspect(Readable.from([readFileSync(path)]), owner)).metadata?.build).toBe('retired-package-version');
   });
   it('retains local character and persona speech colors through backup import', async () => {
     const source = store('colors-source'), backups = service(source, 'colors-source');
     const characterId = source.saveLibrary(source.libraryRevision(), 'characters', { name: 'Mara', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', speechColor: '#eeaa88' });
     const personaId = source.saveLibrary(source.libraryRevision(), 'personas', { name: 'Alex', description: '', speechColor: '#88cc99' });
     const destination = store('colors-target'), target = service(destination, 'colors-target');
-    const review = target.upload(await bytes(backups), owner);
+    const review = await target.inspect(Readable.from([await bytes(backups)]), owner);
     expect(review.blockers).toEqual([]);
     target.commit(review.stageId, owner, receipt(review));
     expect(destination.libraries().dates[characterId]).toEqual(source.libraries().dates[characterId]);
@@ -146,7 +147,7 @@ describe('portable backup persistence',() => {
     const pictureSchema = "SELECT sql FROM sqlite_master WHERE name = 'character_pictures'";
     expect(source.sqlite.prepare(pictureSchema).get()).not.toEqual(destination.sqlite.prepare(pictureSchema).get());
     const before = target.persistence.token;
-    const review = target.upload(input,owner);
+    const review = await target.inspect(Readable.from([input]), owner);
     expect(review.blockers).toEqual([]);
     expect(review.metadata?.schema ?? null).toBe(version >= 14 ? version : null);
     expect(target.page(review.stageId,owner,'turns',0,chatId).total).toBe(2);
@@ -173,7 +174,7 @@ describe('portable backup persistence',() => {
     expect(snapshot.includes(Buffer.from('synthetic-owner-hash'))).toBe(false);
     const destination = store('destination'), target = service(destination,'destination');
     const retained = character(destination,'Current only');
-    const review = target.upload(snapshot,owner);
+    const review = await target.inspect(Readable.from([snapshot]), owner);
     expect(review.blockers).toEqual([]); expect(review.overlaps).toBeGreaterThan(0);
     const credentials = target.page(review.stageId,owner,'credentials',0);
     const leaf = target.leaf(review.stageId,owner,'credentials',credentials.items[0].key,0);
@@ -196,7 +197,7 @@ describe('portable backup persistence',() => {
     const extra = character(db,'Same name');
     db.replaceHistory(db.snapshot(chatId).revision,chatId,[{ user: 'Newer input',assistant: 'Newer response',complete: true },{ user: 'Another input',assistant: 'Another response',complete: true }]);
     const newTurns = db.snapshot(chatId).turns.map(turn => turn.id);
-    const review = backups.upload(saved,owner);
+    const review = await backups.inspect(Readable.from([saved]), owner);
     expect(review.blockers).toEqual([]); expect(review.units.find(unit => unit.id === chatId)?.children).toBeGreaterThan(0);
     backups.commit(review.stageId,owner,receipt(review));
     expect(db.snapshot(chatId).turns.map(turn => turn.assistant.text)).toEqual(['Welcome, traveler.']);
@@ -223,16 +224,16 @@ describe('portable backup persistence',() => {
     expect(db.libraries().dates).toEqual(dates);
     expect(db.libraries().chats).toEqual([]); expect(db.libraries().characters).toEqual([]);
     expect(db.sqlite.prepare('SELECT hash FROM sessions').all()).toEqual([{ hash: 'current' }]); expect(db.sqlite.prepare('SELECT id FROM owners').get()).toEqual({ id: 'owner' });
-    const review = backups.upload(saved,owner); expect(review.blockers).toEqual([]); backups.commit(review.stageId,owner,receipt(review));
+    const review = await backups.inspect(Readable.from([saved]), owner); expect(review.blockers).toEqual([]); backups.commit(review.stageId,owner,receipt(review));
     expect(db.snapshot(chatId).turns[0].assistant.text).toBe('Welcome, traveler.');
     expect(persistence.epoch).not.toBe(outcome.epoch);
     expect(() => persistence.commit({ ...command,digest: '1'.repeat(64) })).toThrow('different data');
   });
   it('cancel and stale review preserve all saved content, including a changed chat with unchanged library revision',async () => {
     const db = store('stale'), backups = service(db,'stale'); const cid = character(db,'Guide'), chatId = chat(db,cid,'Story');
-    const saved = await bytes(backups), cancelled = backups.upload(saved,owner);
+    const saved = await bytes(backups), cancelled = await backups.inspect(Readable.from([saved]), owner);
     backups.cancel(cancelled.stageId,owner); expect(() => backups.commit(cancelled.stageId,owner,receipt(cancelled))).toThrow('expired');
-    const review = backups.upload(saved,owner), before = db.libraryRevision(), state = db.snapshot(chatId);
+    const review = await backups.inspect(Readable.from([saved]), owner), before = db.libraryRevision(), state = db.snapshot(chatId);
     db.editPart(state.revision,state.turns[0].id,'assistant','Local correction',chatId);
     expect(db.libraryRevision()).toBe(before);
     expect(() => backups.commit(review.stageId,owner,receipt(review))).toThrow('changed since review');
@@ -243,27 +244,27 @@ describe('portable backup persistence',() => {
   it('blocks conflicting tag identities and cross-kind records without changing destination state',async () => {
     const a = store('tag-a'), b = store('tag-b'), sa = service(a,'tag-a'), sb = service(b,'tag-b');
     a.tags.create(a.libraryRevision(),'Travel'); b.tags.create(b.libraryRevision(),'TRAVEL');
-    const before = new BackupStore(b).token, review = sb.upload(await bytes(sa),owner);
+    const before = new BackupStore(b).token, review = await sb.inspect(Readable.from([await bytes(sa)]), owner);
     expect(review.blockers.join(' ')).toContain('Rename');
     expect(() => sb.commit(review.stageId,owner,receipt(review))).toThrow(); expect(new BackupStore(b).token).toBe(before);
     sb.cancel(review.stageId,owner);
     const c = character(a,'Kind conflict');
     b.sqlite.prepare('INSERT INTO library (id,kind,revision,data) VALUES (?,\'prompts\',0,?)').run(c,JSON.stringify(defaultPrompt));
-    const collision = sb.upload(await bytes(sa),owner); expect(collision.blockers.length).toBeGreaterThan(0);
+    const collision = await sb.inspect(Readable.from([await bytes(sa)]), owner); expect(collision.blockers.length).toBeGreaterThan(0);
   });
   it('rejects malicious schemas, future/corrupt files and dangling or inconsistent records, preserving the input bytes',async () => {
     const db = store('untrusted'), backups = service(db,'untrusted'), snapshot = await bytes(backups), before = new BackupStore(db).token;
-    expect(() => backups.upload(Buffer.from('not a database'),owner)).toThrow();
+    await expect(backups.inspect(Readable.from([Buffer.from('not a database')]), owner)).rejects.toThrow();
     for (const sql of ["UPDATE library SET created_at = 'not-a-date'",'PRAGMA user_version = 999','CREATE TRIGGER injected AFTER INSERT ON chats BEGIN DELETE FROM owners; END',"INSERT INTO library (id,kind,revision,data) VALUES ('bad','unknown',0,'{}')", "INSERT INTO chats (id,revision,settings) VALUES ('bad',0,'{}')"]) {
       const path = join(directory,randomUUID()+'.sqlite'); writeFileSync(path,snapshot); const altered = new Database(path); altered.exec(sql); altered.close();
-      const original = readFileSync(path); expect(() => backups.upload(original,owner)).toThrow(); expect(readFileSync(path)).toEqual(original);
+      const original = readFileSync(path); await expect(backups.inspect(Readable.from([original]), owner)).rejects.toThrow(); expect(readFileSync(path)).toEqual(original);
     }
     expect(new BackupStore(db).token).toBe(before);
   }, 20000);
   it('bounds record branches and leaf text and binds staging to its session',async () => {
     const db = store('bounded'), backups = service(db,'bounded');
     for (let i=0;i<55;i++) character(db,`Character ${i}`);
-    const review = backups.upload(await bytes(backups),owner);
+    const review = await backups.inspect(Readable.from([await bytes(backups)]), owner);
     const page = backups.page(review.stageId,owner,'library',0); expect(page.items).toHaveLength(backupLimits.page); expect(page.total).toBe(57);
     expect(backups.page(review.stageId,owner,'library',40).items).toHaveLength(17);
     expect(() => backups.page(review.stageId,'another-session','library',0)).toThrow('expired');
@@ -274,7 +275,7 @@ describe('portable backup persistence',() => {
     const path = join(directory,'old-input.sqlite'); writeFileSync(path,await bytes(backups)); const old = new Database(path);
     removeSortingSchema(old);
     old.exec('DROP TABLE backup_metadata; DROP TABLE dataset_state; DROP TABLE data_commands; PRAGMA user_version = 12'); old.close(); const source = readFileSync(path);
-    const review = backups.upload(source,owner); expect(review.metadata).toBeNull(); expect(review.blockers).toEqual([]);
+    const review = await backups.inspect(Readable.from([source]), owner); expect(review.metadata).toBeNull(); expect(review.blockers).toEqual([]);
     backups.commit(review.stageId,owner,receipt(review)); expect(db.snapshot(chatId).turns[0].assistant.text).toBe('Welcome, traveler.'); expect(readFileSync(path)).toEqual(source);
   });
 });
@@ -308,7 +309,7 @@ it('protects authenticated routes and rejects old-tab commands even when restore
 it('keeps inspection bounded for a 4,000-turn synthetic transcript',async () => {
   const db = store('large'), backups = service(db,'large');
   db.replaceHistory(db.snapshot().revision,'main',Array.from({ length: 4000 },(_,i) => ({ user: `Turn ${i+1}: ${'Synthetic source prose. '.repeat(40)}`,assistant: 'Synthetic saved response. '.repeat(40),complete: true })));
-  const review = backups.upload(await bytes(backups),owner); expect(review.blockers).toEqual([]);
+  const review = await backups.inspect(Readable.from([await bytes(backups)]), owner); expect(review.blockers).toEqual([]);
   const first = backups.page(review.stageId,owner,'turns',0,'main'), last = backups.page(review.stageId,owner,'turns',3960,'main');
   expect(first.total).toBe(4000); expect(first.items).toHaveLength(40); expect(last.items).toHaveLength(40); expect(last.items.at(-1)?.label).toBe('Turn 4000'); expect(JSON.stringify(first).length).toBeLessThan(10000);
   expect(backups.leaf(review.stageId,owner,'turns',first.items[0].key,0).text?.length).toBeLessThanOrEqual(8192);

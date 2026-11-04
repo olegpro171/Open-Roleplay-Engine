@@ -3,10 +3,13 @@ import { unchangedLoreEntries } from '../core/lorebook.js';
 import { lorebookSchema } from '../shared/lorebook.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync, statfsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { Store } from './store.js';
 import { AppError } from '../core/errors.js';
-import { backupTables, backupLimits, type BackupTable, type BackupUnit, type DataOutcome } from '../shared/backups.js';
+import { backupTables, type BackupTable, type BackupUnit, type DataOutcome } from '../shared/backups.js';
 import { defaultPrompt } from '../shared/library.js';
 import { defaultContextPreset } from '../shared/context.js';
 import { rows, str, json, rowSchema, validateContent, type BackupRow } from './backup-validation.js';
@@ -20,12 +23,12 @@ export function stateToken(db: Database.Database): string {
   const hash = createHash('sha256');
   hash.update(datasetEpoch(db));
   for (const table of backupTables) {
-    const records = rows(db,table);
-    hash.update(`${table}:${records.length}:`);
-    for (const row of records) for (const [key,value] of Object.entries(row)) {
-      const bytes = Buffer.isBuffer(value) ? value : Buffer.from(JSON.stringify(value));
-      hash.update(`${key}:${bytes.length}:`);
-      hash.update(bytes);
+    const { count } = z.object({ count: z.number() }).parse(db.prepare(`SELECT count(*) AS count FROM "${table}"`).get());
+    hash.update(`${table}:${count}:`);
+    for (const row of rows(db, table)) for (const [key,value] of Object.entries(row)) {
+      const encoded = Buffer.isBuffer(value) ? value : JSON.stringify(value);
+      hash.update(`${key}:${Buffer.byteLength(encoded)}:`);
+      hash.update(encoded);
     }
   }
   return hash.digest('hex');
@@ -41,7 +44,7 @@ export function sanitizePortable(db: Database.Database) {
     db.prepare("UPDATE dataset_state SET epoch = 'initial' WHERE id = 1").run();
     const interrupted = message('outcome.backupInterrupted');
     db.prepare("UPDATE generations SET status = 'interrupted', error = ?, error_message = ? WHERE status = 'running'").run(interrupted.fallback, JSON.stringify(interrupted));
-    for (const row of rows(db,'generations')) db.prepare('UPDATE generations SET request_id = ? WHERE id = ?').run(randomUUID(), row.id);
+    for (const row of rows(db,'generations','id')) db.prepare('UPDATE generations SET request_id = ? WHERE id = ?').run(randomUUID(), row.id);
     for (const row of rows(db,'context_steps')) {
       const value = z.record(z.string(),z.unknown()).parse(json(row));
       if (value.status === 'candidate' || value.status === 'running') {
@@ -80,14 +83,19 @@ export function importUnits(current: Database.Database, incoming: Database.Datab
 }
 
 export function mergeContent(destination: Database.Database, incoming: Database.Database) {
-  const incomingChats = new Set(rows(incoming,'chats').map(row => str(row,'id')));
-  const incomingLibrary = rows(incoming,'library');
-  const incomingConnections = rows(incoming,'connections');
-  const incomingById = new Map(incomingLibrary.map(row => [str(row,'id'),row]));
-  const libraries = new Map(rows(destination,'library').map(row => [str(row,'id'),row]));
-  const connectionIds = new Set(rows(destination,'connections').map(row => str(row,'id')));
-  for (const row of incomingLibrary) if ((libraries.has(str(row,'id')) && libraries.get(str(row,'id'))?.kind !== row.kind) || connectionIds.has(str(row,'id'))) throw new AppError(422,'backup_collision',message("errors.an_incoming_library_identity_belongs_to_another_kind"));
-  for (const row of incomingConnections) if (libraries.has(str(row,'id'))) throw new AppError(422,'backup_collision',message("errors.an_incoming_connection_identity_belongs_to_another_library"));
+  const hasIncomingChat = incoming.prepare('SELECT 1 FROM chats WHERE id = ?');
+  const incomingLibrary = incoming.prepare('SELECT * FROM library WHERE id = ?');
+  const incomingConnection = incoming.prepare('SELECT 1 FROM connections WHERE id = ?');
+  const library = destination.prepare('SELECT * FROM library WHERE id = ?');
+  const libraryKind = destination.prepare('SELECT kind FROM library WHERE id = ?').pluck();
+  const connection = destination.prepare('SELECT 1 FROM connections WHERE id = ?');
+  for (const row of rows(incoming, 'library', 'id, kind')) {
+    const kind = libraryKind.get(row.id);
+    if ((kind !== undefined && kind !== row.kind) || connection.get(row.id)) throw new AppError(422,'backup_collision',message("errors.an_incoming_library_identity_belongs_to_another_kind"));
+  }
+  for (const row of rows(incoming, 'connections', 'id')) {
+    if (libraryKind.get(row.id) !== undefined) throw new AppError(422,'backup_collision',message("errors.an_incoming_connection_identity_belongs_to_another_library"));
+  }
   for (const row of rows(incoming,'tags')) {
     const conflict = destination.prepare('SELECT id FROM tags WHERE canonical_key = ? AND id != ?').get(row.canonical_key,row.id);
     if (conflict) throw new AppError(422,'backup_tag_conflict',message("errors.different_tag_identities_share_a_normalized_name_rename"));
@@ -102,29 +110,29 @@ export function mergeContent(destination: Database.Database, incoming: Database.
   };
   for (const table of backupTables) {
     const query = ownershipQueries[table]; if (!query) continue;
-    for (const row of rows(incoming,table)) {
-      const old = destination.prepare(query).all(table === 'lore_operations' ? row.operation_id : row.id).map(item => z.object({ chat_id: z.string() }).parse(item));
+    const conflictingOwner = destination.prepare(`SELECT 1 FROM (${query}) WHERE chat_id IS NOT ? LIMIT 1`);
+    const projection = table === 'response_variants' ? 'id, turn_id' : table === 'context_steps' ? 'id, job_id' : table === 'lore_operations' ? 'operation_id, chat_id' : 'id, chat_id';
+    for (const row of rows(incoming,table,projection)) {
       let chat = row.chat_id;
       if (table === 'response_variants') chat = rowSchema.parse(incoming.prepare('SELECT chat_id FROM turns WHERE id = ?').get(row.turn_id)).chat_id;
       if (table === 'context_steps') chat = rowSchema.parse(incoming.prepare('SELECT chat_id FROM context_jobs WHERE id = ?').get(row.job_id)).chat_id;
-      if (old.some(owner => owner.chat_id !== chat)) throw new AppError(422,'backup_ownership_conflict',message("errors.a_child_identity_belongs_to_a_different_chat"));
+      if (conflictingOwner.get(table === 'lore_operations' ? row.operation_id : row.id, chat)) throw new AppError(422,'backup_ownership_conflict',message("errors.a_child_identity_belongs_to_a_different_chat"));
     }
   }
   const retainedEffects: { id: string; title: string; reason: string }[] = [];
-  const libraryIds = new Set(incomingLibrary.map(row => str(row,'id')));
-  const connectionChanges = new Set(incomingConnections.map(row => str(row,'id')));
+  const hasIncomingLibrary = incoming.prepare('SELECT 1 FROM library WHERE id = ?');
   for (const row of rows(destination,'chats')) {
-    if (incomingChats.has(str(row,'id'))) continue;
+    if (hasIncomingChat.get(row.id)) continue;
     const settings = z.record(z.string(),z.unknown()).parse(json(row,'settings'));
-    const context = typeof settings.contextPresetId === 'string' ? libraries.get(settings.contextPresetId) : undefined;
-    const summaryConnection = context ? z.record(z.string(),z.unknown()).parse(json(context)).connectionId : null;
-    const affected = ['promptId','characterId','personaId','contextPresetId','lorebookId'].some(key => typeof settings[key] === 'string' && libraryIds.has(settings[key])) || connectionChanges.has(String(settings.connectionId)) || connectionChanges.has(String(summaryConnection));
+    const context = typeof settings.contextPresetId === 'string' ? library.get(settings.contextPresetId) : undefined;
+    const summaryConnection = context ? z.record(z.string(),z.unknown()).parse(json(rowSchema.parse(context))).connectionId : null;
+    const affected = ['promptId','characterId','personaId','contextPresetId','lorebookId'].some(key => typeof settings[key] === 'string' && hasIncomingLibrary.get(settings[key])) || incomingConnection.get(String(settings.connectionId)) || incomingConnection.get(String(summaryConnection));
     if (affected) {
       retainedEffects.push({ id: str(row,'id'), title: z.string().parse(settings.title), reason: 'Shared incoming settings affect future requests. Saved turns, memory and historical requests are retained.' });
       destination.prepare('UPDATE chats SET revision = revision + 1 WHERE id = ?').run(row.id);
       const nameChanged = ['characterId','personaId'].some(key => {
-        const before = libraries.get(String(settings[key])), after = incomingById.get(String(settings[key]));
-        return before && after && z.record(z.string(),z.unknown()).parse(json(before)).name !== z.record(z.string(),z.unknown()).parse(json(after)).name;
+        const before = library.get(String(settings[key])), after = incomingLibrary.get(String(settings[key]));
+        return before && after && z.record(z.string(),z.unknown()).parse(json(rowSchema.parse(before))).name !== z.record(z.string(),z.unknown()).parse(json(rowSchema.parse(after))).name;
       });
       if (nameChanged) {
         destination.prepare('INSERT INTO lore_epochs(chat_id,epoch) VALUES (?,1) ON CONFLICT(chat_id) DO UPDATE SET epoch=epoch+1').run(row.id);
@@ -134,23 +142,27 @@ export function mergeContent(destination: Database.Database, incoming: Database.
   }
   // Numeric revisions can move backwards on import. Reuse the ordinary edit policy,
   // retaining only entries with exactly matching semantic/activation fingerprints.
-  for (const incomingBook of incomingLibrary.filter(row => row.kind === 'lorebooks')) {
-    const previous = libraries.get(str(incomingBook,'id'));
+  for (const incomingBook of rows(incoming, 'library')) {
+    if (incomingBook.kind !== 'lorebooks') continue;
+    const previous = library.get(incomingBook.id);
     if (!previous) continue;
-    const retained = unchangedLoreEntries(lorebookSchema.parse(json(previous)),lorebookSchema.parse(json(incomingBook)));
-    const states = destination.prepare('SELECT chat_id,data FROM lore_states WHERE book_id = ?').all(incomingBook.id);
-    for (const raw of states) {
-      const state = z.object({ chat_id: z.string(), data: z.string() }).parse(raw);
+    const retained = unchangedLoreEntries(lorebookSchema.parse(json(rowSchema.parse(previous))),lorebookSchema.parse(json(incomingBook)));
+    const stateSchema = z.object({ chat_id: z.string(), data: z.string() });
+    const states = destination.prepare('SELECT chat_id,data FROM lore_states WHERE book_id = ? AND chat_id > ? ORDER BY chat_id LIMIT 1');
+    let cursor = '';
+    for (let raw = states.get(incomingBook.id, cursor); raw !== undefined; raw = states.get(incomingBook.id, cursor)) {
+      const state = stateSchema.parse(raw);
+      cursor = state.chat_id;
       const entries = z.record(z.string(),z.object({ fingerprint: z.string(), matches: z.number().int().nonnegative() })).parse(JSON.parse(state.data));
       destination.prepare('UPDATE lore_states SET data = ? WHERE chat_id = ? AND book_id = ?').run(JSON.stringify(Object.fromEntries(Object.entries(entries).filter(([entryId]) => retained.has(entryId)))),state.chat_id,incomingBook.id);
     }
   }
-  for (const chat of incomingChats) destination.prepare('DELETE FROM chats WHERE id = ?').run(chat);
-  for (const row of incomingLibrary) {
+  for (const row of rows(incoming, 'chats', 'id')) destination.prepare('DELETE FROM chats WHERE id = ?').run(row.id);
+  for (const row of rows(incoming, 'library', 'id')) {
     destination.prepare('DELETE FROM character_tags WHERE character_id = ?').run(row.id);
     destination.prepare('DELETE FROM character_pictures WHERE character_id = ?').run(row.id);
   }
-  for (const row of incomingConnections) destination.prepare('DELETE FROM credentials WHERE id = ?').run(row.id);
+  for (const row of rows(incoming, 'connections', 'id')) destination.prepare('DELETE FROM credentials WHERE id = ?').run(row.id);
   const assetMap = new Map<string,string>();
   for (const row of rows(incoming,'picture_assets')) {
     const old = destination.prepare('SELECT * FROM picture_assets WHERE id = ?').get(row.id);
@@ -176,7 +188,7 @@ export function mergeContent(destination: Database.Database, incoming: Database.
 }
 
 export class BackupStore {
-  constructor(private store: Store) {}
+  constructor(private store: Store, private scratch = tmpdir()) {}
   get epoch() { return datasetEpoch(this.store.sqlite); }
   get token() { return stateToken(this.store.sqlite); }
   replay(requestId: string, digest: string): DataOutcome | null {
@@ -189,19 +201,45 @@ export class BackupStore {
   preflight(incoming: Database.Database) {
     const current = this.store.sqlite;
     const units = importUnits(current,incoming), token = this.token;
-    const snapshot = current.serialize();
-    if (snapshot.length > backupLimits.bytes) throw new AppError(413,'backup_too_large',message("errors.the_current_database_exceeds_the_supported_128_mib"));
-    // SQLite deserialization into memory requires rollback-journal header bytes.
-    // serialize() already contains committed WAL pages; this edits only the private copy.
-    snapshot[18] = 1; snapshot[19] = 1;
-    const clone = new Database(snapshot);
-    clone.pragma('foreign_keys = ON');
+    const directory = mkdtempSync(join(this.scratch, 'merge-'));
+    const path = join(directory, 'preview.sqlite');
+    let clone: Database.Database | undefined;
     try {
-      const effects = clone.transaction(() => { clone.pragma('defer_foreign_keys = ON'); const effects = mergeContent(clone,incoming); validateContent(clone); return effects; })();
-      return { token, units, effects, blockers: [] as string[] };
+      const space = statfsSync(directory);
+      const bytes = (db: Database.Database) => z.number().parse(db.pragma('page_count', { simple: true }))
+        * z.number().parse(db.pragma('page_size', { simple: true }));
+      if (space.bavail * space.bsize < 2 * (bytes(current) + bytes(incoming))) {
+        throw new AppError(507,'backup_disk_space',message("errors.there_is_not_enough_free_disk_space_to"));
+      }
+      // ORE owns the source connection. A synchronous snapshot cannot interleave
+      // with a save between the state token above and the snapshot below.
+      current.exec('PRAGMA temp_store = FILE');
+      current.prepare('VACUUM INTO ?').run(path);
+      clone = new Database(path);
+      clone.pragma('foreign_keys = ON');
+      clone.pragma('temp_store = FILE');
+      const preview = clone;
+      try {
+        const effects = preview.transaction(() => {
+          preview.pragma('defer_foreign_keys = ON');
+          const effects = mergeContent(preview,incoming);
+          validateContent(preview);
+          return effects;
+        })();
+        return { token, units, effects, blockers: [] as string[] };
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'SQLITE_FULL') throw error;
+        return { token, units, effects: [], blockers: [error instanceof AppError ? error.message : 'The combined backup violates a saved reference, identity or unique constraint. No data was changed.'] };
+      }
     } catch (error) {
-      return { token, units, effects: [], blockers: [error instanceof AppError ? error.message : 'The combined backup violates a saved reference, identity or unique constraint. No data was changed.'] };
-    } finally { clone.close(); }
+      if (error instanceof Error && 'code' in error && ['ENOSPC', 'SQLITE_FULL'].includes(String(error.code))) {
+        throw new AppError(507,'backup_disk_space',message("errors.backup_staging_ran_out_of_disk_space_free"));
+      }
+      throw error;
+    } finally {
+      clone?.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
   }
   commit(input: { requestId: string; digest: string; token: string; overwrite: boolean }, incoming?: Database.Database, sessionHash?: string): DataOutcome {
     const kind = incoming ? 'import' : 'wipe';

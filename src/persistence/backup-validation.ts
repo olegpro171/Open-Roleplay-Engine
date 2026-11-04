@@ -14,10 +14,37 @@ import { localizedMessageSchema } from '../shared/localization.js';
 export type BackupRow = Record<string, string | number | null | Buffer>;
 export const rowSchema = z.record(z.string(), z.union([z.string(), z.number().finite(), z.null(), z.instanceof(Buffer)]));
 export const invalidBackup = (reason: string) => new BackupValidationError(reason);
-export function rows(db: Database.Database, table: BackupTable): BackupRow[] {
-  const result = db.prepare(`SELECT * FROM "${table}" ORDER BY rowid LIMIT ?`).all(backupLimits.rows + 1).map(row => rowSchema.parse(row));
-  if (result.length > backupLimits.rows) throw invalidBackup('Table exceeds the 100,000-row limit.');
-  return result;
+// Keyset reads release the statement before yielding, so callers can update the
+// current row inside the same transaction without keeping a SQLite cursor open.
+export function* rows(db: Database.Database, table: BackupTable, projection = '*'): Generator<BackupRow> {
+  const first = db.prepare(`SELECT CAST(rowid AS TEXT) AS backup_cursor, ${projection} FROM "${table}" ORDER BY rowid LIMIT 1`);
+  const next = db.prepare(`SELECT CAST(rowid AS TEXT) AS backup_cursor, ${projection} FROM "${table}" WHERE rowid > CAST(? AS INTEGER) ORDER BY rowid LIMIT 1`);
+  let raw = first.get();
+  while (raw !== undefined) {
+    const { backup_cursor, ...row } = rowSchema.parse(raw);
+    yield row;
+    raw = next.get(backup_cursor);
+  }
+}
+// Filter oversized fields in SQLite before better-sqlite3 copies a hostile
+// row into JavaScript. UTF-16 databases receive a conservative byte allowance
+// here, followed by the exact UTF-8 text check during reconstruction.
+export function checkUploadedFieldSizes(db: Database.Database, table: BackupTable) {
+  const columns = z.array(z.object({ name: z.string() })).parse(db.prepare(`PRAGMA table_info("${table}")`).all());
+  const textBytes = db.pragma('encoding', { simple: true }) === 'UTF-8' ? backupLimits.textBytes : backupLimits.textBytes * 2;
+  const bounds: number[] = [];
+  const tests = columns.map(({ name }) => {
+    const column = `"${name.replaceAll('"', '""')}"`;
+    const blobBytes = name === 'original' ? pictureLimits.bytes : name === 'preview' ? pictureLimits.previewBytes : name === 'thumbnail' ? pictureLimits.thumbBytes : backupLimits.textBytes;
+    bounds.push(blobBytes, textBytes);
+    return `CASE typeof(${column})
+      WHEN 'blob' THEN length(${column}) > ?
+      WHEN 'text' THEN length(CAST(${column} AS BLOB)) > ?
+      ELSE 0 END`;
+  });
+  if (db.prepare(`SELECT 1 FROM "${table}" WHERE ${tests.join(' OR ')} LIMIT 1`).get(...bounds)) {
+    throw invalidBackup(`Table ${table}: a field exceeds its size limit.`);
+  }
 }
 export function str(row: BackupRow, key: string): string {
   if (typeof row[key] !== 'string') throw invalidBackup(`Column ${key} must contain text.`);
@@ -116,12 +143,15 @@ export function validateContent(db: Database.Database) {
       for (const field of ['data','settings','request','usage','resolution','context_selection','crop']) if (typeof row[field] === 'string') json(row,field);
     }
   }
-  if (z.array(z.unknown()).parse(db.pragma('foreign_key_check')).length || db.pragma('quick_check', { simple: true }) !== 'ok') throw invalidBackup('SQLite integrity or foreign-key check failed.');
-  const libraries = new Map(rows(db, 'library').map(row => [str(row, 'id'), row]));
-  const connections = new Set(rows(db, 'connections').map(row => { id.parse(row.id); num(row, 'revision'); parseRecord(connectionSchema,row,'connections','settings'); return str(row, 'id'); }));
-  const requireLibrary = (value: string | null | undefined, kind: string) => { if (value && libraries.get(value)?.kind !== kind) throw invalidBackup('A library reference is missing or has the wrong kind.'); };
-  const requireConnection = (value: string | null | undefined) => { if (value && !connections.has(value)) throw invalidBackup('A Connection reference is missing.'); };
-  for (const row of libraries.values()) {
+  if (z.array(z.unknown()).parse(db.prepare('SELECT 1 FROM pragma_foreign_key_check LIMIT 1').all()).length || db.pragma('quick_check', { simple: true }) !== 'ok') throw invalidBackup('SQLite integrity or foreign-key check failed.');
+  const libraryKind = db.prepare('SELECT kind FROM library WHERE id = ?').pluck();
+  const connection = db.prepare('SELECT 1 FROM connections WHERE id = ?');
+  const requireLibrary = (value: string | null | undefined, kind: string) => { if (value && libraryKind.get(value) !== kind) throw invalidBackup('A library reference is missing or has the wrong kind.'); };
+  const requireConnection = (value: string | null | undefined) => { if (value && !connection.get(value)) throw invalidBackup('A Connection reference is missing.'); };
+  for (const row of rows(db, 'connections')) {
+    id.parse(row.id); num(row, 'revision'); parseRecord(connectionSchema,row,'connections','settings');
+  }
+  for (const row of rows(db, 'library')) {
     id.parse(row.id); num(row, 'revision');
     switch (row.kind) {
       case 'characters': requireLibrary(parseRecord(libraryCharacterSchema,row,'library').lorebookId, 'lorebooks'); break;
@@ -131,107 +161,151 @@ export function validateContent(db: Database.Database) {
       case 'lorebooks': parseRecord(lorebookSchema,row,'library'); break;
       default: throw invalidBackup('A library record has an unsupported kind.');
     }
-    if (connections.has(str(row, 'id'))) throw invalidBackup('An identity is shared by a library record and a Connection.');
+    if (connection.get(row.id)) throw invalidBackup('An identity is shared by a library record and a Connection.');
   }
   for (const row of rows(db, 'credentials')) { requireConnection(str(row, 'id')); z.string().max(10_000).regex(/^[^\r\n]*$/).parse(row.api_key); }
   for (const row of rows(db, 'tags')) { id.parse(row.id); num(row, 'revision'); if (canonicalTagName(tagNameSchema.parse(row.name)) !== row.canonical_key) throw invalidBackup('A tag canonical key does not match its normalized name.'); }
   for (const row of rows(db, 'character_tags')) requireLibrary(str(row, 'character_id'), 'characters');
-  const turns = new Map(rows(db, 'turns').map(row => [str(row, 'id'), row]));
-  const turnsByChat = new Map<string, BackupRow[]>();
-  for (const turn of turns.values()) { const chat = str(turn,'chat_id'); const own = turnsByChat.get(chat) ?? []; own.push(turn); turnsByChat.set(chat,own); }
-  for (const own of turnsByChat.values()) own.sort((a,b) => num(a,'position')-num(b,'position'));
-  const variants = new Map(rows(db, 'response_variants').map(row => [str(row, 'id'), row]));
-  const generations = new Map(rows(db, 'generations').map(row => [str(row, 'id'), row]));
-  for (const row of turns.values()) {
+  const turnChat = db.prepare('SELECT chat_id FROM turns WHERE id = ?').pluck();
+  const chosenVariant = db.prepare('SELECT 1 FROM response_variants WHERE id = ? AND turn_id = ? AND text = ?');
+  const successfulGeneration = db.prepare("SELECT 1 FROM generations WHERE id = ? AND turn_id = ? AND status = 'succeeded'");
+  const generationChat = db.prepare('SELECT chat_id FROM generations WHERE id = ?').pluck();
+  for (const row of rows(db, 'turns', 'id, user_id, assistant_id, user_revision, assistant_revision, position, complete, selected_variant_id, assistant_text')) {
     id.parse(row.id); id.parse(row.user_id); id.parse(row.assistant_id);
     num(row, 'user_revision'); num(row, 'assistant_revision'); num(row, 'position');
-    const chosen = typeof row.selected_variant_id === 'string' ? variants.get(row.selected_variant_id) : undefined;
-    if (row.complete === 1 && (!chosen || chosen.turn_id !== row.id || chosen.text !== row.assistant_text)) throw invalidBackup('A completed turn has a missing or inconsistent selected response variant.');
+    if (row.complete === 1 && !chosenVariant.get(row.selected_variant_id, row.id, row.assistant_text)) throw invalidBackup('A completed turn has a missing or inconsistent selected response variant.');
     if (row.complete === 0 && row.selected_variant_id !== null) throw invalidBackup('A pending turn has a selected response variant.');
   }
-  for (const row of variants.values()) {
+  for (const row of rows(db, 'response_variants', 'id, source_revision, generation_id, turn_id')) {
     id.parse(row.id); num(row, 'source_revision');
-    if (row.generation_id && (generations.get(String(row.generation_id))?.turn_id !== row.turn_id || generations.get(String(row.generation_id))?.status !== 'succeeded')) throw invalidBackup('A response variant references a missing, unsuccessful or unrelated generation.');
+    if (row.generation_id && !successfulGeneration.get(row.generation_id, row.turn_id)) throw invalidBackup('A response variant references a missing, unsuccessful or unrelated generation.');
   }
-  for (const row of generations.values()) {
+  for (const row of rows(db, 'generations', 'id, source_revision, turn_id, chat_id, request, usage, error_message, context_selection')) {
     id.parse(row.id); num(row, 'source_revision');
-    if (turns.get(str(row, 'turn_id'))?.chat_id !== row.chat_id) throw invalidBackup('A generation references a turn in another chat or a missing turn.');
+    if (turnChat.get(row.turn_id) !== row.chat_id) throw invalidBackup('A generation references a turn in another chat or a missing turn.');
     if (row.request !== null) parseRecord(requestSchema,row,'generations','request');
     if (row.usage !== null) parseRecord(usageSchema,row,'generations','usage');
     if (row.error_message !== null) parseRecord(localizedMessageSchema,row,'generations','error_message');
     if (row.context_selection !== null) selection.extend({ revision: integer }).parse(json(row, 'context_selection'));
   }
-  const nodes = new Map<string, { chat: string; value: z.infer<typeof node> }>();
-  for (const row of rows(db, 'summaries')) {
-    const value = parseRecord(node,row,'summaries','data');
-    if (value.id !== row.id || value.revision !== row.revision) throw invalidBackup('A summary identity or revision differs from its stored data.');
-    const key = `${value.id}:${value.revision}`;
-    if (nodes.has(key)) throw invalidBackup('A summary version is duplicated.');
-    nodes.set(key, { chat: str(row, 'chat_id'), value });
-  }
-  // Iterative traversal bounds dependency work and rejects cycles without recursive stack growth.
-  const checked = new Set<string>();
-  for (const key of nodes.keys()) {
-    const stack: { key: string; exit: boolean }[] = [{ key, exit: false }], visiting = new Set<string>();
-    while (stack.length) {
-      const frame = stack.pop(); if (!frame) break;
-      if (frame.exit) { visiting.delete(frame.key); checked.add(frame.key); continue; }
-      if (checked.has(frame.key)) continue;
-      if (visiting.has(frame.key)) throw invalidBackup('Summary dependencies contain a cycle.');
-      const current = nodes.get(frame.key); if (!current) throw invalidBackup('A summary dependency is missing.');
-      visiting.add(frame.key); stack.push({ key: frame.key, exit: true });
-      for (const dependency of [...current.value.children, ...current.value.prior, ...(current.value.corrections ?? []), ...(current.value.basedOn ? [current.value.basedOn] : [])]) {
-        const dep = `${dependency.id}:${dependency.revision}`;
-        if (nodes.get(dep)?.chat !== current.chat) throw invalidBackup('A summary dependency is missing or belongs to another chat.');
-        stack.push({ key: dep, exit: false });
-      }
-      const coveredIds = current.value.turns.map(source => source.turnId);
+  const summary = db.prepare('SELECT chat_id, data FROM summaries WHERE id = ? AND revision = ?');
+  const summaryChat = db.prepare('SELECT chat_id FROM summaries WHERE id = ? AND revision = ?').pluck();
+  const readSummary = (reference: z.infer<typeof ref>) => {
+    const raw = summary.get(reference.id, reference.revision);
+    if (!raw) return undefined;
+    const row = rowSchema.parse(raw);
+    return { chat: str(row, 'chat_id'), value: parseRecord(node, row, 'summaries') };
+  };
+  // Keep graph edges on disk. DFS retains only record identities and edge
+  // positions, even when many summaries contain large source lists.
+  db.exec(`CREATE TEMP TABLE backup_summary_edges (
+    id TEXT, revision INTEGER, position INTEGER, target TEXT, target_revision INTEGER,
+    PRIMARY KEY(id, revision, position)
+  ) WITHOUT ROWID`);
+  try {
+    const insertEdge = db.prepare('INSERT INTO backup_summary_edges VALUES (?, ?, ?, ?, ?)');
+    for (const row of rows(db, 'summaries')) {
+      const value = parseRecord(node, row, 'summaries');
+      if (value.id !== row.id || value.revision !== row.revision) throw invalidBackup('A summary identity or revision differs from its stored data.');
+      const coveredIds = value.turns.map(source => source.turnId);
       if (new Set(coveredIds).size !== coveredIds.length) throw invalidBackup('A summary covers the same turn more than once.');
-      if (current.value.children.length) {
-        const childCoverage = current.value.children.flatMap(child => {
-          const dependency = nodes.get(`${child.id}:${child.revision}`);
-          if (!dependency || dependency.value.level >= current.value.level || (current.value.approved && !dependency.value.approved)) throw invalidBackup('A child summary has an invalid level or approval state.');
-          return dependency.value.turns.map(source => source.turnId);
-        });
-        if (JSON.stringify(childCoverage) !== JSON.stringify(coveredIds)) throw invalidBackup('A summary coverage does not match its children.');
+      let edgePosition = 0;
+      for (const dependencies of [value.children, value.prior, value.corrections ?? [], value.basedOn ? [value.basedOn] : []]) {
+        for (const dependency of dependencies) {
+          if (summaryChat.get(dependency.id, dependency.revision) !== row.chat_id) throw invalidBackup('A summary dependency is missing or belongs to another chat.');
+          insertEdge.run(value.id, value.revision, edgePosition++, dependency.id, dependency.revision);
+        }
       }
-      for (const covered of current.value.turns) {
-        const turn = turns.get(covered.turnId);
+      let offset = 0;
+      for (const child of value.children) {
+        const dependency = readSummary(child);
+        if (!dependency || dependency.value.level >= value.level || (value.approved && !dependency.value.approved)) throw invalidBackup('A child summary has an invalid level or approval state.');
+        for (const source of dependency.value.turns) {
+          if (coveredIds[offset++] !== source.turnId) throw invalidBackup('A summary coverage does not match its children.');
+        }
+      }
+      if (value.children.length && offset !== coveredIds.length) throw invalidBackup('A summary coverage does not match its children.');
+      for (const covered of value.turns) {
+        const chat = turnChat.get(covered.turnId);
         // Deleted historical sources are valid stale memory, but never cross-chat sources.
-        if (turn && turn.chat_id !== current.chat) throw invalidBackup('A summary source belongs to another chat.');
+        if (chat !== undefined && chat !== row.chat_id) throw invalidBackup('A summary source belongs to another chat.');
       }
     }
+    const edge = db.prepare('SELECT target AS id, target_revision AS revision FROM backup_summary_edges WHERE id = ? AND revision = ? AND position = ?');
+    const visited = new Map<string, 'visiting' | 'checked'>();
+    for (const row of rows(db, 'summaries', 'id, revision')) {
+      const root = ref.parse(row);
+      const key = `${root.id}:${root.revision}`;
+      if (visited.has(key)) continue;
+      visited.set(key, 'visiting');
+      const stack = [{ ...root, key, position: 0 }];
+      while (stack.length) {
+        const frame = stack.at(-1);
+        if (!frame) break;
+        const raw = edge.get(frame.id, frame.revision, frame.position++);
+        if (!raw) {
+          visited.set(frame.key, 'checked');
+          stack.pop();
+          continue;
+        }
+        const target = ref.parse(raw);
+        const targetKey = `${target.id}:${target.revision}`;
+        const state = visited.get(targetKey);
+        if (state === 'visiting') throw invalidBackup('Summary dependencies contain a cycle.');
+        if (state === 'checked') continue;
+        visited.set(targetKey, 'visiting');
+        stack.push({ ...target, key: targetKey, position: 0 });
+      }
+    }
+  } finally {
+    db.exec('DROP TABLE backup_summary_edges');
   }
+  const chatPrefix = db.prepare('SELECT id FROM turns WHERE chat_id = ? ORDER BY position LIMIT ?').pluck();
   for (const row of rows(db, 'context_states')) {
     num(row, 'revision'); const state = parseRecord(selection,row,'context_states');
-    const coverage: string[] = [];
+    const archived = state.archivedTurnIds.filter(turnId => turnChat.get(turnId) !== undefined);
+    const prefix = chatPrefix.all(row.chat_id, archived.length);
+    const invalidCoverage = () => invalidBackup('Selected memory coverage is overlapping or does not match the archived transcript prefix.');
+    if (JSON.stringify(prefix) !== JSON.stringify(archived)) throw invalidCoverage();
+    let offset = 0;
     for (const selected of state.selected) {
-      const chosen = nodes.get(`${selected.id}:${selected.revision}`);
+      const chosen = readSummary(selected);
       if (!chosen?.value.approved || chosen.chat !== row.chat_id) throw invalidBackup('Selected memory references a missing, unapproved or unrelated summary.');
-      coverage.push(...chosen.value.turns.map(source => source.turnId).filter(turnId => turns.has(turnId)));
+      for (const source of chosen.value.turns) {
+        if (turnChat.get(source.turnId) !== undefined && archived[offset++] !== source.turnId) throw invalidCoverage();
+      }
     }
-    const archived = state.archivedTurnIds.filter(turnId => turns.has(turnId));
-    const prefix = (turnsByChat.get(str(row,'chat_id')) ?? []).slice(0, archived.length).map(turn => str(turn,'id'));
-    if (new Set(coverage).size !== coverage.length || JSON.stringify(coverage) !== JSON.stringify(archived) || JSON.stringify(prefix) !== JSON.stringify(archived)) throw invalidBackup('Selected memory coverage is overlapping or does not match the archived transcript prefix.');
+    if (offset !== archived.length) throw invalidCoverage();
   }
-  const jobs = new Map(rows(db, 'context_jobs').map(row => {
+  const jobChat = db.prepare('SELECT chat_id FROM context_jobs WHERE id = ?').pluck();
+  for (const row of rows(db, 'context_jobs')) {
     const job = parseRecord(jobSchema,row,'context_jobs','data');
-    if (job.id !== row.id || job.chatId !== row.chat_id || (job.generationId && generations.get(job.generationId)?.chat_id !== row.chat_id)) throw invalidBackup('A preparation job has inconsistent identity, chat or generation references.');
-    return [job.id, job];
-  }));
+    if (job.id !== row.id || job.chatId !== row.chat_id) {
+      throw invalidBackup('A preparation job has inconsistent identity, chat or generation references.');
+    }
+    if (job.generationId !== null) {
+      const owner = generationChat.get(job.generationId);
+      // Whole-turn deletion cascades to generations. Finished preparation
+      // retains the former generation ID as historical provenance.
+      const active = job.status === 'running' || job.status === 'awaiting_review';
+      if (owner === undefined ? active : owner !== job.chatId) {
+        throw invalidBackup('A preparation job has inconsistent identity, chat or generation references.');
+      }
+    }
+  }
   for (const row of rows(db, 'context_steps')) {
     const step = parseRecord(stepSchema,row,'context_steps','data');
-    if (step.id !== row.id || step.jobId !== row.job_id || !jobs.has(step.jobId)) throw invalidBackup('A preparation step has inconsistent identity or job references.');
+    if (step.id !== row.id || step.jobId !== row.job_id || jobChat.get(step.jobId) === undefined) throw invalidBackup('A preparation step has inconsistent identity or job references.');
     if (step.result) {
-      const result = nodes.get(`${step.result.id}:${step.result.revision}`);
-      if (result ? result.chat !== jobs.get(step.jobId)?.chatId : !step.resultDeleted) throw invalidBackup('A preparation result is missing without a deletion marker or belongs to another chat.');
+      const result = summaryChat.get(step.result.id, step.result.revision);
+      if (result !== undefined ? result !== jobChat.get(step.jobId) : !step.resultDeleted) throw invalidBackup('A preparation result is missing without a deletion marker or belongs to another chat.');
     }
   }
+  const earlierPending = db.prepare('SELECT 1 FROM turns WHERE chat_id = ? AND complete != 1 AND position < (SELECT max(position) FROM turns WHERE chat_id = ?) LIMIT 1');
   for (const row of rows(db, 'chats')) {
     id.parse(row.id); num(row, 'revision'); const settings = parseRecord(chatSettingsSchema,row,'chats','settings');
     requireConnection(settings.connectionId); requireLibrary(settings.promptId, 'prompts'); requireLibrary(settings.characterId, 'characters'); requireLibrary(settings.personaId, 'personas'); requireLibrary(settings.contextPresetId, 'contexts'); requireLibrary(settings.lorebookId, 'lorebooks');
-    const own = turnsByChat.get(str(row,'id')) ?? [];
-    if (own.slice(0,-1).some(turn => turn.complete !== 1)) throw invalidBackup('A pending turn occurs before the latest turn.');
+    if (earlierPending.get(row.id, row.id)) throw invalidBackup('A pending turn occurs before the latest turn.');
   }
   for (const row of rows(db, 'lore_states')) {
     requireLibrary(str(row, 'book_id'), 'lorebooks'); num(row, 'epoch');
@@ -239,19 +313,20 @@ export function validateContent(db: Database.Database) {
   }
   for (const row of rows(db, 'lore_epochs')) num(row,'epoch');
   for (const row of rows(db, 'lore_operations')) parseRecord(loreResolution,row,'lore_operations','resolution');
-  const assets = new Map(rows(db, 'picture_assets').map(row => {
+  for (const row of rows(db, 'picture_assets')) {
     const original = z.instanceof(Buffer).parse(row.original);
     const preview = z.instanceof(Buffer).parse(row.preview);
     validateRendition(preview,pictureLimits.previewEdge);
     if (createHash('sha256').update(original).digest('hex') !== row.digest) throw invalidBackup('A picture digest does not match its original bytes.');
-    return [str(row,'id'), row];
-  }));
+  }
+  const assetDimensions = db.prepare('SELECT width, height FROM picture_assets WHERE id = ?');
   for (const row of rows(db, 'character_pictures')) {
     requireLibrary(str(row, 'character_id'), 'characters');
     const thumbnail = z.instanceof(Buffer).parse(row.thumbnail);
     validateRendition(thumbnail,pictureLimits.thumbEdge);
     z.string().uuid().parse(row.key); num(row,'revision');
-    const asset = assets.get(str(row, 'asset_id')); if (!asset) throw invalidBackup('A character picture references a missing asset.');
-    cropPixels({ width: num(asset,'width'), height: num(asset,'height') }, cropSchema.parse(json(row,'crop')));
+    const asset = rowSchema.safeParse(assetDimensions.get(row.asset_id));
+    if (!asset.success) throw invalidBackup('A character picture references a missing asset.');
+    cropPixels({ width: num(asset.data,'width'), height: num(asset.data,'height') }, cropSchema.parse(json(row,'crop')));
   }
 }

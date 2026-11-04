@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes, scrypt } from 'node:crypto';
-import { appendFileSync, closeSync, createReadStream, createWriteStream, openSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, createReadStream, createWriteStream, openSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { AppError } from '../core/errors.js';
 import { message } from '../shared/localization.js';
@@ -8,6 +9,8 @@ import { filePasswordMaxLength, filePasswordSchema, protectedFileFormat as forma
 // Kind is authenticated so Connection files cannot be interpreted as backups.
 const kinds = { backup: 1, connection: 2 } as const;
 type ProtectedFileKind = keyof typeof kinds;
+// AES-GCM permits at most 2^39 − 256 plaintext bits per nonce.
+export const protectedPayloadMaxBytes = 2 ** 36 - 32;
 const magic = Buffer.from(format.magic, 'ascii');
 const maxPasswordHeaderLength = 4 * Math.ceil(filePasswordMaxLength * 4 / 3);
 let activeOperations = 0;
@@ -97,22 +100,64 @@ export async function protectFile(source: string, destination: string, kind: Pro
   });
 }
 
+function openCipher(header: Buffer, tag: Buffer, key: Buffer) {
+  const nonceStart = magic.length + 2 + format.saltBytes;
+  const decipher = createDecipheriv('aes-256-gcm', key, header.subarray(nonceStart), { authTagLength: format.tagBytes });
+  decipher.setAAD(header);
+  decipher.setAuthTag(tag);
+  return decipher;
+}
+
+function fileSalt(header: Buffer, kind: ProtectedFileKind) {
+  if (header.length !== protectedFileHeaderBytes || !isProtectedFile(header)
+    || header[magic.length] !== format.version || header[magic.length + 1] !== kinds[kind]) throw invalidFile();
+  const start = magic.length + 2;
+  return header.subarray(start, start + format.saltBytes);
+}
+
+// The caller owns the private staging directory and removes it on failure.
+// The plaintext path may only be opened as SQLite after this promise resolves.
+export async function unprotectFile(source: string, destination: string, kind: ProtectedFileKind, password: string, signal?: AbortSignal) {
+  const size = statSync(source).size;
+  const payloadSize = size - protectedFileOverheadBytes;
+  if (payloadSize <= 0 || payloadSize > protectedPayloadMaxBytes) throw invalidFile();
+  const header = Buffer.alloc(protectedFileHeaderBytes);
+  const tag = Buffer.alloc(format.tagBytes);
+  const fd = openSync(source, 'r');
+  try {
+    if (readSync(fd, header, 0, header.length, 0) !== header.length
+      || readSync(fd, tag, 0, tag.length, size - tag.length) !== tag.length) throw invalidFile();
+  } finally {
+    closeSync(fd);
+  }
+  await withKey(password, fileSalt(header, kind), async key => {
+    const decipher = openCipher(header, tag, key);
+    const decrypt = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        try { callback(null, decipher.update(chunk)); }
+        catch (error) { callback(error instanceof Error ? error : invalidFile()); }
+      },
+      flush(callback) {
+        try { callback(null, decipher.final()); }
+        catch { callback(invalidFile()); }
+      },
+    });
+    await pipeline(createReadStream(source, { start: header.length, end: size - tag.length - 1 }),
+      decrypt, createWriteStream(destination, { flags: 'wx', mode: 0o600 }), { signal });
+  });
+}
+
 export async function unprotectBytes(bytes: Buffer, kind: ProtectedFileKind, password: string, maxPlaintextBytes: number): Promise<Buffer> {
-  if (!isProtectedFile(bytes) || bytes.length < protectedFileOverheadBytes
-    || bytes.length - protectedFileOverheadBytes > maxPlaintextBytes
-    || bytes[magic.length] !== format.version || bytes[magic.length + 1] !== kinds[kind]) throw invalidFile();
-  const saltStart = magic.length + 2, nonceStart = saltStart + format.saltBytes;
-  const salt = bytes.subarray(saltStart, nonceStart), nonce = bytes.subarray(nonceStart, protectedFileHeaderBytes);
-  return withKey(password, salt, key => {
-    const decipher = createDecipheriv('aes-256-gcm', key, nonce, { authTagLength: format.tagBytes });
-    decipher.setAAD(bytes.subarray(0, protectedFileHeaderBytes));
-    decipher.setAuthTag(bytes.subarray(bytes.length - format.tagBytes));
+  if (bytes.length < protectedFileOverheadBytes || bytes.length - protectedFileOverheadBytes > maxPlaintextBytes) throw invalidFile();
+  const header = bytes.subarray(0, protectedFileHeaderBytes);
+  const tag = bytes.subarray(bytes.length - format.tagBytes);
+  return withKey(password, fileSalt(header, kind), key => {
+    const decipher = openCipher(header, tag, key);
     const plaintext = decipher.update(bytes.subarray(protectedFileHeaderBytes, bytes.length - format.tagBytes));
     try {
       const final = decipher.final();
       return final.length ? Buffer.concat([plaintext, final]) : plaintext;
     } catch {
-      // Unauthenticated bytes must never reach SQLite validation or staging.
       plaintext.fill(0);
       throw invalidFile();
     }
