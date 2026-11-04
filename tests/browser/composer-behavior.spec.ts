@@ -1,4 +1,5 @@
-import { expect, test, devices, type Page } from '@playwright/test';
+import { expect, devices, type Page } from '@playwright/test';
+import { test } from './appearance-test';
 import { chatBehaviorStatusSchema, type EnterKeyBehavior } from '../../src/shared/chat-behavior';
 
 const headers = { Origin: 'http://127.0.0.1:4173' };
@@ -45,6 +46,31 @@ async function settings(page: Page) {
 async function story(page: Page) {
   await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Story', exact: true }).click();
 }
+
+test('keeps horizontal scrolling out of the chat composer', async ({ page, setAppearance }, testInfo) => {
+  const { initial } = await setup(page);
+  const composer = page.getByLabel('Your next turn');
+  try {
+    for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+      await setAppearance({ theme });
+      for (const width of [1440, 801, 800, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect(composer).toHaveValue('');
+        await expect(composer).toHaveCSS('overflow-x', 'hidden');
+        await composer.screenshot({ path: testInfo.outputPath(`composer-${theme}-${width}.png`) });
+
+        await composer.fill('LongDraftWord'.repeat(200) + '\nMore text');
+        expect(await composer.evaluate(field => {
+          field.scrollTop = field.scrollHeight;
+          return field.scrollTop > 0 && field.scrollWidth === field.clientWidth;
+        }), `long draft in ${theme} at ${width}px`).toBe(true);
+        await composer.clear();
+      }
+    }
+  } finally {
+    await preference(page, initial.settings.enterKeyBehavior);
+  }
+});
 
 for (const width of [1440, 390]) test(`saves keyboard modes, retains failed drafts, and shares committed behavior at ${width}px`, async ({ page, context }, testInfo) => {
   await page.setViewportSize({ width, height: 900 });
