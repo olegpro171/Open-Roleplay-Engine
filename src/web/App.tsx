@@ -1,4 +1,5 @@
 import { ChatBranches } from './ChatBranches';
+import { chatGroupId, preferredBranch, readBranchSelections, storeBranchSelection } from './chat-selection';
 import { applyTheme } from './theme';
 import { stateLabel } from './localization-labels';
 import type { MessageText } from './localization';
@@ -66,6 +67,7 @@ export function App() {
   useEffect(() => { const changed = () => setDataChanged(true); window.addEventListener('ore-dataset-changed', changed); return () => window.removeEventListener('ore-dataset-changed', changed); }, []);
   const [session, setSession] = useState<Session | null>(null);
   const [chatId, setChatId] = useState<string | null>(lastChat);
+  const [branchSelections, setBranchSelections] = useState(readBranchSelections);
   const [appearance, setAppearance] = useState<AppearanceStatus>({ revision: 0, settings: defaultAppearance });
   const [appearanceLoaded, setAppearanceLoaded] = useState(false);
   useLayoutEffect(() => { if (appearanceLoaded) applyTheme(appearance.settings.theme); }, [appearanceLoaded, appearance.settings.theme]);
@@ -180,9 +182,15 @@ export function App() {
         items = { ...cached, chats: update.chats };
       } else items = update;
       const previousGroup = snapshotRef.current?.groupId;
-      const selected = items.chats.find(chat => chat.id === chatId)?.id
-        ?? (previousGroup ? items.chats.find(chat => chat.groupId === previousGroup)?.id : undefined)
-        ?? items.chats[0]?.id ?? null;
+      let selected = items.chats.find(branch => branch.id === requestedChat)?.id ?? null;
+      if (!selected) {
+        const groupId = previousGroup && items.chats.some(branch => chatGroupId(branch) === previousGroup)
+          ? previousGroup : items.chats[0] && chatGroupId(items.chats[0]);
+        if (groupId) {
+          const branches = items.chats.filter(branch => chatGroupId(branch) === groupId);
+          selected = preferredBranch(branches, branchSelections.get(groupId))?.id ?? null;
+        }
+      }
       const current = forceLatest.current ? null : snapshotRef.current;
       const keepWindow = current?.id === selected && (current.page.hasNewer || !followingLatest() || Boolean(editRef.current));
       const parameters = new URLSearchParams({ limit: String(current?.id === selected ? Math.max(transcriptInitialSize, current.page.turns.length) : transcriptInitialSize) });
@@ -207,8 +215,17 @@ export function App() {
           setPageError(msg("app.the_displayed_history_was_removed_or_replaced"));
         }
         if (readStory) {
+          const selectionChanged = snapshotRef.current?.id !== state?.id;
           snapshotRef.current = state;
           setSnapshot(state);
+          if (state && selectionChanged) {
+            const groupId = state.groupId ?? state.id;
+            if (branchSelections.get(groupId) !== state.id) {
+              setBranchSelections(previous => new Map(previous).set(groupId, state.id));
+            }
+            storeBranchSelection(groupId, state.id);
+            rememberChat(state.id);
+          }
         }
         if (update) setLibrary(items);
         if (scope.tools) setToolRefresh(value => value + 1);
@@ -228,7 +245,7 @@ export function App() {
         clearServerError();
         if (selected !== chatId) {
           setChatId(selected); setEdit(null); setPeek(false); setGenerationId('');
-          rememberChat(selected);
+          if (!selected) rememberChat(null);
         }
         if (!selected) setTab(current => current === 'data' ? current : 'library');
       }
@@ -485,7 +502,6 @@ export function App() {
     pageBusy.current = false;
     setPageLoading(false);
     setPageError('');
-    rememberChat(id);
     setChatId(id);
     setTab(destination);
     setEdit(null);
@@ -506,7 +522,7 @@ export function App() {
   const selectedPersonaName = selectedPersona?.name ?? snapshot?.sources.persona?.name ?? t("app.you");
 
   const activeBranch = library.chats.find(branch => branch.id === snapshot?.id);
-  const chatBranches = activeBranch ? library.chats.filter(branch => (branch.groupId ?? branch.id) === (activeBranch.groupId ?? activeBranch.id)) : [];
+  const chatBranches = activeBranch ? library.chats.filter(branch => chatGroupId(branch) === chatGroupId(activeBranch)) : [];
   const sidebar = snapshot && <>
         <p className="eyebrow">{t("app.current_chat")}</p>
         {appearance.settings.displayCharacterPicture && <ChatCharacterPortrait key={`${snapshot.id}:${selectedCharacterPicture?.key ?? ''}`} picture={selectedCharacterPicture} />}
@@ -618,7 +634,7 @@ export function App() {
         </form>
       </section>
     </ChatWorkspace>}
-    {tab === 'library' && <Libraries library={library} defaults={chatDefaults} currentChatId={chatId} busy={busy} run={command} openChat={openChat} initialTarget={libraryTarget} />}
+    {tab === 'library' && <Libraries library={library} defaults={chatDefaults} currentBranchId={snapshot?.id ?? null} branchSelections={branchSelections} busy={busy} run={command} openChat={openChat} initialTarget={libraryTarget} />}
     {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
     {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><Memory behavior={behaviorEditor} key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} editPreset={id => { setLibraryTarget({ kind: 'contexts', id }); setTab('library'); }} /></ChatWorkspace>}
     {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} disabled={history.loading} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...requestOptions.map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString(locale())} · ${stateLabel(generation.status)}` }))]} /></label><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>

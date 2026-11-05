@@ -6,6 +6,7 @@ import { libraryEditorTitle, newLibraryLabel, searchLibraryLabel, sortLibraryLab
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
 import { libraryLabel, characterFieldLabel, markerLabel as localizedMarkerLabel, stateLabel } from './localization-labels';
 import { librarySortSchema, readLibrarySort, sortLibraryItems, sortOptions, type LibrarySort } from './library-sorting';
+import { chatGroupId, preferredBranch } from './chat-selection';
 import { SpeechColorSelector } from './SpeechColorSelector';
 import { newId } from './uuid';
 import { Icon } from './Icon';
@@ -17,7 +18,7 @@ import { CharacterAvatar, PictureSquare } from './Pictures';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ChatWorkspace } from './ChatWorkspace';
 import type { ChatToolsSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
-import { characterLabel, personaLabel, characterFields, defaultPrompt, markers, markerLabel, promptWarnings, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
+import { characterLabel, personaLabel, characterFields, defaultPrompt, markers, markerLabel, promptWarnings, type ChatSummary, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { upgradePrompt } from '../core/prompt-upgrade';
 import { importChat } from '../core/chat-import';
 import { CharacterImport } from './CharacterImport';
@@ -261,7 +262,7 @@ function LibraryHeader({ editing, children }: { editing: boolean; children: Reac
 }
 
 export type LibraryTarget = { kind: 'prompts' | 'characters' | 'lorebooks' | 'contexts'; id: string };
-export function Libraries({ library, defaults, currentChatId, busy, run, openChat, initialTarget }: { library: LibrarySnapshot; defaults: ChatDefaultsStatus; currentChatId: string | null; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void; initialTarget?: LibraryTarget | null }) {
+export function Libraries({ library, defaults, currentBranchId, branchSelections, busy, run, openChat, initialTarget }: { library: LibrarySnapshot; defaults: ChatDefaultsStatus; currentBranchId: string | null; branchSelections: ReadonlyMap<string, string>; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void; initialTarget?: LibraryTarget | null }) {
   useLocale();
   const [section, setSection] = useState<LibraryKind | 'chats'>(initialTarget?.kind ?? lastLibrarySection);
   useEffect(() => {
@@ -330,16 +331,25 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
   useEffect(() => { const ids = new Set(library.tags.map(tag => tag.id)); setFilters(previous => previous.filter(id => ids.has(id))); }, [library.tags]);
   const query = search.normalize('NFC').toLowerCase();
   const visibleChats = useMemo(() => {
-    const groups = new Map<string, (typeof library.chats)[number]>();
+    const groups = new Map<string, ChatSummary[]>();
     for (const branch of library.chats) {
-      const key = branch.groupId ?? branch.id;
-      const previous = groups.get(key);
-      const chosen = !previous || branch.id === currentChatId ? branch : previous;
-      const dates = [previous?.lastMessageAt, branch.lastMessageAt].filter(date => date != null).sort();
-      groups.set(key, { ...chosen, running: Boolean(previous?.running || branch.running), lastMessageAt: dates.at(-1) ?? null });
+      const id = chatGroupId(branch);
+      const siblings = groups.get(id);
+      if (siblings) siblings.push(branch);
+      else groups.set(id, [branch]);
     }
-    return sortLibraryItems([...groups.values()].filter(chat => matchesSearch(chat.title, query)), sort, chat => chat.title, chat => chat);
-  }, [library.chats, currentChatId, query, sort]);
+    const cards = [];
+    for (const [id, branches] of groups) {
+      const branch = preferredBranch(branches, branchSelections.get(id));
+      if (!branch || !matchesSearch(branch.title, query)) continue;
+      const lastMessageAt = branches.reduce<string | null>((latest, item) =>
+        item.lastMessageAt && (!latest || item.lastMessageAt > latest) ? item.lastMessageAt : latest, null);
+      cards.push({ id, branch, branches, lastMessageAt, running: branches.some(item => item.running) });
+    }
+    return sortLibraryItems(cards, sort, card => card.branch.title, card => ({
+      createdAt: card.branch.createdAt, updatedAt: card.branch.updatedAt, lastMessageAt: card.lastMessageAt,
+    }));
+  }, [library.chats, branchSelections, query, sort]);
   const defaultContextLabel = t("libraries.default_context_preset");
   const defaultPromptLabel = t("libraries.default_prompt");
   const visibleRecords = useMemo<Saved<LibraryRecord>[]>(() => {
@@ -434,21 +444,21 @@ export function Libraries({ library, defaults, currentChatId, busy, run, openCha
     {section === 'chats' ? <>
       {creatingChat && <NewChat library={library} busy={busy} run={run} created={id => { setCreatingChat(false); openChat(id, 'settings'); }} cancel={() => setCreatingChat(false)} />}
       <div className="library-list chat-list">
-        {visibleChats.map(item => <article key={item.id} className="chat-card">
+        {visibleChats.map(({ id, branch, branches, running }) => <article key={id} className="chat-card">
           <div className="chat-card-details">
-            <CharacterAvatar url={item.characterId ? pictureIndex.get(item.characterId)?.thumbnailUrl : undefined} />
+            <CharacterAvatar url={branch.characterId ? pictureIndex.get(branch.characterId)?.thumbnailUrl : undefined} />
             <div className="chat-card-text">
-              <h2><button type="button" className="chat-card-open" onClick={() => openChat(item.id)}>{item.title}</button></h2>
-              <p>{t("libraries.turns", { turnCount: item.turnCount, value: item.running ? t("interface.response_running") : '', value2: currentChatId === item.id ? t("interface.current_chat") : '' })}</p>
+              <h2><button type="button" className="chat-card-open" onClick={() => openChat(branch.id)}>{branch.title}</button></h2>
+              <p>{t("libraries.turns", { turnCount: branch.turnCount, value: running ? t("interface.response_running") : '', value2: currentBranchId === branch.id ? t("interface.current_chat") : '' })}</p>
             </div>
           </div>
-          <button type="button" className="quiet chat-card-delete" disabled={busy || item.running} onClick={() => {
-            const branches = library.chats.filter(branch => (branch.groupId ?? branch.id) === (item.groupId ?? item.id))
-              .map(({ id, revision }) => ({ id, revision }));
+          <button type="button" className="quiet chat-card-delete" disabled={busy || running} onClick={() => {
             confirmAction({ title: t("libraries.delete_chat"),
-              message: t(branches.length > 1 ? 'branches.delete_chat' : 'libraries.delete_and_all_its_turns_and_requests', { title: item.title }),
+              message: t(branches.length > 1 ? 'branches.delete_chat' : 'libraries.delete_and_all_its_turns_and_requests', { title: branch.title }),
               actionLabel: t("libraries.delete_chat_2"),
-              onConfirm: () => { void run(() => api(`/chats/${item.id}`, 'DELETE', { revision: item.revision, branches })); } });
+              onConfirm: () => { void run(() => api(`/chats/${branch.id}`, 'DELETE', {
+                revision: branch.revision, branches: branches.map(({ id, revision }) => ({ id, revision })),
+              })); } });
           }}><Icon name="TrashOutline" />{t("libraries.delete_chat_2")}</button>
         </article>)}
         {library.chats.length === 0 && <p className="muted">{t("libraries.create_a_chat_to_start_your_next")}</p>}

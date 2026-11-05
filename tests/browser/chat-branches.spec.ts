@@ -2,9 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { expect } from '@playwright/test';
 import { test } from './isolated-app';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
+import type { LibrarySnapshot } from '../../src/shared/library';
 import type { StorySnapshot } from '../../src/shared/transcript';
 
-test('forks through a completed turn and downloads only the selected branch', async ({ page, browserApp }, testInfo) => {
+test('forks, remembers the branch in the Chats library, and exports its transcript', async ({ page, browserApp }, testInfo) => {
   async function openBranches() {
     const button = page.getByRole('button', { name: 'Chat branches', exact: true });
     if (!(await button.isVisible())) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
@@ -37,6 +38,29 @@ test('forks through a completed turn and downloads only the selected branch', as
   await expect(page.getByText('Current branch · Lighthouse')).toBeVisible();
   await expect(page.getByText('Later in the source')).toHaveCount(0);
   await expect(page.getByLabel('Your next turn')).toHaveValue('');
+  const other = await page.request.post('/api/chats', { headers, data: { title: 'Another story',
+    targetInputTokens: 32000, characterId: null, personaId: null, connectionId: null } });
+  expect(other.ok(), await other.text()).toBe(true);
+  async function openChats() {
+    await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+    await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  }
+  const chatCard = (title: string) => page.getByRole('article').filter({
+    has: page.getByRole('button', { name: title, exact: true }),
+  });
+  const sourceCard = chatCard(story.settings.title);
+  await openChats();
+  await expect(sourceCard).toContainText('1 turns · Current chat');
+  await chatCard('Another story').getByRole('button', { name: 'Another story', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Another story' })).toBeVisible();
+  await openChats();
+  await expect(sourceCard).toContainText('1 turns');
+  await expect(sourceCard).not.toContainText('Current chat');
+  await page.reload();
+  await openChats();
+  await expect(sourceCard).toContainText('1 turns');
+  await sourceCard.getByRole('button', { name: story.settings.title, exact: true }).click();
+  await expect(page.getByText('Current branch · Lighthouse')).toBeVisible();
   await openBranches();
   const manager = page.getByRole('dialog', { name: 'Chat branches' });
   await manager.getByRole('searchbox', { name: 'Search branches' }).fill('LIGHT');
@@ -64,6 +88,17 @@ test('forks through a completed turn and downloads only the selected branch', as
       await expect(menu).toHaveCount(0);
       await expect(manager.getByRole('button', { name: 'Actions for Lighthouse' })).toBeFocused();
     }
+    await page.keyboard.press('Escape');
+    await expect(manager).toHaveCount(0);
+    await openChats();
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 850 });
+      await expect(sourceCard.getByText('1 turns · Current chat')).toBeInViewport();
+      await sourceCard.screenshot({ path: testInfo.outputPath(`chat-card-${theme}-${width}.png`) });
+    }
+    await sourceCard.getByRole('button', { name: story.settings.title, exact: true }).click();
+    await expect(page.getByText('Current branch · Lighthouse')).toBeVisible();
+    await openBranches();
   }
   await openActions('Lighthouse');
   const download = page.waitForEvent('download');
@@ -100,4 +135,20 @@ test('forks through a completed turn and downloads only the selected branch', as
   await openBranches();
   await page.mouse.click(2, 2);
   await expect(manager).toHaveCount(0);
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await openBranches();
+  await manager.getByRole('button', { name: 'Green lighthouse', exact: true }).click();
+  await expect(page.getByText('Current branch · Green lighthouse')).toBeVisible();
+  await openChats();
+  await chatCard('Another story').getByRole('button', { name: 'Another story', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Another story' })).toBeVisible();
+  const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
+  const lighthouse = library.chats.find(branch => branch.branchName === 'Green lighthouse');
+  if (!lighthouse) throw new Error('Missing Green lighthouse branch');
+  const deleted = await page.request.delete(`/api/chats/${lighthouse.id}/branch`, { headers, data: { revision: lighthouse.revision } });
+  expect(deleted.ok(), await deleted.text()).toBe(true);
+  await openChats();
+  await expect(sourceCard).toContainText('2 turns');
+  await sourceCard.getByRole('button', { name: story.settings.title, exact: true }).click();
+  await expect(page.getByText('Later in the source')).toBeVisible();
 });
