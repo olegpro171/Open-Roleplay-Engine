@@ -33,6 +33,7 @@ const markerKeys = {
   "examples": "labels.marker.examples",
   "messages": "labels.marker.messages",
   "summary": "labels.marker.summary",
+  "pinned_messages": "labels.marker.pinned_messages",
   "card_system_prompt": "labels.marker.card_system_prompt",
   "card_post_history_instructions": "labels.marker.card_post_history_instructions"
 } as const satisfies Record<string, MessageKey>;

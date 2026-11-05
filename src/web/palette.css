@@ -81,6 +81,7 @@
   --input-lore: var(--palette-teal);
   --input-memory: color-mix(in srgb, var(--success) 70%, var(--palette-teal));
   --input-history: var(--info);
+  --input-pinned: var(--warning);
   --input-draft: var(--palette-pink);
   --input-overhead: var(--text-faint);
 

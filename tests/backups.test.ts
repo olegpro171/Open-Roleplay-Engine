@@ -1,3 +1,4 @@
+import { removePinSchema } from './support/schema-16.js';
 import { removeBranchSchema } from './support/schema-15.js';
 import { Readable } from 'node:stream';
 import { removeSortingSchema } from './support/legacy-sorting.js';
@@ -96,7 +97,8 @@ describe('portable backup persistence',() => {
   });
 
   it.each([
-    { sourceEnding: 'LF', targetEnding: 'CRLF', version: 16 },
+    { sourceEnding: 'LF', targetEnding: 'CRLF', version: 17 },
+    { sourceEnding: 'CRLF', targetEnding: 'LF', version: 17 },
     { sourceEnding: 'CRLF', targetEnding: 'LF', version: 16 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 15 },
     { sourceEnding: 'CRLF', targetEnding: 'LF', version: 15 },
@@ -128,6 +130,13 @@ describe('portable backup persistence',() => {
     const expectedTurns = source.snapshot(chatId).turns;
     const path = join(directory,'input.sqlite');
     writeFileSync(path,await bytes(sourceBackups));
+    if (version === 16) {
+      const legacy = new Database(path);
+      try {
+        removePinSchema(legacy);
+        legacy.exec("PRAGMA user_version = 16; UPDATE backup_metadata SET data = json_set(data, '$.schema', 16)");
+      } finally { legacy.close(); }
+    }
     if (version < 16) {
       const legacy = new Database(path);
       removeBranchSchema(legacy);

@@ -68,6 +68,14 @@ export const factoryPrompt: PromptPreset = {
       "marker": "summary"
     },
     {
+      "id": "pinned-messages",
+      "name": "Pinned messages",
+      "enabled": true,
+      "kind": "marker",
+      "role": "system",
+      "marker": "pinned_messages"
+    },
+    {
       "id": "messages",
       "name": "Messages",
       "enabled": true,

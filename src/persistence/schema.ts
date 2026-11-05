@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { blob, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { ChatSettings, Connection, GenerationStatus, RequestPreview, TokenUsage } from '../shared/contracts.js';
 import type { LibraryCharacter, Persona, PromptPreset } from '../shared/library.js';
@@ -41,10 +42,14 @@ export const turns = sqliteTable('turns', {
   chatId: text('chat_id').notNull(),
   id: text('id').primaryKey(), position: integer('position').notNull(),
   complete: integer('complete', { mode: 'boolean' }).notNull(),
+  pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
   userId: text('user_id').notNull(), userRevision: integer('user_revision').notNull(), userText: text('user_text').notNull(),
   assistantId: text('assistant_id').notNull(), assistantRevision: integer('assistant_revision').notNull(), assistantText: text('assistant_text').notNull(),
   selectedVariantId: text('selected_variant_id'),
-}, table => [index('turn_message_date').on(table.chatId, table.messageAt)]);
+}, table => [
+  index('turn_message_date').on(table.chatId, table.messageAt),
+  index('turns_pinned').on(table.chatId, table.position).where(sql`${table.pinned} = 1`),
+]);
 export const responseVariants = sqliteTable('response_variants', {
   id: text('id').primaryKey(), turnId: text('turn_id').notNull().references(() => turns.id, { onDelete: 'cascade' }),
   text: text('text').notNull(), sourceRevision: integer('source_revision').notNull(),

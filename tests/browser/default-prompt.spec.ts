@@ -19,8 +19,8 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) for (const wid
     await page.getByRole('button', { name: 'Prompts', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Default prompt', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'New prompt', exact: true }).click();
-    await expect(page.locator('.prompt-block')).toHaveCount(11);
-    await page.getByRole('button', { name: 'Expand block 11', exact: true }).click();
+    await expect(page.locator('.prompt-block')).toHaveCount(defaultPrompt.blocks.length);
+    await page.getByRole('button', { name: `Expand block ${defaultPrompt.blocks.length}`, exact: true }).click();
     const ending = defaultPrompt.blocks.at(-1);
     if (ending?.kind !== 'text') throw new Error('Missing response instructions.');
     await expect(page.getByRole('textbox', { name: 'Block text', exact: true })).toHaveValue(ending.text);

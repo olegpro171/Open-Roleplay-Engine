@@ -273,6 +273,13 @@ export class Store {
         })();
         version = 16;
       }
+      if (version === 16) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0017_pinned_turns.sql'), 'utf8'));
+          this.sqlite.pragma('user_version = 17');
+        })();
+        version = 17;
+      }
       if (version !== databaseSchemaVersion) throw new Error('Unsupported database schema version.');
       this.pictures = new PictureStore(this.sqlite, () => this.bumpLibrary());
       this.contexts = new ContextStore(this);
@@ -389,6 +396,7 @@ export class Store {
       if (row.complete && (!selected || selected.text !== row.assistantText)) throw new AppError(500, 'invalid_response_variant', message("errors.the_saved_response_selection_is_inconsistent_the_transcript"));
       return {
         id: row.id, position: row.position, complete: row.complete,
+        ...(row.pinned ? { pinned: true } : {}),
         user: { id: row.userId, revision: row.userRevision, text: row.userText },
         assistant: { id: row.assistantId, revision: row.assistantRevision, text: row.assistantText,
           ...(selected ? { variantId: selected.id, sourceRevision: selected.sourceRevision } : {}) },
@@ -1058,6 +1066,24 @@ export class Store {
     this.checkRevision(generation.sourceRevision, generation.chatId);
     this.db.update(schema.generations).set({ contextSelection: { revision: state.revision, selected: state.selected, archivedTurnIds: state.archivedTurnIds } }).where(eq(schema.generations.id, id)).run();
   }
+  setTurnPin(chatId: string, turnId: string, expected: number, pinned: boolean) {
+    return this.sqlite.transaction(() => {
+      this.checkRevision(expected, chatId);
+      this.checkBranchIdle(chatId);
+      const condition = and(eq(schema.turns.id, turnId), eq(schema.turns.chatId, chatId));
+      const turn = this.db.select({ complete: schema.turns.complete, pinned: schema.turns.pinned }).from(schema.turns).where(condition).get();
+      if (!turn?.complete) throw new AppError(409, 'pin_unavailable', message('pins.turn_unavailable'));
+      if (turn.pinned === pinned) return expected;
+      this.db.update(schema.turns).set({ pinned }).where(condition).run();
+      return this.bumpRevision(chatId);
+    })();
+  }
+
+  pinCount(chatId: string): number {
+    return this.db.select({ count: sql<number>`count(*)` }).from(schema.turns)
+      .where(and(eq(schema.turns.chatId, chatId), sql`${schema.turns.pinned} = 1`)).get()?.count ?? 0;
+  }
+
   selectVariant(expected: number, turnId: string, variantId: string, chatId: string) {
     this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId);

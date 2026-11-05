@@ -36,7 +36,7 @@ import { AppError, BackupValidationError } from '../core/errors.js';
 import { assembleRequest } from '../core/prompt.js';
 import { Store } from '../persistence/store.js';
 import { StoryReader } from '../persistence/story-reader.js';
-import { transcriptQuerySchema } from '../shared/transcript.js';
+import { turnPinSchema, transcriptQuerySchema } from '../shared/transcript.js';
 import { fetchModels, OpenAICompatibleProvider, type Provider } from '../provider/openai.js';
 import { connectionSchema, editSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema, generationIdentitySchema, generationPageSchema, requestEstimate, type ChatSnapshot, type ChatToolsSnapshot } from '../shared/contracts.js';
 import type { Change } from '../shared/changes.js';
@@ -77,7 +77,7 @@ export async function createApp(options: {
   const coordinator = new GenerationCoordinator(store, provider, () => chatBehavior.status().settings);
   function publicSnapshot(id: string): ChatSnapshot {
     const { loreState: _state, loreResolution: _resolution, ...snapshot } = store.snapshot(id);
-    return { ...snapshot, promptDiagnostics: promptDiagnostics(snapshot.sources, snapshot.settings.authorNote), sources: { ...snapshot.sources, lorebook: undefined }, generations: snapshot.generations.map(generation => ({ ...generation,
+    return { ...snapshot, promptDiagnostics: promptDiagnostics(snapshot.sources, snapshot.settings.authorNote, snapshot.turns.some(turn => turn.pinned)), sources: { ...snapshot.sources, lorebook: undefined }, generations: snapshot.generations.map(generation => ({ ...generation,
       ...(generation.status === 'running' ? { partialText: coordinator.partialText(generation.id), reasoningText: coordinator.reasoningText(generation.id).slice(-2000), reasoningLength: coordinator.reasoningText(generation.id).length } : {}),
       request: generation.request?.lore ? { ...generation.request, lore: { ...generation.request.lore, detailsAvailable: true, outcomes: [], diagnostics: [], scan: [], stateBefore: {}, stateDelta: {} } } : generation.request,
     })) };
@@ -551,8 +551,9 @@ export async function createApp(options: {
   });
   app.post('/api/chats/:chatId/prompt-diagnostics', async request => {
     const input = z.object({ revision: revisionSchema, settings: selectionsSchema }).strict().parse(request.body);
-    store.checkRevision(input.revision, chatId(request.params));
-    return promptDiagnostics(store.promptSources(input.settings), store.authorNote(chatId(request.params)).settings);
+    const id = chatId(request.params);
+    store.checkRevision(input.revision, id);
+    return promptDiagnostics(store.promptSources(input.settings), store.authorNote(id).settings, store.pinCount(id) > 0);
   });
   app.get('/api/chats/:chatId/author-note', async request => store.authorNote(chatId(request.params)));
   app.put('/api/chats/:chatId/author-note', async request => {
@@ -618,10 +619,19 @@ export async function createApp(options: {
     return { ...snapshot, latestGeneration: snapshot.latestGeneration ? live(snapshot.latestGeneration) : null,
       page: { ...snapshot.page, generations: snapshot.page.generations.map(generation => live(generation)) } };
   });
+  app.get('/api/chats/:chatId/pins', async request => storyReader.pins(chatId(request.params)));
+  app.put('/api/chats/:chatId/turns/:id/pin', async request => {
+    const branch = chatId(request.params);
+    const { id } = z.object({ id: identity }).parse(request.params);
+    const { revision, pinned } = turnPinSchema.parse(request.body);
+    const savedRevision = store.setTurnPin(branch, id, revision, pinned);
+    if (savedRevision !== revision) coordinator.changed({ kind: 'chat', chatId: branch, detail: 'state' });
+    return { revision: savedRevision, pinned };
+  });
   app.get('/api/chats/:chatId/tools', async (request): Promise<ChatToolsSnapshot> => {
     const { loreState: _state, loreResolution: _resolution, ...snapshot } = store.engineSnapshot(chatId(request.params));
     return { ...snapshot, sources: { ...snapshot.sources, lorebook: undefined },
-      promptDiagnostics: promptDiagnostics(snapshot.sources, snapshot.settings.authorNote),
+      promptDiagnostics: promptDiagnostics(snapshot.sources, snapshot.settings.authorNote, snapshot.turns.some(turn => turn.pinned)),
       generating: store.generationRunning(snapshot.id) };
   });
   app.get('/api/chats/:chatId/generations', async request => store.generationPage(chatId(request.params), generationPageSchema.parse(request.query)));

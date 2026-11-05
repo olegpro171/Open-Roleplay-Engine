@@ -4,7 +4,7 @@ import { Reasoning, type ReasoningProps } from './Reasoning';
 import { ResponseVariants } from './ResponseVariants';
 import { TurnActionButton } from './TurnActionButton';
 
-export function TurnControls({ turn, locked, editing, inputVisible, action, reasoning, select, edit, remove, fork }: {
+export function TurnControls({ turn, locked, editing, inputVisible, action, reasoning, select, edit, remove, fork, pin }: {
   turn: Turn;
   locked: boolean;
   editing: boolean;
@@ -14,6 +14,7 @@ export function TurnControls({ turn, locked, editing, inputVisible, action, reas
   select: (id: string) => Promise<boolean>;
   edit: (part: 'user' | 'assistant') => void;
   remove: () => void;
+  pin?: { disabled: boolean; toggle: () => void };
   fork?: { disabled: boolean; open: () => void };
 }) {
   useLocale();
@@ -26,6 +27,8 @@ export function TurnControls({ turn, locked, editing, inputVisible, action, reas
       {inputVisible && <TurnActionButton action="input" label={t("turn_controls.edit_input")} disabled={locked} onClick={() => edit('user')} />}
       <TurnActionButton action="response" label={t("turn_controls.edit_response")} disabled={locked || !turn.complete} onClick={() => edit('assistant')} />
       {reasoning && <Reasoning key={reasoning.generationId} {...reasoning} />}
+      {pin && <TurnActionButton action={turn.pinned ? 'unpin' : 'pin'} label={t(turn.pinned ? 'pins.unpin' : 'pins.pin')}
+        disabled={locked || editing || pin.disabled} onClick={pin.toggle} />}
       {fork && <TurnActionButton action="fork" label={t('branches.fork')} disabled={locked || editing || fork.disabled} onClick={fork.open} />}
       <TurnActionButton action="delete" label={t("app.delete_turn_2")} disabled={locked} onClick={remove} />
     </div>

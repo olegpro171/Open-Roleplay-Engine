@@ -26,7 +26,7 @@ test('edits explicit markers, uses recent history, and enables preparation again
   await page.getByRole('checkbox', { name: 'Enable block 7', exact: true }).uncheck();
   await expect(page.getByRole('status').filter({ hasText: 'Summary marker is absent or disabled. Summaries will not be sent.' })).toBeVisible();
   // Keep the synthetic 350-token history exercise independent of factory prose.
-  for (const index of [2, 3, 4, 10, 11]) await page.getByRole('checkbox', { name: `Enable block ${index}`, exact: true }).uncheck();
+  for (const index of [2, 3, 4, 11, 12]) await page.getByRole('checkbox', { name: `Enable block ${index}`, exact: true }).uncheck();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   const prompt = (await library()).prompts.find(item => item.name === 'Explicit prompt proof')!;
   const model = await command('/api/library', { revision: (await library()).revision, kind: 'connections', data: { name: 'Prompt proof model', endpoint, model: 'synthetic-roleplay', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });

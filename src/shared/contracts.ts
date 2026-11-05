@@ -47,7 +47,7 @@ export type Message = { role: 'system' | 'user' | 'assistant'; content: string }
 export type TurnPart = { id: string; revision: number; text: string };
 export type ResponseVariant = { id: string; text: string; sourceRevision: number; generationId: string | null; createdAt: string };
 export type Turn = {
-  id: string; position: number; complete: boolean; user: TurnPart;
+  id: string; position: number; complete: boolean; pinned?: boolean; user: TurnPart;
   // Selection/edit revisions advance; sourceRevision identifies saved content.
   assistant: TurnPart & { variantId?: string; sourceRevision?: number };
   variants?: ResponseVariant[];
@@ -56,7 +56,10 @@ export type RequestBody = {
   model: string; messages: Message[]; stream: true; max_tokens: number;
   stream_options?: { include_usage: true };
 } & z.infer<typeof customParametersSchema>;
-export type PromptEntry = { messageIndex: number; kind: 'prompt' | 'character' | 'persona' | 'memory' | 'history' | 'draft' | 'lore'; label: string; labelMessage?: import('./localization.js').LocalizedMessage; tokens: number; group?: { id: string; label: string } };
+export const pinnedSourceSchema = z.object({ turnId: z.string().min(1).max(100), ordinal: z.number().int().positive().safe() }).strict();
+export type PinnedSource = z.infer<typeof pinnedSourceSchema>;
+export const promptEntryKinds = ['prompt', 'character', 'persona', 'memory', 'history', 'draft', 'lore', 'pinned'] as const;
+export type PromptEntry = { messageIndex: number; kind: (typeof promptEntryKinds)[number]; pinnedSources?: PinnedSource[]; label: string; labelMessage?: import('./localization.js').LocalizedMessage; tokens: number; group?: { id: string; label: string } };
 export type TokenUsage = { inputTokens: number; outputTokens: number; totalTokens: number };
 export type ConnectionDiagnostic = { message: string; localized?: import('./localization.js').LocalizedMessage; request?: RequestPreview; usage?: TokenUsage | null; response?: string };
 export type TokenCounting = {

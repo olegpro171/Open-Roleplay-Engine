@@ -18,6 +18,7 @@ function savedLoreDisclosure(): boolean {
 const categories = (): { kind: PromptEntry['kind'] | 'overhead'; label: string }[] => [
   { kind: 'prompt', label: t("prompt_peek.prompt") }, { kind: 'character', label: t("app.character") },
   { kind: 'persona', label: t("libraries.persona") }, { kind: 'lore', label: t("prompt_peek.lore") }, { kind: 'memory', label: t("memory.memory") },
+  { kind: 'pinned', label: t('pins.title') },
   { kind: 'history', label: t("app.active_turns") }, { kind: 'draft', label: t("prompt_peek.unsent_input") },
   { kind: 'overhead', label: t("prompt_peek.message_framing") },
 ];
@@ -102,6 +103,6 @@ function PromptMessages({ request, entries }: { request: RequestPreview; entries
   useLocale();
   return request.body.messages.map((value, i) => {
     const part = entries.get(i);
-    return <details className={`prompt-message ${part?.kind ?? 'prompt'}`} key={i}><summary><span className="message-order">{i + 1}</span><span>{formatMessage(part?.labelMessage ?? part?.label) || t("prompt_peek.message")}<small>{stateLabel(value.role)}</small></span><span className="message-size">{t("prompt_peek.est_2", { value: part?.tokens.toLocaleString(locale()) ?? '—' })}</span></summary><div className="prose">{value.content}</div></details>;
+    return <details className={`prompt-message ${part?.kind ?? 'prompt'}`} key={i}><summary><span className="message-order">{i + 1}</span><span>{formatMessage(part?.labelMessage ?? part?.label) || t("prompt_peek.message")}<small>{stateLabel(value.role)}</small></span><span className="message-size">{t("prompt_peek.est_2", { value: part?.tokens.toLocaleString(locale()) ?? '—' })}</span></summary>{part?.pinnedSources && <ul className="small muted">{part.pinnedSources.map(source => <li key={source.turnId}>{t('app.turn', { ordinal: source.ordinal })}</li>)}</ul>}<div className="prose">{value.content}</div></details>;
   });
 }

@@ -7,6 +7,7 @@ import { Store } from '../src/persistence/store.js';
 import { defaultContextPreset, emptyContextState, type SummaryNode } from '../src/shared/context.js';
 import { compactPrompt as defaultPrompt } from './support/compact-prompt.js';
 import type { Character, ImportedTurn, PromptPreset } from '../src/shared/library.js';
+import { defaultAuthorNote } from '../src/shared/author-note.js';
 import { newLorebook, newLoreEntry, type LoreEntry } from '../src/shared/lorebook.js';
 import type { ChatSnapshot } from '../src/shared/contracts.js';
 import { assembleRequest } from '../src/core/prompt.js';
@@ -134,6 +135,32 @@ describe('frozen lore across request and memory representations', () => {
     expect(request.body.messages.filter(message => message.content.startsWith('LIVE LORE ONLY'))).toHaveLength(1);
     expect(snapshot.loreResolution?.pressure).toBe(true);
     expect(f.snapshot().context.archivedTurnIds).toEqual([]);
+  });
+
+  it('lets pin cost trigger lore pressure without duplicating scan inputs or changing Messages depth', async () => {
+    const prompt = { ...defaultPrompt, blocks: [
+      ...defaultPrompt.blocks.filter(block => block.id !== 'summary'),
+      { id: 'pins', name: 'Pinned messages', kind: 'marker' as const, marker: 'pinned_messages' as const, role: 'system' as const, enabled: true },
+    ] };
+    const f = fixture([
+      loreEntry('optional', { content: '@@ignore_on_max_context\nOptional lore.' }),
+      loreEntry('always-eligible', { content: 'The key opens a gate.' }),
+    ], prompt);
+    f.store.saveAuthorNote(f.chatId, { revision: f.snapshot().revision, settings: { ...defaultAuthorNote, depth: 1, prompt: 'Before newest reply.' } });
+    const original = await f.withLore();
+    expect(original.loreResolution?.pressure).toBe(false);
+    expect(original.loreResolution?.outcomes[0].status).toBe('admitted');
+    const target = measure(original).budget.inputTokens;
+    f.store.setTurnPin(f.chatId, original.turns[0].id, original.revision, true);
+    const pinned = f.snapshot();
+    const resolved = await f.withLore({ ...pinned, settings: { ...pinned.settings, targetInputTokens: target } });
+    expect(resolved.loreResolution?.scan).toEqual(original.loreResolution?.scan);
+    expect(resolved.loreResolution?.outcomes[0]).toMatchObject({ status: 'excluded', reason: 'pressure' });
+    expect(resolved.loreResolution?.outcomes[1]).toMatchObject({ status: 'admitted' });
+    const request = measure(resolved);
+    expect(request.body.messages.at(-2)).toEqual({ role: 'assistant', content: original.turns.at(-1)?.assistant.text });
+    expect(request.body.messages.at(-3)?.content).toBe('Before newest reply.');
+    expect(request.layout?.at(-1)).toMatchObject({ kind: 'pinned', pinnedSources: [{ ordinal: 1 }] });
   });
 
   it('recomputes pressure-optional recursion once, then freezes exclusions under later representations', async () => {

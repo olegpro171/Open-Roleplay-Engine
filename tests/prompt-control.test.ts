@@ -100,3 +100,60 @@ describe('explicit prompt control', () => {
     expect(onlyText.body.messages[0].content).not.toContain('keeper');
   });
 });
+
+describe('pinned messages', () => {
+  const marker = defaultPrompt.blocks.find(block => block.id === 'pinned-messages')!;
+  const summaryMarker = defaultPrompt.blocks.find(block => block.id === 'summary')!;
+  const preface = 'The user has explicitly indicated that the following messages are important to the story. Pay particular attention to the facts, decisions, promises, and relationships they establish when continuing the current conversation. Read them as excerpts from earlier turns.';
+
+  it('groups original excerpts in branch order at the marker, including archived and overlapping turns', () => {
+    const history = turns.map((turn, i) => i === 0 || i === 5 ? { ...turn, pinned: true } : turn);
+    const resolved = request([summaryMarker, messages, marker], 5000, history);
+    expect(resolved.history?.verbatimTurnIds).toEqual(['t4', 't5']);
+    const expected = { role: 'system', content: `${preface}\n\n[Turn 1]\n\nUser:\n${turns[0].user.text}\n\nAssistant:\n${turns[0].assistant.text}\n\n[Turn 6]\n\nUser:\n${turns[5].user.text}\n\nAssistant:\n${turns[5].assistant.text}` };
+    expect(resolved.body.messages.at(-1)).toEqual(expected);
+    expect(resolved.body.messages.slice(1, -1)).toEqual(turns.slice(-2).flatMap(turn => [
+      { role: 'user', content: turn.user.text }, { role: 'assistant', content: turn.assistant.text },
+    ]));
+    expect(resolved.layout?.at(-1)).toMatchObject({ kind: 'pinned', pinnedSources: [
+      { turnId: 't0', ordinal: 1 }, { turnId: 't5', ordinal: 6 },
+    ] });
+  });
+
+  it('charges the dedicated block before choosing the Summary-off suffix, including any overlapping turn again', () => {
+    const history = turns.map((turn, i) => i === 5 ? { ...turn, pinned: true } : turn);
+    const block = { role: 'system' as const, content: `${preface}\n\n[Turn 6]\n\nUser:\n${turns[5].user.text}\n\nAssistant:\n${turns[5].assistant.text}` };
+    const recent = [{ role: 'user' as const, content: turns[5].user.text }, { role: 'assistant' as const, content: turns[5].assistant.text }];
+    const exact = estimateInputTokens([block, ...recent]);
+    const resolved = request([marker, messages], exact, history);
+    expect(resolved.history?.verbatimTurnIds).toEqual(['t5']);
+    expect(resolved.body.messages).toEqual([block, ...recent]);
+    expect(resolved.budget.inputTokens).toBe(exact);
+    expect(request([marker, messages], exact - 1, history).body.messages).toEqual([block]);
+    expect(request([marker, messages], exact - 1, turns).history?.verbatimTurnIds).toContain('t4');
+    expect(() => request([marker, messages], estimateInputTokens([block]) - 1, history)).toThrow(/including pinned turns/);
+  });
+
+  it.each([{ blocks: [] }, { blocks: [{ ...marker, enabled: false }] }])('leaves ordinary sending intact without an enabled pin marker', ({ blocks }) => {
+    const history = [{ ...turns[0], pinned: true }];
+    const resolved = request([...blocks, messages], 5000, history);
+    expect(resolved.body.messages).toEqual(request([messages], 5000, history).body.messages);
+    expect(resolved.warningMessages?.map(warning => warning.key)).toContain('pins.marker_missing');
+  });
+
+  it('omits blank parts, filters images, preserves literal macros, and excludes incomplete pins from excerpts', () => {
+    const pinned = (turn: Turn, user: string, assistant: string, complete = true) =>
+      ({ ...turn, complete, pinned: true, user: { ...turn.user, text: user }, assistant: { ...turn.assistant, text: assistant } });
+    const resolved = request([marker, messages], 5000, [
+      pinned(turns[0], '', 'An opening.\n\n![display](https://example.test/image.png)'),
+      pinned(turns[1], '  The {{char}} key.  ', '   '),
+      pinned(turns[2], '![display](https://example.test/image.png)', ''),
+      pinned(turns[3], 'Pending input', 'OLD ANSWER', false),
+    ]);
+    expect(resolved.body.messages[0]).toEqual({ role: 'system', content: `${preface}\n\n[Turn 1]\n\nAssistant:\nAn opening.\n\n[Turn 2]\n\nUser:\n  The {{char}} key.  ` });
+    expect(resolved.body.messages.at(-1)).toEqual({ role: 'user', content: 'Pending input' });
+    expect(JSON.stringify(resolved.body)).not.toContain('OLD ANSWER');
+    expect(promptSchema.safeParse({ name: 'Two pins', blocks: [marker, { ...marker, id: 'again' }] }).success).toBe(false);
+    expect(promptSchema.safeParse({ name: 'Two pins', blocks: [marker, { ...marker, id: 'again', enabled: false }] }).success).toBe(true);
+  });
+});

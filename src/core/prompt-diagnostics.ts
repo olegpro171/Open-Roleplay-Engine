@@ -7,7 +7,7 @@ import { loreDestinationResolver, loreEntryLayout } from './lorebook.js';
 import type { AuthorNote } from '../shared/author-note.js';
 
 /** Structural availability only: no keyword scanning, model calls or activation changes. */
-export function promptDiagnostics(sources: PromptSources, authorNote?: AuthorNote): PromptDiagnostic[] {
+export function promptDiagnostics(sources: PromptSources, authorNote?: AuthorNote, hasPins = false): PromptDiagnostic[] {
   const diagnostics: PromptDiagnostic[] = [];
   const preset = sources.prompt ?? defaultPrompt;
   const promptId = sources.prompt?.id ?? 'default';
@@ -15,6 +15,10 @@ export function promptDiagnostics(sources: PromptSources, authorNote?: AuthorNot
   if (authorNote?.prompt.trim() && !hasPromptMarker(preset, 'messages')) {
     diagnostics.push({ code: 'author_note_messages_missing', target: 'prompts', itemId: promptId,
       ...diagnosticMessage(message('author_note.messages_missing')) });
+  }
+  if (hasPins && (!sources.prompt || !hasPromptMarker(sources.prompt, 'pinned_messages'))) {
+    diagnostics.push({ code: 'pinned_messages_missing', target: 'prompts', itemId: promptId,
+      ...diagnosticMessage(message('pins.marker_missing')) });
   }
   if (card) {
     for (const field of cardInstructionFields) {

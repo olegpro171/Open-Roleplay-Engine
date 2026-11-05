@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 
 type Anchor = { turnId: string; progress: number };
 
@@ -91,6 +91,19 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, edi
     };
   }, [chatId]);
 
+  const jumpToTurn = useCallback((turnId: string) => {
+    const target = transcript.current?.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(turnId)}"]`);
+    if (!target) return;
+    // Align through the same transcript-only scroll path as anchor restoration.
+    // scrollIntoView can also scroll the overflow-hidden document in WebKit.
+    following.current = false;
+    anchor.current = { turnId, progress: 0 };
+    restoreRef.current();
+    target.focus({ preventScroll: true });
+    // Near the end the scroller can clamp the requested alignment.
+    captureRef.current(false);
+  }, []);
+
   // Restore against stable turn identities after a page is prepended or trimmed.
   useLayoutEffect(() => { restoreRef.current(); }, [content, chatId]);
   useLayoutEffect(() => { if (!editing) restoreRef.current(); }, [editing]);
@@ -103,5 +116,5 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, edi
     node.querySelectorAll<HTMLElement>('[data-turn-id]').forEach(turn => observer.observe(turn));
     return () => observer.disconnect();
   }, [content, chatId]);
-  return { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest };
+  return { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest, jumpToTurn };
 }

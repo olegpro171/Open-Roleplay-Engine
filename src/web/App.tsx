@@ -1,3 +1,4 @@
+import { PinnedTurns, saveTurnPin } from './PinnedTurns';
 import { ChatBranches } from './ChatBranches';
 import { chatGroupId, preferredBranch, readBranchSelections, storeBranchSelection } from './chat-selection';
 import { applyTheme } from './theme';
@@ -42,6 +43,7 @@ import { AuthorNoteDialog, AuthorNoteSaveStatus } from './AuthorNote';
 import { lanStatusSchema, type LanSettings, type LanStatus } from '../shared/lan';
 
 type Session = { setupRequired: boolean; authenticated: boolean };
+type TranscriptJump = { chatId: string; turnId: string; revision: number };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
 type AppFailure =
   | { kind: 'loading'; reason: 'connection' | 'request'; message: MessageText }
@@ -126,6 +128,8 @@ export function App() {
   const [edit, setEdit] = useState<Edit | null>(null);
   const editForm = useRef<HTMLFormElement>(null);
   const [peek, setPeek] = useState(false);
+  const [pinnedChat, setPinnedChat] = useState<string | null>(null);
+  const [jumpTarget, setJumpTarget] = useState<TranscriptJump | null>(null);
   const [branchDialog, setBranchDialog] = useState<{ through?: { id: string; ordinal: number } } | null>(null);
   const [authorNoteOpen, setAuthorNoteOpen] = useState(false);
   useEffect(() => { setAuthorNoteOpen(false); setBranchDialog(null); }, [chatId, tab]);
@@ -133,7 +137,7 @@ export function App() {
   const [chatDetailsTarget, setChatDetailsTarget] = useState<HTMLDivElement | null>(null);
   const [generationId, setGenerationId] = useState('');
   const loadId = useRef(0);
-  const { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot, Boolean(edit));
+  const { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest, jumpToTurn } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot, Boolean(edit));
   useLayoutEffect(() => {
     const scroller = transcript.current;
     const form = editForm.current;
@@ -321,13 +325,26 @@ export function App() {
   }, [chatId, tab, session?.authenticated]);
   useEffect(() => { if (dataChanged) pageRequest.current?.abort(); }, [dataChanged]);
 
-  async function moveTranscript(direction: 'older' | 'newer' | 'latest', automatic = false) {
+  useLayoutEffect(() => {
+    if (!jumpTarget) return;
+    if (snapshot?.id === jumpTarget.chatId && tab === 'story') jumpToTurn(jumpTarget.turnId);
+    setJumpTarget(null);
+  }, [jumpTarget, snapshot?.id, tab, jumpToTurn]);
+
+  async function moveTranscript(direction: 'older' | 'newer' | 'latest' | TranscriptJump, automatic = false) {
+    const jump = typeof direction === 'object' ? direction : null;
     const current = snapshotRef.current;
-    if (!current || pageBusy.current || editRef.current || datasetChanged()) return;
+    if (!current || pageBusy.current || editRef.current || datasetChanged() || (jump && current.id !== jump.chatId)) {
+      if (jump) throw new LocalizedError(msg('pins.jump_failed'));
+      return;
+    }
     if (automatic && (document.activeElement?.closest('[data-turn-id]') || document.querySelector('dialog[open]'))) return;
     if (direction === 'older' && !current.page.hasOlder || direction === 'newer' && !current.page.hasNewer) return;
     const parameters = new URLSearchParams();
-    if (direction !== 'latest') {
+    if (jump) {
+      parameters.set('anchor', jump.turnId);
+      parameters.set('revision', String(jump.revision));
+    } else if (direction !== 'latest') {
       const first = current.page.turns[0];
       if (!first) return;
       parameters.set('anchor', first.id);
@@ -349,18 +366,27 @@ export function App() {
       if (refreshPending.current && direction !== 'latest') {
         state = await api<StorySnapshot>(`/chats/${current.id}/story?${parameters}`, 'GET', undefined, controller.signal);
       }
-      if (id !== loadId.current || controller.signal.aborted || datasetChanged() || editRef.current) return;
+      if (id !== loadId.current || controller.signal.aborted || datasetChanged() || editRef.current) {
+        if (jump) throw new LocalizedError(msg('pins.jump_failed'));
+        return;
+      }
       const focusedTurnId = document.activeElement?.closest<HTMLElement>('[data-turn-id]')?.dataset.turnId;
-      if (document.querySelector('dialog[open]') || (focusedTurnId && !state.page.turns.some(turn => turn.id === focusedTurnId))) return;
+      if (jump) {
+        if (!state.page.turns.some(turn => turn.id === jump.turnId)) throw new LocalizedError(msg('pins.jump_failed'));
+        setPinnedChat(null);
+        setJumpTarget(jump);
+      } else if (document.querySelector('dialog[open]') || (focusedTurnId && !state.page.turns.some(turn => turn.id === focusedTurnId))) return;
       preservePosition(direction !== 'latest');
       if (direction === 'latest') scrollToLatest();
       snapshotRef.current = state;
       setSnapshot(state);
     } catch (error) {
-      if (id !== loadId.current || controller.signal.aborted) return;
-      setPageError(errorText(error, msg("app.cannot_load_this_part_of_the_story")));
-      if (error instanceof ApiError && error.status === 409) refreshPending.current = true;
-      if (error instanceof ApiError && error.status === 401) void refreshSession();
+      if (id === loadId.current && !controller.signal.aborted) {
+        if (error instanceof ApiError && error.status === 409) refreshPending.current = true;
+        if (error instanceof ApiError && error.status === 401) void refreshSession();
+        if (!jump) setPageError(errorText(error, msg("app.cannot_load_this_part_of_the_story")));
+      }
+      if (jump) throw new LocalizedError(msg('pins.jump_failed'));
     } finally {
       if (id === loadId.current) {
         pageBusy.current = false;
@@ -441,6 +467,15 @@ export function App() {
   const shownRequest = generationId ? matchingSavedInspection?.request : preview.request;
   const activeTurns = currentRequest?.history?.verbatimTurns ?? (snapshot ? snapshot.totalTurns - snapshot.memory.archivedCount : 0);
   const inputLimit = currentRequest ? Math.min(currentRequest.budget.targetInputTokens, currentRequest.budget.contextWindow - currentRequest.budget.reservedOutputTokens) : 0;
+  const inspectedBudget = inspectionCurrent ? currentRequest?.budget : undefined;
+  const physicalOverflow = Boolean(inspectedBudget && inspectedBudget.inputTokens + inspectedBudget.reservedOutputTokens > inspectedBudget.contextWindow);
+  const targetOverflow = Boolean(inspectedBudget && inspectedBudget.inputTokens > inspectedBudget.targetInputTokens);
+  const pinsIncluded = Boolean(currentRequest?.allocations.pinned);
+  const pinBudgetWarning = physicalOverflow ? 'pins.physical_budget'
+    : targetOverflow && !summariesEnabled ? 'pins.required_budget' : null;
+  const inspectionBudgetWarning = pinsIncluded ? pinBudgetWarning
+    : targetOverflow ? 'errors.the_estimated_input_exceeds_your_target_prepare_context'
+    : physicalOverflow ? 'errors.the_estimated_input_plus_reserved_output_exceeds_the' : null;
   const generationById = new Map(snapshot?.page.generations.map(generation => [generation.id, generation]));
   const turnUsage = new Map(snapshot?.page.turns.flatMap(turn => {
     const variant = turn.variants?.find(item => item.id === turn.assistant.variantId);
@@ -507,6 +542,7 @@ export function App() {
     setEdit(null);
     setPeek(false);
     setBranchDialog(null);
+    setPinnedChat(null);
     setGenerationId('');
     if (snapshotRef.current?.id !== id) {
       snapshotRef.current = null;
@@ -521,6 +557,11 @@ export function App() {
   const selectedCharacterName = selectedCharacter?.name ?? snapshot?.sources.character?.name ?? t("app.character");
   const selectedPersonaName = selectedPersona?.name ?? snapshot?.sources.persona?.name ?? t("app.you");
 
+  function openPins() {
+    if (!snapshot) return;
+    setTab('story');
+    setPinnedChat(snapshot.id);
+  }
   const activeBranch = library.chats.find(branch => branch.id === snapshot?.id);
   const chatBranches = activeBranch ? library.chats.filter(branch => chatGroupId(branch) === chatGroupId(activeBranch)) : [];
   const sidebar = snapshot && <>
@@ -559,6 +600,7 @@ export function App() {
         <button className="quiet chat-navigation-action" aria-label={t("app.chat_settings")} onClick={() => setTab('settings')}><Icon name="Settings" />{t("app.chat_settings_2", { value: snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : '' })}</button>
         <button className="quiet chat-navigation-action" onClick={() => setTab('memory')}><Icon name="List" />{t("app.inspect_memory")}</button>
         <button className="quiet chat-navigation-action" aria-haspopup="dialog" onClick={() => setBranchDialog({})}><Icon name="GitBranch" />{t("branches.title")}</button>
+        <button className="quiet chat-navigation-action" aria-haspopup="dialog" onClick={openPins}><Icon name="BookmarkOutline" />{t('pins.title')}</button>
         <button className="quiet chat-navigation-action" onClick={() => setAuthorNoteOpen(true)}><Icon name="TagOutline" />{t('author_note.title')}</button>
         <button className="quiet chat-navigation-action" onClick={() => setTab('request')}><Icon name="Menu" />{t("app.request_inspector")}</button>
       </>}>
@@ -582,8 +624,8 @@ export function App() {
             } : null;
             const inputVisible = !(turn.complete && turn.user.text === '' && turn.user.revision === 0)
               || (edit?.turnId === turn.id && edit.part === 'user');
-            return <article className="turn" key={turn.id} data-turn-id={turn.id} aria-label={t("app.turn", { ordinal: turn.ordinal })}>
-            <div className="turn-heading"><span>{t("app.turn_2", { ordinal: turn.ordinal, value: turn.complete ? summariesEnabled && turn.archived ? t("interface.archived") : '' : t("interface.pending") })}</span>{turn.complete && !generating && turnUsage.has(turn.id) && <span className="turn-usage" title={t("app.provider_reported_counts_for_the_saved_response")}>{turnUsage.get(turn.id) ? t("app.in_out", { value: turnUsage.get(turn.id)!.inputTokens.toLocaleString(locale()), value2: turnUsage.get(turn.id)!.outputTokens.toLocaleString(locale()) }) : t("app.usage_unavailable")}</span>}</div>
+            return <article className="turn" key={turn.id} data-turn-id={turn.id} tabIndex={-1} aria-label={t("app.turn", { ordinal: turn.ordinal })}>
+            <div className="turn-heading"><span className="turn-number">{turn.pinned && <span className="turn-pinned" title={t('pins.pinned')}><Icon name="Bookmark" /><span className="sr-only">{t('pins.pinned')}</span></span>}{t("app.turn_2", { ordinal: turn.ordinal, value: turn.complete ? summariesEnabled && turn.archived ? t("interface.archived") : '' : t("interface.pending") })}</span>{turn.complete && !generating && turnUsage.has(turn.id) && <span className="turn-usage" title={t("app.provider_reported_counts_for_the_saved_response")}>{turnUsage.get(turn.id) ? t("app.in_out", { value: turnUsage.get(turn.id)!.inputTokens.toLocaleString(locale()), value2: turnUsage.get(turn.id)!.outputTokens.toLocaleString(locale()) }) : t("app.usage_unavailable")}</span>}</div>
             {(['user', 'assistant'] as const).filter(part => part !== 'user' || inputVisible).map((part) => <div className={`part ${part}`} key={part}>
               <div className="part-heading"><strong>{part === 'user' ? selectedPersonaName : selectedCharacterName}</strong></div>
               {part === 'assistant' && appearance.settings.showReasoningDuringGeneration && reasoning && generating && !responseText && <ReasoningPreview text={reasoning.text} />}
@@ -594,6 +636,10 @@ export function App() {
               </div>}
             </div>)}
             <TurnControls turn={turn} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}
+              pin={turn.complete ? {
+                disabled: dataChanged || snapshot.memory.awaitingReview,
+                toggle: () => void command(() => saveTurnPin(snapshot.id, turn.id, snapshot.revision, !turn.pinned)),
+              } : undefined}
               fork={turn.complete ? { disabled: authorNote.pending, open: () => setBranchDialog({ through: { id: turn.id, ordinal: turn.ordinal } }) } : undefined}
               action={generating
                 ? { kind: 'cancel', disabled: busy, run: () => void command(() => api(`/generations/${active.id}/cancel`, 'POST', {})) }
@@ -635,13 +681,17 @@ export function App() {
     </ChatWorkspace>}
     {tab === 'library' && <Libraries library={library} defaults={chatDefaults} currentBranchId={snapshot?.id ?? null} branchSelections={branchSelections} busy={busy} run={command} openChat={openChat} initialTarget={libraryTarget} />}
     {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
-    {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><Memory behavior={behaviorEditor} key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} editPreset={id => { setLibraryTarget({ kind: 'contexts', id }); setTab('library'); }} /></ChatWorkspace>}
+    {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><Memory behavior={behaviorEditor} key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} openPins={openPins} editPreset={id => { setLibraryTarget({ kind: 'contexts', id }); setTab('library'); }} /></ChatWorkspace>}
     {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} disabled={history.loading} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...requestOptions.map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString(locale())} · ${stateLabel(generation.status)}` }))]} /></label><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>
       <div className="actions">{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('latest').then(moved => { if (moved) setGenerationId(''); })}>{t('app.latest_requests')}</button>}{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('newer').then(moved => { if (moved) setGenerationId(''); })}>{t('app.newer_requests')}</button>}{history.older && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('older').then(moved => { if (moved) setGenerationId(''); })}>{t('app.older_requests')}</button>}</div>
       {history.error && <p role="alert">{formatMessage(history.error)} <button type="button" className="secondary" onClick={history.retry}>{t('app.retry_loading')}</button></p>}
       <p className="small muted">{generationId ? t("app.saved_attempt_its_ceiling_is_historical", { value: shownGeneration ? stateLabel(shownGeneration.status) : t("app.usage_unavailable"), value2: formatMessage(shownGeneration?.errorMessage ?? shownGeneration?.error) }) : t("app.live_preview_of_the_current_setup_and")}</p>
       {!generationId && memoryStale && <p role="status">{t("app.memory_is_out_of_date_this_inspection")}</p>}
-      {!generationId && inspectionCurrent && currentRequest && currentRequest.budget.inputTokens > inputLimit && <div className="recovery" role="status"><p>{t(currentRequest.budget.inputTokens > currentRequest.budget.targetInputTokens ? "errors.the_estimated_input_exceeds_your_target_prepare_context" : "errors.the_estimated_input_plus_reserved_output_exceeds_the")}</p>{summariesEnabled && <button className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button>}</div>}
+      {!generationId && inspectionBudgetWarning && <div className="recovery" role="status">
+        <p>{t(inspectionBudgetWarning)}</p>
+        {pinsIncluded && <button type="button" className="secondary" onClick={openPins}>{t('pins.title')}</button>}
+        {summariesEnabled && <button className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button>}
+      </div>}
       {!generationId && (inspectionError || currentRequest && !inspectionCurrent) && <div role="status">
         <p>{inspectionError || t("app.counting_current_input")}</p>
         {preview.error && <button type="button" className="secondary" onClick={preview.retry}>{t("app.retry_preview")}</button>}
@@ -652,6 +702,11 @@ export function App() {
     {branchDialog && activeBranch && tab === 'story' && <ChatBranches current={{ ...activeBranch, revision: snapshot?.revision ?? activeBranch.revision }}
       branches={chatBranches} fork={branchDialog.through} locked={authorNote.pending} close={() => setBranchDialog(null)}
       open={id => openChat(id)} refresh={refresh} />}
+    {snapshot && pinnedChat === snapshot.id && tab === 'story' && <PinnedTurns key={snapshot.id} branch={snapshot.id}
+      revision={snapshot.revision} count={snapshot.pinCount ?? 0} estimate={currentRequest} estimateCurrent={inspectionCurrent}
+      estimateError={preview.error} retryEstimate={preview.retry} locked={working || busy || dataChanged || snapshot.memory.awaitingReview}
+      close={() => setPinnedChat(null)} refresh={refresh}
+      jump={(turnId, revision) => moveTranscript({ chatId: snapshot.id, turnId, revision })} />}
     {peek && <PromptPeek stale={memoryStale} request={inspectionCurrent ? preview.request : null} error={inspectionError} retry={preview.retry} close={() => setPeek(false)} />}
     {authorNoteOpen && tab === 'story' && snapshot && authorNote.draft && <AuthorNoteDialog key={snapshot.id} note={authorNote.draft} editor={authorNote.editor}
       locked={working || busy || dataChanged} preparing={Boolean(preparing)} missingMessages={!hasPromptMarker(snapshot.sources.prompt, 'messages')}

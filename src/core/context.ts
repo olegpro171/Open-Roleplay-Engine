@@ -63,12 +63,13 @@ export function selectedContext(turns: Turn[], state: ContextState, allowStale =
 }
 
 /** Budget-driven state transition; callers measure and commit the actual replacement. */
-export function nextCompaction(turns: Turn[], state: ContextState, config: ContextPreset, input: number, limit: number, required: number, summarySizes: Map<string, number>): { next: ContextOperation | null; blocked: string | null; blockedMessage?: import('../shared/localization.js').LocalizedMessage } {
+export function nextCompaction(turns: Turn[], state: ContextState, config: ContextPreset, input: number, limit: number, required: number, summarySizes: Map<string, number>, pinnedFloor?: number): { next: ContextOperation | null; blocked: string | null; blockedMessage?: import('../shared/localization.js').LocalizedMessage } {
   const { summaries, verbatim } = selectedContext(turns, state);
   if (correctionProtection(turns, state).unresolved.length) return { next: null, ...blockedText(correctionDiagnostic) };
   const completed = verbatim.filter(turn => turn.complete);
   if (state.archivedTurnIds.length && completed.length < config.minTail) return { next: null, ...blockedText(message("diagnostics.the_saved_cutoff_no_longer_leaves_the_configured")) };
   if (input <= limit) return { next: null, blocked: null };
+  if (pinnedFloor !== undefined && pinnedFloor >= limit) return { next: null, ...blockedText(message('pins.required_budget')) };
   if (completed.length >= config.minTail + config.batchSize) {
     return { next: { level: 1, turnIds: completed.slice(0, config.batchSize).map(turn => turn.id), children: [] }, blocked: null };
   }

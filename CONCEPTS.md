@@ -12,7 +12,7 @@ Read [IMPLEMENTATION.md](IMPLEMENTATION.md) for module ownership and development
 | Prompt preset | Ordered enabled text blocks and source markers, their roles and configuration |
 | Context preset | Reusable memory settings and extraction, compression and repair prompts; optional summarization Connection |
 | Chat | Shared title, Connection, Character/Persona, prompt and context selections, lorebook selection and working input target |
-| Branch | Transcript, response variants, Author’s note, memory and cutoff, lore activation, requests and operation state |
+| Branch | Transcript, response variants, turn pins, Author’s note, memory and cutoff, lore activation, requests and operation state |
 | Character / Persona | Separate reusable records for the model's identity / user's identity |
 | Generation | Server-owned request assembly, transport, streaming and response persistence |
 | Product agent | A possible future auxiliary task with instructions, a Connection, conversation access, triggers and marker output; not a coding subagent |
@@ -30,13 +30,19 @@ The accepted stack is strict TypeScript, React/Vite, Node/Fastify, SQLite with b
 
 ## Prompt authority
 
-Enabled preset blocks and markers compose the base request. Missing/disabled markers contribute nothing. Empty/missing-marker presets may be saved; warnings are advisory. At most one enabled Messages, Summary, Card system prompt and Card post-history instructions marker is allowed. An empty resolved request fails before a provider call.
+Enabled preset blocks and markers compose the base request. Missing/disabled markers contribute nothing. Empty/missing-marker presets may be saved; warnings are advisory. Messages, Summary, Pinned messages and the two card instruction markers each allow at most one enabled instance. An empty resolved request fails before a provider call.
 
 Character expands checked, nonempty Name, Description, Personality, Scenario and Example dialogue fields as separate messages in that fixed order, inheriting the marker's role. Separate field markers behave equivalently. Missing field configuration means all fields; explicit empty selection contributes nothing. Greeting is transcript content, not a Character field expansion. Selected names resolve macros even if their own field is unchecked.
 
 Resolve case-insensitive `{{user}}` and `{{char}}` once in prompt/card/persona text, with You / Character fallback names. Insert names literally, without recursive interpretation. Stored conversation text remains literal. `{{original}}` is scoped to the two card-instruction fields and inserts only the respective marker fallback. Other macros remain literal.
 
-The factory/new/Restore original template ships the supplied GLM Dark Edition Refined preset as **Default prompt**, preserving its ordered blocks and model-bound text. It includes Card system prompt → Instructions → NSFW Policy → Banned Concepts → Character → Persona → Summary → Messages (card depth injection permitted) → Card post-history instructions → NPC Continuity and Behavior → Response Structure. Both card markers have empty fallbacks. Existing saved presets/imports retain their blocks and permissions; omitted depth permission means off. New presets are independent copies. Card fields, lore and chat Author's notes follow [compatibility and prompt rules](docs/COMPATIBILITY.md).
+The factory/new/Restore original template ships the supplied GLM Dark Edition Refined preset as **Default prompt**, preserving its ordered blocks and model-bound text. It includes Card system prompt → Instructions → NSFW Policy → Banned Concepts → Character → Persona → Summary → Pinned messages → Messages (card depth injection permitted) → Card post-history instructions → NPC Continuity and Behavior → Response Structure. Both card markers have empty fallbacks. Existing saved presets/imports retain their blocks and permissions; omitted depth permission means off. New presets are independent copies. Card fields, lore and chat Author's notes follow [compatibility and prompt rules](docs/COMPATIBILITY.md).
+
+### Pinned turns
+
+Pin completed turns in Story. Membership follows the original turn and currently selected reply within that branch. Chat details opens the searchable Pinned turns manager. Open a turn from its card, or use its separate pin control. An unpinned row stays available for re-pinning until the manager closes. The input allocation keeps the last confirmed estimate while recalculating.
+
+An enabled Pinned messages marker includes one grouped reference message in branch order, including archived turns and any pinned turns also sent through Messages. Both copies count. Missing or disabled Pinned messages produces an advisory warning for branches with pins, including while choosing a preset in Chat Settings. The marker has no effect on ordinary Messages placement, summary coverage or lore matching. See the [prompt contract](docs/COMPATIBILITY.md#pinned-messages) and [budget rules](docs/CONTEXT.md#measurement-and-limits).
 
 ### Managed and recent-history modes
 
@@ -76,7 +82,7 @@ Character/Persona Title / comment and Speech color are local metadata, excluded 
 
 Every chat has at least one branch. Chat branches opens after Inspect memory and supports name search, selection, rename, duplicate, transcript export and deletion. The Chats library lists each chat once, shows the turn count of the last branch opened in the current browser, and opens that same branch. If the remembered branch is unavailable, the card shows and opens an available branch. Branch selection changes the current view and uses that branch's composer draft. Deleting a branch requires confirmation and leaves the other branches usable. Delete chat removes all branches and checks every branch's saved revision.
 
-Duplicate copies the committed story, memory, requests, current saved Author’s note and lore activation state. Branch from here copies the story through the chosen completed turn and the current saved note, then opens the new branch. An earlier fork copies only memory versions whose source turns and complete dependency chain remain in the fork. Omit crossing versions, including manual corrections, without review or changes to the source branch. Start fresh lore activation for an earlier fork. Reselect compatible saved memory using the current full input budget and prefer recent original turns within the existing coverage and correction rules. If saved memory is insufficient, leave ordinary preparation available. Neither copy operation starts a model request.
+Duplicate copies the committed story, pins, memory, requests, current saved Author’s note and lore activation state. A fork inherits pins on the copied turns only. Membership is independent after either copy. Branch from here copies the story through the chosen completed turn and the current saved note, then opens the new branch. An earlier fork copies only memory versions whose source turns and complete dependency chain remain in the fork. Omit crossing versions, including manual corrections, without review or changes to the source branch. Start fresh lore activation for an earlier fork. Reselect compatible saved memory using the current full input budget and prefer recent original turns within the existing coverage and correction rules. If saved memory is insufficient, leave ordinary preparation available. Neither copy operation starts a model request.
 
 ## Interface and recovery behavior
 

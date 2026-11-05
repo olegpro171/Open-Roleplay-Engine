@@ -5,7 +5,9 @@ import { promptDiagnostics } from '../core/prompt-diagnostics.js';
 import { staleSummarySources } from '../core/context.js';
 import { refKey } from '../shared/context.js';
 import { refusalAffected, refusalFindings } from '../core/summary-refusals.js';
-import { transcriptQuerySchema, type StoryGeneration, type StorySnapshot, type TranscriptQuery } from '../shared/transcript.js';
+import { transcriptQuerySchema, type PinList, type StoryGeneration, type StorySnapshot, type TranscriptQuery } from '../shared/transcript.js';
+import { pinnedExcerpts } from '../core/pinned-turns.js';
+import { hasPromptMarker } from '../shared/library.js';
 import type { Store } from './store.js';
 import * as schema from './schema.js';
 
@@ -22,6 +24,7 @@ export class StoryReader {
       const count = (position?: number) => this.store.db.select({ value: sql<number>`count(*)` }).from(schema.turns)
         .where(and(eq(schema.turns.chatId, chatId), position === undefined ? undefined : sql`${schema.turns.position} < ${position}`)).get()?.value ?? 0;
       const totalTurns = count();
+      const pinCount = this.store.pinCount(chatId);
       let start = Math.max(0, totalTurns - input.limit);
       if (input.anchor) {
         const anchor = this.store.db.select({ position: schema.turns.position }).from(schema.turns)
@@ -46,15 +49,39 @@ export class StoryReader {
       const stale = staleSummarySources(sources, context);
       const refused = refusalAffected(context);
       return {
-        ...header, promptDiagnostics: promptDiagnostics(header.sources, header.settings.authorNote), sources: { ...header.sources, lorebook: undefined }, totalTurns, latestTurn, latestGeneration,
+        ...header, promptDiagnostics: promptDiagnostics(header.sources, header.settings.authorNote, pinCount > 0), sources: { ...header.sources, lorebook: undefined }, totalTurns, pinCount, latestTurn, latestGeneration,
         preparing: this.store.contexts.running(chatId),
-        memory: { revision: context.revision, selectedCount: context.selected.length, refusalCount: refusalFindings(context).length, refusalBlocked: context.selected.some(ref => refused.has(refKey(ref))),
+        memory: { revision: context.revision, selectedCount: context.selected.length, awaitingReview: context.jobs.some(job => job.status === 'awaiting_review'), refusalCount: refusalFindings(context).length, refusalBlocked: context.selected.some(ref => refused.has(refKey(ref))),
           archivedCount: sources.filter(source => archived.has(source.turnId)).length, stale: context.selected.some(ref => stale.has(refKey(ref))) },
         page: { turns: turns.map((turn, index) => ({ ...turn, ordinal: start + index + 1, archived: archived.has(turn.id) })),
           generations: turns.length ? this.generations(chatId, turns.map(turn => turn.id)) : [],
           hasOlder: start > 0, hasNewer: start + turns.length < totalTurns },
       };
     })();
+  }
+
+  pins(chatId: string): PinList {
+    const view = this.store.sqlite.transaction(() => {
+      const { revision, sources, connection } = this.store.chatHeader(chatId);
+      // Number surviving turns in Story order, then read prose only for pins.
+      const ordinals = this.store.db.$with('ordinals').as(this.store.db.select({
+        id: schema.turns.id,
+        ordinal: sql<number>`row_number() OVER (ORDER BY ${schema.turns.position})`.as('ordinal'),
+      }).from(schema.turns).where(eq(schema.turns.chatId, chatId)));
+      const turns = this.store.db.with(ordinals).select({
+        id: schema.turns.id, ordinal: ordinals.ordinal, user: schema.turns.userText, assistant: schema.turns.assistantText,
+      }).from(schema.turns).innerJoin(ordinals, eq(ordinals.id, schema.turns.id))
+        .where(and(eq(schema.turns.chatId, chatId), sql`${schema.turns.pinned} = 1`))
+        .orderBy(asc(schema.turns.position)).all();
+      return {
+        revision, markerEnabled: Boolean(sources.prompt && hasPromptMarker(sources.prompt, 'pinned_messages')),
+        hasConnection: Boolean(connection), turns,
+      };
+    })();
+    return { ...view, turns: view.turns.map(turn => {
+      const excerpts = pinnedExcerpts(turn.user, turn.assistant);
+      return { ...turn, hasModelText: Boolean(excerpts.user || excerpts.assistant) };
+    }) };
   }
 
   private generations(chatId: string, turnIds: string[] | undefined): StoryGeneration[] {

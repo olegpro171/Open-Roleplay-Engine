@@ -38,8 +38,9 @@ export function characterLabel(character: { name: string; titleComment?: string 
 export const personaLabel = characterLabel;
 export const characterFields = ['name', 'description', 'personality', 'scenario', 'examples'] as const;
 export type CharacterField = typeof characterFields[number];
-export const markers = ['character', 'persona', ...characterFields, 'messages', 'summary', 'card_system_prompt', 'card_post_history_instructions'] as const;
+export const markers = ['character', 'persona', ...characterFields, 'messages', 'summary', 'pinned_messages', 'card_system_prompt', 'card_post_history_instructions'] as const;
 export function markerLabel(marker: typeof markers[number]): string {
+  if (marker === 'pinned_messages') return 'Pinned messages';
   if (marker === 'card_system_prompt') return 'Card system prompt';
   if (marker === 'card_post_history_instructions') return 'Card post-history instructions';
   return marker[0].toUpperCase() + marker.slice(1);
@@ -58,7 +59,7 @@ export const promptSchema = z.object({ name, blocks: z.array(promptBlockSchema).
   if (new Set(value.blocks.map(b => b.id)).size !== value.blocks.length) ctx.addIssue({ code: 'custom', message: 'Block identities must be unique.' });
   if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === 'messages').length > 1) ctx.addIssue({ code: 'custom', message: 'Use at most one enabled Messages marker.' });
   if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === 'summary').length > 1) ctx.addIssue({ code: 'custom', message: 'Use at most one enabled Summary marker.' });
-  for (const marker of ['card_system_prompt', 'card_post_history_instructions'] as const) {
+  for (const marker of ['card_system_prompt', 'card_post_history_instructions', 'pinned_messages'] as const) {
     if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === marker).length > 1) ctx.addIssue({ code: 'custom', message: `Use at most one enabled ${markerLabel(marker)} marker.` });
   }
 });

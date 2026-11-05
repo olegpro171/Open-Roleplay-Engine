@@ -149,6 +149,12 @@ Compatibility previews bound detailed notices and report omitted counts. Lore in
 
 Literal key editors split commas and line breaks together, trimming/ignoring empty separators. Regex mode keeps one pattern per line so pattern commas remain literal. Saved/imported arrays retain boundaries until explicitly edited.
 
+## Pinned messages
+
+The marker expands to a single message, with the marker’s configured role (system by default). A fixed English introduction precedes excerpts ordered by the ordinal of the source turn in the branch. Each excerpt has a turn heading and separate User and Assistant labels for nonblank parts. Apply the same display-image filtering as for Messages, preserving the remaining prose literally. Prompt Peek lists the included source turn numbers.
+
+The block is separate from the Messages expansion and does not affect depth offsets. Lore scans the original transcript using its usual depth. The latest regeneration target is pending in the request-local view and cannot contribute its saved reply through a pin. New, factory and restored templates place the marker between Summary and Messages. Saved or imported layouts keep their existing markers and roles.
+
 ## Chat Author's notes
 
 Each chat owns an independent note, separate from character cards and reusable presets. Open **Chat details → Author’s note**, directly below **Inspect memory**. The popup uses the Yandex TagOutline icon, a multiline textbox, depth and the shared custom role dropdown. New/older chats without a saved note start with empty text, depth 0 and System role. Existing saved depth values are preserved. Text is limited to 100,000 characters; depth is an integer from 0 through 1,000. System, User and Assistant roles are supported. Only valid depths save; leaving an invalid depth field restores its last valid value. The role menu stays inside the modal; Escape closes an open menu before closing the popup.

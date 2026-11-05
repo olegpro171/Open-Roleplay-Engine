@@ -12,7 +12,9 @@ Separate the input-only working target from physical context/input capacity and 
 
 New saved request metadata records counting method/version, reference encoding, approximate framing, limits and `verified: false`. Keep old bodies, estimates and usage immutable, including historical model/fallback metadata. Endpoint usage stays attached to its exact attempt and may be unavailable. A changed estimate cannot automatically restore archived detail. Normal UI retains estimate wording; detailed technical metadata belongs in inspection, not repeated labels.
 
-Previews/plans use authoritative full server assembly. Estimate-only projections contain no prose; full inspection loads on demand. Pending input, fixed blocks, eligible lore, notes, summaries and framing all count. Read-only inspection may show overflow/staleness without bypassing generation checks.
+Previews/plans use authoritative full server assembly. Estimate-only projections contain no prose; full inspection loads on demand. Pending input, fixed blocks, eligible lore, notes, pinned excerpts, summaries and framing all count. Read-only inspection may show overflow/staleness without bypassing generation checks.
+
+The pinned block is fixed roleplay input. Reserve it before selecting the Summary-off suffix and charge any overlapping Messages copy as ordinary history. Managed planning measures the full branch for pins even while testing a reduced verbatim tail. A compacted turn can leave Messages while its pin still consumes space. Required-input overflow can be resolved in Pinned turns. Pin changes make no provider calls and keep the committed memory selection. Explicit Prepare can restore detail from saved representations after unpinning.
 
 ## Stable coverage and preparation
 
@@ -26,7 +28,7 @@ For positive summary pool `S` after required non-summary input and actual tail, 
 
 For each replacement, capture source/dependency/configuration/selection/operation revisions, assemble interpretive context, request outside the transaction, validate output and useful complete-request savings, then recheck and atomically save+select. Retain originals/lower summaries. A failed step retains the previous selection; later failure/cancellation retains completed steps. A non-shrinking output stops rather than silently excluding a batch.
 
-Extraction and compression have separate editable conservative continuity prompts. Each batch is standalone; promotion rewrites the whole group rather than concatenating deltas. Supply at most three fitting preceding selected summaries as interpretive reference, tracking their revisions as dependencies but not extra coverage. Never include live lore/notes in narrative summarization. Facts, chronology, uncertainty and knowledge attribution are semantic goals, not validated guarantees.
+Extraction and compression have separate editable conservative continuity prompts. Each batch is standalone; promotion rewrites the whole group rather than concatenating deltas. Supply at most three fitting preceding selected summaries as interpretive reference, tracking their revisions as dependencies but not extra coverage. Keep live lore, Author’s notes and the dedicated pinned block out of narrative summarization. Facts, chronology, uncertainty and knowledge attribution are semantic goals, not validated guarantees.
 
 Automatic preparation starts only on Send outside the sending allowance, or after a successful response/regeneration leaves complete saved input above target. Unsent next drafts are excluded from post-response checks. No chat-open/source/settings/variant/draft trigger exists. A successful response is committed independently of its follow-up job. Automatic and single-step work reuse exact fresh replacements but never restore detail to fill spare capacity.
 

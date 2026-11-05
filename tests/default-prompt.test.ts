@@ -18,9 +18,12 @@ function database() {
 }
 
 it('seeds the supplied preset exactly, apart from its name, on a fresh installation', () => {
-  // SHA-256 of the supplied JSON serialized compactly, with only its name changed.
-  expect(createHash('sha256').update(JSON.stringify(defaultPrompt)).digest('hex'))
+  const blocks = defaultPrompt.blocks.filter(block => block.id !== 'pinned-messages');
+  // All original blocks retain the supplied JSON and relative order.
+  expect(createHash('sha256').update(JSON.stringify({ ...defaultPrompt, blocks })).digest('hex'))
     .toBe('8b1d44aeb881dda8fa99e462bae663b9f88042383e2a59a9431d05d50810a9dc');
+  expect(defaultPrompt.blocks.slice(6, 9).map(block => block.id)).toEqual(['summary', 'pinned-messages', 'messages']);
+  expect(defaultPrompt.blocks[7]).toMatchObject({ marker: 'pinned_messages', enabled: true, role: 'system' });
   expect(promptSchema.parse(defaultPrompt)).toEqual(defaultPrompt);
   const store = new Store(database());
   try {

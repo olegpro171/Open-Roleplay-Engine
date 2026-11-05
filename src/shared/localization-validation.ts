@@ -12,6 +12,7 @@ const authored = new Map<string, MessageKey>(Object.entries({
   "Only Messages permits character depth injection.": "validation.only_messages_permits_character_depth_injection",
   "Block identities must be unique.": "validation.block_identities_must_be_unique",
   "Use at most one enabled Messages marker.": "validation.use_at_most_one_enabled_messages_marker",
+  "Use at most one enabled Pinned messages marker.": "validation.use_at_most_one_enabled_pinned_messages_marker",
   "Use at most one enabled Summary marker.": "validation.use_at_most_one_enabled_summary_marker",
   "Only the final turn may await an assistant response.": "validation.only_the_final_turn_may_await_an_assistant",
   "The active transcript exceeds the 20 million character import limit.": "validation.the_active_transcript_exceeds_the_20_million_character",

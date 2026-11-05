@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { BackupValidationError } from '../core/errors.js';
-import { chatSettingsSchema, connectionSchema, type RequestPreview } from '../shared/contracts.js';
+import { chatSettingsSchema, connectionSchema, pinnedSourceSchema, promptEntryKinds, type RequestPreview } from '../shared/contracts.js';
 import { libraryCharacterSchema, libraryPersonaSchema, promptSchema } from '../shared/library.js';
 import { summaryRefusalCheckSchema, summaryRetrySchema, contextPresetSchema, type SummaryNode, type ContextJob, type ContextStep } from '../shared/context.js';
 import { lorebookSchema, loreDiagnosticSchema, lorePlacements, loreRoleSchema } from '../shared/lorebook.js';
@@ -104,7 +104,7 @@ const loreResolution = z.object({
 });
 const usageSchema = z.object({ inputTokens: integer, outputTokens: integer, totalTokens: integer });
 export const requestSchema = z.object({
-  layout: z.array(z.object({ messageIndex: integer, kind: z.enum(['prompt','character','persona','memory','history','draft','lore']), label: z.string(), labelMessage: localizedMessageSchema.optional(), tokens: integer, group: z.object({ id: z.string(), label: z.string() }).optional() })).optional(),
+  layout: z.array(z.object({ messageIndex: integer, kind: z.enum(promptEntryKinds), pinnedSources: z.array(pinnedSourceSchema).max(backupLimits.rows).optional(), label: z.string(), labelMessage: localizedMessageSchema.optional(), tokens: integer, group: z.object({ id: z.string(), label: z.string() }).optional() })).optional(),
   warnings: z.array(z.string()).optional(), warningMessages: z.array(localizedMessageSchema).optional(), context: selection.optional(), history: z.object({ mode: z.enum(['managed','recent']), verbatimTurnIds: z.array(id) }).optional(),
   lore: loreResolution.nullable().optional(), summarySources: z.array(z.object({ turnId: id, user: z.string(), assistant: z.string() })).optional(),
   // Historical provider parameters are inspection data. A branch copy preserves them verbatim.
@@ -171,10 +171,11 @@ export function validateContent(db: Database.Database) {
   const chosenVariant = db.prepare('SELECT 1 FROM response_variants WHERE id = ? AND turn_id = ? AND text = ?');
   const successfulGeneration = db.prepare("SELECT 1 FROM generations WHERE id = ? AND turn_id = ? AND status = 'succeeded'");
   const generationChat = db.prepare('SELECT chat_id FROM generations WHERE id = ?').pluck();
-  for (const row of rows(db, 'turns', 'id, user_id, assistant_id, user_revision, assistant_revision, position, complete, selected_variant_id, assistant_text')) {
+  for (const row of rows(db, 'turns', 'id, user_id, assistant_id, user_revision, assistant_revision, position, complete, pinned, selected_variant_id, assistant_text')) {
     id.parse(row.id); id.parse(row.user_id); id.parse(row.assistant_id);
     num(row, 'user_revision'); num(row, 'assistant_revision'); num(row, 'position');
     if (row.complete === 1 && !chosenVariant.get(row.selected_variant_id, row.id, row.assistant_text)) throw invalidBackup('A completed turn has a missing or inconsistent selected response variant.');
+    if (row.pinned !== 0 && (row.pinned !== 1 || row.complete !== 1)) throw invalidBackup('Only completed turns can be pinned.');
     if (row.complete === 0 && row.selected_variant_id !== null) throw invalidBackup('A pending turn has a selected response variant.');
   }
   for (const row of rows(db, 'response_variants', 'id, source_revision, generation_id, turn_id')) {

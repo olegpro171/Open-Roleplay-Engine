@@ -15,6 +15,7 @@ import { injectHistory } from './history-injections.js';
 import { modelText } from './model-text.js';
 import { inlineSettingsPrompt } from './inline-prompt.js';
 import { fitsInputTarget, type InputOvershoot } from './input-target.js';
+import { pinnedBlock } from './pinned-turns.js';
 export { replaceNameMacros } from './names.js';
 
 export function estimateInputTokens(messages: Message[]): number {
@@ -26,7 +27,16 @@ export function summaryText(node: SummaryNode, turns: Turn[]): string {
   return `[Memory L${node.level} · turns ${positions.get(node.turns[0]?.turnId) ?? '?'}–${positions.get(node.turns.at(-1)?.turnId ?? '') ?? '?'}]\n${modelText(node.text)}`;
 }
 
-export function assembleRequest(connection: Connection, settings: ChatSettings, turns: Turn[], sources?: PromptSources, context?: ContextState, options: { validateLimits?: boolean; allowStale?: boolean; lore?: LoreResolution | null; overshoot?: InputOvershoot } = {}): RequestPreview {
+type AssemblyOptions = {
+  validateLimits?: boolean;
+  allowStale?: boolean;
+  lore?: LoreResolution | null;
+  overshoot?: InputOvershoot;
+  // Change only Messages when measuring a managed tail. Pins still use the full transcript.
+  measureVerbatim?: Turn[];
+};
+
+export function assembleRequest(connection: Connection, settings: ChatSettings, turns: Turn[], sources?: PromptSources, context?: ContextState, options: AssemblyOptions = {}): RequestPreview {
   // Saved presets are authoritative; legacy inline settings retain their own layout.
   const preset = sources?.prompt ? promptSchema.parse({ name: sources.prompt.name, blocks: sources.prompt.blocks }) : inlineSettingsPrompt(settings.instructions);
   const summariesEnabled = hasPromptMarker(preset, 'summary');
@@ -34,7 +44,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   const resolved = summariesEnabled && context ? selectedContext(turns, context, options.allowStale) : { summaries: [], verbatim: turns };
   const summary = resolved.summaries.map(node => summaryText(node, turns)).join('\n\n');
   const positions = new Map(turns.map((turn, index) => [turn.id, index + 1]));
-  type Entry = { message: Message; kind: PromptEntry['kind']; label: string; labelMessage?: PromptEntry['labelMessage']; group?: PromptEntry['group'] };
+  type Entry = Omit<PromptEntry, 'messageIndex' | 'tokens'> & { message: Message };
   let entries: Entry[] = [];
   const warningMessages = promptWarningMessages(preset);
   let historyIndex: number | null = null;
@@ -44,6 +54,9 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   const authorNote = settings.authorNote;
   if (authorNote?.prompt.trim() && !messagesBlock) {
     warningMessages.push(message('author_note.messages_missing'));
+  }
+  if (!hasPromptMarker(preset, 'pinned_messages') && turns.some(turn => turn.pinned && turn.complete)) {
+    warningMessages.push(message('pins.marker_missing'));
   }
   let depthNote: { depth: number; entry: Entry } | null = null;
   if (messagesBlock?.kind === 'marker' && messagesBlock.allowDepthPrompt) {
@@ -77,6 +90,14 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   for (const block of preset.blocks) {
     if (!block.enabled) continue;
     if (block.kind === 'marker' && block.marker === 'messages') { historyIndex = entries.length; continue; }
+    if (block.kind === 'marker' && block.marker === 'pinned_messages') {
+      const pinned = pinnedBlock(turns);
+      if (pinned) entries.push({
+        message: { role: block.role, content: pinned.content }, kind: 'pinned',
+        ...promptLabel(message('pins.title')), pinnedSources: pinned.sources,
+      });
+      continue;
+    }
     if (block.kind === 'marker' && block.marker === 'summary') {
       if (summary) entries.push({ message: { role: block.role, content: summary }, kind: 'memory', label: block.name });
       continue;
@@ -140,7 +161,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   ].filter(injection => injection.entry.message.content !== '');
   let verbatim: Turn[] = [];
   if (historyIndex !== null) {
-    if (summariesEnabled) verbatim = resolved.verbatim;
+    if (summariesEnabled) verbatim = options.measureVerbatim ?? resolved.verbatim;
     else {
       const limit = Math.min(settings.targetInputTokens, connection.contextWindow - connection.maxOutputTokens);
       let used = countInput([...entries, ...historyInjections.map(injection => injection.entry)].map(entry => entry.message)).inputTokens;
@@ -160,16 +181,17 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     entries = entries.slice(0, historyIndex).concat(expanded, entries.slice(historyIndex));
   }
   const messages = entries.map(entry => entry.message);
-  const layout: PromptEntry[] = entries.map((entry, messageIndex) => ({ messageIndex, kind: entry.kind, label: entry.label, ...(entry.labelMessage ? { labelMessage: entry.labelMessage } : {}), tokens: 0, ...(entry.group ? { group: entry.group } : {}) }));
+  const layout: PromptEntry[] = entries.map(({ message: _message, ...entry }, messageIndex) => ({ ...entry, messageIndex, tokens: 0 }));
   if (options.validateLimits !== false && !messages.length) throw new AppError(422, 'empty_prompt', message("errors.the_resolved_prompt_is_empty_enable_a_block"));
   const { contentTokens, ...measurement } = countInput(messages);
   const { inputTokens } = measurement;
   layout.forEach((part, index) => { part.tokens = contentTokens[index]; });
+  const hasPinnedBlock = layout.some(entry => entry.kind === 'pinned');
   if (options.validateLimits !== false && !fitsInputTarget(inputTokens, settings.targetInputTokens, options.overshoot)) {
-    throw new AppError(422, 'input_budget_exceeded', message("errors.the_estimated_input_exceeds_your_target_prepare_context"));
+    throw new AppError(422, 'input_budget_exceeded', message(hasPinnedBlock ? "pins.input_budget" : "errors.the_estimated_input_exceeds_your_target_prepare_context"));
   }
   if (options.validateLimits !== false && inputTokens + connection.maxOutputTokens > connection.contextWindow) {
-    throw new AppError(422, 'context_window_exceeded', message("errors.the_estimated_input_plus_reserved_output_exceeds_the"));
+    throw new AppError(422, 'context_window_exceeded', message(hasPinnedBlock ? "pins.physical_budget" : "errors.the_estimated_input_plus_reserved_output_exceeds_the"));
   }
   return {
     warnings: warningMessages.map(warning => warning.fallback), warningMessages, layout,

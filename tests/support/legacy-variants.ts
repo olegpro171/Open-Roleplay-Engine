@@ -13,7 +13,7 @@ export function legacyRows(db: Database.Database, table: string) {
     return db.prepare(`SELECT chats.id, chats.revision, json_patch(chat_groups.settings, chats.settings) AS settings
       FROM chats JOIN chat_groups ON chat_groups.id = chats.group_id ORDER BY chats.rowid`).all();
   }
-  const added = table === 'summaries' ? ['fork_source_request'] : table === 'turns' ? ['selected_variant_id', 'message_at'] : table === 'generations' ? ['kind', 'context_selection', 'reasoning_text', 'error_message'] : ['library', 'connections', 'chats'].includes(table) ? ['created_at', 'updated_at'] : [];
+  const added = table === 'summaries' ? ['fork_source_request'] : table === 'turns' ? ['selected_variant_id', 'message_at', 'pinned'] : table === 'generations' ? ['kind', 'context_selection', 'reasoning_text', 'error_message'] : ['library', 'connections', 'chats'].includes(table) ? ['created_at', 'updated_at'] : [];
   const columns = db.prepare(`PRAGMA table_info("${table}")`).all();
   const names = columns.map(column => {
     if (typeof column !== 'object' || column === null || !('name' in column) || typeof column.name !== 'string') throw new Error('Missing fixture column');
