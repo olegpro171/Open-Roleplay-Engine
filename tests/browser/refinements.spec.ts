@@ -29,7 +29,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   const promptId = await createCompactPrompt(page);
   const { id: chatId } = await command('/api/chats', { title: 'Refinement proof', targetInputTokens: 35_000, connectionId, promptId, characterId: null, personaId: null, contextPresetId: contextId });
   const state = () => page.request.get(`/api/chats/${chatId}`).then(response => response.json() as Promise<ChatSnapshot>);
-  await command(`/api/chats/${chatId}/history`, { revision: (await state()).revision, turns: Array.from({ length: 8 }, (_, i) => ({ user: `Turn ${i + 1}. ${'Mira offers Leon her brass key. '.repeat(7)}`, assistant: 'Leon promises to stay out of the cellar. '.repeat(7), complete: true })) }, 'PUT');
+  await command(`/api/__test/transcripts/${chatId}`, { revision: (await state()).revision, turns: Array.from({ length: 8 }, (_, i) => ({ user: `Turn ${i + 1}. ${'Mira offers Leon her brass key. '.repeat(7)}`, assistant: 'Leon promises to stay out of the cellar. '.repeat(7), complete: true })) }, 'PUT');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Refinement proof', exact: true }) }).click();
   const meta = page.locator('.story-meta');
@@ -162,7 +162,7 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
   const { id: connectionId } = await command('/api/library', { revision: library.revision, kind: 'connections', data: { name: 'Resize fixture', endpoint, model: 'synthetic-roleplay', contextWindow: 2_000_000, maxOutputTokens: 1_000, customParameters: {} } });
   const { id: chatId } = await command('/api/chats', { title: 'Resize and timeline proof', targetInputTokens: 1_000_000, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: null });
-  await command(`/api/chats/${chatId}/history`, { revision: 0, turns: Array.from({ length: 220 }, (_, i) => ({ user: `Turn ${i + 1}. ${'Mira holds the brass key and listens for footsteps. '.repeat(12)}`, assistant: 'Leon watches the lantern cast shadows across the cellar door. '.repeat(18), complete: true })) }, 'PUT');
+  await command(`/api/__test/transcripts/${chatId}`, { revision: 0, turns: Array.from({ length: 220 }, (_, i) => ({ user: `Turn ${i + 1}. ${'Mira holds the brass key and listens for footsteps. '.repeat(12)}`, assistant: 'Leon watches the lantern cast shadows across the cellar door. '.repeat(18), complete: true })) }, 'PUT');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Resize and timeline proof', exact: true }) }).click();
   const transcript = page.locator('.transcript');

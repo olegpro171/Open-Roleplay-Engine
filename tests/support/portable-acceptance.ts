@@ -100,10 +100,15 @@ try {
   }
   const lorebook = await save('lorebooks', { ...newLorebook(), entries: [{ ...newLoreEntry(randomUUID()), keys: ['/lantern/i'], useRegex: true, content: 'PACKAGED REGEX LORE', placement: 'history' }] });
   const context = await save('contexts', { ...defaultContextPreset, connectionId: connection.id, batchSize: 2, minTail: 2, promotionGroup: 2, retainedPerLevel: 1 });
-  const chat = await request<{ id: string }>('/api/chats', 'POST', { title: 'Portable synthetic story', targetInputTokens: 700, connectionId: connection.id, promptId: 'default', characterId: imported.ids[0], personaId: null, lorebookId: lorebook.id, contextPresetId: context.id });
+  const title = 'Portable synthetic story';
+  const characterId = imported.ids[0];
+  const turns = Array.from({ length: 12 }, (_, i) => ({ user: `Turn ${i}. Mira offers a key. ${'The room is quiet. '.repeat(10)}`, assistant: `The lantern casts long shadows. ${'Leon protects the key. '.repeat(7)}`, complete: true }));
+  const chat = await request<{ id: string }>('/api/chats/import', 'POST', { title, characterId, requestId: randomUUID(), turns });
   const base = `/api/chats/${chat.id}`;
   const state = () => request<ChatSnapshot>(base);
-  await request(`${base}/history`, 'PUT', { revision: (await state()).revision, turns: Array.from({ length: 12 }, (_, i) => ({ user: `Turn ${i}. Mira offers a key. ${'The room is quiet. '.repeat(10)}`, assistant: `The lantern casts long shadows. ${'Leon protects the key. '.repeat(7)}`, complete: true })) });
+  await request(`${base}/selections`, 'PUT', { revision: (await state()).revision, settings: {
+    title, targetInputTokens: 700, connectionId: connection.id, promptId: 'default', characterId, personaId: null, lorebookId: lorebook.id, contextPresetId: context.id,
+  } });
   await request(`${base}/context/prepare`, 'POST', { revision: (await state()).revision, requestId: randomUUID(), mode: 'prepare' });
   let saved = await eventually(state, snapshot => snapshot.context.jobs[0]?.status !== 'running');
   assert.equal(saved.context.jobs[0]?.status, 'succeeded'); assert(saved.context.selected.length > 0);

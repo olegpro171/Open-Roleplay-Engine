@@ -41,7 +41,7 @@ for (const width of [1440, 390, 320]) test(`built-in Russian needs no import and
   } }).then(response => response.json());
   expect(typeof chat.id).toBe('string');
   const initial = z.object({ revision: z.number().int() }).parse(await page.request.get(`/api/chats/${chat.id}`).then(response => response.json()));
-  const history = await page.request.put(`/api/chats/${chat.id}/history`, { headers, data: { revision: initial.revision, turns: [
+  const history = await page.request.put(`/api/__test/transcripts/${chat.id}`, { headers, data: { revision: initial.revision, turns: [
     { user: '', assistant: 'Literal greeting', complete: true },
     { user: 'Literal input', assistant: 'Literal response', complete: true },
   ] } });

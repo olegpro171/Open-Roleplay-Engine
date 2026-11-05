@@ -48,19 +48,25 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   const contextId = (await libraries()).contexts.find(preset => preset.name === 'Imported story memory')!.id;
   expect((await libraries()).contexts.find(preset => preset.id === contextId)?.repairPrompt).toContain('Keep unaffected wording exactly');
   const promptId = await createCompactPrompt(page);
-  const chat = await post('/api/chats', { title: 'Imported compaction proof', targetInputTokens: 700, connectionId: roleplay.id, promptId, characterId: null, personaId: null, contextPresetId: contextId });
+  const original = await post('/api/chats', { title: 'Imported compaction proof', targetInputTokens: 700, connectionId: roleplay.id, promptId, characterId: null, personaId: null, contextPresetId: contextId });
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Imported compaction proof', exact: true }) }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await openChatTool(page, 'Chat settings');
+  await openChatTool(page, 'Chat branches');
   const messages = Array.from({ length: 48 }, (_, i) => [
     { is_user: true, mes: `Mira offers Leon her brass key. Turn ${i + 1}. ${'The room is quiet. '.repeat(10)}` },
     { is_user: false, mes: `Leon promises not to enter the cellar. ${'The lantern casts long shadows. '.repeat(7)}` },
   ]).flat();
-  await page.getByLabel('Chat JSONL file').setInputFiles({ name: 'synthetic-roleplay.jsonl', mimeType: 'application/jsonl', buffer: Buffer.from(messages.map(message => JSON.stringify(message)).join('\n')) });
-  await expect(page.getByText(/96 messages → 48 turns/)).toBeVisible();
-  await page.getByRole('button', { name: 'Replace all messages', exact: true }).click();
-  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Chat branches' }).getByRole('button', { name: 'Import', exact: true }).click();
+  const review = page.getByRole('dialog', { name: 'Import branch from JSONL' });
+  const chooser = page.waitForEvent('filechooser');
+  await review.getByRole('button', { name: 'Drop file here or click to browse' }).click();
+  await (await chooser).setFiles({ name: 'synthetic-roleplay.jsonl', mimeType: 'application/jsonl', buffer: Buffer.from(messages.map(message => JSON.stringify(message)).join('\n')) });
+  await expect(review.getByText('96 messages · 48 turns')).toBeVisible();
+  const response = page.waitForResponse(`**/api/chat-groups/${original.id}/branches/import`);
+  await review.getByRole('button', { name: 'Import', exact: true }).click();
+  const chat = await (await response).json();
+  await expect(review).toHaveCount(0);
   await openChatTool(page, 'Inspect memory');
   await expect(page.getByRole('button', { name: 'Save next summary', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Save next summary', exact: true }).click();
@@ -111,6 +117,9 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await phone.getByRole('button', { name: 'Libraries', exact: true }).click();
   await phone.getByRole('article').filter({ has: phone.getByRole('heading', { name: 'Imported compaction proof', exact: true }) }).click();
   await phone.getByRole('button', { name: 'Story', exact: true }).click();
+  await openChatTool(phone, 'Chat branches');
+  await phone.getByRole('dialog', { name: 'Chat branches' }).getByRole('button', { name: 'synthetic-roleplay', exact: true }).click();
+  await expect(phone.getByRole('region', { name: 'Conversation' })).toContainText('Turn 48.');
   await openChatTool(phone, 'Inspect memory');
   await expect(phone.getByTestId('memory-status')).toContainText('Ready:');
   await expect(phone.getByRole('checkbox', { name: 'Auto retry failed or refused requests' })).not.toBeChecked();

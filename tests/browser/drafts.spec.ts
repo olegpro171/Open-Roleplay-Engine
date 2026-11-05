@@ -241,7 +241,7 @@ for (const platform of ['iPhone', 'iPad desktop mode', 'Android'] as const) test
     await expect.poll(() => transcript.evaluate(node => node.scrollHeight <= node.clientHeight + 1)).toBe(true);
     expect(await boundaries()).toEqual(expected);
 
-    const imported = await page.request.put(`/api/chats/${chatId}/history`, {
+    const imported = await page.request.put(`/api/__test/transcripts/${chatId}`, {
       headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: 0, turns: [
         { user: 'Mira enters the archive.', assistant: 'Leon watches the lantern.\n\n'.repeat(100), complete: true },
       ] },

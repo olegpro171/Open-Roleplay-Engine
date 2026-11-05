@@ -35,7 +35,7 @@ test('edits card instructions, enables preset injection, explains unavailable so
   ] } });
   const chat = await command('/api/chats', { title: 'Card instructions story', targetInputTokens: 5000, characterId: character.id, connectionId: connection.id, promptId: prompt.id, personaId: null, lorebookId: lorebook.id });
   const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
-  await command(`/api/chats/${chat.id}/history`, { revision: (await state()).revision, turns: [{ user: 'Old input', assistant: 'Old response', complete: true }] }, 'PUT');
+  await command(`/api/__test/transcripts/${chat.id}`, { revision: (await state()).revision, turns: [{ user: 'Old input', assistant: 'Old response', complete: true }] }, 'PUT');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Card instructions story', exact: true }) }).click();

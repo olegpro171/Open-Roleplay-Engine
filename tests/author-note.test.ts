@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -91,7 +92,7 @@ describe('Author’s note request composition', () => {
     store.saveSettings(0, connection, settings);
     const contextId = store.saveLibrary(store.libraryRevision(), 'contexts', { ...defaultContextPreset, minTail: 1, batchSize: 1 });
     const chatId = store.createChat({ title: 'Managed', targetInputTokens: 5000, connectionId: 'main', promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId });
-    store.replaceHistory(store.snapshot(chatId).revision, chatId, [{ user: 'First', assistant: 'Reply', complete: true }, { user: 'Second', assistant: 'Reply', complete: true }]);
+    seedTranscript(store, store.snapshot(chatId).revision, chatId, [{ user: 'First', assistant: 'Reply', complete: true }, { user: 'Second', assistant: 'Reply', complete: true }]);
     const before = store.snapshot(chatId);
     store.saveAuthorNote(chatId, { revision: before.revision, settings: note });
     const after = store.snapshot(chatId);

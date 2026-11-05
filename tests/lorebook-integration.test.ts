@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -38,7 +39,7 @@ function fixture(entries: LoreEntry[] = [loreEntry('key')], prompt: PromptPreset
   const characterId = store.saveLibrary(store.libraries().revision, 'characters', card);
   const promptId = store.saveLibrary(store.libraries().revision, 'prompts', prompt);
   const chatId = store.createChat({ title: 'Synthetic lore integration', targetInputTokens: 50000, connectionId, contextPresetId: contextId, promptId, characterId, personaId: null, lorebookId });
-  store.replaceHistory(store.snapshot(chatId).revision, chatId, turns);
+  seedTranscript(store, store.snapshot(chatId).revision, chatId, turns);
   const snapshot = () => store.snapshot(chatId);
   const withLore = async (input: ChatSnapshot = snapshot()): Promise<ChatSnapshot> => ({ ...input, loreResolution: await resolveRequestLore(input, pool) });
   return { store, pool, chatId, snapshot, withLore };

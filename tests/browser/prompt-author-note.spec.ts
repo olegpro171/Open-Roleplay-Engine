@@ -206,7 +206,7 @@ test('keeps an unresolved save with its chat while another chat remains usable',
 
 test('a note acknowledgement releases a superseded transcript load and keeps response refreshes working', async ({ page }) => {
   const id = await setup(page);
-  const imported = await page.request.put(`/api/chats/${id}/history`, { headers, data: { revision: (await state(page, id)).revision,
+  const imported = await page.request.put(`/api/__test/transcripts/${id}`, { headers, data: { revision: (await state(page, id)).revision,
     turns: Array.from({ length: 80 }, (_, index) => ({ user: `Input ${index + 1}`, assistant: `Reply ${index + 1}`, complete: true })),
   } });
   expect(imported.ok()).toBe(true);
@@ -255,7 +255,7 @@ test('an unresolved note never disables Stop for memory work started by another 
     contextPresetId, targetInputTokens: 600,
   } } });
   expect(selection.ok()).toBe(true);
-  const imported = await page.request.put(`/api/chats/${id}/history`, { headers, data: { revision: (await state(page, id)).revision,
+  const imported = await page.request.put(`/api/__test/transcripts/${id}`, { headers, data: { revision: (await state(page, id)).revision,
     turns: Array.from({ length: 6 }, (_, index) => ({ user: `Turn ${index + 1}. ` + 'Mira carries the silver key. '.repeat(20), assistant: 'Leon waits beside the old tower. '.repeat(20), complete: true })),
   } });
   expect(imported.ok()).toBe(true);

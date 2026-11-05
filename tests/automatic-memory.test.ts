@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { afterEach, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -38,7 +39,7 @@ function fixture(behavior: Partial<ChatBehavior> = {}) {
   const summaryId = store.saveLibrary(store.libraries().revision, 'connections', { ...connection, name: 'Summary', model: 'summary' }, undefined, 'summary-secret');
   const presetId = store.saveLibrary(store.libraries().revision, 'contexts', { ...defaultContextPreset, connectionId: summaryId, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 });
   const chatId = store.createChat({ title: 'Automatic memory', connectionId: storyId, promptId: 'default', characterId: null, personaId: null, contextPresetId: presetId, targetInputTokens: 20_000 });
-  store.replaceHistory(store.snapshot(chatId).revision, chatId, Array.from({ length: 8 }, (_, index) => ({ user: `Mira offers the key, turn ${index}. ` + 'The cellar remains closed. '.repeat(12), assistant: 'Leon waits by the door. '.repeat(12), complete: true })));
+  seedTranscript(store, store.snapshot(chatId).revision, chatId, Array.from({ length: 8 }, (_, index) => ({ user: `Mira offers the key, turn ${index}. ` + 'The cellar remains closed. '.repeat(12), assistant: 'Leon waits by the door. '.repeat(12), complete: true })));
   let coordinator = new GenerationCoordinator(store, provider, () => settings);
   const state = () => store.snapshot(chatId);
   const target = (value: number) => store.updateChat(state().revision, chatId, { ...state().settings, connectionId: storyId, promptId: 'default', characterId: null, personaId: null, contextPresetId: presetId, targetInputTokens: value });

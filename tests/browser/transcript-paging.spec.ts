@@ -19,7 +19,7 @@ for (const width of [1380, 390]) test(`loads a bounded transcript window without
     assistant: `${index === 30 ? needle : 'Leon watches the doorway.'}\n\n${'The lantern throws **moving shadows** across the stone. '.repeat(8 + index % 15)}\n\n> “We should return before morning,” he says.`,
     complete: true,
   }));
-  const imported = await page.request.put(`/api/chats/${id}/history`, {
+  const imported = await page.request.put(`/api/__test/transcripts/${id}`, {
     headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: 0, turns },
   });
   expect(imported.ok(), await imported.text()).toBe(true);
@@ -132,7 +132,7 @@ test('rejects delayed stale pages, reconciles generation outside the window and 
   const { id: connectionId } = await connection.json();
   const created = await page.request.post('/api/chats', { headers, data: { title: 'Concurrent paging', targetInputTokens: 90_000, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: null } });
   const { id } = await created.json();
-  const imported = await page.request.put(`/api/chats/${id}/history`, { headers, data: { revision: 0, turns: Array.from({ length: 200 }, (_, index) => ({ user: `Input ${index + 1}`, assistant: `Reply ${index + 1}. ${'The keeper watches the lantern. '.repeat(15)}`, complete: true })) } });
+  const imported = await page.request.put(`/api/__test/transcripts/${id}`, { headers, data: { revision: 0, turns: Array.from({ length: 200 }, (_, index) => ({ user: `Input ${index + 1}`, assistant: `Reply ${index + 1}. ${'The keeper watches the lantern. '.repeat(15)}`, complete: true })) } });
   expect(imported.ok(), await imported.text()).toBe(true);
   const fullRequests: string[] = [];
   page.on('request', request => { if (request.method() === 'GET' && new URL(request.url()).pathname === `/api/chats/${id}`) fullRequests.push(request.url()); });

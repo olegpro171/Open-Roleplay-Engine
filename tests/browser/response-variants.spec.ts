@@ -24,7 +24,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
   const promptId = await createCompactPrompt(page);
   const chat = await command('/api/chats', { title: 'Variant proof', targetInputTokens: 10000, connectionId: connection.id, promptId, characterId: null, personaId: null, contextPresetId: preset.id });
   const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
-  await command(`/api/chats/${chat.id}/history`, { revision: (await state()).revision, turns: [{ user: 'An invitation. ' + 'The rain falls. '.repeat(100), assistant: 'Original A.', complete: true }] }, 'PUT');
+  await command(`/api/__test/transcripts/${chat.id}`, { revision: (await state()).revision, turns: [{ user: 'An invitation. ' + 'The rain falls. '.repeat(100), assistant: 'Original A.', complete: true }] }, 'PUT');
   await page.reload();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();

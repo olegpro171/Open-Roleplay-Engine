@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { afterEach, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -29,7 +30,7 @@ async function fixture() {
   const contextId = store.saveLibrary(store.libraries().revision, 'contexts', { ...defaultContextPreset, connectionId, minTail: 1, batchSize: 2 });
   const bookId = store.saveLibrary(store.libraries().revision, 'lorebooks', { ...newLorebook(), scanDepth: 20, entries: [{ ...newLoreEntry('initial'), placement: 'history', constant: true, content: 'OLD LIVE LORE: the vault is blue.' }] });
   const chatId = store.createChat({ title: 'Synthetic repair', targetInputTokens: 90000, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId, lorebookId: bookId });
-  store.replaceHistory(store.snapshot(chatId).revision, chatId, Array.from({ length: 3 }, (_, index) => ({ user: `Mira asks about the brass key ${index}.`, assistant: `The keeper answers ${index}.`, complete: true })));
+  seedTranscript(store, store.snapshot(chatId).revision, chatId, Array.from({ length: 3 }, (_, index) => ({ user: `Mira asks about the brass key ${index}.`, assistant: `The keeper answers ${index}.`, complete: true })));
   const before = store.snapshot(chatId);
   const node: SummaryNode = { id: randomUUID(), revision: 0, level: 1, text: 'Mira remembers the original promise.', turns: before.turns.slice(0, 2).map(sourceOf), children: [], prior: [], approved: true, manual: false, createdAt: '2026-10-18T00:00:00.000Z' };
   store.sqlite.prepare('INSERT INTO summaries (id, revision, chat_id, data) VALUES (?, ?, ?, ?)').run(node.id, node.revision, chatId, JSON.stringify(node));

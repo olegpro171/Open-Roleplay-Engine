@@ -60,7 +60,7 @@ test('stays idle across a real keepalive and scopes and coalesces change notific
 
 test('reconciles a settings notification superseded by transcript paging', async ({ page }) => {
   const f = await fixture(page, 'Settings during paging proof');
-  const imported = await page.request.put(`/api/chats/${f.id}/history`, { headers: { Origin: 'http://127.0.0.1:4173' },
+  const imported = await page.request.put(`/api/__test/transcripts/${f.id}`, { headers: { Origin: 'http://127.0.0.1:4173' },
     data: { revision: (await f.state()).revision, turns: Array.from({ length: 100 }, (_, index) => ({ user: `Input ${index + 1}`, assistant: `Reply ${index + 1}`, complete: true })) } });
   expect(imported.ok()).toBe(true);
   await expect(page.locator('.turn')).toHaveCount(15);
@@ -107,7 +107,7 @@ test('keeps latest following when content grows just before a refresh commits', 
     };
   });
   const f = await fixture(page, 'Following during refresh proof');
-  const imported = await page.request.put(`/api/chats/${f.id}/history`, { headers: { Origin: 'http://127.0.0.1:4173' },
+  const imported = await page.request.put(`/api/__test/transcripts/${f.id}`, { headers: { Origin: 'http://127.0.0.1:4173' },
     data: { revision: (await f.state()).revision, turns: Array.from({ length: 30 }, (_, index) => ({ user: `Input ${index + 1}`, assistant: `Reply ${index + 1}`, complete: true })) } });
   expect(imported.ok()).toBe(true);
   await expect(page.getByRole('article', { name: 'Turn 30', exact: true })).toBeAttached();

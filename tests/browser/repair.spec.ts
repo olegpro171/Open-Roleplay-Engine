@@ -27,7 +27,7 @@ test('reviews a repair queue with matching panes, source diffs, regenerate, disc
   const chat = await command('/api/chats', { title: 'Continuous repair proof', targetInputTokens: 500, connectionId: connection.id, promptId, characterId: null, personaId: null, contextPresetId: preset.id });
   const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
   const requests = () => request.get('/__test/requests').then(response => response.json() as Promise<unknown[]>);
-  await command(`/api/chats/${chat.id}/history`, { revision: (await state()).revision, turns: Array.from({ length: 18 }, (_, i) => ({ user: `Turn ${i + 1}. Mira gives Leon the brass key. ${'The quiet room. '.repeat(10)}`, assistant: 'Leon accepts the key. ' + 'He promises to return. '.repeat(10), complete: true })) }, 'PUT');
+  await command(`/api/__test/transcripts/${chat.id}`, { revision: (await state()).revision, turns: Array.from({ length: 18 }, (_, i) => ({ user: `Turn ${i + 1}. Mira gives Leon the brass key. ${'The quiet room. '.repeat(10)}`, assistant: 'Leon accepts the key. ' + 'He promises to return. '.repeat(10), complete: true })) }, 'PUT');
   await command(`/api/chats/${chat.id}/context/prepare`, { revision: (await state()).revision, requestId: crypto.randomUUID(), mode: 'prepare' });
   await expect.poll(async () => (await state()).context.jobs[0]?.status).not.toBe('running');
   expect((await state()).context.jobs[0], JSON.stringify((await state()).context.jobs[0])).toMatchObject({ status: 'succeeded' });

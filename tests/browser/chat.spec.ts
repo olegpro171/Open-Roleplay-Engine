@@ -186,7 +186,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test('libraries, name substitution, greetings, prompt restoration and reviewed history replacement', async ({ page }) => {
+test('libraries, name substitution, greetings, prompt restoration and reviewed JSONL chat import', async ({ page }) => {
   await createOwner(page);
   await createTowerConnection(page);
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
@@ -195,7 +195,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   await page.getByLabel('Import persona').setInputFiles({ name: 'personas.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(persona)) });
   await expect(page.getByRole('heading', { name: 'Visitor', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Characters', exact: true }).click();
-  const card = { spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'Moon', description: '{{char}} welcomes {{user}}.', personality: 'Kind', scenario: 'An observatory', first_mes: 'Hello, {{user}}. I am {{char}}.', mes_example: '', character_book: { extensions: {}, entries: [{ keys: [], content: 'INACTIVE LORE', enabled: false, insertion_order: 0, extensions: {} }] } } };
+  const card = { spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'Moon', description: '{{char}} welcomes {{user}}.', personality: 'Kind', scenario: 'An observatory', first_mes: 'Hello, {{user}}. I am {{char}}.', alternate_greetings: ['Welcome back, {{user}}.'], mes_example: '', character_book: { extensions: {}, entries: [{ keys: [], content: 'INACTIVE LORE', enabled: false, insertion_order: 0, extensions: {} }] } } };
   await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'moon.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(card)) });
   await page.getByRole('button', { name: 'Import', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Moon', exact: true })).toBeVisible();
@@ -239,25 +239,51 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed h
   expect(preview.messages.at(-1).content).toBe('After history: Moon answers.');
   expect(JSON.stringify(preview)).not.toContain('INACTIVE LORE');
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await openChatTool(page, 'Chat settings');
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await page.getByRole('button', { name: 'Chats', exact: true }).click();
   const entries = [{ user_name: 'Visitor', character_name: 'Moon', chat_metadata: { summary: 'IGNORE OLD SUMMARY' } },
     { is_user: false, mes: 'Imported opening', extra: { advancedMemorySnapshot: 'x'.repeat(1_200_000), hiddenFromAI: true } },
-    { is_user: false, mes: 'Another assistant entry' }, { is_user: true, mes: 'A question' }, { is_user: false, mes: 'An answer' }];
-  await page.getByLabel('Chat JSONL file').setInputFiles({ name: 'story.jsonl', mimeType: 'application/jsonl', buffer: Buffer.from(entries.map(e => JSON.stringify(e)).join('\n')) });
-  await expect(page.getByText('story.jsonl: 4 messages → 3 turns')).toBeVisible();
-  await page.getByRole('button', { name: 'Replace all messages', exact: true }).click();
+    { is_user: false, mes: 'Another assistant entry' }, { is_user: true, mes: 'A question' }, { is_user: false, mes: 'An answer' }, { is_user: true, mes: 'Unanswered question' }];
+  const importButton = page.getByRole('button', { name: 'Import chat from JSONL', exact: true });
+  const review = page.getByRole('dialog', { name: 'Import chat from JSONL' });
+  async function browseTranscript(name: string, buffer: Buffer) {
+    await importButton.click();
+    const chooser = page.waitForEvent('filechooser');
+    await review.getByRole('button', { name: 'Drop file here or click to browse' }).click();
+    await (await chooser).setFiles({ name, mimeType: 'application/jsonl', buffer });
+  }
+  await browseTranscript('bad.jsonl', Buffer.from('{broken'));
+  await expect(review.getByRole('alert')).toContainText('Line 1');
+  await review.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(review).toHaveCount(0);
+  await expect(importButton).toBeFocused();
+  await browseTranscript('story.jsonl', Buffer.from(entries.map(e => JSON.stringify(e)).join('\n')));
+  await expect(review.getByText('5 messages · 4 turns')).toBeVisible();
+  await expect(review.getByText('The final user turn will await a response.')).toBeVisible();
+  await expect(review.getByText('1 separate turn', { exact: false })).toBeVisible();
+  await expect(review.getByLabel('Chat title')).toHaveValue('story');
+  await expect(review.getByRole('combobox', { name: 'Character' })).toContainText('None');
+  await expect(review.getByRole('combobox', { name: 'Persona' })).toContainText('None');
+  await review.getByLabel('Chat title').fill('Imported Observatory');
+  await choose(page, 'Character', 'Moon');
+  await choose(page, 'Persona', 'Visitor');
+  await review.getByRole('button', { name: 'Import', exact: true }).click();
+  await expect(page.getByLabel('Chat title')).toHaveValue('Imported Observatory');
+  await expect(page.getByRole('combobox', { name: 'Lorebook' })).toContainText('Moon');
+  await expect(page.getByLabel('Chat JSONL file')).toHaveCount(0);
   await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await expect(page.getByRole('article')).toHaveCount(3);
+  await expect(page.getByRole('article')).toHaveCount(4);
   await expect(page.getByLabel('Conversation')).toContainText('Imported opening');
-  await expect(page.getByLabel('Conversation')).not.toContainText('Hello, Visitor.');
+  await expect(page.getByLabel('Conversation')).not.toContainText(/Hello, Visitor|Welcome back/);
+  expect(await page.request.get('/__test/requests').then(response => response.json())).toEqual([]);
   await page.reload();
   await expect(page.getByLabel('Conversation')).toContainText('An answer');
-  await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await openChatTool(page, 'Chat settings');
-  await page.getByLabel('Chat JSONL file').setInputFiles({ name: 'bad.jsonl', mimeType: 'application/jsonl', buffer: Buffer.from('{broken') });
-  await expect(page.getByRole('alert')).toContainText('Line 1');
-  await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await expect(page.getByRole('article')).toHaveCount(3);
+  await page.getByRole('button', { name: 'Retry response', exact: true }).click();
+  await expect(page.getByLabel('Conversation')).toContainText('The lantern flickers.');
+  await expect(page.getByRole('article')).toHaveCount(4);
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await page.getByRole('button', { name: 'The Observatory', exact: true }).click();
+  await expect(page.getByLabel('Conversation')).toContainText('Hello, Visitor. I am Moon.');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   const builtIn = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Default prompt' }) });

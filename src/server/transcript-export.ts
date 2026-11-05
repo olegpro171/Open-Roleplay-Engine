@@ -2,6 +2,7 @@ import { closeSync, mkdtempSync, openSync, rmSync, writeFileSync } from 'node:fs
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { Store } from '../persistence/store.js';
+import { portableDownloadFilename } from '../shared/downloads.js';
 
 const transcriptRow = z.object({ user: z.string(), assistant: z.string(), complete: z.union([z.literal(0), z.literal(1)]), date: z.string().nullable() });
 
@@ -12,7 +13,7 @@ export function prepareTranscriptExport(store: Store, staging: string, chatId: s
   try {
     const filename = store.sqlite.transaction(() => {
       store.checkRevision(revision, chatId);
-      const { settings, sources, branchName } = store.chatHeader(chatId);
+      const { sources, branchName } = store.chatHeader(chatId);
       const user = sources.persona?.name || 'You';
       const character = sources.character?.name || 'Character';
       const fd = openSync(path, 'wx', 0o600);
@@ -30,9 +31,7 @@ export function prepareTranscriptExport(store: Store, staging: string, chatId: s
           if (turn.complete && (turn.assistant !== '' || turn.user === '')) line(turn.assistant, false, turn.date);
         }
       } finally { closeSync(fd); }
-      const title = [settings.title, branchName].filter(Boolean).join('-').slice(0, 170)
-        .replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '');
-      return `ORE-${title || 'chat'}.jsonl`;
+      return portableDownloadFilename(branchName ?? 'Main', '.jsonl');
     })();
     return { filename, source: { path, cleanup } };
   } catch (error) {

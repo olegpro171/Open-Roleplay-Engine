@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { compactPrompt } from './support/compact-prompt.js';
 import { validateContent } from '../src/persistence/backup-validation.js';
 import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
@@ -53,7 +54,7 @@ function fixture(count = 48, target = 500, builtInContext = false) {
   const contextId = store.saveLibrary(store.libraries().revision, 'contexts', { ...defaultContextPreset, connectionId: summaryId, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 }, builtInContext ? 'default-context' : undefined);
   const chatId = store.createChat({ title: 'Imported', targetInputTokens: target, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId });
   const imported = Array.from({ length: count }, (_, i) => ({ user: `Turn ${i + 1}: Mira offers Leon the brass key, but warns him about the cellar. ${'Atmospheric detail. '.repeat(8)}`, assistant: `Leon promises not to enter the cellar. ${'The room remains quiet. '.repeat(7)}`, complete: true }));
-  store.replaceHistory(store.snapshot(chatId).revision, chatId, imported);
+  seedTranscript(store, store.snapshot(chatId).revision, chatId, imported);
   const behavior = { ...defaultChatBehavior };
   let coordinator = new GenerationCoordinator(store, provider, () => behavior);
   const state = () => store.snapshot(chatId);
@@ -684,14 +685,15 @@ describe('durable imported-session preparation', () => {
     expect(f.store.contexts.steps(id)[0].status).toBe('interrupted');
   });
 
-  it('ignores a late cancelled result after the transcript and its old jobs were replaced', async () => {
+  it('ignores a late cancelled result after clearing memory', async () => {
     const f = fixture(); f.holdNext(); const id = f.start();
     await expect.poll(() => f.calls.length).toBe(1);
     f.coordinator.context.cancel(id);
-    f.store.replaceHistory(f.state().revision, f.chatId, [{ user: 'A new scene.', assistant: 'The gate opens.', complete: true }]);
+    const turns = f.state().turns;
+    f.store.contexts.clearMemory(f.chatId, f.state().revision);
     f.release(); await new Promise(resolve => setTimeout(resolve, 0));
     expect(f.state().context.summaries).toEqual([]); expect(f.state().context.jobs).toEqual([]);
-    expect(f.state().turns[0].assistant.text).toBe('The gate opens.');
+    expect(f.state().turns).toEqual(turns);
   });
 
   it('immediately cancels response-owned preparation and permits resolving the pending turn', async () => {
@@ -748,7 +750,7 @@ describe('durable imported-session preparation', () => {
     await expect.poll(() => f.calls.length).toBe(1);
     const first = f.state();
     const secondId = f.store.createChat({ title: 'Independent', targetInputTokens: 2_200, connectionId: first.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId });
-    f.store.replaceHistory(f.store.snapshot(secondId).revision, secondId, f.imported.slice(0, 8));
+    seedTranscript(f.store, f.store.snapshot(secondId).revision, secondId, f.imported.slice(0, 8));
     f.coordinator.start(f.store.snapshot(secondId).revision, randomUUID(), 'A separate scene.', secondId);
     await expect.poll(() => f.store.snapshot(secondId).generations[0].status).toBe('succeeded');
     expect(f.store.contexts.job(id).status).toBe('running');
@@ -1025,13 +1027,7 @@ describe('durable imported-session preparation', () => {
     await f.idle(first.jobId); expect(f.calls).toHaveLength(1);
   });
 
-  it('clears dependent memory atomically when replacing the transcript', async () => {
-    const f = fixture(); await f.idle(f.start('step'));
-    const old = f.state().turns[0].id;
-    f.store.replaceHistory(f.state().revision, f.chatId, [{ user: 'New story', assistant: 'A different opening.', complete: true }]);
-    expect(f.state().context.selected).toEqual([]); expect(f.state().context.jobs).toEqual([]); expect(f.state().context.summaries).toEqual([]);
-    expect(f.state().turns[0].id).not.toBe(old);
-  });
+
 });
 
 describe('targeted repair with review', () => {

@@ -25,7 +25,7 @@ async function setup(page: Page, targetInputTokens = 20_000) {
     promptId: 'default', characterId: null, personaId: null, contextPresetId: 'default-context', targetInputTokens });
   let snapshot: ChatSnapshot = await page.request.get(`/api/chats/${chat.id}`).then(response => response.json());
   // One long completed turn makes its input editor start well above the controls.
-  await post(`/api/chats/${chat.id}/history`, { revision: snapshot.revision, turns: [{ complete: true,
+  await post(`/api/__test/transcripts/${chat.id}`, { revision: snapshot.revision, turns: [{ complete: true,
     user: 'The traveller enters the tower.\n'.repeat(15), assistant: 'The keeper describes the distant mountains.\n'.repeat(60),
   }] }, 'PUT');
   snapshot = await page.request.get(`/api/chats/${chat.id}`).then(response => response.json());

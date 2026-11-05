@@ -107,7 +107,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     await warnings.getByRole('button', { name: 'Check again', exact: true }).click();
     await expect(warnings).toHaveCount(0);
     await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
-    expect((await page.request.put(`/api/chats/${id}/history`, { headers, data: { revision: (await state()).revision, turns: Array.from({ length: 6 }, (_, i) => ({ user: `Turn ${i}. ` + 'Mira carries the silver key. '.repeat(20), assistant: 'Leon waits beside the tower. '.repeat(20), complete: true })) } })).ok()).toBe(true);
+    expect((await page.request.put(`/api/__test/transcripts/${id}`, { headers, data: { revision: (await state()).revision, turns: Array.from({ length: 6 }, (_, i) => ({ user: `Turn ${i}. ` + 'Mira carries the silver key. '.repeat(20), assistant: 'Leon waits beside the tower. '.repeat(20), complete: true })) } })).ok()).toBe(true);
     await page.request.post('/__test/mode', { data: { mode: 'hold' } });
     let jobId: string | undefined;
     try {

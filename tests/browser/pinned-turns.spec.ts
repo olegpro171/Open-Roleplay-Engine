@@ -37,7 +37,7 @@ test('manages and jumps to off-page pins with stable estimates and prompt warnin
   });
   const story = () => page.request.get(`/api/chats/${id}/story`).then(response => response.json() as Promise<StorySnapshot>);
   const archivedPhrase = 'A silver key lies under the stairs.';
-  await command('PUT', `/api/chats/${id}/history`, { revision: (await story()).revision, turns: Array.from({ length: 42 }, (_, index) => ({
+  await command('PUT', `/api/__test/transcripts/${id}`, { revision: (await story()).revision, turns: Array.from({ length: 42 }, (_, index) => ({
     user: `Visit ${index + 1}`, assistant: index === 2 ? archivedPhrase : `Answer ${index + 1}`, complete: true,
   })) });
   const oldPage = await page.request.get(`/api/chats/${id}/story?limit=42`).then(response => response.json() as Promise<StorySnapshot>);
@@ -213,7 +213,7 @@ test('an over-target managed request with pins prepares on Send without a Story 
     promptId: prompt.id, contextPresetId: context.id, characterId: null, personaId: null,
   });
   const story = () => page.request.get(`/api/chats/${id}/story`).then(response => response.json() as Promise<StorySnapshot>);
-  await command('PUT', `/api/chats/${id}/history`, { revision: (await story()).revision, turns: [
+  await command('PUT', `/api/__test/transcripts/${id}`, { revision: (await story()).revision, turns: [
     { user: 'The keeper searches the cellar. '.repeat(100), assistant: 'The door is still locked.', complete: true },
     { user: 'I look for the missing key. '.repeat(100), assistant: 'The stairs are lit.', complete: true },
     { user: 'I hand you a brass key.', assistant: 'I promise to return it.', complete: true },

@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { removeBranchSchema } from './support/schema-15.js';
 import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
@@ -430,7 +431,7 @@ function populatedVersion6(customized: boolean) {
   store.sqlite.prepare('UPDATE library SET data = ? WHERE id = ?').run(JSON.stringify({ ...oldFactory, name: 'Custom old prompt' }), customPromptId);
   const chatId = createChat(store, { connectionId, characterId, contextPresetId: contextId });
   const customChat = createChat(store, { connectionId, promptId: customPromptId });
-  store.replaceHistory(store.snapshot(chatId).revision, chatId, [
+  seedTranscript(store, store.snapshot(chatId).revision, chatId, [
     { user: 'Mira gives Leon a key.', assistant: 'Leon promises to keep it.', complete: true },
     { user: 'Mira waits by the tower.', assistant: 'Leon opens the door.', complete: true },
   ]);

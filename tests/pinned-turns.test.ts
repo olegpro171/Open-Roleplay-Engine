@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -77,7 +78,7 @@ async function restoreBackup(source: Store) {
 
 test('measures and sends exact grouped excerpts through the mock endpoint, preserving old requests on variant changes and unpin', async () => {
   const f = await fixture();
-  f.store.replaceHistory(f.state().revision, f.id, fixtures);
+  seedTranscript(f.store, f.state().revision, f.id, fixtures);
   const [opening, promise, last] = f.state().turns;
   const memory: SummaryNode = {
     id: randomUUID(), revision: 0, level: 1, text: 'The bell signaled the start of the crossing.',
@@ -136,9 +137,9 @@ test('measures and sends exact grouped excerpts through the mock endpoint, prese
   expect(restored.generation(savedRegeneration.id)?.request).toEqual(savedRegeneration.request);
 });
 
-test('keeps branch membership durable across stale commands, copies, Clear memory, deletion, replacement and backup', async () => {
+test('keeps branch membership durable across stale commands, copies, Clear memory, deletion, transcript import and backup', async () => {
   const f = await fixture();
-  f.store.replaceHistory(f.state().revision, f.id, [...fixtures, { user: 'Waiting', assistant: '', complete: false }]);
+  seedTranscript(f.store, f.state().revision, f.id, [...fixtures, { user: 'Waiting', assistant: '', complete: false }]);
   const [opening, promise, last, pending] = f.state().turns;
   const before = f.state();
   const wrongEpoch = await f.command('PUT', `${f.id}/turns/${opening.id}/pin`, { revision: before.revision, pinned: true }, 'old-dataset');
@@ -179,8 +180,9 @@ test('keeps branch membership durable across stale commands, copies, Clear memor
   const destination = await restoreBackup(f.store);
   expect(destination.readTurns(f.id)).toEqual(f.state().turns);
   expect(destination.readTurns(fork)).toEqual(f.state(fork).turns);
-  f.store.replaceHistory(f.state().revision, f.id, fixtures);
-  expect((await f.list()).turns).toEqual([]);
+  const imported = f.store.importBranch(f.id, { name: 'Transcript only', requestId: randomUUID(), turns: fixtures });
+  expect((await f.list(imported.id)).turns).toEqual([]);
+  expect((await f.list()).turns.map(turn => turn.id)).toEqual([opening.id, last.id]);
   expect((await f.list(duplicate)).turns).toHaveLength(3);
   expect(f.mock.requests).toHaveLength(0);
 });
@@ -190,7 +192,7 @@ test('upgrades populated schema 16 with no pins and keeps later pins after reope
   const store = new Store(path);
   const prompt = store.saveLibrary(store.libraryRevision(), 'prompts', { name: 'Saved layout', blocks: promptBlocks.filter(block => block.id !== 'pinned-messages') });
   const branch = store.createChat({ title: 'Older story', targetInputTokens: 500, connectionId: null, promptId: prompt, characterId: null, personaId: null });
-  store.replaceHistory(store.engineSnapshot(branch).revision, branch, fixtures);
+  seedTranscript(store, store.engineSnapshot(branch).revision, branch, fixtures);
   const before = store.engineSnapshot(branch);
   removePinSchema(store.sqlite);
   store.sqlite.pragma('user_version = 16');
@@ -210,7 +212,7 @@ test('upgrades populated schema 16 with no pins and keeps later pins after reope
 test('compacts a pinned turn normally and rejects impossible required input before another model call', async () => {
   const f = await fixture();
   const long = 'The lantern waited at the western gate. '.repeat(130);
-  f.store.replaceHistory(f.state().revision, f.id, [{ user: long, assistant: 'The gate shut.', complete: true }, ...fixtures]);
+  seedTranscript(f.store, f.state().revision, f.id, [{ user: long, assistant: 'The gate shut.', complete: true }, ...fixtures]);
   const first = f.state().turns[0];
   expect((await f.pin(first.id, true)).statusCode).toBe(200);
   const full = await f.preview();
@@ -248,7 +250,7 @@ test('compacts a pinned turn normally and rejects impossible required input befo
 
 test('guards pins during generation and review, and retries the same pending input once', async () => {
   const f = await fixture();
-  f.store.replaceHistory(f.state().revision, f.id, fixtures.slice(0, 1));
+  seedTranscript(f.store, f.state().revision, f.id, fixtures.slice(0, 1));
   const completed = f.state().turns[0];
   f.mock.setMode('hold-first-token');
   const text = 'My pending input appears once.';

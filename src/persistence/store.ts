@@ -2,7 +2,8 @@ import { message } from '../shared/localization.js';
 import { PictureStore } from './picture-store.js';
 import type { PictureImportIntent } from '../shared/pictures.js';
 import type { PreparedPicture } from './picture-data.js';
-import type { CharacterSaveCommand } from '../shared/library.js';
+import type { CharacterSaveCommand, ImportBranch, ImportChat } from '../shared/library.js';
+import { defaultChatInputTarget } from '../shared/chat-defaults.js';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
@@ -55,7 +56,7 @@ function parseImport<T>(parse: () => T): T {
 
 const initialSettings: ChatSettings = {
   title: 'A new story', instructions: defaultInstructions,
-  character: '', persona: '', targetInputTokens: 32_000,
+  character: '', persona: '', targetInputTokens: defaultChatInputTarget,
   connectionId: null, promptId: 'default', characterId: null, personaId: null,
   contextPresetId: null,
   lorebookId: null,
@@ -832,14 +833,18 @@ export class Store {
     this.contextPreset(settings.contextPresetId);
     this.selected(settings.lorebookId, 'lorebooks');
   }
+  private insertNewChat(input: ReturnType<typeof selectionsSchema.parse>) {
+    this.validateSelections(input);
+    const card = this.selected<Character>(input.characterId, 'characters');
+    const lorebookId = input.lorebookId === undefined ? card?.lorebookId ?? null : input.lorebookId;
+    this.selected(lorebookId, 'lorebooks');
+    const id = randomUUID();
+    this.insertChat(id, { ...initialSettings, ...input, lorebookId });
+    return { id, card };
+  }
   createChat(input: ReturnType<typeof selectionsSchema.parse>) {
     return this.sqlite.transaction(() => {
-      this.validateSelections(input);
-      const id = randomUUID();
-      const card = this.selected<Character>(input.characterId, 'characters');
-      const lorebookId = input.lorebookId === undefined ? card?.lorebookId ?? null : input.lorebookId;
-      this.selected(lorebookId, 'lorebooks');
-      this.insertChat(id, { ...initialSettings, ...input, lorebookId });
+      const { id, card } = this.insertNewChat(input);
       const persona = this.selected<Persona>(input.personaId, 'personas');
       const alternateGreetings = readCharacterAlternateGreetings(card ?? {});
       if (!alternateGreetings.success) throw new AppError(422, 'invalid_alternate_greetings', message("errors.this_character_has_invalid_preserved_alternate_greetings_open"));
@@ -915,12 +920,15 @@ export class Store {
   private branchCommand(chatId: string, input: CopyBranch) {
     return JSON.stringify({ chatId, name: input.name, through: input.through ?? null });
   }
-  copiedBranch(chatId: string, input: CopyBranch) {
-    const row = this.sqlite.prepare('SELECT command, result FROM branch_commands WHERE id = ?').get(input.requestId);
+  private creationReceipt(requestId: string, fingerprint: string) {
+    const row = this.sqlite.prepare('SELECT command, result FROM branch_commands WHERE id = ?').get(requestId);
     if (row === undefined) return null;
     const record = z.object({ command: z.string(), result: z.string() }).parse(row);
-    if (record.command !== this.branchCommand(chatId, input)) throw new AppError(409, 'request_id_conflict', message('errors.that_request_identity_was_already_used_for_a'));
+    if (record.command !== fingerprint) throw new AppError(409, 'request_id_conflict', message('errors.that_request_identity_was_already_used_for_a'));
     return record.result;
+  }
+  copiedBranch(chatId: string, input: CopyBranch) {
+    return this.creationReceipt(input.requestId, this.branchCommand(chatId, input));
   }
   commitBranch(chatId: string, input: CopyBranch, source: ReturnType<Store['forkSource']>, state: ContextState) {
     return this.sqlite.transaction(() => {
@@ -973,15 +981,36 @@ export class Store {
       }
     }
   }
-  replaceHistory(expected: number, chatId: string, turns: ImportedTurn[]) {
+  importChat(input: ImportChat, resolveSettings: () => ReturnType<typeof selectionsSchema.parse>) {
+    return this.commitTranscriptImport(input, ['chat', input.title, input.characterId, input.personaId],
+      () => this.insertNewChat(resolveSettings()).id);
+  }
+  importBranch(groupId: string, input: ImportBranch) {
+    return this.commitTranscriptImport(input, ['branch', groupId, input.name], () => {
+      const group = this.db.select({ id: schema.chatGroups.id }).from(schema.chatGroups).where(eq(schema.chatGroups.id, groupId)).get();
+      if (!group) throw new AppError(404, 'chat_not_found', message('errors.chat_not_found'));
+      // The branch uses the group's live settings. No source branch state or
+      // revision participates, so adding it can coexist with sibling work.
+      const id = randomUUID();
+      this.db.insert(schema.chats).values({ id, groupId, branchName: input.name, revision: 0, settings: {} }).run();
+      return id;
+    });
+  }
+  private commitTranscriptImport({ requestId, turns }: ImportChat | ImportBranch, destination: (string | null)[], create: () => string) {
+    const digest = createHash('sha256');
+    for (const { user, assistant, complete } of turns) digest.update(JSON.stringify([user, assistant, complete])).update('\n');
+    const fingerprint = `transcript:${createHash('sha256').update(JSON.stringify([...destination, digest.digest('hex')])).digest('hex')}`;
     return this.sqlite.transaction(() => {
-      this.checkRevision(expected, chatId); this.ensureIdle(chatId);
-      this.contexts.clear(chatId);
-      this.resetLoreEpoch(chatId);
-      this.sqlite.prepare('DELETE FROM lore_operations WHERE chat_id = ?').run(chatId);
-      this.db.delete(schema.turns).where(eq(schema.turns.chatId, chatId)).run();
-      turns.forEach((turn, i) => this.insertTurn(chatId, i + 1, turn));
-      return this.bumpRevision(chatId);
+      const existing = this.creationReceipt(requestId, fingerprint);
+      if (existing) {
+        this.chat(existing);
+        return { id: existing, created: false };
+      }
+      const id = create();
+      turns.forEach((turn, i) => this.insertTurn(id, i + 1, turn));
+      this.sqlite.prepare('INSERT INTO branch_commands VALUES (?, ?, ?)').run(requestId, fingerprint, id);
+      this.bumpLibrary();
+      return { id, created: true };
     })();
   }
   saveSettings(expected: number, connection: Connection, settings: ChatSettings, apiKey?: string, chatId = 'main') {

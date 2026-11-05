@@ -1,11 +1,19 @@
 import { randomBytes } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { AppError } from '../core/errors.js';
-import { downloadLifetimeMs, downloadLimit } from '../shared/downloads.js';
+import { downloadLifetimeMs, downloadLimit, preparedDownloadSchema } from '../shared/downloads.js';
 import { message } from '../shared/localization.js';
 
 type Source = { bytes: Buffer } | { path: string; cleanup: () => void };
 type Download = { owner: string; filename: string; source: Source; length: number; expires: number; readers: number };
+
+export function attachmentDisposition(filename: string): string {
+  if (/^[ -~]+$/.test(filename) && !filename.includes('%')) return `attachment; filename="${filename}"`;
+  // RFC 6266 pairs a plain ASCII fallback with a UTF-8 extended parameter.
+  const extension = /\.[a-z0-9]+$/i.exec(filename)?.[0] ?? '';
+  const encoded = encodeURIComponent(filename).replace(/['()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="download${extension}"; filename*=UTF-8''${encoded}`;
+}
 
 // Retain only completed attachments. Backup and Connection attachments are encrypted.
 export class Downloads {
@@ -34,9 +42,10 @@ export class Downloads {
       if (this.closed) throw new AppError(503, 'server_stopping', message('errors.the_server_is_stopping_try_again_after_restart'));
       if (this.entries.size >= downloadLimit) throw new AppError(429, 'downloads_busy', message('errors.downloads_busy'));
       const token = randomBytes(32).toString('hex');
+      const prepared = preparedDownloadSchema.parse({ url: `/api/downloads/${token}`, filename });
       const length = 'bytes' in source ? source.bytes.length : statSync(source.path).size;
       this.entries.set(token, { owner, filename, source, length, expires: Date.now() + downloadLifetimeMs, readers: 0 });
-      return { url: `/api/downloads/${token}`, filename };
+      return prepared;
     } catch (error) {
       if ('path' in source) source.cleanup();
       throw error;

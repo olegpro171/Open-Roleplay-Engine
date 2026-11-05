@@ -6,7 +6,7 @@ import { refreshContext } from '../core/context-refresh.js';
 import { defaultContextPreset, summaryRetrySchema } from '../shared/context.js';
 import { buildInfo } from './installation.js';
 import { BackupService } from './backups.js';
-import { Downloads } from './downloads.js';
+import { attachmentDisposition, Downloads } from './downloads.js';
 import { downloadTokenSchema } from '../shared/downloads.js';
 import { backupLimits, backupTableSchema, dataCommandSchema } from '../shared/backups.js';
 import { protectedFilePasswordSchema } from '../shared/protected-files.js';
@@ -28,8 +28,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { ServerOptions } from 'node:https';
 import { importPersonas, exportCharacter, exportPersona } from '../core/cards.js';
 import { tagIdsSchema, tagNameSchema, tagPolicySchema } from '../shared/tags.js';
-import { hasPromptMarker, defaultPrompt, libraryCommandSchema, selectionsSchema, createChatSchema, replaceHistorySchema } from '../shared/library.js';
-import { resolveChatDefaults } from '../shared/chat-defaults.js';
+import { hasPromptMarker, defaultPrompt, libraryCommandSchema, selectionsSchema, createChatSchema, importChatSchema, importBranchSchema, transcriptRequestLimit } from '../shared/library.js';
+import { defaultChatInputTarget, resolveChatDefaults } from '../shared/chat-defaults.js';
 import { ChatDefaultsSettings } from './chat-defaults.js';
 import { readCardFile, readCharacterCardFile } from './card-import.js';
 import { AppError, BackupValidationError } from '../core/errors.js';
@@ -169,10 +169,14 @@ export async function createApp(options: {
       throw new AppError(401, 'login_required', message("errors.sign_in_to_continue"));
     }
   });
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof AppError) return reply.code(error.status).send({ code: error.code, message: error.message, ...(error.localized ? { localized: error.localized } : {}), ...(error instanceof BackupValidationError ? { details: error.details } : {}) });
     if (error instanceof ZodError) return reply.code(400).send({ code: 'invalid_input', message: error.issues.map((issue) => `${issue.path.join('.') || 'Input'}: ${issue.message}`).join('; '), issues: error.issues.slice(0, 100).map(issue => ({ path: issue.path.join('.') || 'Input', localized: validationMessage(issue) })) });
     const status = (error as { statusCode?: number }).statusCode;
+    if (status === 413 && request.routeOptions.bodyLimit === transcriptRequestLimit) {
+      const localized = message('importErrors.upload_too_large');
+      return reply.code(413).send({ code: 'transcript_too_large', message: localized.fallback, localized });
+    }
     return reply.code(status && status < 500 ? status : 500).send({ code: 'request_failed', message: 'The request could not be completed.' });
   });
   const setSession = (reply: { setCookie: (name: string, token: string, options: object) => unknown }, token: string) => {
@@ -240,7 +244,7 @@ export async function createApp(options: {
     const download = downloads.open(token, owner(request.cookies.session));
     reply.type('application/octet-stream')
       .header('Content-Length', download.length)
-      .header('Content-Disposition', `attachment; filename="${download.filename}"`);
+      .header('Content-Disposition', attachmentDisposition(download.filename));
     if ('bytes' in download.source) {
       reply.raw.once('finish', () => download.release(request.method !== 'HEAD' && reply.statusCode === 200));
       reply.raw.once('close', () => download.release());
@@ -534,16 +538,32 @@ export async function createApp(options: {
     if (kind === 'personas') return exportPersona(data as Parameters<typeof exportPersona>[0]);
     return data;
   });
-  app.post('/api/chats', async request => {
-    const input = createChatSchema.parse(request.body);
+  function newChatSettings(input: z.infer<typeof createChatSchema>) {
     const defaults = resolveChatDefaults(chatDefaults.status().settings, store.libraries());
-    const settings = {
+    return {
       ...input,
       promptId: input.promptId ?? defaults.promptId,
       connectionId: input.connectionId === undefined ? defaults.connectionId : input.connectionId,
       contextPresetId: input.contextPresetId === undefined ? defaults.contextPresetId : input.contextPresetId,
     };
-    const id = store.createChat(settings); coordinator.changed({ kind: 'chat', chatId: id, detail: 'state' }); return { id };
+  }
+  app.post('/api/chats', async request => {
+    const id = store.createChat(newChatSettings(createChatSchema.parse(request.body)));
+    coordinator.changed({ kind: 'chat', chatId: id, detail: 'state' });
+    return { id };
+  });
+  app.post('/api/chats/import', { bodyLimit: transcriptRequestLimit }, async request => {
+    const input = importChatSchema.parse(request.body);
+    const { title, characterId, personaId } = input;
+    const result = store.importChat(input, () => newChatSettings({ title, characterId, personaId, targetInputTokens: defaultChatInputTarget }));
+    if (result.created) coordinator.changed({ kind: 'library' });
+    return { id: result.id };
+  });
+  app.post('/api/chat-groups/:groupId/branches/import', { bodyLimit: transcriptRequestLimit }, async request => {
+    const { groupId } = z.object({ groupId: identity }).parse(request.params);
+    const result = store.importBranch(groupId, importBranchSchema.parse(request.body));
+    if (result.created) coordinator.changed({ kind: 'library' });
+    return { id: result.id };
   });
   app.put('/api/chats/:chatId/selections', async request => {
     const input = z.object({ revision: revisionSchema, settings: selectionsSchema }).strict().parse(request.body);
@@ -599,12 +619,6 @@ export async function createApp(options: {
     const id = store.deleteBranch(chatId(request.params), revision);
     coordinator.changed({ kind: 'library' });
     return { id };
-  });
-  app.put('/api/chats/:chatId/history', { bodyLimit: 25_000_000 }, async request => {
-    const input = replaceHistorySchema.parse(request.body);
-    const revision = store.replaceHistory(input.revision, chatId(request.params), input.turns);
-    coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' });
-    return { ok: true, revision };
   });
   app.post('/api/chats/:chatId/export', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);

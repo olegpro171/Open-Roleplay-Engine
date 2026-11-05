@@ -25,7 +25,7 @@ test('discovers saved refusals, keeps false positives, regenerates without refus
   const chat = await command('/api/chats', { title: 'Saved refusal recovery', targetInputTokens: 500, connectionId: connection.id, promptId, characterId: null, personaId: null, contextPresetId: preset.id });
   const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
   const requests = () => request.get('/__test/requests').then(response => response.json() as Promise<{ body: unknown }[]>);
-  await command(`/api/chats/${chat.id}/history`, { revision: (await state()).revision, turns: Array.from({ length: 8 }, (_, index) => ({ user: `Turn ${index + 1}. Mira gives Leon a brass key. ${'The quiet room. '.repeat(14)}`, assistant: `Leon promises to return it. ${'The cellar remains closed. '.repeat(12)}`, complete: true })) }, 'PUT');
+  await command(`/api/__test/transcripts/${chat.id}`, { revision: (await state()).revision, turns: Array.from({ length: 8 }, (_, index) => ({ user: `Turn ${index + 1}. Mira gives Leon a brass key. ${'The quiet room. '.repeat(14)}`, assistant: `Leon promises to return it. ${'The cellar remains closed. '.repeat(12)}`, complete: true })) }, 'PUT');
   await command(`/api/chats/${chat.id}/context/prepare`, { revision: (await state()).revision, requestId: crypto.randomUUID(), mode: 'step' });
   await expect.poll(async () => (await state()).context.jobs[0]?.status).toBe('succeeded');
   const refusal = "I can't help with this. Please try a different request.";

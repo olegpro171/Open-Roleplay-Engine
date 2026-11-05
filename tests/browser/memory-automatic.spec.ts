@@ -59,7 +59,7 @@ for (const device of ['desktop', 'phone'] as const) test.describe(`automatic mem
       const chat = await post('/api/chats', selections);
       chatId = chat.id;
       const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
-      const imported = await page.request.put(`/api/chats/${chat.id}/history`, { headers, data: { revision: (await state()).revision, turns: Array.from({ length: 8 }, (_, index) => ({ user: `Mira offers the key, turn ${index}. ` + 'The cellar remains closed. '.repeat(12), assistant: 'Leon waits by the door. '.repeat(12), complete: true })) } });
+      const imported = await page.request.put(`/api/__test/transcripts/${chat.id}`, { headers, data: { revision: (await state()).revision, turns: Array.from({ length: 8 }, (_, index) => ({ user: `Mira offers the key, turn ${index}. ` + 'The cellar remains closed. '.repeat(12), assistant: 'Leon waits by the door. '.repeat(12), complete: true })) } });
       expect(imported.ok(), await imported.text()).toBe(true);
       const text = 'Mira opens the door.';
       const preview: RequestPreview = await post(`/api/chats/${chat.id}/preview`, { revision: (await state()).revision, text, inspection: true });

@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { createApp } from '../src/server/app.js';
@@ -17,7 +18,7 @@ async function fixture(length = 438) {
   cleanup.push(() => f.app.close());
   const setup = await f.app.inject({ method: 'POST', url: '/api/setup', headers: { host: 'localhost', origin: 'http://localhost' }, payload: { password: 'synthetic-transcript-password' } });
   const headers = { host: 'localhost', origin: 'http://localhost', cookie: String(setup.headers['set-cookie']).split(';')[0] };
-  f.store.replaceHistory(0, 'main', Array.from({ length }, (_, index) => ({ user: `Input ${index + 1}`, assistant: `Reply ${index + 1}`, complete: true })));
+  seedTranscript(f.store, 0, 'main', Array.from({ length }, (_, index) => ({ user: `Input ${index + 1}`, assistant: `Reply ${index + 1}`, complete: true })));
   const reader = new StoryReader(f.store);
   const read = (query: Parameters<typeof transcriptQuerySchema.parse>[0] = {}) => reader.read('main', transcriptQuerySchema.parse(query));
   return { ...f, headers, calls, read };
@@ -83,7 +84,7 @@ it('derives archived/stale status from all source revisions even when those turn
   const node = { id: 'saved-memory', revision: 0, level: 1, text: 'Private memory text', turns: sources, children: [], prior: [], approved: true, manual: false, createdAt: '' };
   f.store.sqlite.prepare('INSERT INTO summaries (id,revision,chat_id,data) VALUES (?,?,?,?)').run(node.id, 0, 'main', JSON.stringify(node));
   f.store.sqlite.prepare('INSERT INTO context_states (chat_id,revision,data) VALUES (?,?,?)').run('main', 1, JSON.stringify({ selected: [{ id: node.id, revision: 0 }], archivedTurnIds: sources.map(source => source.turnId) }));
-  expect(f.read().memory).toEqual({ revision: 1, archivedCount: 3, selectedCount: 1, stale: false, refusalCount: 0, refusalBlocked: false });
+  expect(f.read().memory).toEqual({ revision: 1, archivedCount: 3, selectedCount: 1, stale: false, awaitingReview: false, refusalCount: 0, refusalBlocked: false });
   f.store.sqlite.prepare('UPDATE turns SET user_revision = user_revision + 1 WHERE id = ?').run(sources[0]?.turnId);
   const result = f.read();
   expect(result.memory.stale).toBe(true);

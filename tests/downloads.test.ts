@@ -53,6 +53,15 @@ it('bounds pending downloads, cleans rejected sources and makes room after compl
   expect(() => downloads.add('owner', 'replacement', { bytes: Buffer.from('ciphertext') })).not.toThrow();
 });
 
+it('rejects prepared filenames containing path separators or header control characters', () => {
+  const downloads = service();
+  for (const filename of ['../branch.jsonl', 'folder\\branch.jsonl', 'branch\r\n.jsonl', 'branch".jsonl']) {
+    const source = file('invalid-name');
+    expect(() => downloads.add('owner', filename, source)).toThrow();
+    expect(source.cleanup).toHaveBeenCalledOnce();
+  }
+});
+
 it('expires abandoned files but lets an existing reader finish before cleanup', () => {
   vi.useFakeTimers();
   const downloads = service(), abandoned = file('abandoned'), active = file('active');

@@ -183,7 +183,7 @@ test('sorts every library in both directions and remembers independent choices t
     expect(response.ok(), await response.text()).toBe(true);
   }
   const snapshot = await page.request.get(`/api/chats/${oldIds.get('chats')}`).then(response => response.json());
-  const history = await page.request.put(`/api/chats/${oldIds.get('chats')}/history`, {
+  const history = await page.request.put(`/api/__test/transcripts/${oldIds.get('chats')}`, {
     headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: snapshot.revision, turns: [{ user: 'A later message', assistant: 'Saved', complete: true }] },
   });
   expect(history.ok(), await history.text()).toBe(true);

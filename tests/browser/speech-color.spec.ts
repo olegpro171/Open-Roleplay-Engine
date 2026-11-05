@@ -53,7 +53,7 @@ for (const width of [1440, 390]) test(`saves speech colors from both editors and
   expect(created.ok(), await created.text()).toBe(true);
   const { id } = await created.json();
   const state = (): Promise<ChatSnapshot> => page.request.get(`/api/chats/${id}`).then(response => response.json());
-  const replaced = await page.request.put(`/api/chats/${id}/history`, { headers, data: { revision: (await state()).revision, turns: [{ user: 'I ask "Ready?"', assistant: 'She replies "Yes."\n— Привет!', complete: true }] } });
+  const replaced = await page.request.put(`/api/__test/transcripts/${id}`, { headers, data: { revision: (await state()).revision, turns: [{ user: 'I ask "Ready?"', assistant: 'She replies "Yes."\n— Привет!', complete: true }] } });
   expect(replaced.ok(), await replaced.text()).toBe(true);
   await page.evaluate(chatId => localStorage.setItem('roleplay-chat', chatId), id);
   await page.reload();
@@ -113,7 +113,7 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
   expect(createdChat.ok()).toBe(true);
   const { id } = await createdChat.json();
   const state = (): Promise<ChatSnapshot> => page.request.get(`/api/chats/${id}`).then(response => response.json());
-  const replaced = await page.request.put(`/api/chats/${id}/history`, { headers, data: { revision: (await state()).revision, turns: [{ user: '"Ready?"', assistant: '"Yes."', complete: true }] } });
+  const replaced = await page.request.put(`/api/__test/transcripts/${id}`, { headers, data: { revision: (await state()).revision, turns: [{ user: '"Ready?"', assistant: '"Yes."', complete: true }] } });
   expect(replaced.ok()).toBe(true);
   await page.evaluate(chatId => localStorage.setItem('roleplay-chat', chatId), id);
   await page.route('**/api/application/appearance', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic appearance load failure.' }) }));

@@ -28,14 +28,10 @@ async function command(page: Page, url: string, data: unknown, method = 'POST') 
   return response.json();
 }
 
-test('saving chat settings after a local history import preserves edits and still rejects remote changes', async ({ page }) => {
+test('saving chat settings preserves edits and rejects remote changes', async ({ page }) => {
   const id = await setup(page);
   await openChatTool(page, 'Chat settings');
   await page.getByLabel('Chat title', { exact: true }).fill('Edited before import');
-  await page.getByLabel('Chat JSONL file').setInputFiles({ name: 'synthetic.jsonl', mimeType: 'application/octet-stream',
-    buffer: Buffer.from(JSON.stringify({ is_user: false, mes: 'An imported opening.' }) + '\n') });
-  await page.getByRole('button', { name: 'Replace all messages', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Replace all messages', exact: true })).toHaveCount(0);
   const save = page.getByRole('button', { name: 'Save and return', exact: true });
   await expect(save).toBeEnabled();
   await expect(page.getByLabel('Chat title', { exact: true })).toHaveValue('Edited before import');
@@ -43,11 +39,12 @@ test('saving chat settings after a local history import preserves edits and stil
   await expect(page.getByLabel('Your next turn')).toBeVisible();
   const saved: ChatSnapshot = await page.request.get(`/api/chats/${id}`).then(response => response.json());
   expect(saved.settings.title).toBe('Edited before import');
-  expect(saved.turns[0].assistant.text).toBe('An imported opening.');
   await openChatTool(page, 'Chat settings');
   await page.getByLabel('Chat title', { exact: true }).fill('Uncommitted local title');
-  await command(page, `/api/chats/${id}/history`, { revision: saved.revision,
-    turns: [{ user: '', assistant: 'Remote replacement', complete: true }] }, 'PUT');
+  const { title: _title, targetInputTokens, promptId, connectionId, characterId, personaId, contextPresetId, lorebookId } = saved.settings;
+  await command(page, `/api/chats/${id}/selections`, { revision: saved.revision, settings: {
+    title: 'Remote title', targetInputTokens, promptId, connectionId, characterId, personaId, contextPresetId, lorebookId,
+  } }, 'PUT');
   await expect(save).toBeDisabled();
   await expect(page.getByLabel('Chat title', { exact: true })).toHaveValue('Uncommitted local title');
 });

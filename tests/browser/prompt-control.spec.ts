@@ -35,7 +35,7 @@ test('edits explicit markers, uses recent history, and enables preparation again
   await command(`/api/library/${preset.id}`, { revision: (await library()).revision, kind: 'contexts', data: { name: preset.name, connectionId: summary.id, minTail: 1, batchSize: 2, summaryTokens: 100, promotionGroup: 2, retainedPerLevel: 0, extractionPrompt: preset.extractionPrompt, promotionPrompt: preset.promotionPrompt } }, 'PUT');
   const chat = await command('/api/chats', { title: 'Explicit prompt chat', targetInputTokens: 350, connectionId: model.id, promptId: prompt.id, characterId: null, personaId: null, contextPresetId: preset.id });
   const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
-  await command(`/api/chats/${chat.id}/history`, { revision: (await state()).revision, turns: Array.from({ length: 14 }, (_, i) => ({ user: `USER ${i}. ` + 'A brass key. '.repeat(20), assistant: `ASSISTANT ${i}. ` + 'The cellar is locked. '.repeat(10), complete: true })) }, 'PUT');
+  await command(`/api/__test/transcripts/${chat.id}`, { revision: (await state()).revision, turns: Array.from({ length: 14 }, (_, i) => ({ user: `USER ${i}. ` + 'A brass key. '.repeat(20), assistant: `ASSISTANT ${i}. ` + 'The cellar is locked. '.repeat(10), complete: true })) }, 'PUT');
   await page.reload();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();

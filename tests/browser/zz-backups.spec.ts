@@ -25,7 +25,7 @@ async function fixture(page: Page,width: number) {
   expect(created.ok()).toBe(true); const { id } = await created.json();
   const snapshot: ChatSnapshot = await page.request.get(`/api/chats/${id}`).then(response => response.json());
   const turns = Array.from({ length: 85 },(_,i) => ({ user: `Backup input ${i+1} · ${'synthetic prose '.repeat(i === 0 ? 1000 : 2)}`,assistant: `Backup response ${i+1}.`,complete: true }));
-  const replaced = await page.request.put(`/api/chats/${id}/history`,{ headers: auth,data: { revision: snapshot.revision,turns } }); expect(replaced.ok()).toBe(true);
+  const replaced = await page.request.put(`/api/__test/transcripts/${id}`,{ headers: auth,data: { revision: snapshot.revision,turns } }); expect(replaced.ok()).toBe(true);
   return id;
 }
 async function openChat(page: Page,title: string) {

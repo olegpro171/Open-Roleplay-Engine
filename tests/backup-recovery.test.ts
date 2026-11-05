@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { Readable } from 'node:stream';
 import { semanticFingerprint } from '../src/core/lorebook.js';
 import { z } from 'zod';
@@ -46,7 +47,7 @@ it('round trips variants, corrected selected memory, picture links, exact reques
   const book = newLorebook(); book.name = 'Tower lore'; const bookId = db.saveLibrary(db.libraryRevision(),'lorebooks',book);
   db.saveLibrary(db.libraryRevision(),'characters',{ ...card,lorebookId: bookId },cid);
   const chatId = db.createChat({ title: 'Remember the key',targetInputTokens: 1200,connectionId,promptId: 'default',characterId: cid,personaId: null,contextPresetId: contextId,lorebookId: bookId });
-  db.replaceHistory(db.snapshot(chatId).revision,chatId,Array.from({ length: 16 },(_,i) => ({ user: `Turn ${i}: Mara offers the brass key. ${'A quiet tower. '.repeat(20)}`,assistant: `Leon takes the key. ${'He promises to return. '.repeat(20)}`,complete: true })));
+  seedTranscript(db, db.snapshot(chatId).revision,chatId,Array.from({ length: 16 },(_,i) => ({ user: `Turn ${i}: Mara offers the brass key. ${'A quiet tower. '.repeat(20)}`,assistant: `Leon takes the key. ${'He promises to return. '.repeat(20)}`,complete: true })));
   const calls: unknown[] = [];
   const provider: Provider = { async stream(request,_key,_signal,onText) { calls.push(request); const payload = request.body.messages.at(-1)?.content ?? ''; onText(payload.includes('"sources"') ? 'Mara gave Leon the brass key.' : 'Leon returns the brass key.'); return { finishReason: 'stop' }; } };
   let coordinator = new GenerationCoordinator(db,provider); coordinators.push(coordinator);
@@ -128,7 +129,7 @@ it('interrupts running work, discards unapproved repair candidates, and makes no
   const db = open('interrupt'), backups = backup(db,'interrupt');
   const connectionId = db.saveLibrary(db.libraryRevision(),'connections',model), contextId = db.saveLibrary(db.libraryRevision(),'contexts',{ ...defaultContextPreset,connectionId,minTail: 0,batchSize: 1 });
   const chatId = db.createChat({ title: 'Interrupted',targetInputTokens: 1000,connectionId,promptId: 'default',characterId: null,personaId: null,contextPresetId: contextId });
-  db.replaceHistory(db.snapshot(chatId).revision,chatId,[{ user: 'The key changes hands.',assistant: 'Mara takes it.',complete: true }]);
+  seedTranscript(db, db.snapshot(chatId).revision,chatId,[{ user: 'The key changes hands.',assistant: 'Mara takes it.',complete: true }]);
   const snap = db.snapshot(chatId), nodeId = randomUUID(), jobId = randomUUID(), stepId = randomUUID();
   const node: SummaryNode = { id: nodeId,revision: 0,level: 1,text: 'UNAPPROVED_REPAIR_TEXT',turns: [],children: [],prior: [],approved: false,manual: false,createdAt: new Date().toISOString() };
   db.sqlite.prepare('INSERT INTO summaries (id,revision,chat_id,data) VALUES (?,?,?,?)').run(nodeId,0,chatId,JSON.stringify(node));
@@ -184,9 +185,11 @@ it('blocks a wipe while an asynchronous library save is in flight, then rejects 
 it('keeps the last committed story when the server process dies inside the import transaction',async () => {
   const { spawn } = await import('node:child_process');
   const db = open('crash'), backups = backup(db,'crash');
-  db.replaceHistory(db.snapshot().revision,'main',[{ user: 'Before backup',assistant: 'Older backup response',complete: true }]);
+  seedTranscript(db, db.snapshot().revision,'main',[{ user: 'Before backup',assistant: 'Older backup response',complete: true }]);
   const input = join(directory,'crash-input.sqlite'); writeFileSync(input,await exported(backups));
-  db.replaceHistory(db.snapshot().revision,'main',[{ user: 'Current user text',assistant: 'Current saved response',complete: true }]);
+  const original = db.snapshot().turns[0];
+  db.editPart(db.snapshot().revision, original.id, 'user', 'Current user text');
+  db.editPart(db.snapshot().revision, original.id, 'assistant', 'Current saved response');
   const before = db.snapshot(), token = new BackupStore(db).token;
   backups.close(); db.close();
   const child = spawn(process.execPath,['--import','tsx','tests/support/backup-crash-worker.ts',join(directory,'crash.sqlite'),input],{ cwd: process.cwd(),stdio: ['ignore','pipe','pipe'] });

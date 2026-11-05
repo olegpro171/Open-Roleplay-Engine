@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, cpSync, writeFileSync } from 'node:fs';
@@ -74,10 +75,11 @@ it('tracks committed messages without moving chats for edits, retries, checkpoin
     expect(chat()?.lastMessageAt).toBe(latest);
     store.deleteTurn(store.snapshot(id).revision, turn.id, id);
     expect(chat()?.lastMessageAt).toBeNull();
-    store.replaceHistory(store.snapshot(id).revision, id, [{ user: 'Imported', assistant: 'Saved', complete: true }]);
-    expect(chat()?.lastMessageAt).toBe('2026-01-04T00:00:00.000Z');
+    const imported = store.importBranch(id, { name: 'Imported story', requestId: randomUUID(),
+      turns: [{ user: 'Imported', assistant: 'Saved', complete: true }] });
+    expect(chat()?.lastMessageAt).toBeNull();
     const unchanged = store.libraryUpdate(store.libraryRevision());
-    expect(unchanged.chats.find(chat => chat.id === id)?.lastMessageAt).toBe('2026-01-04T00:00:00.000Z');
+    expect(unchanged.chats.find(chat => chat.id === imported.id)?.lastMessageAt).toBe('2026-01-04T00:00:00.000Z');
   } finally { store.close(); }
 });
 
@@ -87,7 +89,7 @@ it('upgrades populated schema13 without changing history, keeps unknown dates an
   try {
     const seed = new Store(path);
     const cid = seed.saveLibrary(seed.libraryRevision(), 'characters', card);
-    seed.replaceHistory(seed.snapshot().revision, 'main', [{ user: 'Original', assistant: 'Intact', complete: true }]);
+    seedTranscript(seed, seed.snapshot().revision, 'main', [{ user: 'Original', assistant: 'Intact', complete: true }]);
     seed.saveSettings(seed.snapshot().revision, model, seed.snapshot().settings);
     const generated = seed.begin(seed.snapshot().revision, randomUUID(), 'A saved request');
     seed.finish(generated.id, 'succeeded', 'Saved response');

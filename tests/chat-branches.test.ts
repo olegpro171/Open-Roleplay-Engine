@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { createReadStream, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,6 +12,7 @@ import { BackupService } from '../src/server/backups.js';
 import { defaultAuthorNote } from '../src/shared/author-note.js';
 import { defaultContextPreset, type ContextJob, type ContextStep, type SummaryNode } from '../src/shared/context.js';
 import { defaultPrompt } from '../src/shared/library.js';
+import { newLorebook, newLoreEntry } from '../src/shared/lorebook.js';
 import type { Connection, RequestPreview } from '../src/shared/contracts.js';
 import { removeBranchSchema } from './support/schema-15.js';
 
@@ -31,12 +33,21 @@ test('forks safely through a turn, reuses fitting saved memory and isolates futu
         .filter(block => block.kind === 'marker' && (block.marker === 'summary' || block.marker === 'messages'))
         .map(block => ({ ...block, enabled: true })),
     });
+    const entry = newLoreEntry(randomUUID());
+    const lorebookId = store.saveLibrary(store.libraryRevision(), 'lorebooks', { ...newLorebook(), entries: [entry] });
+    const characterId = store.saveLibrary(store.libraryRevision(), 'characters', {
+      name: 'Keeper', description: '', personality: '', scenario: '', mes_example: '',
+      first_mes: 'Primary opening', alternate_greetings: ['Alternate opening'], lorebookId,
+    });
+    const personaId = store.saveLibrary(store.libraryRevision(), 'personas', { name: 'Visitor', description: '' });
     const setupRevision = store.chatHeader().revision;
     store.saveSettings(setupRevision, connection, { ...store.chatHeader().settings, contextPresetId: 'default-context', promptId,
-      targetInputTokens: 850, authorNote: { ...defaultAuthorNote, prompt: 'Current note' } });
-    store.replaceHistory(store.chatHeader().revision, 'main', Array.from({ length: 4 }, (_, i) => ({
+      characterId, personaId, lorebookId, targetInputTokens: 850, authorNote: { ...defaultAuthorNote, prompt: 'Current note' } });
+    seedTranscript(store, store.chatHeader().revision, 'main', Array.from({ length: 4 }, (_, i) => ({
       user: `Input ${i + 1} ${'keeper '.repeat(560)}`, assistant: `Answer ${i + 1}`, complete: true,
     })));
+    const firstTurn = store.readTurns('main')[0];
+    store.setTurnPin('main', firstTurn.id, store.chatHeader().revision, true);
     const snapshot = store.engineSnapshot();
     const [one, two, three, four] = snapshot.turns;
     if (!one || !two || !three || !four) throw new Error('Missing fixture turns');
@@ -74,6 +85,32 @@ test('forks safely through a turn, reuses fitting saved memory and isolates futu
       inputBefore: 2000, inputAfter: 1400, createdAt: first.createdAt };
     store.sqlite.prepare('INSERT INTO context_jobs VALUES (?, ?, ?, ?, ?)').run(job.id, 'main', randomUUID(), '{}', JSON.stringify(job));
     store.sqlite.prepare('INSERT INTO context_steps VALUES (?, ?, ?)').run(step.id, job.id, JSON.stringify(step));
+    store.sqlite.prepare('INSERT INTO lore_states (chat_id, book_id, epoch, data) VALUES (?, ?, ?, ?)')
+      .run('main', lorebookId, store.loreState('main').epoch, JSON.stringify({ [entry.id]: { fingerprint: 'synthetic', matches: 2 } }));
+    const sourceBeforeImport = store.snapshot();
+    expect(sourceBeforeImport.loreState?.entries[entry.id]?.matches).toBe(2);
+    const importPayload = { name: 'Imported opening', requestId: randomUUID(),
+      turns: [{ user: '', assistant: 'Привет 🌙\r\nNext line.', complete: true }, { user: 'Waiting', assistant: '', complete: false }] };
+    const importBranch = () => app.inject({ method: 'POST', url: '/api/chat-groups/main/branches/import', headers, payload: importPayload });
+    const imported = await importBranch();
+    expect(imported.statusCode, imported.body).toBe(200);
+    const importedId = imported.json<{ id: string }>().id;
+    expect((await importBranch()).json()).toEqual({ id: importedId });
+    const independent = store.snapshot(importedId);
+    expect(independent.settings).toEqual({ ...sourceBeforeImport.settings, authorNote: undefined });
+    expect(independent.turns.map(turn => [turn.user.text, turn.assistant.text, turn.complete])).toEqual([
+      ['', 'Привет 🌙\r\nNext line.', true], ['Waiting', '', false],
+    ]);
+    expect(independent.turns.map(turn => turn.variants?.length)).toEqual([1, 0]);
+    expect(independent.turns.every(turn => !turn.pinned)).toBe(true);
+    expect(independent.context).toMatchObject({ archivedTurnIds: [], selected: [], summaries: [], jobs: [] });
+    expect(independent.loreState).toEqual({ epoch: 0, entries: {} });
+    expect(independent.generations).toEqual([]);
+    expect(store.snapshot()).toEqual(sourceBeforeImport);
+    expect(() => store.deleteChat(sourceBeforeImport.revision, 'main', [{ id: 'main', revision: sourceBeforeImport.revision }]))
+      .toThrow('branches have changed');
+    store.deleteBranch(importedId, independent.revision);
+    expect((await importBranch()).statusCode).toBe(404);
     const forkPayload = { revision: snapshot.revision, name: 'Before the outcome', through: two.id, requestId: randomUUID() };
     const fork = () => app.inject({ method: 'POST', url: '/api/chats/main/branches', headers, payload: forkPayload });
     const result = await fork();
@@ -126,6 +163,7 @@ test('forks safely through a turn, reuses fitting saved memory and isolates futu
       expect(restored.engineSnapshot(copy)).toEqual(store.engineSnapshot(copy));
       expect(restored.authorNote(id).settings.prompt).toBe('Branch-only note');
       expect(restored.libraries().chats.filter(branch => branch.groupId === 'main')).toHaveLength(2);
+      expect(restored.sqlite.prepare('SELECT id FROM branch_commands WHERE id = ?').get(importPayload.requestId)).toBeUndefined();
     } finally {
       destinationBackup.close();
       restored.close();
@@ -139,7 +177,7 @@ test('a populated schema 15 chat becomes Main with stable record identities and 
   const path = join(directory, 'app.sqlite');
   try {
     const store = new Store(path);
-    const revision = store.replaceHistory(0, 'main', [{ user: 'Original', assistant: 'Original reply', complete: true }]);
+    const revision = seedTranscript(store, 0, 'main', [{ user: 'Original', assistant: 'Original reply', complete: true }]);
     store.saveAuthorNote('main', { revision, settings: { ...defaultAuthorNote, prompt: 'Old note' } });
     const before = store.snapshot();
     store.close();

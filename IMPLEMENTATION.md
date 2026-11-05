@@ -50,7 +50,9 @@ Content imports/wipes use an exclusive gate, full-state digest and dataset epoch
 
 Migration 16 moves shared settings to chat groups and gives each existing story a Main branch with its old ID. Turns, memory, requests and browser draft keys retain those identities. Duplicate and fork use new IDs for copied records and remap local dependencies. Model request bodies, estimates and usage stay as recorded. Forks retain independent repair source baselines for compatible memory even when the original preparation history extends beyond the fork. Revision and idle checks, copied records and the replay receipt commit in one transaction.
 
-Pin membership lives on completed turn rows. The desired-state mutation checks dataset epoch at ingress and branch revision and operation ownership at commit. It advances only the branch revision. Copy remaps turn identities and keeps their membership, while whole-turn deletion and replacement remove membership with the rows.
+JSONL creation commits destination, turns, selected original variants and a digest-based receipt together. Standalone import resolves ordinary new-chat defaults at commit. Branch import addresses the parent group directly and checks its existence at commit. It uses the group's live settings and leaves sibling operations and revisions independent. Whole-chat deletion rechecks branch membership, including branches added by imports. Identical import retries return the saved branch while it exists. See [data management](docs/DATA.md) for dataset and receipt rules.
+
+Pin membership lives on completed turn rows. The desired-state mutation checks dataset epoch at ingress and branch revision and operation ownership at commit. It advances only the branch revision. Copy remaps turn identities and keeps their membership, while whole-turn deletion removes membership with the row.
 
 ## Generation and transport
 

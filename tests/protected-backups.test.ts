@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createReadStream, statSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -39,7 +40,7 @@ it.each(['', '\uFEFF  Личный пароль 🔑  '])('imports protected cre
   const connectionId = source.store.saveLibrary(source.store.libraryRevision(), 'connections', {
     name: 'Synthetic model', endpoint: 'http://localhost:9999/v1', model: 'synthetic', contextWindow: 32000, maxOutputTokens: 1000, customParameters: {},
   }, undefined, 'sk-synthetic-private-key-for-export');
-  source.store.replaceHistory(source.store.snapshot().revision, 'main', [
+  seedTranscript(source.store, source.store.snapshot().revision, 'main', [
     { user: 'A private synthetic story.\nSecond line.', assistant: 'A saved response.', complete: true },
     { user: 'A pending turn.', assistant: '', complete: false },
   ]);
@@ -143,7 +144,7 @@ it('streams an encrypted backup above 128 MiB into an already-large destination'
   const count = 34;
   const fieldBytes = 4 * 1024 * 1024;
   for (const [store, marker] of [[source.store, 'source'], [destination.store, 'destination']] as const) {
-    store.replaceHistory(store.snapshot().revision, 'main', Array.from({ length: count }, () => ({
+    seedTranscript(store, store.snapshot().revision, 'main', Array.from({ length: count }, () => ({
       user: 'input', assistant: 'response', complete: true,
     })));
     // Generate one large field at a time inside SQLite. The file and transcript

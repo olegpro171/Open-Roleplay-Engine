@@ -71,7 +71,7 @@ From the source checkout, run `./start-dev.command` to build and start the curre
 4. Create or import a Character and Persona, then open **Libraries → Chats → New chat**.
 5. Review the selected settings, then save.
 
-You can also continue an existing story. Import a SillyTavern-format `.jsonl` file through Chat settings, review the message counts, and confirm **Replace all messages**. This replaces the selected chat's history and memory, so use a new chat or one you no longer need.
+To continue a story from a solo `.jsonl` transcript, use **Import chat from JSONL** next to **New chat** in **Libraries → Chats**, or **Import branch from JSONL** in **Chat branches**. Review the counts and confirm the name. The import creates a new chat or branch with the file’s messages. Use a full ORE backup to restore settings, memory and request history.
 
 ## Phone access
 

@@ -26,7 +26,7 @@ for (const theme of ['light', 'dark', 'midnight-black'] as const) {
     expect(saved.ok()).toBe(true);
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
     const state: ChatSnapshot = await page.request.get('/api/chat').then(response => response.json());
-    const imported = await page.request.put(`/api/chats/${state.id}/history`, {
+    const imported = await page.request.put(`/api/__test/transcripts/${state.id}`, {
       headers, data: { revision: state.revision, turns: [{ user: 'A synthetic question.', assistant: 'A synthetic answer.', complete: true }] },
     });
     expect(imported.ok(), await imported.text()).toBe(true);

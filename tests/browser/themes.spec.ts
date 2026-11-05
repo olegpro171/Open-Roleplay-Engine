@@ -195,7 +195,7 @@ for (const choice of themeCases) test(`${choice.theme} covers story, menus, memo
   const chat = (await library()).chats.find(item => item.title === 'Theme review');
   if (!chat) throw new Error('Missing chat');
   const state = (): Promise<ChatSnapshot> => page.request.get(`/api/chats/${chat.id}`).then(response => response.json());
-  await command(`/api/chats/${chat.id}/history`, { revision: (await state()).revision, turns: Array.from({ length: 10 }, (_, i) => ({ user: `Turn ${i + 1}. "Ready?"\n\n${'Mira offers Leon the brass key. '.repeat(12)}`, assistant: '"Yes."\n\n**The tower** holds a [secret](https://example.com).\n\n`A small key`\n\n| Place | Clue |\n| --- | --- |\n| Tower | Lantern |\n\n' + 'Leon promises to avoid the cellar. '.repeat(12), complete: true })) }, 'PUT');
+  await command(`/api/__test/transcripts/${chat.id}`, { revision: (await state()).revision, turns: Array.from({ length: 10 }, (_, i) => ({ user: `Turn ${i + 1}. "Ready?"\n\n${'Mira offers Leon the brass key. '.repeat(12)}`, assistant: '"Yes."\n\n**The tower** holds a [secret](https://example.com).\n\n`A small key`\n\n| Place | Clue |\n| --- | --- |\n| Tower | Lantern |\n\n' + 'Leon promises to avoid the cellar. '.repeat(12), complete: true })) }, 'PUT');
   await page.evaluate(id => localStorage.setItem('roleplay-chat', id), chat.id);
   await page.reload();
   await expect(page.locator('.part.assistant .direct-speech').first()).toHaveCSS('color', choice.speech);

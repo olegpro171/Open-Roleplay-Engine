@@ -718,6 +718,12 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .library-import-drop .ui-icon{width:32px;height:32px;pointer-events:none}
 .library-import-dialog p{margin:16px 0 0}
 .library-import-heading p{margin:8px 0 0}
+.transcript-import-dialog p{margin:0 0 12px}
+.transcript-import-dialog .form-grid{margin-top:14px}
+.transcript-import-dialog .form-grid>label{min-width:0}
+.transcript-import-dialog .error-banner{padding:10px 12px;margin-bottom:12px;overflow-wrap:anywhere}
+.transcript-import-dialog .actions{margin-top:18px}
+.transcript-import-counts{margin:12px 0 16px}
 
 .password-input-row{display:flex;gap:8px;min-width:0}
 .password-input-row input{min-width:0;flex:1}
@@ -731,6 +737,8 @@ button.text-link>.ui-icon{width:14px;height:14px}
 }
 .branch-manager-controls { padding: 16px 24px; flex-shrink: 0; }
 .branch-manager-controls form { display: grid; gap: 10px; margin-bottom: 16px; }
+.branch-manager-actions { display: flex; align-items: center; gap: 8px; }
+.branch-manager-actions > button { min-height: 44px; }
 .branch-manager-results { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 24px 24px; }
 .branch-list { margin-top: 0; }
 .turn-number { display: inline-flex; gap: 5px; align-items: center; }

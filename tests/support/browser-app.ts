@@ -5,7 +5,11 @@ import { createApp } from '../../src/server/app.js';
 import { AppError } from '../../src/core/errors.js';
 import { message } from '../../src/shared/localization.js';
 import { changeSchema } from '../../src/shared/changes.js';
+import { revisionSchema } from '../../src/shared/contracts.js';
+import { importedTurnsSchema, transcriptRequestLimit } from '../../src/shared/library.js';
+import { z } from 'zod';
 import { startMockProvider } from './mock-provider.js';
+import { seedTranscript } from './transcript-fixture.js';
 
 export async function startBrowserApp(port = 0) {
   const directory = mkdtempSync(join(tmpdir(), 'roleplay-browser-'));
@@ -29,13 +33,20 @@ export async function startBrowserApp(port = 0) {
         return lanHostname;
       }, interfaces: () => [{ id: 'browser-fixture:127.0.0.1', name: 'browser-fixture', address: '127.0.0.1', netmask: '255.0.0.0', prefix: 8 }] },
     });
-    const { app, coordinator } = application;
+    const { app, coordinator, store } = application;
     // These fixture controls exist only in test processes, never in the application.
     app.get('/__test/endpoint', async () => ({ endpoint: mock.url }));
     app.post('/__test/mode', async request => { mock.setMode((request.body as { mode: Parameters<typeof mock.setMode>[0] }).mode); return {}; });
     app.post('/__test/finish', async () => { mock.finishAll(); return {}; });
     app.get('/__test/requests', async () => mock.requests);
     app.post('/__test/change', async request => { coordinator.changed(changeSchema.parse(request.body)); return {}; });
+    app.put('/api/__test/transcripts/:chatId', { bodyLimit: transcriptRequestLimit }, async request => {
+      const { chatId } = z.object({ chatId: z.string() }).parse(request.params);
+      const { revision, turns } = z.object({ revision: revisionSchema, turns: importedTurnsSchema }).parse(request.body);
+      const saved = seedTranscript(store, revision, chatId, turns);
+      coordinator.changed({ kind: 'chat', chatId, detail: 'state' });
+      return { revision: saved };
+    });
     const url = await app.listen({ host: '127.0.0.1', port });
     return { url, close, setLanHostname: (value: string | null) => { lanHostname = value; } };
   } catch (error) {

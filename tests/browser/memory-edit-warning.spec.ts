@@ -39,7 +39,7 @@ for (const width of [1280, 390]) {
           title: `Warning chat ${kind} ${width}`, connectionId, contextPresetId, targetInputTokens: operation === 'memory preparation' ? 600 : 20_000, promptId: 'default', characterId: null, personaId: null,
         });
         const state = () => page.request.get(`/api/chats/${chatId}`).then(response => response.json() as Promise<ChatSnapshot>);
-        await command(`/chats/${chatId}/history`, { revision: (await state()).revision,
+        await command(`/__test/transcripts/${chatId}`, { revision: (await state()).revision,
           turns: Array.from({ length: 6 }, (_, index) => ({ user: `Turn ${index + 1}. ` + 'Mira carries the silver key. '.repeat(20), assistant: 'Leon waits beside the old tower. '.repeat(20), complete: true })),
         }, 'PUT');
 

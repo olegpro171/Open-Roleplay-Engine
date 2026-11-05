@@ -15,7 +15,7 @@ for (const width of [1280, 390]) {
 
     const headers = { Origin: browserApp.url };
     const readStory = (limit: number) => page.request.get(`/api/chats/main/story?limit=${limit}`).then(response => response.json() as Promise<StorySnapshot>);
-    const history = await page.request.put('/api/chats/main/history', { headers, data: {
+    const history = await page.request.put('/api/__test/transcripts/main', { headers, data: {
       revision: (await readStory(1)).revision,
       turns: Array.from({ length: 42 }, (_, index) => ({
         user: `I ask about the brass key at stop ${index + 1}.`,

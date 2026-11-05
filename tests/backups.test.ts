@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { removePinSchema } from './support/schema-16.js';
 import { removeBranchSchema } from './support/schema-15.js';
 import { Readable } from 'node:stream';
@@ -51,7 +52,7 @@ describe('portable backup persistence',() => {
   });
   it('preserves saved refusal decisions and outstanding reconstruction through portable import', async () => {
     const source = store('refusal-source'), backups = service(source, 'refusal-source');
-    source.replaceHistory(source.snapshot().revision, 'main', Array.from({ length: 4 }, (_, index) => ({ user: `Mira carries key ${index + 1}.`, assistant: 'Leon waits outside.', complete: true })));
+    seedTranscript(source, source.snapshot().revision, 'main', Array.from({ length: 4 }, (_, index) => ({ user: `Mira carries key ${index + 1}.`, assistant: 'Leon waits outside.', complete: true })));
     const before = source.snapshot();
     const summaries: SummaryNode[] = [0, 1].map(index => ({ id: randomUUID(), revision: 0, level: 1, text: "I can't help with this.",
       turns: before.turns.slice(index * 2, index * 2 + 2).map(sourceOf), children: [], prior: [], approved: true, manual: false, createdAt: new Date().toISOString(),
@@ -123,7 +124,7 @@ describe('portable backup persistence',() => {
     const targetMigrations = migrations('target-migrations',targetEnding);
     const source = store('source',sourceMigrations), sourceBackups = service(source,'source',sourceMigrations);
     const cid = character(source,'Cross-platform guide'), chatId = chat(source,cid,'Cross-platform story');
-    source.replaceHistory(source.snapshot(chatId).revision,chatId,[
+    seedTranscript(source, source.snapshot(chatId).revision,chatId,[
       { user: 'First line\r\nSecond line',assistant: 'First paragraph\n\nSecond paragraph',complete: true },
       { user: 'Pending input\r\ncontinued',assistant: '',complete: false },
     ]);
@@ -212,10 +213,16 @@ describe('portable backup persistence',() => {
   it('replaces an older chat aggregate instead of keeping newer children, while retaining equal-name different identities',async () => {
     const db = store('aggregate'), backups = service(db,'aggregate');
     const cid = character(db,'Same name'), chatId = chat(db,cid,'Old story');
+    const before = db.snapshot(chatId);
+    db.saveSettings(before.revision, { name: 'Synthetic', endpoint: 'http://localhost:1/v1', model: 'mock',
+      contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} }, before.settings, undefined, chatId);
     const saved = await bytes(backups);
     const extra = character(db,'Same name');
-    db.replaceHistory(db.snapshot(chatId).revision,chatId,[{ user: 'Newer input',assistant: 'Newer response',complete: true },{ user: 'Another input',assistant: 'Another response',complete: true }]);
-    const newTurns = db.snapshot(chatId).turns.map(turn => turn.id);
+    for (const [user, assistant] of [['Newer input', 'Newer response'], ['Another input', 'Another response']]) {
+      const command = db.begin(db.snapshot(chatId).revision, randomUUID(), user, chatId);
+      db.finish(command.id, 'succeeded', assistant);
+    }
+    const newTurns = db.snapshot(chatId).turns.slice(1).map(turn => turn.id);
     const review = await backups.inspect(Readable.from([saved]), owner);
     expect(review.blockers).toEqual([]); expect(review.units.find(unit => unit.id === chatId)?.children).toBeGreaterThan(0);
     backups.commit(review.stageId,owner,receipt(review));
@@ -328,7 +335,7 @@ it('protects authenticated routes and rejects old-tab commands even when restore
 
 it('keeps inspection bounded for a 4,000-turn synthetic transcript',async () => {
   const db = store('large'), backups = service(db,'large');
-  db.replaceHistory(db.snapshot().revision,'main',Array.from({ length: 4000 },(_,i) => ({ user: `Turn ${i+1}: ${'Synthetic source prose. '.repeat(40)}`,assistant: 'Synthetic saved response. '.repeat(40),complete: true })));
+  seedTranscript(db, db.snapshot().revision,'main',Array.from({ length: 4000 },(_,i) => ({ user: `Turn ${i+1}: ${'Synthetic source prose. '.repeat(40)}`,assistant: 'Synthetic saved response. '.repeat(40),complete: true })));
   const review = await backups.inspect(Readable.from([await bytes(backups)]), owner); expect(review.blockers).toEqual([]);
   const first = backups.page(review.stageId,owner,'turns',0,'main'), last = backups.page(review.stageId,owner,'turns',3960,'main');
   expect(first.total).toBe(4000); expect(first.items).toHaveLength(40); expect(last.items).toHaveLength(40); expect(last.items.at(-1)?.label).toBe('Turn 4000'); expect(JSON.stringify(first).length).toBeLessThan(10000);

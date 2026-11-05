@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -375,7 +376,7 @@ describe('continuity prompt upgrade', () => {
     const preset = { ...defaultContextPreset, name: 'My settings', minTail: 13, summaryTokens: 321, extractionPrompt, promotionPrompt, repairPrompt: 'My repair rules.' };
     const id = store.saveLibrary(store.libraries().revision, 'contexts', preset, 'default-context');
     const chatId = store.createChat({ title: 'Preserved', targetInputTokens: 32_000, connectionId: null, promptId: 'default', characterId: null, personaId: null, contextPresetId: id });
-    store.replaceHistory(store.snapshot(chatId).revision, chatId, [{ user: 'Mira kept the key.', assistant: 'Leon promised to return.', complete: true }]);
+    seedTranscript(store, store.snapshot(chatId).revision, chatId, [{ user: 'Mira kept the key.', assistant: 'Leon promised to return.', complete: true }]);
     const before = store.snapshot(chatId), unrelated = store.snapshot(), library = store.libraries();
     const changed = customized !== 'both';
     store.sqlite.exec('DROP TABLE character_pictures; DROP TABLE picture_assets; DROP TRIGGER tagged_character_kind; DROP TABLE character_tags; DROP TABLE tags');
@@ -426,11 +427,11 @@ describe('continuity prompt upgrade', () => {
   });
 });
 
-describe('history replacement', () => {
+describe('chat lifecycle and transcript parsing', () => {
   it('allows deletion of the original and final chat without recreating it on restart', () => {
     const path = join(folder(), 'deleted.sqlite'); let store = new Store(path);
     try {
-      store.replaceHistory(0, 'main', [{ user: 'Synthetic', assistant: 'History', complete: true }]);
+      seedTranscript(store, 0, 'main', [{ user: 'Synthetic', assistant: 'History', complete: true }]);
       expect(() => store.deleteChat(0, 'main')).toThrow('changed on another device');
       store.deleteChat(store.snapshot().revision, 'main');
       expect(store.libraries().chats).toEqual([]);
@@ -455,23 +456,10 @@ describe('history replacement', () => {
     expect(JSON.stringify(result)).not.toContain('DO NOT IMPORT');
     await expect(importChat(chunks('{"is_user":false,"mes":"ok"}\ninvalid'))).rejects.toThrow('Line 2');
     await expect(importChat(chunks('{"is_user":false,"is_system":true,"mes":"system"}'))).rejects.toThrow('system messages');
-  });
-  it('replaces only the selected chat, rejects stale writes, and persists the replacement after restart', () => {
-    const path = join(folder(), 'test.sqlite'); let store = new Store(path);
-    try {
-      const id = store.createChat({ title: 'Second', targetInputTokens: 32_000, connectionId: null, promptId: 'default', characterId: null, personaId: null });
-      store.replaceHistory(0, 'main', [{ user: 'Original', assistant: 'Saved', complete: true }]);
-      store.replaceHistory(0, id, [{ user: '', assistant: 'Imported greeting', complete: true }]);
-      expect(store.snapshot('main').turns[0].user.text).toBe('Original');
-      expect(() => store.replaceHistory(0, id, [{ user: 'Stale', assistant: '', complete: false }])).toThrow('changed on another device');
-      const beforeFailure = store.snapshot(id);
-      expect(() => store.replaceHistory(beforeFailure.revision, id, [{ user: 'Pending one', assistant: '', complete: false }, { user: 'Pending two', assistant: '', complete: false }])).toThrow();
-      expect(store.snapshot(id)).toEqual(beforeFailure);
-      const savedId = store.snapshot(id).turns[0].id;
-      store.close(); store = new Store(path);
-      expect(store.snapshot(id).turns[0].id).toBe(savedId);
-      expect(store.snapshot('main').turns[0].user.text).toBe('Original');
-    } finally { store.close(); }
+    await expect(importChat(chunks('{"is_group":true,"chat_metadata":{}}\n{"is_user":false,"mes":"group"}'))).rejects.toThrow('group chat');
+    await expect(importChat(chunks('{"is_user":false,"original_avatar":"member.png","mes":"group"}'))).rejects.toThrow('group chat');
+    await expect(importChat(chunks('{"is_user":true,"mes":"\\ud800"}'))).rejects.toThrow('invalid Unicode');
+    await expect(importChat(chunks('{"chat_metadata":{}}'))).rejects.toThrow('no transcript messages');
   });
   it('migrates version 1 without losing identities, revision state, credentials or generation records', () => {
     const path = join(folder(), 'old.sqlite'); const db = new Database(path);
@@ -495,7 +483,7 @@ describe('history replacement', () => {
   });
 });
 
-it('keeps simultaneous chat generations and secrets isolated, blocks shared edits, and atomically clears old request records on replacement', async () => {
+it('keeps simultaneous chat generations and secrets isolated, blocks shared edits, and imports an independent branch while siblings generate', async () => {
   const mock = await startMockProvider();
   const { app, store } = await createApp({ database: join(folder(), 'api.sqlite') });
   let cookie = '';
@@ -511,12 +499,19 @@ it('keeps simultaneous chat generations and secrets isolated, blocks shared edit
     await expect.poll(() => mock.requests.length).toBe(2);
     expect(new Set(mock.requests.map(r => r.authorization))).toEqual(new Set(['Bearer isolated-one', 'Bearer isolated-two']));
     expect((await cmd('/library', { kind: 'personas', revision: store.libraries().revision, data: { name: 'Blocked', description: '' } })).statusCode).toBe(409);
-    expect((await cmd(`/chats/${ids[0]}/history`, { revision: store.snapshot(ids[0]).revision, turns: [{ user: '', assistant: 'Replacement', complete: true }] }, 'PUT')).statusCode).toBe(409);
+    const imported = await cmd(`/chat-groups/${ids[0]}/branches/import`, {
+      name: 'Independent import', requestId: randomUUID(), turns: [{ user: '', assistant: 'Imported opening', complete: true }],
+    });
+    expect(imported.statusCode, imported.body).toBe(200);
+    const branch = store.snapshot(imported.json<{ id: string }>().id);
+    expect(branch.settings.connectionId).toBe(first.json().id);
+    expect(branch.turns[0].assistant.text).toBe('Imported opening');
+    expect(branch.generations).toEqual([]);
+    expect(mock.requests).toHaveLength(2);
     mock.finishAll(); await expect.poll(() => ids.every(id => store.snapshot(id).turns[0].complete)).toBe(true);
-    expect((await cmd(`/chats/${ids[0]}/history`, { revision: store.snapshot(ids[0]).revision, turns: [{ user: '', assistant: 'Replacement', complete: true }] }, 'PUT')).statusCode).toBe(200);
-    expect(store.snapshot(ids[0]).generations).toHaveLength(0); expect(store.snapshot(ids[1]).generations).toHaveLength(1);
+    for (const id of ids) expect(store.snapshot(id).generations).toHaveLength(1);
     const before = store.snapshot(ids[0]);
-    expect((await cmd(`/chats/${ids[0]}/history`, { revision: before.revision, turns: [{ user: 'Bad', assistant: '', complete: false }, { user: '', assistant: 'Bad', complete: true }] }, 'PUT')).statusCode).toBe(400);
+    expect((await cmd(`/chats/${ids[0]}/history`, { revision: before.revision, turns: [] }, 'PUT')).statusCode).toBe(404);
     expect(store.snapshot(ids[0])).toEqual(before);
   } finally { await app.close(); await mock.close(); }
 });

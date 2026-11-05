@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -40,7 +41,7 @@ it('reads existing populated records without rewriting presets, requests, source
   const path = join(folder, 'chat.sqlite');
   const f = fixture(path);
   f.store.saveLibrary(f.store.libraryRevision(), 'prompts', legacyRoleplayPrompt, 'default');
-  f.store.replaceHistory(f.store.snapshot(f.chatId).revision, f.chatId, [{ user: 'Original', assistant: 'Reply', complete: true }]);
+  seedTranscript(f.store, f.store.snapshot(f.chatId).revision, f.chatId, [{ user: 'Original', assistant: 'Reply', complete: true }]);
   const operation = f.store.begin(f.store.snapshot(f.chatId).revision, randomUUID(), 'Continue', f.chatId);
   const snapshot = f.store.generationSnapshot(operation.id);
   const historical = assembleRequest(connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context);

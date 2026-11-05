@@ -95,10 +95,15 @@ it('keeps committed summaries after a real process crash and resumes only on an 
     const connection = await post('/api/library', { revision: (await library()).revision, kind: 'connections', data: { name: 'Synthetic', endpoint: mock.url, model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
     const context = await post('/api/library', { revision: (await library()).revision, kind: 'contexts', data: { ...defaultContextPreset, connectionId: connection.id, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 } });
     const prompt = await post('/api/library', { revision: (await library()).revision, kind: 'prompts', data: compactPrompt });
-    chatId = (await post('/api/chats', { title: 'Crash proof', targetInputTokens: 2_200, connectionId: connection.id, promptId: prompt.id, characterId: null, personaId: null, contextPresetId: context.id })).id;
+    const title = 'Crash proof';
     const imported = Array.from({ length: 24 }, (_, i) => ({ user: `Turn ${i}. ${'Mira offers the brass key. '.repeat(10)}`, assistant: 'Leon promises to avoid the cellar. '.repeat(8), complete: true }));
-    const replace = await fetch(`${address}/api/chats/${chatId}/history`, { method: 'PUT', headers: { cookie, Origin: address, 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: (await state()).revision, turns: imported }) });
-    expect(replace.ok).toBe(true);
+    chatId = (await post('/api/chats/import', { title, requestId: randomUUID(), turns: imported })).id;
+    const configured = await fetch(`${address}/api/chats/${chatId}/selections`, {
+      method: 'PUT', headers: { cookie, Origin: address, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision: (await state()).revision,
+        settings: { title, targetInputTokens: 2_200, connectionId: connection.id, promptId: prompt.id, characterId: null, personaId: null, contextPresetId: context.id } }),
+    });
+    expect(configured.ok).toBe(true);
     await post(`/api/chats/${chatId}/context/prepare`, { revision: (await state()).revision, requestId: randomUUID(), mode: 'step' });
     await expect.poll(async () => (await state()).context.jobs[0].status).toBe('succeeded');
     const committed = (await state()).context.selected;

@@ -11,7 +11,7 @@ import { SpeechColorSelector } from './SpeechColorSelector';
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { PersonaIcon } from './PersonaIcon';
-import type { ChatDefaultsStatus, ChatDefaultKind } from '../shared/chat-defaults';
+import { defaultChatInputTarget, type ChatDefaultsStatus, type ChatDefaultKind } from '../shared/chat-defaults';
 import type { PromptDiagnostic } from '../shared/prompt-diagnostics';
 import { useConfirmation } from './Confirmation';
 import { CharacterAvatar, PictureSquare } from './Pictures';
@@ -20,7 +20,8 @@ import { ChatWorkspace } from './ChatWorkspace';
 import type { ChatToolsSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
 import { characterLabel, personaLabel, characterFields, defaultPrompt, markers, markerLabel, promptWarnings, type ChatSummary, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { upgradePrompt } from '../core/prompt-upgrade';
-import { importChat } from '../core/chat-import';
+import { ChatParticipants, characterDropdownOptions, personaDropdownOptions, type ChatParticipantsValue } from './ChatParticipants';
+import { TranscriptImport } from './TranscriptImport';
 import { CharacterImport } from './CharacterImport';
 import { ConnectionFileDialog, type ConnectionFileAction } from './ConnectionFileDialog';
 import { ModelField } from './ModelPicker';
@@ -59,24 +60,6 @@ function selection(snapshot: ChatToolsSnapshot): Selection {
     connectionId: snapshot.settings.connectionId ?? null, promptId: snapshot.settings.promptId ?? 'default',
     characterId: snapshot.settings.characterId ?? null, personaId: snapshot.settings.personaId ?? null, contextPresetId: snapshot.settings.contextPresetId ?? null, lorebookId: snapshot.settings.lorebookId ?? null };
 }
-function characterDropdownOptions(library: LibrarySnapshot) {
-  const pictures = new Map(library.characterPictures.map(picture => [picture.characterId, picture.thumbnailUrl]));
-  return [
-    { value: '', label: t("character_editor.none_selected") },
-    ...sortLibraryItems(library.characters, readLibrarySort('characters'), characterLabel, item => library.dates[item.id]).map(character => ({
-      value: character.id,
-      label: characterLabel(character),
-      leading: <CharacterAvatar url={pictures.get(character.id)} />,
-    })),
-  ];
-}
-function personaDropdownOptions(library: LibrarySnapshot) {
-  return [
-    { value: '', label: t("character_editor.none_selected") },
-    ...sortLibraryItems(library.personas, readLibrarySort('personas'), personaLabel, item => library.dates[item.id])
-      .map(item => ({ value: item.id, label: personaLabel(item) })),
-  ];
-}
 function SelectionFields({ value, change, library }: { value: Selection; change: (value: Selection) => void; library: LibrarySnapshot }) {
   useLocale();
   return <div className="form-grid">
@@ -91,17 +74,16 @@ function SelectionFields({ value, change, library }: { value: Selection; change:
 }
 function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnapshot; busy: boolean; run: Run; created: (id: string) => void; cancel: () => void }) {
   useLocale();
-  const [characterId, setCharacterId] = useState<string | null>(null);
-  const [personaId, setPersonaId] = useState<string | null>(null);
+  const [participants, setParticipants] = useState<ChatParticipantsValue>({ characterId: null, personaId: null });
   const submitting = useRef(false);
   async function create(event: FormEvent) {
     event.preventDefault();
     if (busy || submitting.current) return;
     submitting.current = true;
     try {
-      const character = library.characters.find(item => item.id === characterId);
+      const character = library.characters.find(item => item.id === participants.characterId);
       const title = character ? character.name.slice(0, 100) : t("libraries.a_new_story");
-      const settings = { title, targetInputTokens: 32_000, characterId, personaId, lorebookId: character?.lorebookId ?? null };
+      const settings = { title, targetInputTokens: defaultChatInputTarget, ...participants };
       let id = '';
       if (await run(async () => { id = (await api<{ id: string }>('/chats', 'POST', settings)).id; })) created(id);
     } finally {
@@ -109,17 +91,14 @@ function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnap
     }
   }
   return <form onSubmit={create}><fieldset disabled={busy}><legend>{t("libraries.new_chat")}</legend>
-    <div className="form-grid">
-      <label>{t("app.character")}<Dropdown aria-label={t("app.character")} value={characterId ?? ''} onChange={id => setCharacterId(id || null)} options={characterDropdownOptions(library)} /></label>
-      <label>{t("libraries.persona")}<Dropdown aria-label={t("libraries.persona")} value={personaId ?? ''} onChange={id => setPersonaId(id || null)} options={personaDropdownOptions(library)} /></label>
-    </div>
+    <ChatParticipants library={library} value={participants} change={setParticipants} disabled={busy} />
     <div className="actions"><button>{t("libraries.create_chat")}</button><button type="button" className="quiet" onClick={cancel}>{t("character_import.cancel")}</button></div>
   </fieldset></form>;
 }
 export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, returnToChat, openLibraryItem }: { snapshot: ChatToolsSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; saved: () => void; sidebar: ReactNode; returnToChat: () => void; openLibraryItem: (target: LibraryTarget) => void }) {
   useLocale();
   const [value, setValue] = useState(() => selection(snapshot));
-  const [revision, setRevision] = useState(snapshot.revision);
+  const [revision] = useState(snapshot.revision);
   const confirmAction = useConfirmation(snapshot.id);
   const [diagnosticsRetry, setDiagnosticsRetry] = useState(0);
   const diagnosticsKey = JSON.stringify([snapshot.id, snapshot.revision, library.revision, value.promptId, value.characterId, value.personaId, value.lorebookId, diagnosticsRetry]);
@@ -160,42 +139,8 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
       {revision !== snapshot.revision && <p role="status">{t("libraries.this_chat_changed_reopen_chat_settings_to")}</p>}
     </form>{(diagnostics?.key !== diagnosticsKey || diagnostics.error || diagnostics.warnings.length > 0) && <section className="import-panel" aria-label={t("libraries.prompt_configuration_warnings")}><h2>{t("libraries.prompt_configuration_warnings")}</h2>
       {diagnostics?.key !== diagnosticsKey ? <p role="status">{t("libraries.checking_prompt_configuration")}</p> : diagnostics.error ? <><p role="alert">{formatMessage(diagnostics.error)}</p><button type="button" className="secondary" onClick={() => setDiagnosticsRetry(value => value + 1)}>{t("libraries.check_again")}</button></> : diagnostics.warnings.length ? <ul>{diagnostics.warnings.map(warning => <li key={warning.code}><p>{formatMessage(warning.localized ?? warning.message)}</p><button type="button" className="secondary" onClick={() => openWarning(warning)}><Icon name="EditOutline" />{t("libraries.edit", { value: warning.target === 'prompts' ? t("interface.prompt_preset") : warning.target === 'characters' ? t("app.character") : t("libraries.lorebook") })}</button></li>)}</ul> : null}
-    </section>}<HistoryImport snapshot={snapshot} busy={busy} run={run} committed={(before, after) => {
-      // Adopt only our own import, never a revision changed by another editor.
-      setRevision(current => current === before ? after : current);
-    }} />
+    </section>}
   </section></ChatWorkspace>;
-}
-async function* fileChunks(file: File) {
-  const reader = file.stream().getReader(), decoder = new TextDecoder('utf-8', { fatal: true });
-  try { while (true) { const { done, value } = await reader.read(); if (done) break; yield decoder.decode(value, { stream: true }); } yield decoder.decode(); }
-  finally { reader.releaseLock(); }
-}
-function HistoryImport({ snapshot, busy, run, committed }: { snapshot: ChatToolsSnapshot; busy: boolean; run: Run; committed: (before: number, after: number) => void }) {
-  useLocale();
-  const [imported, setImported] = useState<Awaited<ReturnType<typeof importChat>> | null>(null);
-  const [revision, setRevision] = useState(snapshot.revision), [error, setError] = useTextState(''), [reading, setReading] = useState(false), [filename, setFilename] = useState('');
-  async function replace() {
-    if (!imported || busy || revision !== snapshot.revision) return;
-    const saved = await run(async () => {
-      const result = await api<{ revision: number }>(`/chats/${snapshot.id}/history`, 'PUT', { revision, turns: imported.turns });
-      committed(revision, result.revision);
-    });
-    if (saved) {
-      setImported(null);
-      setFilename('');
-    }
-  }
-  return <section className="import-panel"><h2>{t("libraries.replace_chat_messages_from_a_file")}</h2><p className="muted small">{t("libraries.choose_a_sillytavern_jsonl_export_the_file")}</p>
-    <label>{t("libraries.chat_jsonl_file")}<input type="file" accept=".jsonl" disabled={busy || reading} onChange={async e => {
-      const file = e.target.files?.[0]; setImported(null); setError(''); if (!file) return;
-      setReading(true); setFilename(file.name); setRevision(snapshot.revision);
-      try { if (file.size > 128_000_000) throw new LocalizedError(msg("libraries.choose_an_export_smaller_than_128_mb")); setImported(await importChat(fileChunks(file))); }
-      catch (err) { setError(errorText(err, msg("libraries.could_not_read_this_file"))); } finally { setReading(false); }
-    }} /></label>
-    {reading && <p role="status">{t("libraries.reading_message_text")}</p>}{error && <p role="alert">{error}</p>}
-    {imported && <div className="budget"><strong>{t("libraries.messages_turns", { filename: filename, messages: imported.messages, length: imported.turns.length })}</strong><span>{t("libraries.additional_turns_preserve_consecutive_same_speaker_messages", { extraTurns: imported.extraTurns, value: imported.turns.at(-1)?.complete ? t("interface.all_turns_are_complete") : t("interface.the_final_user_turn_will_await_a_response") })}</span><small>{t("libraries.old_summaries_memory_state_alternate_swipes_and")}</small><p>{t("libraries.this_replaces_existing_turns_and_their_request", { length: snapshot.turns.length })}</p><button disabled={busy || revision !== snapshot.revision} onClick={() => void replace()}>{t("libraries.replace_all_messages")}</button>{revision !== snapshot.revision && <span role="status">{t("libraries.the_chat_changed_select_the_file_again")}</span>}</div>}
-  </section>;
 }
 function download(value: unknown, name: string) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }));
@@ -417,7 +362,9 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     <section ref={panel} key={section} className="document-panel library-panel" aria-labelledby="library-heading">
     <LibraryHeader editing={Boolean(editing) || creatingChat}>
       <h1 id="library-heading">{libraryLabel(section)}</h1>
-      {section === 'chats' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy || creatingChat} onClick={() => setCreatingChat(true)}><Icon name="AddToList" />{t("libraries.new_chat")}</button></div>}
+      {section === 'chats' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy || creatingChat} onClick={() => setCreatingChat(true)}><Icon name="AddToList" />{t("libraries.new_chat")}</button>
+        <TranscriptImport destination={{ kind: 'chat', library }} disabled={busy || creatingChat} created={id => openChat(id, 'settings')} />
+      </div>}
       {!editing && section !== 'chats' && section !== 'characters' && section !== 'lorebooks' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy} onClick={create}><Icon name="AddToList" />{newLibraryLabel(section)}</button>
         {section === 'connections' && <LibraryImport label={t('connection_files.import_button')} description={t('library_import.connection_description')} accept=".oreconnection,application/octet-stream" disabled={busy} onChange={event => {
           const file = event.target.files?.[0]; event.target.value = '';

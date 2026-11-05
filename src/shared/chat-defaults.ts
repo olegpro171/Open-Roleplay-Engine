@@ -11,6 +11,7 @@ export const chatDefaultCommandSchema = z.object({
   revision: revisionSchema, libraryRevision: revisionSchema, kind: chatDefaultKindSchema, id: identity,
 }).strict();
 export type ChatDefaultsStatus = z.infer<typeof chatDefaultsStatusSchema>;
+export const defaultChatInputTarget = 32_000;
 export const initialChatDefaults: ChatDefaultsStatus = { revision: 0, settings: { prompts: 'default', connections: null, contexts: 'default-context' } };
 
 /** Deleted selections fall back to the original new-chat behavior. */

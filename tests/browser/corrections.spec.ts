@@ -30,7 +30,7 @@ test('inspects alternate identities and old versions without timeline collisions
     await expect.poll(async () => (await state()).context.jobs[0]?.status).toBe('succeeded');
   };
   const target = async (value: number) => command(`/api/chats/${chat.id}/selections`, { revision: (await state()).revision, settings: { title: 'Alternate memories', targetInputTokens: value, connectionId: connection.id, promptId, characterId: null, personaId: null, contextPresetId: preset.id } }, 'PUT');
-  await command(`/api/chats/${chat.id}/history`, { revision: (await state()).revision, turns: Array.from({ length: 12 }, (_, i) => ({ user: `Turn ${i}. Mira gives Leon the key. ${'Rain on the roof. '.repeat(10)}`, assistant: 'Leon keeps the key. ' + 'The room is quiet. '.repeat(10), complete: true })) }, 'PUT');
+  await command(`/api/__test/transcripts/${chat.id}`, { revision: (await state()).revision, turns: Array.from({ length: 12 }, (_, i) => ({ user: `Turn ${i}. Mira gives Leon the key. ${'Rain on the roof. '.repeat(10)}`, assistant: 'Leon keeps the key. ' + 'The room is quiet. '.repeat(10), complete: true })) }, 'PUT');
   await prepare();
   const old = (await state()).context.summaries.find(node => node.level === 1)!;
   await target(50_000); await prepare();

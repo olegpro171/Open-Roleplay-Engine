@@ -1,23 +1,25 @@
-import { useId, useLayoutEffect, useRef, useState, type ChangeEventHandler } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ChangeEventHandler, type Ref } from 'react';
 import { createPortal } from 'react-dom';
 import { openModal } from './dialog-focus';
 import { Icon } from './Icon';
 import { t, useLocale } from './localization';
 
 /** File selection only; validation and import/recovery remain with the caller. */
-export function LibraryImport({ label, description, inputLabel = label, accept, disabled, onChange }: {
+export function LibraryImport({ label, dialogTitle = label, description, inputLabel = label, accept, disabled, triggerRef, onChange }: {
   label: string;
+  dialogTitle?: string;
   description: string;
   inputLabel?: string;
   accept: string;
   disabled: boolean;
+  triggerRef?: Ref<HTMLButtonElement>;
   onChange: ChangeEventHandler<HTMLInputElement>;
 }) {
   useLocale();
   const [open, setOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   return <>
-    <button type="button" className="secondary" disabled={disabled} onClick={() => {
+    <button ref={triggerRef} type="button" className="secondary" disabled={disabled} onClick={() => {
       // Match the Library's existing narrow-layout breakpoint, including rotation.
       if (window.matchMedia('(max-width: 800px)').matches) input.current?.click();
       else setOpen(true);
@@ -27,7 +29,7 @@ export function LibraryImport({ label, description, inputLabel = label, accept, 
       setOpen(false);
       onChange(event);
     }} />
-    {open && <ImportPopup title={label} description={description} formats={accept.split(',').map(value => value.trim()).filter(value => value.startsWith('.')).join(', ').toUpperCase()} disabled={disabled} close={() => setOpen(false)} browse={() => input.current?.click()} drop={files => {
+    {open && <ImportPopup title={dialogTitle} description={description} formats={accept.split(',').map(value => value.trim()).filter(value => value.startsWith('.')).join(', ').toUpperCase()} disabled={disabled} close={() => setOpen(false)} browse={() => input.current?.click()} drop={files => {
       const node = input.current;
       if (!node || disabled || files.length !== 1) return;
       node.files = files;
@@ -63,7 +65,7 @@ function ImportPopup({ title, description, formats, disabled, close, browse, dro
     };
   }, []);
   return createPortal(<dialog ref={dialog} className="confirmation-dialog library-import-dialog" aria-labelledby={heading} aria-describedby={descriptionId}
-    onCancel={event => { event.preventDefault(); close(); }}
+    onCancel={event => { event.preventDefault(); event.stopPropagation(); close(); }}
     onDragOver={event => event.preventDefault()} onDrop={event => event.preventDefault()}>
     <div className="library-import-heading"><div><h2 id={heading}>{title}</h2>
       <p id={descriptionId}>{description}</p></div>

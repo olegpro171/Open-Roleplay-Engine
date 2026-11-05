@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { Readable } from 'node:stream';
 import { afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
@@ -38,7 +39,7 @@ it('rejects unexpected executable schema names, binary text, wrong selected vari
   const directory = fs.mkdtempSync(join(tmpdir(),'ore-backup-untrusted-')), filename = join(directory,'live.sqlite');
   const store = new Store(filename), service = new BackupService(store,filename);
   try {
-    store.replaceHistory(store.snapshot().revision,'main',[{ user: 'Input',assistant: 'Saved response',complete: true }]);
+    seedTranscript(store, store.snapshot().revision,'main',[{ user: 'Input',assistant: 'Saved response',complete: true }]);
     const file = await service.export(), bytes = await unprotectBytes(fs.readFileSync(file.path), 'backup', '', Number.MAX_SAFE_INTEGER); file.cleanup(); const token = new BackupStore(store).token;
     for (const sql of [
       'CREATE TRIGGER sqliteXhidden AFTER INSERT ON chats BEGIN DELETE FROM chats; END',
@@ -56,7 +57,7 @@ it('explains schema, content and reconstruction failures without exposing upload
   const directory = fs.mkdtempSync(join(tmpdir(),'ore-backup-diagnostics-')), filename = join(directory,'live.sqlite');
   const store = new Store(filename), service = new BackupService(store,filename);
   try {
-    store.replaceHistory(store.snapshot().revision,'main',[{ user: 'Private synthetic prose',assistant: 'Saved response',complete: true }]);
+    seedTranscript(store, store.snapshot().revision,'main',[{ user: 'Private synthetic prose',assistant: 'Saved response',complete: true }]);
     const file = await service.export(), bytes = await unprotectBytes(fs.readFileSync(file.path), 'backup', '', Number.MAX_SAFE_INTEGER); file.cleanup();
     const token = service.persistence.token;
     const cases = [

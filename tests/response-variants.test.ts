@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
@@ -34,7 +35,7 @@ function fixture(count = 1) {
     return { finishReason: 'stop', usage: { inputTokens: 9, outputTokens: 3, totalTokens: 12 } };
   } };
   store.saveSettings(store.snapshot().revision, { name: 'Story', endpoint: 'http://localhost/v1', model: 'story', contextWindow: 100_000, maxOutputTokens: 1000, customParameters: {} }, store.snapshot().settings, 'synthetic-variant-secret');
-  store.replaceHistory(store.snapshot().revision, 'main', Array.from({ length: count }, (_, index) => ({ user: `Input ${index}. ${'Old scene detail. '.repeat(count > 1 ? 30 : 0)}`, assistant: index === count - 1 ? 'Original A.' : `Earlier response ${index}. ${'More detail. '.repeat(30)}`, complete: true })));
+  seedTranscript(store, store.snapshot().revision, 'main', Array.from({ length: count }, (_, index) => ({ user: `Input ${index}. ${'Old scene detail. '.repeat(count > 1 ? 30 : 0)}`, assistant: index === count - 1 ? 'Original A.' : `Earlier response ${index}. ${'More detail. '.repeat(30)}`, complete: true })));
   let coordinator = new GenerationCoordinator(store, provider);
   const state = () => store.snapshot();
   const regen = (requestId = randomUUID()) => coordinator.regenerate(state().revision, requestId, required(state().turns.at(-1)).id, 'main').generationId;

@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { removeSortingSchema } from './support/legacy-sorting.js';
 import { afterEach, expect, it } from 'vitest';
@@ -85,7 +86,7 @@ it('rejects a future schema without modifying its contents, ownership or journal
 
 function oldDatabase(path: string) {
   const seed = new Store(path);
-  seed.replaceHistory(seed.snapshot().revision, 'main', [{ user: 'Synthetic original input', assistant: 'Saved response', complete: true }]);
+  seedTranscript(seed, seed.snapshot().revision, 'main', [{ user: 'Synthetic original input', assistant: 'Saved response', complete: true }]);
   const snapshot = seed.snapshot();
   seed.close();
   const legacy = new Database(path);

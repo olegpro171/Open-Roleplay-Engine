@@ -8,6 +8,7 @@ import { contextPresetSchema, type ContextPreset } from './context.js';
 import { lorebookSchema, type Lorebook } from './lorebook.js';
 import { cardInstructionTextSchema, characterDepthPromptSchema } from './card-instructions.js';
 import { speechColorSchema } from './appearance.js';
+import { branchNameSchema } from './branches.js';
 
 const name = z.string().trim().min(1).max(100);
 const text = z.string().max(100_000);
@@ -130,11 +131,40 @@ export const libraryCommandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('lorebooks'), revision: revisionSchema, data: lorebookSchema }).strict(),
   z.object({ kind: z.literal('connections'), revision: revisionSchema, data: connectionSchema, apiKey: z.string().max(10_000).refine(v => !/[\r\n]/.test(v)).optional() }).strict(),
 ]);
-export const importedTurnSchema = z.object({ user: text, assistant: text, complete: z.boolean() }).strict();
-export const replaceHistorySchema = z.object({ revision: revisionSchema, turns: z.array(importedTurnSchema).min(1).max(50_000) }).strict().superRefine((value, ctx) => {
-  if (value.turns.some((t, i) => !t.complete && (i !== value.turns.length - 1 || t.assistant !== ''))) ctx.addIssue({ code: 'custom', message: 'Only the final turn may await an assistant response.' });
-  if (value.turns.reduce((n, t) => n + t.user.length + t.assistant.length, 0) > 20_000_000) ctx.addIssue({ code: 'custom', message: 'The active transcript exceeds the 20 million character import limit.' });
+export const transcriptFileLimit = 128_000_000;
+export const transcriptEntryLimit = 50_000;
+export const transcriptPartLimit = 100_000;
+export const transcriptTextLimit = 20_000_000;
+export const transcriptRequestLimit = 25_000_000;
+// Reserve room for the request fields: a title and two IDs of up to 100
+// UTF-16 units each can take 1,800 bytes even with six-byte JSON escapes.
+export const transcriptTurnsByteLimit = transcriptRequestLimit - 2_000;
+const transcriptText = z.string().max(transcriptPartLimit)
+  .refine(value => !/[\uD800-\uDFFF]/u.test(value), 'Transcript text contains an invalid Unicode character.');
+const importedTurnSchema = z.object({ user: transcriptText, assistant: transcriptText, complete: z.boolean() }).strict();
+export const importedTurnsSchema = z.array(importedTurnSchema).min(1).max(transcriptEntryLimit).superRefine((turns, ctx) => {
+  if (turns.some((turn, i) => !turn.complete && (i !== turns.length - 1 || turn.assistant !== ''))) ctx.addIssue({ code: 'custom', message: 'Only the final turn may await an assistant response.' });
+  if (turns.reduce((n, turn) => n + turn.user.length + turn.assistant.length, 0) > transcriptTextLimit) {
+    ctx.addIssue({ code: 'custom', message: 'The active transcript exceeds the 20 million character import limit.' });
+    return;
+  }
+  const encoder = new TextEncoder();
+  let bytes = 2 + turns.length - 1; // Array brackets and commas.
+  for (const turn of turns) {
+    bytes += encoder.encode(JSON.stringify(turn)).length;
+    if (bytes > transcriptTurnsByteLimit) {
+      ctx.addIssue({ code: 'custom', message: 'The transcript exceeds the serialized import limit.' });
+      break;
+    }
+  }
 });
 export type ImportedTurn = z.infer<typeof importedTurnSchema>;
+const transcriptCommand = { requestId: z.string().uuid(), turns: importedTurnsSchema };
+export const importChatSchema = selectionsSchema.pick({ title: true, characterId: true, personaId: true })
+  .extend({ characterId: selectionsSchema.shape.characterId.default(null), personaId: selectionsSchema.shape.personaId.default(null), ...transcriptCommand });
+export const importBranchSchema = z.object({ name: branchNameSchema, ...transcriptCommand }).strict();
+export const transcriptImportResultSchema = z.object({ id: z.string().uuid() }).strict();
+export type ImportChat = z.infer<typeof importChatSchema>;
+export type ImportBranch = z.infer<typeof importBranchSchema>;
 
 export type CharacterSaveCommand = Extract<z.infer<typeof libraryCommandSchema>, { kind: 'characters' }>;

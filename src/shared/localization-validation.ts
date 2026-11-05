@@ -16,6 +16,8 @@ const authored = new Map<string, MessageKey>(Object.entries({
   "Use at most one enabled Summary marker.": "validation.use_at_most_one_enabled_summary_marker",
   "Only the final turn may await an assistant response.": "validation.only_the_final_turn_may_await_an_assistant",
   "The active transcript exceeds the 20 million character import limit.": "validation.the_active_transcript_exceeds_the_20_million_character",
+  "Transcript text contains an invalid Unicode character.": "validation.transcript_unicode",
+  "The transcript exceeds the serialized import limit.": "validation.transcript_upload_limit",
   "Entry identities must be unique.": "validation.entry_identities_must_be_unique",
   "The normalized book exceeds its storage limit.": "validation.the_normalized_book_exceeds_its_storage_limit",
   "Invalid base64 file data.": "validation.invalid_base64_file_data",

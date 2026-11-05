@@ -1,3 +1,4 @@
+import { seedTranscript } from './support/transcript-fixture.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -153,7 +154,7 @@ describe('persistent chat and generation', () => {
 
   it('previews and sends the same bounded recent history without creating summary jobs', async () => {
     instance.store.saveLibrary(instance.store.libraries().revision, 'prompts', { ...compactPrompt, blocks: compactPrompt.blocks.filter(block => block.id !== 'summary') }, 'default');
-    instance.store.replaceHistory((await state()).revision, 'main', Array.from({ length: 12 }, (_, i) => ({ user: `Input ${i}. ` + 'A brass key. '.repeat(20), assistant: `Response ${i}. ` + 'The cellar is locked. '.repeat(20), complete: true })));
+    seedTranscript(instance.store, (await state()).revision, 'main', Array.from({ length: 12 }, (_, i) => ({ user: `Input ${i}. ` + 'A brass key. '.repeat(20), assistant: `Response ${i}. ` + 'The cellar is locked. '.repeat(20), complete: true })));
     const preset = instance.store.libraries().contexts[0];
     instance.store.updateChat((await state()).revision, 'main', { title: 'Recent mode', targetInputTokens: 300, connectionId: 'main', promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id });
     const current = await state(), text = 'I return the key.';
