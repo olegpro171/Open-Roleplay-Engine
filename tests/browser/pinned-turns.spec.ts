@@ -50,8 +50,8 @@ test('manages and jumps to off-page pins with confirmed counts and prompt warnin
   await page.reload();
   const turn = (ordinal: number) => page.getByRole('article', { name: `Turn ${ordinal}`, exact: true });
   await expect(turn(3)).toHaveCount(0);
-  await turn(42).getByRole('button', { name: 'Pin turn', exact: true }).click();
-  await expect(turn(42).getByRole('button', { name: 'Unpin turn', exact: true })).toBeVisible();
+  await turn(42).getByRole('button', { name: 'Pin', exact: true }).click();
+  await expect(turn(42).getByRole('button', { name: 'Unpin', exact: true })).toBeVisible();
 
   const manager = page.getByRole('dialog', { name: 'Pinned turns', exact: true });
   const open = () => openChatTool(page, 'Pinned turns');

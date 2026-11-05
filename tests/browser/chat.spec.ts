@@ -95,7 +95,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await expect(page.getByLabel('Your next turn')).toBeEnabled();
   await expect(firstTurn.getByRole('textbox', { name: 'Response version', exact: true })).toHaveValue('1');
   await expect(firstTurn.getByRole('textbox', { name: 'Response version', exact: true })).toBeEnabled();
-  await expect(firstTurn.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
+  await expect(firstTurn.getByRole('button', { name: 'Regenerate', exact: true })).toBeEnabled();
   await phone.goto('/');
   await expect(phone.getByLabel('Conversation')).toContainText('The lantern flickers.');
   await expect(phone.getByLabel('Your next turn')).toBeEnabled();

@@ -31,7 +31,7 @@ test('forks, remembers the branch in the Chats library, and exports its transcri
   expect(saved.ok(), await saved.text()).toBe(true);
   await page.getByLabel('Your next turn').fill('Draft for Main');
   const sourceTurn = page.locator('article').filter({ hasText: 'Do you see the lighthouse?' });
-  await sourceTurn.getByRole('button', { name: 'Branch from here' }).click();
+  await sourceTurn.getByRole('button', { name: 'Branch', exact: true }).click();
   const fork = page.getByRole('dialog', { name: 'Branch through turn 1' });
   await fork.getByLabel('Branch name').fill('Lighthouse');
   await fork.getByRole('button', { name: 'Create branch' }).click();

@@ -121,7 +121,7 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
     await composer.press('Enter');
     await expect(composer).toHaveValue('');
     await expect(send).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Regenerate', exact: true })).toBeEnabled();
     const saved = await page.request.get(`/api/chats/${id}`).then(r => r.json());
     expect(saved.turns).toHaveLength(1);
     expect(saved.turns[0].user.text).toBe('Keep this unsent draft.');
@@ -152,7 +152,7 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
     await composer.press('Control+Enter');
     await composer.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', ctrlKey: true, repeat: true });
     await page.request.post('/__test/finish');
-    await expect(page.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Regenerate', exact: true })).toBeEnabled();
     await expect(composer).toHaveValue('Keep next message.');
     expect((await page.request.get(`/api/chats/${id}`).then(r => r.json())).turns).toHaveLength(2);
 
@@ -166,13 +166,13 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
     await page.unroute(`**/api/chats/${id}/turns`);
     await composer.press('Control+Enter');
     await expect(composer).toHaveValue('');
-    await expect(page.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Regenerate', exact: true })).toBeEnabled();
 
     if (await page.evaluate(() => /Mac/.test(navigator.platform))) {
       await composer.fill('Command sends on Mac too.');
       await composer.press('Meta+Enter');
       await expect(composer).toHaveValue('');
-      await expect(page.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
+      await expect(page.getByRole('button', { name: 'Regenerate', exact: true })).toBeEnabled();
       expect((await page.request.get(`/api/chats/${id}`).then(r => r.json())).turns).toHaveLength(4);
     }
 
@@ -226,7 +226,7 @@ for (const platform of ['iPhone', 'Android', 'iPad desktop mode'] as const) test
       expect((await page.request.get(`/api/chats/${id}`).then(r => r.json())).turns).toHaveLength(0);
       await send.click();
       await expect(composer).toHaveValue('');
-      await expect(page.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
+      await expect(page.getByRole('button', { name: 'Regenerate', exact: true })).toBeEnabled();
     } finally { await preference(page, initial.settings.enterKeyBehavior); }
   });
 });

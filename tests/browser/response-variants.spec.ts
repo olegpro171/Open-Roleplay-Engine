@@ -30,9 +30,9 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Variant proof', exact: true }) }).click();
   await expect(page.getByText('Original A.', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Regenerate response', exact: true }).hover();
-  await expect(page.getByRole('button', { name: 'Regenerate response', exact: true })).toHaveCSS('background-color', 'rgb(37, 46, 56)');
-  await page.getByRole('button', { name: 'Regenerate response', exact: true }).click();
+  await page.getByRole('button', { name: 'Regenerate', exact: true }).hover();
+  await expect(page.getByRole('button', { name: 'Regenerate', exact: true })).toHaveCSS('background-color', 'rgb(37, 46, 56)');
+  await page.getByRole('button', { name: 'Regenerate', exact: true }).click();
   await expect.poll(async () => (await state()).turns[0].variants?.length).toBe(2);
   const generated = await state(), originalId = generated.turns[0].variants?.[0].id;
   const turn = page.getByRole('article', { name: 'Turn 1', exact: true });
@@ -112,11 +112,11 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await request.post('/__test/mode', { data: { mode: 'hold-first-token' } });
   const callsBeforeWait = await request.get('/__test/requests').then(response => response.json()).then(calls => calls.length);
   await page.getByLabel('Your next turn').fill('Unsent draft stays here');
-  await page.getByRole('button', { name: 'Regenerate response', exact: true }).click();
+  await page.getByRole('button', { name: 'Regenerate', exact: true }).click();
   await expect(turn.locator('.part.assistant .prose')).toHaveText('Connecting…');
   await expect(page.getByLabel('Regeneration preview')).toHaveCount(0);
   await expect(turn.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
-  await expect(turn.getByRole('button', { name: 'Regenerate response', exact: true })).toHaveCount(0);
+  await expect(turn.getByRole('button', { name: 'Regenerate', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(1);
   await expect(page.getByText('Regenerating…', { exact: true })).toHaveCount(0);
   await expect(page.getByText('The selected response is kept until regeneration succeeds.', { exact: true })).toHaveCount(0);
@@ -137,7 +137,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await turn.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(turn.locator('.part.assistant .prose')).toHaveText('Original A.');
   await expect(page.getByLabel('Your next turn')).toBeEnabled();
-  await expect(turn.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
+  await expect(turn.getByRole('button', { name: 'Regenerate', exact: true })).toBeEnabled();
   await expect(turn.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
   await expect(page.getByRole('status').filter({ hasText: 'Regeneration cancelled' })).toHaveCount(0);
   await expect(page.getByLabel('Your next turn')).toHaveValue('Unsent draft stays here');
@@ -152,7 +152,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
     await phone.getByRole('button', { name: 'Libraries', exact: true }).click();
     await phone.getByRole('button', { name: 'Chats', exact: true }).click();
     await phone.getByRole('article').filter({ has: phone.getByRole('heading', { name: 'Variant proof', exact: true }) }).tap();
-    await phone.getByRole('button', { name: 'Regenerate response', exact: true }).tap();
+    await phone.getByRole('button', { name: 'Regenerate', exact: true }).tap();
     const stop = phone.getByRole('button', { name: 'Cancel', exact: true });
     await expect(stop).toBeEnabled();
     await expect(phone.getByText('Connecting…', { exact: true })).toBeVisible();
@@ -164,15 +164,15 @@ test('switches response versions with arrows and a textbox, restores summarized 
     await expect(stop).toHaveCSS('color', 'rgb(228, 170, 127)');
     await phone.screenshot({ path: 'test-results/phone-regeneration-touch.png', fullPage: true });
     await stop.tap();
-    await expect(phone.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
+    await expect(phone.getByRole('button', { name: 'Regenerate', exact: true })).toBeEnabled();
     await expect(phone.getByRole('article', { name: 'Turn 1', exact: true }).locator('.part.assistant .prose')).toHaveText('Original A.');
   } finally {
     await phoneContext.close();
   }
-  await expect(turn.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
+  await expect(turn.getByRole('button', { name: 'Regenerate', exact: true })).toBeEnabled();
   // A completed replacement stays in the same container and becomes a variant.
   const callsBeforeSuccess = await request.get('/__test/requests').then(response => response.json()).then(calls => calls.length);
-  await page.getByRole('button', { name: 'Regenerate response', exact: true }).click();
+  await page.getByRole('button', { name: 'Regenerate', exact: true }).click();
   await expect(turn.locator('.part.assistant .prose')).toHaveText('Connecting…');
   await expect.poll(() => request.get('/__test/requests').then(response => response.json()).then(calls => calls.length)).toBe(callsBeforeSuccess + 1);
   await request.post('/__test/finish', { data: {} });
@@ -186,7 +186,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await expect(version).toHaveValue('1');
   // A failed attempt must restore the selected response just like cancellation.
   await request.post('/__test/mode', { data: { mode: 'broken' } });
-  await page.getByRole('button', { name: 'Regenerate response', exact: true }).click();
+  await page.getByRole('button', { name: 'Regenerate', exact: true }).click();
   await expect.poll(async () => (await state()).generations[0]?.status).toBe('failed');
   await expect(turn.locator('.part.assistant .prose')).toHaveText('Original A.');
   expect((await state()).turns[0].variants).toHaveLength(3);
@@ -203,7 +203,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await expect.poll(async () => (await state()).context.jobs[0]?.status).toBe('succeeded');
   await page.reload();
   await expect(turn).toContainText('ARCHIVED');
-  await expect(turn.getByRole('button', { name: 'Regenerate response', exact: true })).toHaveCount(0);
+  await expect(turn.getByRole('button', { name: 'Regenerate', exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await next.click();
   await expect(version).toHaveValue('2');

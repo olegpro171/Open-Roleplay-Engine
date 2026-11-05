@@ -38,7 +38,7 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   const turn = page.getByRole('article', { name: 'Turn 1', exact: true });
   const preview = turn.getByLabel('Latest model reasoning', { exact: true });
   const controls = turn.getByRole('group', { name: 'Turn controls', exact: true });
-  const showReasoning = controls.getByRole('button', { name: 'Show reasoning', exact: true });
+  const showReasoning = controls.getByRole('button', { name: 'Reasoning', exact: true });
   const reply = turn.locator('.part.assistant > .prose');
   await expect(showReasoning).toBeVisible();
   await expect(preview).toHaveCount(0);
@@ -107,7 +107,7 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   const replyBottom = await reply.boundingBox();
   if (!selectorBox || !replyBottom) throw new Error('Missing turn footer');
   expect(selectorBox.y).toBeGreaterThanOrEqual(replyBottom.y + replyBottom.height);
-  for (const name of ['Delete turn', 'Edit input', 'Edit response', 'Regenerate response', 'Show reasoning']) {
+  for (const name of ['Delete turn', 'Edit input', 'Edit response', 'Regenerate', 'Reasoning']) {
     const action = controls.getByRole('button', { name, exact: true });
     await expect(action).toBeEnabled();
     const box = await action.boundingBox();
@@ -122,7 +122,7 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   expect(deleteBox.x + deleteBox.width).toBeLessThanOrEqual(width);
   const pinnedBox = await selector.boundingBox();
   expect(pinnedBox?.x).toBe(selectorBox.x);
-  await controls.getByRole('button', { name: 'Regenerate response', exact: true }).focus();
+  await controls.getByRole('button', { name: 'Regenerate', exact: true }).focus();
   await page.screenshot({ path: `test-results/turn-controls-${theme}-${width}.png`, fullPage: true });
   await page.reload();
   await expect(showReasoning).toBeVisible();
@@ -150,7 +150,7 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   } })).ok()).toBe(true);
   await page.reload();
   // Cancelling a replacement restores the selected response and its own reasoning.
-  await turn.getByRole('button', { name: 'Regenerate response', exact: true }).click();
+  await turn.getByRole('button', { name: 'Regenerate', exact: true }).click();
   await expect(reply).toHaveText('Reasoning…');
   await expect(preview).toContainText('Reasoning line 80');
   await expect(preview).not.toContainText('The newest thought');
@@ -165,7 +165,7 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   await popup.getByRole('button', { name: 'Close', exact: true }).click();
   expect((await state()).turns[0].variants).toHaveLength(1);
   await request.post('/__test/mode', { data: { mode: 'normal' } });
-  await turn.getByRole('button', { name: 'Regenerate response', exact: true }).click();
+  await turn.getByRole('button', { name: 'Regenerate', exact: true }).click();
   await expect(turn.getByRole('textbox', { name: 'Response version', exact: true })).toHaveValue('2');
   await expect(preview).toHaveCount(0);
   await expect(showReasoning).toHaveCount(0);
@@ -181,7 +181,7 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   const next = page.getByRole('article', { name: 'Turn 2', exact: true });
   await expect(next.locator('.part.assistant > .prose')).toHaveText('The lantern flickers. 🕯');
-  await expect(next.getByRole('button', { name: 'Show reasoning', exact: true })).toHaveCount(0);
+  await expect(next.getByRole('button', { name: 'Reasoning', exact: true })).toHaveCount(0);
   const outgoing = (await state()).generations[0].request?.body;
   expect(JSON.stringify(outgoing)).not.toContain('Reasoning line');
   expect(JSON.stringify(outgoing)).not.toContain('The newest thought');
@@ -212,7 +212,7 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   await request.post('/__test/mode', { data: { mode: 'reasoning' } });
   await page.getByLabel('Your next turn').fill('I think again.');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  const pendingReasoning = next.getByRole('button', { name: 'Show reasoning', exact: true });
+  const pendingReasoning = next.getByRole('button', { name: 'Reasoning', exact: true });
   await expect(next.getByLabel('Latest model reasoning', { exact: true })).toBeVisible();
   await next.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(next.locator('.part.assistant > .prose')).toHaveText('Generation cancelled.');

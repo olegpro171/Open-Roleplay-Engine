@@ -93,7 +93,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
 
     await tap(.5);
     await expect(input).toHaveValue('');
-    await expect(page.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Regenerate', exact: true })).toBeEnabled();
     expect(commands).toHaveLength(1);
     const saved: unknown = await page.request.get(`/api/chats/${id}`).then(r => r.json());
     expect(saved).toMatchObject({ turns: [{ user: { text: 'I open the tower door.' }, complete: true }] });
@@ -125,7 +125,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     await expect(input).toHaveValue('Keep the next draft.');
     await expect.poll(async () => page.request.get('/__test/requests').then(r => r.json())).toHaveLength(2);
     await page.request.post('/__test/finish');
-    await expect(page.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Regenerate', exact: true })).toBeEnabled();
 
     // Explicit keyboard focus and native button activation remain available.
     await page.request.post('/__test/mode', { data: { mode: 'normal' } });
@@ -135,7 +135,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     await page.screenshot({ path: testInfo.outputPath('phone-keyboard-focused-send.png') });
     await send.press('Space');
     await expect(input).toHaveValue('');
-    await expect(page.getByRole('button', { name: 'Regenerate response', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Regenerate', exact: true })).toBeEnabled();
     expect(commands).toHaveLength(4);
     const final: unknown = await page.request.get(`/api/chats/${id}`).then(r => r.json());
     expect(final).toMatchObject({ turns: [

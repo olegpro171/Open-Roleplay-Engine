@@ -23,7 +23,7 @@ export function TurnControls({ turn, locked, editing, inputVisible, action, reas
       regenerating={turn.complete && action?.kind === 'cancel'}
       regenerate={action?.kind === 'regenerate' && !action.disabled ? action.run : undefined} />
     <div className="turn-actions">
-      {action && <TurnActionButton action={action.kind} label={action.kind === 'cancel' ? t("character_import.cancel") : t("turn_controls.regenerate_response")} disabled={action.disabled} onClick={action.run} />}
+      {action && <TurnActionButton action={action.kind} label={action.kind === 'cancel' ? t("character_import.cancel") : t("turn_controls.regenerate")} disabled={action.disabled} onClick={action.run} />}
       {inputVisible && <TurnActionButton action="input" label={t("turn_controls.edit_input")} disabled={locked} onClick={() => edit('user')} />}
       <TurnActionButton action="response" label={t("turn_controls.edit_response")} disabled={locked || !turn.complete} onClick={() => edit('assistant')} />
       {reasoning && <Reasoning key={reasoning.generationId} {...reasoning} />}
