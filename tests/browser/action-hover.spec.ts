@@ -57,7 +57,7 @@ for (const theme of ['light', 'dark', 'midnight-black'] as const) {
       const details = page.getByRole('button', { name: 'Chat details', exact: true });
       if (await details.isVisible()) await details.click();
       await checkHover(page.getByRole('button', { name: 'Chat settings', exact: true }), `details-${width}`);
-      await page.getByLabel('Your next turn').click();
+      if (await details.isVisible()) await details.click();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     }
     // Category navigation and Library actions share the same hover treatment.

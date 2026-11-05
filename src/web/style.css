@@ -507,16 +507,17 @@ button.danger{background:var(--danger-button);color:var(--on-danger-button);bord
 .chat-page-actions .chat-navigation-action{justify-content:flex-start}
 .chat-page-actions button{width:100%;font-size:13px;min-height:44px;padding:10px 12px}
 .chat-details-toggle{display:none}
-.chat-details-slot{display:none}
+.chat-details-slot,.chat-details-backdrop{display:none}
 .chat-panel{min-width:0;min-height:0;padding:34px 42px 70px;scrollbar-color:var(--scrollbar) transparent;overscroll-behavior:contain}
 @media(max-width:800px){
   .chat-character-portrait{width:50%}
-  .story-layout{grid-template-rows:auto minmax(0,1fr)}
+  .story-layout{position:relative;grid-template-rows:auto minmax(0,1fr)}
   .story-meta{position:relative;display:block;overflow:visible;padding:0;border:0}
   .story-meta>.editor-actions{position:absolute;top:12px;right:max(18px,env(safe-area-inset-right));z-index:20}
   .chat-details-slot:not(:empty){display:block;margin-left:auto;flex-shrink:0}
   .chat-details-slot:not(:empty)~.connection-status{display:none}
   button.chat-details-toggle{display:flex;align-items:center;gap:6px;min-height:44px;padding:6px 8px;border-color:var(--line);color:var(--header-highlight);font-size:12px;white-space:nowrap}
+  .chat-details-backdrop{display:block;position:absolute;inset:0;z-index:29}
   .chat-details{position:absolute;top:100%;left:0;right:0;z-index:30;max-height:min(75dvh,calc(100dvh - 180px));overflow:auto;overscroll-behavior:contain;padding:24px;background:var(--surface);border-bottom:1px solid var(--line);box-shadow:0 18px 30px var(--shadow)}
   .chat-details:not(.expanded){display:none}
   .chat-details h1{font-size:22px}

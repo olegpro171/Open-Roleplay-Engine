@@ -14,6 +14,7 @@ export function ChatWorkspace({ sidebar, actions, navigation = false, dismissDet
   const target = useContext(ChatDetailsTarget);
   const toggle = useRef<HTMLButtonElement>(null);
   const details = useRef<HTMLDivElement>(null);
+  const backdrop = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!expanded) return;
     if (dismissDetails) {
@@ -24,7 +25,10 @@ export function ChatWorkspace({ sidebar, actions, navigation = false, dismissDet
     const outside = (event: Event) => {
       // Prompt peek owns focus while its modal is above this disclosure.
       if (event.target instanceof Element && event.target.closest('dialog[open]')) return;
-      if (event.target instanceof Node && !toggle.current?.contains(event.target) && !details.current?.contains(event.target)) setExpanded(false);
+      if (!(event.target instanceof Node)) return;
+      // Keep the backdrop in place until it receives the click that dismisses the panel.
+      if (backdrop.current?.contains(event.target) || toggle.current?.contains(event.target) || details.current?.contains(event.target)) return;
+      setExpanded(false);
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('dialog[open]')) return;
@@ -52,6 +56,10 @@ export function ChatWorkspace({ sidebar, actions, navigation = false, dismissDet
         if (first) { event.preventDefault(); first.focus(); }
       }
     }}>{t("chat_workspace.chat_details")}<Icon name={expanded ? 'ArrowShortTop' : 'ArrowShortBottom'} /></button>, target)}
+    {expanded && <div ref={backdrop} className="chat-details-backdrop" aria-hidden="true" onClick={() => {
+      setExpanded(false);
+      toggle.current?.focus({ preventScroll: true });
+    }} />}
     <aside className={`story-meta${navigation ? ' story-navigation' : ''}`} aria-label={t("chat_workspace.current_chat")}>
       <div ref={details} id={detailsId} className={`chat-details${expanded ? ' expanded' : ''}`} onKeyDown={event => {
         const first = details.current?.querySelector<HTMLElement>('summary, button:not(:disabled)');

@@ -42,11 +42,15 @@ for (const width of [320, 390, 800]) {
     await expect(sidebar.getByRole('button', { name: 'Request inspector', exact: true })).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath(`expanded-${width}.png`) });
     await toggle.click();
-    await page.getByLabel('Your next turn').fill('Draft preserved by dropdown dismissal.');
+    const composer = page.getByLabel('Your next turn');
+    await composer.fill('Draft preserved by dropdown dismissal.');
     await toggle.click();
-    await page.getByLabel('Your next turn').click();
+    const composerBounds = await composer.boundingBox();
+    if (!composerBounds) throw new Error('Missing composer');
+    await page.mouse.click(composerBounds.x + composerBounds.width / 2, composerBounds.y + composerBounds.height / 2);
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.getByLabel('Your next turn')).toHaveValue('Draft preserved by dropdown dismissal.');
+    await expect(toggle).toBeFocused();
+    await expect(composer).toHaveValue('Draft preserved by dropdown dismissal.');
     await toggle.click();
     await page.setViewportSize({ width: 1280, height: 900 });
     await expect(toggle).toBeHidden();
