@@ -242,7 +242,15 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .composer-ios textarea{border-radius:calc(var(--composer-control-height)/2);padding-inline:18px;background:var(--surface)}
 .composer textarea:focus-visible{outline:none}
 .composer-ios .send-turn{border-radius:50%}
-.send-icon{display:block;width:22px;height:22px;background:currentColor;mask:url("./assets/send-one-svgrepo-com.svg") center/contain no-repeat}
+.send-icon {
+  display: block;
+  width: 22px;
+  height: 22px;
+  background: currentColor;
+  mask: url("./assets/send-one-svgrepo-com.svg") center/contain no-repeat;
+  /* Visually center the diagonal artwork within Send. */
+  transform: translate(-0.8px, 0.8px);
+}
 .memory-preparation-status{max-width:100%;padding:7px 12px;border:1px solid var(--line);border-radius:18px;background:var(--surface);color:var(--muted);font-size:11px;box-shadow:0 2px 8px var(--shadow-soft)}
 .request-details[open]>summary{margin-bottom:22px}
 .timeline-layout{display:grid;grid-template-columns:36px minmax(0,1fr);margin-top:26px}
