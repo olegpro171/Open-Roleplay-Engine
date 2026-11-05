@@ -10,11 +10,12 @@ type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'defaul
 };
 
 /** Typographic substitution belongs to live typing, never to loading saved prose. */
-export function ChatTextarea({ value, onValueChange, autoSize = false, textScale, ...props }: Props) {
+export function ChatTextarea({ value, onValueChange, autoSize = false, textScale, onBlur, ...props }: Props) {
   useLocale();
   const style: CSSProperties & { '--chat-text-scale'?: number } = { ...props.style, '--chat-text-scale': textScale === undefined ? undefined : textScale / 100 };
   const textarea = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<number | null>(null);
+  const typedEmDash = useRef<{ value: string; caret: number } | null>(null);
 
   useLayoutEffect(() => {
     const field = textarea.current;
@@ -67,14 +68,27 @@ export function ChatTextarea({ value, onValueChange, autoSize = false, textScale
     pendingCaret.current = null;
   });
 
-  return <textarea {...props} style={style} ref={textarea} value={value} onChange={event => {
+  return <textarea {...props} style={style} ref={textarea} value={value} onBlur={event => {
+    typedEmDash.current = null;
+    onBlur?.(event);
+  }} onChange={event => {
     const input = event.nativeEvent;
     const field = event.currentTarget;
     const caret = field.selectionStart;
+    const previousDash = typedEmDash.current;
+    typedEmDash.current = null;
     if (input instanceof InputEvent && !input.isComposing && input.inputType === 'insertText'
-      && input.data === '-' && caret === field.selectionEnd && field.value.slice(caret - 2, caret) === '--') {
-      field.setRangeText('—', caret - 2, caret, 'end');
-      pendingCaret.current = caret - 1;
+      && input.data === '-' && caret === field.selectionEnd) {
+      const pair = field.value.slice(caret - 2, caret);
+      // Only the em dash created by the previous edit can be extended into a separator.
+      if (pair === '—-' && previousDash?.value === value && previousDash.caret === caret - 1) {
+        field.setRangeText('---', caret - 2, caret, 'end');
+        pendingCaret.current = caret + 1;
+      } else if (pair === '--' && field.value[caret - 3] !== '-' && field.value[caret] !== '-') {
+        field.setRangeText('—', caret - 2, caret, 'end');
+        pendingCaret.current = caret - 1;
+        typedEmDash.current = { value: field.value, caret: caret - 1 };
+      }
     }
     onValueChange(field.value);
   }} />;

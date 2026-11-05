@@ -516,7 +516,7 @@ test('a rejected command keeps its draft and permits a corrected explicit retry'
   await expect(page.getByRole('article')).toHaveCount(1);
 });
 
-for (const width of [1440, 390]) test(`typed double dashes become em dashes in composer and turn editors at ${width}px`, async ({ page }) => {
+for (const width of [1440, 390]) test(`typed double dashes become em dashes and a third preserves Markdown at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 });
   const [chatId] = await setup(page);
   const composer = page.getByLabel('Your next turn');
@@ -533,6 +533,21 @@ for (const width of [1440, 390]) test(`typed double dashes become em dashes in c
   await expect(composer).toHaveValue('old--text / —here end');
   expect(await composer.evaluate((field: HTMLTextAreaElement) => field.selectionStart)).toBe(17);
 
+  await composer.fill('Before\n\nAfter');
+  await composer.evaluate((field: HTMLTextAreaElement) => field.setSelectionRange(7, 7));
+  await composer.pressSequentially('--');
+  await expect(composer).toHaveValue('Before\n—\nAfter');
+  await page.keyboard.insertText('-');
+  await expect(composer).toHaveValue('Before\n---\nAfter');
+  expect(await composer.evaluate((field: HTMLTextAreaElement) => field.selectionStart)).toBe(10);
+  await composer.press('-');
+  await expect(composer).toHaveValue('Before\n----\nAfter');
+
+  await composer.fill('Literal —');
+  await composer.press('End');
+  await composer.press('-');
+  await expect(composer).toHaveValue('Literal —-');
+
   // Composition input is left to the IME, and deletion must not trigger substitution.
   await composer.fill('--');
   await composer.evaluate((field: HTMLTextAreaElement) => {
@@ -546,8 +561,13 @@ for (const width of [1440, 390]) test(`typed double dashes become em dashes in c
 
   await composer.fill('');
   await composer.pressSequentially('I wait--quietly.');
+  await composer.press('Shift+Enter');
+  await composer.press('Shift+Enter');
+  await composer.pressSequentially('---');
+  await expect(composer).toHaveValue('I wait—quietly.\n\n---');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   const turn = page.getByRole('article', { name: 'Turn 1', exact: true });
+  await expect(turn.locator('.part.user').getByRole('separator')).toBeVisible();
   await expect(turn.getByRole('button', { name: 'Edit response', exact: true })).toBeEnabled();
   for (const [button, label, text] of [
     ['Edit input', 'Edit user text', 'Input—changed.'],
@@ -570,7 +590,9 @@ for (const width of [1440, 390]) test(`typed double dashes become em dashes in c
   await responseEditor.fill('Leon remembers the corridor and the locked door. '.repeat(20));
   await expect.poll(() => responseEditor.evaluate(field => field.scrollHeight <= field.clientHeight + 1)).toBe(true);
   await responseEditor.fill('Response—changed.');
-  await page.getByLabel('Edit assistant text').pressSequentially('--discard');
+  await responseEditor.press('End');
+  await responseEditor.pressSequentially('---discard');
+  await expect(responseEditor).toHaveValue('Response—changed.---discard');
   await page.getByRole('button', { name: 'Cancel edit', exact: true }).click();
   await turn.getByRole('button', { name: 'Edit response', exact: true }).click();
   await expect(page.getByLabel('Edit assistant text')).toHaveValue('Response—changed.');
