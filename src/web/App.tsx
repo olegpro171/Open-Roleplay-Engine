@@ -703,7 +703,7 @@ export function App() {
       branches={chatBranches} fork={branchDialog.through} locked={authorNote.pending} close={() => setBranchDialog(null)}
       open={id => openChat(id)} refresh={refresh} />}
     {snapshot && pinnedChat === snapshot.id && tab === 'story' && <PinnedTurns key={snapshot.id} branch={snapshot.id}
-      revision={snapshot.revision} count={snapshot.pinCount ?? 0} estimate={currentRequest} estimateCurrent={inspectionCurrent}
+      revision={snapshot.revision} estimate={currentRequest} estimateCurrent={inspectionCurrent}
       estimateError={preview.error} retryEstimate={preview.retry} locked={working || busy || dataChanged || snapshot.memory.awaitingReview}
       close={() => setPinnedChat(null)} refresh={refresh}
       jump={(turnId, revision) => moveTranscript({ chatId: snapshot.id, turnId, revision })} />}

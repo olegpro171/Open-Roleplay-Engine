@@ -9,7 +9,6 @@ type RussianKey = EnglishKey | `${PluralBase}_${'few' | 'many'}`;
 export const russianMessages = {
   "pins.close": "Закрыть закреплённые ходы",
   "pins.title": "Закреплённые ходы",
-  "pins.open_with_count": "Закреплённые ходы ({{countLabel}})",
   "pins.pin": "Закрепить",
   "pins.unpin": "Открепить",
   "pins.pin_short": "Закрепить",

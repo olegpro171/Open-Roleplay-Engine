@@ -7,7 +7,7 @@ import { defaultContextPreset } from '../../src/shared/context';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 import type { StorySnapshot } from '../../src/shared/transcript';
 
-test('manages and jumps to off-page pins with confirmed counts and prompt warnings', async ({ page, browserApp }, testInfo) => {
+test('manages and jumps to off-page pins with stable estimates and prompt warnings', async ({ page, browserApp }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
@@ -67,7 +67,7 @@ test('manages and jumps to off-page pins with confirmed counts and prompt warnin
   await search.fill('SILVER KEY');
   await expect(manager.getByRole('article')).toHaveCount(1);
 
-  async function keepEstimateDuring(change: () => Promise<void>, confirmedCount: number) {
+  async function keepEstimateDuring(change: () => Promise<void>, pinned: boolean) {
     const meter = manager.getByRole('meter');
     const budget = manager.locator('.pinned-budget');
     const oldValue = await meter.getAttribute('aria-valuenow');
@@ -83,7 +83,7 @@ test('manages and jumps to off-page pins with confirmed counts and prompt warnin
     }, { times: 1 });
     try {
       await change();
-      await expect(manager.getByText(`Pinned turns (${confirmedCount})`, { exact: true })).toBeVisible();
+      await expect(older.getByRole('button', { name: pinned ? 'Unpin' : 'Pin', exact: true })).toBeVisible();
       await expect.poll(() => requested).toBe(true);
       await expect(meter).toHaveAttribute('aria-valuenow', oldValue ?? '', { timeout: 1000 });
       expect(await budget.evaluate(node => node.getBoundingClientRect().height)).toBe(oldHeight);
@@ -99,13 +99,10 @@ test('manages and jumps to off-page pins with confirmed counts and prompt warnin
   const failure = manager.getByRole('alert').filter({ hasText: 'This branch changed.' });
   await expect(failure).toBeVisible();
   await expect(older.getByRole('button', { name: 'Unpin', exact: true })).toBeVisible();
-  await expect(manager.getByText('Pinned turns (2)', { exact: true })).toBeVisible();
-  await keepEstimateDuring(() => failure.getByRole('button', { name: 'Retry', exact: true }).click(), 1);
+  await keepEstimateDuring(() => failure.getByRole('button', { name: 'Retry', exact: true }).click(), false);
   await expect(older.getByText('Unpinned', { exact: true })).toBeVisible();
-  await expect(manager.getByText('Pinned turns (1)', { exact: true })).toBeVisible();
   await expect.poll(async () => Number(await manager.getByRole('meter').getAttribute('aria-valuenow'))).toBeLessThan(estimate.budget.inputTokens);
-  await keepEstimateDuring(() => older.getByRole('button', { name: 'Pin', exact: true }).press('Enter'), 2);
-  await expect(manager.getByText('Pinned turns (2)', { exact: true })).toBeVisible();
+  await keepEstimateDuring(() => older.getByRole('button', { name: 'Pin', exact: true }).press('Enter'), true);
   await expect(manager.getByRole('meter')).toHaveAttribute('aria-valuenow', String(estimate.budget.inputTokens));
   await older.getByRole('button', { name: 'Turn 3', exact: true }).focus();
   await page.keyboard.press('Enter');

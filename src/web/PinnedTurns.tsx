@@ -24,10 +24,9 @@ const normalize = (value: string) => value.normalize('NFC').toLowerCase();
 const pageSize = 30;
 const excerpt = (text: string) => text.length > 240 ? `${text.slice(0, 240)}…` : text;
 
-export function PinnedTurns({ branch, revision, count, estimate, estimateCurrent, estimateError, retryEstimate, locked, close, refresh, jump }: {
+export function PinnedTurns({ branch, revision, estimate, estimateCurrent, estimateError, retryEstimate, locked, close, refresh, jump }: {
   branch: string;
   revision: number;
-  count: number;
   estimate: RequestEstimate | null;
   estimateCurrent: boolean;
   estimateError: MessageText;
@@ -111,7 +110,6 @@ export function PinnedTurns({ branch, revision, count, estimate, estimateCurrent
   const query = normalize(search.trim());
   const matches = rows.filter(row => row.searchable.includes(query));
   const listCurrent = Boolean(list && list.revision >= revision && !readError);
-  const confirmedCount = listCurrent && list ? list.turns.length : count;
   const limit = estimate ? Math.min(estimate.budget.targetInputTokens,
     estimate.budget.contextWindow - estimate.budget.reservedOutputTokens) : 0;
 
@@ -135,7 +133,6 @@ export function PinnedTurns({ branch, revision, count, estimate, estimateCurrent
         <LibrarySearchField label={t('pins.search')} value={search} change={value => { setSearch(value); setVisibleRows(pageSize); }} />
       </div>
       <div className="branch-manager-results">
-        <p className="small muted">{t('pins.open_with_count', { countLabel: confirmedCount.toLocaleString(locale()) })}</p>
         {list?.hasConnection && <>
           {estimate && <div className="budget pinned-budget" aria-busy={!estimateError && (!estimateCurrent || list.revision > revision)}>
             <strong>{t('app.estimated_input_2', { value: estimate.budget.inputTokens.toLocaleString(locale()), value2: limit.toLocaleString(locale()) })}</strong>

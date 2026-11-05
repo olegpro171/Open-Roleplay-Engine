@@ -2,7 +2,6 @@
 export const englishMessages = {
   "pins.close": "Close Pinned turns",
   "pins.title": "Pinned turns",
-  "pins.open_with_count": "Pinned turns ({{countLabel}})",
   "pins.pin": "Pin",
   "pins.unpin": "Unpin",
   "pins.pin_short": "Pin",

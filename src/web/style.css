@@ -737,6 +737,7 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .turn-pinned { display: inline-flex; align-items: center; }
 .turn-pinned .ui-icon { width: 14px; height: 14px; }
 .pinned-budget { margin: 12px 0; }
+.pinned-budget .allocation-legend li:has(.allocation.pinned) { font-weight: 700; }
 .library-card-body.pinned-row { flex-direction: column; gap: 6px; }
 .pinned-row h3, .pinned-row p { margin: 0; }
 .pinned-row .pin-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; }
