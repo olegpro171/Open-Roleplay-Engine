@@ -245,7 +245,7 @@ describe('persistent chat and generation', () => {
     mock.setMode('no-usage');
     const noUsage = await command('/api/connections/diagnose', { ...input, action: 'test', connection: { ...before.connection, model: 'gpt-4o', maxOutputTokens: 12 }, apiKey: 'entered-test-key' });
     expect(noUsage.json().usage).toBeNull();
-    expect(noUsage.json().request.budget.counting.tokenizer).toBe('cl100k_base');
+    expect(noUsage.json().request.budget.counting.tokenizer).toBe('o200k_base');
     expect(mock.requests[1].body.max_tokens).toBe(12);
     expect(mock.requests[1].authorization).toBe('Bearer entered-test-key');
     expect(await state()).toEqual(before);
@@ -294,7 +294,7 @@ describe('persistent chat and generation', () => {
     const after = await state();
     const preview = await command('/api/preview', { revision: after.revision, inspection: true, text: 'Another turn.' });
     expect(preview.statusCode).toBe(200);
-    expect(preview.json().budget.counting.tokenizer).toBe('cl100k_base');
+    expect(preview.json().budget.counting.tokenizer).toBe('o200k_base');
     expect(preview.json().budget.inputTokens).toBeGreaterThan(1);
     expect((await command('/api/preview', { revision: after.revision })).statusCode).toBe(422);
     expect((await state()).generations[0].request).toEqual(savedRequest);

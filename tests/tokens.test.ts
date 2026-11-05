@@ -3,23 +3,24 @@ import { readFileSync } from 'node:fs';
 import { countInput, countText } from '../src/core/tokens.js';
 import { assembleRequest } from '../src/core/prompt.js';
 import { contextPlan, summaryRequest } from '../src/core/context-plan.js';
+import { inlineSettingsPrompt } from '../src/core/inline-prompt.js';
 import { defaultContextPreset, type SummaryNode } from '../src/shared/context.js';
 import type { ChatSnapshot, Connection, Turn } from '../src/shared/contracts.js';
 
-const vectors = JSON.parse(readFileSync('tests/fixtures/token-counts.json', 'utf8')).vectors as { text: string; cl100k_base: number }[];
+const vectors = JSON.parse(readFileSync('tests/fixtures/token-counts.json', 'utf8')).vectors as { text: string; o200k_base: number }[];
 const connection: Connection = { name: 'Gemma', endpoint: 'https://openrouter.ai/api/v1', model: 'google/gemma-3-4b-it', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} };
 const turn = (i: number): Turn => ({ id: `turn-${i}`, position: i, complete: true, user: { id: `user-${i}`, revision: 0, text: i === 252 ? '' : 'Mira waits at the door.' }, assistant: { id: `assistant-${i}`, revision: 0, text: 'Leon pockets the key.' } });
 
 describe('shared reference planning counter', () => {
-  it.each(vectors)('matches independent Python tokenizer counts for $text', vector => {
-    expect(countText(vector.text)).toBe(vector.cl100k_base);
+  it.each(vectors)('matches independent tiktoken counts for $text', vector => {
+    expect(countText(vector.text)).toBe(vector.o200k_base);
   });
 
   it('uses a small shared framing allowance and retains verification limits in metadata', () => {
     const messages = [{ role: 'system' as const, content: 'You are helpful.' }, { role: 'user' as const, content: 'Hello world!' }];
     const count = countInput(messages);
     expect(count.inputTokens).toBe(18); // 7 content + 2 role + 6 message + 3 reply tokens.
-    expect(count.counting).toMatchObject({ kind: 'reference', tokenizer: 'cl100k_base', framing: 'estimated-recipe', fallbackReason: null });
+    expect(count.counting).toMatchObject({ kind: 'reference', tokenizer: 'o200k_base', framing: 'estimated-recipe', fallbackReason: null });
     expect(count.verified).toBe(false);
     expect(count.counting.limitations).toContain('no exact remote-limit guarantee');
   });
@@ -34,6 +35,31 @@ describe('shared reference planning counter', () => {
       expect(request.layout).toEqual(expected.layout);
       expect(request.body.model).toBe(model);
     }
+  });
+
+  it('keeps whole Russian and mixed-language turns when they fit the recent-history budget', () => {
+    const passages = [
+      'Мира закрыла дверь таверны и понизила голос. «Если стражник спросит, мы никогда не переходили мост». Дождь барабанил по ставням, а Антон спрятал серебряный ключ в рукаве.',
+      '— Антон, meet me at the Old Bridge after midnight.\n*Мира прячет ключ.* 🗝️\n[OOC: keep the guard unaware.]',
+    ];
+    const turns = passages.map((text, index) => {
+      const original = turn(index);
+      return { ...original, user: { ...original.user, text } };
+    });
+    const instructions = 'Continue the story.';
+    const preset = inlineSettingsPrompt(instructions);
+    const sources = {
+      prompt: { ...preset, id: 'recent', revision: 0, blocks: preset.blocks.filter(block => block.id !== 'summary') },
+      character: null,
+      persona: null,
+    };
+    // 104 content tokens from tiktoken and 23 framing tokens for five messages.
+    const settings = { title: 'Recent history', instructions, character: '', persona: '', targetInputTokens: 127 };
+    const request = assembleRequest(connection, settings, turns, sources);
+    expect(request.history).toEqual({ mode: 'recent', verbatimTurnIds: ['turn-0', 'turn-1'] });
+    expect(request.budget.inputTokens).toBe(127);
+    const tighter = assembleRequest(connection, { ...settings, targetInputTokens: 126 }, turns, sources);
+    expect(tighter.history?.verbatimTurnIds).toEqual(['turn-1']);
   });
 
   it('keeps 20 selected summaries, 252 archived turns and seven verbatim messages without premature compaction', () => {
@@ -52,7 +78,7 @@ describe('shared reference planning counter', () => {
     expect(() => assembleRequest(connection, { ...snapshot.settings, targetInputTokens: request.budget.inputTokens - 1 }, turns, snapshot.sources, snapshot.context)).toThrow('exceeds your target');
     expect(() => assembleRequest({ ...connection, contextWindow: request.budget.inputTokens + connection.maxOutputTokens - 1 }, snapshot.settings, turns, snapshot.sources, snapshot.context)).toThrow('plus reserved output');
     const summary = summaryRequest(snapshot, { level: 1, turnIds: ['turn-252'], children: [] }, { ...connection, model: 'gpt-4o' }).request;
-    expect(summary.budget.counting?.tokenizer).toBe('cl100k_base');
+    expect(summary.budget.counting?.tokenizer).toBe('o200k_base');
     expect(summary.budget.inputTokens).toBe(countInput(summary.body.messages).inputTokens);
     expect(snapshot.context.archivedTurnIds).toHaveLength(252);
   });

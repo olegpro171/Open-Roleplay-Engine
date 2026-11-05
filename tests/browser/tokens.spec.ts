@@ -20,7 +20,7 @@ test('connection diagnostics stay concise, use explicit test calls and distingui
   const savedLibrary = await page.request.get('/api/library').then(response => response.json());
   const tools = page.locator('.connection-tools');
   await expect(tools.locator('.counting-note')).toHaveCount(0);
-  await expect(tools).not.toContainText('cl100k_base');
+  await expect(tools).not.toContainText('o200k_base');
   expect((await requests()).length).toBe(initialCount);
   await page.getByRole('button', { name: 'Check connection', exact: true }).click();
   await expect(tools.locator('.connection-success')).toHaveText('The endpoint accepted the connection check');

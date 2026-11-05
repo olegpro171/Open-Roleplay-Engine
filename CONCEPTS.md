@@ -56,7 +56,7 @@ Summary-off mode performs no preparation, promotion or repair, and unused stale 
 
 [The memory contract](docs/CONTEXT.md) owns detailed batching, selection, corrections, repair, refusal recovery and counting rules.
 
-- Use one local `cl100k_base` reference counter for complete resolved input, allocations, summary savings and summarization-window checks. Endpoint usage is an observation on its exact request, not calibration or an exact-limit guarantee.
+- Use one local `o200k_base` reference counter for complete resolved input, allocations, summary savings and summarization-window checks. Endpoint usage is an observation on its exact request, not calibration or an exact-limit guarantee.
 - Separate working input target from physical capacity/output reservation. Preparation aims for the target. Sending may exceed it by strictly less than the configured allowance (default enabled, 100 tokens); target equality fits and allowance equality prepares. Physical overflow fails without independently triggering preparation.
 - Automatic preparation runs only on Send outside that allowance, or after a successful response/regeneration leaves complete saved input above target. Opening chats, changing settings/sources, selecting variants and typing drafts do not trigger model calls.
 - Preserve fixed oldest batches, minimum completed tail, residual turns and retained summary floors. Promote eligible groups under geometric pressure only when no first-layer batch is eligible. Fail when required content cannot fit; never silently reduce guarantees or discard sources.

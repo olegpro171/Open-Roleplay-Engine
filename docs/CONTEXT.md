@@ -4,7 +4,7 @@ This is the current agent reference for managed coverage, preparation, correctio
 
 ## Measurement and limits
 
-`src/core/tokens.ts` uses local `cl100k_base` for every model, with no model mappings, service, byte fallback, character divisor or provider-derived calibration. Encode each resolved message's actual text (special-looking strings as ordinary text), not its JSON escapes. Framing is 3 units plus 3 per message plus encoded role strings. This is a shared approximation, not an endpoint template guarantee. The bounded cache holds 512 entries and at most two million UTF-16 units, excluding individual texts over 100,000 units.
+`src/core/tokens.ts` uses local `o200k_base` for every model, with no model mappings, service, byte fallback, character divisor or provider-derived calibration. Encode each resolved message's actual text (special-looking strings as ordinary text), not its JSON escapes. Framing is 3 units plus 3 per message plus encoded role strings. This is a shared approximation, not an endpoint template guarantee. The bounded cache holds 512 entries and at most two million UTF-16 units, excluding individual texts over 100,000 units.
 
 Use this counter for full input, allocations, summary labels/separators, promotion pressure, complete-request savings and summarizer source/prior-context windows. Model-text filtering precedes counting. Summary output size is a soft prompt target; measure actual output. Reserve summarizer output using its Connection limits.
 

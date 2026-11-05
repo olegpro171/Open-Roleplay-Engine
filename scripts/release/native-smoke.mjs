@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import sharp from 'sharp';
 import { Worker } from 'node:worker_threads';
-import { encode } from 'gpt-tokenizer/encoding/cl100k_base';
+import { encode } from 'gpt-tokenizer/encoding/o200k_base';
 const db = new Database(':memory:');
 if (db.prepare('SELECT 42 AS n').get().n !== 42) throw new Error('SQLite failed.');
 const sqliteVersion = db.prepare('SELECT sqlite_version() AS version').get().version;

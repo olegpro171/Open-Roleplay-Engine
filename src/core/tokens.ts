@@ -1,4 +1,4 @@
-import { encode } from 'gpt-tokenizer/encoding/cl100k_base';
+import { encode } from 'gpt-tokenizer/encoding/o200k_base';
 import type { Message, TokenCounting } from '../shared/contracts.js';
 
 // One reference vocabulary for every model. Keep the cache bounded so repeated
@@ -25,12 +25,12 @@ export function countInput(messages: Message[]) {
   // Shared small allowance, deliberately independent of the endpoint's template.
   const framingTokens = 3 + messages.reduce((sum, message) => sum + 3 + countText(message.role), 0);
   const counting: TokenCounting = {
-    kind: 'reference', tokenizer: 'cl100k_base', implementation: 'gpt-tokenizer@4.0.3',
+    kind: 'reference', tokenizer: 'o200k_base', implementation: 'gpt-tokenizer@4.0.3',
     framing: 'estimated-recipe', fallbackReason: null,
     limitations: 'Shared reference estimate for all models. Endpoint tokenization, templates and hidden additions can change usage; no exact remote-limit guarantee.',
   };
   return {
     inputTokens: contentTokens.reduce((a, b) => a + b, 0) + framingTokens,
-    contentTokens, method: 'cl100k_base reference + shared framing estimate', counting, verified: false as const,
+    contentTokens, method: 'o200k_base reference + shared framing estimate', counting, verified: false as const,
   };
 }
