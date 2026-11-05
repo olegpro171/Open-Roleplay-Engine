@@ -1,7 +1,7 @@
 import { openChatTool } from './chat-tools';
 import { test, expect } from '@playwright/test';
 import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
-import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
+import type { LibrarySnapshot } from '../../src/shared/library';
 
 test('edits explicit markers, uses recent history, and enables preparation again without losing saved memory', async ({ page, request }) => {
   const session = await request.get('/api/session').then(response => response.json());
@@ -19,14 +19,11 @@ test('edits explicit markers, uses recent history, and enables preparation again
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Explicit prompt proof');
-  await expect(page.locator('.prompt-block')).toHaveCount(defaultPrompt.blocks.length);
-  await page.getByRole('button', { name: 'Expand block 7', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: 'Marker source for block 7', exact: true })).toContainText('Summary');
+  await page.getByRole('button', { name: 'Expand block 5', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Marker source for block 5', exact: true })).toContainText('Summary');
   await expect(page.locator('body')).not.toContainText('future compaction');
-  await page.getByRole('checkbox', { name: 'Enable block 7', exact: true }).uncheck();
+  await page.getByRole('checkbox', { name: 'Enable block 5', exact: true }).uncheck();
   await expect(page.getByRole('status').filter({ hasText: 'Summary marker is absent or disabled. Summaries will not be sent.' })).toBeVisible();
-  // Keep the synthetic 350-token history exercise independent of factory prose.
-  for (const index of [2, 3, 4, 11, 12]) await page.getByRole('checkbox', { name: `Enable block ${index}`, exact: true }).uncheck();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   const prompt = (await library()).prompts.find(item => item.name === 'Explicit prompt proof')!;
   const model = await command('/api/library', { revision: (await library()).revision, kind: 'connections', data: { name: 'Prompt proof model', endpoint, model: 'synthetic-roleplay', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
@@ -92,7 +89,8 @@ test('saves a prompt with every block removed and shows generic advisory warning
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Empty prompt proof');
-  for (let i = 0; i < defaultPrompt.blocks.length; i++) await page.getByRole('button', { name: 'Remove block 1', exact: true }).click();
+  const blocks = await page.locator('.prompt-block').count();
+  for (let i = 0; i < blocks; i++) await page.getByRole('button', { name: 'Remove block 1', exact: true }).click();
   await expect(page.locator('.prompt-block')).toHaveCount(0);
   await expect(page.getByRole('status').filter({ hasText: 'marker' })).toHaveCount(4);
   await page.getByRole('button', { name: 'Save', exact: true }).click();

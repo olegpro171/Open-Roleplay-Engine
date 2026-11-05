@@ -37,6 +37,18 @@ import { newLorebook, type Lorebook, type LoreDiagnostic } from '../shared/loreb
 import { LorebookEditor, LorebookImport, LoreDiagnostics } from './LorebookEditor';
 
 export const defaultConnection: Connection = { name: 'My Connection', endpoint: 'https://api.openai.com/v1', model: '', contextWindow: 128_000, maxOutputTokens: 8196, customParameters: {} };
+
+function newPrompt(): PromptPreset {
+  const sourceMarkers = structuredClone(defaultPrompt.blocks.filter(block => block.kind === 'marker'));
+  return {
+    name: newLibraryLabel('prompts'),
+    blocks: [
+      { id: 'pre-history-instructions', name: t('libraries.pre_history_instructions'), enabled: true, kind: 'text', role: 'system', text: '' },
+      ...sourceMarkers,
+      { id: 'post-history-instructions', name: t('libraries.post_history_instructions'), enabled: true, kind: 'text', role: 'system', text: '' },
+    ],
+  };
+}
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 type Selection = { title: string; targetInputTokens: number; connectionId: string | null; promptId: string; characterId: string | null; personaId: string | null; contextPresetId: string | null; lorebookId: string | null };
 type LibraryRecord = LibraryCharacter | LibraryPersona | PromptPreset | Connection | ContextPreset | Lorebook;
@@ -318,7 +330,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
   }
   function create() {
     const kind = section as LibraryKind;
-    const data = kind === 'lorebooks' ? newLorebook() : kind === 'connections' ? defaultConnection : kind === 'contexts' ? { ...structuredClone(defaultContextPreset), name: newLibraryLabel('contexts') } : kind === 'prompts' ? { ...structuredClone(defaultPrompt), name: 'New prompt' } : kind === 'personas' ? { name: '', titleComment: '', description: '' } : { name: '', titleComment: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', lorebookId: null };
+    const data = kind === 'lorebooks' ? newLorebook() : kind === 'connections' ? defaultConnection : kind === 'contexts' ? { ...structuredClone(defaultContextPreset), name: newLibraryLabel('contexts') } : kind === 'prompts' ? newPrompt() : kind === 'personas' ? { name: '', titleComment: '', description: '' } : { name: '', titleComment: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', lorebookId: null };
     setEditing({ kind, revision: library.revision, data });
   }
   async function duplicate(item: Saved<LibraryRecord>) {

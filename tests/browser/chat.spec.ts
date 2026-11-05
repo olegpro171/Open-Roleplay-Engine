@@ -202,12 +202,9 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed J
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Observatory prompt');
-  await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
+  await page.getByRole('button', { name: 'Expand block 2', exact: true }).click();
   await page.getByLabel('Fallback text').fill('Play {{char}} in a story with {{user}}.');
-  for (const [index, block] of defaultPrompt.blocks.entries()) {
-    if (block.kind === 'text') await page.getByRole('checkbox', { name: `Enable block ${index + 1}`, exact: true }).uncheck();
-  }
-  const textPosition = defaultPrompt.blocks.length + 1;
+  const textPosition = await page.locator('.prompt-block').count() + 1;
   const markerPosition = textPosition + 1;
   await page.getByRole('button', { name: 'Add text block', exact: true }).click();
   await page.getByRole('button', { name: `Expand block ${textPosition}`, exact: true }).click();
@@ -342,14 +339,14 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
   const first = page.getByRole('region', { name: 'Prompt block 1', exact: true });
-  const blockCount = defaultPrompt.blocks.length;
+  const blockCount = await page.locator('.prompt-block').count();
   const last = page.getByRole('region', { name: `Prompt block ${blockCount}`, exact: true });
   await expect(page.locator('.block-toggle[aria-expanded=false]')).toHaveCount(blockCount);
   await expect(page.locator('.block-content')).toHaveCount(0);
-  await expect(first.getByRole('textbox', { name: 'Fallback text', exact: true })).toHaveCount(0);
+  await expect(first.getByRole('textbox', { name: 'Block text', exact: true })).toHaveCount(0);
   await expect(first.getByLabel('Block name', { exact: true })).toBeVisible();
   await first.getByRole('button', { name: 'Expand block 1', exact: true }).click();
-  await expect(first.getByRole('textbox', { name: 'Fallback text', exact: true })).toBeVisible();
+  await expect(first.getByRole('textbox', { name: 'Block text', exact: true })).toBeVisible();
   await page.getByRole('checkbox', { name: 'Enable block 1', exact: true }).uncheck();
   await page.getByRole('checkbox', { name: 'Enable block 1', exact: true }).check();
   const firstName = await first.getByLabel('Block name', { exact: true }).inputValue();

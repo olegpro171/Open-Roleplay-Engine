@@ -24,9 +24,10 @@ for (const width of [1280, 390]) {
         await page.getByRole('button', { name: 'New prompt', exact: true }).click();
         await page.getByLabel('Name', { exact: true }).fill('Keep this prompt draft');
         await page.getByRole('button', { name: 'Add marker', exact: true }).click();
-        await page.getByRole('button', { name: 'Expand block 7', exact: true }).click();
-        const marker = page.getByRole('combobox', { name: 'Marker source for block 7', exact: true });
-        const menu = page.getByRole('listbox', { name: 'Marker source for block 7', exact: true });
+        const position = await page.locator('.prompt-block').count();
+        await page.getByRole('button', { name: `Expand block ${position}`, exact: true }).click();
+        const marker = page.getByRole('combobox', { name: `Marker source for block ${position}`, exact: true });
+        const menu = page.getByRole('listbox', { name: `Marker source for block ${position}`, exact: true });
         const outerPositions = () => page.evaluate(() => Array.from(document.querySelectorAll('.library-layout, .library-panel')).map(node => node.scrollTop));
         // The click must reveal this below-fold trigger itself. Its queued scroll
         // event can arrive after the menu opens and must not close that menu.

@@ -734,6 +734,8 @@ export const englishMessages = {
   "libraries.collapse": "Collapse",
   "libraries.expand": "Expand",
   "libraries.block_text": "Block text",
+  "libraries.pre_history_instructions": "Pre-history instructions",
+  "libraries.post_history_instructions": "Post-history instructions",
   "libraries.marker_source": "Marker source",
   "libraries.marker_source_for_block": "Marker source for block {{value}}",
   "libraries.fallback_text": "Fallback text",

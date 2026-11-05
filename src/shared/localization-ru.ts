@@ -745,6 +745,8 @@ export const russianMessages = {
   "libraries.collapse": "Свернуть",
   "libraries.expand": "Развернуть",
   "libraries.block_text": "Текст блока",
+  "libraries.pre_history_instructions": "Инструкции до истории",
+  "libraries.post_history_instructions": "Инструкции после истории",
   "libraries.marker_source": "Источник маркера",
   "libraries.marker_source_for_block": "Источник маркера блока {{value}}",
   "libraries.fallback_text": "Резервный текст",

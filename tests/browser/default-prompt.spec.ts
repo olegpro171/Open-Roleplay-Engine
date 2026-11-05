@@ -4,7 +4,7 @@ import { appearanceStatusSchema } from '../../src/shared/appearance';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 
 for (const theme of ['dark', 'light', 'midnight-black'] as const) for (const width of [1440, 390]) {
-  test(`factory prompt copies preserve supplied content in ${theme} at ${width}px`, async ({ page, browserApp }, testInfo) => {
+  test(`new prompts start with blank instructions in ${theme} at ${width}px`, async ({ page, browserApp }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/');
     await page.getByLabel('Owner password').fill('browser-synthetic-password');
@@ -19,19 +19,33 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) for (const wid
     await page.getByRole('button', { name: 'Prompts', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Default prompt', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'New prompt', exact: true }).click();
-    await expect(page.locator('.prompt-block')).toHaveCount(defaultPrompt.blocks.length);
-    await page.getByRole('button', { name: `Expand block ${defaultPrompt.blocks.length}`, exact: true }).click();
-    const ending = defaultPrompt.blocks.at(-1);
-    if (ending?.kind !== 'text') throw new Error('Missing response instructions.');
-    await expect(page.getByRole('textbox', { name: 'Block text', exact: true })).toHaveValue(ending.text);
-    await page.getByRole('textbox', { name: 'Block text', exact: true }).scrollIntoViewIfNeeded();
+    const blocks = page.getByRole('region', { name: /^Prompt block \d+$/ });
+    await expect(blocks).toHaveCount(9);
+    const checkInstructions = async () => {
+      for (const [position, name] of [[1, 'Pre-history instructions'], [9, 'Post-history instructions']] as const) {
+        const block = blocks.nth(position - 1);
+        await expect(block.getByLabel('Block name', { exact: true })).toHaveValue(name);
+        await block.getByRole('button', { name: `Expand block ${position}`, exact: true }).click();
+        await expect(block.getByRole('textbox', { name: 'Block text', exact: true })).toHaveValue('');
+      }
+    };
+    await checkInstructions();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({ path: testInfo.outputPath('factory-prompt-editor.png'), fullPage: true });
-    await page.getByLabel('Name', { exact: true }).fill('Independent factory copy');
+    for (const [position, name] of [[1, 'pre'], [9, 'post']] as const) {
+      await blocks.nth(position - 1).screenshot({ path: testInfo.outputPath(`${name}-history-block.png`) });
+    }
+    await page.getByLabel('Name', { exact: true }).fill('Blank starter prompt');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Independent factory copy', exact: true })).toBeVisible();
+    const saved = page.getByRole('heading', { name: 'Blank starter prompt', exact: true });
+    await expect(saved).toBeVisible();
     const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
-    expect(library.prompts.find(prompt => prompt.name === 'Independent factory copy')?.blocks).toEqual(defaultPrompt.blocks);
+    expect(library.prompts.find(prompt => prompt.name === 'Blank starter prompt')?.blocks).toEqual([
+      expect.objectContaining({ name: 'Pre-history instructions', kind: 'text', text: '', role: 'system', enabled: true }),
+      ...defaultPrompt.blocks.filter(block => block.kind === 'marker'),
+      expect.objectContaining({ name: 'Post-history instructions', kind: 'text', text: '', role: 'system', enabled: true }),
+    ]);
     expect(library.prompts.find(prompt => prompt.id === 'default')).toEqual({ ...defaultPrompt, id: 'default', revision: 0 });
+    await saved.getByRole('button', { name: 'Blank starter prompt', exact: true }).click();
+    await checkInstructions();
   });
 }
