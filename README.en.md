@@ -2,7 +2,7 @@
 
 [Русский](README.md) | **English**
 
-**Download:** go to [Releases](https://github.com/olegpro171/Open-Roleplay-Engine/releases) and download the installer/launcher for your operating system. Follow the instructions for the selected release.
+**Download for Windows x64.** Get `ORE-launcher.bat` from [Releases](https://github.com/olegpro171/Open-Roleplay-Engine/releases).
 
 ORE is an application for AI roleplay on your computer. It focuses on simplicity, prompt customization, and long-term memory. It opens in a browser, with optional phone access on the same local network.
 
@@ -55,31 +55,13 @@ Place this file in the folder where you want to install ORE and double-click it.
 
 The script downloads the latest published Windows package, verifies it, installs it into `ORE-internal/`, and starts ORE. The package includes its own Node runtime; no development tools or local build are needed. Keep using the same launcher for later starts and updates. Saved data, settings, and language packs are preserved. If an update cannot be downloaded, an existing verified installation can still start.
 
-If you used the earlier launcher that built ORE on your computer, download the new `ORE-launcher.bat` once and replace the old file in the same folder. Keep the existing `ORE-internal/` folder; it contains your saved data.
+**One-time replacement for existing Windows users.** Stop ORE, replace only the external `ORE-launcher.bat` beside your existing `ORE-internal/` folder, and start ORE again. The launcher shipped with ORE · f553710121c8 reapplies permissions before handing off to the installed app. The replacement skips that work when permissions already match. Keep using the replacement for routine updates. The earlier Windows launcher that built from source also requires a one-time replacement to move to package delivery.
 
-The supported platform is Windows x64 with built-in 64-bit Windows PowerShell 5.1/.NET.
+Windows x64 uses the built-in 64-bit Windows PowerShell 5.1 and .NET. See [recovery and legacy installations](docs/RELEASES.md#legacy-installations) for the retired launchers.
 
-### macOS launcher
+### macOS working-tree startup
 
-The installation script is `ORE-launcher.command`. Download it from [Releases](https://github.com/olegpro171/Open-Roleplay-Engine/releases).
-
-Place this file in the folder where you want to install ORE.
-
-The script is usually downloaded without execute permission. Before the first launch, open Terminal and grant the downloaded file permission to run:
-
-```sh
-chmod u+x "/path/to/ORE-launcher.command"
-```
-
-> To avoid typing the path manually, type `chmod u+x ` in Terminal (with a trailing space), then drag the downloaded script into Terminal. The path will be filled in automatically.
-
-Then double-click the script to run it.
-
-If macOS blocks the downloaded file, approve it individually under **System Settings → Privacy & Security → Open Anyway**.
-
-The script installs ORE into `ORE-internal/`. On the first installation, it downloads the latest source code from the `main` branch and an isolated toolkit, then builds, checks, and starts ORE.
-
-The target platform is macOS 13.5+ on arm64/x64.
+From the source checkout, run `./start-dev.command` to build and start the current working tree. It builds into `ore-development/` and uses the repository database by default. See [working-tree development](docs/RELEASES.md#working-tree-development).
 
 ## First chat
 
@@ -101,7 +83,7 @@ Closing the phone's browser tab or losing the connection does not cancel generat
 
 The application stores chat content, character data, API keys, and other data locally on the server computer.
 
-The database is `ORE-internal/data/roleplay.sqlite`, and configuration is stored in `ORE-internal/.env`.
+Windows downloads use `ORE-internal/data/roleplay.sqlite` and `ORE-internal/.env` by default. Working-tree startup uses the checkout’s `data/roleplay.sqlite` and `.env`.
 
 Request content is sent to your configured model endpoint and is subject to that service's privacy policies.
 

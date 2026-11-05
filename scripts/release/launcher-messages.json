@@ -3,9 +3,9 @@
     "en": "ORE",
     "ru": "ORE"
   },
-  "firstSetup": {
-    "en": "First-time setup may take a few minutes.",
-    "ru": "Первоначальная настройка может занять несколько минут."
+  "helperUnavailable": {
+    "en": "No compatible ORE launcher helper is available. Use ORE-internal\\recover-app.bat to inspect the installation. First package activation requires updates to be enabled.",
+    "ru": "Совместимый компонент запуска ORE недоступен. Чтобы проверить установку, запустите ORE-internal\\recover-app.bat. Для первой установки пакета необходимо включить обновления."
   },
   "checkingUpdates": {
     "en": "Checking for updates...",
@@ -15,21 +15,9 @@
     "en": "Downloading new version...",
     "ru": "Загрузка новой версии..."
   },
-  "downloadingToolkit": {
-    "en": "Downloading private toolkit...",
-    "ru": "Загрузка встроенного набора инструментов..."
-  },
   "preparingVersion": {
     "en": "Preparing new version...",
     "ru": "Подготовка новой версии..."
-  },
-  "buildingVersion": {
-    "en": "Building new version...",
-    "ru": "Сборка новой версии..."
-  },
-  "checkingVersion": {
-    "en": "Checking new version...",
-    "ru": "Проверка новой версии..."
   },
   "activatingVersion": {
     "en": "Activating new version...",
@@ -106,10 +94,6 @@
   "verificationFailed": {
     "en": "A downloaded file couldn't be verified. Run the launcher again to retry.",
     "ru": "Не удалось проверить загруженный файл. Для повторной попытки запустите ORE-launcher ещё раз."
-  },
-  "buildFailed": {
-    "en": "ORE couldn't build the application.",
-    "ru": "Не удалось собрать приложение ORE."
   },
   "activationFailed": {
     "en": "ORE couldn't activate the new version.",

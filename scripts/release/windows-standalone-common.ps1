@@ -29,19 +29,14 @@ public static class OreCancellation {
 function Test-OreCancellation {
     return ('OreCancellation' -as [type]) -and [OreCancellation]::IsCancelled
 }
-function Initialize-OreStandaloneHome([string]$Path) {
+function Assert-OreStandaloneHome([string]$Path) {
     $full = Assert-OrePath $Path $Path
-    $marker = Join-Path $full '.ore-installation'
-    if (Test-Path -LiteralPath $full) {
-        if (![IO.Directory]::Exists($full)) { throw 'folderCollision' }
-        Assert-OrePath $full $marker | Out-Null
-        if (![IO.File]::Exists($marker) -or [IO.File]::ReadAllText($marker).Trim() -cne 'ORE-installation:1') { throw 'folderCollision' }
-    } else {
-        # Refuse preexisting content; mark the partial installation immediately.
-        New-Item -ItemType Directory -Path $full -ErrorAction Stop | Out-Null
-        $stream = [IO.File]::Open($marker,[IO.FileMode]::CreateNew)
-        try { $bytes = [Text.Encoding]::ASCII.GetBytes("ORE-installation:1`n"); $stream.Write($bytes,0,$bytes.Length) } finally { $stream.Dispose() }
+    if (![IO.Directory]::Exists($full)) {
+        if ([IO.File]::Exists($full)) { throw 'folderCollision' }
+        return $full
     }
+    $marker = Assert-OrePath $full (Join-Path $full '.ore-installation')
+    if (![IO.File]::Exists($marker) -or (New-Object IO.FileInfo $marker).Length -gt 64 -or [IO.File]::ReadAllText($marker).Trim() -cne 'ORE-installation:1') { throw 'folderCollision' }
     foreach ($name in @('cache','cache/npm','logs','app','runtime','recovery','data','languages')) {
         $target = Assert-OrePath $full (Join-Path $full $name)
         if ([IO.File]::Exists($target)) { throw 'folderCollision' }
@@ -50,7 +45,17 @@ function Initialize-OreStandaloneHome([string]$Path) {
         $target = Assert-OrePath $full (Join-Path $full $name)
         if ([IO.Directory]::Exists($target)) { throw 'folderCollision' }
     }
-    Set-OrePrivate $full
+    return $full
+}
+function Initialize-OreStandaloneHome([string]$Path) {
+    $full = Assert-OreStandaloneHome $Path
+    if (![IO.Directory]::Exists($full)) {
+        New-Item -ItemType Directory -Path $full -ErrorAction Stop | Out-Null
+        Set-OrePrivate $full
+        # CreateNew prevents another first start from replacing the ownership marker.
+        $stream = [IO.File]::Open((Join-Path $full '.ore-installation'),[IO.FileMode]::CreateNew)
+        try { $bytes = [Text.Encoding]::ASCII.GetBytes("ORE-installation:1`n"); $stream.Write($bytes,0,$bytes.Length) } finally { $stream.Dispose() }
+    } else { Set-OrePrivate $full }
     foreach ($name in @('cache','logs','app','runtime','recovery','data','languages')) { [IO.Directory]::CreateDirectory((Join-Path $full $name)) | Out-Null }
     return $full
 }
@@ -79,6 +84,7 @@ function Import-OreStandaloneEnvironment([string]$Path) {
 function Get-OreSelection([string]$HomePath, [string]$Pointer = 'current') {
     $path = Assert-OrePath $HomePath (Join-Path $HomePath $Pointer)
     if (![IO.File]::Exists($path)) { return $null }
+    if ((New-Object IO.FileInfo $path).Length -gt 512) { throw 'Oversized application/runtime selection.' }
     $lines = [IO.File]::ReadAllLines($path,[Text.Encoding]::UTF8)
     if ($lines.Count -ne 2 -or $lines[0] -cnotmatch '^(release|dev)-[a-z0-9-]+$' -or $lines[1] -cnotmatch '^node-v[0-9.]+-win32-x64$') { throw 'Invalid application/runtime selection.' }
     $application = Assert-OrePath $HomePath (Join-Path $HomePath ('app/'+$lines[0]))
@@ -101,7 +107,7 @@ function Get-OreHttps([string]$Url, [string]$Output, [int]$Seconds = 60) {
     try {
         $uri = [Uri]$Url
         for ($redirect = 0; $redirect -le 5; $redirect++) {
-            if ($uri.Scheme -cne 'https' -or $uri.UserInfo -or $uri.Host -notin @('api.github.com','github.com','codeload.github.com','nodejs.org','release-assets.githubusercontent.com','objects.githubusercontent.com')) { throw 'Unapproved download redirect.' }
+            if ($uri.Scheme -cne 'https' -or $uri.UserInfo -or $uri.Host -notin @('api.github.com','github.com','nodejs.org','release-assets.githubusercontent.com','objects.githubusercontent.com')) { throw 'Unapproved download redirect.' }
             $response = $client.GetAsync($uri,[Net.Http.HttpCompletionOption]::ResponseHeadersRead,$cancel.Token).GetAwaiter().GetResult()
             if ([int]$response.StatusCode -in @(301,302,303,307,308)) {
                 $uri = New-Object Uri $uri,$response.Headers.Location
@@ -132,34 +138,7 @@ function ConvertTo-OreArgument([string]$Value) {
     # CommandLineToArgvW quoting; paths are never evaluated as shell source.
     return '"'+[regex]::Replace([regex]::Replace($Value,'(\\*)"','$1$1\"'),'(\\+)$','$1$1')+'"'
 }
-function Read-OreBuildEvents([string]$Path) {
-    # Readers must permit the stage writer to open/append while polling. Bound
-    # the bytes actually read, including an append racing the initial read.
-    $stream = [IO.File]::Open($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
-    try {
-        $buffer = New-Object byte[] 129
-        $length = 0
-        while ($length -lt $buffer.Length) {
-            $count = $stream.Read($buffer,$length,$buffer.Length-$length)
-            if ($count -eq 0) { break }
-            $length += $count
-        }
-        if ($length -gt 128) { throw 'Oversized build event.' }
-        return [Text.Encoding]::UTF8.GetString($buffer,0,$length)
-    } finally { $stream.Dispose() }
-}
-function Get-OreCompletedBuildEvents([string]$Text) {
-    # An append may be observed mid-line. Only complete frames can advance the
-    # presenter, and polling/final reads enforce the same ordered protocol.
-    $complete = $Text.Substring(0,$Text.LastIndexOf("`n")+1)
-    $events = @($complete.Split("`n") | Where-Object { $_ })
-    $expected = @('checkingVersion','activatingVersion')
-    for ($index = 0; $index -lt $events.Count; $index++) {
-        if ($index -ge $expected.Count -or $events[$index] -cne $expected[$index]) { throw 'Unexpected build phase.' }
-    }
-    return $events
-}
-function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$Report, [switch]$Console, [string]$PhaseFile) {
+function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$Report, [switch]$Console) {
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $Executable
     $start.Arguments = (($Arguments | ForEach-Object { ConvertTo-OreArgument $_ }) -join ' ')
@@ -181,30 +160,11 @@ function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$R
             $outputStream = [IO.File]::Open($path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
             $paths += $path; $outputs += $outputStream; $tasks += $stream.CopyToAsync($outputStream)
         }
-        $phase = 0
         do {
             if (Test-OreCancellation) { throw (New-Object OperationCanceledException 'Launcher cancelled.') }
-            if ($PhaseFile -and [IO.File]::Exists($PhaseFile)) {
-                $eventText = Read-OreBuildEvents $PhaseFile
-                $events = @(Get-OreCompletedBuildEvents $eventText)
-                while ($phase -lt $events.Count) {
-                    Show-OreMessage $events[$phase]
-                    $phase++
-                }
-            }
             foreach ($task in $tasks) { if ($task.IsFaulted) { $task.GetAwaiter().GetResult() | Out-Null } }
         } while (!$process.WaitForExit(100))
         foreach ($task in $tasks) { $task.GetAwaiter().GetResult() | Out-Null }
-        # Read final phases after the process and its output have drained.
-        if ($PhaseFile) {
-            $finalEvents = Read-OreBuildEvents $PhaseFile
-            foreach ($id in @(Get-OreCompletedBuildEvents $finalEvents) | Select-Object -Skip $phase) {
-                Show-OreMessage $id
-                $phase++
-            }
-            if ($process.ExitCode -eq 0 -and $finalEvents -cne "checkingVersion`nactivatingVersion`n") { throw 'Incomplete build event sequence.' }
-            if ($process.ExitCode -ne 0 -and $finalEvents.Contains('activatingVersion')) { $script:OreFailure = 'activationFailed' }
-        }
         return $process.ExitCode
     } finally {
         # Never leave workers running after presenter/log/phase failure.

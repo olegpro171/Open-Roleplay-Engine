@@ -5,15 +5,18 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { verifyStartup } from './startup-smoke.mjs';
 import { readSelection, writeSelection, runtimeExecutable, publishRename } from './selection.mjs';
-import { launcherEvent } from './launcher-messages.mjs';
 import { buildPhase } from './build-timing.mjs';
 import { windowsRootTools } from './windows-package-files.mjs';
 
-const recoveryFiles = ['load-env.sh', 'recover.mjs', 'database-location.mjs', 'selection.mjs', 'startup-smoke.mjs', 'check-database.mjs', 'portable-launch.mjs', 'application-start.mjs', 'application-assets.mjs', 'launcher-messages.mjs', 'launcher-messages.json', 'launcher-lock.mjs', 'macos-install.mjs', 'macos-launcher.sh', 'macos-launcher-protocol', 'update-and-start.sh', 'launcher-protocol', 'windows-common.ps1', 'update-and-start.ps1', 'recover-windows.ps1', 'start-windows.ps1'];
-
+const recoveryFiles = [
+  'load-env.sh', 'recover.mjs', 'database-location.mjs', 'selection.mjs', 'startup-smoke.mjs',
+  'check-database.mjs', 'portable-launch.mjs', 'application-start.mjs', 'application-assets.mjs',
+  'launcher-messages.mjs', 'launcher-messages.json', 'launcher-lock.mjs',
+];
+const windowsRecoveryFiles = [
+  'windows-install-verify.mjs', 'windows-package-launcher.ps1', 'windows-package-protocol',
+];
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
-recoveryFiles.push('windows-launcher.ps1', 'windows-launcher-protocol', 'windows-install-verify.mjs', 'windows-snapshot.ps1', 'windows-standalone-common.ps1');
-recoveryFiles.push('build-timing.mjs', 'windows-package-launcher.ps1', 'windows-package-protocol', 'windows-package-install.mjs', 'windows-package-lock.ps1', 'windows-package.ps1', 'windows-package-files.mjs');
 export function inventory(root, directory = root, developmentModules = null) {
   return readdirSync(directory).sort().flatMap(name => {
     const path = join(directory, name), stat = lstatSync(path), entry = relative(root, path).split('\\').join('/');
@@ -59,6 +62,7 @@ function notices(work, output) {
   writeFileSync(join(output, 'README.txt'), `ORE third-party inventory\n\npackages.json includes build-time UI packages as well as server packages. Their supplied license/notice/readme files accompany it. Node's full license and bundled component notices are in runtime/<version>/LICENSE.\n\nsharp/libvips native component versions and upstream combined notices are retained with the @img packages. Rebuilding/replacing those dynamic libraries is permitted by their licenses; ORE does not embed them into its executable. Source/build recipes: https://github.com/lovell/sharp-libvips/tree/v1.3.4 and the pinned versions.json. Full GPL/LGPL texts, exact native component source/patch URLs and the pinned build recipe are in native-sources/. No publication/signing is performed by these scripts.\n`);
 }
 async function install(work, home, mode, commit, runtime, runtimeChecksum, noticeDirectory, transfer = 'copy') {
+  if (mode !== '--release' && mode !== '--development') throw new Error('Unknown build mode.');
   if (!['copy', 'move-dependencies', 'development-dependencies'].includes(transfer)) throw new Error('Unknown dependency staging mode.');
   const developmentDependencies = transfer === 'development-dependencies';
   if (developmentDependencies && (mode !== '--development' || process.platform !== 'win32')) throw new Error('Shared development dependencies are only supported for local Windows development.');
@@ -73,7 +77,9 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     if (developmentDependencies && (developmentModules !== realpathSync(join(home, 'cache/development-dependencies', dependencyCache.directory, 'node_modules')) || !developmentModules.startsWith(realpathSync(join(home, 'cache/development-dependencies')) + '\\'))) throw new Error('Development dependencies must stay inside their installation cache.');
   }
   const { databaseSchemaVersion } = await import(pathToFileURL(join(work, 'dist/server/shared/build-info.js')).href);
-  const release = mode === '--release' || mode === '--snapshot';
+  const release = mode === '--release';
+  const windows = process.platform === 'win32';
+  const toolkitFiles = windows ? [...recoveryFiles, ...windowsRecoveryFiles] : recoveryFiles;
   const id = `${release ? 'release' : 'dev'}-${commit.slice(0, 12)}-${randomUUID()}`;
   const staging = join(home, 'cache', `payload-${id}`), application = join(home, 'app', id);
   mkdirSync(staging);
@@ -84,13 +90,14 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
       else cpSync(join(work, 'node_modules'), join(staging, 'node_modules'), { recursive: true, verbatimSymlinks: true });
     });
     mkdirSync(join(staging, 'scripts/release'), { recursive: true });
-    for (const name of ['native-smoke.mjs', 'package-portable.mjs', 'stage.mjs', ...recoveryFiles]) cpSync(join(work, 'scripts/release', name), join(staging, 'scripts/release', name));
+    const applicationFiles = ['native-smoke.mjs', 'package-portable.mjs', 'stage.mjs', 'windows-package-files.mjs', 'build-timing.mjs', ...toolkitFiles];
+    if (windows) applicationFiles.push('windows-package-install.mjs');
+    for (const name of applicationFiles) cpSync(join(work, 'scripts/release', name), join(staging, 'scripts/release', name));
     cpSync(noticeDirectory, join(staging, 'notices'), { recursive: true, verbatimSymlinks: true });
     cpSync(join(work, 'docs/RELEASES.md'), join(staging, 'README.md'));
     cpSync(join(work, 'LICENSE'), join(staging, 'LICENSE'));
     const metadata = { kind: release ? 'release' : 'development', commit, schema: databaseSchemaVersion, node: process.versions.node, platform: process.platform, arch: process.arch };
     writeFileSync(join(staging, 'build-info.json'), JSON.stringify(metadata, null, 2));
-    await launcherEvent('checkingVersion');
     await buildPhase('verify-production-native-packages', () => {
       const smoke = spawnSync(process.execPath, [join(staging, 'scripts/release/native-smoke.mjs')], { cwd: home, stdio: 'inherit' });
       if (smoke.error) throw smoke.error;
@@ -105,7 +112,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
         throw new Error('Development dependency cache changed. Run the build again to reinstall dependencies. Previous selection retained.');
       }
     }
-    const manifest = { ...metadata, runtime, runtimeArchiveSha256: runtimeChecksum, lockfileSha256: hash(join(staging, 'package-lock.json')), ...(developmentDependencies ? { localDevelopmentDependencies: true } : {}), ...(mode === '--snapshot' ? { source: 'github-main-snapshot', sourceArchiveSha256: process.env.ORE_SNAPSHOT_SHA256 } : {}), files };
+    const manifest = { ...metadata, runtime, runtimeArchiveSha256: runtimeChecksum, lockfileSha256: hash(join(staging, 'package-lock.json')), ...(developmentDependencies ? { localDevelopmentDependencies: true } : {}), files };
     writeFileSync(join(staging, 'manifest.json'), JSON.stringify(manifest, null, 2));
     console.log('[Verify] Starting the new app with a temporary test database and checking that its interface loads...');
     await buildPhase('verify-application-startup', () => verifyStartup(staging, process.execPath, join(home, 'cache')));
@@ -122,11 +129,10 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
         } catch (error) { console.warn(`Previous selected application could not be verified; it was not marked working: ${error.message}`); }
       }
     }
-    await launcherEvent('activatingVersion');
     publishRename(staging, application);
     const toolkit = join(home, 'recovery', id);
     mkdirSync(toolkit, { recursive: true });
-    for (const name of recoveryFiles) cpSync(join(application, 'scripts/release', name), join(toolkit, name));
+    for (const name of toolkitFiles) cpSync(join(application, 'scripts/release', name), join(toolkit, name));
     writeSelection(join(home, 'recovery'), 'current', { id, runtime });
     const recoveryLauncher = join(home, `recover-${randomUUID()}.tmp`);
     cpSync(join(work, 'scripts/release/recover.command'), recoveryLauncher);

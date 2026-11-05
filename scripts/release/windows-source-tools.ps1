@@ -1,35 +1,4 @@
-# Retained source-building entry points only; never embedded in the package downloader.
-function Get-OreHelper([string]$HomePath) {
-    foreach ($pointer in @('current','recovery/current')) {
-        $selection = Get-OreSelection $HomePath $pointer
-        if (!$selection) { continue }
-        $directory = if ($pointer -eq 'current') { Join-Path $selection.Application 'scripts/release' } else { Join-Path $HomePath ('recovery/'+$selection.Id) }
-        $protocol = Assert-OrePath $HomePath (Join-Path $directory 'windows-launcher-protocol')
-        $helper = Assert-OrePath $HomePath (Join-Path $directory 'windows-launcher.ps1')
-        if ([IO.Directory]::Exists($protocol)) { throw 'Invalid helper protocol.' }
-        if (![IO.File]::Exists($protocol)) { continue }
-        if ([IO.File]::ReadAllText($protocol).Trim() -cne '1') { throw 'Unsupported standalone helper protocol.' }
-        $complete = $true
-        foreach ($name in @('portable-launch.mjs','windows-install-verify.mjs','application-assets.mjs','selection.mjs','launcher-messages.mjs','launcher-messages.json','launcher-lock.mjs','application-start.mjs','database-location.mjs','check-database.mjs')) {
-            $dependency = Assert-OrePath $HomePath (Join-Path $directory $name)
-            try {
-                if (![IO.File]::Exists($dependency) -or !(New-Object IO.FileInfo $dependency).Length) { $complete = $false; break }
-                $readable = [IO.File]::OpenRead($dependency); $readable.Dispose()
-            } catch [IO.IOException] { $complete = $false; break } catch [UnauthorizedAccessException] { $complete = $false; break }
-        }
-        if (!$complete) { continue }
-        if (![IO.File]::Exists($helper)) { continue }
-        try {
-            $sourceText = [IO.File]::ReadAllText($helper,[Text.Encoding]::UTF8)
-            $tokens = $null; $parseErrors = $null
-            [Management.Automation.Language.Parser]::ParseInput($sourceText,[ref]$tokens,[ref]$parseErrors) | Out-Null
-            if (!$sourceText.Trim() -or $parseErrors.Count) { continue }
-        } catch [IO.IOException] { continue } catch [UnauthorizedAccessException] { continue }
-        return $helper
-    }
-    if ([IO.File]::Exists((Join-Path $HomePath 'current')) -or [IO.File]::Exists((Join-Path $HomePath 'recovery/current'))) { throw 'No complete compatible standalone helper.' }
-    return $null
-}
+# Private runtime preparation for the Windows source builder.
 function Move-OreRuntimeDirectory([string]$SourcePath, [string]$Destination) {
     # Windows can briefly retain executable/AV handles after validation exits.
     # Retry the rename without deleting either directory or replacing a runtime.
@@ -53,7 +22,6 @@ function Get-OreRuntime([string]$HomePath, [string]$SourcePath, [string]$StagePa
     $expected = ($pins[0] -split '\s+')[0]
     $archive = Assert-OrePath $HomePath (Join-Path $HomePath ('cache/'+$archiveName))
     if (![IO.File]::Exists($archive)) {
-        if (Get-Command Show-OreMessage -ErrorAction SilentlyContinue) { Show-OreMessage 'downloadingToolkit' }
         $partial = Join-Path $StagePath 'runtime.part'
         Get-OreHttps ('https://nodejs.org/dist/v'+$version+'/'+$archiveName) $partial 600
         if ((Get-OreHash $partial) -cne $expected) { throw 'Runtime checksum mismatch.' }

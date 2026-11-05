@@ -18,8 +18,7 @@ try {
     $env:ORE_DATABASE_DEFAULT = 'repository'
     $powershell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
     # A failed rebuild must stop here rather than launch an older installed app.
-    Invoke-Native $powershell @('-NoProfile','-ExecutionPolicy','RemoteSigned','-File',(Join-Path $source 'build-portable.ps1'),'-Mode','Development','-ReuseDevelopmentDependencies','-Destination',$installation)
-    $env:ORE_SKIP_UPDATE = '1'
-    Invoke-Native $powershell @('-NoProfile','-ExecutionPolicy','RemoteSigned','-File',(Join-Path $PSScriptRoot 'update-and-start.ps1'),'-Installation',$installation,'-SourceHint',$source)
+    Invoke-Native $powershell @('-NoProfile','-ExecutionPolicy','RemoteSigned','-File',(Join-Path $PSScriptRoot 'build-portable.ps1'),'-Mode','Development','-ReuseDevelopmentDependencies','-Destination',$installation)
+    Invoke-Native $powershell @('-NoProfile','-ExecutionPolicy','RemoteSigned','-File',(Join-Path $PSScriptRoot 'start-windows.ps1'),'-DevelopmentInstallation',$installation)
     exit 0
 } catch { [Console]::Error.WriteLine('ORE: ' + $_.Exception.Message); exit 1 }

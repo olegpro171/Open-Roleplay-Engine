@@ -10,7 +10,6 @@ function fixture(developmentLauncher = false) {
   const root = mkdtempSync(join(tmpdir(), 'ORE bootstrap-история-')); directories.push(root);
   const source = join(root, 'source'), home = developmentLauncher ? join(source, 'ore-development') : join(root, 'installed'), bin = join(root, 'tools');
   mkdirSync(source); mkdirSync(home); mkdirSync(bin);
-  cpSync(resolve('build-portable.sh'), join(source, 'build-portable.sh'));
   cpSync(resolve('start-dev.command'), join(source, 'start-dev.command'));
   cpSync(resolve('scripts/release'), join(source, 'scripts/release'), { recursive: true });
   for (const directory of ['src', 'public', 'migrations', 'docs']) mkdirSync(join(source, directory));
@@ -21,7 +20,7 @@ function fixture(developmentLauncher = false) {
   writeFileSync(join(home, 'current'), 'previous-app\nprevious-runtime\n');
   mkdirSync(join(home, 'data')); writeFileSync(join(home, 'data/sentinel'), 'saved user data');
   mkdirSync(join(home, 'languages')); writeFileSync(join(home, 'languages/sentinel'), 'saved language pack');
-  const run = (args = ['--development', home]) => spawnSync('/bin/bash', [join(source, 'build-portable.sh'), ...args], { encoding: 'utf8', env: { ...process.env, PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin` }, timeout: 15000 });
+  const run = (args = ['--development', home]) => spawnSync('/bin/bash', [join(source, 'scripts/release/build-portable.sh'), ...args], { encoding: 'utf8', env: { ...process.env, PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin` }, timeout: 15000 });
   const unchanged = () => {
     expect(readFileSync(join(home, 'current'), 'utf8')).toBe('previous-app\nprevious-runtime\n');
     expect(readFileSync(join(home, 'data/sentinel'), 'utf8')).toBe('saved user data');

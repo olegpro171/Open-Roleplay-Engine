@@ -28,8 +28,8 @@ export function loadDatabaseState(home, hint = 'installation') {
   const legacy = resolve(home, 'database-path.txt');
   if (existsSync(legacy)) {
     const previous = readFileSync(legacy, 'utf8').trim();
-    if (!isAbsolute(previous) || /[\r\n\0]/u.test(previous)) throw new Error('Invalid legacy database path. Use recover-app.command --database repository or recover.command --database external ABSOLUTE_PATH.');
-    if (resolve(previous) !== databasePath(home, { kind: 'repository' })) throw new Error('Legacy database path is ambiguous after relocation or an external selection. No replacement database was created. Choose recover-app.command --database repository for the moved repository database, or recover.command --database external ABSOLUTE_PATH for an existing external database.');
+    if (!isAbsolute(previous) || /[\r\n\0]/u.test(previous)) throw new Error('Invalid legacy database path. Use recover.command --database repository or recover.command --database external ABSOLUTE_PATH.');
+    if (resolve(previous) !== databasePath(home, { kind: 'repository' })) throw new Error('Legacy database path is ambiguous after relocation or an external selection. No replacement database was created. Choose recover.command --database repository for the moved repository database, or recover.command --database external ABSOLUTE_PATH for an existing external database.');
     return { version: 1, default: { kind: 'repository' }, established: [{ kind: 'repository' }] };
   }
   if (!['repository', 'installation'].includes(hint)) throw new Error('Invalid default database location.');
@@ -54,7 +54,7 @@ function resolveDatabaseState(home, env, persist) {
   const established = state.established.some(value => key(value) === key(selected));
   const present = existsSync(path);
   if (present && !statSync(path).isFile()) throw new Error('The selected database path is not a file.');
-  if (established && !present) throw new Error(`Established database is missing: ${path}. Restore it, or explicitly select its existing new location with recover.command --database external ABSOLUTE_PATH (recover-app.command --database repository for a moved source database). No empty replacement was created.`);
+  if (established && !present) throw new Error(`Established database is missing: ${path}. Restore it, or explicitly select its existing new location with recover.command --database external ABSOLUTE_PATH (recover.command --database repository for a moved source database). No empty replacement was created.`);
   if (present && !established) state.established.push(selected);
   if (persist) saveDatabaseState(home, state);
   return { path, mustExist: established || present, selected, state };

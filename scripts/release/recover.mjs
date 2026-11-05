@@ -63,9 +63,10 @@ async function recover() {
       const checked = spawnSync(target.node, [join(tools, 'check-database.mjs'), target.path, database.path, String(target.info.schema)], { encoding: 'utf8' });
       if (checked.status !== 0) throw new Error(`Recovery refused before changing selection.\n${checked.stderr || checked.error?.message || checked.stdout}`);
     }
-    const protocol = join(target.path, 'scripts/release/launcher-protocol');
-    const launcher = existsSync(protocol) && readFileSync(protocol, 'utf8').trim() === '2'
-      ? join(target.path, 'scripts/release/portable-launch.mjs') : join(tools, 'portable-launch.mjs');
+    const targetTools = join(target.path, 'scripts/release');
+    const targetLauncher = join(targetTools, 'portable-launch.mjs');
+    const launcher = existsSync(join(targetTools, 'application-start.mjs')) && existsSync(targetLauncher)
+      ? targetLauncher : join(tools, 'portable-launch.mjs');
     await verifyStartup(target.path, target.node, join(home, 'cache'), launcher);
     writeFileSync(join(home, 'updates-paused'), 'Recovery selected an older application. Use recover.command --resume-updates when ready.\n', { mode: 0o600 });
     writeSelection(home, 'current', target.selection);

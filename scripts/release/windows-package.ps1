@@ -40,15 +40,15 @@ function Test-OrePackageFiles([string]$Directory) {
     $files = @(Get-OreLongFiles $Directory)
     if ($files.Count -ne $records.Count+1) { throw 'Unlisted package files.' }
 }
-function Get-OrePackageHelper([string]$HomePath) {
+function Get-OrePackageHelper([string]$HomePath, [string[]]$Pointers = @('current','recovery/current')) {
     # Protocol-1 source updaters never regain control of a package installation.
-    foreach ($pointer in @('current','recovery/current')) {
+    foreach ($pointer in $Pointers) {
         $selection = Get-OreSelection $HomePath $pointer
         if (!$selection) { continue }
         $tools = if ($pointer -eq 'current') { Join-Path $selection.Application 'scripts/release' } else { Join-Path $HomePath ('recovery/'+$selection.Id) }
         $protocol = Assert-OrePath $HomePath (Join-Path $tools 'windows-package-protocol')
         if (![IO.File]::Exists($protocol)) { continue }
-        if ([IO.File]::ReadAllText($protocol).Trim() -cne '2') { throw 'Unsupported installed package protocol.' }
+        if ((New-Object IO.FileInfo $protocol).Length -gt 16 -or [IO.File]::ReadAllText($protocol).Trim() -cne '2') { throw 'Unsupported installed package protocol.' }
         $complete = $true
         foreach ($name in @('windows-package-launcher.ps1','portable-launch.mjs','application-start.mjs','database-location.mjs','check-database.mjs','selection.mjs','application-assets.mjs','launcher-lock.mjs','launcher-messages.mjs','launcher-messages.json','windows-install-verify.mjs')) {
             $path = Assert-OrePath $HomePath (Join-Path $tools $name)
@@ -59,10 +59,45 @@ function Get-OrePackageHelper([string]$HomePath) {
         }
         if (!$complete) { continue }
         $helper = Join-Path $tools 'windows-package-launcher.ps1'
+        if ((New-Object IO.FileInfo $helper).Length -gt 1MB) { continue }
         $tokens = $null; $errors = $null
         try { [Management.Automation.Language.Parser]::ParseFile($helper,[ref]$tokens,[ref]$errors) | Out-Null }
         catch [IO.IOException] { continue } catch [UnauthorizedAccessException] { continue }
         if (!$errors.Count) { return $helper }
     }
     return $null
+}
+
+function Assert-OreForwardRelease([string]$Commit, [string]$Target, [string]$Stage) {
+    if ($Commit -cnotmatch '^[a-f0-9]{40}$') { throw 'Invalid installed release identity.' }
+    if ($Commit -ceq $Target) { return }
+    $comparePath = Join-Path $Stage 'compare.json'
+    Get-OreHttps ('https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/compare/'+$Commit+'...'+$Target+'?per_page=1') $comparePath 30
+    $compare = Read-OreJson $comparePath
+    if ($compare.status -cne 'ahead' -or $compare.base_commit.sha -cne $Commit -or $compare.merge_base_commit.sha -cne $Commit) { throw 'Release is not a proven forward continuation.' }
+}
+function Install-OreRelease([hashtable]$Release, [string]$Stage, [string]$Installation) {
+    Show-OreMessage 'downloadingVersion'
+    $checksum = Join-Path $stage 'package.sha256'
+    Get-OreHttps $release.Checksum $checksum 30
+    if ((New-Object IO.FileInfo $checksum).Length -gt 1KB -or [IO.File]::ReadAllText($checksum).Trim() -cne ($release.Sha256+'  ORE-windows-x64.zip')) { throw 'Release checksums disagree.' }
+    $archive = Join-Path $stage 'package.zip'
+    Get-OreHttps $release.Archive $archive 600
+    $script:OreFailure = 'verificationFailed'
+    if ((New-Object IO.FileInfo $archive).Length -ne $release.Bytes -or (Get-OreHash $archive) -cne $release.Sha256) { throw 'Package checksum/size mismatch.' }
+    Show-OreMessage 'preparingVersion'
+    $unpacked = Join-Path $stage 'payload'
+    Expand-OreZip $archive ('ORE-'+$release.Commit.Substring(0,12)+'-release-win32-x64') $unpacked -LongPaths
+    Test-OrePackageFiles $unpacked
+    $candidate = Get-OreSelection $unpacked
+    if (!$candidate) { throw 'Package selection is missing.' }
+    $info = Read-OreJson (Join-Path $candidate.Application 'build-info.json')
+    if ($info.commit -cne $release.Commit -or $info.platform -cne 'win32' -or $info.arch -cne 'x64' -or $info.kind -cne 'release') { throw 'Package identity differs from release.' }
+    $candidateTools = Join-Path $candidate.Application 'scripts/release'
+    foreach ($pointer in @('current','recovery/current')) {
+        if (!(Get-OrePackageHelper $unpacked $pointer)) { throw 'Package is missing a compatible startup or recovery helper.' }
+    }
+    $script:OreFailure = 'activationFailed'
+    Show-OreMessage 'activatingVersion'
+    if ((Invoke-OreProcess $candidate.Node @((Join-Path $candidateTools 'windows-package-install.mjs'),$unpacked,$Installation,$release.Commit) $script:OreReport) -ne 0) { throw 'Package activation failed.' }
 }

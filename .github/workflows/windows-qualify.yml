@@ -40,7 +40,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\build-portable.ps1 -Mode Release -ReleaseBranch staging -Commit $env:GITHUB_SHA -Destination "$env:RUNNER_TEMP\ORE-ci-install"
+          & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\release\build-portable.ps1 -Mode Release -ReleaseBranch staging -Commit $env:GITHUB_SHA -Destination "$env:RUNNER_TEMP\ORE-ci-install"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package and verify extracted release
         shell: pwsh

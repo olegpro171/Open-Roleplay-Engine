@@ -99,10 +99,6 @@ function Acquire-OrePackageLease([string]$HomePath) {
         throw
     }
 }
-function Test-OrePackageLeaseHome([string]$HomePath) {
-    $leasedHome = $env:ORE_PACKAGE_LEASE_HOME
-    return $leasedHome -and [IO.Path]::IsPathRooted($leasedHome) -and [IO.Path]::GetFullPath($leasedHome).Equals([IO.Path]::GetFullPath($HomePath),[StringComparison]::OrdinalIgnoreCase)
-}
 function Get-OreWindowsBootTime {
     # A reboot proves that a legacy lock's owner and every worker have stopped.
     # Elapsed age or an absent/reused PID cannot establish that invariant.

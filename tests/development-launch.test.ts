@@ -12,10 +12,10 @@ function fixture() {
   mkdirSync(join(root, 'scripts/release'), { recursive: true });
   cpSync(resolve('scripts/release/load-env.sh'), join(root, 'scripts/release/load-env.sh'));
   writeFileSync(join(root, 'local-edit'), 'Uncommitted working tree');
-  writeFileSync(join(root, 'build-portable.sh'), `#!/bin/bash
+  writeFileSync(join(root, 'scripts/release/build-portable.sh'), `#!/bin/bash
 set -euo pipefail
 [ "$1" = --development ]
-source=$(dirname -- "$0")
+source=$(cd "$(dirname -- "$0")/../.." && pwd -P)
 [ "$2" = "$source/ore-development" ]
 [ ! -f "$source/fail-build" ] || exit 42
 mkdir -p "$2"
@@ -25,7 +25,7 @@ cat > "$2/start.command" <<'LAUNCH'
 set -euo pipefail
 home=$(dirname -- "$0")
 printf '%s\\n' "\${ORE_OPEN_BROWSER-unset}" > "$home/browser-setting"
-printf '%s\\n' "$ORE_SKIP_UPDATE" "$ORE_DATABASE_DEFAULT" "\${ROLEPLAY_DATABASE-unset}" > "$home/launched"
+printf '%s\\n' "$ORE_DATABASE_DEFAULT" "\${ROLEPLAY_DATABASE-unset}" > "$home/launched"
 LAUNCH
 `);
   const run = (args: string[] = [], overrides: NodeJS.ProcessEnv = {}) => {
@@ -36,14 +36,14 @@ LAUNCH
 }
 
 describe.skipIf(process.platform === 'win32')('current-checkout development launcher', () => {
-  it('rebuilds local edits on every launch from another directory and disables repository updates', () => {
+  it('rebuilds local edits on every launch from another directory in a separate installation', () => {
     const f = fixture(); expect(f.run().status).toBe(0);
     expect(readFileSync(join(f.home, 'built-edit'), 'utf8')).toBe('Uncommitted working tree');
-    expect(readFileSync(join(f.home, 'launched'), 'utf8')).toBe('1\nrepository\nunset\n');
+    expect(readFileSync(join(f.home, 'launched'), 'utf8')).toBe('repository\nunset\n');
     writeFileSync(join(f.root, 'local-edit'), 'Next local edit');
     expect(f.run([], { ROLEPLAY_DATABASE: '/synthetic/explicit.sqlite' }).status).toBe(0);
     expect(readFileSync(join(f.home, 'built-edit'), 'utf8')).toBe('Next local edit');
-    expect(readFileSync(join(f.home, 'launched'), 'utf8')).toBe('1\nrepository\n/synthetic/explicit.sqlite\n');
+    expect(readFileSync(join(f.home, 'launched'), 'utf8')).toBe('repository\n/synthetic/explicit.sqlite\n');
     expect(existsSync(join(f.root, 'ore-portable'))).toBe(false);
   });
   it('loads repository .env before building, while preserving explicit overrides', () => {

@@ -20,8 +20,6 @@ function Set-OrePrivate([string]$Path) {
     [IO.Directory]::SetAccessControl($Path,$acl)
 }
 
-# Windows PowerShell 5.1 archive policy, also embedded in the standalone asset.
-$OreSourceInputs = @('build-portable.ps1','package.json','package-lock.json','tsconfig.json','tsconfig.server.json','vite.config.ts','vitest.config.ts','playwright.config.ts','index.html','src','public','migrations','scripts/release','LICENSE','docs/RELEASES.md')
 function Add-OreType([string]$TypeDefinition) {
     # Framework csc uses an ANSI API for its own TEMP/TMP scratch files even
     # though CodeDOM's explicit source/output paths support Unicode. A relative
@@ -80,10 +78,9 @@ function Assert-OreTree([string]$Root) {
         if ([IO.Directory]::Exists($entry)) { Assert-OreTree $entry }
     }
 }
-function Expand-OreZip([string]$Archive, [string]$ExpectedRoot, [string]$Destination, [switch]$Source, [switch]$LongPaths) {
+function Expand-OreZip([string]$Archive, [string]$ExpectedRoot, [string]$Destination, [switch]$LongPaths) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     if ($LongPaths) {
-        if ($Source) { throw 'Long-path extraction is reserved for prepared packages.' }
         Initialize-OreLongPaths
         [OreLongPaths]::Assert($Destination,$Destination) | Out-Null
         if ([OreLongPaths]::Exists($Destination)) { throw 'Extraction destination must be new.' }
@@ -128,13 +125,6 @@ function Expand-OreZip([string]$Archive, [string]$ExpectedRoot, [string]$Destina
         foreach ($entry in $entries) {
             $relative = $entry.FullName.Substring($ExpectedRoot.Length).TrimStart('/')
             if (!$relative) { continue }
-            if ($Source) {
-                $allowed = $false
-                foreach ($inputPath in $OreSourceInputs) {
-                    if ($relative -ceq $inputPath -or $relative.StartsWith($inputPath+'/',[StringComparison]::Ordinal)) { $allowed = $true; break }
-                }
-                if (!$allowed) { continue }
-            }
             $targetPath = $Destination.TrimEnd('\')+'\'+$relative.Replace('/','\')
             if ($LongPaths) {
                 $target = [OreLongPaths]::Assert($Destination,$targetPath)
@@ -148,11 +138,6 @@ function Expand-OreZip([string]$Archive, [string]$ExpectedRoot, [string]$Destina
             $inputStream = $entry.Open()
             $outputStream = if ($LongPaths) { [OreLongPaths]::CreateFile($Destination,$target) } else { [IO.File]::Open($target,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None) }
             try { $inputStream.CopyTo($outputStream) } finally { $outputStream.Dispose(); $inputStream.Dispose() }
-        }
-        if ($Source) {
-            foreach ($inputPath in $OreSourceInputs) {
-                if (!(Test-Path -LiteralPath (Join-Path $Destination $inputPath))) { throw ('Missing archive build input: '+$inputPath) }
-            }
         }
     } finally { $zip.Dispose() }
 }

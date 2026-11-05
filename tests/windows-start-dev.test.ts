@@ -18,34 +18,36 @@ function fixture() {
   for (const file of ['start-dev-windows.ps1', 'windows-common.ps1']) {
     cpSync(join('scripts/release', file), join(scripts, file));
   }
-  cpSync('start-dev.bat', join(source, 'start-dev.bat'));
-  writeFileSync(join(source, 'build-portable.ps1'), `
+  cpSync('scripts/release/start-dev.bat', join(scripts, 'start-dev.bat'));
+  writeFileSync(join(scripts, 'build-portable.ps1'), `
 param([string]$Mode, [string]$Destination, [switch]$ReuseDevelopmentDependencies)
-if ($Mode -ne 'Development' -or $Destination -ne (Join-Path $PSScriptRoot 'ore-development')) { exit 41 }
+$source = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+if ($Mode -ne 'Development' -or $Destination -ne (Join-Path $source 'ore-development')) { exit 41 }
 if (!$ReuseDevelopmentDependencies) { exit 46 }
-[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'built'), 'local edits')
+[IO.File]::WriteAllText((Join-Path $source 'built'), 'local edits')
 if ($env:ORE_TEST_FAIL_BUILD -eq '1') { exit 42 }
 exit 0
 `);
-  writeFileSync(join(scripts, 'update-and-start.ps1'), `
-param([string]$Installation, [string]$SourceHint)
-if ($env:ORE_SKIP_UPDATE -ne '1' -or $env:ORE_DATABASE_DEFAULT -ne 'repository') { exit 43 }
-if ($Installation -ne (Join-Path $SourceHint 'ore-development')) { exit 44 }
-if (![IO.File]::Exists((Join-Path $SourceHint 'built'))) { exit 45 }
-[IO.File]::WriteAllText((Join-Path $SourceHint 'started'), $env:ROLEPLAY_DATABASE)
+  writeFileSync(join(scripts, 'start-windows.ps1'), `
+param([string]$DevelopmentInstallation)
+$source = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+if ($env:ORE_DATABASE_DEFAULT -ne 'repository') { exit 43 }
+if ($DevelopmentInstallation -ne (Join-Path $source 'ore-development')) { exit 44 }
+if (![IO.File]::Exists((Join-Path $source 'built'))) { exit 45 }
+[IO.File]::WriteAllText((Join-Path $source 'started'), $env:ROLEPLAY_DATABASE)
 exit 0
 `);
   const run = (extra: NodeJS.ProcessEnv = {}, args = '') => spawnSync('cmd.exe',
     ['/d', '/s', '/c', `""%ORE_TEST_ENTRY%"${args}"`], {
       windowsVerbatimArguments: true, cwd: root, encoding: 'utf8', timeout: 30000,
-      env: { ...process.env, ORE_TEST_ENTRY: join(source, 'start-dev.bat'), ORE_NO_PAUSE: '1',
+      env: { ...process.env, ORE_TEST_ENTRY: join(scripts, 'start-dev.bat'), ORE_NO_PAUSE: '1',
         ROLEPLAY_DATABASE: undefined, ORE_SKIP_UPDATE: '0', ...extra },
     });
   return { source, root, run };
 }
 
 describe.skipIf(process.platform !== 'win32')('Windows working-tree startup', () => {
-  it('builds before starting, forces skip-update and resolves source .env relative to the caller', () => {
+  it('builds before starting and resolves source .env relative to the caller', () => {
     const f = fixture();
     writeFileSync(join(f.source, '.env'), 'ROLEPLAY_DATABASE=synthetic.sqlite\n');
     const result = f.run();

@@ -11,6 +11,5 @@ unset NODE_OPTIONS NODE_PATH || true
 ore_home="$ore_source/ore-development"
 [ ! -L "$ore_home" ] || { echo 'ORE: ore-development must be a real directory inside this repository, not a symbolic link.' >&2; exit 1; }
 export ORE_DATABASE_DEFAULT=repository
-/bin/bash "$ore_source/build-portable.sh" --development "$ore_home"
-export ORE_SKIP_UPDATE=1
+/bin/bash "$ore_source/scripts/release/build-portable.sh" --development "$ore_home"
 exec /bin/bash "$ore_home/start.command"

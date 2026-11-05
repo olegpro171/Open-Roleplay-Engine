@@ -58,7 +58,13 @@ export async function publishWindowsRelease(directory, commit, client) {
   if (!release) {
     release = await client.request('releases', 'POST', {
       tag_name: tag, target_commitish: commit, name: `ORE · ${commit.slice(0, 12)}`, draft: true, prerelease: false,
-      body: `Download **ORE-launcher.bat**, place it in the folder where you want ORE installed, and double-click it. The launcher downloads the prepared Windows x64 package and preserves saved data on updates.\n\nCommit: ${commit}\n\nWindows x64 is the only automated package in this release.`,
+      body: [
+        'Download **ORE-launcher.bat**, place it in the folder where you want ORE installed, and double-click it. The launcher downloads the prepared Windows x64 package.',
+        '**One-time replacement for ORE · f553710121c8**\n\nStop ORE and replace only the external **ORE-launcher.bat** beside your existing **ORE-internal/** folder. Start it again. The previous package launcher reapplies permissions before handing off to the installed app. The replacement skips that rewrite when permissions already match. Keep the replacement for routine updates.',
+        'Users of the earlier Windows launcher that built from source also replace the batch once to move their existing installation to package delivery.',
+        `Commit: ${commit}`,
+        'Windows x64 is the supported download. See the repository release guide for Mac working-tree startup and legacy recovery.',
+      ].join('\n\n'),
     });
   }
   if (!Number.isSafeInteger(release.id) || release.draft !== true || release.tag_name !== tag) throw new Error('Invalid draft release.');

@@ -32,6 +32,7 @@ function Get-OreWindowsBootTime { [DateTime]::Parse('2026-10-28T00:00:00Z').ToUn
     writeFileSync(join(home, 'database-location.json'), 'retained location');
     const env = {
       ...process.env, ORE_TEST_HOME: home,
+      ORE_TEST_HISTORICAL_LAUNCHER: resolve('tests/fixtures/windows-launcher/f553710121c8.bat'),
       ORE_TEST_PATH_TOOLS: resolve('scripts/release/windows-snapshot.ps1'),
       ORE_TEST_LOCK_TOOLS: resolve('scripts/release/windows-package-lock.ps1'),
       ORE_TEST_COMMON_NATIVE: resolve('scripts/release/windows-common.ps1'),
@@ -52,7 +53,7 @@ function Get-OreWindowsBootTime { [DateTime]::Parse('2026-10-28T00:00:00Z').ToUn
 
   it('parses the generated package helper and every changed Windows controller with native PowerShell 5.1', () => {
     const f = fixture();
-    const files = ['scripts/release/windows-package-launcher.ps1', 'scripts/release/windows-package-lock.ps1', 'scripts/release/windows-package.ps1', 'scripts/release/recover-windows.ps1', 'scripts/release/start-windows.ps1', 'scripts/release/update-and-start.ps1', 'build-portable.ps1'];
+    const files = ['scripts/release/windows-package-launcher.ps1', 'scripts/release/windows-package-lock.ps1', 'scripts/release/windows-package.ps1', 'scripts/release/recover-windows.ps1', 'scripts/release/start-windows.ps1', 'scripts/release/build-portable.ps1'];
     for (const file of files) {
       const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', '$tokens=$null;$errors=$null;[Management.Automation.Language.Parser]::ParseFile($env:ORE_TEST_PARSE,[ref]$tokens,[ref]$errors)|Out-Null;if($errors.Count){$errors|Out-String|Write-Output;exit 1}'], { encoding: 'utf8', env: { ...f.env, ORE_TEST_PARSE: resolve(file) } });
       expect(result.status, file + '\n' + result.stdout + result.stderr).toBe(0);
@@ -115,6 +116,33 @@ if(Test-OrePrivateDirectoryAcl $missingInheritance $sid){throw 'Missing child in
 if([IO.File]::ReadAllText((Join-Path $env:ORE_TEST_HOME 'database-location.json')) -cne 'retained location'){throw 'Permission repair changed saved identity.'}
 `);
     expect(result.status, result.stdout + result.stderr).toBe(0);
+  });
+
+  it('skips the ACL write for a private installation while the shipped bootstrap writes again', () => {
+    const f = fixture();
+    const result = f.run(`
+Set-OrePrivate $env:ORE_TEST_HOME
+$marker = '# ORE_POWERSHELL_PAYLOAD'
+$legacy = [IO.File]::ReadAllText($env:ORE_TEST_HISTORICAL_LAUNCHER)
+$sources = @(
+  $legacy.Substring($legacy.LastIndexOf($marker)+$marker.Length),
+  [IO.File]::ReadAllText($env:ORE_TEST_PATH_TOOLS)
+)
+foreach ($text in $sources) {
+  $tokens = $null; $errors = $null
+  $tree = [Management.Automation.Language.Parser]::ParseInput($text,[ref]$tokens,[ref]$errors)
+  if ($errors.Count) { throw 'Unable to parse launcher ACL implementation.' }
+  $definition = $tree.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Set-OrePrivate'},$true).Extent.Text
+  $setter = '[IO.Directory]::SetAccessControl($Path,$acl)'
+  if (!$definition.Contains($setter)) { throw 'Unable to observe the ACL write boundary.' }
+  $script:AclWrites = 0
+  . ([scriptblock]::Create($definition.Replace($setter,('$script:AclWrites++; '+$setter))))
+  Set-OrePrivate $env:ORE_TEST_HOME
+  [Console]::WriteLine($script:AclWrites)
+}
+`);
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout.trim().split(/\r?\n/u)).toEqual(['1', '0']);
   });
 
   it('initializes every native helper with a Unicode private compilation directory', () => {

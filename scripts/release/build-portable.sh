@@ -2,32 +2,23 @@
 # Conservative Bash 3.2; no system Node/npm or package-manager modifications.
 set -euo pipefail
 umask 077
-ore_source=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+ore_source=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd -P)
 fail() { echo "ORE build: $*" >&2; exit 1; }
 mode=${1:-}
 case "$mode" in
   --release) [ "$#" -eq 3 ] || fail 'Usage: build-portable.sh --release FULL_COMMIT INSTALL_DIRECTORY'; commit=$2; destination=$3 ;;
   --development) [ "$#" -eq 2 ] || fail 'Usage: build-portable.sh --development INSTALL_DIRECTORY'; commit=$(git -C "$ore_source" rev-parse HEAD); destination=$2 ;;
-  --snapshot)
-    [ "$#" -eq 4 ] || fail 'Snapshot input requires a downloaded archive, complete commit and installation.'
-    commit=$2; destination=$3; snapshot=$4
-    [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || fail 'Invalid snapshot commit.'
-    [ "${ORE_SNAPSHOT_SOURCE:-}" = "https://github.com/olegpro171/Open-Roleplay-Engine/archive/$commit.tar.gz" ] || fail 'Missing downloaded-main provenance.'
-    [[ "${ORE_SNAPSHOT_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || fail 'Missing snapshot digest.'
-    [ "$(shasum -a 256 "$snapshot" | awk '{print $1}')" = "$ORE_SNAPSHOT_SHA256" ] || fail 'Snapshot bytes changed after download.'
-    ;;
   *) fail 'Choose --release FULL_COMMIT INSTALL_DIRECTORY or --development INSTALL_DIRECTORY.' ;;
 esac
 for command in curl tar awk sed; do command -v "$command" >/dev/null || fail "Required tool missing: $command. No system packages were installed."; done
-if [ "$mode" != --snapshot ]; then command -v git >/dev/null || fail 'Git is required for source-checkout builds.'; fi
+command -v git >/dev/null || fail 'Git is required for source-checkout builds.'
 if [ "$mode" = '--release' ]; then
   [ -z "$(git -C "$ore_source" status --porcelain --untracked-files=all)" ] || fail 'Release source must be clean, including untracked files. Commit the intended changes first.'
   [ "$commit" = "$(git -C "$ore_source" rev-parse HEAD)" ] || fail 'Release requires the exact full checked-out commit.'
   git -C "$ore_source" merge-base --is-ancestor "$commit" main || fail 'Release commit must be reachable on local main.'
 fi
-# A short, explicit allowlist is also used for developer builds.
-. "$ore_source/scripts/release/snapshot-input.sh"
-inputs=("${ore_inputs[@]}")
+# Use the same explicit build inputs for working-tree and exact Git builds.
+inputs=(package.json package-lock.json tsconfig.json tsconfig.server.json vite.config.ts vitest.config.ts playwright.config.ts index.html src public migrations scripts/release LICENSE docs/RELEASES.md)
 for input in "${inputs[@]}"; do [ -e "$ore_source/$input" ] || fail "Missing required source input: $input"; done
 case "$(uname -s)" in Darwin) os=darwin;; Linux) os=linux;; *) fail 'Bash delivery targets macOS and glibc Linux. Use the Windows handoff on Windows.';; esac
 case "$(uname -m)" in arm64|aarch64) cpu=arm64;; x86_64) cpu=x64;; *) fail 'Only arm64 and x64 are candidate targets.';; esac
@@ -90,9 +81,7 @@ node="$ore_home/runtime/$runtime/bin/node"
 npm="$ore_home/runtime/$runtime/lib/node_modules/npm/bin/npm-cli.js"
 [ "$("$node" --version)" = "v$ORE_NODE_VERSION" ] || fail 'Installed private runtime is invalid; restore it from the verified archive.'
 work="$stage/source"
-if [ "$mode" = --snapshot ]; then
-  ore_extract_snapshot "$snapshot" "$commit" "$work" "$stage/archive-list" || fail 'Downloaded source archive is invalid.'
-elif [ "$mode" = '--release' ]; then
+if [ "$mode" = '--release' ]; then
   mkdir "$work"
   git -C "$ore_source" archive "$commit" -- "${inputs[@]}" | tar -xf - -C "$work"
 else

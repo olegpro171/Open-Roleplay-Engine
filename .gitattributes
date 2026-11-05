@@ -1,2 +1,5 @@
 # The published hybrid batch/PowerShell asset must survive native cmd parsing.
 ORE-launcher.bat text eol=crlf
+
+# Historical release fixture uses the exact downloaded bytes.
+tests/fixtures/windows-launcher/f553710121c8.bat binary
