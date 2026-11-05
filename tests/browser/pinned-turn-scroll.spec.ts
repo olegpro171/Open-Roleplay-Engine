@@ -36,6 +36,8 @@ for (const width of [1280, 390]) {
     await draft.fill('A draft to keep while reading.');
     await expect(turn(34)).toBeAttached();
     await expect(turn(3)).toHaveCount(0);
+    await turn(42).getByText(/^The keeper waits by the lantern\./).click();
+    await expect(turn(42), 'clicking the prose does not focus the turn').not.toBeFocused();
 
     const shellPosition = () => page.evaluate(() => ({
       documentScroll: [window.scrollX, window.scrollY, document.body.scrollTop, document.documentElement.scrollTop],
@@ -56,7 +58,13 @@ for (const width of [1280, 390]) {
       // Click the card's prose to exercise the stretched title button.
       await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
       await expect(manager).toHaveCount(0);
-      await expect(turn(ordinal)).toBeFocused();
+      await expect(turn(ordinal)).toBeAttached();
+      await expect(turn(ordinal), 'jumping to a pin does not focus the turn').not.toBeFocused();
+      if (width <= 800) {
+        const details = page.getByRole('button', { name: 'Chat details' });
+        await expect(details).toHaveAttribute('aria-expanded', 'false');
+        await expect(details).toBeFocused();
+      }
       expect(await shellPosition()).toEqual(initial);
       const transcriptTop = await transcript.evaluate(element => element.getBoundingClientRect().top);
       const targetTop = await turn(ordinal).evaluate(element => element.getBoundingClientRect().top);
@@ -67,5 +75,9 @@ for (const width of [1280, 390]) {
     await page.getByRole('button', { name: 'Latest turn' }).click();
     await expect(turn(42)).toBeInViewport();
     expect(await shellPosition()).toEqual(initial);
+
+    const version = turn(42).getByRole('textbox', { name: 'Response version' });
+    await version.press('Enter');
+    await expect(version).toBeFocused();
   });
 }

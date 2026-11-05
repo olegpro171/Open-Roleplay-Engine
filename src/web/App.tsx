@@ -596,7 +596,7 @@ export function App() {
     {tab === 'data' && <ApplicationSettings chatBehavior={behaviorEditor} appearance={appearanceEditor} lan={lanEditor} openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
     {snapshot && ['settings', 'memory', 'request'].includes(tab) && toolError && <div className="error-banner" role="alert">{toolError}<button onClick={() => setToolRetry(value => value + 1)}>{t("app.retry_loading")}</button></div>}
     {snapshot && ['settings', 'memory'].includes(tab) && toolSnapshot?.id !== snapshot.id && <main className="document-panel"><p role="status">{t("app.loading_chat_tools")}</p></main>}
-    {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} navigation actions={<>
+    {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} navigation dismissDetails={jumpTarget?.chatId === snapshot.id} actions={<>
         <button className="quiet chat-navigation-action" aria-label={t("app.chat_settings")} onClick={() => setTab('settings')}><Icon name="Settings" />{t("app.chat_settings_2", { value: snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : '' })}</button>
         <button className="quiet chat-navigation-action" onClick={() => setTab('memory')}><Icon name="List" />{t("app.inspect_memory")}</button>
         <button className="quiet chat-navigation-action" aria-haspopup="dialog" onClick={() => setBranchDialog({})}><Icon name="GitBranch" />{t("branches.title")}</button>
@@ -624,7 +624,7 @@ export function App() {
             } : null;
             const inputVisible = !(turn.complete && turn.user.text === '' && turn.user.revision === 0)
               || (edit?.turnId === turn.id && edit.part === 'user');
-            return <article className="turn" key={turn.id} data-turn-id={turn.id} tabIndex={-1} aria-label={t("app.turn", { ordinal: turn.ordinal })}>
+            return <article className="turn" key={turn.id} data-turn-id={turn.id} aria-label={t("app.turn", { ordinal: turn.ordinal })}>
             <div className="turn-heading"><span className="turn-number">{turn.pinned && <span className="turn-pinned" title={t('pins.pinned')}><Icon name="Bookmark" /><span className="sr-only">{t('pins.pinned')}</span></span>}{t("app.turn_2", { ordinal: turn.ordinal, value: turn.complete ? summariesEnabled && turn.archived ? t("interface.archived") : '' : t("interface.pending") })}</span>{turn.complete && !generating && turnUsage.has(turn.id) && <span className="turn-usage" title={t("app.provider_reported_counts_for_the_saved_response")}>{turnUsage.get(turn.id) ? t("app.in_out", { value: turnUsage.get(turn.id)!.inputTokens.toLocaleString(locale()), value2: turnUsage.get(turn.id)!.outputTokens.toLocaleString(locale()) }) : t("app.usage_unavailable")}</span>}</div>
             {(['user', 'assistant'] as const).filter(part => part !== 'user' || inputVisible).map((part) => <div className={`part ${part}`} key={part}>
               <div className="part-heading"><strong>{part === 'user' ? selectedPersonaName : selectedCharacterName}</strong></div>

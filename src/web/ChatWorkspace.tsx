@@ -5,7 +5,9 @@ import { Icon } from './Icon';
 
 export const ChatDetailsTarget = createContext<HTMLDivElement | null>(null);
 
-export function ChatWorkspace({ sidebar, actions, navigation = false, children }: { sidebar: ReactNode; actions: ReactNode; navigation?: boolean; children: ReactNode }) {
+export function ChatWorkspace({ sidebar, actions, navigation = false, dismissDetails = false, children }: {
+  sidebar: ReactNode; actions: ReactNode; navigation?: boolean; dismissDetails?: boolean; children: ReactNode;
+}) {
   useLocale();
   const [expanded, setExpanded] = useState(false);
   const detailsId = useId();
@@ -14,6 +16,11 @@ export function ChatWorkspace({ sidebar, actions, navigation = false, children }
   const details = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!expanded) return;
+    if (dismissDetails) {
+      setExpanded(false);
+      toggle.current?.focus({ preventScroll: true });
+      return;
+    }
     const outside = (event: Event) => {
       // Prompt peek owns focus while its modal is above this disclosure.
       if (event.target instanceof Element && event.target.closest('dialog[open]')) return;
@@ -36,7 +43,7 @@ export function ChatWorkspace({ sidebar, actions, navigation = false, children }
       document.removeEventListener('keydown', escape);
       wide.removeEventListener('change', resize);
     };
-  }, [expanded]);
+  }, [expanded, dismissDetails]);
   const pageActions = <div className={`chat-page-actions${navigation ? '' : ' editor-actions floating-controls'}`}>{actions}</div>;
   return <main className="story-layout">
     {target && createPortal(<button ref={toggle} type="button" className="quiet chat-details-toggle" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)} onKeyDown={event => {

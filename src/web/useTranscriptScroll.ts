@@ -99,7 +99,6 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, edi
     following.current = false;
     anchor.current = { turnId, progress: 0 };
     restoreRef.current();
-    target.focus({ preventScroll: true });
     // Near the end the scroller can clamp the requested alignment.
     captureRef.current(false);
   }, []);

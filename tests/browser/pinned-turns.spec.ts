@@ -57,7 +57,8 @@ test('manages and jumps to off-page pins with stable estimates and prompt warnin
   const open = () => openChatTool(page, 'Pinned turns');
   const search = manager.getByRole('searchbox', { name: 'Search pinned turns' });
   const older = manager.getByRole('article').filter({ hasText: archivedPhrase });
-  await open();
+  const pinsButton = page.getByRole('button', { name: 'Pinned turns', exact: true });
+  await pinsButton.press('Enter');
   await expect(manager.getByRole('heading', { name: 'Pinned turns' })).toBeFocused();
   await expect(manager.getByRole('article')).toHaveCount(2);
   const estimate = await command('POST', `/api/chats/${id}/preview`, { revision: (await story()).revision, detail: 'estimate', inspection: true }) as RequestEstimate;
@@ -107,9 +108,15 @@ test('manages and jumps to off-page pins with stable estimates and prompt warnin
   await older.getByRole('button', { name: 'Turn 3', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(manager).toHaveCount(0);
-  await expect(turn(3)).toBeFocused();
-  await expect(turn(3)).toBeInViewport();
-  await expect(page.locator('.transcript .turn')).toHaveCount(15);
+  await expect(pinsButton).toBeFocused();
+  // The jump lands near the older-page sentinel. Paging can prepend turns
+  // without moving the pinned turn away from the top of the transcript.
+  await expect(turn(1)).toBeAttached();
+  await expect.poll(() => turn(3).evaluate(node => {
+    const transcript = node.closest('.transcript');
+    if (!transcript) throw new Error('Missing transcript');
+    return Math.abs(node.getBoundingClientRect().top - transcript.getBoundingClientRect().top);
+  })).toBeLessThanOrEqual(1);
 
   const warning = page.getByRole('region', { name: 'Prompt configuration warnings' });
   const warningText = 'This branch has pinned turns, but the selected prompt has no enabled Pinned messages marker.';
