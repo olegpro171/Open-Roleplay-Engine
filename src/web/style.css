@@ -727,7 +727,6 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .branch-list { margin-top: 0; }
 .branch-row-details { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .branch-list [aria-current="true"] { font-weight: 700; }
-.current-branch-label { padding-inline: 12px; overflow-wrap: anywhere; }
 @media (max-width: 800px) {
   .branch-manager-controls { padding: 12px 16px; }
   .branch-manager-results { padding: 0 16px 16px; }

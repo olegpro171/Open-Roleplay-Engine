@@ -35,7 +35,10 @@ test('forks, remembers the branch in the Chats library, and exports its transcri
   const fork = page.getByRole('dialog', { name: 'Branch through turn 1' });
   await fork.getByLabel('Branch name').fill('Lighthouse');
   await fork.getByRole('button', { name: 'Create branch' }).click();
-  await expect(page.getByText('Current branch · Lighthouse')).toBeVisible();
+  const conversation = page.getByRole('region', { name: 'Conversation' });
+  const lighthouseTurn = conversation.getByText('Do you see the lighthouse?');
+  await expect(fork).toHaveCount(0);
+  await expect(lighthouseTurn).toBeVisible();
   await expect(page.getByText('Later in the source')).toHaveCount(0);
   await expect(page.getByLabel('Your next turn')).toHaveValue('');
   const other = await page.request.post('/api/chats', { headers, data: { title: 'Another story',
@@ -60,9 +63,11 @@ test('forks, remembers the branch in the Chats library, and exports its transcri
   await openChats();
   await expect(sourceCard).toContainText('1 turns');
   await sourceCard.getByRole('button', { name: story.settings.title, exact: true }).click();
-  await expect(page.getByText('Current branch · Lighthouse')).toBeVisible();
+  await expect(lighthouseTurn).toBeVisible();
   await openBranches();
   const manager = page.getByRole('dialog', { name: 'Chat branches' });
+  const lighthouseButton = manager.getByRole('button', { name: 'Lighthouse', exact: true });
+  await expect(lighthouseButton).toHaveAttribute('aria-current', 'true');
   await manager.getByRole('searchbox', { name: 'Search branches' }).fill('LIGHT');
   await expect(manager.getByPlaceholder('Search branches')).toHaveValue('LIGHT');
   await expect(manager.getByRole('article')).toHaveCount(1);
@@ -90,6 +95,12 @@ test('forks, remembers the branch in the Chats library, and exports its transcri
     }
     await page.keyboard.press('Escape');
     await expect(manager).toHaveCount(0);
+    for (const width of [1280, 801, 800, 390]) {
+      await page.setViewportSize({ width, height: 850 });
+      await expect(lighthouseTurn).toBeInViewport();
+      await expect(conversation.getByText(/^Current branch · /)).toHaveCount(0);
+      if (width === 1280 || width === 390) await page.screenshot({ path: testInfo.outputPath(`story-${theme}-${width}.png`) });
+    }
     await openChats();
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 850 });
@@ -97,8 +108,9 @@ test('forks, remembers the branch in the Chats library, and exports its transcri
       await sourceCard.screenshot({ path: testInfo.outputPath(`chat-card-${theme}-${width}.png`) });
     }
     await sourceCard.getByRole('button', { name: story.settings.title, exact: true }).click();
-    await expect(page.getByText('Current branch · Lighthouse')).toBeVisible();
+    await expect(lighthouseTurn).toBeVisible();
     await openBranches();
+    await expect(lighthouseButton).toHaveAttribute('aria-current', 'true');
   }
   await openActions('Lighthouse');
   const download = page.waitForEvent('download');
@@ -120,15 +132,17 @@ test('forks, remembers the branch in the Chats library, and exports its transcri
   await menu.getByRole('menuitem', { name: 'Duplicate branch' }).click();
   await manager.getByLabel('Branch name').fill('Copy of lighthouse');
   await manager.getByRole('button', { name: 'Create branch' }).click();
-  await expect(page.getByText('Current branch · Copy of lighthouse')).toBeVisible();
+  await expect(manager).toHaveCount(0);
+  await expect(lighthouseTurn).toBeVisible();
   await openBranches();
-  const duplicate = manager.getByRole('article').filter({ has: page.getByRole('button', { name: 'Copy of lighthouse', exact: true }) });
+  const duplicateButton = manager.getByRole('button', { name: 'Copy of lighthouse', exact: true });
+  await expect(duplicateButton).toHaveAttribute('aria-current', 'true');
   await openActions('Copy of lighthouse');
   await menu.getByRole('menuitem', { name: 'Delete branch' }).click();
   await manager.locator('form').getByRole('button', { name: 'Delete branch' }).click();
   await expect(manager).toHaveCount(0);
   await openBranches();
-  await expect(duplicate).toHaveCount(0);
+  await expect(duplicateButton).toHaveCount(0);
   await manager.getByRole('button', { name: 'Main', exact: true }).click();
   await expect(page.getByText('Later in the source')).toBeVisible();
   await expect(page.getByLabel('Your next turn')).toHaveValue('Draft for Main');
@@ -138,7 +152,9 @@ test('forks, remembers the branch in the Chats library, and exports its transcri
   await page.setViewportSize({ width: 1280, height: 850 });
   await openBranches();
   await manager.getByRole('button', { name: 'Green lighthouse', exact: true }).click();
-  await expect(page.getByText('Current branch · Green lighthouse')).toBeVisible();
+  await expect(manager).toHaveCount(0);
+  await expect(lighthouseTurn).toBeVisible();
+  await expect(page.getByText('Later in the source')).toHaveCount(0);
   await openChats();
   await chatCard('Another story').getByRole('button', { name: 'Another story', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Another story' })).toBeVisible();
