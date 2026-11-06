@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
+import { test } from './isolated-app';
 import { readFile } from 'node:fs/promises';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { englishPack, languagePackSchema, languageStatusSchema, validateTranslations } from '../../src/shared/localization';
@@ -74,6 +75,11 @@ for (const width of [1440, 390, 320]) test(`imports partial packs with actionabl
 test('paginates large incompatibility reports without losing entries', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await signIn(page);
+  const installed = await page.request.post('/api/localization/import', {
+    headers: { Origin: new URL(page.url()).origin },
+    data: { pack: russian, expectedRevision: null },
+  });
+  expect(installed.ok(), await installed.text()).toBe(true);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Language', exact: true }).click();
   const keys = Object.keys(englishPack.messages).slice(0, 25);
@@ -106,10 +112,11 @@ async function chooseLanguage(page: Page, label: string, language: string) {
 for (const width of [1440, 390, 320]) test(`runtime packs localize live controls, preserve the composer draft and fall back safely at ${width}px`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 900 });
   await signIn(page);
+  const headers = { Origin: new URL(page.url()).origin };
   const library = await page.request.get('/api/library').then(response => response.json());
   if (!library.connections.length) {
     const endpoint = await page.request.get('/__test/endpoint').then(response => response.json());
-    const created = await page.request.post('/api/library', { headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: library.revision, kind: 'connections', data: { name: 'Localization mock', endpoint: endpoint.endpoint, model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 1000, customParameters: {} } } });
+    const created = await page.request.post('/api/library', { headers, data: { revision: library.revision, kind: 'connections', data: { name: 'Localization mock', endpoint: endpoint.endpoint, model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 1000, customParameters: {} } } });
     expect(created.ok()).toBe(true);
     await page.reload();
   }
@@ -121,7 +128,7 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
   const chatId = await page.evaluate(() => localStorage.getItem('roleplay-chat'));
   const savedBefore = await page.request.get(`/api/chats/${chatId}`).then(response => response.json() as Promise<ChatSnapshot>);
   const preview = async () => {
-    const result = await page.request.post(`/api/chats/${chatId}/preview`, { headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: savedBefore.revision, inspection: true, text: 'Keep this composer draft exactly.' } });
+    const result = await page.request.post(`/api/chats/${chatId}/preview`, { headers, data: { revision: savedBefore.revision, inspection: true, text: 'Keep this composer draft exactly.' } });
     expect(result.ok()).toBe(true);
     return result.json();
   };
@@ -215,7 +222,7 @@ test('failed language requests preserve the previous selection and stored errors
   await expect(page.getByRole('combobox', { name: 'Interface language', exact: true })).toHaveText('English');
   const status = languageStatusSchema.parse(await page.request.get('/api/localization').then(response => response.json()));
   const installed = status.languages.find(item => item.locale === 'ru');
-  const saved = await page.request.post('/api/localization/import', { headers: { Origin: 'http://127.0.0.1:4173' }, data: { pack: russian, expectedRevision: installed?.custom ? installed.revision : null } });
+  const saved = await page.request.post('/api/localization/import', { headers: { Origin: new URL(page.url()).origin }, data: { pack: russian, expectedRevision: installed?.custom ? installed.revision : null } });
   expect(saved.ok()).toBe(true);
   await page.waitForResponse(response => response.url().endsWith('/api/localization/reload') && response.ok());
   await chooseLanguage(page, 'Interface language', 'Русский');

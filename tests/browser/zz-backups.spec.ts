@@ -189,6 +189,8 @@ for (const width of [1440,390]) test(`backup inspection, cancel, overwrite retry
   const other = await context.newPage(); await other.goto('/'); await openChat(other,`Backup story ${width}`);
   const turn = other.getByRole('article',{ name: 'Turn 85',exact: true });
   await turn.getByRole('button',{ name: 'Edit response',exact: true }).click(); await other.getByLabel('Edit assistant text').fill('Recoverable stale editor text');
+  const saveEdit = turn.getByRole('button',{ name: 'Save edit',exact: true });
+  await expect(saveEdit).toBeEnabled();
   await other.getByLabel('Your next turn').fill('Recoverable browser draft');
   await page.getByRole('button',{ name: 'Settings',exact: true }).click();
   await expect(page.getByText(/Backups include saved stories/)).toBeVisible();
@@ -229,8 +231,8 @@ for (const width of [1440,390]) test(`backup inspection, cancel, overwrite retry
   await page.getByRole('button',{ name: 'Import entire backup',exact: true }).click(); await page.getByRole('dialog').getByRole('button',{ name: 'Overwrite and import',exact: true }).click();
   await expect(page.getByRole('button',{ name: 'Retry data command',exact: true })).toBeVisible();
   await expect(other.getByRole('alert').filter({ hasText: 'Application data was imported or wiped in another tab' })).toBeVisible();
-  await other.getByRole('button',{ name: 'Save edit',exact: true }).click();
-  await expect(other.getByRole('alert').filter({ hasText: 'Application data was imported or wiped in another tab' })).toBeVisible(); await expect(other.getByLabel('Edit assistant text')).toHaveValue('Recoverable stale editor text');
+  await expect(saveEdit).toBeDisabled();
+  await expect(other.getByLabel('Edit assistant text')).toHaveValue('Recoverable stale editor text');
   await page.reload(); await page.getByRole('button',{ name: 'Settings',exact: true }).click();
   await page.getByRole('button',{ name: 'Retry data command',exact: true }).click(); await expect(page.getByRole('button',{ name: 'Retry data command',exact: true })).toHaveCount(0);
   const restored = await page.request.get(`/api/chats/${chatId}`).then(response => response.json()); expect(restored.turns[84].assistant.text).toBe('Backup response 85.');
