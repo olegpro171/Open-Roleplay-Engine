@@ -270,6 +270,11 @@ describe('persistent chat and generation', () => {
     const failed = await command('/api/connections/diagnose', input);
     expect(failed.statusCode).toBe(502);
     expect(failed.json().code).toBe(mode === 'broken' ? 'incomplete_stream' : 'empty_response');
+    expect(failed.json().localized).toMatchObject({
+      key: mode === 'broken' ? 'errors.connection_test_incomplete_stream' : 'errors.connection_test_empty_response',
+      fallback: failed.json().message,
+    });
+    expect(failed.json().localized).not.toHaveProperty('params');
     expect(failed.json().message).toContain('Send test message');
     expect(failed.json().message).toContain('Nothing was saved');
     expect(failed.json().message).not.toMatch(/\bturn\b|pending|delete/i);
@@ -283,6 +288,20 @@ describe('persistent chat and generation', () => {
     expect(mock.requests).toHaveLength(2);
     expect(await state()).toEqual(before);
     expect(instance.store.libraries()).toEqual(libraryBefore);
+  });
+
+  it('localizes the safe request error when a Connection test encounters a redirect', async () => {
+    const before = await state();
+    mock.setMode(302);
+    const response = await command('/api/connections/diagnose', { action: 'test', connection: before.connection });
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({
+      code: 'request_failed',
+      message: 'The request could not be completed.',
+      localized: { key: 'errors.request_could_not_be_completed', fallback: 'The request could not be completed.' },
+    });
+    expect(mock.requests).toHaveLength(1);
+    expect(await state()).toEqual(before);
   });
 
   it('uses server counting for over-budget inspection and keeps saved estimates unchanged after a model switch', async () => {
@@ -429,6 +448,9 @@ describe('persistent chat and generation', () => {
       const response = await command(action === 'models' ? '/api/models' : '/api/connections/diagnose', { ...input, apiKey });
       expect(response.statusCode).toBe(502);
       expect(response.json().message).toContain(apiKey ? 'rejected the API key' : 'Enter your provider’s API key');
+      const purpose = action === 'test' ? 'generation' : 'models';
+      const problem = apiKey ? 'key_rejected' : 'key_required';
+      expect(response.json().localized).toEqual({ key: `errors.provider_${purpose}_${problem}`, fallback: response.json().message });
       expect(response.json().message).toContain('401');
       expect(response.body).not.toContain('entered-test-secret');
       expect(response.body).not.toContain('upstream-secret');
@@ -437,19 +459,94 @@ describe('persistent chat and generation', () => {
   });
 
   it.each([
-    [403, 'permission'],
-    [404, 'API base URL'],
-    [429, 'limits and balance'],
-    [503, 'Try again later'],
-  ] as const)('provides recovery guidance for model-list HTTP %s without exposing the provider response', async (status, guidance) => {
+    [403, 'list models', 'use this model', 'errors.provider_models_forbidden', 'errors.provider_generation_forbidden'],
+    [404, 'enter its model identifier manually', 'request parameters', 'errors.provider_models_http_failure', 'errors.provider_generation_http_failure'],
+    [429, 'limits and balance', 'limits and balance', 'errors.provider_rate_limit', 'errors.provider_rate_limit'],
+    [503, 'Try again later', 'Try again later', 'errors.provider_service_failure', 'errors.provider_service_failure'],
+  ] as const)('localizes recovery guidance for provider HTTP %s without exposing the provider response', async (status, modelsGuidance, testGuidance, modelsKey, testKey) => {
+    const before = await state();
     mock.setModelMode(status);
-    const response = await command('/api/models', { endpoint: mock.url, connectionId: 'main' });
-    expect(response.statusCode).toBe(502);
-    expect(response.json().code).toBe('model_list_unavailable');
-    expect(response.json().message).toContain(`HTTP ${status}`);
-    expect(response.json().message).toContain(guidance);
-    expect(response.body).not.toContain('upstream-secret');
-    expect(response.body).not.toContain('synthetic-api-secret');
+    mock.setMode(status);
+    for (const [url, payload, code, guidance, key] of [
+      ['/api/models', { endpoint: mock.url, connectionId: 'main' }, 'model_list_unavailable', modelsGuidance, modelsKey],
+      ['/api/connections/diagnose', { action: 'test', connection: before.connection, connectionId: 'main' }, 'provider_error', testGuidance, testKey],
+    ] as const) {
+      const response = await command(url, payload);
+      expect(response.statusCode).toBe(502);
+      const error = response.json();
+      expect(error.code).toBe(code);
+      expect(error.message).toContain(`HTTP ${status}`);
+      expect(error.message).toContain(guidance);
+      expect(error.localized).toEqual({ key, fallback: error.message, ...(status === 404 || status === 503 ? { params: { status } } : {}) });
+      expect(response.body).not.toContain('upstream-secret');
+      expect(response.body).not.toContain('synthetic-api-secret');
+    }
+    expect(await state()).toEqual(before);
+  });
+
+  it('preserves a localized provider rate limit on the pending turn and allows an explicit retry', async () => {
+    mock.setMode(429);
+    expect((await submit()).statusCode).toBe(202);
+    const failed = await waitForIdle();
+    expect(failed.turns).toHaveLength(1);
+    expect(failed.turns[0]).toMatchObject({ complete: false, assistant: { text: '' } });
+    expect(failed.generations[0]).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('HTTP 429'),
+      errorMessage: { key: 'errors.provider_rate_limit', fallback: failed.generations[0].error },
+    });
+    expect(JSON.stringify(failed)).not.toMatch(/upstream-secret|synthetic-api-secret/);
+    expect(mock.requests).toHaveLength(1);
+
+    mock.setMode('normal');
+    expect((await command('/api/retry', { revision: failed.revision, requestId: randomUUID() })).statusCode).toBe(202);
+    const retried = await waitForIdle();
+    expect(retried.turns).toHaveLength(1);
+    expect(retried.turns[0]).toMatchObject({ id: failed.turns[0].id, complete: true });
+    expect(retried.generations.find(generation => generation.id === failed.generations[0].id)).toMatchObject({
+      status: 'failed', errorMessage: failed.generations[0].errorMessage,
+    });
+    expect(mock.requests).toHaveLength(2);
+  });
+
+  it('retains a localized provider failure on the memory job and step without archiving sources', async () => {
+    instance.store.saveLibrary(instance.store.libraries().revision, 'prompts', compactPrompt, 'default');
+    seedTranscript(instance.store, (await state()).revision, 'main', Array.from({ length: 12 }, (_, i) => ({
+      user: `Turn ${i + 1}. ` + 'The brass key was hidden in the cellar. '.repeat(20),
+      assistant: 'I look under the stone. '.repeat(20),
+      complete: true,
+    })));
+    const preset = instance.store.libraries().contexts[0];
+    instance.store.updateChat((await state()).revision, 'main', {
+      title: 'Memory localization', targetInputTokens: 300, connectionId: 'main', promptId: 'default',
+      characterId: null, personaId: null, contextPresetId: preset.id,
+    });
+    const before = await state();
+    mock.setMode(503);
+    const started = await command('/api/chats/main/context/prepare', { revision: before.revision, requestId: randomUUID(), mode: 'step' });
+    expect(started.statusCode).toBe(202);
+    const url = `/api/context/jobs/${started.json().jobId}`;
+    const details = async () => {
+      const response = await instance.app.inject({ method: 'GET', url, headers: { host: 'localhost', cookie } });
+      expect(response.statusCode).toBe(200);
+      return response.json();
+    };
+    await expect.poll(async () => (await details()).job.status).toBe('failed');
+    const saved = await details();
+    const error = {
+      status: 'failed',
+      error: expect.stringContaining('HTTP 503'),
+      errorMessage: { key: 'errors.provider_service_failure', params: { status: 503 }, fallback: saved.job.error },
+    };
+    expect(saved.job).toMatchObject(error);
+    expect(saved.steps).toMatchObject([error]);
+    expect(JSON.stringify(saved)).not.toMatch(/upstream-secret|synthetic-api-secret/);
+    const after = await state();
+    expect(after.context.selected).toEqual(before.context.selected);
+    expect(after.context.archivedTurnIds).toEqual(before.context.archivedTurnIds);
+    expect(after.context.summaries).toEqual(before.context.summaries);
+    expect(after.turns).toEqual(before.turns);
+    expect(mock.requests).toHaveLength(1);
   });
 
   it('continues generation after an observer disconnects and reconciles both clients', async () => {

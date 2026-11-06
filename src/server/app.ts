@@ -1,5 +1,5 @@
 import { Readable } from 'node:stream';
-import { message } from '../shared/localization.js';
+import { diagnosticMessage, message } from '../shared/localization.js';
 import { authorNoteStatusSchema } from '../shared/author-note.js';
 import { copyBranchSchema, deleteChatSchema, renameBranchSchema } from '../shared/branches.js';
 import { refreshContext } from '../core/context-refresh.js';
@@ -177,7 +177,7 @@ export async function createApp(options: {
       const localized = message('importErrors.upload_too_large');
       return reply.code(413).send({ code: 'transcript_too_large', message: localized.fallback, localized });
     }
-    return reply.code(status && status < 500 ? status : 500).send({ code: 'request_failed', message: 'The request could not be completed.' });
+    return reply.code(status && status < 500 ? status : 500).send({ code: 'request_failed', ...diagnosticMessage(message('errors.request_could_not_be_completed')) });
   });
   const setSession = (reply: { setCookie: (name: string, token: string, options: object) => unknown }, token: string) => {
     reply.setCookie('session', token, { httpOnly: true, secure, sameSite: 'strict', path: '/', maxAge: sessionSeconds });
@@ -343,19 +343,19 @@ export async function createApp(options: {
     const connection = input.connection;
     const preview = assembleRequest(connection, { title: 'Connection test', instructions: '', character: '', persona: '', targetInputTokens: connection.contextWindow - connection.maxOutputTokens }, [{ id: 'test', position: 1, complete: false, user: { id: 'test-user', revision: 0, text: 'Hi' }, assistant: { id: 'test-assistant', revision: 0, text: '' } }]);
     let response = '';
+    let completion;
     try {
-      const completion = await provider.stream(preview, apiKey, AbortSignal.timeout(30_000), text => { response += text; });
-      if (!response.trim()) throw new AppError(502, 'empty_response', message("errors.the_model_returned_no_text"));
-      const localized = message('libraries.connection_test_completed');
-      return { message: localized.fallback, localized, request: preview, response, usage: completion?.usage ?? null };
+      completion = await provider.stream(preview, apiKey, AbortSignal.timeout(30_000), text => { response += text; });
     } catch (error) {
       // Diagnostics have no saved turn to retry or delete.
-      if (error instanceof AppError && ['empty_response', 'incomplete_stream'].includes(error.code)) {
-        const reason = error.code === 'empty_response' ? 'The model returned no text for the test message.' : 'The test response stream ended before completion.';
-        throw new AppError(502, error.code, message("errors.nothing_was_saved_click_send_test_message_to", { reason: String(reason) }));
+      if (error instanceof AppError) {
+        if (error.code === 'incomplete_stream') throw new AppError(502, error.code, message('errors.connection_test_incomplete_stream'));
+        if (error.code === 'empty_response') throw new AppError(502, error.code, message('errors.connection_test_empty_response'));
       }
       throw error;
     }
+    if (!response.trim()) throw new AppError(502, 'empty_response', message('errors.connection_test_empty_response'));
+    return { ...diagnosticMessage(message('libraries.connection_test_completed')), request: preview, response, usage: completion?.usage ?? null };
   });
   app.get('/api/library', async request => {
     const { knownRevision } = z.object({ knownRevision: z.coerce.number().int().nonnegative().optional() }).strict().parse(request.query);

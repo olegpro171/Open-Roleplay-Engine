@@ -5,7 +5,7 @@ export async function startMockProvider() {
   const modelRequests: { authorization?: string }[] = [];
   let modelMode: 'normal' | 'error' | 'invalid' | 'redirect' | number = 'normal';
   const waiting: (() => void)[] = [];
-  let mode: 'normal' | 'refusal' | 'repair-unchanged' | 'hold' | 'hold-first-token' | 'markdown' | 'reasoning' | 'reasoning-only' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' | 'placeholder' | 'no-usage' | 'bad-usage' = 'normal';
+  let mode: 'normal' | 'refusal' | 'repair-unchanged' | 'hold' | 'hold-first-token' | 'markdown' | 'reasoning' | 'reasoning-only' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' | 'placeholder' | 'no-usage' | 'bad-usage' | number = 'normal';
   const send = (response: ServerResponse, value: unknown) => response.write(`data: ${JSON.stringify(value)}\n\n`);
   const server = createServer(async (request, response) => {
     if (request.url === '/v1/models') {
@@ -20,6 +20,7 @@ export async function startMockProvider() {
     for await (const chunk of request) body += chunk;
     requests.push({ body: JSON.parse(body), authorization: request.headers.authorization });
     const currentMode = mode;
+    if (typeof currentMode === 'number') { response.writeHead(currentMode).end('upstream-secret-do-not-save'); return; }
     let repairText: string | null = null;
     try {
       const payload = JSON.parse(JSON.parse(body).messages.at(-1).content);

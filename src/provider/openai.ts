@@ -1,4 +1,4 @@
-import { message } from '../shared/localization.js';
+import { message, type LocalizedMessage } from '../shared/localization.js';
 import { AppError } from '../core/errors.js';
 import { z } from 'zod';
 import type { RequestPreview, TokenUsage } from '../shared/contracts.js';
@@ -24,26 +24,23 @@ const choicesSchema = z.array(z.object({
   }).nullish(),
 }));
 
-function httpFailureMessage(status: number, apiKey: string, action: 'models' | 'generation'): string {
-  const retry = action === 'models' ? 'fetch the model list again' : 'retry the request';
+function httpFailureMessage(status: number, hasApiKey: boolean, action: 'models' | 'generation'): LocalizedMessage {
   if (status === 401) {
-    return apiKey
-      ? `The provider rejected the API key (HTTP 401). Check or replace it in this Connection, then ${retry}.`
-      : `The provider requires authentication (HTTP 401). Enter your provider’s API key in this Connection, then ${retry}.`;
+    if (action === 'models') {
+      return message(hasApiKey ? 'errors.provider_models_key_rejected' : 'errors.provider_models_key_required');
+    }
+    return message(hasApiKey ? 'errors.provider_generation_key_rejected' : 'errors.provider_generation_key_required');
   }
   if (status === 403) {
-    return `The provider denied access (HTTP 403). Check that your API key and provider account have permission to ${action === 'models' ? 'list models' : 'use this model'}, then try again.`;
+    return message(action === 'models' ? 'errors.provider_models_forbidden' : 'errors.provider_generation_forbidden');
   }
   if (status === 429) {
-    return 'The provider’s request or usage limit was reached (HTTP 429). Check your account’s limits and balance, then try again when requests are available.';
+    return message('errors.provider_rate_limit');
   }
   if (status >= 500 && status <= 599) {
-    return `The provider could not complete the request (HTTP ${status}). Try again later. If this continues, check the provider’s service status.`;
+    return message('errors.provider_service_failure', { status });
   }
-  if (action === 'models') {
-    return `Could not fetch the model list (HTTP ${status}). Check the API base URL. If your provider does not support fetching models, enter its model identifier manually.`;
-  }
-  return `The provider could not accept the request (HTTP ${status}). Check the API base URL, model identifier and request parameters in this Connection, then try again.`;
+  return message(action === 'models' ? 'errors.provider_models_http_failure' : 'errors.provider_generation_http_failure', { status });
 }
 
 export async function fetchModels(endpoint: string, apiKey: string): Promise<string[]> {
@@ -54,7 +51,7 @@ export async function fetchModels(endpoint: string, apiKey: string): Promise<str
     });
     if (!response.ok) {
       await response.body?.cancel();
-      throw new AppError(502, 'model_list_unavailable', httpFailureMessage(response.status, apiKey, 'models'));
+      throw new AppError(502, 'model_list_unavailable', httpFailureMessage(response.status, Boolean(apiKey), 'models'));
     }
     if (!response.body) throw new Error('Missing model list.');
     const reader = response.body.getReader();
@@ -90,7 +87,7 @@ export class OpenAICompatibleProvider implements Provider {
     });
     if (!response.ok) {
       await response.body?.cancel();
-      throw new AppError(502, 'provider_error', httpFailureMessage(response.status, apiKey, 'generation'));
+      throw new AppError(502, 'provider_error', httpFailureMessage(response.status, Boolean(apiKey), 'generation'));
     }
     if (!response.body || !response.headers.get('content-type')?.includes('text/event-stream')) {
       await response.body?.cancel();
