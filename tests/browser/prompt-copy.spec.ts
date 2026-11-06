@@ -61,7 +61,9 @@ test('copies the whole assembled prompt and offers selection when the browser de
   await openPeek();
   await copy.click();
   await expect(copiedButton).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(copied);
+  const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+  // Chromium writes native CRLF line endings to the Windows clipboard.
+  expect(clipboardText.replace(/\r\n/g, '\n')).toBe(copied);
   await closePeek();
 
   // Exercise the path used by plain HTTP LAN origins without granting clipboard access.
