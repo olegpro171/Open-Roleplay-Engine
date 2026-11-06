@@ -7,7 +7,7 @@ import { openModal } from './dialog-focus';
 import { ModalDialog } from './ModalDialog';
 import { startDownload } from './downloads';
 import { Icon } from './Icon';
-import { LibraryCardMenu } from './LibraryCardMenu';
+import { ActionMenu } from './ActionMenu';
 import { LibrarySearchField } from './LibrarySearchField';
 import { errorText, formatMessage, locale, message, t, useLocale, type MessageText } from './localization';
 import { newId } from './uuid';
@@ -135,7 +135,7 @@ export function ChatBranches({ current, branches, fork, locked, close, open, ref
                   <span className="library-card-title">{branchName(branch)}</span>
                 </button></h2>
                 <div className="library-card-tools">
-                  <LibraryCardMenu name={branchName(branch)} disabled={pending} revision={branch.revision}>
+                  <ActionMenu label={t('libraries.actions_for', { name: branchName(branch) })} disabled={pending} revision={branch.revision}>
                     <button type="button" className="secondary" role="menuitem" tabIndex={-1} disabled={branch.running}
                       onClick={() => begin({ kind: 'rename', branch, name: branchName(branch) })}><Icon name="EditOutline" />{t('branches.rename')}</button>
                     <button type="button" className="secondary" role="menuitem" tabIndex={-1} disabled={branch.running || (locked && branch.id === current.id)}
@@ -145,7 +145,7 @@ export function ChatBranches({ current, branches, fork, locked, close, open, ref
                     })}><Icon name="Upload" />{t('libraries.export_chat_jsonl')}</button>
                     <button type="button" className="secondary" role="menuitem" tabIndex={-1} disabled={branch.running || branches.length === 1}
                       onClick={() => confirmDelete(branch)}><Icon name="TrashOutline" />{t('branches.delete')}</button>
-                  </LibraryCardMenu>
+                  </ActionMenu>
                 </div>
               </div>
               <p className="branch-row-details">

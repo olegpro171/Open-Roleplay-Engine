@@ -1,22 +1,20 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
-import { t, useLocale } from './localization';
 
-export function LibraryCardMenu({ name, disabled, revision, children }: {
-  name: string;
+export function ActionMenu({ label, disabled, revision, focusMode = 'item', children }: {
+  label: string;
   disabled: boolean;
   revision: number;
+  focusMode?: 'item' | 'panel';
   children: ReactNode;
 }) {
-  useLocale();
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const [openedAt, setOpenedAt] = useState<number | null>(null);
   const open = openedAt === revision && !disabled;
   const [position, setPosition] = useState({ left: 0, top: 0, maxHeight: 0 });
-  const label = t('libraries.actions_for', { name });
 
   function close(restoreFocus = false) {
     if (restoreFocus) trigger.current?.focus({ preventScroll: true });
@@ -43,7 +41,8 @@ export function LibraryCardMenu({ name, disabled, revision, children }: {
       top: upwards ? rect.top - Math.min(menu.scrollHeight, maxHeight) - 6 : rect.bottom + 6,
       maxHeight,
     });
-    menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true });
+    const initialFocus = focusMode === 'panel' ? menu : menu.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    initialFocus?.focus({ preventScroll: true });
 
     const outside = (event: Event) => {
       if (event.target instanceof Node && !button.contains(event.target) && !menu.contains(event.target)) close();
@@ -52,8 +51,8 @@ export function LibraryCardMenu({ name, disabled, revision, children }: {
       if (event.target instanceof Node && menu.contains(event.target)) return;
       close(menu.contains(document.activeElement));
     };
-    // Capture nested Library scrolling as well as window scrolling. Wheel/touch
-    // close at gesture start, before momentum can detach the panel from its card.
+    // Capture nested scrolling too. Wheel/touch close at gesture start,
+    // before momentum can detach the panel from its trigger.
     document.addEventListener('pointerdown', outside);
     document.addEventListener('focusin', outside);
     window.addEventListener('scroll', dismiss, true);
@@ -72,12 +71,12 @@ export function LibraryCardMenu({ name, disabled, revision, children }: {
       viewport?.removeEventListener('resize', dismiss);
       viewport?.removeEventListener('scroll', dismiss);
     };
-  }, [open, label]);
+  }, [open, label, focusMode]);
 
   // A modal makes content outside its own tree inert, including body portals.
   const menuHost = open ? trigger.current?.closest('dialog[open]') ?? document.body : null;
   return <>
-    <button ref={trigger} type="button" className="quiet library-card-more" disabled={disabled}
+    <button ref={trigger} type="button" className="quiet action-menu-trigger" disabled={disabled}
       aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined}
       onClick={() => open ? close() : setOpenedAt(revision)}
       onKeyDown={event => {
@@ -87,9 +86,9 @@ export function LibraryCardMenu({ name, disabled, revision, children }: {
         }
       }}><Icon name="MoreHorizontal" /></button>
     {menuHost && createPortal(<div ref={panel} id={id} role="menu" aria-label={label}
-      className="library-card-menu floating-controls" style={position}
+      className="action-menu floating-controls" style={position} tabIndex={focusMode === 'panel' ? -1 : undefined}
       onClickCapture={event => {
-        if (event.target instanceof Element && event.target.closest('button:not(:disabled)')) {
+        if (focusMode === 'item' && event.target instanceof Element && event.target.closest('button:not(:disabled)')) {
           // Restore the surviving trigger before an action opens a dialog, so
           // that dialog can return focus after this transient panel disappears.
           trigger.current?.focus({ preventScroll: true });
@@ -107,7 +106,8 @@ export function LibraryCardMenu({ name, disabled, revision, children }: {
           event.preventDefault();
           const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
           const active = buttons.findIndex(button => button === document.activeElement);
-          const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+          const next = event.key === 'Home' ? 0
+            : event.key === 'End' || (event.key === 'ArrowUp' && active < 0) ? buttons.length - 1
             : (active + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
           buttons[next]?.focus({ preventScroll: true });
         }

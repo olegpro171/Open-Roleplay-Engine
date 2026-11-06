@@ -108,7 +108,8 @@ for (const width of [1280, 390]) test(`right arrow regenerates, reserves a versi
     await expect(turn.getByLabel('2 response versions', { exact: true })).toHaveText('/ 2');
     expect((await state()).turns[0].variants).toHaveLength(1);
     await page.route(reasoningUrl, route => route.fulfill({ json: { text: 'First thought.' } }));
-    await turn.getByRole('button', { name: 'Reasoning', exact: true }).click();
+    await turn.getByRole('button', { name: 'More turn actions', exact: true }).click();
+    await page.getByRole('menu', { name: 'More turn actions', exact: true }).getByRole('menuitem', { name: 'Reasoning', exact: true }).click();
     const popup = page.getByRole('dialog', { name: 'Model reasoning', exact: true });
     const stream = popup.getByLabel('Model reasoning stream', { exact: true });
     await expect(stream).toHaveText('First thought.');

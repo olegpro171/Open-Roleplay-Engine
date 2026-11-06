@@ -1,11 +1,15 @@
+import { useState } from 'react';
 import { t, useLocale } from './localization';
 import type { Turn } from '../shared/contracts';
-import { Reasoning, type ReasoningProps } from './Reasoning';
+import { ActionMenu } from './ActionMenu';
+import { Icon } from './Icon';
+import { ReasoningDialog, type ReasoningProps } from './Reasoning';
 import { ResponseVariants } from './ResponseVariants';
 import { TurnActionButton } from './TurnActionButton';
 
-export function TurnControls({ turn, locked, editing, inputVisible, action, reasoning, select, edit, remove, fork, pin }: {
+export function TurnControls({ turn, revision, locked, editing, inputVisible, action, reasoning, select, edit, remove, fork, pin }: {
   turn: Turn;
+  revision: number;
   locked: boolean;
   editing: boolean;
   inputVisible: boolean;
@@ -18,6 +22,11 @@ export function TurnControls({ turn, locked, editing, inputVisible, action, reas
   fork?: { disabled: boolean; open: () => void };
 }) {
   useLocale();
+  const [inspectedGeneration, setInspectedGeneration] = useState<string | null>(null);
+  // A later switch back to the old response must not reopen its inspector.
+  if (inspectedGeneration !== null && inspectedGeneration !== reasoning?.generationId) {
+    setInspectedGeneration(null);
+  }
   return <div className="turn-controls" role="group" aria-label={t("turn_controls.turn_controls")}>
     <ResponseVariants turn={turn} locked={locked || editing} select={select}
       regenerating={turn.complete && action?.kind === 'cancel'}
@@ -26,11 +35,18 @@ export function TurnControls({ turn, locked, editing, inputVisible, action, reas
       {action && <TurnActionButton action={action.kind} label={action.kind === 'cancel' ? t("character_import.cancel") : t("turn_controls.regenerate")} disabled={action.disabled} onClick={action.run} />}
       {inputVisible && <TurnActionButton action="input" label={t("turn_controls.edit_input")} disabled={locked} onClick={() => edit('user')} />}
       <TurnActionButton action="response" label={t("turn_controls.edit_response")} disabled={locked || !turn.complete} onClick={() => edit('assistant')} />
-      {reasoning && <Reasoning key={reasoning.generationId} {...reasoning} />}
       {pin && <TurnActionButton action={turn.pinned ? 'unpin' : 'pin'} label={t(turn.pinned ? 'pins.unpin' : 'pins.pin')}
         disabled={locked || editing || pin.disabled} onClick={pin.toggle} />}
-      {fork && <TurnActionButton action="fork" label={t('branches.fork')} disabled={locked || editing || fork.disabled} onClick={fork.open} />}
-      <TurnActionButton action="delete" label={t("app.delete_turn_2")} disabled={locked} onClick={remove} />
+      <ActionMenu label={t('turn_controls.more_actions')} disabled={locked && !reasoning} revision={revision} focusMode="panel">
+        {reasoning && <button type="button" className="secondary" role="menuitem" tabIndex={-1} aria-haspopup="dialog"
+          onClick={() => setInspectedGeneration(reasoning.generationId)}><Icon name="LightBulb" />{t('reasoning.show_reasoning')}</button>}
+        {fork && <button type="button" className="secondary" role="menuitem" tabIndex={-1} aria-haspopup="dialog"
+          disabled={locked || editing || fork.disabled} onClick={fork.open}><Icon name="GitBranch" />{t('branches.fork')}</button>}
+        <button type="button" className="secondary turn-action-delete" role="menuitem" tabIndex={-1} aria-haspopup="dialog"
+          disabled={locked} onClick={remove}><Icon name="TrashOutline" />{t('app.delete_turn_2')}</button>
+      </ActionMenu>
     </div>
+    {reasoning && inspectedGeneration === reasoning.generationId &&
+      <ReasoningDialog {...reasoning} close={() => setInspectedGeneration(null)} />}
   </div>;
 }

@@ -5,7 +5,6 @@ import { Icon } from './Icon';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from './api';
-import { TurnActionButton } from './TurnActionButton';
 
 export type ReasoningProps = { text: string; live: boolean; chatId: string; generationId: string; length: number };
 
@@ -17,16 +16,7 @@ export function ReasoningPreview({ text }: { text: string }) {
   </div>;
 }
 
-export function Reasoning(props: ReasoningProps) {
-  useLocale();
-  const [open, setOpen] = useState(false);
-  return <>
-    <TurnActionButton action="reasoning" label={t("reasoning.show_reasoning")} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)} />
-    {open && <ReasoningDialog {...props} close={() => setOpen(false)} />}
-  </>;
-}
-
-function ReasoningDialog({ text: preview, live, chatId, generationId, length, close }: ReasoningProps & { close: () => void }) {
+export function ReasoningDialog({ text: preview, live, chatId, generationId, length, close }: ReasoningProps & { close: () => void }) {
   useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const stream = useRef<HTMLDivElement>(null);
@@ -61,7 +51,7 @@ function ReasoningDialog({ text: preview, live, chatId, generationId, length, cl
     openModal(node);
     return () => {
       node?.close();
-      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus();
+      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
     };
   }, []);
   useLayoutEffect(() => {

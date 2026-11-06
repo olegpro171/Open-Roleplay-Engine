@@ -1,5 +1,5 @@
 import { LibraryImport } from './LibraryImport';
-import { LibraryCardMenu } from './LibraryCardMenu';
+import { ActionMenu } from './ActionMenu';
 import { LibrarySearchField } from './LibrarySearchField';
 import type { MessageText } from './localization';
 import { libraryEditorTitle, newLibraryLabel, searchLibraryLabel, sortLibraryLabel } from './localization-labels';
@@ -467,7 +467,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
                 </h2>
                 <div className="library-card-tools">
                   {(section === 'prompts' || section === 'connections' || section === 'contexts') && <DefaultBookmark kind={section} item={item} defaults={defaults} libraryRevision={library.revision} busy={busy} run={run} />}
-                  <LibraryCardMenu name={characterLabel(item)} disabled={busy} revision={library.revision}>
+                  <ActionMenu label={t('libraries.actions_for', { name: characterLabel(item) })} disabled={busy} revision={library.revision}>
                     <button className="secondary" role="menuitem" tabIndex={-1} aria-label={section === 'characters' ? t("libraries.duplicate", { value: characterLabel(item) }) : undefined} disabled={busy} onClick={() => void run(() => duplicate(item))}><Icon name="CopyOutline" />{t("libraries.duplicate_2")}</button>
                     {section === 'connections' ? <button type="button" className="secondary" role="menuitem" tabIndex={-1} disabled={busy} aria-haspopup="dialog" onClick={() => {
                       setConnectionFile({ kind: 'export', id: item.id, name: item.name });
@@ -475,7 +475,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
                     {item.id === 'default' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => { confirmAction({ title: t("libraries.restore_original_prompt"), message: t("libraries.restore_the_built_in_default_prompt_chats"), actionLabel: t("libraries.restore_original"), onConfirm: () => { void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.restore_original")}</button>}
                     {section === 'contexts' && item.id === 'default-context' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => { confirmAction({ title: t("libraries.reset_context"), message: t("libraries.reset_context_confirmation"), actionLabel: t("libraries.reset"), onConfirm: () => { void run(() => api('/library/default-context/reset', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.reset")}</button>}
                     {item.id !== 'default' && !(section === 'contexts' && item.id === 'default-context') && <button className="secondary" role="menuitem" tabIndex={-1} aria-label={section === 'characters' ? t("libraries.delete", { value: characterLabel(item) }) : undefined} disabled={busy || (section === 'lorebooks' && library.lorebookUses.some(use => use.bookId === item.id && (use.characters.length > 0 || use.chats.length > 0)))} onClick={() => { confirmAction({ confirmOnEnter: true, title: t("libraries.delete_library_item"), message: t("libraries.delete_from_the_library", { value: section === 'characters' || section === 'personas' ? characterLabel(item) : item.name }), actionLabel: t("libraries.delete_2"), onConfirm: () => { void run(() => api(`/library/${item.id}`, 'DELETE', { kind: section, revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.delete_2")}</button>}
-                  </LibraryCardMenu>
+                  </ActionMenu>
                 </div>
               </div>
               <LibraryDescription text={section === 'connections' && 'model' in item ? item.model

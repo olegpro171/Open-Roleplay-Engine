@@ -352,7 +352,10 @@ export function App() {
       if (jump) throw new LocalizedError(msg('pins.jump_failed'));
       return;
     }
-    if (automatic && (document.activeElement?.closest('[data-turn-id]') || document.querySelector('dialog[open]'))) return;
+    // The floating action menu takes focus outside the transcript while open.
+    const focusedTurn = () => document.activeElement?.closest<HTMLElement>('[data-turn-id]') ??
+      transcript.current?.querySelector('[data-turn-id] [aria-haspopup="menu"][aria-expanded="true"]')?.closest<HTMLElement>('[data-turn-id]');
+    if (automatic && (focusedTurn() || document.querySelector('dialog[open]'))) return;
     if (direction === 'older' && !current.page.hasOlder || direction === 'newer' && !current.page.hasNewer) return;
     const parameters = new URLSearchParams();
     if (jump) {
@@ -384,7 +387,7 @@ export function App() {
         if (jump) throw new LocalizedError(msg('pins.jump_failed'));
         return;
       }
-      const focusedTurnId = document.activeElement?.closest<HTMLElement>('[data-turn-id]')?.dataset.turnId;
+      const focusedTurnId = focusedTurn()?.dataset.turnId;
       if (jump) {
         if (!state.page.turns.some(turn => turn.id === jump.turnId)) throw new LocalizedError(msg('pins.jump_failed'));
         setPinnedChat(null);
@@ -677,7 +680,7 @@ export function App() {
                   : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor ?? 'var(--speech-persona)' : selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor ?? 'var(--speech-character)'} /> : <span className="muted blank">{t("app.blank")}</span>}
               </div>}
             </div>)}
-            <TurnControls turn={turn} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}
+            <TurnControls turn={turn} revision={snapshot.revision} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}
               pin={turn.complete ? {
                 disabled: dataChanged || snapshot.memory.awaitingReview,
                 toggle: () => void command(() => saveTurnPin(snapshot.id, turn.id, snapshot.revision, !turn.pinned)),
