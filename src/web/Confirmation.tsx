@@ -1,4 +1,5 @@
 import { openModal } from './dialog-focus';
+import { ModalDialog } from './ModalDialog';
 import { LocalizedError, t, message as msg, useLocale } from './localization';
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -54,7 +55,7 @@ function ConfirmationDialog({ request, cancel, confirm }: { request: Confirmatio
       if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus();
     };
   }, []);
-  return createPortal(<dialog ref={dialog} className="confirmation-dialog" aria-labelledby={title} aria-describedby={description} onCancel={event => { event.preventDefault(); cancel(); }} onKeyDown={event => {
+  return createPortal(<ModalDialog ref={dialog} className="confirmation-dialog" aria-labelledby={title} aria-describedby={description} onDismiss={cancel} onKeyDown={event => {
     if (request.confirmOnEnter && event.key === 'Enter' && event.target !== cancelButton.current) {
       event.preventDefault();
       if (!event.repeat && !event.nativeEvent.isComposing && event.keyCode !== 229
@@ -75,5 +76,5 @@ function ConfirmationDialog({ request, cancel, confirm }: { request: Confirmatio
     <h2 id={title}>{request.title}</h2>
     <p id={description}>{request.message}</p>
     <div className="actions"><button type="button" ref={cancelButton} className="secondary" onClick={cancel}>{t("character_import.cancel")}</button><button type="button" ref={confirmButton} className="danger" onClick={confirm} aria-keyshortcuts={request.confirmOnEnter ? 'Enter' : undefined}>{request.actionLabel}</button></div>
-  </dialog>, document.body);
+  </ModalDialog>, document.body);
 }

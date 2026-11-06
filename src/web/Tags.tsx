@@ -1,4 +1,5 @@
 import { openModal } from './dialog-focus';
+import { ModalDialog } from './ModalDialog';
 import { useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { Icon } from './Icon';
 import { useConfirmation } from './Confirmation';
@@ -189,7 +190,6 @@ export function TagManager({ library, busy, run, committed, close }: { library: 
   const [search, setSearch] = useState(''), [name, setName] = useState(''), [rename, setRename] = useState<{ id: string; name: string; revision: number } | null>(null);
   const [error, setError] = useTextState(''), [pending, setPending] = useState(false), [page, setPage] = useState(0);
   const dialog = useRef<HTMLDialogElement>(null);
-  const backdropPointer = useRef(false);
   const titleId = useId();
   useLayoutEffect(() => {
     const trigger = document.activeElement;
@@ -212,16 +212,7 @@ export function TagManager({ library, busy, run, committed, close }: { library: 
     });
     setPending(false); return ok;
   }
-  function outsideDialog(x: number, y: number) {
-    const bounds = dialog.current?.getBoundingClientRect();
-    return bounds !== undefined && (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom);
-  }
-  return <dialog ref={dialog} className="catalog-dialog tag-manager" aria-labelledby={titleId} onCancel={event => { event.preventDefault(); if (!pending) close(); }} onPointerDown={event => {
-    backdropPointer.current = event.target === event.currentTarget && outsideDialog(event.clientX, event.clientY);
-  }} onClick={event => {
-    if (!pending && backdropPointer.current && event.target === event.currentTarget && outsideDialog(event.clientX, event.clientY)) close();
-    backdropPointer.current = false;
-  }}>
+  return <ModalDialog ref={dialog} className="catalog-dialog tag-manager" aria-labelledby={titleId} onDismiss={() => { if (!pending) close(); }}>
     <header className="catalog-dialog-heading"><div><h2 id={titleId}>{t("character_editor.manage_tags")}</h2><p className="small muted">{t("tags.organize_your_characters_changes_save_immediately")}</p></div><button type="button" className="quiet" aria-label={t("tags.close_tag_manager")} disabled={pending} onClick={close}><Icon name="Close" /></button></header>
     <div className="tag-manager-controls">
       <form onSubmit={async event => { event.preventDefault(); if (await mutate('POST', '/library/tags', { revision: library.revision, name })) setName(''); }}><label>{t("tags.new_tag_name")}<input required value={name} onChange={event => setName(event.target.value)} /></label><button disabled={busy || pending}>{t("tags.create_tag")}</button></form>
@@ -243,7 +234,7 @@ export function TagManager({ library, busy, run, committed, close }: { library: 
         dialog.current?.querySelector('.tag-catalog')?.scrollTo({ top: 0 });
       }} />
     </footer>
-  </dialog>;
+  </ModalDialog>;
 }
 export function TagImportOptions({ review, policy, change, disabled }: { review: TagReview; policy: TagPolicy; change: (policy: TagPolicy) => void; disabled?: boolean }) {
   useLocale();

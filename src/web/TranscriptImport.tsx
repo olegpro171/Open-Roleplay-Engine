@@ -6,6 +6,7 @@ import { MessageError } from '../shared/localization';
 import { api, ApiError, datasetChanged } from './api';
 import { ChatParticipants, type ChatParticipantsValue } from './ChatParticipants';
 import { openModal } from './dialog-focus';
+import { ModalDialog } from './ModalDialog';
 import { LibraryImport } from './LibraryImport';
 import { errorText, formatMessage, message, t, useLocale, type MessageText } from './localization';
 import { newId } from './uuid';
@@ -130,8 +131,8 @@ function ImportReview({ destination, file, initialRequestId, close, restoreFocus
     }
   }
 
-  return createPortal(<dialog ref={dialog} className="confirmation-dialog library-import-dialog transcript-import-dialog" aria-labelledby={heading}
-    onCancel={event => { event.preventDefault(); event.stopPropagation(); if (!submitting.current) close(); }}>
+  return createPortal(<ModalDialog ref={dialog} className="confirmation-dialog library-import-dialog transcript-import-dialog" aria-labelledby={heading}
+    onDismiss={() => { if (!submitting.current) close(); }}>
     <h2 id={heading}>{importTitle(destination)}</h2>
     {destination.kind === 'branch' && <p>{t('transcript_import.branch_destination', { title: destination.title })}</p>}
     <p>{file.name}</p>
@@ -161,5 +162,5 @@ function ImportReview({ destination, file, initialRequestId, close, restoreFocus
         </button>}
       </div>
     </form>
-  </dialog>, document.body);
+  </ModalDialog>, document.body);
 }

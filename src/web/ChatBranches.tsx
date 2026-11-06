@@ -4,6 +4,7 @@ import type { ChatSummary } from '../shared/library';
 import { api, ApiError } from './api';
 import { useConfirmation } from './Confirmation';
 import { openModal } from './dialog-focus';
+import { ModalDialog } from './ModalDialog';
 import { startDownload } from './downloads';
 import { Icon } from './Icon';
 import { LibraryCardMenu } from './LibraryCardMenu';
@@ -98,13 +99,8 @@ export function ChatBranches({ current, branches, fork, locked, close, open, ref
   }
   function dismiss() { if (!inFlight.current) close(); }
 
-  return createPortal(<dialog ref={dialog} className={fork ? 'prompt-peek' : 'catalog-dialog chat-branches-dialog'} aria-labelledby={title}
-    onCancel={event => { event.preventDefault(); dismiss(); }}
-    onClick={event => {
-      if (event.target !== event.currentTarget) return;
-      const { left, top, right, bottom } = event.currentTarget.getBoundingClientRect();
-      if (event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom) dismiss();
-    }}>
+  return createPortal(<ModalDialog ref={dialog} className={fork ? 'prompt-peek' : 'catalog-dialog chat-branches-dialog'} aria-labelledby={title}
+    onDismiss={dismiss}>
     <div className={fork ? 'peek-content' : 'branch-manager-content'}>
       <header className={fork ? 'peek-heading' : 'catalog-dialog-heading'}>
         <h2 id={title}>{fork ? t('branches.fork_title', { turn: fork.ordinal }) : t('branches.title')}</h2>
@@ -163,5 +159,5 @@ export function ChatBranches({ current, branches, fork, locked, close, open, ref
         </article>)}</div>
       </div>}
     </div>
-  </dialog>, document.body);
+  </ModalDialog>, document.body);
 }

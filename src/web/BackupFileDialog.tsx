@@ -1,4 +1,5 @@
 import { openModal } from './dialog-focus';
+import { ModalDialog } from './ModalDialog';
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { filePasswordMaxLength } from '../shared/protected-files';
@@ -29,8 +30,8 @@ export function BackupFileDialog({ action, busy, error, errorDetails, cancel, su
     };
   }, []);
   const saving = action.kind === 'save';
-  return createPortal(<dialog ref={dialog} className="confirmation-dialog backup-file-dialog" aria-labelledby={title} aria-describedby={description}
-    onCancel={event => { event.preventDefault(); if (!busy) cancel(); }}>
+  return createPortal(<ModalDialog ref={dialog} className="confirmation-dialog backup-file-dialog" aria-labelledby={title} aria-describedby={description}
+    onDismiss={() => { if (!busy) cancel(); }}>
     <h2 id={title}>{t(saving ? 'application_settings.save_backup' : 'application_settings.import_backup')}</h2>
     <p id={description}>{t(saving ? 'application_settings.backup_password_help' : 'application_settings.backup_import_password_help')}</p>
     {action.kind === 'import' && <p>{action.file.name}</p>}
@@ -52,5 +53,5 @@ export function BackupFileDialog({ action, busy, error, errorDetails, cancel, su
         <button type="button" className="secondary" disabled={busy} onClick={cancel}>{t('character_import.cancel')}</button>
       </div>
     </form>
-  </dialog>, document.body);
+  </ModalDialog>, document.body);
 }

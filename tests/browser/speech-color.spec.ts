@@ -265,7 +265,7 @@ for (const width of [1440, 390, 320]) test(`custom HSL picker previews, validate
   await expect(hue).toBeFocused();
   await hex.press('Enter');
   await expect(picker).toBeVisible();
-  await hex.press('Escape');
+  await page.mouse.click(2, 2);
   await expect(picker).toHaveCount(0);
   await expect(trigger).toBeFocused();
   await expect(trigger).toContainText('#A8C9F0');

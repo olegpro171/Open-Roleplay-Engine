@@ -1,4 +1,5 @@
 import { openModal } from './dialog-focus';
+import { ModalDialog } from './ModalDialog';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { speechColorSchema } from '../shared/appearance';
@@ -90,8 +91,8 @@ function ColorPickerDialog({ label, value, instant, change, cancel, apply }: {
     { channel: 'lightness', label: 'color_picker.lightness', max: 100, unit: '%', background: `linear-gradient(to right, #000, hsl(${hsl.hue} ${hsl.saturation}% 50%), #fff)` },
   ];
 
-  return createPortal(<dialog ref={dialog} className="color-picker-dialog" aria-labelledby={titleId} aria-describedby={descriptionId}
-    onCancel={event => { event.preventDefault(); cancel(); }}
+  return createPortal(<ModalDialog ref={dialog} className="color-picker-dialog" aria-labelledby={titleId} aria-describedby={descriptionId}
+    onDismiss={cancel}
     onKeyDown={event => {
       if (event.key !== 'Tab') return;
       const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)'));
@@ -104,11 +105,6 @@ function ColorPickerDialog({ label, value, instant, change, cancel, apply }: {
         event.preventDefault();
         first?.focus();
       }
-    }}
-    onClick={event => {
-      if (event.target !== event.currentTarget) return;
-      const bounds = event.currentTarget.getBoundingClientRect();
-      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) cancel();
     }}>
     <header className="color-picker-heading"><h2 id={titleId}>{t('color_picker.title')}</h2><p id={descriptionId}>{label}</p></header>
     <div className="color-picker-body">
@@ -142,5 +138,5 @@ function ColorPickerDialog({ label, value, instant, change, cancel, apply }: {
         <button type="button" disabled={!valid} onClick={() => apply(color)}>{t('color_picker.apply')}</button>
       </>}
     </footer>
-  </dialog>, document.body);
+  </ModalDialog>, document.body);
 }

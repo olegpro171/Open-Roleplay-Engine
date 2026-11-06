@@ -99,7 +99,7 @@ test('Connection dialogs cancel without requests, clear secrets, and block dupli
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('File password (optional)', { exact: true }).fill('discard password');
   await dialog.getByLabel('Include API key').check();
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.mouse.click(2, 2);
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toBeFocused();
   expect(requests).toBe(0);
@@ -115,7 +115,7 @@ test('Connection dialogs cancel without requests, clear secrets, and block dupli
   await dialog.getByLabel('File password (optional)', { exact: true }).fill('retained on error');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
-  await page.keyboard.press('Escape');
+  await page.mouse.click(2, 2);
   await expect(dialog).toBeVisible();
   await dialog.locator('form').dispatchEvent('submit');
   release?.();

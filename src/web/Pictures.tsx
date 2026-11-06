@@ -1,4 +1,5 @@
 import { openModal } from './dialog-focus';
+import { ModalDialog } from './ModalDialog';
 import { LocalizedError, useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -51,11 +52,11 @@ function OriginalPictureViewer({ picture, close }: { picture: CharacterPicture; 
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
     };
   }, []);
-  return createPortal(<dialog ref={dialog} className="original-picture-viewer" aria-label={t("pictures.original_picture")} onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }}>
+  return createPortal(<ModalDialog ref={dialog} className="original-picture-viewer" aria-label={t("pictures.original_picture")} onDismiss={close} dismissOnEmptySpace>
     <button type="button" className="quiet" aria-label={t("reasoning.close")} title={t("reasoning.close")} onClick={close}><Icon name="Close" /></button>
     {status === 'loading' && <p role="status">{t("pictures.loading_original")}</p>}
     {status === 'failed' ? <p role="alert">{t("pictures.original_unavailable")}</p> : <img src={picture.originalUrl} alt={t("pictures.original_picture")} style={{ width: `min(100%, calc((100dvh - 32px) * ${picture.width / picture.height}))` }} onLoad={() => setStatus('loaded')} onError={() => setStatus('failed')} />}
-  </dialog>, document.body);
+  </ModalDialog>, document.body);
 }
 function Picture({ url, label, shape }: { url?: string; label: string; shape: 'square' | 'round' }) {
   useLocale();
@@ -119,7 +120,7 @@ export function CropDialog({ image, close, apply, focusTarget }: { focusTarget?:
   }, [focusTarget]);
   const controls = cropControls(image, crop), region = cropPixels(image, crop);
   function update(values: Partial<typeof controls>) { const next = { ...controls, ...values }; setCrop(cropFromControls(image, next.zoom, next.horizontal, next.vertical)); }
-  return <dialog ref={dialog} className="crop-dialog" aria-labelledby={title} onCancel={event => { event.preventDefault(); close(); }}><h2 id={title}>{t("pictures.adjust_picture_crop")}</h2><p className="small muted">{t("pictures.drag_to_frame_your_picture_or_use")}</p>
+  return <ModalDialog ref={dialog} className="crop-dialog" aria-labelledby={title} onDismiss={close}><h2 id={title}>{t("pictures.adjust_picture_crop")}</h2><p className="small muted">{t("pictures.drag_to_frame_your_picture_or_use")}</p>
     <div className="crop-surface" onPointerDown={event => {
       if (event.button !== 0 || !event.isPrimary) return;
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -134,5 +135,5 @@ export function CropDialog({ image, close, apply, focusTarget }: { focusTarget?:
       <label>{t("pictures.horizontal_position")}<output>{image.width === region.width ? t("pictures.centered_no_horizontal_travel") : `${Math.round(controls.horizontal)}%`}</output><input type="range" aria-label={t("pictures.horizontal_position_2")} min="0" max="100" step="1" disabled={image.width === region.width} value={controls.horizontal} onChange={event => update({ horizontal: Number(event.target.value) })} /></label>
       <label>{t("pictures.vertical_position")}<output>{image.height === region.height ? t("pictures.centered_no_vertical_travel") : `${Math.round(controls.vertical)}%`}</output><input type="range" aria-label={t("pictures.vertical_position_2")} min="0" max="100" step="1" disabled={image.height === region.height} value={controls.vertical} onChange={event => update({ vertical: Number(event.target.value) })} /></label></div>
     <div className="actions crop-footer"><button type="button" className="secondary" onClick={() => setCrop(cropFromControls(image))}>{t("pictures.reset_crop")}</button><button type="button" onClick={() => apply(crop)}>{t("pictures.use_crop")}</button><button type="button" className="quiet" onClick={close}>{t("character_import.cancel")}</button></div>
-  </dialog>;
+  </ModalDialog>;
 }

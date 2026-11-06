@@ -124,9 +124,12 @@ for (const width of [1280, 801, 800, 390]) {
         await trigger.click();
         await expect(list.getByRole('button', { name: models[1], exact: true })).toHaveAttribute('aria-pressed', 'true');
         await search.fill('cancel-this');
-        await search.press('Escape');
+        if (width === 390) await page.touchscreen.tap(2, 2);
+        else if (width === 1280) await page.mouse.click(2, 2);
+        else await search.press('Escape');
         await expect(dialog).toHaveCount(0);
         await expect(trigger).toHaveText(models[1]);
+        await expect(trigger).toBeFocused();
         await page.evaluate(() => window.dispatchEvent(new CustomEvent('test-model-viewport', { detail: { height: 844, top: 0, type: 'resize' } })));
         await page.getByRole('button', { name: 'Save', exact: true }).click();
         await expect(page.getByRole('article')).toContainText(models[1]);

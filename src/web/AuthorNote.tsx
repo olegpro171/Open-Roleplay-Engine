@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { AuthorNote as Note, AuthorNoteStatus } from '../shared/author-note';
 import { openModal } from './dialog-focus';
+import { ModalDialog } from './ModalDialog';
 import { Dropdown } from './Controls';
 import { Icon } from './Icon';
 import { errorText, formatMessage, t, useLocale } from './localization';
@@ -45,9 +46,8 @@ export function AuthorNoteDialog({ note, editor, locked, preparing, missingMessa
       if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
     };
   }, []);
-  return createPortal(<dialog ref={dialog} className="prompt-peek author-note-dialog" aria-labelledby={title}
-    onCancel={event => { event.preventDefault(); close(); }}
-    onClick={event => { if (event.target === event.currentTarget) close(); }}>
+  return createPortal(<ModalDialog ref={dialog} className="prompt-peek author-note-dialog" aria-labelledby={title}
+    onDismiss={close}>
     <div className="peek-content">
       <div className="peek-heading"><h2 id={title}>{t('author_note.title')}</h2>
         <button type="button" className="secondary" aria-label={t('author_note.close')} onClick={close}><Icon name="Close" /></button></div>
@@ -72,5 +72,5 @@ export function AuthorNoteDialog({ note, editor, locked, preparing, missingMessa
       {storageError && <p className="error-banner" role="alert">{t('author_note.storage_failed')}</p>}
       <AuthorNoteSaveStatus saving={saving} error={error} retry={editor.retry} disabled={locked} />
     </div>
-  </dialog>, document.body);
+  </ModalDialog>, document.body);
 }

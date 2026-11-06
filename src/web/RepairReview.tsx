@@ -1,4 +1,5 @@
 import { openModal } from './dialog-focus';
+import { ModalDialog } from './ModalDialog';
 import { formatMessage } from './localization';
 import { useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { newId } from './uuid';
@@ -73,7 +74,11 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
     });
     pending.current = false;
   }
-  return <dialog ref={dialog} className="repair-dialog" aria-labelledby="repair-title" onCancel={e => { e.preventDefault(); if (!busy) void act('close'); }}>
+  function close() {
+    if (!busy) void act('close');
+  }
+
+  return <ModalDialog ref={dialog} className="repair-dialog" aria-labelledby="repair-title" onDismiss={close}>
     <div className="repair-heading"><div><p className="eyebrow">{t("repair_review.repair_review")}</p><h2 id="repair-title">{t("repair_review.review_the_proposed_replacement")}</h2><p className="small muted" role="status">{t("repair_review.approved_unchanged_after_model_check_reused_without", { value: job.reviewedCount ?? 0, value2: job.unchangedCount ?? 0, value3: job.revalidatedCount ?? 0, value4: remaining !== undefined ? t("repair_review.remaining", { count: remaining }) : '' })}</p></div></div>
     <div className="repair-body">
       {candidate && previous && <><p className="small muted">{t("repair_review.level_approve_this_replacement_before_its_dependents", { level: candidate.level, value: positions.length ? t("interface.turns", { value: String(Math.min(...positions)), value2: String(Math.max(...positions)) }) : t("interface.all_covered_turns_deleted"), value2: previous.manual ? t("interface.previous_summary_includes_manual_corrections") : '' })}</p>
@@ -93,6 +98,6 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
       {(error || job.error) && <p className="repair-error" role="alert">{error || formatMessage(job.errorMessage ?? job.error)}</p>}
       {obsolete && !running && <p role="status">{t("repair_review.the_chat_or_settings_changed_regenerate_this")}</p>}
     </div>
-    <div className="repair-footer"><div className="actions"><button disabled={locked || !current || obsolete || !candidate || Boolean(candidate.turns.length && !text.trim())} onClick={() => void act('approve')}>{remaining === 1 ? t("repair_review.approve_finish") : t("repair_review.approve_next")}</button><button className="secondary" disabled={locked} onClick={() => void act('regenerate')}>{t("repair_review.regenerate")}</button><button className="secondary" disabled={busy} title={t("reasoning.close")} onClick={() => void act('close')}><Icon name="Close" /><span className="sr-only">{t("reasoning.close")}</span></button></div><small className="muted">{t("repair_review.close_discards_this_candidate_and_your_unapproved")}</small></div>
-  </dialog>;
+    <div className="repair-footer"><div className="actions"><button disabled={locked || !current || obsolete || !candidate || Boolean(candidate.turns.length && !text.trim())} onClick={() => void act('approve')}>{remaining === 1 ? t("repair_review.approve_finish") : t("repair_review.approve_next")}</button><button className="secondary" disabled={locked} onClick={() => void act('regenerate')}>{t("repair_review.regenerate")}</button><button className="secondary" disabled={busy} title={t("reasoning.close")} onClick={close}><Icon name="Close" /><span className="sr-only">{t("reasoning.close")}</span></button></div><small className="muted">{t("repair_review.close_discards_this_candidate_and_your_unapproved")}</small></div>
+  </ModalDialog>;
 }

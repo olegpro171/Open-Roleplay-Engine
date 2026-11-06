@@ -6,7 +6,7 @@ import { defaultContextPreset } from '../../src/shared/context';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { createCompactPrompt } from './compact-prompt';
 
-test('reviews a repair queue with matching panes, source diffs, regenerate, discard on Close and phone layout', async ({ page, request }) => {
+test('reviews a repair queue with source diffs, regeneration and dismissal on desktop and phone layouts', async ({ page, request }) => {
   test.setTimeout(60_000);
   const securityErrors: string[] = [];
   page.on('console', message => { if (message.type() === 'error' && /Content Security Policy/i.test(message.text())) securityErrors.push(message.text()); });
@@ -93,7 +93,7 @@ test('reviews a repair queue with matching panes, source diffs, regenerate, disc
   await expect(dialog.getByLabel('Current sources', { exact: true })).toContainText('Mira kept the key');
   await expect(dialog.getByLabel('Previous sources', { exact: true })).toContainText('Mira gives Leon');
   await dialog.screenshot({ path: 'test-results/repair-desktop.png' });
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.mouse.click(2, 2);
   await expect(dialog).toHaveCount(0);
   expect((await state()).context.summaries.filter(node => !node.approved)).toEqual([]);
   const calls = (await requests()).length;

@@ -332,7 +332,8 @@ test('imports a downloaded branch into its group and as a standalone chat', asyn
         if (width === 1280) {
           await importButton.click();
           await expect(page.getByRole('button', { name: 'Drop file here or click to browse' })).toBeVisible();
-          await page.keyboard.press('Escape');
+          await page.mouse.click(2, 2);
+          if (kind === 'branch') await expect(manager).toBeVisible();
           await expect(importButton).toBeFocused();
         }
         const review = await chooseDownload(kind, width === 1280 ? testInfo.outputPath(`picker-${kind}-${theme}.png`) : undefined);
@@ -340,8 +341,10 @@ test('imports a downloaded branch into its group and as a standalone chat', asyn
         await expect(review.getByRole('button', { name: 'Import', exact: true })).toBeInViewport();
         expect(await review.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
         if (width === 1280 || width === 390) await page.screenshot({ path: testInfo.outputPath(`import-${kind}-${theme}-${width}.png`) });
-        await page.keyboard.press('Escape');
+        if (width === 1280 || width === 390) await page.mouse.click(2, 2);
+        else await page.keyboard.press('Escape');
         await expect(review).toHaveCount(0);
+        if (kind === 'branch') await expect(manager).toBeVisible();
         await expect(importButton).toBeFocused();
       }
     }

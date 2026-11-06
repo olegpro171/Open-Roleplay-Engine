@@ -139,7 +139,10 @@ test('keeps crop/editor save levels separate, recovers exact saves, and refreshe
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect((await library(page)).characterPictures.find(item => item.characterId === card.id)?.key).toBe(picture.key);
   await row(page, card.name).getByRole('button', { name: `${card.name}`, exact: true }).click();
-  const cancelled = await corner(page); await cancelled.getByRole('button', { name: 'Reset crop', exact: true }).click(); await page.keyboard.press('Escape');
+  const cancelled = await corner(page);
+  await cancelled.getByRole('button', { name: 'Reset crop', exact: true }).click();
+  await page.mouse.click(2, 2);
+  await expect(cancelled).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toBeFocused();
   const before = await library(page); await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(row(page, card.name)).toBeVisible(); expect((await library(page)).revision).toBe(before.revision);
   await row(page, card.name).getByRole('button', { name: `${card.name}`, exact: true }).click(); await upload(page, image, 'Replace picture');

@@ -44,7 +44,10 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   await expect(preview).toHaveCount(0);
   await showReasoning.click();
   await expect(page.getByLabel('Model reasoning stream', { exact: true })).toHaveText(syntheticReasoningStart);
-  await page.getByRole('dialog', { name: 'Model reasoning', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
+  const popup = page.getByRole('dialog', { name: 'Model reasoning', exact: true });
+  await page.mouse.click(2, 2);
+  await expect(popup).toHaveCount(0);
+  await expect(showReasoning).toBeFocused();
   await page.reload();
   await expect(showReasoning).toBeVisible();
   await expect(preview).toHaveCount(0);
@@ -65,7 +68,6 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   await page.screenshot({ path: `test-results/reasoning-preview-${theme}-${width}.png`, fullPage: true });
 
   await showReasoning.focus(); await showReasoning.press('Enter');
-  const popup = page.getByRole('dialog', { name: 'Model reasoning', exact: true });
   await expect(popup.getByRole('heading', { level: 2 })).toBeFocused();
   const stream = popup.getByLabel('Model reasoning stream', { exact: true });
   await expect(stream).toHaveText(syntheticReasoningStart);
@@ -199,10 +201,14 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   await expect(next.locator('.part.assistant > .prose')).toHaveText('The keeper nods.');
   expect((await state()).turns[1].assistant.text).toBe('The keeper nods.');
   await nextControls.getByRole('button', { name: 'Delete turn', exact: true }).click();
-  await page.locator('.confirmation-dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  const deletion = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Delete turn', exact: true }) });
+  await expect(deletion).toBeVisible();
+  await page.mouse.click(2, 2);
+  await expect(deletion).toHaveCount(0);
+  await expect(nextControls.getByRole('button', { name: 'Delete turn', exact: true })).toBeFocused();
   expect((await state()).turns).toHaveLength(2);
   await nextControls.getByRole('button', { name: 'Delete turn', exact: true }).click();
-  await page.locator('.confirmation-dialog').getByRole('button', { name: 'Delete turn', exact: true }).click();
+  await deletion.getByRole('button', { name: 'Delete turn', exact: true }).click();
   await expect(next).toHaveCount(0);
   expect((await state()).turns).toHaveLength(1);
   await page.reload();

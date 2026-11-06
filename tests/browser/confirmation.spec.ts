@@ -35,9 +35,11 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeInViewport();
     expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('confirmation.png') });
-    await page.keyboard.press('Escape');
+    await page.mouse.click(2, 2);
     await expect(dialog).toHaveCount(0);
     await expect(trigger).toBeFocused();
+    await expect(row).toBeVisible();
+    expect(deletes).toBe(0);
     await (await openLibraryActions(page, row)).getByRole('menuitem', { name: 'Delete', exact: true }).click();
     await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
     await page.keyboard.press('Shift+Tab');

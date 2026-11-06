@@ -1,4 +1,5 @@
 import { openModal } from './dialog-focus';
+import { ModalDialog } from './ModalDialog';
 import { formatMessage } from './localization';
 import { t, useLocale, locale } from './localization';
 import { loreReasonLabel, placementLabel, stateLabel } from './localization-labels';
@@ -143,7 +144,7 @@ export function PromptPeek({ request, stale, close, error, retry }: { request: R
   }, []);
   const entries = new Map(request?.layout?.map(part => [part.messageIndex, part]));
   const limit = request ? Math.min(request.budget.targetInputTokens, request.budget.contextWindow - request.budget.reservedOutputTokens) : 0;
-  return <dialog ref={dialog} className="prompt-peek" aria-labelledby="prompt-peek-title" onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }}>
+  return <ModalDialog ref={dialog} className="prompt-peek" aria-labelledby="prompt-peek-title" onDismiss={close}>
     <div className="peek-content"><div className="peek-heading"><div><p className="eyebrow">{t("prompt_peek.current_input")}</p><h2 id="prompt-peek-title">{t("app.prompt_peek")}</h2></div><button className="secondary" onClick={close} title={t("prompt_peek.close_peek")}><Icon name="Close" /><span className="sr-only">{t("prompt_peek.close_peek")}</span></button></div>
       {request ? <>
       <p className="small muted">{t("prompt_peek.resolved_messages_in_model_order_including_unsent")}</p>
@@ -166,7 +167,7 @@ export function PromptPeek({ request, stale, close, error, retry }: { request: R
       <details><summary>{t("prompt_peek.effective_request_parameters")}</summary><pre>{JSON.stringify({ ...request.body, messages: undefined }, null, 2)}</pre></details>
       </> : <div role="status"><p>{error || t("app.counting_current_input")}</p>{error && retry && <button type="button" className="secondary" onClick={retry}>{t("app.retry_preview")}</button>}</div>}
     </div>
-  </dialog>;
+  </ModalDialog>;
 }
 
 function PromptMessages({ request, entries }: { request: RequestPreview; entries: Map<number, PromptEntry> }) {

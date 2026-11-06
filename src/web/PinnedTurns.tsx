@@ -4,6 +4,7 @@ import type { RequestEstimate } from '../shared/contracts';
 import type { PinList } from '../shared/transcript';
 import { api, datasetChanged } from './api';
 import { openModal } from './dialog-focus';
+import { ModalDialog } from './ModalDialog';
 import { Icon } from './Icon';
 import { LibrarySearchField } from './LibrarySearchField';
 import { errorText, formatMessage, locale, message, t, useLocale, type MessageText } from './localization';
@@ -117,13 +118,8 @@ export function PinnedTurns({ branch, revision, estimate, estimateCurrent, estim
     if (!inFlight.current) close();
   }
 
-  return createPortal(<dialog ref={dialog} className="catalog-dialog chat-branches-dialog" aria-labelledby={title}
-    onCancel={event => { event.preventDefault(); dismiss(); }}
-    onClick={event => {
-      if (event.target !== event.currentTarget) return;
-      const { left, top, right, bottom } = event.currentTarget.getBoundingClientRect();
-      if (event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom) dismiss();
-    }}>
+  return createPortal(<ModalDialog ref={dialog} className="catalog-dialog chat-branches-dialog" aria-labelledby={title}
+    onDismiss={dismiss}>
     <div className="branch-manager-content">
       <header className="catalog-dialog-heading">
         <h2 id={title}>{t('pins.title')}</h2>
@@ -173,5 +169,5 @@ export function PinnedTurns({ branch, revision, estimate, estimateCurrent, estim
         {visibleRows < matches.length && <button type="button" className="secondary" onClick={() => setVisibleRows(visibleRows + pageSize)}>{t('pins.show_more')}</button>}
       </div>
     </div>
-  </dialog>, document.body);
+  </ModalDialog>, document.body);
 }

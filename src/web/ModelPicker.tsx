@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { connectionSchema } from '../shared/contracts';
 import { api } from './api';
 import { openModal } from './dialog-focus';
+import { ModalDialog } from './ModalDialog';
 import { Icon } from './Icon';
 import { errorText, formatMessage, LocalizedError, message, t, useLocale, type MessageText } from './localization';
 
@@ -110,8 +111,8 @@ function ModelPicker({ value, endpoint, connectionId, apiKey, cancel, select }: 
     buttons[next]?.scrollIntoView({ block: 'nearest' });
   }
 
-  return createPortal(<dialog ref={dialog} className="model-picker" aria-label={t('model_picker.select')} tabIndex={-1}
-    onCancel={event => { event.preventDefault(); cancel(); }}>
+  return createPortal(<ModalDialog ref={dialog} className="model-picker" aria-label={t('model_picker.select')} tabIndex={-1}
+    onDismiss={cancel}>
     <form onSubmit={event => {
       // The portal still belongs to the Connection editor in React's event
       // tree. Submitting a model must never submit/save that outer editor.
@@ -149,5 +150,5 @@ function ModelPicker({ value, endpoint, connectionId, apiKey, cancel, select }: 
         <button type="submit" disabled={!manual.success}>{t('model_picker.submit')}</button>
       </div>
     </form>
-  </dialog>, document.body);
+  </ModalDialog>, document.body);
 }

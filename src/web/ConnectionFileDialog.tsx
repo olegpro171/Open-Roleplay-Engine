@@ -5,6 +5,7 @@ import { filePasswordMaxLength } from '../shared/protected-files';
 import { api } from './api';
 import { startDownload } from './downloads';
 import { openModal } from './dialog-focus';
+import { ModalDialog } from './ModalDialog';
 import { errorText, LocalizedError, message, t, useLocale, useTextState } from './localization';
 
 export type ConnectionFileAction =
@@ -63,8 +64,8 @@ export function ConnectionFileDialog({ action, cancel, complete }: {
       if (mounted.current) setBusy(false);
     }
   }
-  return createPortal(<dialog ref={dialog} className="confirmation-dialog backup-file-dialog" aria-labelledby={title} aria-describedby={description}
-    onCancel={event => { event.preventDefault(); if (!pending.current) cancel(); }}>
+  return createPortal(<ModalDialog ref={dialog} className="confirmation-dialog backup-file-dialog" aria-labelledby={title} aria-describedby={description}
+    onDismiss={() => { if (!pending.current) cancel(); }}>
     <h2 id={title}>{t(exporting ? 'connection_files.export_title' : 'connection_files.import_title')}</h2>
     <p id={description}>{t(exporting ? 'connection_files.export_help' : 'connection_files.import_help')}</p>
     <p>{action.kind === 'export' ? action.name : action.file.name}</p>
@@ -83,5 +84,5 @@ export function ConnectionFileDialog({ action, cancel, complete }: {
         <button type="button" className="secondary" disabled={busy} onClick={cancel}>{t('character_import.cancel')}</button>
       </div>
     </form>
-  </dialog>, document.body);
+  </ModalDialog>, document.body);
 }

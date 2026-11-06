@@ -45,7 +45,7 @@ test('backup dialogs cancel without requests and clear transient passwords', asy
   await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
   await expect(dialog.getByLabel('Confirm backup password', { exact: true })).toBeVisible();
   await dialog.getByLabel('Backup password (optional)', { exact: true }).fill('discard me');
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.mouse.click(2, 2);
   await expect(dialog).toHaveCount(0);
   await expect(save).toBeFocused();
   await save.click();
@@ -84,7 +84,7 @@ test('pending backup opening prevents duplicate requests and dismissal', async (
   await expect.poll(() => attempts).toBe(1);
   await expect(submit).toBeDisabled();
   await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
-  await page.keyboard.press('Escape');
+  await page.mouse.click(2, 2);
   await expect(dialog).toBeVisible();
   await dialog.locator('form').dispatchEvent('submit');
   release?.();

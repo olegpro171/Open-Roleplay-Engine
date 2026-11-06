@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState, type ChangeEventHandler, type Ref } from 'react';
 import { createPortal } from 'react-dom';
 import { openModal } from './dialog-focus';
+import { ModalDialog } from './ModalDialog';
 import { Icon } from './Icon';
 import { t, useLocale } from './localization';
 
@@ -64,8 +65,8 @@ function ImportPopup({ title, description, formats, disabled, close, browse, dro
       if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
     };
   }, []);
-  return createPortal(<dialog ref={dialog} className="confirmation-dialog library-import-dialog" aria-labelledby={heading} aria-describedby={descriptionId}
-    onCancel={event => { event.preventDefault(); event.stopPropagation(); close(); }}
+  return createPortal(<ModalDialog ref={dialog} className="confirmation-dialog library-import-dialog" aria-labelledby={heading} aria-describedby={descriptionId}
+    onDismiss={close}
     onDragOver={event => event.preventDefault()} onDrop={event => event.preventDefault()}>
     <div className="library-import-heading"><div><h2 id={heading}>{title}</h2>
       <p id={descriptionId}>{description}</p></div>
@@ -82,5 +83,5 @@ function ImportPopup({ title, description, formats, disabled, close, browse, dro
         drop(event.dataTransfer.files);
       }}><Icon name="Import" /><span id={dropLabel}>{t('library_import.drop_here')}</span><span id={formatsId} className="small muted">{formats}</span></button>
     {multiple && <p role="alert">{t('library_import.one_file')}</p>}
-  </dialog>, document.body);
+  </ModalDialog>, document.body);
 }
