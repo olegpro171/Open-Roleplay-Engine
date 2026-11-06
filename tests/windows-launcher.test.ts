@@ -85,12 +85,13 @@ if(process.argv.includes('ci')||process.argv.includes('build')){
   return { root, home, copySource, logs };
 }
 
-it('reproduces the generated launchers and keeps both external compatibility baselines byte-exact', () => {
+it('reproduces the generated launchers and keeps external compatibility baselines byte-exact', () => {
   const generated = spawnSync(process.execPath, ['scripts/release/generate-windows-launcher.mjs', '--check'], { encoding: 'utf8' });
   expect(generated.status, generated.stdout + generated.stderr).toBe(0);
   const hash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
   expect(hash('tests/fixtures/windows-launcher/f553710121c8.bat')).toBe('36da2eba41f560881797eaf4cd042ec3f11769b60b2e6fbbdcc98a3dc2f357ef');
-  expect(hash('ORE-launcher.bat')).toBe('000184cb43b98b3fcdf26cfbbc556d2bd699a7f86b9d1b951705a4fd2cdde5af');
+  expect(hash('tests/fixtures/windows-launcher/b6387180d351.bat')).toBe('000184cb43b98b3fcdf26cfbbc556d2bd699a7f86b9d1b951705a4fd2cdde5af');
+  expect(hash('ORE-launcher.bat')).toBe('a47a49e16f7fe0d535e00a4f05603fcc8689d464de0f42c93017dd482f9ef890');
 });
 
 describe.skipIf(process.platform !== 'win32')('Windows PowerShell 5.1 builder and ZIP policy', () => {

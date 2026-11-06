@@ -24,12 +24,12 @@ const bootstrapMessages = new Set([
   'helperUnavailable', 'logFailed', 'logFile', 'assistance', 'invalidEnv',
   'installationLocked', 'legacyRestart', 'downloadFailed', 'checkingUpdates',
   'downloadingVersion', 'verificationFailed', 'preparingVersion', 'activationFailed',
-  'activatingVersion', 'cancelled',
+  'activatingVersion', 'cancelled', 'startupFailed',
 ]);
 const bootstrap = 'param([switch]$InstallOnly)\n' + generated
   + messages(entries.filter(entry => bootstrapMessages.has(entry.id)))
   + shared + read('windows-bootstrap.ps1');
-const installed = 'param([switch]$Installed,[string]$Installation,[string]$Invoking,[string]$Language)\n'
+const installed = 'param([switch]$Installed,[string]$Installation,[string]$Invoking,[string]$Language)\n# ORE capability: bounded-release-comparison\n'
   + generated + messages(entries) + shared + read('windows-package-body.ps1');
 // cmd.exe requires a CRLF batch envelope even when generation runs on POSIX.
 const external = (batch + bootstrap).replaceAll('\r\n', '\n').replaceAll('\n', '\r\n');

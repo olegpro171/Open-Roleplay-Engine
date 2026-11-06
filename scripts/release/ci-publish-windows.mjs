@@ -60,7 +60,7 @@ export async function publishWindowsRelease(directory, commit, client) {
       tag_name: tag, target_commitish: commit, name: `ORE · ${commit.slice(0, 12)}`, draft: true, prerelease: false,
       body: [
         'Download **ORE-launcher.bat**, place it in the folder where you want ORE installed, and double-click it. The launcher downloads the prepared Windows x64 package.',
-        '**One-time replacement for ORE · f553710121c8**\n\nStop ORE and replace only the external **ORE-launcher.bat** beside your existing **ORE-internal/** folder. Start it again. The previous package launcher reapplies permissions before handing off to the installed app. The replacement skips that rewrite when permissions already match. Keep the replacement for routine updates.',
+        '**Updating an existing installation**\n\nStop ORE, replace **ORE-launcher.bat** beside your existing **ORE-internal/** folder, and double-click it. The replacement can update installations whose older updater rejects large GitHub comparisons. Keep your existing **ORE-internal/** folder and use the replacement for future starts.',
         'Users of the earlier Windows launcher that built from source also replace the batch once to move their existing installation to package delivery.',
         `Commit: ${commit}`,
         'Windows x64 is the supported download. See the repository release guide for Mac working-tree startup and legacy recovery.',

@@ -72,9 +72,15 @@ function Assert-OreForwardRelease([string]$Commit, [string]$Target, [string]$Sta
     if ($Commit -cnotmatch '^[a-f0-9]{40}$') { throw 'Invalid installed release identity.' }
     if ($Commit -ceq $Target) { return }
     $comparePath = Join-Path $Stage 'compare.json'
-    Get-OreHttps ('https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/compare/'+$Commit+'...'+$Target+'?per_page=1') $comparePath 30
+    # GitHub includes the full changed-file list on page one, even with per_page=1.
+    Get-OreHttps ('https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/compare/'+$Commit+'...'+$Target+'?per_page=1&page=2') $comparePath 30
     $compare = Read-OreJson $comparePath
     if ($compare.status -cne 'ahead' -or $compare.base_commit.sha -cne $Commit -or $compare.merge_base_commit.sha -cne $Commit) { throw 'Release is not a proven forward continuation.' }
+}
+function Test-OreBoundedComparison([string]$Helper) {
+    # Discovery has already validated the helper and bounded its size.
+    $header = [IO.File]::ReadLines($Helper,[Text.Encoding]::UTF8) | Select-Object -First 3
+    return $header -ccontains '# ORE capability: bounded-release-comparison'
 }
 function Install-OreRelease([hashtable]$Release, [string]$Stage, [string]$Installation) {
     Show-OreMessage 'downloadingVersion'

@@ -116,7 +116,9 @@ function Get-OreHttps([string]$Url, [string]$Output, [int]$Seconds = 60) {
             }
             $response.EnsureSuccessStatusCode() | Out-Null
             $limit = if ($uri.Host -eq 'api.github.com') { 1MB } else { 512MB }
-            if ($response.Content.Headers.ContentLength -gt $limit) { throw 'Download bound exceeded.' }
+            if ($response.Content.Headers.ContentLength -gt $limit) {
+                throw ('Download bound exceeded for '+[IO.Path]::GetFileName($Output)+': announced '+$response.Content.Headers.ContentLength+' bytes; limit '+$limit+'.')
+            }
             $inputStream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
             $outputStream = [IO.File]::Open($Output,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
             try {
@@ -124,7 +126,9 @@ function Get-OreHttps([string]$Url, [string]$Output, [int]$Seconds = 60) {
                 [long]$total = 0
                 while (($count = $inputStream.ReadAsync($buffer,0,$buffer.Length,$cancel.Token).GetAwaiter().GetResult()) -gt 0) {
                     $total += $count
-                    if ($total -gt $limit) { throw 'Download bound exceeded.' }
+                    if ($total -gt $limit) {
+                        throw ('Download bound exceeded for '+[IO.Path]::GetFileName($Output)+': received at least '+$total+' bytes; limit '+$limit+'.')
+                    }
                     $outputStream.Write($buffer,0,$count)
                 }
                 if ($null -ne $response.Content.Headers.ContentLength -and $total -ne $response.Content.Headers.ContentLength) { throw 'Truncated download.' }

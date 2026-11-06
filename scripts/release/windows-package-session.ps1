@@ -55,6 +55,13 @@ function New-OrePackageStage {
     [IO.Directory]::CreateDirectory($stage) | Out-Null
     return $stage
 }
+function Test-OreInstalled([hashtable]$Selection, [string]$Tools) {
+    if (!$Selection -or ![IO.File]::Exists($Selection.Node)) { throw 'No usable installed runtime.' }
+    Assert-OreLongTree $Selection.Application
+    Assert-OreLongTree ([IO.Path]::GetDirectoryName($Selection.Node))
+    $verify = Assert-OrePath $Installation (Join-Path $Tools 'windows-install-verify.mjs')
+    if ((Invoke-OreProcess $Selection.Node @($verify,$Selection.Application) $script:OreReport) -ne 0) { throw 'Installed application verification failed.' }
+}
 function Show-OrePackageFailure($Failure) {
     if ($script:OreFailure -eq 'folderCollision' -and ($Failure.Exception -is [UnauthorizedAccessException] -or $Failure.Exception.InnerException -is [UnauthorizedAccessException])) { $script:OreFailure = 'notWritable' }
     if ($script:OreReport -and $script:OreFailure -ne 'logFailed') {

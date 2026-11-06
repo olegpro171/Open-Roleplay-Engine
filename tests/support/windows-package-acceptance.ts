@@ -21,6 +21,8 @@ const calls = join(root, 'requests.txt');
 const shippedCommit = 'f553710121c858731bb479659965a09c271df524';
 const shipped = readFileSync(resolve('tests/fixtures/windows-launcher/f553710121c8.bat'));
 assert.equal(createHash('sha256').update(shipped).digest('hex'), '36da2eba41f560881797eaf4cd042ec3f11769b60b2e6fbbdcc98a3dc2f357ef');
+const previousBatch = readFileSync(resolve('tests/fixtures/windows-launcher/b6387180d351.bat'));
+assert.equal(createHash('sha256').update(previousBatch).digest('hex'), '000184cb43b98b3fcdf26cfbbc556d2bd699a7f86b9d1b951705a4fd2cdde5af');
 const cutover = readFileSync(join(releaseDirectory, 'ORE-launcher.bat'));
 assert.deepEqual(cutover, readFileSync(resolve('ORE-launcher.bat')));
 const markerLine = '# ORE_POWERSHELL_PAYLOAD';
@@ -42,7 +44,10 @@ function Get-OreHttps([string]$Url,[string]$Output,[int]$Seconds) {
  }
  if([IO.File]::Exists($env:ORE_PACKAGE_TEST_OFFLINE)){throw 'Synthetic network unavailable'}
  if($Url.Contains('/releases/latest')){$name='release.json'}
- elseif($Url.Contains('/compare/')){$name='compare.json'}
+ elseif($Url.Contains('/compare/')){
+  if(!$Url.EndsWith('?per_page=1&page=2')){throw 'Download bound exceeded.'}
+  $name='compare.json'
+ }
  elseif($Url.EndsWith('.zip.sha256')){$name='ORE-windows-x64.zip.sha256'}
  elseif($Url.EndsWith('.zip')){$name='ORE-windows-x64.zip'}
  elseif($Url.EndsWith('.json')){$name='ORE-windows-x64.json'}
@@ -58,7 +63,7 @@ function instrument(text: string, before: string, version: string) {
  const code = transport.replace('$env:ORE_PACKAGE_TEST_HELPER_VERSION', "'"+version+"'");
  return text.replace(before, code+'\n'+before);
 }
-// A local transport seam is used only when there is no installed helper yet.
+// Only the bootstrap worker uses this seam. Installed helpers have their own.
 const freshBootstrap = Buffer.from(instrument(cutover.toString('utf8'), '# Bootstrap contract 2.', 'bootstrap'));
 function powershell(code: string, env: NodeJS.ProcessEnv) {
  const result = spawnSync(ps, ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-Command', "$ErrorActionPreference='Stop'; . $env:ORE_TEST_PATH_TOOLS; "+code], { env: { ...process.env, ORE_TEST_PATH_TOOLS: resolve('scripts/release/windows-snapshot.ps1'), ...env }, encoding: 'utf8' });
@@ -216,19 +221,59 @@ try {
  assert.equal(selection(), original);
  await stop();
 
- // The bytes downloaded by the previous testers must still update.
+ // Both previously shipped batches delegate to the installed helper and hit
+ // the oversized first page before the candidate ZIP can be downloaded.
  transportRoot = qualified;
+ for (const batch of [shipped, previousBatch]) {
+  writeFileSync(entry, batch);
+  const before = readFileSync(calls, 'utf8').length;
+  assert.match(await launch(), /Couldn't check for updates/u);
+  const requests = readFileSync(calls, 'utf8').slice(before);
+  assert.match(requests, /\/compare\/.*\?per_page=1\n/u);
+  assert(!requests.includes('.zip'));
+  assert.equal(selection(), original);
+  await stop();
+ }
+
+ // The replacement uses the corrected request before handing off to a helper.
+ writeFileSync(entry, freshBootstrap);
+ const pause = join(home, 'updates-paused');
+ writeFileSync(pause, 'retain pause');
+ const pausedRequests = readFileSync(calls, 'utf8');
+ assert.match(await launch(), /Updates are paused/u);
+ assert.equal(selection(), original);
+ assert.equal(readFileSync(calls, 'utf8'), pausedRequests);
+ await stop();
+ recover('--resume-updates');
+
+ const compare = join(qualified, 'compare.json');
+ const forward = readFileSync(compare);
+ writeFileSync(compare, JSON.stringify({
+  status: 'diverged', base_commit: { sha: shippedCommit }, merge_base_commit: { sha: shippedCommit },
+ }));
+ const beforeDiverged = readFileSync(calls, 'utf8').length;
  assert.match(await launch(), /Acceptance helper: historical/u);
+ const divergedRequests = readFileSync(calls, 'utf8').slice(beforeDiverged);
+ assert(divergedRequests.includes('?per_page=1&page=2'));
+ assert(!divergedRequests.includes('.zip'));
+ assert.equal(selection(), original);
+ assert.deepEqual(await content(), saved);
+ await stop();
+ writeFileSync(compare, forward);
+
+ const beforeRepair = readFileSync(calls, 'utf8').length;
+ assert.match(await launch(), /Acceptance helper: cutover/u);
  const selected = selection();
- assert.notEqual(selected, original);
+ assert.equal(selected.split('\n')[0], 'release-'+originalCommit);
+ assert.match(readFileSync(calls, 'utf8').slice(beforeRepair), /\/compare\/.*\?per_page=1&page=2\n/u);
  assert.equal(readFileSync(join(home, 'previous'), 'utf8'), original);
  assert.deepEqual(await content(), saved);
  await stop();
- assert.deepEqual(readFileSync(entry), shipped);
+ assert.deepEqual(readFileSync(entry), freshBootstrap);
 
  // Compare external handoff on the exact same populated app with updates
  // paused, eliminating update/network time and installed-helper differences.
- const pause = join(home, 'updates-paused');
+ writeFileSync(entry, shipped);
  writeFileSync(pause, 'retain pause');
  writeFileSync(offline, '');
  const requestsBefore = readFileSync(calls, 'utf8');
@@ -362,7 +407,7 @@ try {
 
  const requests = readFileSync(calls, 'utf8');
  assert(!requests.includes('nodejs.org')); assert(!requests.includes('/archive/'));
- console.log('PASS: shipped protocol-2 update, in-place cutover, unchanged batch with a later helper, later clean install, offline/paused startup, corrupt/interrupted update, competing start, recovery and saved data.');
+ console.log('PASS: oversized comparison fallback, in-place repair, unchanged batch with a later helper, later clean install, offline/paused startup, corrupt/interrupted update, competing start, recovery and saved data.');
 } catch (error) {
  console.error(current?.output());
  const logs = join(home, 'logs');

@@ -9,13 +9,6 @@ $script:OreEnvLine = 1
 $stage = $null
 $lockStream = $null
 $result = 1
-function Test-OreInstalled([hashtable]$Selection, [string]$Tools) {
-    if (!$Selection -or ![IO.File]::Exists($Selection.Node)) { throw 'No usable installed runtime.' }
-    Assert-OreLongTree $Selection.Application
-    Assert-OreLongTree ([IO.Path]::GetDirectoryName($Selection.Node))
-    $verify = Assert-OrePath $Installation (Join-Path $Tools 'windows-install-verify.mjs')
-    if ((Invoke-OreProcess $Selection.Node @($verify,$Selection.Application) $script:OreReport) -ne 0) { throw 'Installed application verification failed.' }
-}
 try {
     Assert-OreWindows
     $script:OreFailure = 'folderCollision'
