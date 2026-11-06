@@ -635,7 +635,7 @@ export function App() {
         <button className="quiet chat-navigation-action" aria-haspopup="dialog" onClick={() => setBranchDialog({})}><Icon name="GitBranch" />{t("branches.title")}</button>
         <button className="quiet chat-navigation-action" aria-haspopup="dialog" onClick={openPins}><Icon name="BookmarkOutline" />{t('pins.title')}</button>
         <button className="quiet chat-navigation-action" onClick={() => setAuthorNoteOpen(true)}><Icon name="TagOutline" />{t('author_note.title')}</button>
-        <button className="quiet chat-navigation-action" onClick={() => setTab('request')}><Icon name="Menu" />{t("app.request_inspector")}</button>
+        <button className="quiet chat-navigation-action" onClick={() => setTab('request')}><Icon name="Code" />{t("app.request_inspector")}</button>
       </>}>
       <section className="conversation" aria-label={t("app.conversation")}>
         {Boolean(snapshot.memory.refusalCount) && <div className="recovery" role="status"><div><strong>{t('refusals.notice', { count: snapshot.memory.refusalCount })}</strong></div><button className="secondary" onClick={() => setTab('memory')}>{t('refusals.review')}</button></div>}
