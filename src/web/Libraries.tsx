@@ -3,7 +3,7 @@ import { LibraryCardMenu } from './LibraryCardMenu';
 import { LibrarySearchField } from './LibrarySearchField';
 import type { MessageText } from './localization';
 import { libraryEditorTitle, newLibraryLabel, searchLibraryLabel, sortLibraryLabel } from './localization-labels';
-import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
+import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale, currentPack } from './localization';
 import { libraryLabel, characterFieldLabel, markerLabel as localizedMarkerLabel, stateLabel } from './localization-labels';
 import { librarySortSchema, readLibrarySort, sortLibraryItems, sortOptions, type LibrarySort } from './library-sorting';
 import { chatGroupId, preferredBranch } from './chat-selection';
@@ -72,16 +72,39 @@ function selection(snapshot: ChatToolsSnapshot): Selection {
     connectionId: snapshot.settings.connectionId ?? null, promptId: snapshot.settings.promptId ?? 'default',
     characterId: snapshot.settings.characterId ?? null, personaId: snapshot.settings.personaId ?? null, contextPresetId: snapshot.settings.contextPresetId ?? null, lorebookId: snapshot.settings.lorebookId ?? null };
 }
+function displayLibraryRecord<T extends { id: string; name: string }>(record: T): T {
+  if (record.id === 'default' && record.name === 'Default roleplay') {
+    return { ...record, name: t('libraries.default_prompt') };
+  }
+  if (record.id === 'default-context' && record.name === 'Layered narrative memory') {
+    return { ...record, name: t('libraries.default_context_preset') };
+  }
+  return record;
+}
+function libraryDropdownOptions(library: LibrarySnapshot, kind: Exclude<LibraryKind, 'characters' | 'personas'>) {
+  const records: readonly { id: string; name: string }[] = library[kind];
+  const sorted = sortLibraryItems(records, readLibrarySort(kind), record => displayLibraryRecord(record).name, record => library.dates[record.id]);
+  return [
+    ...(kind === 'prompts' ? [] : [{ value: '', label: t('character_editor.none_selected') }]),
+    ...sorted.map(record => ({ value: record.id, label: displayLibraryRecord(record).name })),
+  ];
+}
 function SelectionFields({ value, change, library }: { value: Selection; change: (value: Selection) => void; library: LibrarySnapshot }) {
   useLocale();
+  const fields = [
+    { key: 'connectionId', label: t('libraries.connection'), options: libraryDropdownOptions(library, 'connections') },
+    { key: 'promptId', label: t('libraries.prompt_preset'), options: libraryDropdownOptions(library, 'prompts') },
+    { key: 'characterId', label: t('app.character'), options: characterDropdownOptions(library) },
+    { key: 'personaId', label: t('libraries.persona'), options: personaDropdownOptions(library) },
+    { key: 'contextPresetId', label: t('libraries.context_preset'), options: libraryDropdownOptions(library, 'contexts') },
+    { key: 'lorebookId', label: t('libraries.lorebook'), options: libraryDropdownOptions(library, 'lorebooks') },
+  ] as const;
   return <div className="form-grid">
     <label>{t("libraries.chat_title")}<input required maxLength={100} value={value.title} onChange={e => change({ ...value, title: e.target.value })} /></label>
     <label>{t("libraries.target_input_tokens")}<NumberInput required value={value.targetInputTokens} onChange={targetInputTokens => change({ ...value, targetInputTokens })} /></label>
-    {(['connectionId', 'promptId', 'characterId', 'personaId', 'contextPresetId', 'lorebookId'] as const).map((key, i) => {
-      const names = [t("libraries.connection"), t("libraries.prompt_preset"), t("app.character"), t("libraries.persona"), t("libraries.context_preset"), t("libraries.lorebook")];
-      const lists = [library.connections, library.prompts, library.characters, library.personas, library.contexts, library.lorebooks];
-      return <label key={key}>{names[i]}<Dropdown aria-label={names[i]} value={value[key] ?? ''} onChange={selected => change({ ...value, [key]: selected || null })} options={key === 'characterId' ? characterDropdownOptions(library) : key === 'personaId' ? personaDropdownOptions(library) : [...(key !== 'promptId' ? [{ value: '', label: t("character_editor.none_selected") }] : []), ...lists[i].map(item => ({ value: item.id, label: item.name }))]} /></label>;
-    })}
+    {fields.map(({ key, label, options }) => <label key={key}>{label}
+      <Dropdown aria-label={label} value={value[key] ?? ''} onChange={selected => change({ ...value, [key]: selected || null })} options={options} />
+    </label>)}
   </div>;
 }
 function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnapshot; busy: boolean; run: Run; created: (id: string) => void; cancel: () => void }) {
@@ -307,14 +330,12 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
       createdAt: card.branch.createdAt, updatedAt: card.branch.updatedAt, lastMessageAt: card.lastMessageAt,
     }));
   }, [library.chats, branchSelections, query, sort]);
-  const defaultContextLabel = t("libraries.default_context_preset");
-  const defaultPromptLabel = t("libraries.default_prompt");
+  const displayLanguage = currentPack();
   const visibleRecords = useMemo<Saved<LibraryRecord>[]>(() => {
     if (section === 'chats') return [];
-    const displayRecord = (record: Saved<LibraryRecord>) => record.id === 'default' && record.name === 'Default roleplay' ? { ...record, name: defaultPromptLabel } : record.id === 'default-context' && record.name === 'Layered narrative memory' ? { ...record, name: defaultContextLabel } : record;
-    return sortLibraryItems(library[section].filter(record => matchesLibraryRecord(displayRecord(record), query)
-      && (section !== 'characters' || matchesCharacterTags(tagIndex.get(record.id), filters))), sort, record => characterLabel(displayRecord(record)), record => library.dates[record.id]);
-  }, [section, library, query, tagIndex, filters, sort, defaultPromptLabel, defaultContextLabel]);
+    return sortLibraryItems(library[section].filter(record => matchesLibraryRecord(displayLibraryRecord(record), query)
+      && (section !== 'characters' || matchesCharacterTags(tagIndex.get(record.id), filters))), sort, record => characterLabel(displayLibraryRecord(record)), record => library.dates[record.id]);
+  }, [section, library, query, tagIndex, filters, sort, displayLanguage]);
   useEffect(() => {
     if (!pendingBook) return;
     const book = library.lorebooks.find(item => item.id === pendingBook);
@@ -436,12 +457,12 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
             {section === 'characters' && <PictureSquare url={pictureIndex.get(item.id)?.thumbnailUrl} />}
             <div className="library-card-content">
               <div className="library-card-heading">
-                <h2 title={item.id === 'default' && item.name === 'Default roleplay' ? defaultPromptLabel : item.id === 'default-context' && item.name === 'Layered narrative memory' ? defaultContextLabel : characterLabel(item)}>
+                <h2 title={characterLabel(displayLibraryRecord(item))}>
                   <button type="button" className="library-card-open" disabled={busy} onClick={() => {
                     const { id, revision: _revision, ...record } = item;
                     const { hasApiKey, ...data } = { ...record, hasApiKey: 'hasApiKey' in record && record.hasApiKey === true };
                     setEditing({ kind: section, id, revision: library.revision, data, hasApiKey });
-                  }}><span className="library-card-title">{item.id === 'default' && item.name === 'Default roleplay' ? defaultPromptLabel : item.id === 'default-context' && item.name === 'Layered narrative memory' ? defaultContextLabel : item.name}
+                  }}><span className="library-card-title">{displayLibraryRecord(item).name}
                   {(section === 'characters' || section === 'personas') && 'titleComment' in item && item.titleComment && <span className="character-comment"> · {item.titleComment}</span>}</span></button>
                 </h2>
                 <div className="library-card-tools">
