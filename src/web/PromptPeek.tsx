@@ -1,7 +1,7 @@
 import { openModal } from './dialog-focus';
 import { formatMessage } from './localization';
 import { t, useLocale, locale } from './localization';
-import { placementLabel, stateLabel } from './localization-labels';
+import { loreReasonLabel, placementLabel, stateLabel } from './localization-labels';
 import { Icon } from './Icon';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PromptEntry, RequestPreview, RequestEstimate } from '../shared/contracts';
@@ -117,7 +117,16 @@ export function LoreInspection({ request, historical = false }: { request: Reque
   return <section className="lore-inspection" aria-label={t("prompt_peek.resolved_lore")}><h3>{t("prompt_peek.lore_2", { name: lore.book.name })}</h3><p className="small">{t("prompt_peek.book_revision_admitted_evaluated_estimated_tokens", { revision: lore.book.revision, admitted: admitted, length: lore.outcomes.length, value: lore.tokens.toLocaleString(locale()), value2: lore.pressure ? t("interface.pressure_exclusions_applied") : '' })}</p><p className="small muted">{historical ? t("prompt_peek.this_saved_resolution_retains_the_original_entry") : t("prompt_peek.resolved_against_original_recent_messages_including_unsent")}</p>
     <LoreDiagnostics diagnostics={lore.diagnostics} />
     {lore.outcomes.length === 0 && <p className="small muted">{t("prompt_peek.this_book_has_no_entries_to_evaluate")}</p>}
-    {lore.outcomes.slice(shown * 50, (shown + 1) * 50).map(outcome => <details className={`lore-outcome ${outcome.status}`} key={outcome.id}><summary>{t("prompt_peek.est", { value: outcome.name || t("lorebook_editor.unnamed_entry"), status: outcome.status, value2: outcome.tokens.toLocaleString(locale()) })}</summary><p className="small">{outcome.reason}</p>{outcome.destination && <p className="small">{placementLabel(outcome.destination.placement)} · {stateLabel(outcome.destination.role)}{outcome.destination.placement === 'history' ? t("prompt_peek.depth", { depth: outcome.destination.depth }) : ''}</p>}{outcome.text ? <div className="prose">{outcome.text}</div> : <p className="small muted">{t("prompt_peek.no_resolved_prose")}</p>}</details>)}
+    {lore.outcomes.slice(shown * 50, (shown + 1) * 50).map(outcome => <details className={`lore-outcome ${outcome.status}`} key={outcome.id}>
+      <summary>{t("prompt_peek.est", {
+        value: outcome.name || t("lorebook_editor.unnamed_entry"),
+        status: stateLabel(outcome.status),
+        value2: outcome.tokens.toLocaleString(locale()),
+      })}</summary>
+      <p className="small">{loreReasonLabel(outcome.reason)}</p>
+      {outcome.destination && <p className="small">{placementLabel(outcome.destination.placement)} · {stateLabel(outcome.destination.role)}{outcome.destination.placement === 'history' ? t("prompt_peek.depth", { depth: outcome.destination.depth }) : ''}</p>}
+      {outcome.text ? <div className="prose">{outcome.text}</div> : <p className="small muted">{t("prompt_peek.no_resolved_prose")}</p>}
+    </details>)}
     {last > 0 && <div className="actions lore-pagination"><button type="button" className="secondary" disabled={shown === 0} onClick={() => setPage(shown - 1)}>{t("prompt_peek.previous_lore_page")}</button><span>{t("lorebook_editor.page_of", { value: shown + 1, value2: last + 1 })}</span><button type="button" className="secondary" disabled={shown === last} onClick={() => setPage(shown + 1)}>{t("prompt_peek.next_lore_page")}</button></div>}
   </section>;
 }

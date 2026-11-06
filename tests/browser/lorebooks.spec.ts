@@ -31,6 +31,72 @@ async function books(page: Page) {
   await page.getByRole('button', { name: 'Lorebooks', exact: true }).click();
 }
 
+test('localizes Prompt Peek lore outcomes while keeping entry names and prose literal', async ({ page }, testInfo) => {
+  await login(page);
+  const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
+  const connection = await command(page, '/api/library', {
+    kind: 'connections', revision: (await library(page)).revision,
+    data: { name: 'Lore localization model', endpoint, model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 1000, customParameters: {} },
+  });
+  const content = 'Rika watches the harbor.';
+  const book = await command(page, '/api/library', {
+    kind: 'lorebooks', revision: (await library(page)).revision,
+    data: {
+      ...newLorebook(), name: 'Harbor atlas', entries: [
+        { ...newLoreEntry('rika'), name: 'Rika', content, placement: 'history', keys: ['harbor'] },
+        { ...newLoreEntry('moon'), name: 'Moon', content: 'Moonlight reveals the path.', placement: 'history', keys: ['harbor'], secondaryKeys: ['moonlight'], selective: true },
+        { ...newLoreEntry('tower'), name: 'Tower', content: 'The tower bell rings at dusk.', placement: 'history', keys: ['tower'] },
+      ],
+    },
+  });
+  const chat = await command(page, '/api/chats', {
+    title: 'Lore localization story', targetInputTokens: 10_000, connectionId: connection.id, lorebookId: book.id,
+    characterId: null, personaId: null,
+  });
+  await page.evaluate(id => localStorage.setItem('roleplay-chat', id), chat.id);
+  await page.reload();
+  await page.getByLabel('Your next turn').fill('I arrive at the harbor.');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Language', exact: true }).click();
+  await choose(page, 'Interface language', 'Русский');
+  await page.getByRole('button', { name: 'История', exact: true }).click();
+  await page.locator('.context-dropdown > summary').click();
+  await page.getByRole('button', { name: 'Просмотр промпта', exact: true }).click();
+  const peek = page.getByRole('dialog', { name: 'Просмотр промпта', exact: true });
+  await peek.getByText('Подобранный лор', { exact: true }).click();
+  const region = peek.getByRole('region', { name: 'Подобранный лор' });
+  for (const [name, status, reason] of [
+    ['Rika', 'допущено', 'ключевое слово'],
+    ['Moon', 'исключено', 'дополнительное условие'],
+    ['Tower', 'исключено', 'нет совпадения'],
+  ]) {
+    const summary = region.getByText(`${name} · ${status} · ≈`, { exact: false });
+    await expect(summary).toBeVisible();
+    await summary.click();
+    await expect(region.getByText(reason, { exact: true })).toBeVisible();
+  }
+  await expect(region.getByText(content, { exact: true })).toBeVisible();
+
+  const readAppearance = async () => appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+  const originalAppearance = await readAppearance();
+  try {
+    for (const theme of ['dark', 'light', 'midnight-black']) {
+      const { revision, settings } = await readAppearance();
+      await command(page, '/api/application/appearance', { revision, settings: { ...settings, theme } }, 'PUT');
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        await region.scrollIntoViewIfNeeded();
+        expect(await peek.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath(`localized-lore-${theme}-${width}.png`) });
+      }
+    }
+  } finally {
+    const { revision, settings } = await readAppearance();
+    await command(page, '/api/application/appearance', { revision, settings: { ...settings, theme: originalAppearance.settings.theme } }, 'PUT');
+  }
+});
+
 test('edits a shared book, prefills a character default, inspects immutable lore and chooses None', async ({ page }) => {
   await login(page);
   const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());

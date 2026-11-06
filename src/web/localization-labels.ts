@@ -69,29 +69,43 @@ const stateKeys = {
   "assistant": "labels.state.assistant",
   "active": "labels.state.active",
   "retained": "labels.state.retained",
-  "no_match": "labels.state.no_match",
-  "invalid_regex": "labels.state.invalid_regex",
-  "activate": "labels.state.activate",
-  "keep_activate_after_match": "labels.state.keep_activate_after_match",
-  "constant": "labels.state.constant",
-  "keyword": "labels.state.keyword",
-  "recursive_keyword": "labels.state.recursive_keyword",
-  "secondary_condition": "labels.state.secondary_condition",
-  "additional_keys": "labels.state.additional_keys",
-  "exclude_keys": "labels.state.exclude_keys",
-  "disabled": "labels.state.disabled",
-  "probability": "labels.state.probability",
-  "sticky": "labels.state.sticky",
-  "cooldown": "labels.state.cooldown",
-  "delay": "labels.state.delay",
-  "pressure": "labels.state.pressure",
-  "token_budget": "labels.state.token_budget",
-  "unavailable_destination": "labels.state.unavailable_destination",
   "inactive": "labels.state.inactive",
   "fresh": "labels.state.fresh",
   "stale": "labels.state.stale"
 } as const satisfies Record<string, MessageKey>;
 export function stateLabel(value: keyof typeof stateKeys) { return t(stateKeys[value]); }
+
+const loreReasonKeys = new Map<string, MessageKey>([
+  ['no_match', 'labels.state.no_match'],
+  ['invalid_regex', 'labels.state.invalid_regex'],
+  ['activate', 'labels.state.activate'],
+  ['keep_activate_after_match', 'labels.state.keep_activate_after_match'],
+  ['constant', 'labels.state.constant'],
+  ['keyword', 'labels.state.keyword'],
+  ['recursive_keyword', 'labels.state.recursive_keyword'],
+  ['secondary_condition', 'labels.state.secondary_condition'],
+  ['additional_keys', 'labels.state.additional_keys'],
+  ['exclude_keys', 'labels.state.exclude_keys'],
+  ['disabled', 'labels.state.disabled'],
+  ['probability', 'labels.state.probability'],
+  ['sticky', 'labels.state.sticky'],
+  ['cooldown', 'labels.state.cooldown'],
+  ['delay', 'labels.state.delay'],
+  ['pressure', 'labels.state.pressure'],
+  ['token_budget', 'labels.state.token_budget'],
+  ['cap', 'labels.state.token_budget'],
+  ['unavailable_destination', 'labels.state.unavailable_destination'],
+  ['empty_content', 'labels.state.empty_content'],
+  ['dont_activate_after_match', 'labels.state.dont_activate_after_match'],
+  ['dont_activate', 'labels.state.dont_activate'],
+  ['activate_only_after', 'labels.state.activate_only_after'],
+  ['activate_only_every', 'labels.state.activate_only_every'],
+]);
+export function loreReasonLabel(reason: string) {
+  const key = loreReasonKeys.get(reason);
+  return key ? t(key) : reason;
+}
+
 const newKeys = {
   "chats": "libraryActions.new.chats",
   "personas": "libraryActions.new.personas",
