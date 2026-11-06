@@ -80,6 +80,7 @@ export function ChatBranches({ current, branches, fork, locked, close, open, ref
   function confirmDelete(branch: ChatSummary) {
     const { id, revision } = branch;
     confirmAction({
+      confirmOnEnter: true,
       title: t('branches.delete_title'),
       message: t('branches.delete_prompt', { name: branchName(branch) }),
       actionLabel: t('branches.delete'),

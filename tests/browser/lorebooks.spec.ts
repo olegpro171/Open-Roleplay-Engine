@@ -324,6 +324,9 @@ test('scrolls the entry list within the selected editor height on wide screens',
       for (const width of [1440, 801, 800, 390]) {
         await page.setViewportSize({ width, height: 844 });
         await search.fill('');
+        await search.scrollIntoViewIfNeeded();
+        await expect(search).toBeInViewport();
+        await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-search.png`) });
         await list.getByRole('button', { name: /^Scroll record 0 / }).click();
         const initial = await measure();
         expect(initial.scrollHeight).toBeGreaterThan(initial.clientHeight);

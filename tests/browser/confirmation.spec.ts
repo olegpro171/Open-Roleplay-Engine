@@ -42,7 +42,10 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
     await page.keyboard.press('Shift+Tab');
     await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeFocused();
-    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await page.keyboard.press('Tab');
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(dialog).toHaveCount(0);
     expect(deletes).toBe(0);
     expect((await library()).revision).toBe(before.revision);
 
@@ -50,12 +53,14 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await (await openLibraryActions(page, row)).getByRole('menuitem', { name: 'Delete', exact: true }).click();
     const update = await page.request.post('/api/library', { headers: { Origin: 'http://127.0.0.1:4173' }, data: { kind: 'personas', revision: before.revision, data: { name: `Other device ${viewport.width}`, description: '' } } });
     expect(update.ok()).toBe(true);
-    await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.keyboard.press('Enter');
     await expect(page.getByRole('alert')).toBeVisible();
     await expect(row).toBeVisible();
     expect((await library()).personas.some(item => item.name === name)).toBe(true);
     await (await openLibraryActions(page, row)).getByRole('menuitem', { name: 'Delete', exact: true }).click();
-    await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+    await dialog.getByRole('heading', { level: 2 }).dispatchEvent('keydown', { key: 'Enter', repeat: true });
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('Enter');
     await expect(row).toHaveCount(0);
     expect(deletes).toBe(2);
     await page.reload();
@@ -83,7 +88,8 @@ test('lore entry deletion stays in the book draft until saved', async ({ page })
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(entry).toHaveValue('Keep the gate');
   await page.getByRole('button', { name: 'Delete entry', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Delete entry', exact: true }).click();
+  await expect(dialog.getByRole('heading')).toBeFocused();
+  await page.keyboard.press('Enter');
   await expect(entry).toHaveCount(0);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await row.getByRole('heading').getByRole('button').click();

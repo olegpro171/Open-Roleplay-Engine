@@ -13,7 +13,7 @@ import { newId } from './uuid';
 import { Icon } from './Icon';
 import { ApplicationSettings } from './ApplicationSettings';
 import { useConfirmation } from './Confirmation';
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import type { ChatToolsSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError, datasetChanged } from './api';
 import { changeSchema } from '../shared/changes';
@@ -46,7 +46,7 @@ type Session = { setupRequired: boolean; authenticated: boolean };
 type TranscriptJump = { chatId: string; turnId: string; revision: number };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
 type AppFailure =
-  | { kind: 'loading'; reason: 'connection' | 'request'; message: MessageText }
+  | { kind: 'loading'; message: MessageText }
   | { kind: 'action'; message: MessageText };
 const serverUnavailable = msg("app.cannot_reach_the_server_check_that_it");
 // iPadOS can advertise a Mac when requesting desktop sites.
@@ -109,12 +109,14 @@ export function App() {
   const [pageError, setPageError] = useTextState('');
   const [failure, setFailure] = useState<AppFailure | null>(null);
   const error = formatMessage(failure?.message);
-  const serverUnreachable = failure?.kind === 'loading' && failure.reason === 'connection';
-  const reportLoadFailure = useCallback((message: MessageText, reason: 'connection' | 'request') => {
+  const [connectionWarning, setConnectionWarning] = useState<'visible' | 'dismissed' | null>(null);
+  const connectionError = connectionWarning === 'visible' ? formatMessage(serverUnavailable) : '';
+  const reportLoadFailure = useCallback((message: MessageText) => {
     // A failed background read must not replace the action the user needs to resolve.
-    setFailure(current => current?.kind === 'action' ? current : { kind: 'loading', reason, message });
+    setFailure(current => current?.kind === 'action' ? current : { kind: 'loading', message });
   }, []);
   const [online, setOnline] = useState(false);
+  const connected = online && !connectionWarning;
   const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory' | 'data'>('story');
   const visibleTab = useRef(tab);
   visibleTab.current = tab;
@@ -127,6 +129,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<Edit | null>(null);
   const editForm = useRef<HTMLFormElement>(null);
+  const editSaveInFlight = useRef(false);
   const [peek, setPeek] = useState(false);
   const [pinnedChat, setPinnedChat] = useState<string | null>(null);
   const [jumpTarget, setJumpTarget] = useState<TranscriptJump | null>(null);
@@ -144,11 +147,19 @@ export function App() {
     if (!edit || !form || !scroller) return;
     scroller.scrollTop += form.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 16;
   }, [edit?.turnId, edit?.part]);
-  const clearServerError = useCallback(() => setFailure(current => current?.kind === 'loading'
-    && current.reason === 'connection' ? null : current), []);
+  const reportServerError = useCallback(() => setConnectionWarning(current => current ?? 'visible'), []);
+  const clearServerError = useCallback(() => setConnectionWarning(null), []);
   const refreshSession = useCallback(async () => {
-    try { setSession(await api<Session>('/session')); clearServerError(); } catch { reportLoadFailure(serverUnavailable, 'connection'); }
-  }, [clearServerError, reportLoadFailure]);
+    try {
+      const current = await api<Session>('/session');
+      setSession(current);
+      clearServerError();
+      return current.authenticated;
+    } catch {
+      reportServerError();
+      return false;
+    }
+  }, [clearServerError, reportServerError]);
   const editRef = useRef(edit);
   editRef.current = edit;
   const refreshReader = useRef<(scope: RefreshScope) => Promise<void>>(async () => {});
@@ -257,8 +268,8 @@ export function App() {
       if (id !== loadId.current) return;
       if (error instanceof ApiError && error.status === 401) void refreshSession();
       else if (error instanceof ApiError && error.status === 404) { setChatId(null); }
-      else if (error instanceof ApiError) reportLoadFailure(errorText(error), 'request');
-      else reportLoadFailure(serverUnavailable, 'connection');
+      else if (error instanceof ApiError) reportLoadFailure(errorText(error));
+      else reportServerError();
     } finally {
       // Page movement and chat switches invalidate reads already in flight.
       // Retain their scopes: without periodic polling, dropping a settings
@@ -270,15 +281,18 @@ export function App() {
   latestRefresh.current = refresh;
   const selectedChat = useRef(chatId);
   selectedChat.current = chatId;
+  const recoverConnection = useCallback(async () => {
+    if (await refreshSession()) await refresh();
+  }, [refreshSession, refresh]);
   useEffect(() => { void refreshSession(); }, [refreshSession]);
   useEffect(() => {
-    if (!serverUnreachable) return;
+    if (!connectionWarning) return;
     let checking = false;
     const timer = setInterval(() => {
-      if (!checking) { checking = true; void refreshSession().finally(() => { checking = false; }); }
+      if (!checking) { checking = true; void recoverConnection().finally(() => { checking = false; }); }
     }, 2_000);
     return () => clearInterval(timer);
-  }, [serverUnreachable, refreshSession]);
+  }, [connectionWarning, recoverConnection]);
   useEffect(() => {
     if (!session?.authenticated) return;
     // Reading saved state must also work when the observer cannot connect.
@@ -494,12 +508,21 @@ export function App() {
   }
   const canSend = Boolean(snapshot?.connection && !busy && !pending && !working && !memoryStale && !authorNote.pending
     && !dataChanged && !drafts.needsReview && draft.trim());
+  const canSaveEdit = Boolean(edit && snapshot?.id === chatId && !busy && !working && !dataChanged);
   const enterKeyBehavior = chatBehaviorError ? 'button-only' : chatBehavior?.settings.enterKeyBehavior ?? 'button-only';
   const mobileKeyboard = isPhoneOrTablet(navigator);
   const macKeyboard = isMacKeyboard(navigator);
   const sendTitle = authorNote.pending ? t('author_note.pending') : busy ? t('app.saving_changes')
     : enterKeyBehavior === 'ctrl-enter' ? t(macKeyboard ? 'chat_behavior.send_ctrl_mac' : 'chat_behavior.send_ctrl')
       : enterKeyBehavior === 'enter' && !mobileKeyboard ? t('chat_behavior.send_enter') : t('app.send');
+  const saveEditTitle = enterKeyBehavior === 'ctrl-enter' ? t(macKeyboard ? 'chat_behavior.save_edit_ctrl_mac' : 'chat_behavior.save_edit_ctrl')
+    : enterKeyBehavior === 'enter' && !mobileKeyboard ? t('chat_behavior.save_edit_enter') : t('app.save_edit');
+
+  function submitWithChatShortcut(event: KeyboardEvent<HTMLTextAreaElement>, allowed: boolean) {
+    if (!isComposerSendKey(event.nativeEvent, enterKeyBehavior, mobileKeyboard, macKeyboard)) return;
+    event.preventDefault();
+    if (!event.repeat && allowed) event.currentTarget.form?.requestSubmit();
+  }
 
   async function send(event: FormEvent) {
     event.preventDefault();
@@ -525,11 +548,17 @@ export function App() {
 
   async function saveEdit(event: FormEvent) {
     event.preventDefault();
-    if (!edit) return;
-    if (await command(() => api(`/chats/${chatId}/turns/${edit.turnId}/${edit.part}`, 'PATCH', { revision: edit.revision, text: edit.text }))) setEdit(null);
+    if (!edit || !canSaveEdit || editSaveInFlight.current) return;
+    editSaveInFlight.current = true;
+    try {
+      const saved = await command(() => api(`/chats/${chatId}/turns/${edit.turnId}/${edit.part}`, 'PATCH', { revision: edit.revision, text: edit.text }));
+      if (saved) setEdit(current => current === edit ? null : current);
+    } finally {
+      editSaveInFlight.current = false;
+    }
   }
 
-  if (!session) return <main className="login"><p>{t("app.opening_ore")}</p>{error && <p role="alert">{error}</p>}</main>;
+  if (!session) return <main className="login"><p>{t("app.opening_ore")}</p>{(error || connectionError) && <p role="alert">{error || connectionError}</p>}</main>;
   if (!session.authenticated) return <Login session={session} onLogin={async () => { setFailure(null); await refreshSession(); }} />;
   function openChat(id: string, destination: 'story' | 'settings' = 'story') {
     loadId.current++;
@@ -550,7 +579,7 @@ export function App() {
       setToolSnapshot(null);
     }
   }
-  if (!library) return <main className="login"><p>{t("app.loading_your_story")}</p>{error && <p role="alert">{error}</p>}</main>;
+  if (!library) return <main className="login"><p>{t("app.loading_your_story")}</p>{(error || connectionError) && <p role="alert">{error || connectionError}</p>}</main>;
   const selectedCharacter = library.characters.find(character => character.id === snapshot?.settings.characterId);
   const selectedCharacterPicture = library.characterPictures.find(picture => picture.characterId === snapshot?.settings.characterId);
   const selectedPersona = library.personas.find(persona => persona.id === snapshot?.settings.personaId);
@@ -583,10 +612,14 @@ export function App() {
         <button aria-current={tab === 'data' ? 'page' : undefined} onClick={() => setTab('data')}>{t("app.settings")}</button>
       </nav>
       <div className="chat-details-slot" ref={setChatDetailsTarget} />
-      <div className="connection-status" role="img" aria-label={online ? t("app.connected") : t("app.reconnecting")}><span className={online ? 'dot online' : 'dot'} /></div>
+      <div className="connection-status" role="img" aria-label={connected ? t("app.connected") : t("app.reconnecting")}><span className={connected ? 'dot online' : 'dot'} /></div>
       <button className="quiet signout" onClick={() => void command(async () => { await api('/logout', 'POST', {}); setSnapshot(null); await refreshSession(); })}>{t("app.sign_out")}</button>
     </header>
     {dataChanged && <div className="error-banner" role="alert"><span>{t("app.application_data_was_imported_or_wiped_in")}</span><button onClick={() => window.location.reload()}>{t("app.reload_current_data")}</button></div>}
+    {connectionError && <div className="error-banner" role="alert"><span>{connectionError}</span><div className="actions error-banner-actions">
+      <button className="quiet" disabled={busy} onClick={() => void recoverConnection()}>{t("app.retry_loading")}</button>
+      <button className="quiet" onClick={() => setConnectionWarning('dismissed')}>{t("app.dismiss")}</button>
+    </div></div>}
     {error && <div className="error-banner" role="alert"><span>{error}</span><div className="actions error-banner-actions">
       {failure?.kind === 'loading' && <button className="quiet" disabled={busy} onClick={() => { setFailure(null); void refresh(); }}>{t("app.retry_loading")}</button>}
       <button className="quiet" onClick={() => setFailure(null)}>{t("app.dismiss")}</button>
@@ -629,7 +662,16 @@ export function App() {
             {(['user', 'assistant'] as const).filter(part => part !== 'user' || inputVisible).map((part) => <div className={`part ${part}`} key={part}>
               <div className="part-heading"><strong>{part === 'user' ? selectedPersonaName : selectedCharacterName}</strong></div>
               {part === 'assistant' && appearance.settings.showReasoningDuringGeneration && reasoning && generating && !responseText && <ReasoningPreview text={reasoning.text} />}
-              {edit?.turnId === turn.id && edit.part === part ? <form ref={editForm} onSubmit={saveEdit} className="edit-form"><ChatTextarea autoSize aria-label={t("app.edit_text", { part: part })} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><p className="small muted">{snapshot.settings.lorebookId ? t("app.saving_a_history_edit_starts_fresh_lore") : ""}</p><div className="actions"><button disabled={busy}>{t("app.save_edit")}</button><button type="button" className="quiet" onClick={() => setEdit(null)}>{t("app.cancel_edit")}</button></div></form> : <div className="prose">
+              {edit?.turnId === turn.id && edit.part === part ? <form ref={editForm} onSubmit={saveEdit} className="edit-form">
+                <ChatTextarea autoSize enterKeyHint="enter" aria-label={t("app.edit_text", { part })} value={edit.text} readOnly={busy}
+                  onKeyDown={event => submitWithChatShortcut(event, canSaveEdit)}
+                  onValueChange={text => setEdit({ ...edit, text })} />
+                <p className="small muted">{snapshot.settings.lorebookId ? t("app.saving_a_history_edit_starts_fresh_lore") : ""}</p>
+                <div className="actions">
+                  <button disabled={!canSaveEdit} title={saveEditTitle}>{t("app.save_edit")}</button>
+                  <button type="button" className="quiet" onClick={() => setEdit(null)}>{t("app.cancel_edit")}</button>
+                </div>
+              </form> : <div className="prose">
                 {part === 'assistant' && (!turn.complete || generating)
                   ? <>{trimBoundaryNewlines(responseText) ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={trimBoundaryNewlines(responseText)} speechColor={selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor ?? 'var(--speech-character)'} /> : <span className="muted">{generating ? t(preparing ? "app.preparing_memory" : reasoning ? "app.reasoning" : "app.waiting_for_first_token") : cancelled ? t("app.generation_cancelled") : t("app.awaiting_response")}</span>}{generating && <span className="cursor" aria-label={t("app.generating")} />}</>
                   : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor ?? 'var(--speech-persona)' : selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor ?? 'var(--speech-character)'} /> : <span className="muted blank">{t("app.blank")}</span>}
@@ -649,7 +691,7 @@ export function App() {
               select={id => command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/variants/${id}/select`, 'POST', { revision: snapshot.revision }))}
               edit={part => setEdit({ turnId: turn.id, part, text: turn[part].text, revision: snapshot.revision })}
               remove={() => {
-                confirmAction({ title: t("app.delete_turn"), message: t("app.delete_this_entire_turn_including_its_saved", { value: snapshot.settings.lorebookId ? t("interface.lore_activation_history_for_this_chat_will_start") : '' }), actionLabel: t("app.delete_turn_2"), onConfirm: () => { void command(() => api(`/chats/${chatId}/turns/${turn.id}`, 'DELETE', { revision: snapshot.revision })); } });
+                confirmAction({ confirmOnEnter: true, title: t("app.delete_turn"), message: t("app.delete_this_entire_turn_including_its_saved", { value: snapshot.settings.lorebookId ? t("interface.lore_activation_history_for_this_chat_will_start") : '' }), actionLabel: t("app.delete_turn_2"), onConfirm: () => { void command(() => api(`/chats/${chatId}/turns/${turn.id}`, 'DELETE', { revision: snapshot.revision })); } });
               }} />
           </article>;
           })}
@@ -666,11 +708,9 @@ export function App() {
         {!authorNoteOpen && <AuthorNoteSaveStatus saving={authorNote.saving} error={authorNote.error} retry={authorNote.editor.retry} disabled={working || busy || dataChanged} />}
         {!authorNoteOpen && authorNote.storageError && authorNote.pending && <p role="alert">{t('author_note.storage_failed')}</p>}
         <form className={isIOS ? 'composer composer-ios' : 'composer'} data-keyboard-visible={composerKeyboard || undefined} onSubmit={(event) => void send(event)}>
-          <ChatTextarea autoSize textScale={appearance.settings.chatTextScale} rows={1} aria-label={t("app.your_next_turn")} id="turn-input" enterKeyHint="enter" onKeyDown={event => {
-            if (!isComposerSendKey(event.nativeEvent, enterKeyBehavior, mobileKeyboard, macKeyboard)) return;
-            event.preventDefault();
-            if (!event.repeat && canSend && !sendInFlight.current) event.currentTarget.form?.requestSubmit();
-          }} placeholder={t("app.what_happens_next")} value={draft} disabled={busy} onValueChange={text => { drafts.change(text); setPeek(false); }} />
+          <ChatTextarea autoSize textScale={appearance.settings.chatTextScale} rows={1} aria-label={t("app.your_next_turn")} id="turn-input" enterKeyHint="enter"
+            onKeyDown={event => submitWithChatShortcut(event, canSend)}
+            placeholder={t("app.what_happens_next")} value={draft} disabled={busy} onValueChange={text => { drafts.change(text); setPeek(false); }} />
           <button className="send-turn" aria-label={t("app.send")} title={sendTitle} disabled={!canSend} onMouseDown={event => {
             // Touch taps synthesize mousedown before click. Blurring the iOS
             // composer here changes its padding and moves Send out of the tap.

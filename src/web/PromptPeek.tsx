@@ -3,12 +3,73 @@ import { formatMessage } from './localization';
 import { t, useLocale, locale } from './localization';
 import { placementLabel, stateLabel } from './localization-labels';
 import { Icon } from './Icon';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PromptEntry, RequestPreview, RequestEstimate } from '../shared/contracts';
 import { requestEstimate } from '../shared/contracts';
 import { LoreDiagnostics } from './LorebookEditor';
 
 const loreDisclosureKey = 'ore-prompt-peek-lore-open';
+
+function copyFromDialog(text: string, button: HTMLButtonElement) {
+  // The async clipboard API is unavailable on ordinary HTTP LAN origins.
+  const modal = button.closest('dialog');
+  if (!modal?.open) return false;
+  const selection = document.createElement('textarea');
+  selection.className = 'sr-only';
+  selection.readOnly = true;
+  selection.value = text;
+  modal.append(selection);
+  try {
+    selection.focus({ preventScroll: true });
+    selection.select();
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    selection.remove();
+    button.focus({ preventScroll: true });
+  }
+}
+
+function PromptCopy({ messages }: { messages: RequestPreview['body']['messages'] }) {
+  const [copyResult, setCopyResult] = useState<'copied' | 'manual' | null>(null);
+  const copied = copyResult === 'copied';
+  const selectManualText = useCallback((field: HTMLTextAreaElement | null) => {
+    if (!field) return;
+    field.focus();
+    field.select();
+  }, []);
+  const plainText = () => messages.map(({ role, content }) => `[${role}]\n${content}`).join('\n\n');
+  async function copy(button: HTMLButtonElement) {
+    const text = plainText();
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+        setCopyResult('copied');
+        return;
+      }
+    } catch {
+      // The browser can deny async access even when it exposes the API.
+    }
+    if (button.isConnected) setCopyResult(copyFromDialog(text, button) ? 'copied' : 'manual');
+  }
+  return <>
+    <div className="peek-prompt-heading">
+      <h3>{t('prompt_peek.assembled_prompt')}</h3>
+      <button type="button" className="quiet turn-action" aria-live="polite" onClick={event => void copy(event.currentTarget)}>
+        <Icon name="CopyOutline" />
+        <span className="prompt-copy-label">
+          <span aria-hidden={copied}>{t('prompt_peek.copy_prompt')}</span>
+          <span aria-hidden={!copied}>{t('prompt_peek.copied')}</span>
+        </span>
+      </button>
+    </div>
+    {copyResult === 'manual' && <label>
+      {t('prompt_peek.copy_prompt_manually')}
+      <textarea readOnly value={plainText()} ref={selectManualText} />
+    </label>}
+  </>;
+}
 
 function savedLoreDisclosure(): boolean {
   try { return localStorage.getItem(loreDisclosureKey) === 'true'; }
@@ -91,7 +152,7 @@ export function PromptPeek({ request, stale, close, error, retry }: { request: R
         <LoreInspection request={request} />
       </details>
       {request.warnings?.map((warning, index) => <p className="small" key={warning}>{formatMessage(request.warningMessages?.[index] ?? warning)}</p>)}
-      <h3 className="peek-prompt-heading">{t("prompt_peek.assembled_prompt")}</h3>
+      <PromptCopy messages={request.body.messages} />
       <section className="prompt-message-list" aria-label={t("prompt_peek.assembled_prompt")}><PromptMessages request={request} entries={entries} /></section>
       <details><summary>{t("prompt_peek.effective_request_parameters")}</summary><pre>{JSON.stringify({ ...request.body, messages: undefined }, null, 2)}</pre></details>
       </> : <div role="status"><p>{error || t("app.counting_current_input")}</p>{error && retry && <button type="button" className="secondary" onClick={retry}>{t("app.retry_preview")}</button>}</div>}

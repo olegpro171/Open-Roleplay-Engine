@@ -3,7 +3,7 @@ import { LocalizedError, t, message as msg, useLocale } from './localization';
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
-type Confirmation = { title: string; message: string; actionLabel: string; onConfirm: () => void };
+type Confirmation = { title: string; message: string; actionLabel: string; confirmOnEnter?: true; onConfirm: () => void };
 type Request = Confirmation & { owner: string };
 type ConfirmationControl = { open: (request: Request) => void; dismiss: (owner: string) => void };
 const ConfirmationContext = createContext<ConfirmationControl | null>(null);
@@ -55,6 +55,12 @@ function ConfirmationDialog({ request, cancel, confirm }: { request: Confirmatio
     };
   }, []);
   return createPortal(<dialog ref={dialog} className="confirmation-dialog" aria-labelledby={title} aria-describedby={description} onCancel={event => { event.preventDefault(); cancel(); }} onKeyDown={event => {
+    if (request.confirmOnEnter && event.key === 'Enter' && event.target !== cancelButton.current) {
+      event.preventDefault();
+      if (!event.repeat && !event.nativeEvent.isComposing && event.keyCode !== 229
+        && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) confirm();
+      return;
+    }
     if (event.key !== 'Tab') return;
     // Keep keyboard traversal on the two choices, including at the modal boundaries.
     event.preventDefault();
@@ -68,6 +74,6 @@ function ConfirmationDialog({ request, cancel, confirm }: { request: Confirmatio
     <span className="confirmation-symbol" aria-hidden="true">!</span>
     <h2 id={title}>{request.title}</h2>
     <p id={description}>{request.message}</p>
-    <div className="actions"><button type="button" ref={cancelButton} className="secondary" onClick={cancel}>{t("character_import.cancel")}</button><button type="button" ref={confirmButton} className="danger" onClick={confirm}>{request.actionLabel}</button></div>
+    <div className="actions"><button type="button" ref={cancelButton} className="secondary" onClick={cancel}>{t("character_import.cancel")}</button><button type="button" ref={confirmButton} className="danger" onClick={confirm} aria-keyshortcuts={request.confirmOnEnter ? 'Enter' : undefined}>{request.actionLabel}</button></div>
   </dialog>, document.body);
 }

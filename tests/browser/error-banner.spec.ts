@@ -14,6 +14,33 @@ async function openPersonaDraft(page: Page, name: string) {
   return editor;
 }
 
+test('warns about a lost server while retaining a rejected action, then recovers independently', async ({ page }) => {
+  const editor = await openPersonaDraft(page, 'Keep rejection while offline');
+  const rejection = 'Synthetic save rejection requiring a corrected action.';
+  const warning = 'Cannot reach the server. Check that it is running.';
+  const connected = page.getByRole('img', { name: 'Connected', exact: true });
+  await expect(connected).toBeVisible();
+  await page.route('**/api/library', route => route.request().method() === 'POST'
+    ? route.fulfill({ status: 422, json: { message: rejection } }) : route.continue());
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: rejection })).toBeVisible();
+
+  // Simulate loss of the server rather than an HTTP application rejection.
+  const api = '**/api/**';
+  await page.route(api, route => route.abort('connectionrefused'));
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  const connectionBanner = page.getByRole('alert').filter({ hasText: warning });
+  await expect(connectionBanner.getByRole('button', { name: 'Retry loading' })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Reconnecting', exact: true })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: rejection })).toBeVisible();
+
+  await page.unroute(api);
+  await expect(connectionBanner).toHaveCount(0);
+  await expect(connected).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: rejection })).toBeVisible();
+  await expect(editor).toHaveValue('Keep this unsaved persona draft.');
+});
+
 for (const width of [1280, 390]) {
   test(`offers retry for loading and dismiss for a rejected action with the same message at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 844 });

@@ -125,13 +125,30 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
     const saved = await page.request.get(`/api/chats/${id}`).then(r => r.json());
     expect(saved.turns).toHaveLength(1);
     expect(saved.turns[0].user.text).toBe('Keep this unsent draft.');
-    // Turn editors remain multiline and do not submit through this preference.
+    // Turn editors use the same preference and retain the draft after rejection.
     await page.getByRole('button', { name: 'Edit input', exact: true }).click();
     const editor = page.getByLabel('Edit user text');
     await editor.fill('Edited');
+    await editor.press('Shift+Enter');
+    await page.keyboard.type('Second paragraph.');
+    const editedInput = 'Edited\nSecond paragraph.';
+    await expect(editor).toHaveValue(editedInput);
+    const editRoute = `**/api/chats/${id}/turns/*/user`;
+    let attempts = 0;
+    await page.route(editRoute, route => {
+      attempts++;
+      return route.fulfill({ status: 422, json: { message: 'Synthetic turn edit rejection.' } });
+    });
+    await editor.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', repeat: true });
+    await expect(editor).toHaveValue(editedInput);
     await editor.press('Enter');
-    await expect(editor).toHaveValue('Edited\n');
-    await page.getByRole('button', { name: 'Cancel edit', exact: true }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'Synthetic turn edit rejection.' })).toBeVisible();
+    await expect(editor).toHaveValue(editedInput);
+    expect(attempts).toBe(1);
+    await page.unroute(editRoute);
+    await editor.press('Enter');
+    await expect(editor).toHaveCount(0);
+    expect((await page.request.get(`/api/chats/${id}`).then(r => r.json())).turns[0].user.text).toBe(editedInput);
 
     await settings(page);
     await region.getByRole('radio', { name: /^Send with Ctrl/ }).check();
@@ -139,6 +156,14 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
     await story(page);
     await page.reload();
     await expect(send).toHaveAttribute('title', /^Send \(Ctrl(?: \/ ⌘)? \+ Enter\)$/);
+    await page.getByRole('button', { name: 'Edit response', exact: true }).click();
+    const responseEditor = page.getByLabel('Edit assistant text');
+    await responseEditor.fill('An edited reply.');
+    await responseEditor.press('Enter');
+    await expect(responseEditor).toHaveValue('An edited reply.\n');
+    await responseEditor.press('Control+Enter');
+    await expect(responseEditor).toHaveCount(0);
+    expect((await page.request.get(`/api/chats/${id}`).then(r => r.json())).turns[0].assistant.text).toBe('An edited reply.');
     await composer.fill('Ctrl sends this.');
     await composer.press('Enter');
     await expect(composer).toHaveValue('Ctrl sends this.\n');
@@ -182,6 +207,14 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
     await preference(page, 'button-only');
     await expect(observer.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute('title', 'Send');
     await observer.close();
+    const lastTurn = page.getByRole('article', { name: /^Turn / }).last();
+    await lastTurn.getByRole('button', { name: 'Edit response', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Save edit', exact: true })).toHaveAttribute('title', 'Save edit');
+    await responseEditor.fill('Still editing.');
+    await responseEditor.press('Control+Enter');
+    await responseEditor.press('Enter');
+    await expect(responseEditor).toHaveValue('Still editing.\n');
+    await page.getByRole('button', { name: 'Cancel edit', exact: true }).click();
     await preference(page, 'enter');
     await page.route(`**${url}`, route => route.request().method() === 'GET'
       ? route.fulfill({ status: 500, json: { message: 'Synthetic behavior load failure.' } }) : route.continue());
@@ -227,6 +260,14 @@ for (const platform of ['iPhone', 'Android', 'iPad desktop mode'] as const) test
       await send.click();
       await expect(composer).toHaveValue('');
       await expect(page.getByRole('button', { name: 'Regenerate', exact: true })).toBeEnabled();
+      await page.getByRole('button', { name: 'Edit input', exact: true }).click();
+      const editor = page.getByLabel('Edit user text');
+      await editor.fill('A phone edit.');
+      await editor.press('Enter');
+      await expect(editor).toHaveValue('A phone edit.\n');
+      await page.getByRole('button', { name: 'Save edit', exact: true }).click();
+      await expect(editor).toHaveCount(0);
+      expect((await page.request.get(`/api/chats/${id}`).then(r => r.json())).turns[0].user.text).toBe('A phone edit.');
     } finally { await preference(page, initial.settings.enterKeyBehavior); }
   });
 });
