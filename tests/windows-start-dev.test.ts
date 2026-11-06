@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -52,7 +52,11 @@ describe.skipIf(process.platform !== 'win32')('Windows working-tree startup', ()
     writeFileSync(join(f.source, '.env'), 'ROLEPLAY_DATABASE=synthetic.sqlite\n');
     const result = f.run();
     expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(readFileSync(join(f.source, 'started'), 'utf8')).toBe(join(f.root, 'synthetic.sqlite'));
+    const databasePath = readFileSync(join(f.source, 'started'), 'utf8');
+    expect(isAbsolute(databasePath)).toBe(true);
+    // Windows can spell the caller's directory with either long or 8.3 names.
+    expect(realpathSync.native(dirname(databasePath))).toBe(realpathSync.native(f.root));
+    expect(basename(databasePath)).toBe('synthetic.sqlite');
   });
 
   it('does not launch a retained installation after build failure', () => {
