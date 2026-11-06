@@ -1,12 +1,12 @@
-import { limitationText } from '../shared/localization.js';
-import { message } from '../shared/localization.js';
+import { limitationText, message } from '../shared/localization.js';
 import type { EngineSnapshot } from '../shared/contracts.js';
-import { refKey, type ContextOperation, type ContextRefresh, type ContextState, type SummaryNode } from '../shared/context.js';
+import { refKey, type ContextRefresh, type ContextState, type SummaryNode } from '../shared/context.js';
 import { AppError } from './errors.js';
-import { hasChronologicalLevels, rankedPromotions, selectedContext, staleSummaries } from './context.js';
-import { operationKey, savedSummaries } from './context-reuse.js';
-import { assembleRequest, summaryText } from './prompt.js';
-import { countText } from './tokens.js';
+import { hasChronologicalLevels, selectedContext, staleSummaries } from './context.js';
+import { contextPlan } from './context-plan.js';
+import { savedSummaries } from './context-reuse.js';
+import { planSavedSelection, replaySavedPressure } from './context-saved-plan.js';
+import { assembleRequest, managedInputCosts } from './prompt.js';
 import { assertCorrectionSelection, correctionMessage, correctionProtection } from './context-corrections.js';
 import { hasPromptMarker } from '../shared/library.js';
 
@@ -16,171 +16,100 @@ export function refreshContext(snapshot: EngineSnapshot, options: { allowOverflo
   if (!hasPromptMarker(sources.prompt, 'summary')) throw new AppError(422, 'summaries_disabled', message("errors.summaries_are_disabled_enable_a_summary_marker_in"));
   const config = original.preset;
   if (!config) throw new AppError(422, 'context_required', message("errors.select_a_context_preset_before_refreshing_memory"));
-  // With no Messages marker, restoring turns cannot add input detail. Keep the
-  // committed memory unless a retained correction needs explicit reconciliation.
-  // Summary-only overflow is handled by saved/new promotions.
-  if (!hasPromptMarker(sources.prompt, 'messages') && !correctionProtection(turns, original).unresolved.length) {
-    selectedContext(turns, original);
-    assertCorrectionSelection(turns, original);
-    if (!connection) throw new AppError(422, 'connection_required', message("errors.select_a_roleplay_connection_before_preparing_memory"));
-    const input = assembleRequest(connection, settings, turns, sources, original, { validateLimits: false, allowStale: true, lore: snapshot.loreResolution }).budget.inputTokens;
-    const selection = { selected: original.selected, archivedTurnIds: original.archivedTurnIds };
-    return { state: original, report: { before: selection, after: selection, inputBefore: input, inputAfter: input, verbatimBefore: 0, verbatimAfter: 0, changed: false, protectedSummaries: 0, limited: false } };
-  }
   if (!connection) throw new AppError(422, 'connection_required', message("errors.select_a_roleplay_connection_before_refreshing_memory"));
   const current = selectedContext(turns, original); // Repair comes before restoration.
   const limit = Math.min(settings.targetInputTokens, connection.contextWindow - connection.maxOutputTokens);
-  const measure = (state: ContextState) => assembleRequest(connection, settings, turns, sources, state, { validateLimits: false, allowStale: true, lore: snapshot.loreResolution }).budget.inputTokens;
+  const measure = (state: ContextState) => assembleRequest(connection, settings, turns, sources, state,
+    { validateLimits: false, allowStale: true, lore: snapshot.loreResolution }).budget.inputTokens;
   const inputBefore = measure(original);
-  const positions = new Map(turns.map((turn, i) => [turn.id, i]));
-  const nodes = new Map(original.summaries.map(node => [refKey(node), node]));
-  const resolve = (ref: { id: string; revision: number }): SummaryNode => {
-    const node = nodes.get(refKey(ref));
-    if (!node) throw new AppError(422, 'invalid_context', message("errors.a_saved_summary_dependency_is_missing_repair_memory"));
-    return node;
-  };
-  const start = (node: SummaryNode) => positions.get(node.turns[0]?.turnId) ?? -1;
-  const end = (node: SummaryNode) => positions.get(node.turns.at(-1)?.turnId ?? '') ?? -1;
-
+  const before = { selected: original.selected, archivedTurnIds: original.archivedTurnIds };
+  const hasMessages = hasPromptMarker(sources.prompt, 'messages');
   const protection = correctionProtection(turns, original);
-  const corrections = new Map(protection.corrections.map(node => [refKey(node), node]));
+  const summaryOnly = !hasMessages && !protection.unresolved.length;
+  if (summaryOnly && inputBefore <= limit) {
+    return { state: original, report: { before, after: before, inputBefore, inputAfter: inputBefore, verbatimBefore: 0, verbatimAfter: 0,
+      changed: false, protectedSummaries: 0, limited: false } };
+  }
+
   const stale = staleSummaries(turns, original);
   if (protection.corrections.some(node => stale.has(refKey(node)))) {
     throw new AppError(422, 'correction_reconciliation_required', correctionMessage);
   }
-  const available = savedSummaries(turns, original).filter(node => !protection.missingFor(node).length);
-  const byKey = new Map(available.map(node => [refKey(node), node]));
-  const saved = new Map<string, SummaryNode[]>();
-  for (const node of available) {
-    const key = operationKey({ level: node.level, turnIds: node.turns.map(source => source.turnId), children: node.children });
-    saved.set(key, [...(saved.get(key) ?? []), node]);
-  }
-  const stateFor = (selectedNodes: SummaryNode[]): ContextState => {
-    const ordered = [...selectedNodes].sort((a, b) => start(a) - start(b));
-    return { revision: original.revision, summaries: original.summaries, selected: ordered.map(({ id, revision }) => ({ id, revision })), archivedTurnIds: ordered.flatMap(node => node.turns.map(source => source.turnId)) };
-  };
-  const protectedNodes = [...corrections.values()].sort((a, b) => end(a) - end(b) || start(a) - start(b));
-  const lastCorrection = protectedNodes.at(-1);
-  const protectedEnd = lastCorrection ? end(lastCorrection) : -1;
+  const positions = new Map(turns.map((turn, index) => [turn.id, index + 1]));
+  const correctionEnd = (node: SummaryNode) => positions.get(node.turns.at(-1)?.turnId ?? '') ?? 0;
+  const lastCorrection = protection.corrections.reduce<SummaryNode | null>((last, node) =>
+    !last || correctionEnd(node) > correctionEnd(last) ? node : last, null);
+  const protectedCutoff = lastCorrection ? correctionEnd(lastCorrection) : 0;
   const completed = turns.filter(turn => turn.complete).length;
-  const tailFits = (candidate: ContextState) => !candidate.archivedTurnIds.length || completed - candidate.archivedTurnIds.length >= config.minTail;
-  if (lastCorrection && completed - protectedEnd - 1 < config.minTail) {
-    throw new AppError(422, 'manual_tail_conflict', message("errors.the_manually_edited_summary_for_turns_must_remain", { value: String(start(lastCorrection) + 1), value2: String(protectedEnd + 1), minTail: String(config.minTail) }));
+  // Summary-only prompts cannot restore detail to Messages or extract unused turns.
+  const lastCutoff = summaryOnly ? original.archivedTurnIds.length : Math.max(0, completed - config.minTail);
+  const firstCutoff = summaryOnly ? lastCutoff : protectedCutoff;
+  if (lastCorrection && protectedCutoff > lastCutoff) {
+    throw new AppError(422, 'manual_tail_conflict', message("errors.the_manually_edited_summary_for_turns_must_remain", {
+      value: String(positions.get(lastCorrection.turns[0]?.turnId)), value2: String(protectedCutoff), minTail: String(config.minTail),
+    }));
   }
 
-  // Restore newer ranges first. A direct edit (or an unavailable child group)
-  // limits the detail of older ranges too, preventing holes between layers.
-  const expand = (node: SummaryNode, newerLevel: number): SummaryNode[] => {
-    if (start(node) > protectedEnd) return [];
-    if (corrections.has(refKey(node)) || !node.children.length) return [node];
-    const children = node.children.flatMap(ref => {
-      const child = byKey.get(refKey(ref));
-      return child ? [child] : [];
-    });
-    if (children.length !== node.children.length || children.some(child => child.level >= node.level)
-      || JSON.stringify(children.flatMap(child => child.turns.map(source => source.turnId))) !== JSON.stringify(node.turns.map(source => source.turnId))) return [node];
-    const expanded: SummaryNode[][] = [];
-    let floor = newerLevel;
-    for (const child of [...children].reverse()) {
-      const group = expand(child, floor);
-      if (group.some(item => item.level < floor)) return [node];
-      expanded.push(group);
-      floor = group[0]?.level ?? floor;
-    }
-    return expanded.reverse().flat();
+  const available = savedSummaries(turns, original).filter(node => !protection.missingFor(node).length);
+  const { tailInput, summaryFrame } = managedInputCosts(connection, settings, turns, sources, snapshot.loreResolution);
+  const originalValid = !protection.unresolved.length && original.archivedTurnIds.length <= lastCutoff && hasChronologicalLevels(current.summaries);
+  const candidateFor = (nodes: SummaryNode[] | null) => {
+    if (!nodes) return null;
+    const state = { ...original, selected: nodes.map(({ id, revision }) => ({ id, revision })),
+      archivedTurnIds: nodes.flatMap(node => node.turns.map(source => source.turnId)) };
+    return { state, input: measure(state) };
   };
-  const detailed: SummaryNode[][] = [];
-  let floor = 0;
-  for (const node of [...current.summaries].reverse()) {
-    const group = expand(node, floor);
-    detailed.push(group);
-    floor = group[0]?.level ?? floor;
+  const chooseSaved = (maxCutoff: number, preferredCutoff?: number) => candidateFor(
+    planSavedSelection(turns, available, original.selected, firstCutoff, maxCutoff, tailInput, summaryFrame, limit, preferredCutoff),
+  );
+  const baseline = summaryOnly
+    ? originalValid ? current.summaries : null
+    : firstCutoff === 0 ? [] : planSavedSelection(turns, available, original.selected, firstCutoff, lastCutoff, tailInput, summaryFrame, Infinity);
+  const replay = baseline && candidateFor(
+    replaySavedPressure(turns, available, baseline, lastCutoff, tailInput, summaryFrame, limit),
+  );
+  // An alternative tiling can reach a fit when incremental reuse hits crossing
+  // boundaries. It is a fallback, not a reason to replace a fitting replay.
+  const planned = replay && replay.input <= limit ? replay
+    : originalValid && inputBefore <= limit ? { state: original, input: inputBefore }
+    : chooseSaved(lastCutoff, replay?.state.archivedTurnIds.length);
+  if (!planned && protection.unresolved.length) throw new AppError(422, 'correction_reconciliation_required', correctionMessage);
+  let state = original, inputAfter = inputBefore;
+  if (planned && (planned.input <= limit || options.allowOverflowFallback && (!originalValid || planned.input < inputBefore))) {
+    state = planned.state;
+    inputAfter = planned.input;
   }
-  let baseline = stateFor(detailed.reverse().flat());
-  if (protectedNodes.length) {
-    // Tile the protected prefix from newest to oldest. Every candidate must carry
-    // all editorial authority overlapping its coverage; alternatives cannot win
-    // just because they have the same level/range or happen to be newer.
-    const ending = new Map<number, SummaryNode[]>();
-    for (const node of available) ending.set(end(node), [...ending.get(end(node)) ?? [], node]);
-    for (const group of ending.values()) group.sort((a, b) => a.level - b.level || a.id.localeCompare(b.id));
-    let protectedPrefix: SummaryNode[] | null = null;
-    const endpoints = [...ending.keys()].filter(last => last >= protectedEnd && completed - last - 1 >= config.minTail).sort((a, b) => a - b);
-    const failed = new Set<string>();
-    for (const endpoint of endpoints) {
-      const stack: { last: number; floor: number; index: number; via: SummaryNode | null }[] = [{ last: endpoint, floor: 0, index: 0, via: null }];
-      while (stack.length) {
-        const frame = stack[stack.length - 1];
-        if (frame.last < 0) {
-          protectedPrefix = stack.flatMap(item => item.via ? [item.via] : []).reverse();
-          break;
-        }
-        const choices = ending.get(frame.last) ?? [];
-        const node = choices[frame.index++];
-        if (!node) {
-          failed.add(`${frame.last}:${frame.floor}`);
-          stack.pop();
-          continue;
-        }
-        const first = start(node);
-        if (node.level < frame.floor || first < 0 || failed.has(`${first - 1}:${node.level}`)) continue;
-        stack.push({ last: first - 1, floor: node.level, index: 0, via: node });
-      }
-      if (protectedPrefix) break;
-    }
-    if (protectedPrefix) baseline = stateFor(protectedPrefix);
-    else if (correctionProtection(turns, baseline).unresolved.length) {
-      throw new AppError(422, 'correction_reconciliation_required', correctionMessage);
-    }
-  }
-  let state = baseline;
-  const sizes = new Map(available.map(node => [refKey(node), countText(`${summaryText(node, turns)}\n\n`)]));
-  let input = measure(state), limited = false;
-  const ordered = (candidate: ContextState) => hasChronologicalLevels(candidate.selected.map(resolve));
-  while (input > limit || !tailFits(state) || !ordered(state)) {
-    if (!tailFits(state)) { limited = true; break; }
-    const operations: ContextOperation[] = [];
-    const cutoff = state.archivedTurnIds.length;
-    if (input > limit && completed - cutoff >= config.minTail + config.batchSize) operations.push({ level: 1, turnIds: turns.slice(cutoff, cutoff + config.batchSize).map(turn => turn.id), children: [] });
-    // Only saved eligible promotions participate. Pressure ordering, chronological
-    // groups and retained floors are exactly those used in ordinary compaction.
-    operations.push(...rankedPromotions(state.selected.map(resolve), config, sizes));
-    let replacement: { state: ContextState; input: number } | null = null;
-    for (const operation of operations) {
-      for (const parent of saved.get(operationKey(operation)) ?? []) {
-        const removed = new Set(operation.children.map(refKey));
-        const candidate = stateFor([...state.selected.filter(ref => !removed.has(refKey(ref))).map(resolve), parent]);
-        const candidateInput = measure(candidate);
-        if (candidateInput < input) { replacement = { state: candidate, input: candidateInput }; break; }
-      }
-      if (replacement) break;
-    }
-    if (!replacement) { limited = true; break; }
-    state = replacement.state; input = replacement.input;
-  }
-  if (limited) {
-    if (!protection.unresolved.length && tailFits(original) && hasChronologicalLevels(current.summaries) && (inputBefore <= limit || options.allowOverflowFallback)) {
-      state = original;
-      input = inputBefore;
-    } else if (options.allowOverflowFallback && tailFits(baseline) && ordered(baseline)) {
-      // A cutoff that violates the new tail cannot be a fallback. Commit the
-      // restored boundary and let ordinary preparation compress older history.
-      state = baseline;
-      input = measure(baseline);
-    } else {
+  if (inputAfter > limit) {
+    if (!options.allowOverflowFallback || state === original && !originalValid) {
       throw new AppError(422, 'refresh_unavailable', message("errors.saved_summaries_cannot_produce_a_fitting_chronological_selection"));
+    }
+    if (state !== original && contextPlan({ ...snapshot, context: state }).blocked) {
+      // A shorter saved prefix can leave enough room for a full new batch.
+      // If it cannot advance either, retain a valid committed path that can.
+      const batchCutoff = lastCutoff - config.batchSize;
+      const shorter = !summaryOnly && batchCutoff >= firstCutoff && state.archivedTurnIds.length > batchCutoff
+        ? chooseSaved(batchCutoff) : null;
+      if (shorter && (!originalValid || shorter.input < inputBefore) && contextPlan({ ...snapshot, context: shorter.state }).next) {
+        state = shorter.state;
+        inputAfter = shorter.input;
+      } else if (originalValid && contextPlan(snapshot).next) {
+        state = original;
+        inputAfter = inputBefore;
+      }
     }
   }
   selectedContext(turns, state);
   assertCorrectionSelection(turns, state);
-  const before = { selected: original.selected, archivedTurnIds: original.archivedTurnIds };
   const after = { selected: state.selected, archivedTurnIds: state.archivedTurnIds };
   const changed = JSON.stringify(before) !== JSON.stringify(after);
+  const limited = inputAfter > limit;
   return { state: { ...state, revision: original.revision + Number(changed) }, report: {
-    before, after, inputBefore, inputAfter: input,
-    verbatimBefore: current.verbatim.length, verbatimAfter: turns.length - state.archivedTurnIds.length,
-    changed, protectedSummaries: protectedNodes.length, limited: limited || protectedNodes.length > 0,
+    before, after, inputBefore, inputAfter,
+    verbatimBefore: hasMessages ? current.verbatim.length : 0, verbatimAfter: hasMessages ? turns.length - state.archivedTurnIds.length : 0,
+    changed, protectedSummaries: protection.corrections.length, limited: limited || Boolean(lastCorrection),
     ...(limited ? { ...limitationText(message("diagnostics.saved_summaries_could_not_produce_a_finer_fitting")) }
-      : lastCorrection ? { ...limitationText(message("diagnostics.the_manual_correction_for_turns_remains_represented_that", { value: String(start(lastCorrection) + 1), value2: String(end(lastCorrection) + 1) })) } : {}),
+      : lastCorrection ? { ...limitationText(message("diagnostics.the_manual_correction_for_turns_remains_represented_that", {
+        value: String(positions.get(lastCorrection.turns[0]?.turnId)), value2: String(protectedCutoff),
+      })) } : {}),
   } };
 }

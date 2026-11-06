@@ -16,7 +16,7 @@ import type { RequestPreview } from '../src/shared/contracts.js';
 import { defaultContextPreset, refKey, type ContextJob, type SummaryRetry, type SummaryNode } from '../src/shared/context.js';
 import { contextPlan, summaryRequest } from '../src/core/context-plan.js';
 import { repairInputs } from '../src/core/context-repair.js';
-import { repairQueue, selectedContext } from '../src/core/context.js';
+import { repairQueue, selectedContext, sourceOf } from '../src/core/context.js';
 import { correctionProtection } from '../src/core/context-corrections.js';
 import { summaryRefusalFilterVersion } from '../src/core/summary-validation.js';
 import { refusalFindings } from '../src/core/summary-refusals.js';
@@ -801,6 +801,78 @@ describe('durable imported-session preparation', () => {
     await f.resume(); expect(f.state().context.selected).toEqual(small.context.selected);
   });
 
+  it('fits with saved batches and promotions after their preset sizes change', async () => {
+    const f = fixture();
+    expect((await f.idle(f.start())).status).toBe('succeeded');
+    const saved = f.state();
+    const { id: _id, revision: _revision, ...preset } = saved.context.preset!;
+    const settings = { title: saved.settings.title, connectionId: saved.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId };
+    f.store.updateChat(saved.revision, f.chatId, { ...settings, targetInputTokens: 10_000 });
+    expect((await f.idle(f.start())).status).toBe('succeeded');
+    expect(f.state().context.selected).toEqual([]);
+    f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...preset, batchSize: 3, promotionGroup: 5, retainedPerLevel: 4 }, f.contextId);
+    f.store.updateChat(f.state().revision, f.chatId, { ...settings, targetInputTokens: 500 });
+    const calls = f.calls.length;
+
+    const prepared = await f.idle(f.start());
+    expect(prepared).toMatchObject({ status: 'succeeded', generatedCount: 0 });
+    expect(prepared.reusedCount).toBeGreaterThan(0);
+    expect(f.calls).toHaveLength(calls);
+    const current = f.state();
+    expect(current.context.summaries).toEqual(saved.context.summaries);
+    expect(contextPlan(current).ready).toBe(true);
+    expect((await f.idle(f.start())).status).toBe('succeeded');
+    await f.resume();
+    expect(f.state().context.selected).toEqual(current.context.selected);
+    expect(f.calls).toHaveLength(calls);
+  });
+
+  it('keeps partial saved coverage before generating a batch at the new size', async () => {
+    const f = fixture(12);
+    for (let index = 0; index < 2; index++) expect((await f.idle(f.start('step'))).status).toBe('succeeded');
+    const saved = f.state();
+    const { id: _id, revision: _revision, ...preset } = saved.context.preset!;
+    const settings = { title: saved.settings.title, connectionId: saved.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId };
+    f.store.updateChat(saved.revision, f.chatId, { ...settings, targetInputTokens: 10_000 });
+    expect((await f.idle(f.start())).status).toBe('succeeded');
+    f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...preset, batchSize: 3 }, f.contextId);
+    f.store.updateChat(f.state().revision, f.chatId, { ...settings, targetInputTokens: 500 });
+    const calls = f.calls.length;
+    f.setMode('refusal');
+    const prepared = await f.idle(f.start());
+    expect(prepared.status).toBe('failed');
+    expect(f.calls).toHaveLength(calls + 1);
+    expect(f.calls[calls].request.coverage.map(turn => turn.turnId)).toEqual(saved.turns.slice(4, 7).map(turn => turn.id));
+    await f.resume();
+    expect(f.state().context.selected).toEqual(saved.context.selected);
+    expect(f.state().context.archivedTurnIds).toEqual(saved.context.archivedTurnIds);
+    expect(f.state().context.summaries).toEqual(saved.context.summaries);
+  });
+
+  it('reuses saved memory beyond a gap as soon as a new batch covers the gap', async () => {
+    const f = fixture(15);
+    expect((await f.idle(f.start('step'))).status).toBe('succeeded');
+    const saved = f.state();
+    const retained = retainedAlternative(f, saved.context.summaries[0], { turns: saved.turns.slice(5, 7).map(sourceOf) });
+    const { id: _id, revision: _revision, ...preset } = saved.context.preset!;
+    f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...preset, batchSize: 3 }, f.contextId);
+    f.setNextModes(['normal', 'refusal']);
+    const calls = f.calls.length;
+
+    const job = await f.idle(f.start());
+    expect(job).toMatchObject({ status: 'failed', generatedCount: 1, reusedCount: 1 });
+    expect(f.calls.slice(calls).map(call => call.request.coverage.map(turn => turn.turnId))).toEqual(
+      [[2, 5], [7, 10]].map(([start, end]) => saved.turns.slice(start, end).map(turn => turn.id)),
+    );
+    const checkpoint = f.state();
+    const firstStep = f.store.contexts.steps(job.id)[0];
+    expect(firstStep.after?.selected).toEqual(checkpoint.context.selected);
+    expect(checkpoint.context.selected).toContainEqual({ id: retained.id, revision: retained.revision });
+    await f.resume();
+    expect(f.state().context.selected).toEqual(checkpoint.context.selected);
+    expect(f.calls).toHaveLength(calls + 2);
+  });
+
   it('recovers the tail after a manual correction, retains all versions, and commits reselection atomically', async () => {
     const f = fixture(24);
     await f.idle(f.start());
@@ -876,7 +948,9 @@ describe('durable imported-session preparation', () => {
     f.store.updateChat(f.state().revision, f.chatId, { ...settings, targetInputTokens: 500 });
     const id = f.start(); expect((await f.idle(id)).status).toBe('succeeded');
     const steps = f.store.contexts.steps(id), requests = f.calls.slice(calls);
-    expect(steps[0]).toMatchObject({ reused: true, result: { id: cached.id, revision: cached.revision }, request: null });
+    const selection = { selected: [{ id: cached.id, revision: cached.revision }], archivedTurnIds: cached.turns.map(turn => turn.turnId) };
+    expect(f.store.contexts.job(id).refresh?.after).toEqual(selection);
+    expect(steps[0].before).toEqual(selection);
     expect(requests.length).toBeGreaterThan(0);
     expect(requests.every(call => JSON.stringify(call.request.coverage.map(source => source.turnId)) !== JSON.stringify(cached.turns.map(source => source.turnId)))).toBe(true);
     expect(f.store.contexts.job(id).generatedCount).toBe(requests.length);

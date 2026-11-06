@@ -20,10 +20,12 @@ export function countText(text: string): number {
   return tokens;
 }
 
+export const messageFramingTokens = (role: Message['role']) => 3 + countText(role);
+
 export function countInput(messages: Message[]) {
   const contentTokens = messages.map(message => countText(message.content));
   // Shared small allowance, deliberately independent of the endpoint's template.
-  const framingTokens = 3 + messages.reduce((sum, message) => sum + 3 + countText(message.role), 0);
+  const framingTokens = 3 + messages.reduce((sum, message) => sum + messageFramingTokens(message.role), 0);
   const counting: TokenCounting = {
     kind: 'reference', tokenizer: 'o200k_base', implementation: 'gpt-tokenizer@4.0.3',
     framing: 'estimated-recipe', fallbackReason: null,

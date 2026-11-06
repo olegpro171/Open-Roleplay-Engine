@@ -255,7 +255,8 @@ export class ContextStore {
       const repair = step.operation.repair;
       if (repair && JSON.stringify(nextRepair(snapshot.turns, snapshot.context, new Map())) !== JSON.stringify(step.operation)) throw new AppError(409, 'stale_context_result', message("errors.the_required_correction_or_repair_changed"));
       const inputs = repair ? repairInputs(snapshot, step.operation, this.sourceRequest(job.chatId, repair)) : null;
-      if (!repair && JSON.stringify(contextPlan(snapshot).next) !== JSON.stringify(step.operation)) throw new AppError(409, 'stale_context_result', message("errors.this_batch_is_no_longer_the_next_eligible"));
+      const plan = repair ? null : contextPlan(snapshot);
+      if (plan && JSON.stringify(plan.next) !== JSON.stringify(step.operation)) throw new AppError(409, 'stale_context_result', message("errors.this_batch_is_no_longer_the_next_eligible"));
       if (step.operation.turnIds.length && !validateSummary(text, 'stop').accepted) throw new AppError(502, 'invalid_summary', message("errors.the_candidate_summary_failed_validation"));
       const sourceIds = new Set(step.operation.turnIds);
       const sourceTurns = snapshot.turns.filter(turn => sourceIds.has(turn.id));
@@ -267,12 +268,21 @@ export class ContextStore {
         level: step.operation.level, text, turns: sourceTurns.map(sourceOf), children: step.operation.children, prior,
         ...(inputs ? { corrections: inputs.corrections } : {}),
         approved: !repair || unchanged, createdAt: new Date().toISOString(), manual: inputs?.old.manual ?? false, ...(repair ? { basedOn: repair } : {}) };
-      let after: ContextState | null = null, inputAfter: number | null = null;
-      if (!repair) {
+      let after: ContextState | null = null, inputAfter: number | null = null, newlyReused = 0;
+      if (plan) {
         after = replaceSelection(snapshot.context, step.operation, node);
         selectedContext(snapshot.turns, after);
         inputAfter = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, after, { validateLimits: false, lore: snapshot.loreResolution }).budget.inputTokens;
         if (inputAfter >= step.inputBefore) throw new AppError(422, 'summary_no_savings', message("errors.the_summary_did_not_reduce_the_assembled_input"));
+        if (inputAfter > plan.effectiveLimit && job.mode === 'prepare' && !job.generationId && !job.automatic) {
+          // A new batch can bridge a gap to retained memory. Save both changes in
+          // this step's checkpoint before another provider request can start.
+          const reselection = refreshContext({ ...snapshot, context: { ...snapshot.context, ...after } }, { allowOverflowFallback: true });
+          const generatedSelection = new Set(after.selected.map(refKey));
+          newlyReused = reselection.state.selected.filter(ref => !generatedSelection.has(refKey(ref))).length;
+          after = reselection.state;
+          inputAfter = reselection.report.inputAfter;
+        }
       }
       else if (unchanged) after = this.repairedState(snapshot, node);
       // Keep an existing candidate usable until regeneration succeeds.
@@ -280,7 +290,8 @@ export class ContextStore {
       this.saveNode(job.chatId, node);
       if (after) this.saveState(job.chatId, after, job.generationId);
       this.saveStep({ ...savedStep, status: repair && !unchanged ? 'candidate' : 'saved', result: { id: node.id, revision: node.revision }, after: after ? { selected: after.selected, archivedTurnIds: after.archivedTurnIds } : null, inputAfter, ...(unchanged ? { repairOutcome: 'model_unchanged' } : {}) });
-      this.saveJob(this.bump({ ...job, generatedCount: (job.generatedCount ?? 0) + Number(Boolean(savedStep.request)), unchangedCount: (job.unchangedCount ?? 0) + Number(unchanged) }));
+      this.saveJob(this.bump({ ...job, generatedCount: (job.generatedCount ?? 0) + Number(Boolean(savedStep.request)),
+        reusedCount: (job.reusedCount ?? 0) + newlyReused, unchangedCount: (job.unchangedCount ?? 0) + Number(unchanged) }));
       return node;
     })();
   }

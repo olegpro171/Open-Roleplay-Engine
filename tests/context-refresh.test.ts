@@ -184,8 +184,11 @@ describe('manual memory refresh using the saved tree', () => {
 
   it('restores an incompatible cutoff before generating missing compression instead of falling back to it', () => {
     const snapshot = fixture();
+    const wide = { ...snapshot.context.summaries[0], turns: snapshot.turns.slice(0, 62).map(sourceOf) };
+    snapshot.context.summaries = [wide];
+    snapshot.context.selected = [{ id: wide.id, revision: wide.revision }];
     snapshot.context.preset!.minTail = 8;
-    snapshot.context.preset!.batchSize = 3; // No saved batches match these new settings.
+    snapshot.context.preset!.batchSize = 3;
     snapshot.settings.targetInputTokens = 2_000;
     const result = refreshContext(snapshot, { allowOverflowFallback: true });
     expect(result.state.archivedTurnIds).toEqual([]);
@@ -217,6 +220,7 @@ describe('manual memory refresh using the saved tree', () => {
     expect(state.summaries).toBe(snapshot.context.summaries);
     expect(snapshot).toEqual(original);
     const resolved = selectedContext(snapshot.turns, state);
+    expect(resolved.summaries.length).toBeGreaterThan(0);
     expect(resolved.summaries.every(node => node.level === 1)).toBe(true);
     expect(resolved.summaries.flatMap(node => node.turns.map(source => source.turnId))).toEqual(state.archivedTurnIds);
     const checkpoint = JSON.parse(JSON.stringify(apply(snapshot, state))) as ChatSnapshot;
@@ -235,6 +239,50 @@ describe('manual memory refresh using the saved tree', () => {
     expect(resolved.summaries.length).toBeGreaterThan(snapshot.context.selected.length);
     expect(measure(apply(snapshot, result.state))).toBeLessThanOrEqual(snapshot.settings.targetInputTokens);
     expect(refreshContext(apply(snapshot, result.state)).state.selected).toEqual(result.state.selected);
+  });
+
+  it('rebuilds an already fitting L4-only selection from finer saved layers', () => {
+    const snapshot = fixture();
+    const deep = snapshot.context.summaries.find(node => node.level === 4)!;
+    snapshot.context.selected = [{ id: deep.id, revision: deep.revision }];
+    snapshot.context.archivedTurnIds = deep.turns.map(turn => turn.turnId);
+    snapshot.settings.targetInputTokens = measure(snapshot);
+    const prepared = refreshContext(snapshot);
+    const { summaries, verbatim } = selectedContext(snapshot.turns, prepared.state);
+
+    expect(summaries.length).toBeGreaterThan(1);
+    expect(summaries.every(node => node.level < deep.level)).toBe(true);
+    expect(verbatim.length).toBeLessThan(snapshot.turns.length - deep.turns.length);
+    expect(prepared.report.inputAfter).toBeLessThanOrEqual(snapshot.settings.targetInputTokens);
+    expect(prepared.state.summaries).toBe(snapshot.context.summaries);
+    expect(refreshContext(apply(snapshot, prepared.state)).report.changed).toBe(false);
+  });
+
+  it.each([false, true])('ranks cached promotions by actual geometric pressure with larger L2 summaries = %s', largerLevelTwo => {
+    const snapshot = fixture();
+    snapshot.turns = snapshot.turns.slice(0, 14);
+    for (const turn of snapshot.turns) turn.user.text = 'Mira explains what she found under the floorboards. '.repeat(100);
+    const leaves = snapshot.context.summaries.filter(node => node.level === 1).slice(0, 6);
+    for (const leaf of leaves) leaf.text = 'The key belongs to Mira. '.repeat(15).trimEnd();
+    const parents = snapshot.context.summaries.filter(node => node.level === 2).slice(0, 3);
+    for (const parent of parents.slice(0, 2)) parent.text = 'The key belongs to Mira. '.repeat(largerLevelTwo ? 12 : 4).trimEnd();
+    const grandparent = snapshot.context.summaries.find(node => node.level === 3)!;
+    snapshot.context.summaries = [...leaves, ...parents, grandparent];
+    Object.assign(snapshot.context.preset!, { batchSize: 3, promotionGroup: 5, retainedPerLevel: 4 });
+    const selection = (nodes: SummaryNode[]) => ({ ...snapshot.context,
+      selected: nodes.map(({ id, revision }) => ({ id, revision })),
+      archivedTurnIds: nodes.flatMap(node => node.turns.map(source => source.turnId)),
+    });
+    const levelOnePromotion = selection(parents);
+    const levelTwoPromotion = selection([grandparent, ...leaves.slice(4)]);
+    snapshot.context = selection([grandparent]);
+    snapshot.settings.targetInputTokens = Math.max(measure(apply(snapshot, levelOnePromotion)), measure(apply(snapshot, levelTwoPromotion)));
+
+    const expected = largerLevelTwo ? levelTwoPromotion : levelOnePromotion;
+    const result = refreshContext(snapshot);
+    expect(result.state.selected).toEqual(expected.selected);
+    expect(result.state.archivedTurnIds).toEqual(expected.archivedTurnIds);
+    expect(refreshContext(apply(snapshot, result.state)).report.changed).toBe(false);
   });
 
   it('returns all turns verbatim when they fit, including blank complete turns and a pending input', () => {
@@ -276,14 +324,55 @@ describe('manual memory refresh using the saved tree', () => {
     }
   });
 
-  it('keeps the current selection when changed groups have no saved replacement', () => {
-    const snapshot = fixture(); snapshot.context.preset!.batchSize = 3;
+  it('reselects the same saved spans after changing extraction, promotion and retention settings', () => {
+    const snapshot = fixture();
+    const before = refreshContext(snapshot);
+    Object.assign(snapshot.context.preset!, { batchSize: 3, promotionGroup: 5, retainedPerLevel: 4 });
+    const after = refreshContext(snapshot);
+    expect(after.report).toMatchObject({ changed: true, limited: false, inputAfter: before.report.inputAfter });
+    expect(after.state.selected).toEqual(before.state.selected);
+  });
+
+  it('replaces crossing active ranges with a saved parent and protects completed turns plus pending input', () => {
+    const snapshot = fixture();
+    snapshot.turns = snapshot.turns.slice(0, 10);
+    snapshot.turns[9].complete = false;
+    const parent = snapshot.context.summaries.find(node => node.level === 2 && node.turns[0].turnId === 't0')!;
+    const leaf = snapshot.context.summaries.find(node => node.level === 1 && node.turns[0].turnId === 't4')!;
+    const ref = ({ id, revision }: SummaryNode) => ({ id, revision });
+    const archivedTurnIds = snapshot.turns.slice(0, 6).map(turn => turn.id);
+    const fitting = { ...snapshot.context, selected: [ref(parent), ref(leaf)], archivedTurnIds };
+    const crossing = [0, 3].map(index => ({
+      ...leaf, id: `crossing-${index}`, text: 'The room remains very quiet. '.repeat(80),
+      turns: snapshot.turns.slice(index, index + 3).map(sourceOf),
+    }));
+    snapshot.context.summaries.push(...crossing);
+    snapshot.context.selected = crossing.map(ref);
+    snapshot.context.archivedTurnIds = archivedTurnIds;
+    Object.assign(snapshot.context.preset!, { minTail: 3, batchSize: 5, promotionGroup: 5, retainedPerLevel: 4 });
+    snapshot.settings.targetInputTokens = measure(apply(snapshot, fitting));
+    expect(measure(snapshot)).toBeGreaterThan(snapshot.settings.targetInputTokens);
+
     const result = refreshContext(snapshot);
-    expect(result.report).toMatchObject({ changed: false, limited: true });
-    expect(result.state.selected).toEqual(snapshot.context.selected);
-    snapshot.context.preset!.batchSize = 2; snapshot.context.preset!.promotionGroup = 3;
-    snapshot.settings.targetInputTokens = measure(snapshot) + 50;
-    expect(refreshContext(snapshot).report).toMatchObject({ changed: false, limited: true });
+    expect(result.state.selected).toEqual([ref(parent), ref(leaf)]);
+    expect(result.state.summaries).toBe(snapshot.context.summaries);
+    expect(selectedContext(snapshot.turns, result.state).verbatim.map(turn => [turn.id, turn.complete]))
+      .toEqual([['t6', true], ['t7', true], ['t8', true], ['t9', false]]);
+    expect(result.report.inputAfter).toBe(snapshot.settings.targetInputTokens);
+  });
+
+  it('leaves room for a full new batch when the smallest saved input would block further preparation', () => {
+    const snapshot = fixture();
+    snapshot.turns = snapshot.turns.slice(0, 10);
+    snapshot.context.summaries = snapshot.context.summaries.filter(node => node.level === 1 && node.turns.every(turn => ['t0', 't1', 't2', 't3', 't4', 't5'].includes(turn.turnId)));
+    snapshot.context.selected = [];
+    snapshot.context.archivedTurnIds = [];
+    Object.assign(snapshot.context.preset!, { minTail: 2, batchSize: 3, promotionGroup: 5 });
+    snapshot.settings.targetInputTokens = 200;
+
+    const result = refreshContext(snapshot, { allowOverflowFallback: true });
+    expect(result.state.archivedTurnIds).toEqual(['t0', 't1', 't2', 't3']);
+    expect(contextPlan(apply(snapshot, result.state))).toMatchObject({ blocked: null, next: { level: 1, turnIds: ['t4', 't5', 't6'] } });
   });
 
   it('rejects stale sources and cannot silently omit history when no saved selection fits', () => {

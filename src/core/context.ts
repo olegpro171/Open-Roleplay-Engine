@@ -81,7 +81,11 @@ export function nextCompaction(turns: Turn[], state: ContextState, config: Conte
   return { next: best, blocked: null };
 }
 
-/** Shared pressure ordering; eligibility may be restricted to saved parents by Refresh. */
+/** The summary pool cancels out when comparing geometric layer pressure. */
+export const summaryPressure = (level: number, tokens: number): number =>
+  Math.log2(Math.max(tokens, Number.MIN_VALUE)) + level;
+
+/** Pressure ordering for promotions under the current generation rules. */
 export function rankedPromotions(summaries: SummaryNode[], config: ContextPreset, summarySizes: Map<string, number>): ContextOperation[] {
   const candidates: { score: number; level: number; children: SummaryNode[] }[] = [];
   for (const level of new Set(summaries.map(node => node.level))) {
@@ -94,8 +98,7 @@ export function rankedPromotions(summaries: SummaryNode[], config: ContextPreset
     // This also keeps continuation safe after a manual detail restoration.
     if (first > 0 && summaries[first - 1].level < level + 1) continue;
     const used = layer.reduce((total, node) => total + (summarySizes.get(refKey(node)) ?? 0), 0);
-    // Logarithms preserve U_k * 2^k ordering without overflow in deep trees.
-    candidates.push({ score: Math.log2(Math.max(used, Number.MIN_VALUE)) + level, level, children });
+    candidates.push({ score: summaryPressure(level, used), level, children });
   }
   candidates.sort((a, b) => b.score - a.score || b.level - a.level);
   return candidates.map(candidate => ({ level: candidate.level + 1, turnIds: candidate.children.flatMap(node => node.turns.map(source => source.turnId)), children: candidate.children.map(({ id, revision }) => ({ id, revision })) }));

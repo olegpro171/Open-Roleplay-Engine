@@ -5,7 +5,7 @@ import { emptyContextState, refKey, type ContextOperation, type ContextPlan, typ
 import { AppError } from './errors.js';
 import { nextCompaction, nodeFor, rankedPromotions, repairQueue, sourceOf, staleSummaries } from './context.js';
 import { hasPromptMarker } from '../shared/library.js';
-import { assembleRequest, estimateInputTokens, summaryText } from './prompt.js';
+import { assembleRequest, estimateInputTokens, summarySeparator, summaryText } from './prompt.js';
 import { countInput, countText } from './tokens.js';
 import { savedReplacement } from './context-reuse.js';
 import { correctionProtection, correctionMessage, correctionDiagnostic } from './context-corrections.js';
@@ -37,7 +37,8 @@ export function contextPlan(snapshot: EngineSnapshot): ContextPlan {
   const pinBudgetMessage = message('pins.required_budget');
   // Rank with the shared reference tokenizer, including labels and separator.
   // Only the complete assembled request determines whether the limit is met.
-  const sizes = new Map(state.summaries.map(node => [refKey(node), countText(`${summaryText(node, snapshot.turns)}\n\n`)]));
+  const positions = new Map(snapshot.turns.map((turn, index) => [turn.id, index + 1]));
+  const sizes = new Map(state.summaries.map(node => [refKey(node), countText(summaryText(node, positions) + summarySeparator)]));
   const changedMembership = JSON.stringify(snapshot.turns.slice(0, archived.size).map(turn => turn.id)) !== JSON.stringify(state.archivedTurnIds);
   let blockedMessage: LocalizedMessage | undefined;
   let next: ContextOperation | null = null, blocked: string | null = null;

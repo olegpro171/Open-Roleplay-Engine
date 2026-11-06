@@ -2,10 +2,10 @@ import { message, promptLabel } from '../shared/localization.js';
 import type { ChatSettings, Connection, Message, PromptEntry, RequestPreview, Turn } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import { hasPromptMarker, promptSchema, promptWarningMessages, type PromptSources } from '../shared/library.js';
-import type { ContextState, SummaryNode } from '../shared/context.js';
+import { emptyContextState, type ContextState, type SummaryNode } from '../shared/context.js';
 import { assertCorrectionSelection } from './context-corrections.js';
 import { selectedContext, sourceOf } from './context.js';
-import { countInput } from './tokens.js';
+import { countInput, countText, messageFramingTokens } from './tokens.js';
 import { replaceNameMacros } from './names.js';
 import type { LoreResolution } from '../shared/lorebook.js';
 import { characterParts } from './character-prompt.js';
@@ -22,9 +22,36 @@ export function estimateInputTokens(messages: Message[]): number {
   return countInput(messages).inputTokens;
 }
 
-export function summaryText(node: SummaryNode, turns: Turn[]): string {
-  const positions = new Map(turns.map((turn, i) => [turn.id, i + 1]));
+export function summaryText(node: SummaryNode, positions: ReadonlyMap<string, number>): string {
   return `[Memory L${node.level} · turns ${positions.get(node.turns[0]?.turnId) ?? '?'}–${positions.get(node.turns.at(-1)?.turnId ?? '') ?? '?'}]\n${modelText(node.text)}`;
+}
+
+export const summarySeparator = '\n\n';
+
+function historyMessages(turn: Turn): Message[] {
+  const user = modelText(turn.user.text);
+  const assistant = turn.complete ? modelText(turn.assistant.text) : '';
+  const messages: Message[] = [];
+  if (user !== '') messages.push({ role: 'user', content: user });
+  if (assistant !== '') messages.push({ role: 'assistant', content: assistant });
+  return messages;
+}
+
+/** Budget components for comparing managed selections without assembling every candidate. */
+export function managedInputCosts(connection: Connection, settings: ChatSettings, turns: Turn[], sources: PromptSources, lore?: LoreResolution | null) {
+  const preset = sources.prompt ?? inlineSettingsPrompt(settings.instructions);
+  const summaryBlock = preset.blocks.find(block => block.enabled && block.kind === 'marker' && block.marker === 'summary');
+  const fixed = assembleRequest(connection, settings, turns, sources, emptyContextState(),
+    { validateLimits: false, lore, measureVerbatim: [] }).budget.inputTokens;
+  const tailInput = Array<number>(turns.length + 1).fill(fixed);
+  if (hasPromptMarker(preset, 'messages')) {
+    for (let i = turns.length - 1; i >= 0; i--) {
+      // Injections move with the tail but retain the same message content and roles.
+      const turnInput = historyMessages(turns[i]).reduce((sum, part) => sum + countText(part.content) + messageFramingTokens(part.role), 0);
+      tailInput[i] = tailInput[i + 1] + turnInput;
+    }
+  }
+  return { tailInput, summaryFrame: summaryBlock ? messageFramingTokens(summaryBlock.role) : 0 };
 }
 
 type AssemblyOptions = {
@@ -42,8 +69,8 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   const summariesEnabled = hasPromptMarker(preset, 'summary');
   if (summariesEnabled && context && !options.allowStale) assertCorrectionSelection(turns, context);
   const resolved = summariesEnabled && context ? selectedContext(turns, context, options.allowStale) : { summaries: [], verbatim: turns };
-  const summary = resolved.summaries.map(node => summaryText(node, turns)).join('\n\n');
   const positions = new Map(turns.map((turn, index) => [turn.id, index + 1]));
+  const summary = resolved.summaries.map(node => summaryText(node, positions)).join(summarySeparator);
   type Entry = Omit<PromptEntry, 'messageIndex' | 'tokens'> & { message: Message };
   let entries: Entry[] = [];
   const warningMessages = promptWarningMessages(preset);
@@ -132,19 +159,15 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     }
     if (content !== '') entries.push({ message: { role: block.role, content: resolve(content) }, kind: block.kind === 'text' ? 'prompt' : 'persona', label: block.name });
   }
-  const turnEntries = (turn: Turn): Entry[] => {
-    const result: Entry[] = [];
-    const user = modelText(turn.user.text);
-    const assistant = turn.complete ? modelText(turn.assistant.text) : '';
-    if (user !== '') result.push({
-      message: { role: 'user', content: user }, kind: turn.id === 'draft' ? 'draft' : 'history',
-      ...promptLabel(turn.id === 'draft'
+  const turnEntries = (turn: Turn): Entry[] => historyMessages(turn).map(part => ({
+    message: part,
+    kind: part.role === 'user' && turn.id === 'draft' ? 'draft' : 'history',
+    ...promptLabel(part.role === 'assistant'
+      ? message("diagnostics.turn_response", { value: String(positions.get(turn.id)) })
+      : turn.id === 'draft'
         ? message('prompt_peek.unsent_input')
         : message('diagnostics.turn_input', { value: String(positions.get(turn.id)) })),
-    });
-    if (assistant !== '') result.push({ message: { role: 'assistant', content: assistant }, kind: 'history', ...promptLabel(message("diagnostics.turn_response", { value: String(positions.get(turn.id)) })) });
-    return result;
-  };
+  }));
   // Filtering display-only blocks must preserve the marker's insertion boundary.
   if (historyIndex !== null) historyIndex = entries.slice(0, historyIndex).filter(entry => entry.message.content !== '').length;
   entries = entries.filter(entry => entry.message.content !== '');
