@@ -25,7 +25,7 @@ export function PreparationStatus({ preparation, regeneration, committedInput, d
       <p>{working
         ? t('story_preparation.working_input', { input: formatted(working.inputTokens), target: formatted(working.targetInputTokens) })
         : t('app.counting_current_input')}</p>
-      {regeneration && <p>{committedInput === undefined
+      {(mode === 'prepare' || regeneration) && <p>{committedInput === undefined
         ? t('story_preparation.counting_committed_input')
         : t('story_preparation.committed_input', { input: formatted(committedInput) })}</p>}
       <p>{preparation.deletionReviewToken ? t('memory.preparation_deletion_waiting') : operation}</p>

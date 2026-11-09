@@ -468,7 +468,8 @@ export function App() {
     ?? (history.selected?.id === generationId ? history.selected : null);
   const requestOptions = shownGeneration && !history.items.some(item => item.id === shownGeneration.id)
     ? [shownGeneration, ...history.items] : history.items;
-  const preview = useRequestPreview(snapshot, regenerationPreparation ? '' : draft, tab !== 'library' && tab !== 'data', tab === 'request' && !generationId || peek);
+  const preview = useRequestPreview(snapshot, preparing?.mode === 'prepare' || regenerationPreparation ? '' : draft,
+    tab !== 'library' && tab !== 'data', tab === 'request' && !generationId || peek);
   const currentRequest = snapshot?.connection ? preview.estimate : null;
   const inspectionCurrent = preview.current;
   const inspectionError = formatMessage(preview.error) || (!currentRequest && snapshot?.connection ? t('app.counting_current_input') : '');

@@ -8,7 +8,7 @@ import { hasPromptMarker } from '../shared/library.js';
 import { assembleRequest, estimateInputTokens, summarySeparator, summaryText } from './prompt.js';
 import { countInput, countText } from './tokens.js';
 import { savedReplacement } from './context-reuse.js';
-import { correctionProtection, correctionMessage, correctionDiagnostic } from './context-corrections.js';
+import { correctionProtection, correctionMessage, correctionDiagnostic, latestApproved } from './context-corrections.js';
 import { repairInputs } from './context-repair.js';
 import { modelText } from './model-text.js';
 import { assertCleanSummaryInput, refusalAffected } from './summary-refusals.js';
@@ -119,16 +119,20 @@ export function summaryRequest(snapshot: EngineSnapshot, operation: ContextOpera
   if (estimateInputTokens(messages) > physicalInput) throw new AppError(422, 'summary_window_exceeded', message("errors.this_fixed_source_batch_and_summary_instructions_do"));
   const first = snapshot.turns.findIndex(turn => turn.id === operation.turnIds[0]);
   const prior: SummaryRef[] = [];
-  const currentRef = (ref: SummaryRef) => replacements.has(refKey(ref)) ? replacements.get(refKey(ref)) : snapshot.context.summaries.filter(node => node.id === ref.id && node.approved).sort((a, b) => b.revision - a.revision)[0] ?? ref;
+  const byRef = new Map(snapshot.context.summaries.map(node => [refKey(node), node]));
+  const latest = new Map(latestApproved(snapshot.context).map(node => [node.id, node]));
+  const positions = new Map(snapshot.turns.map((turn, index) => [turn.id, index]));
+  const position = (id: string | undefined) => positions.get(id ?? '') ?? -1;
+  const currentRef = (ref: SummaryRef) => replacements.has(refKey(ref)) ? replacements.get(refKey(ref)) : latest.get(ref.id) ?? ref;
   const earlier = snapshot.context.selected.map(currentRef).filter((ref): ref is SummaryRef => Boolean(ref)).flatMap(ref => {
-    const node = nodeFor(snapshot.context, ref);
-    return node?.turns.length && snapshot.turns.findIndex(turn => turn.id === node.turns.at(-1)?.turnId) < first ? [node] : [];
+    const node = byRef.get(refKey(ref));
+    return node?.turns.length && position(node.turns.at(-1)?.turnId) < first ? [node] : [];
   });
   const usedPriorTurns = new Set<string>();
   const priorNodes = earlier.filter(node => {
     if (node.turns.some(source => usedPriorTurns.has(source.turnId))) return false;
     node.turns.forEach(source => usedPriorTurns.add(source.turnId)); return true;
-  }).sort((a, b) => snapshot.turns.findIndex(turn => turn.id === a.turns[0].turnId) - snapshot.turns.findIndex(turn => turn.id === b.turns[0].turnId)).slice(-3);
+  }).sort((a, b) => position(a.turns[0].turnId) - position(b.turns[0].turnId)).slice(-3);
   // Bounded earlier context only. Never add later events to a summary's sources.
   for (const node of [...priorNodes].reverse()) {
     if (!node) continue;

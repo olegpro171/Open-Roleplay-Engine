@@ -86,6 +86,7 @@ for (const device of ['desktop', 'phone'] as const) test.describe(`automatic mem
       await expect(progress).toContainText('Preparing memory…');
       await expect(progress).toContainText(/Estimated working input [\d,]+ \/ [\d,]+ target tokens/);
       await expect(progress).toContainText('Step 1 · Summarize oldest turns');
+      await expect(progress).toContainText(/Estimated committed input [\d,]+ tokens/);
       await expect(send).toBeDisabled();
       await expect(composer).toBeEditable();
       await composer.fill('My next draft stays available.');

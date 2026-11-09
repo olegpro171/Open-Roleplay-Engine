@@ -41,9 +41,9 @@ function historyMessages(turn: Turn): Message[] {
 export function managedInputCosts(connection: Connection, settings: ChatSettings, turns: Turn[], sources: PromptSources, lore?: LoreResolution | null) {
   const preset = sources.prompt ?? inlineSettingsPrompt(settings.instructions);
   const summaryBlock = preset.blocks.find(block => block.enabled && block.kind === 'marker' && block.marker === 'summary');
-  const fixed = assembleRequest(connection, settings, turns, sources, emptyContextState(),
-    { validateLimits: false, lore, measureVerbatim: [] }).budget.inputTokens;
-  const tailInput = Array<number>(turns.length + 1).fill(fixed);
+  const required = assembleRequest(connection, settings, turns, sources, emptyContextState(),
+    { validateLimits: false, lore, measureVerbatim: [] });
+  const tailInput = Array<number>(turns.length + 1).fill(required.budget.inputTokens);
   if (hasPromptMarker(preset, 'messages')) {
     for (let i = turns.length - 1; i >= 0; i--) {
       // Injections move with the tail but retain the same message content and roles.
@@ -51,7 +51,8 @@ export function managedInputCosts(connection: Connection, settings: ChatSettings
       tailInput[i] = tailInput[i + 1] + turnInput;
     }
   }
-  return { tailInput, summaryFrame: summaryBlock ? messageFramingTokens(summaryBlock.role) : 0 };
+  return { tailInput, summaryFrame: summaryBlock ? messageFramingTokens(summaryBlock.role) : 0,
+    budget: required.budget, hasPins: required.layout?.some(entry => entry.kind === 'pinned') };
 }
 
 type AssemblyOptions = {

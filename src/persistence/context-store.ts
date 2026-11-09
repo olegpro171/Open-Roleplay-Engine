@@ -7,9 +7,10 @@ import { summariesDeletion, summaryDeletion, summarySuffixDeletion } from '../co
 import { supersededMemoryAlternatives, type MemoryLayoutCleanup } from '../core/memory-layout.js';
 import { checkSummaryRefusal, summaryRefusalCheck, unresolvedRefusal, assertRefusalSelection } from '../core/summary-refusals.js';
 import { summaryRefusalFilterVersion } from '../core/summary-validation.js';
-import { correctionDiagnostic, correctionProtection, latestApproved } from '../core/context-corrections.js';
+import { assertCorrectionSelection, correctionDiagnostic, correctionProtection, latestApproved } from '../core/context-corrections.js';
 import { savedReplacement } from '../core/context-reuse.js';
-import { nextRepair, nodeFor, repairQueue, replaceSelection, selectedContext, sourceOf } from '../core/context.js';
+import type { ReplayFrame } from '../core/context-replay.js';
+import { belowMinimumTail, hasChronologicalLevels, nextRepair, nodeFor, repairQueue, replaceSelection, selectedContext, sourceOf } from '../core/context.js';
 import { repairInputs } from '../core/context-repair.js';
 import { assembleRequest } from '../core/prompt.js';
 import { validateSummary } from '../core/summary-validation.js';
@@ -133,39 +134,50 @@ export class ContextStore {
     return { ...snapshot, loreResolution: this.store.loreOperation(job.id) ?? (job.generationId ? this.store.loreOperation(job.generationId) : null) };
   }
   operationSnapshot(id: string) { return this.current(this.job(id)); }
-  private preparationDeletion(job: ContextJob, snapshot: EngineSnapshot, plan: ContextPlan) {
+  private checkReplay(job: ContextJob, snapshot: EngineSnapshot, frame?: ReplayFrame) {
+    if (Boolean(frame) !== (job.mode === 'prepare')) {
+      throw new AppError(409, 'stale_context_result', message("errors.this_memory_operation_is_no_longer_eligible"));
+    }
+    if (frame && (snapshot.id !== frame.snapshot.id || snapshot.revision !== frame.snapshot.revision
+      || snapshot.context.revision !== frame.snapshot.context.revision)) {
+      throw new AppError(409, 'stale_selection', message("errors.the_selected_memory_changed_before_the_summary_was"));
+    }
+  }
+  private preparationDeletion(job: ContextJob, snapshot: EngineSnapshot, plan: ContextPlan, replay?: ReplayFrame) {
     if (job.mode !== 'prepare' && job.mode !== 'step') return null;
     const blockedByCorrection = plan.blockedMessage?.key === correctionDiagnostic.key && !plan.repairCount;
     if (!plan.next && !blockedByCorrection) return null;
+    if (replay && !replay.maySupersede && !blockedByCorrection) return null;
     const regenerating = job.generationId !== null && this.store.generation(job.generationId)?.kind === 'regeneration';
     const committed = regenerating ? this.savedState(job.chatId) : snapshot.context;
     const working = regenerating ? { ...snapshot.context, summaries: committed.summaries } : committed;
     const roots: SummaryRef[] = [];
     if (blockedByCorrection) {
-      roots.push(...correctionProtection(snapshot.turns, snapshot.context).unresolved);
-      // An edited dependent can mask the forward operation that supersedes
-      // its source. Preview that source and the dependent in the same cascade.
-      const projected = summariesDeletion(working, roots);
-      const remaining = regenerating ? summariesDeletion(committed, roots).after : projected.after;
-      const after = { ...snapshot.context, ...projected.after,
-        summaries: snapshot.context.summaries.filter(node => !projected.deletedIds.has(node.id)) };
-      const nextPlan = contextPlan({ ...snapshot, context: after });
-      if (nextPlan.next) roots.push(...supersededMemoryAlternatives(remaining, after.selected, nextPlan.next, nextPlan.reusable));
-    } else if (plan.next) roots.push(...supersededMemoryAlternatives(committed, snapshot.context.selected, plan.next, plan.reusable));
+      roots.push(...(replay?.correctionConflicts ?? correctionProtection(snapshot.turns, snapshot.context).unresolved));
+      if (!replay) {
+        // In single-step mode an edited dependent can mask the operation that
+        // supersedes its source. Review them in the same cascade.
+        const projected = summariesDeletion(working, roots);
+        const after = { ...snapshot.context, ...projected.after };
+        const nextPlan = contextPlan({ ...snapshot, context: after });
+        if (nextPlan.next) roots.push(...supersededMemoryAlternatives(projected.after, after.selected, nextPlan.next, nextPlan.reusable));
+      }
+    } else if (plan.next) roots.push(...supersededMemoryAlternatives(committed, replay?.snapshot.context.selected ?? snapshot.context.selected, plan.next, plan.reusable));
     if (!roots.length) return null;
     const deletion = summariesDeletion(committed, roots);
     const preview = { revision: job.sourceRevision, deletedIds: [...deletion.deletedIds], restoredTurnIds: deletion.restoredTurnIds };
     return { deletion, preview, roots, regenerating, working };
   }
-  previewPreparationDeletion(job: ContextJob, snapshot: EngineSnapshot, plan: ContextPlan): Omit<PreparationDeletionPreview, 'token'> | null {
-    return this.preparationDeletion(job, snapshot, plan)?.preview ?? null;
+  previewPreparationDeletion(job: ContextJob, snapshot: EngineSnapshot, plan: ContextPlan, replay?: ReplayFrame): Omit<PreparationDeletionPreview, 'token'> | null {
+    return this.preparationDeletion(job, snapshot, plan, replay)?.preview ?? null;
   }
-  confirmPreparationDeletion(id: string, expected: Omit<PreparationDeletionPreview, 'token'>) {
+  confirmPreparationDeletion(id: string, expected: Omit<PreparationDeletionPreview, 'token'>, replay?: ReplayFrame) {
     return this.sqlite.transaction(() => {
       const job = this.job(id);
       if (job.sourceRevision !== expected.revision) throw new AppError(409, 'memory_impact_changed', message('memory.cleanup_changed'));
       const snapshot = this.current(job);
-      const review = this.preparationDeletion(job, snapshot, contextPlan(snapshot));
+      this.checkReplay(job, snapshot, replay);
+      const review = this.preparationDeletion(job, snapshot, replay?.plan ?? contextPlan(snapshot), replay);
       if (!review || JSON.stringify(review.preview) !== JSON.stringify(expected)) {
         throw new AppError(409, 'memory_impact_changed', message('memory.cleanup_changed'));
       }
@@ -176,14 +188,15 @@ export class ContextStore {
       this.saveJob(this.bump(job));
     })();
   }
-  private assertPreparationDeletionReviewed(job: ContextJob, snapshot: EngineSnapshot, plan: ContextPlan) {
-    if (this.preparationDeletion(job, snapshot, plan)) throw new AppError(409, 'memory_impact_required', message('memory.review_cleanup_first'));
+  private assertPreparationDeletionReviewed(job: ContextJob, snapshot: EngineSnapshot, plan: ContextPlan, replay?: ReplayFrame) {
+    if (this.preparationDeletion(job, snapshot, plan, replay)) throw new AppError(409, 'memory_impact_required', message('memory.review_cleanup_first'));
   }
-  trackPlan(id: string, plan: ContextPlan) {
+  trackPlan(id: string, plan: ContextPlan, reusedCount?: number) {
     // Transient phases live in the coordinator. Keep the last authoritative
     // estimate and planned operation available after reconnect or restart.
     const working = { inputTokens: plan.inputTokens, targetInputTokens: plan.targetInputTokens, operation: plan.next ? { level: plan.next.level } : null };
-    this.sqlite.prepare("UPDATE context_jobs SET data = json_set(data, '$.working', json(?)) WHERE id = ? AND json_extract(data, '$.status') = 'running'").run(JSON.stringify(working), id);
+    this.sqlite.prepare("UPDATE context_jobs SET data = json_set(data, '$.working', json(?), '$.reusedCount', coalesce(?, json_extract(data, '$.reusedCount'))) WHERE id = ? AND json_extract(data, '$.status') = 'running'")
+      .run(JSON.stringify(working), reusedCount ?? null, id);
   }
   begin(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>, generationId: string | null = null, loreResolution?: LoreResolution | null, retry?: SummaryRetry, automatic = false): { job: ContextJob; fresh: boolean } {
     return this.sqlite.transaction(() => {
@@ -214,7 +227,7 @@ export class ContextStore {
   reuseNext(jobId: string): boolean {
     return this.sqlite.transaction(() => {
       const job = this.job(jobId), snapshot = this.current(job), plan = contextPlan(snapshot);
-      if (job.mode === 'repair' || plan.blocked || !plan.next) return false;
+      if (job.mode !== 'step' || plan.blocked || !plan.next) return false;
       const replacement = savedReplacement(snapshot, plan.next);
       if (!replacement) return false;
       const { node, state, inputAfter } = replacement;
@@ -253,15 +266,17 @@ export class ContextStore {
       return true;
     })();
   }
-  beginStep(jobId: string, operation: ContextOperation, request: RequestPreview | null, inputBefore: number): ContextStep {
+  beginStep(jobId: string, operation: ContextOperation, request: RequestPreview | null, inputBefore: number, replay?: ReplayFrame): ContextStep {
     return this.sqlite.transaction(() => {
       const job = this.job(jobId), snapshot = this.current(job);
-      const plan = job.mode === 'repair' ? null : contextPlan(snapshot);
+      this.checkReplay(job, snapshot, replay);
+      const plan = job.mode === 'repair' ? null : replay?.plan ?? contextPlan(snapshot);
       const expected = plan ? plan.next : nextRepair(snapshot.turns, snapshot.context, new Map());
       if (JSON.stringify(expected) !== JSON.stringify(operation) || plan?.blocked) throw new AppError(409, 'stale_context_result', message("errors.this_memory_operation_is_no_longer_eligible"));
-      if (plan) this.assertPreparationDeletionReviewed(job, snapshot, plan);
+      if (plan) this.assertPreparationDeletionReviewed(job, snapshot, plan, replay);
+      const working = replay?.snapshot.context ?? snapshot.context;
       const step: ContextStep = { id: randomUUID(), jobId, operation, request, status: 'running', result: null, error: null,
-        before: { selected: snapshot.context.selected, archivedTurnIds: snapshot.context.archivedTurnIds }, after: null, inputBefore: plan?.inputTokens ?? inputBefore, inputAfter: null, createdAt: new Date().toISOString() };
+        before: { selected: working.selected, archivedTurnIds: working.archivedTurnIds }, after: null, inputBefore: plan?.inputTokens ?? inputBefore, inputAfter: null, createdAt: new Date().toISOString() };
       this.sqlite.prepare('INSERT INTO context_steps (id, job_id, data) VALUES (?, ?, ?)').run(step.id, jobId, JSON.stringify(step));
       this.saveJob({ ...job, stepCount: job.stepCount + 1 });
       return step;
@@ -282,17 +297,19 @@ export class ContextStore {
       this.saveStep({ ...saved, status: 'failed', ...outcome, ...(job.mode === 'repair' && rejectedText !== undefined ? { rejectedText } : {}) });
     })();
   }
-  completeStep(attempt: ContextStep, text: string, prior: SummaryRef[]): SummaryNode {
+  completeStep(attempt: ContextStep, text: string, prior: SummaryRef[], replay?: ReplayFrame): SummaryNode {
     return this.sqlite.transaction(() => {
       const job = this.job(attempt.jobId), snapshot = this.current(job);
+      this.checkReplay(job, snapshot, replay);
       const step = this.pendingStep(job.id, attempt.id);
-      if (JSON.stringify(step.before) !== JSON.stringify({ selected: snapshot.context.selected, archivedTurnIds: snapshot.context.archivedTurnIds })) throw new AppError(409, 'stale_selection', message("errors.the_selected_memory_changed_before_the_summary_was"));
+      const working = replay?.snapshot.context ?? snapshot.context;
+      if (JSON.stringify(step.before) !== JSON.stringify({ selected: working.selected, archivedTurnIds: working.archivedTurnIds })) throw new AppError(409, 'stale_selection', message("errors.the_selected_memory_changed_before_the_summary_was"));
       const repair = step.operation.repair;
       if (repair && JSON.stringify(nextRepair(snapshot.turns, snapshot.context, new Map())) !== JSON.stringify(step.operation)) throw new AppError(409, 'stale_context_result', message("errors.the_required_correction_or_repair_changed"));
       const inputs = repair ? repairInputs(snapshot, step.operation, this.sourceRequest(job.chatId, repair)) : null;
-      const plan = repair ? null : contextPlan(snapshot);
+      const plan = repair ? null : replay?.plan ?? contextPlan(snapshot);
       if (plan && JSON.stringify(plan.next) !== JSON.stringify(step.operation)) throw new AppError(409, 'stale_context_result', message("errors.this_batch_is_no_longer_the_next_eligible"));
-      if (plan) this.assertPreparationDeletionReviewed(job, snapshot, plan);
+      if (plan) this.assertPreparationDeletionReviewed(job, snapshot, plan, replay);
       if (step.operation.turnIds.length && !validateSummary(text, 'stop').accepted) throw new AppError(502, 'invalid_summary', message("errors.the_candidate_summary_failed_validation"));
       const sourceIds = new Set(step.operation.turnIds);
       const sourceTurns = snapshot.turns.filter(turn => sourceIds.has(turn.id));
@@ -306,9 +323,11 @@ export class ContextStore {
         approved: !repair || unchanged, createdAt: new Date().toISOString(), manual: inputs?.old.manual ?? false, ...(repair ? { basedOn: repair } : {}) };
       let after: ContextState | null = null, inputAfter: number | null = null;
       if (plan) {
-        after = replaceSelection(snapshot.context, step.operation, node);
+        after = replaceSelection(working, step.operation, node);
         selectedContext(snapshot.turns, after);
-        inputAfter = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, after, { validateLimits: false, lore: snapshot.loreResolution }).budget.inputTokens;
+        const connection = snapshot.connection;
+        if (!connection) throw new AppError(422, 'connection_required', message("errors.select_a_roleplay_connection_to_measure_the_complete"));
+        inputAfter = assembleRequest(connection, snapshot.settings, snapshot.turns, snapshot.sources, after, { validateLimits: false, allowStale: Boolean(replay), lore: snapshot.loreResolution }).budget.inputTokens;
         if (plan.inputTokens !== step.inputBefore) throw new AppError(409, 'stale_context_result', message("errors.this_batch_is_no_longer_the_next_eligible"));
         if (inputAfter >= plan.inputTokens) throw new AppError(422, 'summary_no_savings', message("errors.the_summary_did_not_reduce_the_assembled_input"));
       }
@@ -316,7 +335,7 @@ export class ContextStore {
       // Keep an existing candidate usable until regeneration succeeds.
       if (repair) this.discardCandidates(job.id);
       this.saveNode(job.chatId, node);
-      if (after) this.saveState(job.chatId, after, job.generationId);
+      if (after && !replay) this.saveState(job.chatId, after, job.generationId);
       this.saveStep({ ...step, status: repair && !unchanged ? 'candidate' : 'saved', result: { id: node.id, revision: node.revision }, after: after ? { selected: after.selected, archivedTurnIds: after.archivedTurnIds } : null, inputAfter, ...(unchanged ? { repairOutcome: 'model_unchanged' } : {}) });
       this.saveJob(this.bump({ ...job, generatedCount: (job.generatedCount ?? 0) + Number(Boolean(step.request)),
         unchangedCount: (job.unchangedCount ?? 0) + Number(unchanged),
@@ -324,7 +343,7 @@ export class ContextStore {
       return node;
     })();
   }
-  finish(id: string, status: Exclude<ContextJob['status'], 'running'>, error: string | LocalizedMessage | null = null) {
+  finish(id: string, status: Exclude<ContextJob['status'], 'running'>, error: string | LocalizedMessage | null = null, replay?: { frame: ReplayFrame; reusedCount: number }) {
     const outcome = outcomeMessage(error);
     this.sqlite.transaction(() => {
       const row = this.sqlite.prepare('SELECT data FROM context_jobs WHERE id = ?').get(id) as JsonRow | undefined;
@@ -332,11 +351,36 @@ export class ContextStore {
       const job = JSON.parse(row.data) as ContextJob;
       if (job.status !== 'running') return;
       for (const step of this.steps(id)) if (step.status === 'running') this.saveStep({ ...step, status: status === 'interrupted' ? 'interrupted' : 'failed', ...outcome });
-      const plan = status === 'succeeded' && job.mode !== 'repair' ? contextPlan(this.current(job)) : null;
+      let plan: ContextPlan | null = null;
+      if (status === 'succeeded' && job.mode !== 'repair') {
+        const snapshot = this.current(job);
+        this.checkReplay(job, snapshot, replay?.frame);
+        plan = replay?.frame.plan ?? contextPlan(snapshot);
+        if (replay) this.publishReplay(job, snapshot, replay.frame);
+      }
       if (job.mode === 'repair' && status === 'cancelled') this.discardCandidates(id);
       const keepCandidate = job.mode === 'repair' && (status === 'failed' || status === 'interrupted') && this.steps(id).some(step => step.status === 'candidate');
-      this.saveJob(this.bump({ ...job, status: keepCandidate ? 'awaiting_review' : status, ...outcome, ...(plan ? { outcome: { inputTokens: plan.inputTokens, verbatimTurns: plan.verbatimTurnIds.length } } : {}) }));
+      this.saveJob(this.bump({ ...job, status: keepCandidate ? 'awaiting_review' : status, ...outcome,
+        ...(replay ? { reusedCount: replay.reusedCount } : {}),
+        ...(plan ? { outcome: { inputTokens: plan.inputTokens, verbatimTurns: plan.verbatimTurnIds.length } } : {}) }));
     })();
+  }
+  private publishReplay(job: ContextJob, snapshot: EngineSnapshot, frame: ReplayFrame) {
+    const { selected, archivedTurnIds } = frame.snapshot.context;
+    const state = { ...snapshot.context, selected, archivedTurnIds };
+    const { summaries } = selectedContext(snapshot.turns, state);
+    assertCorrectionSelection(snapshot.turns, state);
+    if (!snapshot.connection || !state.preset || !frame.plan.ready || !hasChronologicalLevels(summaries)
+      || hasPromptMarker(snapshot.sources.prompt, 'messages') && belowMinimumTail(snapshot.turns, state, state.preset.minTail)) {
+      throw new AppError(409, 'stale_context_result', message("errors.this_memory_operation_is_no_longer_eligible"));
+    }
+    const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, state, { validateLimits: false, lore: snapshot.loreResolution });
+    if (request.budget.inputTokens !== frame.plan.inputTokens || request.budget.inputTokens > frame.plan.effectiveLimit) {
+      throw new AppError(409, 'stale_context_result', message("errors.this_memory_operation_is_no_longer_eligible"));
+    }
+    if (JSON.stringify(selected) !== JSON.stringify(snapshot.context.selected) || JSON.stringify(archivedTurnIds) !== JSON.stringify(snapshot.context.archivedTurnIds)) {
+      this.saveState(job.chatId, { ...state, revision: state.revision + 1 }, job.generationId);
+    }
   }
   review(id: string, revision: number, accept: boolean, editedText?: string) {
     this.sqlite.transaction(() => {

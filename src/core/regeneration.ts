@@ -34,8 +34,8 @@ export function regenerationView(snapshot: EngineSnapshot): EngineSnapshot {
       throw new AppError(422, 'regeneration_correction_conflict', message("errors.a_manually_corrected_summary_includes_this_response_preserve"));
     }
   }
-  // Keep the whole selected prefix that leaves the protected completed tail.
-  // Any replacement must then match the ordinary forward planner's operation.
+  // Use the safe whole-summary prefix for the initial request estimate.
+  // Triggered preparation replays from the originals in this view.
   const selected = [];
   const archivedTurnIds: string[] = [];
   for (const ref of snapshot.context.selected) {

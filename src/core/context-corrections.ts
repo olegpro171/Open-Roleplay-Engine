@@ -31,13 +31,43 @@ export function correctionProtection(turns: Turn[], state: ContextState) {
     return result;
   };
   const correctionTurns = new Map(corrections.map(node => [refKey(node), new Set(node.turns.map(source => source.turnId))]));
+  const correctionsByTurn = new Map<string, SummaryNode[]>();
+  const correctionOrder = new Map(corrections.map((node, index) => [node, index]));
+  for (const correction of corrections) {
+    for (const source of correction.turns) {
+      const matches = correctionsByTurn.get(source.turnId) ?? [];
+      matches.push(correction);
+      correctionsByTurn.set(source.turnId, matches);
+    }
+  }
   const overlaps = (node: SummaryNode, correction: SummaryNode) => node.turns.some(source => correctionTurns.get(refKey(correction))?.has(source.turnId));
-  const missingFor = (node: SummaryNode) => corrections.filter(correction => overlaps(node, correction) && !represented(node).has(refKey(correction)));
-  const selected = state.selected.flatMap(ref => { const node = nodes.get(refKey(ref)); return node ? [node] : []; });
-  const unresolved = corrections.filter(correction => {
-    const covered = new Set(selected.filter(node => represented(node).has(refKey(correction))).flatMap(node => node.turns.map(source => source.turnId)));
-    return correction.turns.some(source => existing.has(source.turnId) && !covered.has(source.turnId));
-  });
+  const missingFor = (node: SummaryNode) => {
+    if (!corrections.length) return [];
+    const missing = new Set<SummaryNode>();
+    for (const source of node.turns) {
+      for (const correction of correctionsByTurn.get(source.turnId) ?? []) {
+        if (!represented(node).has(refKey(correction))) missing.add(correction);
+      }
+    }
+    return [...missing].sort((a, b) => (correctionOrder.get(a) ?? 0) - (correctionOrder.get(b) ?? 0));
+  };
+  const representedByTurn = new Map<string, Set<string>>();
+  for (const ref of corrections.length ? state.selected : []) {
+    const node = nodes.get(refKey(ref));
+    if (!node) continue;
+    for (const source of node.turns) {
+      const matches = correctionsByTurn.get(source.turnId);
+      if (!matches) continue;
+      const covered = representedByTurn.get(source.turnId) ?? new Set<string>();
+      for (const correction of matches) {
+        const key = refKey(correction);
+        if (represented(node).has(key)) covered.add(key);
+      }
+      representedByTurn.set(source.turnId, covered);
+    }
+  }
+  const unresolved = corrections.filter(correction => correction.turns.some(source =>
+    existing.has(source.turnId) && !representedByTurn.get(source.turnId)?.has(refKey(correction))));
   return { corrections, represented, overlaps, missingFor, unresolved };
 }
 

@@ -45,6 +45,7 @@ import { trimBoundaryNewlines } from '../shared/text.js';
 import { Auth, sessionSeconds } from './auth.js';
 import { GenerationCoordinator } from './coordinator.js';
 import { contextPlan } from '../core/context-plan.js';
+import { inspectPreparation } from '../core/context-replay.js';
 import { importLorebook, exportLorebook } from '../core/lorebook-formats.js';
 import { resolveRequestLore } from './lore-resolution.js';
 import { LanAccess } from './lan.js';
@@ -667,7 +668,11 @@ export async function createApp(options: {
     const snapshot = store.engineSnapshot(chatId(request.params));
     const loreResolution = await resolveRequestLore(snapshot, coordinator.loreRegex);
     store.checkRevision(snapshot.revision, snapshot.id);
-    return contextPlan({ ...snapshot, loreResolution });
+    const resolved = { ...snapshot, loreResolution };
+    const checkpoint = contextPlan(resolved);
+    if (!resolved.context.preset || !hasPromptMarker(resolved.sources.prompt, 'summary')) return checkpoint;
+    const { inputTokens, next, ready, blocked, blockedMessage } = inspectPreparation(resolved).plan;
+    return { ...checkpoint, preparation: { inputTokens, next, ready, blocked, blockedMessage } };
   });
   app.get('/api/chats/:chatId/generations/:id/request', async request => {
     const { id } = z.object({ id: generationIdentitySchema }).parse(request.params);

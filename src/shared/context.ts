@@ -158,4 +158,7 @@ export type ContextPlan = {
   reusable?: SummaryRef;
   repairCount?: number;
 };
+export type ContextInspection = ContextPlan & {
+  preparation?: Pick<ContextPlan, 'inputTokens' | 'next' | 'ready' | 'blocked' | 'blockedMessage'>;
+};
 export const refKey = (ref: SummaryRef) => `${ref.id}:${ref.revision}`;

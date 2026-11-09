@@ -5,6 +5,7 @@ import { repairQueue, selectedContext, sourceOf } from '../src/core/context.js';
 import { refreshContext } from '../src/core/context-refresh.js';
 import { defaultPrompt } from '../src/shared/library.js';
 import { contextPlan, summaryRequest } from '../src/core/context-plan.js';
+import { inspectPreparation } from '../src/core/context-replay.js';
 import { correctionProtection } from '../src/core/context-corrections.js';
 import { savedReplacement } from '../src/core/context-reuse.js';
 import { assembleRequest } from '../src/core/prompt.js';
@@ -95,6 +96,10 @@ describe('manual memory refresh using the saved tree', () => {
     const result = refreshContext(snapshot);
     expect(correctionProtection(snapshot.turns, result.state).unresolved).toEqual([]);
     expect(result.state.selected).toContainEqual({ id: baseline.id, revision: baseline.revision + 1 });
+    const replay = inspectPreparation(snapshot);
+    expect(replay.plan.ready).toBe(true);
+    expect(correctionProtection(snapshot.turns, replay.snapshot.context).unresolved).toEqual([]);
+    expect(replay.snapshot.context.selected).toContainEqual({ id: baseline.id, revision: baseline.revision + 1 });
   });
 
   it.each([90_000, 1_200])('represents a fresh retained alternative correction at budget %i', target => {

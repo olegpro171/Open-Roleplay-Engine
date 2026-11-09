@@ -24,6 +24,7 @@ import { summarySuffixDeletion } from '../src/core/context-delete.js';
 import { StoryReader } from '../src/persistence/story-reader.js';
 import { defaultChatBehavior } from '../src/shared/chat-behavior.js';
 
+const uniformSummary = 'Mira entrusted Leon with the brass key.';
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const dispose of cleanup.splice(0)) await dispose(); });
 function fixture(count = 48, target = 500, builtInContext = false) {
@@ -32,7 +33,7 @@ function fixture(count = 48, target = 500, builtInContext = false) {
   let store = new Store(filename);
   store.saveLibrary(store.libraryRevision(), 'prompts', compactPrompt, 'default');
   const calls: { request: RequestPreview; apiKey: string }[] = [];
-  type OutputMode = 'normal' | 'unchanged' | 'near' | 'placeholder' | 'refusal' | 'length' | 'huge' | 'transport';
+  type OutputMode = 'normal' | 'uniform' | 'unchanged' | 'near' | 'placeholder' | 'refusal' | 'length' | 'huge' | 'transport';
   let mode: OutputMode = 'normal';
   let storyReply = 'Leon pockets the brass key.';
   let nextModes: OutputMode[] = [];
@@ -45,7 +46,7 @@ function fixture(count = 48, target = 500, builtInContext = false) {
     let old: string | undefined;
     try { old = JSON.parse(request.body.messages.at(-1)!.content).previous_summary; } catch { /* Roleplay input is plain text. */ }
     if (summary && calls.length === holdAt) await new Promise<void>(resolve => { release = resolve; });
-    onText(!summary ? storyReply : outcome === 'placeholder' ? 'placeholder' : outcome === 'refusal' ? "I can't help with this." : outcome === 'huge' ? Array.from({ length: 2_000 }, (_, i) => `detail${i}`).join(' ') : old !== undefined && (outcome === 'unchanged' || outcome === 'near') ? old + (outcome === 'near' ? '!' : '') : `Mira entrusted Leon with her brass key; he promised to avoid the cellar.${calls.length % 3 === 0 ? ' She still distrusts him.' : ''}${old !== undefined ? ` Repaired candidate ${calls.length}.` : ''}`);
+    onText(!summary ? storyReply : outcome === 'uniform' ? uniformSummary : outcome === 'placeholder' ? 'placeholder' : outcome === 'refusal' ? "I can't help with this." : outcome === 'huge' ? Array.from({ length: 2_000 }, (_, i) => `detail${i}`).join(' ') : old !== undefined && (outcome === 'unchanged' || outcome === 'near') ? old + (outcome === 'near' ? '!' : '') : `Mira entrusted Leon with her brass key; he promised to avoid the cellar.${calls.length % 3 === 0 ? ' She still distrusts him.' : ''}${old !== undefined ? ` Repaired candidate ${calls.length}.` : ''}`);
     return { finishReason: outcome === 'length' && summary ? 'length' : 'stop' };
   } };
   const connection = { name: 'Story', endpoint: 'http://localhost:1234/v1', model: 'story-model', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} };
@@ -392,7 +393,7 @@ describe('summary deletion', () => {
 });
 
 describe('retained editorial authority', () => {
-  it('keeps a fresh inactive correction for review without automatically changing the selection', async () => {
+  it('selects a valid inactive direct correction without substituting its uncorrected children', async () => {
     const f = fixture(24); await f.idle(f.start());
     const original = f.state();
     const source = original.context.summaries.find(node => node.level === 2)!;
@@ -401,13 +402,13 @@ describe('retained editorial authority', () => {
     const edited = f.store.contexts.editSummary(f.chatId, f.state().revision, alternative, source.text + ' ' + correction);
     f.store.updateChat(f.state().revision, f.chatId, { title: 'Imported', targetInputTokens: 50_000, connectionId: f.state().settings.connectionId ?? null, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId });
     const calls = f.calls.length, job = await f.idle(f.start());
-    expect(job).toMatchObject({ status: 'failed', stepCount: 0 });
-    expect(job.error).toMatch(/correction.*reconciliation/i);
-    expect(f.state().context.selected).toEqual(original.context.selected);
+    expect(job).toMatchObject({ status: 'succeeded', stepCount: 0 });
+    expect(f.state().context.selected).toEqual([edited]);
+    expect(f.state().context.archivedTurnIds).toEqual(source.turns.map(turn => turn.turnId));
     await f.resume();
     expect(f.calls).toHaveLength(calls);
-    expect(f.state().context.selected).toEqual(original.context.selected);
-    expect(correctionProtection(f.state().turns, f.state().context).unresolved).toMatchObject([edited]);
+    expect(f.state().context.selected).toEqual([edited]);
+    expect(correctionProtection(f.state().turns, f.state().context).unresolved).toEqual([]);
     expect(f.state().context.summaries.find(node => refKey(node) === refKey(edited))?.text).toContain(correction);
   });
 
@@ -650,7 +651,8 @@ describe('durable imported-session preparation', () => {
     const id = f.start();
     await expect.poll(() => f.calls.length).toBe(2);
     const saved = f.state().context;
-    expect(saved.archivedTurnIds).toHaveLength(2);
+    expect(saved.archivedTurnIds).toEqual([]);
+    expect(saved.summaries).toHaveLength(1);
     expect(() => f.store.editPart(f.state().revision, f.state().turns[0].id, 'user', 'Competing edit', f.chatId)).toThrow('preparation');
     f.coordinator.context.cancel(id); f.release();
     await f.idle(id);
@@ -658,7 +660,7 @@ describe('durable imported-session preparation', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(f.state().context.summaries).toHaveLength(1);
     expect((await f.idle(f.start())).status).toBe('succeeded');
-    expect(f.state().context.summaries.some(node => refKey(node) === refKey(saved.selected[0]))).toBe(true);
+    expect(f.state().context.summaries.some(node => refKey(node) === refKey(saved.summaries[0]))).toBe(true);
   });
 
   it('recovers interrupted preparation without issuing another model request', async () => {
@@ -746,7 +748,7 @@ describe('durable imported-session preparation', () => {
     f.coordinator.context.cancel(id); f.release();
   });
 
-  it('keeps the same committed selection when manual Prepare finds spare capacity', async () => {
+  it('restores the full originals on demand while retaining saved summaries', async () => {
     const f = fixture(); await f.idle(f.start());
     const saved = f.state(), selected = saved.context.selected, calls = f.calls.length;
     const settings = { title: saved.settings.title, targetInputTokens: 100_000, connectionId: saved.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId };
@@ -754,8 +756,8 @@ describe('durable imported-session preparation', () => {
     expect(f.state().context.selected).toEqual(selected);
     expect(() => f.store.updateChat(f.state().revision, f.chatId, { ...settings, contextPresetId: null })).toThrow('Clear memory');
     await f.idle(f.start());
-    expect(f.calls).toHaveLength(calls); expect(f.state().context.selected).toEqual(selected);
-    expect(f.state().context.archivedTurnIds).toEqual(saved.context.archivedTurnIds);
+    expect(f.calls).toHaveLength(calls); expect(f.state().context.selected).toEqual([]);
+    expect(f.state().context.archivedTurnIds).toEqual([]);
     expect(f.state().context.jobs[0]).toMatchObject({ stepCount: 0, generatedCount: 0, reusedCount: 0 });
     expect(f.state().context.summaries).toEqual(saved.context.summaries);
     f.store.contexts.clearMemory(f.chatId, f.state().revision);
@@ -766,22 +768,19 @@ describe('durable imported-session preparation', () => {
     expect(f.state().settings.contextPresetId).toBeNull();
   });
 
-  it('keeps fitting active summaries after changing batch and promotion sizes', async () => {
+  it('replays compatible old batch and promotion boundaries after a size change', async () => {
     const f = fixture();
     expect((await f.idle(f.start())).status).toBe('succeeded');
     const saved = f.state();
     const { id: _id, revision: _revision, ...preset } = saved.context.preset!;
     const settings = { title: saved.settings.title, connectionId: saved.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId };
-    f.store.updateChat(saved.revision, f.chatId, { ...settings, targetInputTokens: 10_000 });
-    expect((await f.idle(f.start())).status).toBe('succeeded');
-    expect(f.state().context.selected).toEqual(saved.context.selected);
-    f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...preset, batchSize: 3, promotionGroup: 5, retainedPerLevel: 4 }, f.contextId);
+    f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...preset, batchSize: 3, promotionGroup: 5 }, f.contextId);
     f.store.updateChat(f.state().revision, f.chatId, { ...settings, targetInputTokens: 500 });
     const calls = f.calls.length;
 
     const prepared = await f.idle(f.start());
     expect(prepared).toMatchObject({ status: 'succeeded', generatedCount: 0 });
-    expect(prepared.reusedCount).toBe(0);
+    expect(prepared.reusedCount).toBeGreaterThan(0);
     expect(f.calls).toHaveLength(calls);
     const current = f.state();
     expect(current.context.summaries).toEqual(saved.context.summaries);
@@ -798,8 +797,6 @@ describe('durable imported-session preparation', () => {
     const saved = f.state();
     const { id: _id, revision: _revision, ...preset } = saved.context.preset!;
     const settings = { title: saved.settings.title, connectionId: saved.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId };
-    f.store.updateChat(saved.revision, f.chatId, { ...settings, targetInputTokens: 10_000 });
-    expect((await f.idle(f.start())).status).toBe('succeeded');
     f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...preset, batchSize: 3 }, f.contextId);
     f.store.updateChat(f.state().revision, f.chatId, { ...settings, targetInputTokens: 500 });
     const calls = f.calls.length;
@@ -814,7 +811,7 @@ describe('durable imported-session preparation', () => {
     expect(f.state().context.summaries).toEqual(saved.context.summaries);
   });
 
-  it('reuses an exact saved batch as a separate checkpoint after a generated batch', async () => {
+  it('reuses an exact saved batch in the working replay after a generated batch', async () => {
     const f = fixture(15);
     expect((await f.idle(f.start('step'))).status).toBe('succeeded');
     const saved = f.state();
@@ -825,22 +822,23 @@ describe('durable imported-session preparation', () => {
     const calls = f.calls.length;
 
     const job = await f.idle(f.start());
-    expect(job).toMatchObject({ status: 'failed', generatedCount: 1, reusedCount: 1 });
+    expect(job).toMatchObject({ status: 'failed', generatedCount: 1, reusedCount: 2 });
     expect(f.calls.slice(calls).map(call => call.request.coverage.map(turn => turn.turnId))).toEqual(
       [[2, 5], [8, 11]].map(([start, end]) => saved.turns.slice(start, end).map(turn => turn.id)),
     );
     const checkpoint = f.state();
-    const [firstStep, reusedStep, failedStep] = f.store.contexts.steps(job.id);
-    expect(reusedStep).toMatchObject({ status: 'saved', reused: true, request: null, before: firstStep.after, after: failedStep.before });
-    expect(reusedStep.after?.selected).toEqual(checkpoint.context.selected);
-    expect(reusedStep.inputAfter!).toBeLessThan(reusedStep.inputBefore);
-    expect(checkpoint.context.selected).toContainEqual({ id: retained.id, revision: retained.revision });
+    const [firstStep, failedStep] = f.store.contexts.steps(job.id);
+    expect(failedStep.before.selected).toEqual([
+      ...firstStep.after!.selected, { id: retained.id, revision: retained.revision },
+    ]);
+    expect(checkpoint.context.selected).toEqual(saved.context.selected);
+    expect(checkpoint.context.summaries).toHaveLength(3);
     await f.resume();
     expect(f.state().context.selected).toEqual(checkpoint.context.selected);
     expect(f.calls).toHaveLength(calls + 2);
   });
 
-  it('reports a raised minimum-tail conflict and keeps the committed correction and history', async () => {
+  it('restores verbatim turns after a raised minimum while preserving an earlier correction', async () => {
     const f = fixture(24);
     await f.idle(f.start());
     const child = f.state().context.summaries.find(node => node.level === 1 && node.turns[0].turnId === f.state().turns[4].id)!;
@@ -855,19 +853,13 @@ describe('durable imported-session preparation', () => {
     const before = f.state(), calls = f.calls.length;
     expect(contextPlan(before).blocked).toContain('minimum tail');
     const job = await f.idle(f.start());
-    expect(job).toMatchObject({ status: 'failed', stepCount: 0, generatedCount: 0 });
-    expect(job.error).toContain('minimum tail');
+    expect(job).toMatchObject({ status: 'succeeded', stepCount: 0, generatedCount: 0 });
     const after = f.state();
     expect(after.context.summaries).toEqual(before.context.summaries);
     expect(after.context.summaries.some(node => refKey(node) === refKey(corrected))).toBe(true);
-    expect(after.context.selected).toEqual(before.context.selected);
-    expect(after.context.archivedTurnIds).toEqual(before.context.archivedTurnIds);
+    expect(after.context.selected).toContainEqual(corrected);
+    expect(after.context.archivedTurnIds).toEqual(before.turns.slice(0, 6).map(turn => turn.id));
     expect(after.turns).toEqual(before.turns);
-    expect(f.calls).toHaveLength(calls);
-
-    f.coordinator.start(after.revision, randomUUID(), 'Leon waits.', f.chatId);
-    await expect.poll(() => f.state().generations[0]?.status).toBe('failed');
-    expect(f.state().generations[0].error).toContain('minimum tail');
     expect(f.calls).toHaveLength(calls);
     await f.resume();
     expect(f.state().context.selected).toEqual(after.context.selected);
@@ -882,8 +874,8 @@ describe('durable imported-session preparation', () => {
     const id = f.start(); expect((await f.idle(id)).status).toBe('succeeded');
     const steps = f.store.contexts.steps(id), requests = f.calls.slice(calls);
     const selection = { selected: [{ id: cached.id, revision: cached.revision }], archivedTurnIds: cached.turns.map(turn => turn.turnId) };
-    expect(steps[0]).toMatchObject({ reused: true, request: null, before: { selected: [], archivedTurnIds: [] }, after: selection });
-    expect(steps[1].before).toEqual(selection);
+    expect(steps[0].before).toEqual(selection);
+    expect(steps).toHaveLength(requests.length);
     expect(requests.length).toBeGreaterThan(0);
     expect(requests.every(call => JSON.stringify(call.request.coverage.map(source => source.turnId)) !== JSON.stringify(cached.turns.map(source => source.turnId)))).toBe(true);
     expect(f.store.contexts.job(id).generatedCount).toBe(requests.length);
@@ -906,7 +898,8 @@ describe('durable imported-session preparation', () => {
     const prepared = f.state();
     expect(f.calls.length).toBeGreaterThan(calls);
     expect(prepared.context.jobs[0].finalRefresh).toBeUndefined();
-    expect(f.store.contexts.steps(prepared.context.jobs[0].id).at(-1)?.after?.selected).toEqual(prepared.context.selected);
+    const assembled = assembleRequest(prepared.connection!, prepared.settings, prepared.turns, prepared.sources, prepared.context);
+    expect(prepared.context.jobs[0].outcome?.inputTokens).toBe(assembled.budget.inputTokens);
     const callsAfter = f.calls.length;
     await f.idle(f.start());
     expect(f.state().context.selected).toEqual(prepared.context.selected);
@@ -925,8 +918,8 @@ describe('durable imported-session preparation', () => {
     expect(() => f.start()).toThrow('synthetic preparation failure'); expect(f.state()).toEqual(before);
     f.store.sqlite.exec('DROP TRIGGER reject_prepare');
     expect((await f.idle(f.start())).status).toBe('succeeded');
-    expect(f.state().context.archivedTurnIds).toEqual(before.context.archivedTurnIds);
-    expect(f.state().context.selected).toEqual(before.context.selected);
+    expect(f.state().context.archivedTurnIds.length).toBeLessThan(before.context.archivedTurnIds.length);
+    expect(f.state().context.summaries).toEqual(before.context.summaries);
     expect(f.calls).toHaveLength(calls);
   });
 
@@ -1314,34 +1307,58 @@ describe('targeted repair with review', () => {
 
 
 describe('opt-in summary request retries', () => {
-  it.each([true, false])('checks whether the final allowed checkpoint fits: %s', async fits => {
+  it.each([true, false])('checks whether the final allowed paid attempt fits: %s', async fits => {
     const f = fixture((preparationRunLimit + 2) * 2 + 2);
-    expect((await f.idle(f.start('step'))).status).toBe('succeeded');
-    const current = f.state();
-    const first = current.context.summaries[0];
-    const cached = Array.from({ length: preparationRunLimit }, (_, index) => retainedAlternative(f, first, {
-      turns: current.turns.slice((index + 1) * 2, (index + 2) * 2).map(sourceOf),
+    f.setMode('uniform');
+    const before = f.state();
+    const summaries = Array.from({ length: preparationRunLimit }, (_, index): SummaryNode => ({
+      id: randomUUID(), revision: 0, level: 1, approved: true, manual: false, createdAt: '2026-10-20T00:00:00Z',
+      text: uniformSummary, turns: before.turns.slice(index * 2, index * 2 + 2).map(sourceOf), children: [], prior: [],
     }));
-    const archivedTurnIds = current.turns.slice(0, (preparationRunLimit + 1) * 2).map(turn => turn.id);
-    const selected = [first, ...cached].map(({ id, revision }) => ({ id, revision }));
-    const anticipated = { ...current.context, summaries: [first, ...cached], archivedTurnIds, selected };
-    const input = assembleRequest(current.connection!, current.settings, current.turns, current.sources, anticipated, { validateLimits: false }).budget.inputTokens;
-    const { title, connectionId, promptId, characterId, personaId, contextPresetId } = current.settings;
-    f.store.updateChat(current.revision, f.chatId, {
-      title, connectionId: connectionId ?? null, promptId: promptId ?? 'default',
-      characterId: characterId ?? null, personaId: personaId ?? null, contextPresetId: contextPresetId ?? null,
-      targetInputTokens: input - Number(!fits),
-    });
+    const archivedTurnIds = summaries.flatMap(node => node.turns.map(turn => turn.turnId));
+    const anticipated = { ...before.context, summaries, archivedTurnIds, selected: summaries };
+    const input = assembleRequest(before.connection!, before.settings, before.turns, before.sources, anticipated, { validateLimits: false }).budget.inputTokens;
+    f.store.updateChat(before.revision, f.chatId, { ...before.settings, connectionId: before.settings.connectionId ?? null, promptId: before.settings.promptId ?? 'default', characterId: null, personaId: null, targetInputTokens: input - Number(!fits) });
     const job = await f.idle(f.start(), 20_000);
-    expect(job).toMatchObject({ status: fits ? 'succeeded' : 'failed', stepCount: preparationRunLimit, reusedCount: preparationRunLimit, generatedCount: 0,
+    expect(job).toMatchObject({ status: fits ? 'succeeded' : 'failed', stepCount: preparationRunLimit, reusedCount: 0, generatedCount: preparationRunLimit,
       working: { inputTokens: input, operation: fits ? null : { level: 1 } } });
     if (!fits) expect(job.errorMessage).toMatchObject({ key: 'memory.preparation_run_limit', params: { limit: preparationRunLimit } });
     const steps = f.store.contexts.steps(job.id);
     expect(steps).toHaveLength(preparationRunLimit);
-    expect(steps.at(-1)?.after).toEqual({ selected, archivedTurnIds });
-    expect(f.state().context).toMatchObject({ selected, archivedTurnIds });
-    expect(f.calls).toHaveLength(1);
+    expect(steps.at(-1)?.after?.archivedTurnIds).toEqual(archivedTurnIds);
+    expect(f.state().context.archivedTurnIds).toEqual(fits ? archivedTurnIds : []);
+    expect(f.state().context.summaries).toHaveLength(preparationRunLimit);
+    expect(f.calls).toHaveLength(preparationRunLimit);
   }, 22_000);
+
+  it('replays a long saved history without consuming the paid attempt limit or rewriting an unchanged selection', async () => {
+    const batches = 500;
+    const f = fixture(batches * 2 + 2);
+    const before = f.state();
+    const prototype: SummaryNode = {
+      id: randomUUID(), revision: 0, level: 1, approved: true, manual: false, createdAt: '2026-10-20T00:00:00Z',
+      text: uniformSummary, turns: [], children: [], prior: [],
+    };
+    const summaries = Array.from({ length: batches }, (_, index) => retainedAlternative(f, prototype, {
+      turns: before.turns.slice(index * 2, index * 2 + 2).map(sourceOf),
+      text: index % 2 ? 'Mira kept the key!  \n' : 'Leon wrote: «Keep it.»',
+    }));
+    const archivedTurnIds = before.turns.slice(0, batches * 2).map(turn => turn.id);
+    const selected = summaries.map(({ id, revision }) => ({ id, revision }));
+    const anticipated = { ...before.context, summaries, archivedTurnIds, selected };
+    const input = assembleRequest(before.connection!, before.settings, before.turns, before.sources, anticipated, { validateLimits: false }).budget.inputTokens;
+    f.store.updateChat(before.revision, f.chatId, { ...before.settings, connectionId: before.settings.connectionId ?? null, promptId: before.settings.promptId ?? 'default', characterId: null, personaId: null, targetInputTokens: input });
+    const job = await f.idle(f.start());
+    expect(job).toMatchObject({ status: 'succeeded', generatedCount: 0, reusedCount: batches, stepCount: 0, outcome: { inputTokens: input } });
+    const saved = f.state().context;
+    expect(saved).toMatchObject({ selected, archivedTurnIds });
+    const repeated = await f.idle(f.start());
+    expect(repeated).toMatchObject({ status: 'succeeded', reusedCount: batches, stepCount: 0, outcome: job.outcome });
+    expect(f.store.contexts.steps(repeated.id)).toEqual([]);
+    expect(f.state().context.revision).toBe(saved.revision);
+    expect(f.state().context.summaries).toEqual(saved.summaries);
+    expect(f.calls).toEqual([]);
+  });
 
   it('limits retries per request and retains every failed attempt without changing coverage', async () => {
     const f = fixture(8); f.setMode('refusal');
@@ -1415,7 +1432,8 @@ describe('opt-in summary request retries', () => {
     expect(f.calls).toHaveLength(3);
     expect(f.store.contexts.steps(id).map(step => step.status)).toEqual(['saved', 'failed', 'failed']);
     expect(f.state().context.summaries).toHaveLength(1);
-    expect(f.state().context.archivedTurnIds).toEqual(f.state().turns.slice(0, 2).map(turn => turn.id));
+    expect(f.state().context.archivedTurnIds).toEqual([]);
+    expect(f.store.contexts.steps(id)[0].after?.archivedTurnIds).toEqual(f.state().turns.slice(0, 2).map(turn => turn.id));
   });
 
   it('validates saved retry settings at the backup import boundary while accepting older jobs', async () => {

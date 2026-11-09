@@ -8,7 +8,7 @@ import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatToolsSnapshot } from '../shared/contracts';
 import { hasPromptMarker, type LibrarySnapshot } from '../shared/library';
-import { preparationRunLimit, refKey, type ContextJob, type ContextPlan, type ContextStep, type PreparationDeletionPreview, type SummaryNode } from '../shared/context';
+import { preparationRunLimit, refKey, type ContextInspection, type ContextJob, type ContextStep, type PreparationDeletionPreview, type SummaryNode } from '../shared/context';
 import type { StoryPreparation } from '../shared/transcript';
 import { summaryDeletion } from '../core/context-delete';
 import { staleSummaries } from '../core/context';
@@ -42,11 +42,11 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
   const maxRetries = retrySettings.draft?.memoryMaxRetries ?? defaultChatBehavior.memoryMaxRetries;
   const retrySettingsUnavailable = !retrySettings.draft || retrySettings.saving || Boolean(retrySettings.error);
   const [planError, setPlanError] = useTextState('');
-  const [calculation, setCalculation] = useState<{ key: string; plan: ContextPlan | null; error: MessageText }>({ key: '', plan: null, error: '' });
+  const [calculation, setCalculation] = useState<{ key: string; plan: ContextInspection | null; error: MessageText }>({ key: '', plan: null, error: '' });
   const planKey = `${snapshot.id}:${snapshot.revision}:${snapshot.context.revision}`;
   useEffect(() => {
     let current = true;
-    api<ContextPlan>(`/chats/${snapshot.id}/context/plan`)
+    api<ContextInspection>(`/chats/${snapshot.id}/context/plan`)
       .then(plan => { if (current) setCalculation({ key: planKey, plan, error: '' }); })
       .catch(error => { if (current) setCalculation(previous => ({ ...previous, key: planKey, error: errorText(error) })); });
     return () => { current = false; };
@@ -129,6 +129,7 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
     return { value: node.id, label: t("memory.l", { level: node.level, range: range, value: selected.has(refKey(node)) ? t("interface.selected") : t("labels.state.retained"), value2: stale.has(refKey(node)) ? t("memory_timeline.stale") : t("memory_timeline.fresh"), value3: node.manual ? t("interface.manually_corrected") : '', id: node.id }) };
   });
   const currentPlan = planCurrent ? plan : null;
+  const replay = currentPlan?.preparation;
   const operation = !historyId ? currentPlan?.next : frame === 0 || !selectedFrame?.after ? selectedFrame?.operation : null;
   const reusable = !historyId ? currentPlan?.reusable
     : selectedFrame && 'reused' in selectedFrame && selectedFrame.reused ? selectedFrame.result : null;
@@ -166,6 +167,12 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
     <RefusalReview snapshot={snapshot} locked={locked || Boolean(awaiting)} run={run} />
     {snapshot.context.preset && summariesEnabled && <p className="small muted">{t("memory.minimum_tail_turn_batch_summary_target_promotion", { minTail: snapshot.context.preset.minTail, batchSize: snapshot.context.preset.batchSize, summaryTokens: snapshot.context.preset.summaryTokens, promotionGroup: snapshot.context.preset.promotionGroup, retainedPerLevel: snapshot.context.preset.retainedPerLevel })} <span aria-hidden="true">·</span> <button type="button" className="quiet text-link" disabled={locked || unsavedSettings} onClick={() => { if (snapshot.settings.contextPresetId) editPreset(snapshot.settings.contextPresetId); }}><Icon name="EditOutline" />{t("memory.edit_context_preset")}</button></p>}
     {plan && <div className="budget"><strong>{t("app.estimated_input_2", { value: plan.inputTokens.toLocaleString(locale()), value2: plan.effectiveLimit.toLocaleString(locale()) })}</strong><InputMeter input={plan.inputTokens} limit={plan.effectiveLimit} /><span>{t("memory.verbatim_turns", { length: plan.verbatimTurnIds.length, value: summariesEnabled ? t("memory.coverage_counts", { summaries: snapshot.context.selected.length, turns: snapshot.context.archivedTurnIds.length }) : t("interface.recent_history_within_the_input_limit") })}</span><small>{t("memory.current_input_includes_the_resolved_prompt_and")}</small><p role="status" data-testid="memory-status">{!summariesEnabled ? (plan.blockedMessage ? formatMessage(plan.blockedMessage) : plan.blocked) ?? t("memory.summaries_are_disabled_recent_whole_turns_are") : active ? t("memory.preparing_memory_steps_started_preparation_continues_if", { stepCount: active.stepCount }) : (plan.blockedMessage ? formatMessage(plan.blockedMessage) : plan.blocked) ?? (plan.ready ? t("memory.ready_the_current_assembled_input_fits_the") : plan.reusable ? t("memory.next_reuse_a_saved_level_summary", { level: plan.next?.level ?? '' }) : t("memory.next", { value: plan.next?.repair ? t("labels.state.repair") : plan.next?.level === 1 ? t("interface.summarize_oldest_turns") : t("interface.promote_to_level", { level: String(plan.next?.level) }) }))}</p>{plan.blockedMessage?.key === 'pins.required_budget' && <button type="button" className="secondary" onClick={openPins}>{t('pins.title')}</button>}</div>}
+    {replay && !active && (replay.inputTokens !== currentPlan?.inputTokens || replay.blocked !== currentPlan?.blocked
+      || replay.next?.level !== currentPlan?.next?.level || replay.next?.turnIds[0] !== currentPlan?.next?.turnIds[0]) && <p className="small muted">
+      {replay.blockedMessage ? formatMessage(replay.blockedMessage)
+        : replay.ready ? t('memory.replay_fits', { input: replay.inputTokens.toLocaleString(locale()) })
+        : t('memory.replay_estimate', { input: replay.inputTokens.toLocaleString(locale()), level: replay.next?.level ?? '' })}
+    </p>}
     {(planError || calculationError) && <p role="status">{planError || calculationError}</p>}
     {latestJob?.error && latestJob.sourceRevision === snapshot.revision && !plan?.ready && <p className="memory-failure" role="status">{latestJob.status === 'interrupted' ? formatMessage(latestJob.errorMessage ?? latestJob.error) : t("memory.last_preparation_stopped", { error: formatMessage(latestJob.errorMessage ?? latestJob.error) })}</p>}
     <div className="actions memory-actions">

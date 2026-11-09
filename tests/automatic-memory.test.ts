@@ -204,7 +204,7 @@ it('keeps preparing across several fixed batches until the complete input fits',
   expect(() => validateContent(f.store.sqlite)).not.toThrow();
 });
 
-it('keeps completed steps selected when the following background step is interrupted', async () => {
+it('retains completed results without publishing the interrupted background replay', async () => {
   const f = fixture({ maximumOvershootTokens: Number.MAX_SAFE_INTEGER });
   f.target(500);
   f.hold(2);
@@ -212,7 +212,7 @@ it('keeps completed steps selected when the following background step is interru
   await expect.poll(() => f.calls).toEqual(['story', 'summary', 'summary']);
   const committed = f.state().context;
   expect(committed.summaries).toHaveLength(1);
-  expect(committed.archivedTurnIds).toHaveLength(2);
+  expect(committed.archivedTurnIds).toEqual([]);
   await f.restart();
   expect(f.state().context.summaries).toEqual(committed.summaries);
   expect(f.state().context.selected).toEqual(committed.selected);
@@ -329,7 +329,7 @@ it('Stops Send during a retry delay and resumes its existing pending turn only o
   expect(f.calls).toEqual(['summary', 'summary', 'summary', 'story']);
 });
 
-it('keeps the completed Send checkpoint when Stop rejects a late summary', async () => {
+it('keeps committed input and reusable Send results when Stop rejects a late summary', async () => {
   const f = fixture({ allowInputOvershoot: false });
   f.target(700);
   f.hold(2);
@@ -339,10 +339,10 @@ it('keeps the completed Send checkpoint when Stop rejects a late summary', async
   const job = before.context.jobs[0];
   const steps = f.store.contexts.steps(job.id);
   expect(steps).toMatchObject([
-    { status: 'saved', after: { selected: before.context.selected, archivedTurnIds: before.context.archivedTurnIds } },
+    { status: 'saved', after: { selected: [{ id: before.context.summaries[0].id, revision: 0 }], archivedTurnIds: before.turns.slice(0, 2).map(turn => turn.id) } },
     { status: 'running', request: { body: { model: 'summary' } }, result: null, after: null },
   ]);
-  expect(before.context.archivedTurnIds).toEqual(before.turns.slice(0, 2).map(turn => turn.id));
+  expect(before.context.archivedTurnIds).toEqual([]);
 
   f.coordinator.cancel(id);
   await f.idle();
@@ -360,11 +360,11 @@ it('keeps the completed Send checkpoint when Stop rejects a late summary', async
   const resumed = f.state();
   expect(resumed.generations[0].status).toBe('succeeded');
   expect(resumed.turns).toHaveLength(stopped.turns.length);
-  expect(resumed.context.selected[0]).toEqual(stopped.context.selected[0]);
+  expect(resumed.context.selected[0]).toEqual(steps[0].result);
   expect(f.calls).toEqual(['summary', 'summary', 'summary', 'story']);
 });
 
-it.each(['stop', 'restart'] as const)('keeps the previous reply and the saved working checkpoint after regeneration %s', async outcome => {
+it.each(['stop', 'restart'] as const)('keeps the previous reply and reusable results after regeneration %s', async outcome => {
   const f = fixture({ allowInputOvershoot: false });
   f.target(700);
   f.hold(2);
@@ -373,7 +373,8 @@ it.each(['stop', 'restart'] as const)('keeps the previous reply and the saved wo
   await expect.poll(() => f.calls).toEqual(['summary', 'summary']);
   const before = f.state();
   const working = f.store.generation(id)?.contextSelection;
-  expect(working?.archivedTurnIds).toEqual(committed.turns.slice(0, 2).map(turn => turn.id));
+  expect(working?.archivedTurnIds).toEqual(committed.context.archivedTurnIds);
+  expect(f.store.contexts.steps(before.context.jobs[0].id)[0].after?.archivedTurnIds).toEqual(committed.turns.slice(0, 2).map(turn => turn.id));
   expect(before.context.summaries).toHaveLength(1);
   expect(before.context.selected).toEqual(committed.context.selected);
   expect(before.turns.at(-1)).toEqual(committed.turns.at(-1));
@@ -398,7 +399,7 @@ it.each(['stop', 'restart'] as const)('keeps the previous reply and the saved wo
   await expect.poll(() => f.calls).toHaveLength(3);
   const resumed = f.state();
   expect(resumed.context.jobs[0]).toMatchObject({ generationId: retryId, reusedCount: 1, generatedCount: 0 });
-  expect(f.store.contexts.steps(resumed.context.jobs[0].id)[0]).toMatchObject({ status: 'saved', reused: true, request: null });
+  expect(f.store.contexts.steps(resumed.context.jobs[0].id)).toMatchObject([{ status: 'running', before: { archivedTurnIds: committed.turns.slice(0, 2).map(turn => turn.id) } }]);
   expect(f.store.generation(retryId)?.contextSelection?.selected).toEqual(working?.selected);
   expect(resumed.context.selected).toEqual(committed.context.selected);
   expect(resumed.turns.at(-1)).toEqual(committed.turns.at(-1));

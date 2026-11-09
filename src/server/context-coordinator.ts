@@ -7,7 +7,7 @@ import { fitsInputTarget } from '../core/input-target.js';
 import { setImmediate as yieldForCommands, setTimeout as delay } from 'node:timers/promises';
 import { AppError } from '../core/errors.js';
 import { contextPlan, summaryRequest } from '../core/context-plan.js';
-import { correctionDiagnostic } from '../core/context-corrections.js';
+import { PreparationReplay, type ReplayFrame } from '../core/context-replay.js';
 import { belowMinimumTail, minimumTailDiagnostic, nextRepair } from '../core/context.js';
 import { generateSummary, RefusedSummaryError } from './summarizer.js';
 import type { Store } from '../persistence/store.js';
@@ -26,7 +26,7 @@ export class ContextCoordinator {
   private active = new Map<string, { controller: AbortController; task: Promise<void>; generationId: string | null }>();
   private phases = new Map<string, SummaryPhase>();
   private retrying = new Set<string>();
-  private deletionReviews = new Map<string, { token: string; preview: Omit<PreparationDeletionPreview, 'token'>; resume: () => void }>();
+  private deletionReviews = new Map<string, { token: string; preview: Omit<PreparationDeletionPreview, 'token'>; replay?: ReplayFrame; resume: () => void }>();
   private stopping = false;
   private preflights = new Set<AbortController>();
   constructor(private store: Store, private provider: Provider, private changed: (chatId: string) => void, private loreRegex: LoreRegexPool) {}
@@ -43,11 +43,11 @@ export class ContextCoordinator {
   confirmDeletion(id: string, token: string) {
     const review = this.deletionReviews.get(id);
     if (this.stopping || !review || review.token !== token) throw new AppError(409, 'memory_impact_changed', message('memory.cleanup_changed'));
-    this.store.contexts.confirmPreparationDeletion(id, review.preview);
+    this.store.contexts.confirmPreparationDeletion(id, review.preview, review.replay);
     this.deletionReviews.delete(id);
     review.resume();
   }
-  private async waitForDeletionReview(job: ContextJob, preview: Omit<PreparationDeletionPreview, 'token'>, signal: AbortSignal) {
+  private async waitForDeletionReview(job: ContextJob, preview: Omit<PreparationDeletionPreview, 'token'>, signal: AbortSignal, replay?: ReplayFrame) {
     if (signal.aborted || this.stopping) return;
     const token = randomUUID();
     let abort: (() => void) | undefined;
@@ -55,7 +55,7 @@ export class ContextCoordinator {
       await new Promise<void>(resolve => {
         abort = resolve;
         signal.addEventListener('abort', abort, { once: true });
-        this.deletionReviews.set(job.id, { token, preview, resume: resolve });
+        this.deletionReviews.set(job.id, { token, preview, replay, resume: resolve });
         this.changed(job.chatId);
       });
     } finally {
@@ -123,18 +123,20 @@ export class ContextCoordinator {
     if (signal.aborted || this.stopping) return;
     const snapshot = { ...this.store.generationSnapshot(generationId), loreResolution: this.store.loreOperation(generationId) };
     if (!snapshot.connection || !hasPromptMarker(snapshot.sources.prompt, 'summary') || !snapshot.context.preset) return;
-    if (hasPromptMarker(snapshot.sources.prompt, 'messages') && belowMinimumTail(snapshot.turns, snapshot.context, snapshot.context.preset.minTail)) {
-      throw new AppError(422, 'context_blocked', minimumTailDiagnostic);
-    }
     // Physical overflow is validated by final request assembly. It never adds
     // a preparation trigger when the working target permits this input.
     try {
       const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context, { validateLimits: false, lore: snapshot.loreResolution });
-      if (fitsInputTarget(request.budget.inputTokens, snapshot.settings.targetInputTokens, behavior)) return;
+      if (fitsInputTarget(request.budget.inputTokens, snapshot.settings.targetInputTokens, behavior)) {
+        if (hasPromptMarker(snapshot.sources.prompt, 'messages') && belowMinimumTail(snapshot.turns, snapshot.context, snapshot.context.preset.minTail)) {
+          throw new AppError(422, 'context_blocked', minimumTailDiagnostic);
+        }
+        return;
+      }
     } catch (error) {
       if (!(error instanceof AppError) || error.code !== 'correction_reconciliation_required') throw error;
-      const plan = contextPlan(snapshot);
-      if (plan.blockedMessage?.key !== correctionDiagnostic.key || plan.repairCount) throw error;
+      // The replay can include a fresh retained correction, or surface its
+      // existing repair/deletion path if no valid representation is possible.
     }
     const retry = behavior.autoRetryMemory ? { maxRetries: behavior.memoryMaxRetries } : undefined;
     const { job, fresh } = this.store.contexts.begin(chatId, snapshot.revision, generationId, 'prepare', generationId, undefined, retry);
@@ -180,33 +182,65 @@ export class ContextCoordinator {
     }
   }
   private async run(id: string, chatId: string, signal: AbortSignal) {
+    let replay: PreparationReplay | undefined;
+    let reusedCount = 0;
     try {
       while (!signal.aborted && !this.stopping) {
         const job = this.store.contexts.job(id);
         if (job.status !== 'running') return;
-        const snapshot = this.store.contexts.operationSnapshot(id);
-        const plan = contextPlan(snapshot);
+        const committed = this.store.contexts.operationSnapshot(id);
+        if (job.mode === 'prepare' && !replay) {
+          const savedLayout = job.generationId && this.store.generation(job.generationId)?.kind === 'regeneration'
+            ? this.store.contexts.savedState(job.chatId) : committed.context;
+          replay = new PreparationReplay(committed, savedLayout);
+          this.store.contexts.trackPlan(id, replay.next().plan);
+          this.changed(chatId);
+        }
+        let unreported = 0;
+        while (replay?.advanceSaved()) {
+          reusedCount++;
+          if (++unreported % 32 === 0) {
+            await yieldForCommands();
+            if (signal.aborted || this.stopping) break;
+          }
+        }
+        if (signal.aborted || this.stopping) break;
+        const frame = replay?.next();
+        const snapshot = frame?.snapshot ?? committed;
+        const plan = frame?.plan ?? contextPlan(snapshot);
         const replacements = new Map();
         const repairing = job.mode === 'repair';
         const operation = repairing ? nextRepair(snapshot.turns, snapshot.context, replacements) : plan.next;
         if (!repairing) {
-          this.store.contexts.trackPlan(id, plan);
-          if (operation && job.stepCount >= preparationRunLimit) throw preparationLimitReached();
-          const deletion = this.store.contexts.previewPreparationDeletion(job, snapshot, plan);
+          this.store.contexts.trackPlan(id, plan, replay ? reusedCount : undefined);
+          if (operation && !frame?.saved && job.stepCount >= preparationRunLimit) throw preparationLimitReached();
+          const deletion = this.store.contexts.previewPreparationDeletion(job, committed, plan, frame);
           if (deletion) {
-            await this.waitForDeletionReview(job, deletion, signal);
+            await this.waitForDeletionReview(job, deletion, signal, frame);
+            replay = undefined;
+            reusedCount = 0;
             continue;
           }
           if (plan.blocked) throw new AppError(422, 'context_blocked', plan.blockedMessage ?? plan.blocked);
         }
         // Measure first. A fitting request after the last allowed step succeeds.
-        if (!operation) { this.store.contexts.finish(id, 'succeeded'); this.changed(chatId); return; }
-        if (repairing && this.store.contexts.revalidateRepair(id)) { this.changed(chatId); await yieldForCommands(); continue; }
-        if (!repairing && plan.reusable && this.store.contexts.reuseNext(id)) {
+        if (!operation) {
+          this.store.contexts.finish(id, 'succeeded', null, frame ? { frame, reusedCount } : undefined);
           this.changed(chatId);
-          if (job.mode === 'step') { this.store.contexts.finish(id, 'succeeded'); this.changed(chatId); return; }
+          return;
+        }
+        if (replay && frame?.saved) {
+          replay.advance(frame, frame.saved);
+          reusedCount++;
           await yieldForCommands();
           continue;
+        }
+        if (repairing && this.store.contexts.revalidateRepair(id)) { this.changed(chatId); await yieldForCommands(); continue; }
+        if (job.mode === 'step' && plan.reusable && this.store.contexts.reuseNext(id)) {
+          this.changed(chatId);
+          this.store.contexts.finish(id, 'succeeded');
+          this.changed(chatId);
+          return;
         }
         const connectionId = job.config.connectionId ?? (snapshot.settings.connectionId === undefined ? 'main' : snapshot.settings.connectionId);
         if (operation.turnIds.length && !connectionId) throw new AppError(422, 'summary_connection_required', message("errors.select_a_roleplay_connection_to_measure_the_complete"));
@@ -216,7 +250,7 @@ export class ContextCoordinator {
         let retries = 0;
         let saved: SummaryNode | undefined;
         while (!signal.aborted && !this.stopping) {
-          const step = this.store.contexts.beginStep(id, operation, prepared.request, plan.inputTokens);
+          const step = this.store.contexts.beginStep(id, operation, prepared.request, plan.inputTokens, frame);
           if (prepared.request) this.phases.set(id, 'connecting');
           this.changed(chatId);
           if (signal.aborted || this.stopping) break;
@@ -242,11 +276,12 @@ export class ContextCoordinator {
             continue;
           }
           if (signal.aborted || this.stopping) break;
-          saved = this.store.contexts.completeStep(step, text, prepared.prior);
+          saved = this.store.contexts.completeStep(step, text, prepared.prior, frame);
           this.phases.delete(id);
           break;
         }
         if (!saved) break;
+        if (replay && frame) replay.advance(frame, saved, this.store.contexts.job(id).sourceRevision);
         this.changed(chatId);
         if (repairing) {
           if (saved.approved) { await yieldForCommands(); continue; }

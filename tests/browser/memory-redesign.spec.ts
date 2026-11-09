@@ -202,7 +202,7 @@ test('latest-turn deletion previews restored turns and an approved correction', 
 });
 
 test('Send pauses for deletion review, survives reload, and resumes only after confirmation', async ({ page, browserApp }, testInfo) => {
-  const { path, state, read, write } = await memoryStory(page, browserApp.url, 'Preparation deletion', 8);
+  const { path, state, read, write, library, presetId } = await memoryStory(page, browserApp.url, 'Preparation deletion', 8);
   const before = await state();
   const calls = () => read<unknown[]>('/__test/requests');
   await page.request.post('/__test/mode', { data: { mode: 'hold-first-token' } });
@@ -224,6 +224,12 @@ test('Send pauses for deletion review, survives reload, and resumes only after c
   await write('PATCH', `${path}/context/summaries/${summary.id}`, {
     revision: stopped.revision, summaryRevision: summary.revision, text: correction,
   });
+  const lib = await library();
+  const savedPreset = lib.contexts.find(item => item.id === presetId);
+  if (!savedPreset) throw new Error('Missing preparation preset');
+  const { id: _id, revision: _revision, ...preset } = savedPreset;
+  // The correction intersects the protected tail, so replay requires explicit review.
+  await write('PUT', `/api/library/${presetId}`, { revision: lib.revision, kind: 'contexts', data: { ...preset, minTail: 8 } });
   const edited = await state();
   const { title, connectionId, promptId, characterId, personaId, contextPresetId, lorebookId } = edited.settings;
   await write('PUT', `${path}/selections`, { revision: edited.revision, settings: {

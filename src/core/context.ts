@@ -92,12 +92,13 @@ export const summaryPressure = (level: number, tokens: number): number =>
   Math.log2(Math.max(tokens, Number.MIN_VALUE)) + level;
 
 /** Pressure ordering for promotions under the current generation rules. */
-export function rankedPromotions(summaries: SummaryNode[], config: ContextPreset, summarySizes: Map<string, number>): ContextOperation[] {
+export function rankedPromotions(summaries: SummaryNode[], config: ContextPreset, summarySizes: Map<string, number>, savedGroupSizes?: Map<number, number>): ContextOperation[] {
   const candidates: { score: number; level: number; children: SummaryNode[] }[] = [];
   for (const level of new Set(summaries.map(node => node.level))) {
     const layer = summaries.filter(node => node.level === level);
-    if (layer.length < config.promotionGroup + config.retainedPerLevel) continue;
-    const children = layer.slice(0, config.promotionGroup);
+    const groupSize = savedGroupSizes?.get(level) ?? config.promotionGroup;
+    if (layer.length < groupSize + config.retainedPerLevel) continue;
+    const children = layer.slice(0, groupSize);
     const first = summaries.indexOf(children[0]);
     if (!children.every((node, index) => summaries[first + index] === node)) continue;
     // Promoting a middle range must not make it coarser than older memory.

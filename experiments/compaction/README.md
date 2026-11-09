@@ -60,6 +60,8 @@ input fits. Promotion begins only when no full turn batch is eligible. Failure t
 is explicitly reported.
 
 The promotion policy was accepted as the initial application rule on 2026-10-17.
+The application now replays preparation from original turns and retains the lab's
+promotion ranking and retention rules. The slider still shows the original simulation.
 This lab remains a synthetic experiment: rank eligible levels by `U_k / (S / 2^k)`, break ties toward the deeper level,
 and promote the oldest contiguous group. **Retain / level** is a hard floor for recent
 active summaries at every source level; zero explores no hard floor. Soft allowances

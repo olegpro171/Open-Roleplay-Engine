@@ -3,7 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { sourceOf } from '../src/core/context.js';
+import { sourceOf, staleSummaries } from '../src/core/context.js';
+import { correctionProtection } from '../src/core/context-corrections.js';
+import { inspectPreparation } from '../src/core/context-replay.js';
 import { contextPlan } from '../src/core/context-plan.js';
 import { assembleRequest } from '../src/core/prompt.js';
 import { regenerationView } from '../src/core/regeneration.js';
@@ -26,7 +28,7 @@ function transcript(count: number) {
   }));
 }
 
-function fixture(count: number, minTail: number, targetInputTokens = 110) {
+function fixture(count: number, minTail: number, targetInputTokens = 110, turns = transcript(count), output = 'Mira brought the key across the bridge.') {
   const directory = mkdtempSync(join(tmpdir(), 'ore-context-layout-'));
   const filename = join(directory, 'layout.sqlite');
   let store = new Store(filename);
@@ -36,11 +38,11 @@ function fixture(count: number, minTail: number, targetInputTokens = 110) {
   const contextPresetId = store.saveLibrary(store.libraryRevision(), 'contexts', preset);
   const settings = { title: 'Bridge chronicle', targetInputTokens, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId };
   const chatId = store.createChat(settings);
-  seedTranscript(store, store.engineSnapshot(chatId).revision, chatId, transcript(count));
+  seedTranscript(store, store.engineSnapshot(chatId).revision, chatId, turns);
   const calls: RequestPreview[] = [];
   const provider: Provider = { async stream(request, _key, _signal, onText) {
     calls.push(request);
-    onText('Mira brought the key across the bridge.');
+    onText(output);
     return { finishReason: 'stop' };
   } };
   let coordinator = new GenerationCoordinator(store, provider);
@@ -63,6 +65,165 @@ function fixture(count: number, minTail: number, targetInputTokens = 110) {
   return { get store() { return store; }, get coordinator() { return coordinator; }, state, step, reopen, calls, chatId, preset, settings, contextPresetId };
 }
 
+it('replays fine memory before promoting when lowering a 15-turn tail makes another batch eligible', async () => {
+  const turns = Array.from({ length: 36 }, (_, index) => ({
+    user: `Chapter ${index + 1}.` + ' Mira watched the lantern and waited.'.repeat(index >= 27 ? 307 : index >= 24 ? 338 : index >= 21 ? 140 : 338),
+    assistant: 'Leon kept watch.', complete: true,
+  }));
+  const output = 'Mira brought the key across the bridge. ' + Array.from({ length: 100 }, (_, i) => `Ada catalogued relic ${i}.`).join(' ');
+  const f = fixture(36, 15, 32_000, turns, output);
+  const prepare = async () => {
+    const { jobId } = f.coordinator.context.start(f.chatId, f.state().revision, randomUUID(), 'prepare');
+    await expect.poll(() => f.store.contexts.job(jobId).status).toBe('succeeded');
+    return f.store.contexts.job(jobId);
+  };
+  await prepare();
+  const first = f.state();
+  if (!first.connection) throw new Error('Missing story Connection');
+  expect(first.context.archivedTurnIds).toHaveLength(21);
+  expect(first.context.selected.some(ref => first.context.summaries.find(node => node.id === ref.id)?.level === 2)).toBe(true);
+  expect(first.context.summaries.filter(node => node.level === 1)).toHaveLength(7);
+  const callsBefore = f.calls.length;
+  expect(callsBefore).toBe(9);
+  f.store.saveLibrary(f.store.libraryRevision(), 'contexts', { ...f.preset, minTail: 5 }, f.contextPresetId);
+  const anticipated = inspectPreparation(f.state());
+  expect(anticipated.plan.next?.turnIds).toEqual(first.turns.slice(21, 24).map(turn => turn.id));
+  expect(anticipated.plan.inputTokens).toBeGreaterThan(assembleRequest(first.connection, first.settings, first.turns, first.sources, first.context).budget.inputTokens);
+  const replay = await prepare();
+  const after = f.state();
+  expect(after.context.archivedTurnIds).toEqual(after.turns.slice(0, 27).map(turn => turn.id));
+  expect(after.context.selected).toEqual(after.context.summaries.filter(node => node.level === 1).map(({ id, revision }) => ({ id, revision })));
+  expect(f.calls.slice(callsBefore).map(request => request.coverage?.map(source => source.turnId))).toEqual([21, 24].map(start => after.turns.slice(start, start + 3).map(turn => turn.id)));
+  const steps = f.store.contexts.steps(replay.id);
+  expect(steps[0].inputBefore).toBe(anticipated.plan.inputTokens);
+  expect(steps[0].inputAfter).toBeGreaterThan(32_200);
+  expect(steps[0].inputAfter).toBeLessThan(32_600);
+  expect(steps[1].inputAfter).toBeLessThan(32_000);
+  const repeated = await prepare();
+  expect(f.calls).toHaveLength(callsBefore + 2);
+  expect(f.state().context.revision).toBe(after.context.revision);
+  expect(f.state().context.selected).toEqual(after.context.selected);
+  expect(f.store.contexts.steps(repeated.id)).toEqual([]);
+});
+
+it('promotes a corrected leaf through L2 and L3 and blocks replay when that retained leaf is edited again', async () => {
+  const output = 'Mira brought the key across the bridge.';
+  const f = fixture(28, 1, 110, transcript(28), output);
+  const leaf = await f.step();
+  const beforeEdit = f.state();
+  if (!leaf.result) throw new Error('The first batch was not saved');
+  const corrected = f.store.contexts.editSummary(f.chatId, beforeEdit.revision, leaf.result, 'Ada owns the original key. Mira carries the silver duplicate.');
+  const before = f.state();
+  if (!before.connection) throw new Error('Missing story Connection');
+  const expectedParent: SummaryNode = {
+    id: randomUUID(), revision: 0, level: 3, text: output, turns: before.turns.slice(0, 27).map(sourceOf),
+    children: [], prior: [], approved: true, manual: false, createdAt: '2026-10-20T00:00:00Z',
+  };
+  const context = { ...before.context, summaries: [expectedParent], selected: [expectedParent], archivedTurnIds: expectedParent.turns.map(turn => turn.turnId) };
+  const target = assembleRequest(before.connection, before.settings, before.turns, before.sources, context, { validateLimits: false }).budget.inputTokens;
+  f.store.updateChat(before.revision, f.chatId, { ...f.settings, targetInputTokens: target });
+  const prepare = () => f.coordinator.context.start(f.chatId, f.state().revision, randomUUID(), 'prepare').jobId;
+  const jobId = prepare();
+  await expect.poll(() => f.store.contexts.job(jobId).status).toBe('succeeded');
+  const saved = f.state();
+  const protection = correctionProtection(saved.turns, saved.context);
+  const l2 = saved.context.summaries.find(node => node.level === 2 && node.children.some(ref => refKey(ref) === refKey(corrected)));
+  const l3 = saved.context.summaries.find(node => node.level === 3);
+  if (!l2 || !l3 || !saved.connection) throw new Error('Expected both promotion levels and a story Connection');
+  expect(l3.children.map(refKey)).toContain(refKey(l2));
+  expect(protection.represented(l3).has(refKey(corrected))).toBe(true);
+  expect(saved.context.selected.map(refKey)).toEqual([refKey(l3)]);
+  expect(saved.context.archivedTurnIds).toEqual(context.archivedTurnIds);
+  expect(protection.unresolved).toEqual([]);
+  expect(f.calls).toHaveLength(13);
+  expect(assembleRequest(saved.connection, saved.settings, saved.turns, saved.sources, saved.context).body.messages
+    .filter(part => part.content.startsWith('[Memory')).map(part => part.content)).toEqual([`[Memory L3 · turns 1–27]\n${output}`]);
+
+  const editedAgain = f.store.contexts.editSummary(f.chatId, saved.revision, corrected, 'Ada keeps the silver duplicate with Mira’s permission.');
+  const edited = f.state();
+  const stale = staleSummaries(edited.turns, edited.context);
+  expect(stale.has(refKey(l2))).toBe(true);
+  expect(stale.has(refKey(l3))).toBe(true);
+  const plan = inspectPreparation(edited).plan;
+  expect(plan.ready).toBe(false);
+  expect(plan.repairCount).toBeGreaterThan(0);
+  const blocked = prepare();
+  await expect.poll(() => f.store.contexts.job(blocked).status).toBe('failed');
+  expect(f.calls).toHaveLength(13);
+  expect(f.state().context.selected).toEqual(saved.context.selected);
+  expect(f.state().context.summaries.map(refKey)).toContain(refKey(editedAgain));
+});
+
+it('keeps a compatible saved prefix before a direct parent correction when the current floor prevents promotion', async () => {
+  const f = fixture(25, 1);
+  const initial = f.state();
+  if (!initial.connection) throw new Error('Missing story Connection');
+  const tailInput = assembleRequest(initial.connection, initial.settings, initial.turns.slice(-1), initial.sources, undefined, { validateLimits: false }).budget.inputTokens;
+  f.store.updateChat(initial.revision, f.chatId, { ...f.settings, targetInputTokens: tailInput + 25 });
+  for (let index = 0; index < 10; index++) await f.step();
+  const before = f.state();
+  const parents = before.context.selected.slice(0, 2);
+  const edited = f.store.contexts.editSummary(f.chatId, before.revision, parents[1], 'Ada had the key all along.');
+  f.store.saveLibrary(f.store.libraryRevision(), 'contexts', { ...f.preset, retainedPerLevel: 2 }, f.contextPresetId);
+  f.store.updateChat(f.state().revision, f.chatId, { ...f.settings, targetInputTokens: 20_000 });
+  const { jobId } = f.coordinator.context.start(f.chatId, f.state().revision, randomUUID(), 'prepare');
+  await expect.poll(() => f.store.contexts.job(jobId).status).toBe('succeeded');
+  expect(f.calls).toHaveLength(10);
+  const after = f.state();
+  expect(after.context.selected).toEqual([parents[0], edited]);
+  expect(after.context.archivedTurnIds).toEqual(after.turns.slice(0, 18).map(turn => turn.id));
+  expect(correctionProtection(after.turns, after.context).unresolved).toEqual([]);
+});
+
+it('retains generated results when publishing the fit fails and reuses them on explicit retry', async () => {
+  const f = fixture(12, 3, 850);
+  await f.step();
+  const before = f.state();
+  f.store.sqlite.exec("CREATE TRIGGER reject_publish BEFORE UPDATE ON context_states BEGIN SELECT RAISE(ABORT, 'synthetic publication failure'); END");
+  const prepare = () => f.coordinator.context.start(f.chatId, f.state().revision, randomUUID(), 'prepare').jobId;
+  const id = prepare();
+  await expect.poll(() => f.store.contexts.job(id).status).toBe('failed');
+  const failed = f.state();
+  expect(failed.context.selected).toEqual(before.context.selected);
+  expect(failed.context.archivedTurnIds).toEqual(before.context.archivedTurnIds);
+  expect(failed.context.summaries).toHaveLength(3);
+  expect(f.calls).toHaveLength(3);
+
+  f.store.sqlite.exec('DROP TRIGGER reject_publish');
+  const retry = prepare();
+  await expect.poll(() => f.store.contexts.job(retry).status).toBe('succeeded');
+  expect(f.state().context.selected.map(refKey)).toEqual(failed.context.summaries.map(refKey));
+  expect(f.store.contexts.steps(retry)).toEqual([]);
+  expect(f.calls).toHaveLength(3);
+});
+
+it('promotes within the saved cutoff when the prompt uses Summary alone', async () => {
+  const f = fixture(16, 1);
+  for (let index = 0; index < 4; index++) await f.step();
+  const before = f.state();
+  f.store.saveLibrary(f.store.libraryRevision(), 'prompts', {
+    ...compactPrompt, blocks: compactPrompt.blocks.filter(block => block.id === 'summary'),
+  }, 'default');
+  const summaryOnly = f.state();
+  if (!summaryOnly.connection) throw new Error('Missing story Connection');
+  const leaves = summaryOnly.context.summaries;
+  const parent: SummaryNode = {
+    ...leaves[0], id: randomUUID(), level: 2, children: leaves.slice(0, 3).map(({ id, revision }) => ({ id, revision })),
+    turns: leaves.slice(0, 3).flatMap(node => node.turns),
+  };
+  const context = { ...summaryOnly.context, selected: [parent, leaves[3]], summaries: [...leaves, parent] };
+  const expected = assembleRequest(summaryOnly.connection, summaryOnly.settings, summaryOnly.turns, summaryOnly.sources, context, { validateLimits: false });
+  f.store.updateChat(summaryOnly.revision, f.chatId, { ...f.settings, targetInputTokens: expected.budget.inputTokens });
+  const { jobId } = f.coordinator.context.start(f.chatId, f.state().revision, randomUUID(), 'prepare');
+  await expect.poll(() => f.store.contexts.job(jobId).status).toBe('succeeded');
+  expect(f.state().context.archivedTurnIds).toEqual(before.context.archivedTurnIds);
+  expect(f.store.contexts.steps(jobId).map(step => step.operation)).toEqual([{
+    level: 2, turnIds: parent.turns.map(source => source.turnId), children: parent.children,
+  }]);
+  expect(f.store.contexts.job(jobId).outcome).toEqual({ inputTokens: expected.budget.inputTokens, verbatimTurns: 0 });
+  expect(f.calls).toHaveLength(5);
+});
+
 function addLegacyAlternative(f: ReturnType<typeof fixture>, chatId: string, start: number, end: number, changes: Partial<SummaryNode> = {}) {
   const state = f.state(chatId);
   const node: SummaryNode = { id: randomUUID(), revision: 0, level: 1, text: 'Mira later traded the key for a map.',
@@ -76,6 +237,19 @@ async function deletionReview(f: ReturnType<typeof fixture>, jobId: string) {
   await expect.poll(() => f.coordinator.context.progress(jobId).deletionReviewToken).toBeDefined();
   return f.coordinator.context.deletionPreview(jobId);
 }
+
+it('rejects a deletion approval captured before a revision changed', async () => {
+  const f = fixture(12, 3);
+  addLegacyAlternative(f, f.chatId, 0, 6);
+  const before = f.state().context;
+  const { jobId } = f.coordinator.context.start(f.chatId, f.state().revision, randomUUID(), 'prepare');
+  const review = await deletionReview(f, jobId);
+  f.store.bumpRevision(f.chatId);
+  expect(() => f.coordinator.context.confirmDeletion(jobId, review.token)).toThrow(expect.objectContaining({ code: 'revision_conflict' }));
+  f.coordinator.context.cancel(jobId);
+  expect(f.state().context).toMatchObject({ selected: before.selected, archivedTurnIds: before.archivedTurnIds, summaries: before.summaries });
+  expect(f.calls).toEqual([]);
+});
 
 it.each([false, true])('reviews a wider inactive batch and its dependents before replacement (reuse: %s)', async reuse => {
   const f = fixture(15, 3);
@@ -101,12 +275,14 @@ it.each([false, true])('reviews a wider inactive batch and its dependents before
 
   const after = f.state().context;
   const [step] = f.store.contexts.steps(jobId);
-  expect(step.operation.turnIds).toEqual(before.turns.slice(3, 6).map(turn => turn.id));
-  expect(after.selected).toEqual([...before.context.selected, step.result]);
+  if (cached) expect(step).toBeUndefined();
+  else expect(step.operation.turnIds).toEqual(before.turns.slice(3, 6).map(turn => turn.id));
+  const result = cached ? { id: cached.id, revision: cached.revision } : step.result;
+  expect(after.selected).toEqual([...before.context.selected, result]);
   expect(after.summaries.map(node => node.id)).not.toContain(old.id);
   expect(after.summaries.map(node => node.id)).not.toContain(dependent.id);
   expect(after.summaries.map(node => node.id)).toContain(unrelated.id);
-  if (cached) expect(step).toMatchObject({ result: { id: cached.id, revision: cached.revision }, reused: true, request: null });
+  if (cached) expect(f.store.contexts.job(jobId)).toMatchObject({ generatedCount: 0, reusedCount: 2 });
   expect(f.calls).toHaveLength(reuse ? 1 : 2);
   expect(() => validateContent(f.store.sqlite)).not.toThrow();
   await f.reopen();
@@ -185,7 +361,8 @@ it('prunes unused overlaps during regeneration without deleting the committed la
 it('lets a pending Send decline and then explicitly review deletion of an inactive correction with no repair', async () => {
   const f = fixture(12, 3);
   await f.step();
-  const old = addLegacyAlternative(f, f.chatId, 3, 6);
+  // A direct correction in the protected tail cannot be restored as originals.
+  const old = addLegacyAlternative(f, f.chatId, 8, 11);
   const edited = f.store.contexts.editSummary(f.chatId, f.state().revision, old, 'Mira had already promised Ada the key.');
   const before = f.state();
   expect(contextPlan(before).repairCount).toBe(0);
@@ -212,7 +389,7 @@ it('lets a pending Send decline and then explicitly review deletion of an inacti
   f.coordinator.context.confirmDeletion(second.jobId, second.review.token);
   await expect.poll(() => f.store.generation(second.generationId)?.status).toBe('succeeded');
   expect(f.state().context.summaries.map(node => node.id)).not.toContain(old.id);
-  expect(f.state().context.selected).toEqual(before.context.selected);
+  expect(f.state().context.selected).toEqual([]);
   expect(f.state().turns).toHaveLength(before.turns.length + 1);
   expect(f.calls).toHaveLength(2);
 });

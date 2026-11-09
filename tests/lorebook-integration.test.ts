@@ -13,6 +13,7 @@ import { newLorebook, newLoreEntry, type LoreEntry } from '../src/shared/loreboo
 import type { ChatSnapshot } from '../src/shared/contracts.js';
 import { assembleRequest } from '../src/core/prompt.js';
 import { contextPlan, summaryRequest } from '../src/core/context-plan.js';
+import { inspectPreparation } from '../src/core/context-replay.js';
 import { refreshContext } from '../src/core/context-refresh.js';
 import { savedReplacement } from '../src/core/context-reuse.js';
 import { sourceOf } from '../src/core/context.js';
@@ -56,7 +57,7 @@ function selectedMemory(f: ReturnType<typeof fixture>) {
   return { leaves, parent };
 }
 
-function measure(snapshot: ChatSnapshot) {
+function measure(snapshot: Pick<ChatSnapshot, 'connection' | 'settings' | 'turns' | 'sources' | 'context' | 'loreResolution'>) {
   if (!snapshot.connection) throw new Error('The fixture must have a Connection.');
   return assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context, { validateLimits: false, lore: snapshot.loreResolution });
 }
@@ -88,6 +89,9 @@ describe('frozen lore across request and memory representations', () => {
     const parentState = { ...snapshot.context, selected: [{ id: parent.id, revision: parent.revision }] };
     const parentRequest = measure({ ...snapshot, context: parentState });
     const constrained = { ...snapshot, settings: { ...snapshot.settings, targetInputTokens: parentRequest.budget.inputTokens } };
+    const replay = inspectPreparation(constrained);
+    expect(replay.plan).toMatchObject({ ready: true, inputTokens: parentRequest.budget.inputTokens });
+    expect(measure(replay.snapshot).body.messages).toEqual(parentRequest.body.messages);
     const operation = { level: 2, turnIds: parent.turns.map(source => source.turnId), children: leaves.map(({ id, revision }) => ({ id, revision })) };
     const replacement = savedReplacement(constrained, operation);
     expect(replacement?.node.id).toBe(parent.id);
