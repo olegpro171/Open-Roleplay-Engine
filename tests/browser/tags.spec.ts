@@ -93,19 +93,20 @@ test('reviews every import mode before commit, cancels without writes and safely
     await page.getByRole('radio', { name: `Import ${mode}`, exact: true }).check();
     await expect(page.getByText(mode === 'all' ? '1 matching tags · 1 new tags.' : mode === 'existing' ? '1 matching tags.' : 'Tags are not imported.', { exact: true })).toBeVisible();
     if (mode === 'all') {
-      const commands: unknown[] = [];
-      await page.route('**/api/library/import', async route => { commands.push(route.request().postDataJSON()); await route.fetch(); await route.abort('failed'); });
+      const commands: { url: string; bytes: Buffer | null }[] = [];
+      const importRoute = /\/api\/library\/import\?/;
+      await page.route(importRoute, async route => { commands.push({ url: route.request().url(), bytes: route.request().postDataBuffer() }); await route.fetch(); await route.abort('failed'); });
       await page.getByRole('button', { name: 'Import', exact: true }).click();
       await expect(page.getByRole('button', { name: 'Retry reviewed character import', exact: true })).toBeEnabled();
       await expect.poll(async () => (await library(page)).characters.filter(card => card.name === 'Tag import all').length).toBe(1);
-      await page.unroute('**/api/library/import');
+      await page.unroute(importRoute);
       await page.getByRole('button', { name: 'New character', exact: true }).click();
       await page.getByLabel('Name', { exact: true }).fill('Temporary draft during import recovery');
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       await expect(page.getByRole('button', { name: 'Retry reviewed character import', exact: true })).toBeEnabled();
-      await page.route('**/api/library/import', async route => { commands.push(route.request().postDataJSON()); await route.continue(); });
+      await page.route(importRoute, async route => { commands.push({ url: route.request().url(), bytes: route.request().postDataBuffer() }); await route.continue(); });
       await page.getByRole('button', { name: 'Retry reviewed character import', exact: true }).click(); await expect(row(page, 'Tag import all')).toBeVisible();
-      expect(commands).toHaveLength(2); expect(commands[1]).toEqual(commands[0]); await page.unroute('**/api/library/import');
+      expect(commands).toHaveLength(2); expect(commands[0]?.bytes).toEqual(file('Tag import all').buffer); expect(commands[1]).toEqual(commands[0]); await page.unroute(importRoute);
     } else { await page.getByRole('button', { name: 'Import', exact: true }).click(); await expect(row(page, `Tag import ${mode}`)).toBeVisible(); }
     await expect(page.locator('.library-notice')).toHaveCount(0);
     const saved = await library(page), card = saved.characters.find(card => card.name === `Tag import ${mode}`);

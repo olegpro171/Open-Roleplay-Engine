@@ -32,7 +32,8 @@ import { tagIdsSchema, tagNameSchema, tagPolicySchema } from '../shared/tags.js'
 import { hasPromptMarker, defaultPrompt, libraryCommandSchema, selectionsSchema, createChatSchema, importChatSchema, importBranchSchema, transcriptRequestLimit } from '../shared/library.js';
 import { defaultChatInputTarget, resolveChatDefaults } from '../shared/chat-defaults.js';
 import { ChatDefaultsSettings } from './chat-defaults.js';
-import { readCardFile, readCharacterCardFile } from './card-import.js';
+import { readCardFile, readCharacterCardFile, readCharacterCardUpload } from './card-import.js';
+import { characterCardLimits } from '../shared/character-card-limits.js';
 import { AppError, BackupValidationError } from '../core/errors.js';
 import { assembleRequest } from '../core/prompt.js';
 import { Store } from '../persistence/store.js';
@@ -67,6 +68,17 @@ function loreImport<T>(parse: () => T): T {
   }
 }
 
+const isBinaryUpload = (request: FastifyRequest) => request.headers['content-type'] === 'application/octet-stream';
+const characterImportCommand = z.object({ revision: revisionSchema, requestId: z.string().uuid().optional(), tagPolicy: tagPolicySchema.optional() });
+const binaryCardCommand = characterImportCommand.extend({
+  revision: z.string().regex(/^\d+$/).transform(Number).pipe(revisionSchema),
+  requestId: z.string().uuid(),
+  digest: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+const binaryRoutes = new Set(['/api/data/stages', '/api/library/characters/preview', '/api/library/import']);
+const librarySaveRequestLimit = 30_000_000;
+const characterSaveRequestLimit = characterCardLimits.recordBytes + pictureBase64Limit + 100_000;
+
 export async function createApp(options: {
   database: string; databaseMustExist?: boolean; staticDirectory?: string; migrationsDirectory?: string; languagesDirectory?: string;
   provider?: Provider; https?: ServerOptions;
@@ -74,6 +86,14 @@ export async function createApp(options: {
 }) {
   const store = new Store(options.database, options.migrationsDirectory, { mustExist: options.databaseMustExist });
   const pictures = new PictureProcessor();
+  const cardUploadShutdown = new AbortController();
+  let processingCard = false;
+  async function withCardProcessing<T>(run: () => Promise<T>): Promise<T> {
+    if (processingCard) throw new AppError(429, 'card_processing_busy', message('errors.character_card_processing_busy'));
+    processingCard = true;
+    try { return await run(); }
+    finally { processingCard = false; }
+  }
   const provider = options.provider ?? new OpenAICompatibleProvider();
   const chatBehavior = new ChatBehaviorSettings(`${options.database}.chat-behavior.json`);
   const coordinator = new GenerationCoordinator(store, provider, () => chatBehavior.status().settings);
@@ -162,7 +182,8 @@ export async function createApp(options: {
     reply.header('Cache-Control', 'no-store');
     if (!['GET', 'HEAD'].includes(request.method)) {
       const expectedOrigin = `${secure ? 'https' : 'http'}://${request.host}`;
-      if (request.headers.origin !== expectedOrigin || !(request.headers['content-type']?.startsWith('application/json') || (request.url === '/api/data/stages' && request.method === 'POST' && request.headers['content-type'] === 'application/octet-stream'))) {
+      const allowsBinary = request.method === 'POST' && binaryRoutes.has(request.url.split('?')[0]);
+      if (request.headers.origin !== expectedOrigin || !(request.headers['content-type']?.startsWith('application/json') || (allowsBinary && isBinaryUpload(request)))) {
         throw new AppError(403, 'invalid_origin', message("errors.commands_must_come_from_this_application_with_a"));
       }
     }
@@ -295,7 +316,8 @@ export async function createApp(options: {
   });
   app.get('/api/data/stages/:stageId/records/:table/:key', async request => {
     const { stageId, table, key } = stageParams.extend({ table: backupTableSchema, key: z.coerce.number().int().positive() }).parse(request.params);
-    const { offset, field } = z.object({ offset: z.coerce.number().int().nonnegative().max(backupLimits.textBytes * 2).default(0), field: z.string().min(1).max(100).optional() }).strict().parse(request.query);
+    const maxOffset = table === 'library' ? characterCardLimits.recordBytes : backupLimits.textBytes * 2;
+    const { offset, field } = z.object({ offset: z.coerce.number().int().nonnegative().max(maxOffset).default(0), field: z.string().min(1).max(100).optional() }).strict().parse(request.query);
     return backups.leaf(stageId,owner(request.cookies.session),table,key,offset,field);
   });
   app.get('/api/data/stages/:stageId/image/:table/:key', async (request,reply) => {
@@ -363,8 +385,13 @@ export async function createApp(options: {
     const { knownRevision } = z.object({ knownRevision: z.coerce.number().int().nonnegative().optional() }).strict().parse(request.query);
     return store.libraryUpdate(knownRevision);
   });
-  async function saveLibrary(body: unknown, id?: string) {
-    const input = libraryCommandSchema.parse(body);
+  async function saveLibrary(request: FastifyRequest, id?: string) {
+    const input = libraryCommandSchema.parse(request.body);
+    if (id && input.kind !== 'characters') {
+      const length = request.headers['content-length'];
+      const bytes = length === undefined ? Buffer.byteLength(JSON.stringify(request.body)) : Number(length);
+      if (bytes > librarySaveRequestLimit) throw new AppError(413, 'request_failed', message('errors.request_could_not_be_completed'));
+    }
     if (input.kind === 'contexts') return { id: store.saveLibrary(input.revision, input.kind, input.data, id, undefined, undefined, input.memoryImpactToken) };
     if (input.kind !== 'characters') return { id: store.saveLibrary(input.revision, input.kind, input.data, id, input.kind === 'connections' ? input.apiKey : undefined) };
     const replay = store.replayCharacterSave(input, id);
@@ -374,16 +401,20 @@ export async function createApp(options: {
     if (input.picture?.mode === 'replace') prepared = await pictures.process(pictureBytes(input.picture.base64), input.picture.crop);
     if (input.picture?.mode === 'keep') {
       if (!id) throw new AppError(400, 'missing_picture', message("errors.a_new_character_has_no_saved_picture_to"));
-      prepared = await pictures.process(store.pictures.originalForCrop(id, input.picture.key), input.picture.crop);
+      const { key, crop } = input.picture;
+      return withCardProcessing(async () => {
+        const recropped = await pictures.process(store.pictures.originalForCrop(id, key), crop);
+        return store.saveCharacter(input, id, recropped);
+      });
     }
     return store.saveCharacter(input, id, prepared);
   }
-  app.post('/api/library', { bodyLimit: 30_000_000 }, async request => {
-    const result = await saveLibrary(request.body); coordinator.changed({ kind: 'library' }); return result;
+  app.post('/api/library', { bodyLimit: librarySaveRequestLimit }, async request => {
+    const result = await saveLibrary(request); coordinator.changed({ kind: 'library' }); return result;
   });
-  app.put('/api/library/:id', { bodyLimit: 30_000_000 }, async request => {
+  app.put('/api/library/:id', { bodyLimit: characterSaveRequestLimit }, async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
-    const result = await saveLibrary(request.body, id); coordinator.changed({ kind: 'library' }); return result;
+    const result = await saveLibrary(request, id); coordinator.changed({ kind: 'library' }); return result;
   });
   app.post('/api/library/contexts/:id/impact', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
@@ -394,6 +425,7 @@ export async function createApp(options: {
     const controller = new AbortController();
     const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); };
     reply.raw.once('close', disconnected);
+    if (reply.raw.destroyed) disconnected();
     try { return pictureAnalysis(await pictures.process(bytes, undefined, controller.signal)); }
     finally { reply.raw.removeListener('close', disconnected); }
   }
@@ -428,34 +460,62 @@ export async function createApp(options: {
     const { revision, memoryImpactToken } = z.object({ revision: revisionSchema, memoryImpactToken: memoryImpactTokenSchema.optional() }).strict().parse(request.body);
     store.saveLibrary(revision, 'contexts', defaultContextPreset, 'default-context', undefined, undefined, memoryImpactToken); coordinator.changed({ kind: 'library' }); return { ok: true };
   });
-  app.post('/api/library/import', { bodyLimit: pictureBase64Limit + 2000 }, async request => {
-    const input = z.object({ revision: revisionSchema, requestId: z.string().uuid().optional(), kind: z.enum(['personas', 'characters']), tagPolicy: tagPolicySchema.optional(), pictureMode: pictureModeSchema.optional(), base64: pictureBase64Schema }).strict().parse(request.body);
-    if (input.kind === 'characters') {
-      const parsed = readCharacterCardFile(input.base64), requestId = input.requestId ?? randomUUID();
-      const artwork = { mode: input.pictureMode ?? 'retain', digest: parsed.artwork ? pictureDigest(parsed.artwork) : null };
-      const replay = store.replayCard(requestId, parsed.value, input.tagPolicy ?? 'none', artwork);
-      if (replay.found) return replay.result;
-      // Metadata review and receipt lookup precede strict artwork validation.
+  async function importCharacterCard(input: z.infer<typeof characterImportCommand> & { pictureMode?: z.infer<typeof pictureModeSchema> }, parsed: ReturnType<typeof readCharacterCardFile> & { digest?: string }) {
+    const requestId = input.requestId ?? randomUUID();
+    const artwork = { mode: input.pictureMode ?? 'retain', digest: parsed.artwork ? parsed.digest ?? pictureDigest(parsed.artwork) : null };
+    const replay = store.replayCard(requestId, parsed.value, input.tagPolicy ?? 'none', artwork);
+    if (replay.found) return replay.result;
+    // Metadata review and receipt lookup precede strict artwork validation.
+    let prepared;
+    if (artwork.mode === 'retain' && parsed.artwork) {
       store.previewCard(parsed.value);
-      const prepared = artwork.mode === 'retain' && parsed.artwork ? await pictures.process(parsed.artwork) : undefined;
-      const result = store.importCard(input.revision, requestId, parsed.value, input.tagPolicy, artwork, prepared);
-      coordinator.changed({ kind: 'library' }); return result;
+      prepared = await pictures.process(parsed.artwork);
     }
+    const result = store.importCard(input.revision, requestId, parsed.value, input.tagPolicy, artwork, prepared);
+    coordinator.changed({ kind: 'library' }); return result;
+  }
+  async function handleCardUpload<T>(request: FastifyRequest, reply: FastifyReply, action: (card: Awaited<ReturnType<typeof readCharacterCardUpload>>) => Promise<T>) {
+    try {
+      return await withCardProcessing(async () => {
+        const stream = z.instanceof(Readable).parse(request.body);
+        const parsed = await readCharacterCardUpload(stream, request.headers['content-length'], cardUploadShutdown.signal);
+        checkEpoch(request);
+        return action(parsed);
+      });
+    } catch (error) {
+      if (!request.raw.complete) reply.header('Connection', 'close');
+      throw error;
+    }
+  }
+  app.post('/api/library/import', { bodyLimit: pictureBase64Limit + 2000 }, async (request, reply) => {
+    if (isBinaryUpload(request)) {
+      const input = binaryCardCommand.parse(request.query);
+      return handleCardUpload(request, reply, parsed => {
+        if (input.digest !== parsed.digest) throw new AppError(409, 'card_file_changed', message('errors.character_card_changed_since_review'));
+        return importCharacterCard(input, parsed);
+      });
+    }
+    const input = characterImportCommand.extend({ kind: z.enum(['personas', 'characters']), pictureMode: pictureModeSchema.optional(), base64: pictureBase64Schema }).strict().parse(request.body);
+    if (input.kind === 'characters') return importCharacterCard(input, readCharacterCardFile(input.base64));
     const value = readCardFile(input.base64);
     let items;
     try { items = importPersonas(value); }
     catch (error) { if (error instanceof ZodError) throw error; throw new AppError(400, 'invalid_card', error instanceof MessageError ? error.localized : error instanceof Error ? error.message : message("errors.invalid_card")); }
     const ids = store.importLibrary(input.revision, input.kind, items); coordinator.changed({ kind: 'library' }); return { ids };
   });
-  app.post('/api/library/characters/preview', { bodyLimit: pictureBase64Limit + 1000 }, async (request, reply) => {
-    const { base64 } = z.object({ base64: pictureBase64Schema }).strict().parse(request.body);
-    const parsed = readCharacterCardFile(base64), review = store.previewCard(parsed.value);
+  async function reviewCharacterCard(parsed: ReturnType<typeof readCharacterCardFile>, reply: FastifyReply) {
+    const review = store.previewCard(parsed.value);
     if (!parsed.artwork) return { ...review, picture: { status: 'none' } };
     try { return { ...review, picture: { status: 'ready', image: await previewPicture(parsed.artwork, reply) } }; }
     catch (error) {
       if (!(error instanceof AppError) || error.status !== 422) throw error;
       return { ...review, picture: { status: 'error', message: error.message } };
     }
+  }
+  app.post('/api/library/characters/preview', { bodyLimit: pictureBase64Limit + 1000 }, async (request, reply) => {
+    if (isBinaryUpload(request)) return handleCardUpload(request, reply, async parsed => ({ ...await reviewCharacterCard(parsed, reply), digest: parsed.digest }));
+    const { base64 } = z.object({ base64: pictureBase64Schema }).strict().parse(request.body);
+    return reviewCharacterCard(readCharacterCardFile(base64), reply);
   });
   app.post('/api/library/tags', async request => {
     const input = z.object({ revision: revisionSchema, name: tagNameSchema }).strict().parse(request.body);
@@ -863,7 +923,7 @@ export async function createApp(options: {
     app.get('/index.html', async (_request, reply) => sendIndex(reply));
     app.setNotFoundHandler((request, reply) => request.url.startsWith('/api/') ? reply.code(404).send({ message: 'Not found.' }) : sendIndex(reply));
   }
-  app.addHook('preClose', async () => { await lan.close(); await pictures.close(); await coordinator.shutdown(); });
+  app.addHook('preClose', async () => { cardUploadShutdown.abort(); await lan.close(); await pictures.close(); await coordinator.shutdown(); });
   app.addHook('onClose', async () => { try { downloads.close(); backups.close(); } finally { store.close(); } });
   return { app, store, coordinator, lan };
 }

@@ -13,9 +13,14 @@ export function savedPictureDraft(picture: CharacterPicture | null): PictureDraf
 }
 export function pictureMutation(draft: PictureDraft, baseline: CharacterPicture | null): PictureMutation | undefined {
   if (!draft) return baseline ? { mode: 'remove' } : undefined;
-  if (draft.origin === 'local' && draft.savedKey === baseline?.key && JSON.stringify(draft.crop) === JSON.stringify(baseline?.crop)) return undefined;
+  const savedKey = draft.origin === 'saved' ? draft.key : draft.savedKey;
+  if (baseline && savedKey === baseline.key) {
+    if (JSON.stringify(draft.crop) === JSON.stringify(baseline.crop)) return undefined;
+    return { mode: 'keep', key: savedKey, crop: draft.crop };
+  }
+  // After reconciliation a cached original can restore the draft over a replacement.
   if (draft.origin === 'local') return { mode: 'replace', base64: draft.base64, crop: draft.crop };
-  return JSON.stringify(draft.crop) === JSON.stringify(baseline?.crop) && draft.key === baseline?.key ? undefined : { mode: 'keep', key: draft.key, crop: draft.crop };
+  return { mode: 'keep', key: draft.key, crop: draft.crop };
 }
 export async function fileBase64(file: File) {
   const bytes = new Uint8Array(await file.arrayBuffer());

@@ -1,5 +1,6 @@
 import { seedTranscript } from './support/transcript-fixture.js';
 import { removePinSchema } from './support/schema-16.js';
+import { restoreLegacyPictureSchema } from './support/schema-17.js';
 import { removeBranchSchema } from './support/schema-15.js';
 import { Readable } from 'node:stream';
 import { removeSortingSchema } from './support/legacy-sorting.js';
@@ -98,6 +99,8 @@ describe('portable backup persistence',() => {
   });
 
   it.each([
+    { sourceEnding: 'LF', targetEnding: 'CRLF', version: 18 },
+    { sourceEnding: 'CRLF', targetEnding: 'LF', version: 18 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 17 },
     { sourceEnding: 'CRLF', targetEnding: 'LF', version: 17 },
     { sourceEnding: 'CRLF', targetEnding: 'LF', version: 16 },
@@ -131,6 +134,13 @@ describe('portable backup persistence',() => {
     const expectedTurns = source.snapshot(chatId).turns;
     const path = join(directory,'input.sqlite');
     writeFileSync(path,await bytes(sourceBackups));
+    if (version < 18) {
+      const legacy = new Database(path);
+      try {
+        restoreLegacyPictureSchema(legacy, sourceMigrations);
+        legacy.exec("PRAGMA user_version = 17; UPDATE backup_metadata SET data = json_set(data, '$.schema', 17)");
+      } finally { legacy.close(); }
+    }
     if (version === 16) {
       const legacy = new Database(path);
       try {
@@ -299,6 +309,7 @@ describe('portable backup persistence',() => {
   it('supports migration from a populated schema-12 input without modifying its source',async () => {
     const db = store('old'), backups = service(db,'old'); const cid = character(db,'Old guide'), chatId = chat(db,cid,'Old story');
     const path = join(directory,'old-input.sqlite'); writeFileSync(path,await bytes(backups)); const old = new Database(path);
+    restoreLegacyPictureSchema(old);
     removeBranchSchema(old);
     removeSortingSchema(old);
     old.exec('DROP TABLE backup_metadata; DROP TABLE dataset_state; DROP TABLE data_commands; PRAGMA user_version = 12'); old.close(); const source = readFileSync(path);

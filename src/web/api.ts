@@ -15,12 +15,13 @@ export class NetworkError extends Error {
 export async function api<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   // Serialize before the transport boundary so local input errors cannot be
   // mistaken for browser network failures. Cancellation keeps its own identity.
-  const encoded = body === undefined ? undefined : JSON.stringify(body);
+  const binary = body instanceof Blob;
+  const encoded = body === undefined ? undefined : binary ? body : JSON.stringify(body);
   let response: Response;
   try {
     response = await fetch(`/api${path}`, {
       method, credentials: 'same-origin', signal,
-      headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json', 'X-ORE-Epoch': datasetEpoch(), Prefer: 'return=minimal' } : {}) },
+      headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': binary ? 'application/octet-stream' : 'application/json', 'X-ORE-Epoch': datasetEpoch(), Prefer: 'return=minimal' } : {}) },
       ...(encoded === undefined ? {} : { body: encoded }),
     });
   } catch (error) {

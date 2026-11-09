@@ -3,6 +3,15 @@ import { MessageError } from '../shared/localization.js';
 import { readCharacterAlternateGreetings, characterSchema, libraryCharacterSchema, personaSchema, type Character, type LibraryCharacter, type Persona } from '../shared/library.js';
 import type { Lorebook } from '../shared/lorebook.js';
 import { exportLorebook } from './lorebook-formats.js';
+import { AppError } from './errors.js';
+import { maxSavedJsonDepth, withinJsonDepth } from './json-depth.js';
+
+export function assertCharacterSourceDepth(source: unknown) {
+  // The saved character places the entire imported object under its source field.
+  if (!withinJsonDepth(source, maxSavedJsonDepth - 1)) {
+    throw new AppError(400, 'character_metadata_depth', message('errors.character_metadata_depth'));
+  }
+}
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new MessageError(message("importErrors.expected_a_card_json_object"));

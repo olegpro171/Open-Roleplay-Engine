@@ -1,7 +1,8 @@
 import { openLibraryActions } from './library-card-helpers';
 import { expect, test, type Page } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import sharp from 'sharp';
-import { cardPng, pngChunk, quadrantPicture, pixel } from '../support/pictures';
+import { cardPng, padCardPng, pngChunk, quadrantPicture, pixel } from '../support/pictures';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { russianPack } from '../../src/shared/localization';
 
@@ -56,6 +57,101 @@ test('imports a PNG card with a null lorebook and retains its picture and greeti
   await expect(page.getByLabel('Greeting', { exact: true })).toHaveValue(source.data.first_mes);
   await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue(source.data.alternate_greetings[0]);
   await expect(page.getByRole('button', { name: 'Extract embedded lorebook', exact: true })).toHaveCount(0);
+});
+
+test('reviews and commits cards above both previous limits on desktop and phone', async ({ page }, testInfo) => {
+  await login(page);
+  const pngName = 'Large PNG browser keeper';
+  const png = padCardPng(cardPng(await quadrantPicture(), fields(pngName)), 12_000_000);
+  const jsonName = 'Large JSON browser keeper';
+  const json = Buffer.from(JSON.stringify({ ...fields(jsonName), extensions: { retained: 'x'.repeat(2_100_000) } }));
+  const picker = page.getByLabel('Import character', { exact: true });
+  const review = page.locator('.character-import-review');
+  for (const [width, name, buffer, extension] of [[1280, pngName, png, 'png'], [390, jsonName, json, 'json']] as const) {
+    await page.setViewportSize({ width, height: 844 });
+    const before = (await library(page)).revision;
+    await picker.setInputFiles({ name: `large.${extension}`, mimeType: extension === 'png' ? 'image/png' : 'application/json', buffer });
+    await expect(review.getByRole('heading', { name: `Review ${name}` })).toBeVisible();
+    await expect(review.locator('.cropped-picture')).toHaveCount(extension === 'png' ? 1 : 0);
+    expect((await library(page)).revision).toBe(before);
+    for (const theme of ['dark', 'light', 'midnight-black']) {
+      await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+      await expect(review.getByRole('button', { name: 'Import', exact: true })).toBeEnabled();
+      expect(await review.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await review.screenshot({ path: testInfo.outputPath(`card-review-${theme}-${width}.png`) });
+    }
+    await review.getByRole('button', { name: 'Import', exact: true }).click();
+    await expect(row(page, name)).toBeVisible();
+    const saved = await library(page);
+    const character = saved.characters.find(item => item.name === name);
+    expect(character?.source?.name).toBe(name);
+    expect(saved.characterPictures.some(picture => picture.characterId === character?.id)).toBe(extension === 'png');
+  }
+});
+
+test('recrops a saved PNG card above the standalone picture limit', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const name = 'Large saved recrop';
+  const png = padCardPng(cardPng(await quadrantPicture(), fields(name)), 12_000_000);
+  await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'large.png', mimeType: 'image/png', buffer: png });
+  await expect(page.getByRole('heading', { name: `Review ${name}` })).toBeVisible();
+  await page.getByRole('button', { name: 'Import', exact: true }).click();
+  await expect(row(page, name)).toBeVisible();
+  const saved = await library(page);
+  const card = saved.characters.find(item => item.name === name);
+  const picture = saved.characterPictures.find(item => item.characterId === card?.id);
+  if (!card || !picture) throw new Error('Missing imported character or picture');
+  await row(page, name).getByRole('button', { name, exact: true }).click();
+  const dialog = await corner(page);
+  await dialog.getByRole('button', { name: 'Use crop', exact: true }).click();
+  const crop = { version: 1, x: 0, y: 0, width: .125, height: .25 };
+  const responsePromise = page.waitForResponse(response => new URL(response.url()).pathname === `/api/library/${card.id}` && response.request().method() === 'PUT');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const response = await responsePromise;
+  expect(response.status(), await response.text()).toBe(200);
+  expect(response.request().postDataJSON().picture).toEqual({ mode: 'keep', key: picture.key, crop });
+  await expect(row(page, name)).toBeVisible();
+  const recropped = (await library(page)).characterPictures.find(item => item.characterId === card.id);
+  if (!recropped) throw new Error('Missing recropped picture');
+  expect(recropped.crop).toEqual(crop);
+  expect(recropped.key).not.toBe(picture.key);
+  const original = await page.request.get(recropped.originalUrl);
+  expect(original.ok()).toBe(true);
+  const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+  expect(digest(await original.body())).toBe(digest(png));
+});
+
+test('keeps a cached crop draft available after another editor replaces its picture', async ({ page }) => {
+  await login(page);
+  const data = fields('Concurrent crop draft');
+  const original = await quadrantPicture();
+  const originalBase64 = original.toString('base64');
+  const initial = await command(page, '/pictures/preview', { base64: originalBase64 });
+  const { id } = await command(page, '/library', {
+    kind: 'characters', data, revision: (await library(page)).revision, requestId: crypto.randomUUID(),
+    expectedPicture: null, picture: { mode: 'replace', base64: originalBase64, crop: initial.crop },
+  });
+  const character = row(page, data.name);
+  await character.getByRole('button', { name: data.name, exact: true }).click();
+  const dialog = await corner(page);
+  await dialog.getByRole('button', { name: 'Use crop', exact: true }).click();
+  const before = await library(page);
+  const picture = before.characterPictures.find(item => item.characterId === id);
+  if (!picture) throw new Error('Missing initial picture');
+  const newerBase64 = (await sharp({ create: { width: 160, height: 160, channels: 3, background: 'teal' } }).png().toBuffer()).toString('base64');
+  const newer = await command(page, '/pictures/preview', { base64: newerBase64 });
+  await command(page, `/library/${id}`, {
+    kind: 'characters', data: { ...data, description: 'Newer text' }, revision: before.revision, requestId: crypto.randomUUID(),
+    expectedPicture: picture.key, picture: { mode: 'replace', base64: newerBase64, crop: newer.crop },
+  }, 'PUT');
+  await page.getByRole('button', { name: 'Use current text and tags; keep my picture draft', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(character).toContainText('Newer text');
+  const recovered = (await library(page)).characterPictures.find(item => item.characterId === id);
+  if (!recovered) throw new Error('Missing recovered picture');
+  expect(recovered.crop).toEqual({ version: 1, x: 0, y: 0, width: .125, height: .25 });
+  expect(await page.request.get(recovered.originalUrl).then(response => response.body())).toEqual(original);
 });
 
 test('fits Russian color controls and centers picture actions across the editor breakpoint', async ({ page }, testInfo) => {

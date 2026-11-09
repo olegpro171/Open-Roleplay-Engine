@@ -10,6 +10,8 @@ import { canonicalTagName, tagNameSchema } from '../shared/tags.js';
 import { cropPixels, cropSchema, pictureLimits } from '../shared/pictures.js';
 import { backupLimits, backupTables, type BackupTable } from '../shared/backups.js';
 import { localizedMessageSchema } from '../shared/localization.js';
+import { characterCardLimits } from '../shared/character-card-limits.js';
+import { withinJsonDepth } from '../core/json-depth.js';
 
 export type BackupRow = Record<string, string | number | null | Buffer>;
 export const rowSchema = z.record(z.string(), z.union([z.string(), z.number().finite(), z.null(), z.instanceof(Buffer)]));
@@ -26,20 +28,29 @@ export function* rows(db: Database.Database, table: BackupTable, projection = '*
     raw = next.get(backup_cursor);
   }
 }
+export function backupTextFieldLimit(table: BackupTable, field: string, row: BackupRow, largeCards = true) {
+  return largeCards && table === 'library' && field === 'data' && row.kind === 'characters'
+    ? characterCardLimits.recordBytes : backupLimits.textBytes;
+}
+
 // Filter oversized fields in SQLite before better-sqlite3 copies a hostile
 // row into JavaScript. UTF-16 databases receive a conservative byte allowance
 // here, followed by the exact UTF-8 text check during reconstruction.
-export function checkUploadedFieldSizes(db: Database.Database, table: BackupTable) {
+export function checkUploadedFieldSizes(db: Database.Database, table: BackupTable, largeCards = true) {
   const columns = z.array(z.object({ name: z.string() })).parse(db.prepare(`PRAGMA table_info("${table}")`).all());
-  const textBytes = db.pragma('encoding', { simple: true }) === 'UTF-8' ? backupLimits.textBytes : backupLimits.textBytes * 2;
+  const textMultiplier = db.pragma('encoding', { simple: true }) === 'UTF-8' ? 1 : 2;
   const bounds: number[] = [];
   const tests = columns.map(({ name }) => {
     const column = `"${name.replaceAll('"', '""')}"`;
     const blobBytes = name === 'original' ? pictureLimits.bytes : name === 'preview' ? pictureLimits.previewBytes : name === 'thumbnail' ? pictureLimits.thumbBytes : backupLimits.textBytes;
-    bounds.push(blobBytes, textBytes);
+    const blobLimit = largeCards && table === 'picture_assets' && name === 'original'
+      ? `CASE WHEN mime = 'image/png' THEN ${characterCardLimits.pngBytes} ELSE ? END` : '?';
+    const textLimit = largeCards && table === 'library' && name === 'data'
+      ? `CASE WHEN kind = 'characters' THEN ${characterCardLimits.recordBytes * textMultiplier} ELSE ? END` : '?';
+    bounds.push(blobBytes, backupLimits.textBytes * textMultiplier);
     return `CASE typeof(${column})
-      WHEN 'blob' THEN length(${column}) > ?
-      WHEN 'text' THEN length(CAST(${column} AS BLOB)) > ?
+      WHEN 'blob' THEN length(${column}) > ${blobLimit}
+      WHEN 'text' THEN length(CAST(${column} AS BLOB)) > ${textLimit}
       ELSE 0 END`;
   });
   if (db.prepare(`SELECT 1 FROM "${table}" WHERE ${tests.join(' OR ')} LIMIT 1`).get(...bounds)) {
@@ -58,12 +69,7 @@ export function json(row: BackupRow, key = 'data'): unknown {
     if (error instanceof BackupValidationError) throw error;
     throw invalidBackup(`Column ${key} contains malformed JSON.`);
   }
-  const pending = [{ value,depth: 0 }];
-  while (pending.length) {
-    const next = pending.pop(); if (!next) break;
-    if (next.depth > 100) throw invalidBackup('JSON nesting exceeds 100 levels.');
-    if (next.value && typeof next.value === 'object') for (const child of Object.values(next.value)) pending.push({ value: child,depth: next.depth+1 });
-  }
+  if (!withinJsonDepth(value)) throw invalidBackup('JSON nesting exceeds 100 levels.');
   return value;
 }
 // Dictionary keys and issue messages can contain uploaded values; expose only known field names.
@@ -137,7 +143,7 @@ export function validateContent(db: Database.Database) {
         if (!valid) throw invalidBackup(`Table ${table}, column ${column.name}: expected ${column.type}.`);
       }
       if (++count > backupLimits.rows) throw invalidBackup('Portable content exceeds the 100,000-row limit.');
-      for (const value of Object.values(row)) if (typeof value === 'string' && Buffer.byteLength(value) > backupLimits.textBytes) throw invalidBackup('A text field exceeds the 16 MiB limit.');
+      for (const [field, value] of Object.entries(row)) if (typeof value === 'string' && Buffer.byteLength(value) > backupTextFieldLimit(table, field, row)) throw invalidBackup('A text field exceeds its size limit.');
       for (const field of ['created_at', 'updated_at', 'message_at']) {
         if (['library', 'connections', 'chats', 'turns'].includes(table) && row[field] !== undefined && row[field] !== null) z.iso.datetime({ precision: 3 }).parse(row[field]);
       }

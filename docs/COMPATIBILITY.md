@@ -145,7 +145,7 @@ An unfinished operation retaining an old lore-control resolution cannot assemble
 
 ### Bounds, inspection and verification
 
-Source JSON: 5 MB; normalized storage: 16 million UTF-16 code units (allows retained root/entry metadata plus editable fields). Character JSON files remain 2 MB; PNG cards allow 10 MB with independent 2 MB embedded-metadata bounds (see [pictures](COMPATIBILITY.md#character-pictures)). Books: 2,000 entries; content/comment: 100,000 characters; key groups: 64 keys of at most 2,000 characters; scan/depth controls: 0–1,000. Metadata nesting is at most 100. Parsing never truncates source text/fields.
+Source JSON: 5 MB; normalized storage: 16 million UTF-16 code units (allows retained root/entry metadata plus editable fields). Standalone character cards have separate [file limits](#character-pictures). Books: 2,000 entries; content/comment: 100,000 characters; key groups: 64 keys of at most 2,000 characters; scan/depth controls: 0–1,000. Metadata nesting is at most 100. Parsing never truncates source text/fields.
 
 Per resolution: at most 20 million scanned original characters, 200 million literal character-by-key work units, 20 million regex work units, 4,096 regex tasks, 32 recursion rounds and 256 decorator lines per entry. Exceeding a work bound is actionable failure before transport. Regex workers use built-in Node isolation with two concurrent workers, 32 queued tasks, resource limits, 500 ms task execution and a shared five-second matcher deadline including queue wait. Cancellation/timeout terminates affected workers; the pool can accept later work. No external regex service/dependency is introduced.
 
@@ -203,23 +203,28 @@ Filters match all selected local tags (AND), include untagged items when none se
 
 Pictures are separate immutable originals/previews with independent Character crop/thumbnail associations; duplication can share original bytes but cannot couple crop edits. No Persona picture/background/remote-asset system is implemented. Cropped portraits appear in Character/Chats libraries, Character selectors and chat sidebars. Library placeholders are independent of the chat portrait visibility setting. Clicking a chat portrait opens the authenticated original with centered fit and Close/Escape/background dismissal.
 
-Manual PNG/JPEG/WebP replacement validates before replacing the recoverable editor draft. Crop uses normalized oriented geometry v1, integer-rounded square pixels and 1×–4× zoom. Use crop accepts a draft; Cancel/Escape restores it; editor Save commits text/tags/picture together. Keep original bytes for recrop/concurrent replacement recovery, not repeated downloads while dragging. Stale saves retain local image/crop while explicitly adopting saved text/tags; exact uncertain-save retries freeze the whole command. Closing/reloading does not persist picture drafts.
+Manual PNG/JPEG/WebP replacement validates before replacing the recoverable editor draft. Crop uses normalized oriented geometry v1, integer-rounded square pixels and 1×–4× zoom. Use crop accepts a draft, Cancel/Escape restores it, and editor Save commits text, tags and picture together. Saving a crop for the reviewed saved picture sends its version key and crop so the server can use the stored original. Cached original bytes support recovery after concurrent replacement within the standalone replacement limit. Stale saves retain local image and crop while explicitly adopting saved text and tags. Exact uncertain-save retries freeze the whole command. Closing or reloading discards picture drafts.
 
 Image-bearing PNG card import validates metadata before art, defaults to centered crop, and blocks the UI commit if art is invalid. No Import without picture UI exists; legacy explicit API modes/receipts remain compatible. Bound metadata extraction/hash and receipt lookup precede strict decode so historical successful receipts remain replayable after stricter decoder changes or deletion. A legacy receipt never attaches newly supplied art. New fingerprints include original digest and effective picture policy, excluding derived encoding versions.
+
+The browser sends the selected card directly as a binary request for review and again on confirmation. The server compares the file digest at confirmation to ensure it matches the reviewed file. One binary card request or saved-picture recrop can run at a time. An incomplete upload releases the slot without saving. Exact retries reuse the command identity and still respect the library revision for new commits. Legacy base64 card commands keep their original file limits.
 
 Pinned sharp validates signature/decoder, applies EXIF orientation, converts sRGB and produces alpha-preserving PNG previews/thumbnails from original pixels. Originals remain exact bytes privately. WebP uses frame zero; APNG uses the IDAT first frame and rejects containers whose default is outside the animation. At most 256 frames are accepted. Renditions strip metadata. Low resolution is a hint, not rejection.
 
 | Bound | Value |
 | --- | --- |
-| Source/image-bearing PNG card | 10,000,000 bytes |
-| JSON / decoded embedded JSON | 2,000,000 bytes |
+| PNG card source and stored original | 100,000,000 bytes |
+| Standalone character JSON source | 20,000,000 bytes |
+| Saved character JSON including source metadata and editable fields | 48,000,000 UTF-8 bytes, backup-compatible nesting for new imports |
+| Decoded embedded JSON | 2,000,000 bytes |
+| Standalone picture upload or replacement | 10,000,000 bytes |
 | PNG metadata scan | 20,000 chunks; 79-byte keyword bound |
 | Relevant/expanded metadata before base64 decode | Independently 2,000,000 bytes |
 | Decoded first frame / oriented edge | 40,000,000 pixels / 16,384 pixels |
 | Thumbnail | 320×320 PNG, compression 6, at most 600,000 bytes |
 | Preview | At most 1,600px edge without enlargement; PNG at most 12,000,000 bytes |
 | Native processing | Two processes, eight queued; 15 seconds including wait |
-| Upload base64 / combined save envelope | 13,333,336 characters / 30,000,000 bytes; field bounds still apply |
+| Picture replacement base64 / combined character edit envelope | 13,333,336 characters / 61,433,336 bytes |
 
 Each native task uses one libvips thread, no sharp cache, 256 MiB V8 heap; native memory is not capped by that heap. Cancellation/timeout kills the child and frees its slot only on exit. Preview disconnect cancels work; submitted saves may finish and need receipt reconciliation. Process decoding outside write transactions. Check picture/library/global-idle preconditions at commit and clean only proven unreferenced assets. Picture-only saves advance picture/cache metadata without changing prompt sources, lore or historical input. Auth precedes resource existence/304; versioned raster resources use private revalidation/ETags and nosniff, originals no-store/safe attachment names. No public upload directory or filesystem URL is created.
 

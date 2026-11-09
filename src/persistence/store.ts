@@ -24,7 +24,8 @@ import { hasPromptMarker } from '../shared/library.js';
 import { readCharacterAlternateGreetings, characterLabel, characterSchema, libraryCharacterSchema, libraryPersonaSchema, personaSchema, defaultPrompt, defaultInstructions, selectionsSchema, type Character, type LibraryCharacter, type LibraryPersona, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary, type PromptSources } from '../shared/library.js';
 import { lorebookSchema, loreDiagnosticSchema, type Lorebook, type LoreImportPreview, type LoreResolution, type LoreState } from '../shared/lorebook.js';
 import { importCharacterLorebook, importLorebook, loreCompatibility, markLoreEdits } from '../core/lorebook-formats.js';
-import { importCharacter } from '../core/cards.js';
+import { assertCharacterSourceDepth, importCharacter } from '../core/cards.js';
+import { characterCardLimits } from '../shared/character-card-limits.js';
 import { semanticFingerprint, unchangedLoreEntries } from '../core/lorebook.js';
 import * as schema from './schema.js';
 import * as legacyLibrarySchema from './legacy-library-schema.js';
@@ -64,6 +65,14 @@ const initialSettings: ChatSettings = {
   lorebookId: null,
 };
 
+export const defaultMigrationsDirectory = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? '../../migrations/' : '../../../migrations/', import.meta.url));
+
+function checkCharacterRecordSize(card: LibraryCharacter) {
+  if (Buffer.byteLength(JSON.stringify(card)) > characterCardLimits.recordBytes) {
+    throw new AppError(400, 'character_record_too_large', message('errors.character_record_too_large'));
+  }
+}
+
 export class Store {
   readonly sqlite: Database.Database;
   readonly db;
@@ -72,7 +81,7 @@ export class Store {
   readonly pictures: PictureStore;
   private readonly ownerToken = randomUUID();
 
-  constructor(filename: string, migrationsDirectory = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? '../../migrations/' : '../../../migrations/', import.meta.url)), options: { mustExist?: boolean } = {}) {
+  constructor(filename: string, migrationsDirectory = defaultMigrationsDirectory, options: { mustExist?: boolean } = {}) {
     if (filename !== ':memory:' && !options.mustExist) mkdirSync(dirname(filename), { recursive: true, mode: 0o700 });
     this.sqlite = new Database(filename, { fileMustExist: options.mustExist ?? false });
     if (filename !== ':memory:') chmodSync(filename, 0o600);
@@ -282,6 +291,13 @@ export class Store {
           this.sqlite.pragma('user_version = 17');
         })();
         version = 17;
+      }
+      if (version === 17) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0018_large_card_pictures.sql'), 'utf8'));
+          this.sqlite.pragma('user_version = 18');
+        })();
+        version = 18;
       }
       if (version !== databaseSchemaVersion) throw new Error('Unsupported database schema version.');
       this.pictures = new PictureStore(this.sqlite, () => this.bumpLibrary());
@@ -656,6 +672,7 @@ export class Store {
           const depthPrompt = card.depth_prompt ?? previous?.depth_prompt;
           if (depthPrompt !== undefined) instructions.depth_prompt = depthPrompt;
           const updated: LibraryCharacter = { ...this.promptCharacter(card), ...instructions, ...(alternate_greetings !== undefined ? { alternate_greetings } : {}), ...(lorebookId !== undefined ? { lorebookId } : {}), ...(titleComment ? { titleComment } : {}), ...(speechColor ? { speechColor } : {}) };
+          checkCharacterRecordSize(updated);
           data = updated;
           if (previous && previous.name !== card.name) for (const chat of this.chats()) if (chat.settings.characterId === identity) this.resetLoreEpoch(chat.id);
           if (old && previous && isDeepStrictEqual(this.comparableCharacter(previous), this.comparableCharacter(updated))) {
@@ -767,7 +784,9 @@ export class Store {
     return preview.diagnostics.map(diagnostic => diagnostic.entryId ? { ...diagnostic, entryId: identities.get(diagnostic.entryId) ?? diagnostic.entryId } : diagnostic);
   }
   private analyzeCard(value: unknown) {
+    assertCharacterSourceDepth(value);
     const card = parseImport(() => importCharacter(value));
+    checkCharacterRecordSize(card);
     const raw = z.record(z.string(), z.unknown()).parse(value);
     const data = raw.spec === 'chara_card_v2' || raw.spec === 'chara_card_v3' ? z.record(z.string(), z.unknown()).parse(raw.data) : raw;
     const book = data.character_book == null ? null : parseImport(() => importCharacterLorebook(data.character_book, card.name, randomUUID, raw.spec === 'chara_card_v3' ? 'v3' : 'v2'));
@@ -780,6 +799,9 @@ export class Store {
       diagnostics: book?.diagnostics ?? [], tags: this.tags.review(tags) };
   }
   replayCard(requestId: string, value: unknown, policy: TagPolicy, artwork?: PictureImportIntent) {
+    // Most commands are new. Avoid serializing large source metadata for legacy
+    // fingerprint variants unless there is a receipt to compare against.
+    if (!this.sqlite.prepare('SELECT 1 FROM lore_commands WHERE request_id = ?').get(requestId)) return { found: false } as const;
     const command = artwork ? { kind: 'character-picture-v1', value, tagPolicy: policy, artwork } : { kind: 'character', value, tagPolicy: policy };
     const legacy = [{ kind: 'character', value, tagPolicy: policy }, ...(policy === 'none' ? [{ kind: 'character', value }] : [])];
     return this.recordedLibraryCommand(requestId, this.libraryCommandFingerprint(command), value => characterImportResultSchema.parse(value), legacy.map(value => this.libraryCommandFingerprint(value)));

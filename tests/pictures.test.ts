@@ -3,20 +3,24 @@ import { rowSchema } from '../src/persistence/backup-validation.js';
 import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { appendFileSync, cpSync, createReadStream, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
 import sharp from 'sharp';
 import { deflateSync } from 'node:zlib';
-import { Store } from '../src/persistence/store.js';
+import { defaultMigrationsDirectory, Store } from '../src/persistence/store.js';
 import { PictureProcessor, pictureDigest, type PreparedPicture } from '../src/server/pictures.js';
 import { createApp } from '../src/server/app.js';
 import { cropFromControls } from '../src/shared/pictures.js';
 import { selectionsSchema, type Character, type CharacterSaveCommand } from '../src/shared/library.js';
 import { readCharacterCardFile } from '../src/server/card-import.js';
-import { cardPng, pixel, pngChunk, quadrantPicture } from './support/pictures.js';
+import { cardPng, padCardPng, pixel, pngChunk, quadrantPicture } from './support/pictures.js';
 import { assembleRequest } from '../src/core/prompt.js';
+import { BackupService } from '../src/server/backups.js';
+import { PassThrough, Readable } from 'node:stream';
+import { readCharacterCardUpload } from '../src/server/card-import.js';
+import { restoreLegacyPictureSchema } from './support/schema-17.js';
 
 const stores: Store[] = [], directories: string[] = [], processors: PictureProcessor[] = [];
 afterEach(async () => { await Promise.all(processors.splice(0).map(p => p.close())); for (const store of stores.splice(0)) store.close(); for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
@@ -57,6 +61,139 @@ it('keeps whole PNG artwork, JSON bytes and expanded/base64 metadata limits inde
   expect(() => readCharacterCardFile(Buffer.alloc(10_000_001).toString('base64'))).toThrow('10 MB');
   const excessiveChunks = Buffer.concat([image.subarray(0,8), ...Array.from({ length: 20_001 }, () => pngChunk('tEXt', Buffer.from('unrelated\0x')))]);
   expect(() => readCharacterCardFile(excessiveChunks.toString('base64'))).toThrow('too many chunks');
+}, 15000);
+
+it('bounds raw uploads by signature and releases partial or stopped reads', async () => {
+  const shutdown = new AbortController();
+  const image = cardPng(await quadrantPicture(), source);
+  const split = await readCharacterCardUpload(Readable.from([image.subarray(0, 3), image.subarray(3)]), String(image.length), shutdown.signal);
+  expect(split.artwork?.equals(image)).toBe(true);
+  const chunkedJson = Readable.from([Buffer.alloc(8, 32), Buffer.alloc(20_000_000, 32)]);
+  await expect(readCharacterCardUpload(chunkedJson, undefined, shutdown.signal)).rejects.toMatchObject({ status: 413 });
+  await expect(readCharacterCardUpload(Readable.from([]), '100000001', shutdown.signal)).rejects.toMatchObject({ status: 413 });
+  const incomplete = readCharacterCardUpload(Readable.from([image.subarray(0, 20)]), String(image.length), shutdown.signal);
+  await expect(incomplete).rejects.toMatchObject({ code: 'card_upload_interrupted' });
+  const waiting = readCharacterCardUpload(new PassThrough(), undefined, shutdown.signal);
+  shutdown.abort();
+  await expect(waiting).rejects.toMatchObject({ code: 'server_stopping' });
+});
+
+it('imports 100 MB PNG and 20 MB JSON cards, recrops the PNG and restores both from backup', async () => {
+  const { app, store } = await createApp({ database: join(directory(), 'source.sqlite') });
+  const backup = new BackupService(store, ':memory:');
+  const destination = open(join(directory(), 'destination.sqlite'));
+  const restore = new BackupService(destination, ':memory:');
+  try {
+    const origin = 'http://localhost:80';
+    const setup = await app.inject({ method: 'POST', url: '/api/setup', headers: { origin, 'content-type': 'application/json' }, payload: { password: 'synthetic-card-password' } });
+    const cookie = required(setup.headers['set-cookie']?.toString()).split(';')[0];
+    const headers = { cookie, origin, 'content-type': 'application/octet-stream' };
+    const preview = (bytes: Buffer) => app.inject({ method: 'POST', url: '/api/library/characters/preview', headers, payload: bytes });
+    const minimalCard = Buffer.from('{"name":"Authorization check"}');
+    const unauthenticated = await app.inject({ method: 'POST', url: '/api/library/characters/preview', headers: { origin, 'content-type': 'application/octet-stream' }, payload: minimalCard });
+    expect(unauthenticated.statusCode).toBe(401);
+    const wrongOrigin = await app.inject({ method: 'POST', url: '/api/library/characters/preview', headers: { ...headers, origin: 'http://other.test' }, payload: minimalCard });
+    expect(wrongOrigin.statusCode).toBe(403);
+    const commit = (bytes: Buffer, revision: number, requestId: string, digest = pictureDigest(bytes)) => app.inject({
+      method: 'POST', url: `/api/library/import?revision=${revision}&requestId=${requestId}&tagPolicy=all&digest=${digest}`, headers, payload: bytes,
+    });
+    const png = padCardPng(cardPng(await quadrantPicture(), source), 100_000_000);
+    const digest = pictureDigest(png);
+    const reviewed = await preview(png);
+    expect(reviewed.statusCode, reviewed.statusCode === 200 ? undefined : reviewed.body).toBe(200);
+    expect(reviewed.json()).toMatchObject({ name: fields.name, picture: { status: 'ready' } });
+    expect(reviewed.json().digest).toBe(digest);
+    const saved = await commit(png, reviewed.json().revision, randomUUID(), reviewed.json().digest);
+    expect(saved.statusCode, saved.body).toBe(200);
+    const pngId = saved.json<{ ids: string[] }>().ids[0];
+    const original = required(store.pictures.get(pngId));
+    expect(pictureDigest(store.pictures.resource(pngId, original.key, 'original').bytes)).toBe(digest);
+    const crop = cropFromControls(original, 2);
+    const { id: _pngId, revision: _pngRevision, ...pngData } = required(store.libraries().characters.find(item => item.id === pngId));
+    const recropped = await app.inject({
+      method: 'PUT', url: `/api/library/${pngId}`, headers: { ...headers, 'content-type': 'application/json' },
+      payload: { ...command(store, pngData, pngId), picture: { mode: 'keep', key: original.key, crop } },
+    });
+    expect(recropped.statusCode, recropped.body).toBe(200);
+    expect(store.pictures.get(pngId)?.crop).toEqual(crop);
+
+    const largeSource = { name: 'Large JSON card', alternate_greetings: Array.from({ length: 199 }, () => 'x'.repeat(100_000)), extensions: { padding: '' } };
+    largeSource.extensions.padding = 'y'.repeat(20_000_000 - Buffer.byteLength(JSON.stringify(largeSource)));
+    const json = Buffer.from(JSON.stringify(largeSource));
+    const jsonReview = await preview(json);
+    expect(jsonReview.statusCode, jsonReview.body).toBe(200);
+    const tooLarge = await preview(Buffer.concat([json, Buffer.from(' ')]));
+    expect(tooLarge.statusCode).toBe(413);
+    const revision = jsonReview.json().revision, requestId = randomUUID();
+    const different = await commit(Buffer.from('{"name":"Changed after review"}'), revision, requestId, jsonReview.json().digest);
+    expect(different.json().code).toBe('card_file_changed');
+    expect(store.libraryRevision()).toBe(revision);
+    const jsonSaved = await commit(json, revision, requestId, jsonReview.json().digest);
+    expect(jsonSaved.statusCode, jsonSaved.body).toBe(200);
+    expect((await commit(json, revision, requestId)).json()).toEqual(jsonSaved.json());
+    const jsonId = jsonSaved.json<{ ids: string[] }>().ids[0];
+    const card = required(store.libraries().characters.find(item => item.id === jsonId));
+    const { id: _id, revision: _revision, ...data } = card;
+    const edited = await app.inject({
+      method: 'PUT', url: `/api/library/${jsonId}`, headers: { ...headers, 'content-type': 'application/json' },
+      payload: { ...command(store, { ...data, description: 'Edited large card' }, jsonId) },
+    });
+    expect(edited.statusCode, edited.body).toBe(200);
+    const deep = await preview(Buffer.from(`{"name":"Deep card","extensions":${'['.repeat(110)}null${']'.repeat(110)}}`));
+    expect(deep.json().code).toBe('character_metadata_depth');
+    expect((await commit(Buffer.from('{"name":"Stale card"}'), revision, randomUUID())).statusCode).toBe(409);
+
+    const file = await backup.export();
+    try {
+      const review = await restore.inspect(createReadStream(file.path), 'synthetic-session');
+      expect(review.blockers).toEqual([]);
+      restore.commit(review.stageId, 'synthetic-session', { requestId: randomUUID(), digest: review.digest, token: review.token, overwrite: true });
+      const picture = required(destination.pictures.get(pngId));
+      expect(picture.crop).toEqual(crop);
+      expect(pictureDigest(destination.pictures.resource(pngId, picture.key, 'original').bytes)).toBe(digest);
+      const restored = required(destination.libraries().characters.find(item => item.id === jsonId));
+      expect(restored.description).toBe('Edited large card');
+      expect(pictureDigest(Buffer.from(JSON.stringify(restored.source)))).toBe(pictureDigest(json));
+      expect(restored.alternate_greetings).toHaveLength(199);
+    } finally { file.cleanup(); }
+  } finally {
+    backup.close();
+    restore.close();
+    await app.close();
+  }
+}, 60000);
+
+it('accepts schema 17 backups and migrates populated picture tables without changing picture identities', async () => {
+  const path = join(directory(), 'legacy-pictures.sqlite');
+  const legacy = open(path);
+  restoreLegacyPictureSchema(legacy.sqlite);
+  legacy.sqlite.pragma('user_version = 17');
+  const prepared = await image();
+  const { ids: [id] } = legacy.importCard(legacy.libraryRevision(), randomUUID(), source, 'all', { mode: 'retain', digest: prepared.digest }, prepared);
+  const before = rows(legacy, ['runtime_owner']);
+  const descriptor = legacy.pictures.get(id);
+  legacy.close();
+  const destination = open(), backup = new BackupService(destination, ':memory:');
+  try {
+    const review = await backup.inspect(createReadStream(path), 'synthetic-session');
+    expect(review.blockers).toEqual([]);
+    backup.commit(review.stageId, 'synthetic-session', { requestId: randomUUID(), digest: review.digest, token: review.token, overwrite: true });
+    expect(destination.pictures.get(id)).toEqual(descriptor);
+    const brokenMigrations = directory();
+    cpSync(defaultMigrationsDirectory, brokenMigrations, { recursive: true });
+    appendFileSync(join(brokenMigrations, '0018_large_card_pictures.sql'), '\nSELECT * FROM forced_migration_failure;\n');
+    expect(() => new Store(path, brokenMigrations)).toThrow('forced_migration_failure');
+    const unchanged = new Database(path, { readonly: true });
+    try {
+      expect(unchanged.pragma('user_version', { simple: true })).toBe(17);
+      expect(unchanged.prepare('SELECT * FROM picture_assets').all()).toEqual(before.picture_assets);
+      expect(unchanged.prepare('SELECT * FROM character_pictures').all()).toEqual(before.character_pictures);
+    } finally { unchanged.close(); }
+    const upgraded = open(path);
+    expect(upgraded.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion);
+    expect(upgraded.sqlite.pragma('foreign_key_check')).toEqual([]);
+    expect(rows(upgraded, ['runtime_owner'])).toEqual(before);
+  } finally { backup.close(); }
 }, 15000);
 
 describe('picture storage and atomic character commands', () => {

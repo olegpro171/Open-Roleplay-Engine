@@ -3,15 +3,15 @@ import Database from 'better-sqlite3';
 import { databaseSchemaVersion } from '../shared/build-info.js';
 import { buildInfo } from './installation.js';
 import { createHash, randomUUID } from 'node:crypto';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statfsSync, statSync, closeSync, createWriteStream, openSync, readSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statfsSync, statSync, closeSync, createWriteStream, openSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { PassThrough, Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { z } from 'zod';
-import { Store } from '../persistence/store.js';
+import { defaultMigrationsDirectory, Store } from '../persistence/store.js';
 import { BackupStore, insertRow, sanitizePortable } from '../persistence/backup-store.js';
-import { checkUploadedFieldSizes, invalidBackup, rows, rowSchema, validateContent } from '../persistence/backup-validation.js';
+import { backupTextFieldLimit, checkUploadedFieldSizes, invalidBackup, rows, rowSchema, validateContent } from '../persistence/backup-validation.js';
 import { backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type BackupMetadata, type DataOutcome } from '../shared/backups.js';
 import { AppError, BackupValidationError } from '../core/errors.js';
 import { isProtectedFile, protectedPayloadMaxBytes, protectFile, unprotectFile, validateFilePassword } from './protected-files.js';
@@ -32,6 +32,7 @@ export class BackupService {
   private readonly directory: string;
   private readonly template: Buffer;
   private readonly schema: ReturnType<typeof schemaEntries>;
+  private readonly schema17: ReturnType<typeof schemaEntries>;
   private readonly schema16: ReturnType<typeof schemaEntries>;
   private readonly schema15: ReturnType<typeof schemaEntries>;
   private readonly schema14: ReturnType<typeof schemaEntries>;
@@ -53,6 +54,9 @@ export class BackupService {
     try {
       this.template = factory.sqlite.serialize();
       this.schema = schemaEntries(factory.sqlite);
+      factory.sqlite.exec('DROP TABLE character_pictures; DROP TABLE picture_assets');
+      factory.sqlite.exec(readFileSync(join(migrationsDirectory ?? defaultMigrationsDirectory, '0010_pictures.sql'), 'utf8'));
+      this.schema17 = schemaEntries(factory.sqlite);
       factory.sqlite.exec('DROP INDEX turns_pinned; ALTER TABLE turns DROP COLUMN pinned');
       this.schema16 = schemaEntries(factory.sqlite);
       factory.sqlite.exec(`DROP INDEX chats_group;
@@ -92,8 +96,8 @@ export class BackupService {
   }
   private validateSchema(db: Database.Database) {
     const version = db.pragma('user_version',{ simple: true });
-    if (version !== 12 && version !== 13 && version !== 14 && version !== 15 && version !== 16 && version !== databaseSchemaVersion) throw invalidBackup(`Unsupported database schema version ${String(version)}; supported versions are 12 through ${databaseSchemaVersion}.`);
-    const expected = (version === databaseSchemaVersion ? this.schema : version === 16 ? this.schema16 : version === 15 ? this.schema15 : version === 14 ? this.schema14 : this.legacySchema).filter(entry => version !== 12 || !['dataset_state','data_commands'].includes(entry.tbl_name));
+    if (version !== 12 && version !== 13 && version !== 14 && version !== 15 && version !== 16 && version !== 17 && version !== databaseSchemaVersion) throw invalidBackup(`Unsupported database schema version ${String(version)}; supported versions are 12 through ${databaseSchemaVersion}.`);
+    const expected = (version === databaseSchemaVersion ? this.schema : version === 17 ? this.schema17 : version === 16 ? this.schema16 : version === 15 ? this.schema15 : version === 14 ? this.schema14 : this.legacySchema).filter(entry => version !== 12 || !['dataset_state','data_commands'].includes(entry.tbl_name));
     const maxObjects = expected.length + 1;
     const maxSqlLength = Math.max(metadataSql.length, ...expected.map(entry => entry.sql?.length ?? 0)) * 2 + 1;
     const actual = masterSchema.parse(db.prepare(`SELECT substr(type, 1, 50) AS type, substr(name, 1, 200) AS name,
@@ -202,6 +206,7 @@ export class BackupService {
       const metadata = this.validateSchema(source);
       const sourceVersion = z.number().int().parse(source.pragma('user_version', { simple: true }));
       const singleBranches = sourceVersion < 16;
+      const largeCards = sourceVersion >= 18;
       // Never migrate/open the upload with Store. Rebuild rows using only the shipped trusted schema.
       writeFileSync(path,this.template,{ mode: 0o600, flag: 'wx' });
       trusted = new Database(path); trusted.pragma('foreign_keys = ON'); trusted.pragma('temp_store = FILE');
@@ -212,12 +217,14 @@ export class BackupService {
         for (const table of backupTables) {
           if (singleBranches && table === 'chat_groups') continue;
           phase = `Reading table ${table}`;
-          checkUploadedFieldSizes(sourceDatabase(), table);
+          checkUploadedFieldSizes(sourceDatabase(), table, largeCards);
           let ordinal = 0;
           for (const row of rows(sourceDatabase(),table)) {
             phase = `Reconstructing table ${table}, record ${++ordinal}`;
             if (++count > backupLimits.rows) throw invalidBackup('Portable content exceeds the 100,000-row limit.');
-            if (Object.values(row).some(value => typeof value === 'string' && Buffer.byteLength(value) > backupLimits.textBytes)) throw invalidBackup(`Table ${table}, record ${ordinal}: a text field exceeds the 16 MiB limit.`);
+            if (Object.entries(row).some(([field, value]) => typeof value === 'string' && Buffer.byteLength(value) > backupTextFieldLimit(table, field, row, largeCards))) {
+              throw invalidBackup(`Table ${table}, record ${ordinal}: a text field exceeds its size limit.`);
+            }
             insertRow(trustedDatabase(),table,row);
           }
         }

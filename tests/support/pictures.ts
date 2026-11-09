@@ -20,6 +20,17 @@ export function pngChunk(type: string, payload: Buffer) {
 export function cardPng(image: Buffer, value: unknown, keyword = 'chara') {
   return Buffer.concat([image.subarray(0, -12), pngChunk('tEXt', Buffer.from(`${keyword}\0${Buffer.from(JSON.stringify(value)).toString('base64')}`)), image.subarray(-12)]);
 }
+export function padCardPng(card: Buffer, byteLength: number) {
+  const padding = pngChunk('vpAg', Buffer.alloc(1_000_000));
+  const chunks = [card.subarray(0, -12)];
+  let remaining = byteLength - card.length;
+  while (remaining >= padding.length + 12) {
+    chunks.push(padding);
+    remaining -= padding.length;
+  }
+  chunks.push(pngChunk('vpAg', Buffer.alloc(remaining - 12)), card.subarray(-12));
+  return Buffer.concat(chunks);
+}
 export async function pixel(bytes: Buffer, x = 0, y = 0) {
   const image = await sharp(bytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   return [...image.data.subarray((y * image.info.width + x) * 4, (y * image.info.width + x) * 4 + 4)];

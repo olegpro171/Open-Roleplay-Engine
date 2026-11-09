@@ -1,7 +1,8 @@
 import { LibraryImport } from './LibraryImport';
 import { LocalizedError, useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { newId } from './uuid';
-import { CroppedPicture, fileBase64, PictureSquare } from './Pictures';
+import { CroppedPicture, PictureSquare } from './Pictures';
+import { characterCardLimits } from '../shared/character-card-limits';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LibrarySnapshot } from '../shared/library';
 import type { CharacterImportResult, CharacterImportReview, TagPolicy } from '../shared/tags';
@@ -9,18 +10,19 @@ import { ApiError, api } from './api';
 import { LoreDiagnostics } from './LorebookEditor';
 import { TagImportOptions } from './Tags';
 
-type Pending = { base64: string; review: CharacterImportReview; requestId: string; policy: TagPolicy; uncertain: boolean };
+type FileReview = CharacterImportReview & { digest: string };
+type Pending = { file: File; review: FileReview; requestId: string; policy: TagPolicy; uncertain: boolean };
 export function CharacterImport({ revision, busy, run, imported, leadingAction, hidden }: { leadingAction?: ReactNode; hidden?: boolean; revision: number; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; imported: (result: CharacterImportResult, missing: boolean) => void }) {
   useLocale();
   const [pending, setPending] = useState<Pending | null>(null), [working, setWorking] = useState(false), [error, setError] = useTextState('');
   const attempt = useRef(0), submitting = useRef(false), analysisAbort = useRef<AbortController | null>(null);
   useEffect(() => () => { attempt.current++; analysisAbort.current?.abort(); }, []);
-  async function analyze(base64: string, requestId: string = newId()) {
+  async function analyze(file: File, requestId: string = newId()) {
     const current = ++attempt.current; setWorking(true); setError('');
     analysisAbort.current?.abort(); const controller = new AbortController(); analysisAbort.current = controller;
     try {
-      const review = await api<CharacterImportReview>('/library/characters/preview', 'POST', { base64 }, controller.signal);
-      if (current === attempt.current) setPending({ base64, review, requestId, policy: 'all', uncertain: false });
+      const review = await api<FileReview>('/library/characters/preview', 'POST', file, controller.signal);
+      if (current === attempt.current) setPending({ file, review, requestId, policy: 'all', uncertain: false });
     } catch (error) { if (current === attempt.current) setError(errorText(error, msg("character_import.could_not_analyze_this_card"))); }
     finally { if (current === attempt.current) setWorking(false); }
   }
@@ -32,7 +34,8 @@ export function CharacterImport({ revision, busy, run, imported, leadingAction, 
     await run(async () => {
       let acknowledged = false;
       try {
-        const result = await api<CharacterImportResult>('/library/import', 'POST', { kind: 'characters', revision: captured.review.revision, requestId: captured.requestId, tagPolicy: captured.policy, pictureMode: 'retain', base64: captured.base64 });
+        const query = new URLSearchParams({ revision: String(captured.review.revision), requestId: captured.requestId, tagPolicy: captured.policy, digest: captured.review.digest });
+        const result = await api<CharacterImportResult>(`/library/import?${query}`, 'POST', captured.file);
         acknowledged = true;
         const snapshot = await api<LibrarySnapshot>('/library');
         if (current !== attempt.current) return;
@@ -55,10 +58,11 @@ export function CharacterImport({ revision, busy, run, imported, leadingAction, 
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
       const current = ++attempt.current; setWorking(true); setError('');
       try {
-        if (file.size > (file.name.toLowerCase().endsWith('.png') ? 10_000_000 : 2_000_000)) throw new LocalizedError(msg("character_import.png_cards_are_limited_to_10_mb"));
-        const base64 = await fileBase64(file);
-        if (current !== attempt.current) return;
-        await analyze(base64);
+        const { pngBytes, jsonBytes } = characterCardLimits;
+        if (file.size > (file.name.toLowerCase().endsWith('.png') ? pngBytes : jsonBytes)) {
+          throw new LocalizedError(msg('character_import.png_cards_are_limited_to_10_mb', { png: pngBytes / 1_000_000, json: jsonBytes / 1_000_000 }));
+        }
+        await analyze(file);
       } catch (error) { if (current === attempt.current) { setError(errorText(error, msg("character_import.could_not_read_the_card"))); setWorking(false); } }
     }} /></div>
     {working && <p role="status">{pending ? t("character_import.saving_or_reviewing_this_import") : t("character_import.analyzing_this_card")}</p>}
