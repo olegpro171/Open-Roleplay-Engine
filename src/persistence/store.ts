@@ -45,6 +45,8 @@ import { contextAtFork } from '../core/branch-context.js';
 import { copyBranchContent } from './branch-copy.js';
 import type { CopyBranch } from '../shared/branches.js';
 import type { ContextState } from '../shared/context.js';
+import { changedMemoryShape, resizedMemoryLayout, shortenedMemoryLayout } from '../core/memory-layout.js';
+import { assertMemoryImpact, memoryCleanupImpact, type MemoryLayoutReview } from './memory-layout-review.js';
 
 function parseImport<T>(parse: () => T): T {
   try { return parse(); }
@@ -316,7 +318,7 @@ export class Store {
   private siblingIds(groupId: string) {
     return this.db.select({ id: schema.chats.id }).from(schema.chats).where(eq(schema.chats.groupId, groupId)).all().map(row => row.id);
   }
-  private saveSharedSettings(chatId: string, settings: ChatSettings) {
+  private saveSharedSettings(chatId: string, settings: ChatSettings, memoryImpactToken?: string) {
     const previous = this.chat(chatId);
     const siblings = this.siblingIds(previous.groupId);
     for (const id of siblings) {
@@ -325,6 +327,9 @@ export class Store {
         throw new AppError(409, 'restore_context_first', message("errors.clear_memory_in_memory_before_disabling_the_context"));
       }
     }
+    const review = this.selectionMemoryReview(previous, settings.contextPresetId);
+    assertMemoryImpact(review.impact, memoryImpactToken);
+    this.applyMemoryLayoutReviews(review.branches);
     const { authorNote, ...shared } = settings;
     this.db.update(schema.chatGroups).set({ settings: shared }).where(eq(schema.chatGroups.id, previous.groupId)).run();
     this.db.update(schema.chats).set({ updatedAt: new Date().toISOString() }).where(eq(schema.chats.groupId, previous.groupId)).run();
@@ -496,6 +501,69 @@ export class Store {
       if (chat.settings[key] === id || usesConnection) this.bumpRevision(chat.id);
     }
   }
+  private layoutReview(chat: ReturnType<Store['chat']>, before: ContextState, cleanup: MemoryLayoutReview['cleanup']): MemoryLayoutReview {
+    return { id: chat.id, title: chat.settings.title, branchName: chat.branchName, revision: chat.revision, before, cleanup };
+  }
+  private memoryTurnMembership(chatId: string) {
+    return this.db.select({ id: schema.turns.id, complete: schema.turns.complete })
+      .from(schema.turns).where(eq(schema.turns.chatId, chatId)).orderBy(asc(schema.turns.position)).all();
+  }
+  private shapeLayoutReviews(chats: ReturnType<Store['chats']>, next: ContextPreset) {
+    return chats.map(chat => {
+      this.ensureIdle(chat.id);
+      this.contexts.ensureLayoutReviewClosed(chat.id);
+      const before = this.contexts.savedState(chat.id);
+      const turns = before.summaries.length ? this.memoryTurnMembership(chat.id) : [];
+      return this.layoutReview(chat, before, resizedMemoryLayout(before, turns, next));
+    });
+  }
+  private describeMemoryImpact(branches: MemoryLayoutReview[], command: unknown) {
+    if (!branches.length) return { branches, impact: null };
+    const turnIds = this.sqlite.prepare('SELECT id FROM turns WHERE chat_id = ? ORDER BY position');
+    const ordinals = new Map<string, Map<string, number>>();
+    const impact = memoryCleanupImpact(branches, command, (chatId, turnId) => {
+      let branch = ordinals.get(chatId);
+      if (!branch) {
+        const rows = turnIds.all(chatId) as { id: string }[];
+        branch = new Map(rows.map(({ id }, index) => [id, index + 1]));
+        ordinals.set(chatId, branch);
+      }
+      return branch.get(turnId) ?? null;
+    });
+    return { branches, impact };
+  }
+  private applyMemoryLayoutReviews(branches: MemoryLayoutReview[]) {
+    for (const { id, before, cleanup } of branches) {
+      if (cleanup.deletedIds.size || cleanup.after.archivedTurnIds.length !== before.archivedTurnIds.length || cleanup.after.selected.length !== before.selected.length) {
+        this.contexts.applyLayoutCleanup(id, cleanup);
+      }
+    }
+  }
+  private presetMemoryReview(revision: number, previous: Saved<ContextPreset> | null, next: ContextPreset) {
+    const branches = previous && changedMemoryShape(previous, next)
+      ? this.shapeLayoutReviews(this.chats().filter(chat => chat.settings.contextPresetId === previous.id), next) : [];
+    return this.describeMemoryImpact(branches, ['preset', revision, previous?.id, next.batchSize, next.promotionGroup]);
+  }
+  contextPresetMemoryImpact(revision: number, presetId: string, next: ContextPreset) {
+    return this.sqlite.transaction(() => {
+      this.checkLibrary(revision);
+      return this.presetMemoryReview(revision, this.contextPreset(presetId), next).impact;
+    })();
+  }
+  private selectionMemoryReview(chat: ReturnType<Store['chat']>, presetId: string | null | undefined) {
+    if (presetId === chat.settings.contextPresetId) return { branches: [], impact: null };
+    const previous = this.contextPreset(chat.settings.contextPresetId);
+    const next = this.contextPreset(presetId);
+    const branches = next && changedMemoryShape(previous, next)
+      ? this.shapeLayoutReviews(this.chats().filter(branch => branch.groupId === chat.groupId), next) : [];
+    return this.describeMemoryImpact(branches, ['selection', chat.groupId, previous?.id, previous?.revision, next?.id, next?.revision]);
+  }
+  contextSelectionMemoryImpact(revision: number, chatId: string, presetId: string | null) {
+    return this.sqlite.transaction(() => {
+      this.checkRevision(revision, chatId);
+      return this.selectionMemoryReview(this.chat(chatId), presetId).impact;
+    })();
+  }
   private chatSummaries(): ChatSummary[] {
     return this.chats().map(chat => ({ id: chat.id, groupId: chat.groupId, branchName: chat.branchName, title: chat.settings.title, characterId: chat.settings.characterId ?? null, revision: chat.revision,
       createdAt: chat.createdAt, updatedAt: chat.updatedAt,
@@ -529,12 +597,11 @@ export class Store {
       chats: this.chatSummaries(),
     };
   }
-  saveLibrary(expected: number, kind: LibraryKind, data: LibraryCharacter | LibraryPersona | PromptPreset | ContextPreset | Connection | Lorebook, id?: string, apiKey?: string, tagIds?: string[]) {
+  saveLibrary(expected: number, kind: LibraryKind, data: LibraryCharacter | LibraryPersona | PromptPreset | ContextPreset | Connection | Lorebook, id?: string, apiKey?: string, tagIds?: string[], memoryImpactToken?: string) {
     if (kind === 'prompts') data = upgradePrompt(data);
     return this.sqlite.transaction(() => {
       this.checkLibrary(expected);
       const identity = id ?? randomUUID();
-      if (kind === 'contexts' && (data as ContextPreset).connectionId) this.connection((data as ContextPreset).connectionId!);
       if (kind === 'connections') {
         const old = this.db.select().from(schema.connections).where(eq(schema.connections.id, identity)).get();
         if (id && !old) throw new AppError(404, 'item_not_found', message("errors.connection_not_found"));
@@ -543,6 +610,16 @@ export class Store {
       } else {
         const old = this.db.select().from(schema.library).where(and(eq(schema.library.id, identity), eq(schema.library.kind, kind))).get();
         if (id && !old) throw new AppError(404, 'item_not_found', message("errors.library_item_not_found"));
+        if (kind === 'contexts') {
+          // HTTP commands validate strictly. Trusted callers can pass the saved
+          // preset including its identity and revision, which live in columns.
+          const next = contextPresetSchema.strip().parse(data);
+          if (next.connectionId) this.connection(next.connectionId);
+          const review = this.presetMemoryReview(expected, old ? this.contextPreset(identity) : null, next);
+          assertMemoryImpact(review.impact, memoryImpactToken);
+          this.applyMemoryLayoutReviews(review.branches);
+          data = next;
+        }
         if (kind === 'lorebooks') {
           const book = lorebookSchema.parse(data);
           const previous = old ? lorebookSchema.parse(old.data) : null;
@@ -856,12 +933,12 @@ export class Store {
       this.bumpLibrary(); return id;
     })();
   }
-  updateChat(expected: number, chatId: string, input: ReturnType<typeof selectionsSchema.parse>) {
+  updateChat(expected: number, chatId: string, input: ReturnType<typeof selectionsSchema.parse>, memoryImpactToken?: string) {
     this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId); this.ensureIdle(chatId); this.validateSelections(input);
       const previous = this.chat(chatId).settings;
       const settings = { ...previous, ...input, instructions: '', character: '', persona: '' };
-      this.saveSharedSettings(chatId, settings);
+      this.saveSharedSettings(chatId, settings, memoryImpactToken);
       // Lorebook usage labels and links are cached with the library revision.
       if (settings.title !== previous.title || settings.lorebookId !== previous.lorebookId) this.bumpLibrary();
     })();
@@ -1013,7 +1090,7 @@ export class Store {
       return { id, created: true };
     })();
   }
-  saveSettings(expected: number, connection: Connection, settings: ChatSettings, apiKey?: string, chatId = 'main') {
+  saveSettings(expected: number, connection: Connection, settings: ChatSettings, apiKey?: string, chatId = 'main', memoryImpactToken?: string) {
     this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId); this.ensureIdle();
       this.selected(settings.promptId, 'prompts'); this.selected(settings.characterId, 'characters'); this.selected(settings.personaId, 'personas');
@@ -1026,7 +1103,7 @@ export class Store {
       if (apiKey !== undefined) this.db.insert(schema.credentials).values({ id: connectionId, apiKey }).onConflictDoUpdate({ target: schema.credentials.id, set: { apiKey } }).run();
       this.saveSharedSettings(chatId, { ...settings, authorNote: settings.authorNote ?? previous.authorNote, connectionId,
         lorebookId: settings.lorebookId === undefined ? previous.lorebookId ?? null : settings.lorebookId,
-        contextPresetId: settings.contextPresetId === undefined ? previous.contextPresetId ?? null : settings.contextPresetId });
+        contextPresetId: settings.contextPresetId === undefined ? previous.contextPresetId ?? null : settings.contextPresetId }, memoryImpactToken);
       this.bumpAffected('connections', connectionId, groupId);
       this.bumpLibrary();
     })();
@@ -1210,9 +1287,35 @@ export class Store {
       this.bumpRevision(chatId);
     })();
   }
-  deleteTurn(expected: number, turnId: string, chatId = 'main') {
+  private turnDeletionMemoryReview(turnId: string, chatId: string) {
+    const turn = this.db.select({ id: schema.turns.id }).from(schema.turns).where(and(eq(schema.turns.id, turnId), eq(schema.turns.chatId, chatId))).get();
+    if (!turn) throw new AppError(404, 'turn_not_found', message('errors.turn_not_found'));
+    const latest = this.db.select({ id: schema.turns.id }).from(schema.turns).where(eq(schema.turns.chatId, chatId)).orderBy(desc(schema.turns.position)).get();
+    const branches: MemoryLayoutReview[] = [];
+    if (turn.id === latest?.id) {
+      this.contexts.ensureLayoutReviewClosed(chatId);
+      const before = this.contexts.savedState(chatId);
+      if (before.summaries.length || before.archivedTurnIds.length) {
+        const chat = this.chat(chatId);
+        const turns = this.memoryTurnMembership(chatId);
+        const minTail = this.contextPreset(chat.settings.contextPresetId)?.minTail ?? 0;
+        branches.push(this.layoutReview(chat, before, shortenedMemoryLayout(before, turns, minTail)));
+      }
+    }
+    return this.describeMemoryImpact(branches, ['delete-turn', chatId, turnId]);
+  }
+  turnDeletionMemoryImpact(expected: number, turnId: string, chatId = 'main') {
+    return this.sqlite.transaction(() => {
+      this.checkRevision(expected, chatId); this.ensureIdle(chatId);
+      return this.turnDeletionMemoryReview(turnId, chatId).impact;
+    })();
+  }
+  deleteTurn(expected: number, turnId: string, chatId = 'main', memoryImpactToken?: string) {
     this.sqlite.transaction(() => {
       this.checkRevision(expected, chatId); this.ensureIdle(chatId);
+      const review = this.turnDeletionMemoryReview(turnId, chatId);
+      assertMemoryImpact(review.impact, memoryImpactToken);
+      this.applyMemoryLayoutReviews(review.branches);
       this.sqlite.prepare('DELETE FROM lore_operations WHERE chat_id = ? AND operation_id IN (SELECT id FROM generations WHERE chat_id = ? AND turn_id = ?)').run(chatId, chatId, turnId);
       if (!this.db.delete(schema.turns).where(and(eq(schema.turns.id, turnId), eq(schema.turns.chatId, chatId))).run().changes) throw new AppError(404, 'turn_not_found', message("errors.turn_not_found"));
       this.resetLoreEpoch(chatId);

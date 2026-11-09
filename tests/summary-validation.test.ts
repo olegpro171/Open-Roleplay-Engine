@@ -169,7 +169,7 @@ describe('summary retry policy boundary', () => {
   it.each([-1, 1.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1, '10', null])('rejects invalid retry counts: %j', maxRetries => {
     expect(summaryRetrySchema.safeParse({ maxRetries }).success).toBe(false);
   });
-  it.each([0, 1, 10])('accepts whole retry counts including unlimited: %j', maxRetries => {
+  it.each([0, 1, 10])('accepts whole retry counts including the default sentinel: %j', maxRetries => {
     expect(summaryRetrySchema.parse({ maxRetries })).toEqual({ maxRetries });
   });
 });

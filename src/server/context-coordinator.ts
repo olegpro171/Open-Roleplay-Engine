@@ -1,30 +1,71 @@
+import { randomUUID } from 'node:crypto';
 import { message, type LocalizedMessage } from '../shared/localization.js';
-import type { ChatBehavior } from '../shared/chat-behavior.js';
+import { defaultChatBehavior, type ChatBehavior } from '../shared/chat-behavior.js';
 import type { EngineSnapshot } from '../shared/contracts.js';
 import { assembleRequest } from '../core/prompt.js';
 import { fitsInputTarget } from '../core/input-target.js';
-import { setTimeout as delay } from 'node:timers/promises';
+import { setImmediate as yieldForCommands, setTimeout as delay } from 'node:timers/promises';
 import { AppError } from '../core/errors.js';
 import { contextPlan, summaryRequest } from '../core/context-plan.js';
-import { nextRepair } from '../core/context.js';
+import { correctionDiagnostic } from '../core/context-corrections.js';
+import { belowMinimumTail, minimumTailDiagnostic, nextRepair } from '../core/context.js';
 import { generateSummary, RefusedSummaryError } from './summarizer.js';
 import type { Store } from '../persistence/store.js';
 import type { Provider } from '../provider/openai.js';
-import type { ContextJob, RepairAction, SummaryRetry, SummaryNode, SummaryPhase, ContextJobProgress } from '../shared/context.js';
+import { preparationRunLimit, type ContextJob, type PreparationDeletionPreview, type RepairAction, type SummaryRetry, type SummaryNode, type SummaryPhase, type ContextJobProgress } from '../shared/context.js';
 import { hasPromptMarker } from '../shared/library.js';
 import type { LoreRegexPool } from './lore-regex.js';
 import { resolveRequestLore } from './lore-resolution.js';
 import type { LoreResolution } from '../shared/lorebook.js';
 
+function preparationLimitReached() {
+  return new AppError(422, 'preparation_run_limit', message('memory.preparation_run_limit', { limit: preparationRunLimit }));
+}
+
 export class ContextCoordinator {
   private active = new Map<string, { controller: AbortController; task: Promise<void>; generationId: string | null }>();
   private phases = new Map<string, SummaryPhase>();
+  private retrying = new Set<string>();
+  private deletionReviews = new Map<string, { token: string; preview: Omit<PreparationDeletionPreview, 'token'>; resume: () => void }>();
   private stopping = false;
   private preflights = new Set<AbortController>();
   constructor(private store: Store, private provider: Provider, private changed: (chatId: string) => void, private loreRegex: LoreRegexPool) {}
+  liveProgress(id: string): Pick<ContextJobProgress, 'phase' | 'retrying' | 'deletionReviewToken'> {
+    const review = this.deletionReviews.get(id);
+    if (review) return { deletionReviewToken: review.token };
+    return this.retrying.has(id) ? { retrying: true } : { phase: this.phases.get(id) };
+  }
+  deletionPreview(id: string): PreparationDeletionPreview {
+    const review = this.deletionReviews.get(id);
+    if (!review || this.store.contexts.job(id).status !== 'running') throw new AppError(409, 'memory_impact_changed', message('memory.cleanup_changed'));
+    return { token: review.token, ...review.preview };
+  }
+  confirmDeletion(id: string, token: string) {
+    const review = this.deletionReviews.get(id);
+    if (this.stopping || !review || review.token !== token) throw new AppError(409, 'memory_impact_changed', message('memory.cleanup_changed'));
+    this.store.contexts.confirmPreparationDeletion(id, review.preview);
+    this.deletionReviews.delete(id);
+    review.resume();
+  }
+  private async waitForDeletionReview(job: ContextJob, preview: Omit<PreparationDeletionPreview, 'token'>, signal: AbortSignal) {
+    if (signal.aborted || this.stopping) return;
+    const token = randomUUID();
+    let abort: (() => void) | undefined;
+    try {
+      await new Promise<void>(resolve => {
+        abort = resolve;
+        signal.addEventListener('abort', abort, { once: true });
+        this.deletionReviews.set(job.id, { token, preview, resume: resolve });
+        this.changed(job.chatId);
+      });
+    } finally {
+      if (abort) signal.removeEventListener('abort', abort);
+      this.deletionReviews.delete(job.id);
+    }
+  }
   progress(id: string): ContextJobProgress {
-    const { status } = this.store.contexts.job(id);
-    return { status, ...(status === 'running' ? { phase: this.phases.get(id) } : {}) };
+    const { status, working } = this.store.contexts.job(id);
+    return { status, ...(status === 'running' ? this.liveProgress(id) : {}), ...(working ? { working } : {}) };
   }
   hasActiveWork() { return this.active.size > 0 || this.preflights.size > 0; }
   async startResolved(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>, retry?: SummaryRetry) {
@@ -69,27 +110,37 @@ export class ContextCoordinator {
     return { jobId: id };
   }
   private dispatch(id: string, parentSignal?: AbortSignal): Promise<void> {
+    const { chatId, generationId } = this.store.contexts.job(id);
     const controller = new AbortController();
     const signal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal;
-    const task = this.run(id, signal).finally(() => { if (this.active.get(id)?.controller === controller) this.active.delete(id); });
-    this.active.set(id, { controller, task, generationId: this.store.contexts.job(id).generationId }); this.changed(this.store.contexts.job(id).chatId);
+    const task = Promise.resolve().then(() => this.run(id, chatId, signal))
+      .finally(() => { if (this.active.get(id)?.controller === controller) this.active.delete(id); });
+    this.active.set(id, { controller, task, generationId });
+    this.changed(chatId);
     return task;
   }
   async prepareForGeneration(chatId: string, generationId: string, signal: AbortSignal, behavior: ChatBehavior) {
+    if (signal.aborted || this.stopping) return;
     const snapshot = { ...this.store.generationSnapshot(generationId), loreResolution: this.store.loreOperation(generationId) };
     if (!snapshot.connection || !hasPromptMarker(snapshot.sources.prompt, 'summary') || !snapshot.context.preset) return;
-    const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context, { validateLimits: false, lore: snapshot.loreResolution });
+    if (hasPromptMarker(snapshot.sources.prompt, 'messages') && belowMinimumTail(snapshot.turns, snapshot.context, snapshot.context.preset.minTail)) {
+      throw new AppError(422, 'context_blocked', minimumTailDiagnostic);
+    }
     // Physical overflow is validated by final request assembly. It never adds
     // a preparation trigger when the working target permits this input.
-    if (fitsInputTarget(request.budget.inputTokens, snapshot.settings.targetInputTokens, behavior)) return;
-    const plan = contextPlan(snapshot);
-    if (plan.blocked) throw new AppError(422, 'context_blocked', plan.blockedMessage ?? plan.blocked);
-    if (plan.ready) return;
+    try {
+      const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context, { validateLimits: false, lore: snapshot.loreResolution });
+      if (fitsInputTarget(request.budget.inputTokens, snapshot.settings.targetInputTokens, behavior)) return;
+    } catch (error) {
+      if (!(error instanceof AppError) || error.code !== 'correction_reconciliation_required') throw error;
+      const plan = contextPlan(snapshot);
+      if (plan.blockedMessage?.key !== correctionDiagnostic.key || plan.repairCount) throw error;
+    }
     const retry = behavior.autoRetryMemory ? { maxRetries: behavior.memoryMaxRetries } : undefined;
     const { job, fresh } = this.store.contexts.begin(chatId, snapshot.revision, generationId, 'prepare', generationId, undefined, retry);
     if (fresh) await this.dispatch(job.id, signal);
     const completed = this.store.contexts.job(job.id);
-    if (completed.status !== 'succeeded') throw new AppError(422, 'context_failed', completed.errorMessage ?? completed.error ?? 'Context preparation did not finish. Resume from Memory before retrying the response.');
+    if (completed.status !== 'succeeded') throw new AppError(422, 'context_failed', completed.errorMessage ?? completed.error ?? message('memory.preparation_did_not_finish'));
   }
   async prepareAfterGeneration(chatId: string, generationId: string, behavior: ChatBehavior) {
     const snapshot = this.store.engineSnapshot(chatId);
@@ -128,55 +179,81 @@ export class ContextCoordinator {
       throw error;
     }
   }
-  private async run(id: string, signal: AbortSignal) {
-    const chatId = this.store.contexts.job(id).chatId;
+  private async run(id: string, chatId: string, signal: AbortSignal) {
     try {
       while (!signal.aborted && !this.stopping) {
-        const job = this.store.contexts.job(id), snapshot = this.store.contexts.operationSnapshot(id);
+        const job = this.store.contexts.job(id);
+        if (job.status !== 'running') return;
+        const snapshot = this.store.contexts.operationSnapshot(id);
         const plan = contextPlan(snapshot);
         const replacements = new Map();
-        const operation = job.mode === 'repair' ? nextRepair(snapshot.turns, snapshot.context, replacements) : plan.next;
-        if (job.mode !== 'repair' && plan.blocked) throw new AppError(422, 'context_blocked', plan.blockedMessage ?? plan.blocked);
+        const repairing = job.mode === 'repair';
+        const operation = repairing ? nextRepair(snapshot.turns, snapshot.context, replacements) : plan.next;
+        if (!repairing) {
+          this.store.contexts.trackPlan(id, plan);
+          if (operation && job.stepCount >= preparationRunLimit) throw preparationLimitReached();
+          const deletion = this.store.contexts.previewPreparationDeletion(job, snapshot, plan);
+          if (deletion) {
+            await this.waitForDeletionReview(job, deletion, signal);
+            continue;
+          }
+          if (plan.blocked) throw new AppError(422, 'context_blocked', plan.blockedMessage ?? plan.blocked);
+        }
+        // Measure first. A fitting request after the last allowed step succeeds.
         if (!operation) { this.store.contexts.finish(id, 'succeeded'); this.changed(chatId); return; }
-        if (job.mode === 'repair' && this.store.contexts.revalidateRepair(id)) { this.changed(chatId); await new Promise<void>(resolve => setImmediate(resolve)); continue; }
-        if (job.mode !== 'repair' && this.store.contexts.reuseNext(id)) {
+        if (repairing && this.store.contexts.revalidateRepair(id)) { this.changed(chatId); await yieldForCommands(); continue; }
+        if (!repairing && plan.reusable && this.store.contexts.reuseNext(id)) {
           this.changed(chatId);
           if (job.mode === 'step') { this.store.contexts.finish(id, 'succeeded'); this.changed(chatId); return; }
+          await yieldForCommands();
           continue;
         }
         const connectionId = job.config.connectionId ?? (snapshot.settings.connectionId === undefined ? 'main' : snapshot.settings.connectionId);
         if (operation.turnIds.length && !connectionId) throw new AppError(422, 'summary_connection_required', message("errors.select_a_roleplay_connection_to_measure_the_complete"));
         const connection = operation.turnIds.length && connectionId ? this.store.connection(connectionId) : null;
         const prepared = connection ? summaryRequest(snapshot, operation, connection, replacements, operation.repair ? this.store.contexts.sourceRequest(job.chatId, operation.repair) : null) : { request: null, prior: [] };
+        const maxRetries = !repairing && job.retry ? job.retry.maxRetries || defaultChatBehavior.memoryMaxRetries : 0;
         let retries = 0;
         let saved: SummaryNode | undefined;
-        while (true) {
+        while (!signal.aborted && !this.stopping) {
           const step = this.store.contexts.beginStep(id, operation, prepared.request, plan.inputTokens);
+          if (prepared.request) this.phases.set(id, 'connecting');
           this.changed(chatId);
+          if (signal.aborted || this.stopping) break;
           let text: string;
           try {
-            text = prepared.request && connectionId ? await generateSummary(this.provider, prepared.request, this.store.connectionApiKey(connectionId), signal, phase => this.phases.set(id, phase)) : '';
+            text = prepared.request && connectionId ? await generateSummary(this.provider, prepared.request, this.store.connectionApiKey(connectionId), signal, phase => {
+              if (this.phases.get(id) === phase) return;
+              this.phases.set(id, phase);
+              this.changed(chatId);
+            }) : '';
           } catch (error) {
             // Retry only provider/output failures. Planning and commit failures need user action.
             if (signal.aborted || this.stopping || !(error instanceof AppError) || error.status !== 502) throw error;
-            this.store.contexts.failAttempt(step, error.localized ?? error.message, job.mode === 'repair' && error instanceof RefusedSummaryError ? error.rejectedText : undefined);
-            this.changed(chatId);
-            if (!job.retry || job.retry.maxRetries !== 0 && retries >= job.retry.maxRetries) throw error;
+            this.store.contexts.failAttempt(step, error.localized ?? error.message, repairing && error instanceof RefusedSummaryError ? error.rejectedText : undefined);
+            if (retries >= maxRetries) throw error;
+            if (job.stepCount + retries + 1 >= preparationRunLimit) throw preparationLimitReached();
             retries++;
-            await delay(1000, undefined, { signal });
+            this.phases.delete(id);
+            this.retrying.add(id);
+            this.changed(chatId);
+            try { await delay(1000, undefined, { signal }); }
+            finally { this.retrying.delete(id); }
             continue;
           }
           if (signal.aborted || this.stopping) break;
           saved = this.store.contexts.completeStep(step, text, prepared.prior);
+          this.phases.delete(id);
           break;
         }
         if (!saved) break;
         this.changed(chatId);
-        if (job.mode === 'repair') {
-          if (saved.approved) { await new Promise<void>(resolve => setImmediate(resolve)); continue; }
+        if (repairing) {
+          if (saved.approved) { await yieldForCommands(); continue; }
           this.store.contexts.finish(id, 'awaiting_review'); this.changed(chatId); return;
         }
         if (job.mode === 'step') { this.store.contexts.finish(id, 'succeeded'); this.changed(chatId); return; }
+        await yieldForCommands();
       }
       if (!this.stopping) this.store.contexts.finish(id, 'cancelled', message("interface.preparation_stopped_previously_saved_replacements_remain_selected_resume"));
     } catch (error) {
@@ -187,8 +264,8 @@ export class ContextCoordinator {
     const operation = this.active.get(id), job = this.store.contexts.job(id);
     if (!operation || job.status !== 'running') throw new AppError(409, 'inactive_context_job', message("errors.this_memory_operation_is_no_longer_running"));
     if (job.generationId) throw new AppError(409, 'response_owns_preparation', message("errors.cancel_the_running_response_to_stop_its_memory"));
-    operation.controller.abort();
     this.store.contexts.finish(id, 'cancelled', message("interface.preparation_stopped_previously_saved_replacements_remain_selected_resume"));
+    operation.controller.abort();
     this.changed(job.chatId);
   }
   cancelForGeneration(generationId: string) {

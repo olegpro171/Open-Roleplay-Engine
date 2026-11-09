@@ -52,4 +52,21 @@ describe('saved summary reuse', () => {
     node.prior = [{ id: revised.id, revision: 1 }];
     expect(savedReplacement(snapshot, next)?.node).toBe(node);
   });
+
+  it('reuses a saved promotion only for the selected child revisions it consumes', () => {
+    const { snapshot, node: first } = fixture();
+    const second = { ...first, id: 'second', turns: snapshot.turns.slice(2, 4).map(sourceOf) };
+    const children = [first, second].map(({ id, revision }) => ({ id, revision }));
+    const turns = [...first.turns, ...second.turns], turnIds = turns.map(source => source.turnId);
+    const alternate = { ...first, id: 'alternate' };
+    const promotion = { ...first, id: 'promotion', level: 2, turns, children: [{ id: alternate.id, revision: alternate.revision }, children[1]] };
+    snapshot.context = { ...snapshot.context, selected: children, archivedTurnIds: turnIds, summaries: [first, second, alternate, promotion] };
+    const operation = { level: 2, turnIds, children };
+    expect(savedReplacement(snapshot, operation)).toBeNull();
+    promotion.children = children;
+    const replacement = savedReplacement(snapshot, operation);
+    expect(replacement?.node).toBe(promotion);
+    expect(replacement?.state.selected).toEqual([{ id: promotion.id, revision: promotion.revision }]);
+    expect(replacement?.state.archivedTurnIds).toEqual(turnIds);
+  });
 });

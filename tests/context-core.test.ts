@@ -16,8 +16,8 @@ describe('stateful layered context', () => {
     const recent = Array.from({ length: 7 }, (_, i) => node(`recent-${i}`, 2, turns.slice(4 + i * 2, 6 + i * 2)));
     const summaries = [node('older', 1, turns.slice(0, 2)), { ...manual, turns: turns.slice(2, 4).map(sourceOf) }, ...recent];
     const sizes = new Map(summaries.map(node => [refKey(node), 500]));
-    // Legacy selections can contain this hole. A deeper promotion would cement
-    // it; manual Prepare must restore chronological detail first.
+    // Legacy selections can contain this hole. Forward preparation cannot
+    // make a newer range deeper than the older selected span.
     expect(rankedPromotions(summaries, { ...defaultContextPreset, promotionGroup: 2, retainedPerLevel: 1 }, sizes)).toEqual([]);
   });
   it('orders over a hundred affected dependencies once, excluding unrelated retained versions', () => {

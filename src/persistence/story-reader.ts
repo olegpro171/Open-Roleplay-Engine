@@ -5,7 +5,7 @@ import { promptDiagnostics } from '../core/prompt-diagnostics.js';
 import { staleSummarySources } from '../core/context.js';
 import { refKey } from '../shared/context.js';
 import { refusalAffected, refusalFindings } from '../core/summary-refusals.js';
-import { transcriptQuerySchema, type PinList, type StoryGeneration, type StorySnapshot, type TranscriptQuery } from '../shared/transcript.js';
+import { transcriptQuerySchema, type PinList, type StoryGeneration, type StoryPreparation, type StorySnapshot, type TranscriptQuery } from '../shared/transcript.js';
 import { pinnedExcerpts } from '../core/pinned-turns.js';
 import { hasPromptMarker } from '../shared/library.js';
 import type { Store } from './store.js';
@@ -48,9 +48,20 @@ export class StoryReader {
         .where(eq(schema.turns.chatId, chatId)).all();
       const stale = staleSummarySources(sources, context);
       const refused = refusalAffected(context);
+      const activePreparation = context.jobs.find(job => job.status === 'running');
+      const latestPreparation = activePreparation ?? context.jobs[0];
+      let preparation: StoryPreparation | null = null;
+      if (latestPreparation && (activePreparation || latestPreparation.sourceRevision === header.revision)) {
+        const { id, generationId, mode, status, error, errorMessage, working } = latestPreparation;
+        preparation = {
+          id, generationId, mode, status, error, errorMessage,
+          completedSteps: (latestPreparation.reusedCount ?? 0) + (latestPreparation.generatedCount ?? 0),
+          ...(working ? { working: { inputTokens: working.inputTokens, targetInputTokens: working.targetInputTokens, level: working.operation?.level ?? null } } : {}),
+        };
+      }
       return {
         ...header, promptDiagnostics: promptDiagnostics(header.sources, header.settings.authorNote, pinCount > 0), sources: { ...header.sources, lorebook: undefined }, totalTurns, pinCount, latestTurn, latestGeneration,
-        preparing: this.store.contexts.running(chatId),
+        preparing: Boolean(activePreparation), preparation,
         memory: { revision: context.revision, selectedCount: context.selected.length, awaitingReview: context.jobs.some(job => job.status === 'awaiting_review'), refusalCount: refusalFindings(context).length, refusalBlocked: context.selected.some(ref => refused.has(refKey(ref))),
           archivedCount: sources.filter(source => archived.has(source.turnId)).length, stale: context.selected.some(ref => stale.has(refKey(ref))) },
         page: { turns: turns.map((turn, index) => ({ ...turn, ordinal: start + index + 1, archived: archived.has(turn.id) })),

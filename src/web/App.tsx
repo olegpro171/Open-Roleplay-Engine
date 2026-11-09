@@ -12,7 +12,7 @@ import { chatDefaultsStatusSchema, initialChatDefaults, type ChatDefaultsStatus 
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { ApplicationSettings } from './ApplicationSettings';
-import { useConfirmation } from './Confirmation';
+import { useMemoryCleanup } from './MemoryCleanupReview';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import type { ChatToolsSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError, datasetChanged } from './api';
@@ -25,6 +25,7 @@ import { ChatSetup, Libraries, type LibraryTarget } from './Libraries';
 import { Dropdown } from './Controls';
 import { trimBoundaryNewlines } from '../shared/text';
 import { Memory } from './Memory';
+import { PreparationStatus } from './PreparationStatus';
 import { transcriptInitialSize, transcriptBatchSize, transcriptWindowLimit, type StorySnapshot } from '../shared/transcript';
 import { BudgetBreakdown, InputMeter, PromptPeek, LoreInspection } from './PromptPeek';
 import { useTranscriptScroll } from './useTranscriptScroll';
@@ -123,7 +124,7 @@ export function App() {
   const composerKeyboard = useComposerKeyboard(isIOS && tab === 'story');
   useTouchScrollGuard(isIOS && session?.authenticated === true && tab === 'story');
   const [libraryTarget, setLibraryTarget] = useState<LibraryTarget | null>(null);
-  const confirmAction = useConfirmation(`${chatId}:${tab}:${session?.authenticated}`);
+  const reviewMemoryCleanup = useMemoryCleanup(command, `${chatId}:${tab}:${session?.authenticated}`);
   const drafts = useChatDraft(chatId);
   const draft = drafts.text;
   const [busy, setBusy] = useState(false);
@@ -433,7 +434,9 @@ export function App() {
   }, [tab, snapshot?.id, snapshot?.page, edit, pageError]);
 
   const active = snapshot?.latestGeneration?.status === 'running' ? snapshot.latestGeneration : undefined;
-  const preparing = snapshot?.preparing;
+  const preparation = snapshot?.preparation;
+  const preparing = preparation?.status === 'running' ? preparation : undefined;
+  const regenerationPreparation = active?.kind === 'regeneration' && preparing?.generationId === active.id;
   const working = Boolean(active || preparing);
   const authorNote = useAuthorNote(snapshot, working || busy || dataChanged, (id, status) => {
     const current = snapshotRef.current;
@@ -454,6 +457,9 @@ export function App() {
   const memoryStale = summariesEnabled && Boolean(snapshot?.memory.stale || snapshot?.memory.refusalBlocked);
   const pending = snapshot?.latestTurn?.complete === false;
   const latest = snapshot?.latestGeneration;
+  const interruption = preparation?.status === 'interrupted' && preparation.generationId === latest?.id
+    ? preparation.errorMessage ?? preparation.error : null;
+  const latestError = interruption ?? latest?.errorMessage ?? latest?.error;
   const history = useGenerationHistory(snapshot?.id ?? null, tab === 'request', `${toolRefresh}:${snapshot?.latestGeneration?.id}:${snapshot?.latestGeneration?.status}:${snapshot?.latestGeneration?.requestAvailable}`, generationId);
   useEffect(() => {
     if (tab === 'request' && history.missingSelected && !history.loading && !history.error && generationId) setGenerationId('');
@@ -462,7 +468,7 @@ export function App() {
     ?? (history.selected?.id === generationId ? history.selected : null);
   const requestOptions = shownGeneration && !history.items.some(item => item.id === shownGeneration.id)
     ? [shownGeneration, ...history.items] : history.items;
-  const preview = useRequestPreview(snapshot, draft, tab !== 'library' && tab !== 'data', tab === 'request' && !generationId || peek);
+  const preview = useRequestPreview(snapshot, regenerationPreparation ? '' : draft, tab !== 'library' && tab !== 'data', tab === 'request' && !generationId || peek);
   const currentRequest = snapshot?.connection ? preview.estimate : null;
   const inspectionCurrent = preview.current;
   const inspectionError = formatMessage(preview.error) || (!currentRequest && snapshot?.connection ? t('app.counting_current_input') : '');
@@ -675,7 +681,7 @@ export function App() {
                   <button type="button" className="quiet" onClick={() => setEdit(null)}>{t("app.cancel_edit")}</button>
                 </div>
               </form> : <div className="prose">
-                {part === 'assistant' && (!turn.complete || generating)
+                {part === 'assistant' && (!turn.complete || generating && !regenerationPreparation)
                   ? <>{trimBoundaryNewlines(responseText) ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={trimBoundaryNewlines(responseText)} speechColor={selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor ?? 'var(--speech-character)'} /> : <span className="muted">{generating ? t(preparing ? "app.preparing_memory" : reasoning ? "app.reasoning" : "app.waiting_for_first_token") : cancelled ? t("app.generation_cancelled") : t("app.awaiting_response")}</span>}{generating && <span className="cursor" aria-label={t("app.generating")} />}</>
                   : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor ?? 'var(--speech-persona)' : selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor ?? 'var(--speech-character)'} /> : <span className="muted blank">{t("app.blank")}</span>}
               </div>}
@@ -694,7 +700,16 @@ export function App() {
               select={id => command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/variants/${id}/select`, 'POST', { revision: snapshot.revision }))}
               edit={part => setEdit({ turnId: turn.id, part, text: turn[part].text, revision: snapshot.revision })}
               remove={() => {
-                confirmAction({ confirmOnEnter: true, title: t("app.delete_turn"), message: t("app.delete_this_entire_turn_including_its_saved", { value: snapshot.settings.lorebookId ? t("interface.lore_activation_history_for_this_chat_will_start") : '' }), actionLabel: t("app.delete_turn_2"), onConfirm: () => { void command(() => api(`/chats/${chatId}/turns/${turn.id}`, 'DELETE', { revision: snapshot.revision })); } });
+                const path = `/chats/${snapshot.id}/turns/${turn.id}`;
+                const revision = snapshot.revision;
+                void reviewMemoryCleanup({
+                  path: `${path}/deletion-impact`, body: { revision }, alwaysConfirm: true,
+                  copy: {
+                    confirmOnEnter: true, title: msg('app.delete_turn'), actionLabel: msg('app.delete_turn_2'),
+                    message: msg(snapshot.settings.lorebookId ? 'app.delete_turn_with_lore' : 'app.delete_this_entire_turn_including_its_saved'),
+                  },
+                  commit: memoryImpactToken => api(path, 'DELETE', { revision, memoryImpactToken }),
+                });
               }} />
           </article>;
           })}
@@ -702,10 +717,17 @@ export function App() {
           {edit && !snapshot.page.turns.some(turn => turn.id === edit.turnId) && <div className="recovery" role="alert"><div><p>{t("app.the_edited_turn_was_removed_or_replaced")}</p><ChatTextarea aria-label={t("app.unsaved_turn_edit")} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><button onClick={() => setEdit(null)}>{t("app.close_edit")}</button></div></div>}
         </div><div className="transcript-overlays">
           {(awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}
-          {preparing && !active && <div className="memory-preparation-status" role="status">{t("app.preparing_memory")}</div>}
+          {preparing && <PreparationStatus preparation={preparing} regeneration={regenerationPreparation}
+            committedInput={inspectionCurrent ? currentRequest?.budget.inputTokens : undefined} disabled={busy || dataChanged}
+            review={() => setTab('memory')}
+            stop={() => void command(() => api(preparing.generationId ? `/generations/${preparing.generationId}/cancel` : `/context/jobs/${preparing.id}/cancel`, 'POST', {}))} />}
         </div></div>
-        {!active && pending && <div className="recovery" role="status"><div><strong>{t("app.last_turn_is_still_pending")}</strong><p>{latest?.status === 'cancelled' ? t("app.response_cancelled_generate_response_before_next_turn") : (latest?.errorMessage ? formatMessage(latest.errorMessage) : latest?.error) ?? t("app.generate_response_before_next_turn")}</p>{partial && <small>{t("app.partial_text_is_preserved_for_inspection_it")}</small>}</div><button className="secondary" disabled={busy || working || authorNote.pending} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: newId() }))}>{t("app.retry_response")}</button></div>}
-        {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{(latest.errorMessage ? formatMessage(latest.errorMessage) : latest.error) ?? t("app.regeneration_did_not_finish_try_again")}</p>}
+        {!working && preparation?.generationId === null && preparation.error && ['cancelled', 'failed', 'interrupted'].includes(preparation.status) && <div className="recovery" role="status">
+          <p>{formatMessage(preparation.errorMessage ?? preparation.error)}</p>
+          <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('story_preparation.open_memory')}</button>
+        </div>}
+        {!active && pending && <div className="recovery" role="status"><div><strong>{t("app.last_turn_is_still_pending")}</strong><p>{latest?.status === 'cancelled' ? t("app.response_cancelled_generate_response_before_next_turn") : formatMessage(latestError ?? msg("app.generate_response_before_next_turn"))}</p>{partial && <small>{t("app.partial_text_is_preserved_for_inspection_it")}</small>}</div><button className="secondary" disabled={busy || working || authorNote.pending} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: newId() }))}>{t("app.retry_response")}</button></div>}
+        {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted' || latest.status === 'cancelled') && <p className="recovery" role="status">{formatMessage(latestError ?? msg("app.regeneration_did_not_finish_try_again"))}</p>}
         {drafts.needsReview && <div className="recovery" role="alert"><p>{t("app.this_browser_draft_predates_a_backup_import")}</p><button onClick={drafts.review}>{t("app.use_recovered_draft")}</button></div>}
         {drafts.storageError && <div className="recovery" role="alert">{t("app.draft_could_not_be_saved_in_this")}</div>}
         {!authorNoteOpen && <AuthorNoteSaveStatus saving={authorNote.saving} error={authorNote.error} retry={authorNote.editor.retry} disabled={working || busy || dataChanged} />}
@@ -724,7 +746,7 @@ export function App() {
     </ChatWorkspace>}
     {tab === 'library' && <Libraries library={library} defaults={chatDefaults} currentBranchId={snapshot?.id ?? null} branchSelections={branchSelections} busy={busy} run={command} openChat={openChat} initialTarget={libraryTarget} />}
     {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
-    {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><Memory behavior={behaviorEditor} key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} openPins={openPins} editPreset={id => { setLibraryTarget({ kind: 'contexts', id }); setTab('library'); }} /></ChatWorkspace>}
+    {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><Memory behavior={behaviorEditor} key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} openPins={openPins} preparation={preparing} editPreset={id => { setLibraryTarget({ kind: 'contexts', id }); setTab('library'); }} /></ChatWorkspace>}
     {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} disabled={history.loading} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...requestOptions.map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString(locale())} · ${stateLabel(generation.status)}` }))]} /></label><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>
       <div className="actions">{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('latest').then(moved => { if (moved) setGenerationId(''); })}>{t('app.latest_requests')}</button>}{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('newer').then(moved => { if (moved) setGenerationId(''); })}>{t('app.newer_requests')}</button>}{history.older && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('older').then(moved => { if (moved) setGenerationId(''); })}>{t('app.older_requests')}</button>}</div>
       {history.error && <p role="alert">{formatMessage(history.error)} <button type="button" className="secondary" onClick={history.retry}>{t('app.retry_loading')}</button></p>}

@@ -3,17 +3,17 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Store } from './store.js';
 import { AppError } from '../core/errors.js';
 import { contextPlan } from '../core/context-plan.js';
-import { refreshContext } from '../core/context-refresh.js';
-import { summaryDeletion, summarySuffixDeletion } from '../core/context-delete.js';
+import { summariesDeletion, summaryDeletion, summarySuffixDeletion } from '../core/context-delete.js';
+import { supersededMemoryAlternatives, type MemoryLayoutCleanup } from '../core/memory-layout.js';
 import { checkSummaryRefusal, summaryRefusalCheck, unresolvedRefusal, assertRefusalSelection } from '../core/summary-refusals.js';
 import { summaryRefusalFilterVersion } from '../core/summary-validation.js';
-import { latestApproved } from '../core/context-corrections.js';
+import { correctionDiagnostic, correctionProtection, latestApproved } from '../core/context-corrections.js';
 import { savedReplacement } from '../core/context-reuse.js';
 import { nextRepair, nodeFor, repairQueue, replaceSelection, selectedContext, sourceOf } from '../core/context.js';
 import { repairInputs } from '../core/context-repair.js';
 import { assembleRequest } from '../core/prompt.js';
 import { validateSummary } from '../core/summary-validation.js';
-import { emptyContextState, refKey, type SummaryRetry, type ContextJob, type ContextJobDetails, type ContextOperation, type ContextSnapshot, type ContextState, type ContextStep, type SummaryNode, type SummaryRef, type RepairAction, type RepairChange } from '../shared/context.js';
+import { emptyContextState, refKey, type SummaryRetry, type ContextJob, type ContextJobDetails, type ContextOperation, type ContextPlan, type ContextSnapshot, type ContextState, type ContextStep, type PreparationDeletionPreview, type SummaryNode, type SummaryRef, type RepairAction, type RepairChange } from '../shared/context.js';
 import type { EngineSnapshot, RequestPreview } from '../shared/contracts.js';
 import { hasPromptMarker } from '../shared/library.js';
 import type { LoreResolution } from '../shared/lorebook.js';
@@ -25,19 +25,23 @@ export class ContextStore {
   running(chatId?: string): boolean {
     return Boolean(chatId ? this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'running'").get(chatId) : this.sqlite.prepare("SELECT id FROM context_jobs WHERE json_extract(data, '$.status') = 'running'").get());
   }
-  snapshot(chatId: string, presetId: string | null): ContextSnapshot {
+  savedState(chatId: string): ContextState {
     const row = this.sqlite.prepare('SELECT data, revision FROM context_states WHERE chat_id = ?').get(chatId) as (JsonRow & { revision: number }) | undefined;
     const summaries = (this.sqlite.prepare('SELECT data FROM summaries WHERE chat_id = ? ORDER BY rowid').all(chatId) as JsonRow[]).map(row => JSON.parse(row.data) as SummaryNode);
+    return { ...emptyContextState(), ...(row ? JSON.parse(row.data) as ContextState : {}), revision: row?.revision ?? 0, summaries };
+  }
+  snapshot(chatId: string, presetId: string | null): ContextSnapshot {
+    const state = this.savedState(chatId);
     const update = this.sqlite.prepare("UPDATE summaries SET data = json_set(data, '$.refusalCheck', json(?)) WHERE chat_id = ? AND id = ? AND revision = ?");
     // A check changes only quality metadata, never text/source or chat revisions.
     // Persist it once per filter version; historical text remains available locally.
-    for (const node of summaries) {
+    for (const node of state.summaries) {
       if (node.refusalCheck?.version === summaryRefusalFilterVersion) continue;
       node.refusalCheck = checkSummaryRefusal(node.text);
       update.run(JSON.stringify(node.refusalCheck), chatId, node.id, node.revision);
     }
     const jobs = (this.sqlite.prepare('SELECT data FROM context_jobs WHERE chat_id = ? ORDER BY rowid DESC LIMIT 20').all(chatId) as JsonRow[]).map(row => JSON.parse(row.data) as ContextJob);
-    return { ...emptyContextState(), ...(row ? JSON.parse(row.data) as ContextState : {}), revision: row?.revision ?? 0, summaries, preset: this.store.contextPreset(presetId), jobs };
+    return { ...state, preset: this.store.contextPreset(presetId), jobs };
   }
   job(id: string): ContextJob {
     const row = this.sqlite.prepare('SELECT data FROM context_jobs WHERE id = ?').get(id) as JsonRow | undefined;
@@ -120,8 +124,8 @@ export class ContextStore {
     if (job.generationId) this.sqlite.prepare("UPDATE generations SET source_revision = ? WHERE id = ? AND chat_id = ? AND status = 'running'").run(revision, job.generationId, job.chatId);
     return { ...job, sourceRevision: revision, updatedAt: new Date().toISOString() };
   }
-  private current(job: ContextJob) {
-    if (job.status !== 'running' && job.status !== 'awaiting_review') throw new AppError(409, 'inactive_context_job', message("errors.this_memory_operation_is_no_longer_active"));
+  private current(job: ContextJob, reviewing = false) {
+    if (job.status !== 'running' && !(reviewing && job.status === 'awaiting_review')) throw new AppError(409, 'inactive_context_job', message("errors.this_memory_operation_is_no_longer_active"));
     this.store.checkRevision(job.sourceRevision, job.chatId);
     const snapshot = job.generationId ? this.store.generationSnapshot(job.generationId) : this.store.engineSnapshot(job.chatId);
     if (!snapshot.context.preset || refKey(snapshot.context.preset) !== refKey(job.config)) throw new AppError(409, 'stale_context_result', message("errors.the_context_preset_changed_generate_a_new_candidate"));
@@ -129,28 +133,57 @@ export class ContextStore {
     return { ...snapshot, loreResolution: this.store.loreOperation(job.id) ?? (job.generationId ? this.store.loreOperation(job.generationId) : null) };
   }
   operationSnapshot(id: string) { return this.current(this.job(id)); }
-  refresh(chatId: string, revision: number, requestId: string, loreResolution?: LoreResolution | null): { jobId: string; report: NonNullable<ContextJob['refresh']> } {
+  private preparationDeletion(job: ContextJob, snapshot: EngineSnapshot, plan: ContextPlan) {
+    if (job.mode !== 'prepare' && job.mode !== 'step') return null;
+    const blockedByCorrection = plan.blockedMessage?.key === correctionDiagnostic.key && !plan.repairCount;
+    if (!plan.next && !blockedByCorrection) return null;
+    const regenerating = job.generationId !== null && this.store.generation(job.generationId)?.kind === 'regeneration';
+    const committed = regenerating ? this.savedState(job.chatId) : snapshot.context;
+    const working = regenerating ? { ...snapshot.context, summaries: committed.summaries } : committed;
+    const roots: SummaryRef[] = [];
+    if (blockedByCorrection) {
+      roots.push(...correctionProtection(snapshot.turns, snapshot.context).unresolved);
+      // An edited dependent can mask the forward operation that supersedes
+      // its source. Preview that source and the dependent in the same cascade.
+      const projected = summariesDeletion(working, roots);
+      const remaining = regenerating ? summariesDeletion(committed, roots).after : projected.after;
+      const after = { ...snapshot.context, ...projected.after,
+        summaries: snapshot.context.summaries.filter(node => !projected.deletedIds.has(node.id)) };
+      const nextPlan = contextPlan({ ...snapshot, context: after });
+      if (nextPlan.next) roots.push(...supersededMemoryAlternatives(remaining, after.selected, nextPlan.next, nextPlan.reusable));
+    } else if (plan.next) roots.push(...supersededMemoryAlternatives(committed, snapshot.context.selected, plan.next, plan.reusable));
+    if (!roots.length) return null;
+    const deletion = summariesDeletion(committed, roots);
+    const preview = { revision: job.sourceRevision, deletedIds: [...deletion.deletedIds], restoredTurnIds: deletion.restoredTurnIds };
+    return { deletion, preview, roots, regenerating, working };
+  }
+  previewPreparationDeletion(job: ContextJob, snapshot: EngineSnapshot, plan: ContextPlan): Omit<PreparationDeletionPreview, 'token'> | null {
+    return this.preparationDeletion(job, snapshot, plan)?.preview ?? null;
+  }
+  confirmPreparationDeletion(id: string, expected: Omit<PreparationDeletionPreview, 'token'>) {
     return this.sqlite.transaction(() => {
-      const command = JSON.stringify({ mode: 'refresh', generationId: null });
-      const existing = this.sqlite.prepare('SELECT data, chat_id, command FROM context_jobs WHERE request_id = ?').get(requestId) as (JsonRow & { chat_id: string; command: string }) | undefined;
-      if (existing) {
-        if (existing.chat_id !== chatId || existing.command !== command) throw new AppError(409, 'request_id_conflict', message("errors.this_request_identity_was_used_for_another_memory"));
-        const job = JSON.parse(existing.data) as ContextJob;
-        return { jobId: job.id, report: job.refresh! };
+      const job = this.job(id);
+      if (job.sourceRevision !== expected.revision) throw new AppError(409, 'memory_impact_changed', message('memory.cleanup_changed'));
+      const snapshot = this.current(job);
+      const review = this.preparationDeletion(job, snapshot, contextPlan(snapshot));
+      if (!review || JSON.stringify(review.preview) !== JSON.stringify(expected)) {
+        throw new AppError(409, 'memory_impact_changed', message('memory.cleanup_changed'));
       }
-      this.store.checkRevision(revision, chatId); this.store.ensureIdle(chatId);
-      if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) throw new AppError(409, 'repair_awaits_review', message("errors.approve_or_discard_the_repair_candidate_before_refreshing"));
-      const snapshot = { ...this.store.engineSnapshot(chatId), loreResolution };
-      const { state, report } = refreshContext(snapshot);
-      const now = new Date().toISOString();
-      const job: ContextJob = this.bump({ id: randomUUID(), chatId, status: 'succeeded', mode: 'refresh', generationId: null,
-        config: snapshot.context.preset!, sourceRevision: revision, historyTurnIds: snapshot.turns.map(turn => turn.id), stepCount: 0,
-        error: null, createdAt: now, updatedAt: now, refresh: report });
-      this.store.saveLoreOperation(chatId, job.id, loreResolution ?? null);
-      if (report.changed) this.saveState(chatId, state);
-      this.sqlite.prepare('INSERT INTO context_jobs (id, chat_id, request_id, command, data) VALUES (?, ?, ?, ?, ?)').run(job.id, chatId, requestId, command, JSON.stringify(job));
-      return { jobId: job.id, report };
+      this.applyLayoutCleanup(job.chatId, review.deletion);
+      if (review.regenerating) {
+        this.saveState(job.chatId, summariesDeletion(review.working, review.roots).after, job.generationId);
+      }
+      this.saveJob(this.bump(job));
     })();
+  }
+  private assertPreparationDeletionReviewed(job: ContextJob, snapshot: EngineSnapshot, plan: ContextPlan) {
+    if (this.preparationDeletion(job, snapshot, plan)) throw new AppError(409, 'memory_impact_required', message('memory.review_cleanup_first'));
+  }
+  trackPlan(id: string, plan: ContextPlan) {
+    // Transient phases live in the coordinator. Keep the last authoritative
+    // estimate and planned operation available after reconnect or restart.
+    const working = { inputTokens: plan.inputTokens, targetInputTokens: plan.targetInputTokens, operation: plan.next ? { level: plan.next.level } : null };
+    this.sqlite.prepare("UPDATE context_jobs SET data = json_set(data, '$.working', json(?)) WHERE id = ? AND json_extract(data, '$.status') = 'running'").run(JSON.stringify(working), id);
   }
   begin(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>, generationId: string | null = null, loreResolution?: LoreResolution | null, retry?: SummaryRetry, automatic = false): { job: ContextJob; fresh: boolean } {
     return this.sqlite.transaction(() => {
@@ -170,15 +203,10 @@ export class ContextStore {
       if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) throw new AppError(409, 'repair_awaits_review', message("errors.approve_or_discard_the_existing_repair_candidate_before"));
       if (!preset) throw new AppError(422, 'context_required', message("errors.select_a_context_preset_first"));
       if (mode !== 'repair') assertRefusalSelection(snapshot.context);
-      // Only an explicit Prepare click may restore detail. Automatic preparation
-      // and single steps continue from the committed selection.
-      const reselection = mode === 'prepare' && !generationId && !automatic ? refreshContext(snapshot, { allowOverflowFallback: true }) : null;
       const now = new Date().toISOString();
-      const before = new Set(snapshot.context.selected.map(refKey));
       const job: ContextJob = this.bump({ ...(retry ? { retry } : {}), ...(automatic ? { automatic: true as const } : {}), id: randomUUID(), chatId, status: 'running', mode, generationId, config: preset, sourceRevision: revision, historyTurnIds: snapshot.turns.map(turn => turn.id), stepCount: 0, error: null, createdAt: now, updatedAt: now,
-        ...(reselection ? { refresh: reselection.report } : {}), reusedCount: reselection?.state.selected.filter(ref => !before.has(refKey(ref))).length ?? 0, generatedCount: 0 });
+        reusedCount: 0, generatedCount: 0 });
       this.store.saveLoreOperation(chatId, job.id, snapshot.loreResolution ?? null);
-      if (reselection?.report.changed) this.saveState(chatId, reselection.state);
       this.sqlite.prepare('INSERT INTO context_jobs (id, chat_id, request_id, command, data) VALUES (?, ?, ?, ?, ?)').run(job.id, chatId, requestId, command, JSON.stringify(job));
       return { job, fresh: true };
     })();
@@ -190,12 +218,14 @@ export class ContextStore {
       const replacement = savedReplacement(snapshot, plan.next);
       if (!replacement) return false;
       const { node, state, inputAfter } = replacement;
+      this.assertPreparationDeletionReviewed(job, snapshot, plan);
       const step: ContextStep = { id: randomUUID(), jobId, operation: plan.next, request: null, status: 'saved', result: { id: node.id, revision: node.revision }, error: null,
         before: { selected: snapshot.context.selected, archivedTurnIds: snapshot.context.archivedTurnIds }, after: { selected: state.selected, archivedTurnIds: state.archivedTurnIds },
         inputBefore: plan.inputTokens, inputAfter, createdAt: new Date().toISOString(), reused: true };
       this.saveState(job.chatId, state, job.generationId);
       this.sqlite.prepare('INSERT INTO context_steps (id, job_id, data) VALUES (?, ?, ?)').run(step.id, jobId, JSON.stringify(step));
-      this.saveJob(this.bump({ ...job, stepCount: job.stepCount + 1, reusedCount: (job.reusedCount ?? 0) + 1 }));
+      this.saveJob(this.bump({ ...job, stepCount: job.stepCount + 1, reusedCount: (job.reusedCount ?? 0) + 1,
+        working: { inputTokens: inputAfter, targetInputTokens: plan.targetInputTokens, operation: null } }));
       return true;
     })();
   }
@@ -226,72 +256,71 @@ export class ContextStore {
   beginStep(jobId: string, operation: ContextOperation, request: RequestPreview | null, inputBefore: number): ContextStep {
     return this.sqlite.transaction(() => {
       const job = this.job(jobId), snapshot = this.current(job);
-      const expected = job.mode === 'repair' ? nextRepair(snapshot.turns, snapshot.context, new Map()) : contextPlan(snapshot).next;
-      if (JSON.stringify(expected) !== JSON.stringify(operation) || job.mode !== 'repair' && contextPlan(snapshot).blocked) throw new AppError(409, 'stale_context_result', message("errors.this_memory_operation_is_no_longer_eligible"));
+      const plan = job.mode === 'repair' ? null : contextPlan(snapshot);
+      const expected = plan ? plan.next : nextRepair(snapshot.turns, snapshot.context, new Map());
+      if (JSON.stringify(expected) !== JSON.stringify(operation) || plan?.blocked) throw new AppError(409, 'stale_context_result', message("errors.this_memory_operation_is_no_longer_eligible"));
+      if (plan) this.assertPreparationDeletionReviewed(job, snapshot, plan);
       const step: ContextStep = { id: randomUUID(), jobId, operation, request, status: 'running', result: null, error: null,
-        before: { selected: snapshot.context.selected, archivedTurnIds: snapshot.context.archivedTurnIds }, after: null, inputBefore, inputAfter: null, createdAt: new Date().toISOString() };
+        before: { selected: snapshot.context.selected, archivedTurnIds: snapshot.context.archivedTurnIds }, after: null, inputBefore: plan?.inputTokens ?? inputBefore, inputAfter: null, createdAt: new Date().toISOString() };
       this.sqlite.prepare('INSERT INTO context_steps (id, job_id, data) VALUES (?, ?, ?)').run(step.id, jobId, JSON.stringify(step));
       this.saveJob({ ...job, stepCount: job.stepCount + 1 });
       return step;
     })();
+  }
+  private pendingStep(jobId: string, id: string): ContextStep {
+    const row = this.sqlite.prepare('SELECT data FROM context_steps WHERE id = ? AND job_id = ?').get(id, jobId) as JsonRow | undefined;
+    const step = row ? JSON.parse(row.data) as ContextStep : null;
+    if (!step || step.status !== 'running') throw new AppError(409, 'duplicate_context_result', message("errors.this_summary_step_has_already_been_resolved"));
+    return step;
   }
   failAttempt(step: ContextStep, error: string | LocalizedMessage, rejectedText?: string) {
     const outcome = outcomeMessage(error);
     this.sqlite.transaction(() => {
       const job = this.job(step.jobId);
       this.current(job);
-      const row = this.sqlite.prepare('SELECT data FROM context_steps WHERE id = ? AND job_id = ?').get(step.id, job.id) as JsonRow | undefined;
-      const saved = row ? JSON.parse(row.data) as ContextStep : null;
-      if (!saved || saved.status !== 'running') throw new AppError(409, 'duplicate_context_result', message("errors.this_summary_step_has_already_been_resolved"));
+      const saved = this.pendingStep(job.id, step.id);
       this.saveStep({ ...saved, status: 'failed', ...outcome, ...(job.mode === 'repair' && rejectedText !== undefined ? { rejectedText } : {}) });
     })();
   }
-  completeStep(step: ContextStep, text: string, prior: SummaryRef[]): SummaryNode {
+  completeStep(attempt: ContextStep, text: string, prior: SummaryRef[]): SummaryNode {
     return this.sqlite.transaction(() => {
-      const job = this.job(step.jobId), snapshot = this.current(job);
-      const savedStep = this.steps(job.id).find(item => item.id === step.id);
-      if (!savedStep || savedStep.status !== 'running') throw new AppError(409, 'duplicate_context_result', message("errors.this_summary_step_has_already_been_resolved"));
+      const job = this.job(attempt.jobId), snapshot = this.current(job);
+      const step = this.pendingStep(job.id, attempt.id);
       if (JSON.stringify(step.before) !== JSON.stringify({ selected: snapshot.context.selected, archivedTurnIds: snapshot.context.archivedTurnIds })) throw new AppError(409, 'stale_selection', message("errors.the_selected_memory_changed_before_the_summary_was"));
       const repair = step.operation.repair;
       if (repair && JSON.stringify(nextRepair(snapshot.turns, snapshot.context, new Map())) !== JSON.stringify(step.operation)) throw new AppError(409, 'stale_context_result', message("errors.the_required_correction_or_repair_changed"));
       const inputs = repair ? repairInputs(snapshot, step.operation, this.sourceRequest(job.chatId, repair)) : null;
       const plan = repair ? null : contextPlan(snapshot);
       if (plan && JSON.stringify(plan.next) !== JSON.stringify(step.operation)) throw new AppError(409, 'stale_context_result', message("errors.this_batch_is_no_longer_the_next_eligible"));
+      if (plan) this.assertPreparationDeletionReviewed(job, snapshot, plan);
       if (step.operation.turnIds.length && !validateSummary(text, 'stop').accepted) throw new AppError(502, 'invalid_summary', message("errors.the_candidate_summary_failed_validation"));
       const sourceIds = new Set(step.operation.turnIds);
       const sourceTurns = snapshot.turns.filter(turn => sourceIds.has(turn.id));
       if (sourceTurns.length !== sourceIds.size || sourceTurns.some(turn => !turn.complete)) throw new AppError(409, 'stale_sources', message("errors.the_summary_sources_changed"));
-      if (savedStep.request && JSON.stringify(savedStep.request.coverage) !== JSON.stringify(sourceTurns.map(sourceOf))) throw new AppError(409, 'stale_sources', message("errors.the_source_revisions_changed_while_the_model_was"));
+      if (step.request && JSON.stringify(step.request.coverage) !== JSON.stringify(sourceTurns.map(sourceOf))) throw new AppError(409, 'stale_sources', message("errors.the_source_revisions_changed_while_the_model_was"));
       const identity = repair?.id ?? randomUUID();
       const unchanged = Boolean(inputs && !inputs.rebuilding && inputs.known && inputs.structureUnchanged && text === inputs.old.text && step.operation.turnIds.length);
       const node: SummaryNode = { id: identity, revision: repair ? Math.max(...snapshot.context.summaries.filter(node => node.id === identity).map(node => node.revision)) + 1 : 0,
         level: step.operation.level, text, turns: sourceTurns.map(sourceOf), children: step.operation.children, prior,
         ...(inputs ? { corrections: inputs.corrections } : {}),
         approved: !repair || unchanged, createdAt: new Date().toISOString(), manual: inputs?.old.manual ?? false, ...(repair ? { basedOn: repair } : {}) };
-      let after: ContextState | null = null, inputAfter: number | null = null, newlyReused = 0;
+      let after: ContextState | null = null, inputAfter: number | null = null;
       if (plan) {
         after = replaceSelection(snapshot.context, step.operation, node);
         selectedContext(snapshot.turns, after);
         inputAfter = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, after, { validateLimits: false, lore: snapshot.loreResolution }).budget.inputTokens;
-        if (inputAfter >= step.inputBefore) throw new AppError(422, 'summary_no_savings', message("errors.the_summary_did_not_reduce_the_assembled_input"));
-        if (inputAfter > plan.effectiveLimit && job.mode === 'prepare' && !job.generationId && !job.automatic) {
-          // A new batch can bridge a gap to retained memory. Save both changes in
-          // this step's checkpoint before another provider request can start.
-          const reselection = refreshContext({ ...snapshot, context: { ...snapshot.context, ...after } }, { allowOverflowFallback: true });
-          const generatedSelection = new Set(after.selected.map(refKey));
-          newlyReused = reselection.state.selected.filter(ref => !generatedSelection.has(refKey(ref))).length;
-          after = reselection.state;
-          inputAfter = reselection.report.inputAfter;
-        }
+        if (plan.inputTokens !== step.inputBefore) throw new AppError(409, 'stale_context_result', message("errors.this_batch_is_no_longer_the_next_eligible"));
+        if (inputAfter >= plan.inputTokens) throw new AppError(422, 'summary_no_savings', message("errors.the_summary_did_not_reduce_the_assembled_input"));
       }
       else if (unchanged) after = this.repairedState(snapshot, node);
       // Keep an existing candidate usable until regeneration succeeds.
       if (repair) this.discardCandidates(job.id);
       this.saveNode(job.chatId, node);
       if (after) this.saveState(job.chatId, after, job.generationId);
-      this.saveStep({ ...savedStep, status: repair && !unchanged ? 'candidate' : 'saved', result: { id: node.id, revision: node.revision }, after: after ? { selected: after.selected, archivedTurnIds: after.archivedTurnIds } : null, inputAfter, ...(unchanged ? { repairOutcome: 'model_unchanged' } : {}) });
-      this.saveJob(this.bump({ ...job, generatedCount: (job.generatedCount ?? 0) + Number(Boolean(savedStep.request)),
-        reusedCount: (job.reusedCount ?? 0) + newlyReused, unchangedCount: (job.unchangedCount ?? 0) + Number(unchanged) }));
+      this.saveStep({ ...step, status: repair && !unchanged ? 'candidate' : 'saved', result: { id: node.id, revision: node.revision }, after: after ? { selected: after.selected, archivedTurnIds: after.archivedTurnIds } : null, inputAfter, ...(unchanged ? { repairOutcome: 'model_unchanged' } : {}) });
+      this.saveJob(this.bump({ ...job, generatedCount: (job.generatedCount ?? 0) + Number(Boolean(step.request)),
+        unchangedCount: (job.unchangedCount ?? 0) + Number(unchanged),
+        ...(plan && inputAfter !== null ? { working: { inputTokens: inputAfter, targetInputTokens: plan.targetInputTokens, operation: null } } : {}) }));
       return node;
     })();
   }
@@ -303,22 +332,10 @@ export class ContextStore {
       const job = JSON.parse(row.data) as ContextJob;
       if (job.status !== 'running') return;
       for (const step of this.steps(id)) if (step.status === 'running') this.saveStep({ ...step, status: status === 'interrupted' ? 'interrupted' : 'failed', ...outcome });
-      let completed = job;
-      if (status === 'succeeded' && job.mode === 'prepare' && !job.generationId && !job.automatic && job.stepCount) {
-        // Newly available groups can make a finer saved-only plan possible.
-        // Finish the explicit action in that plan, rather than changing it again
-        // on a second identical click. Automatic continuation never does this.
-        const { state, report } = refreshContext(this.current(job));
-        if (report.changed) {
-          this.saveState(job.chatId, state);
-          const before = new Set(report.before.selected.map(refKey));
-          completed = { ...job, finalRefresh: report, reusedCount: (job.reusedCount ?? 0) + state.selected.filter(ref => !before.has(refKey(ref))).length };
-        }
-      }
       const plan = status === 'succeeded' && job.mode !== 'repair' ? contextPlan(this.current(job)) : null;
       if (job.mode === 'repair' && status === 'cancelled') this.discardCandidates(id);
       const keepCandidate = job.mode === 'repair' && (status === 'failed' || status === 'interrupted') && this.steps(id).some(step => step.status === 'candidate');
-      this.saveJob(this.bump({ ...completed, status: keepCandidate ? 'awaiting_review' : status, ...outcome, ...(plan ? { outcome: { inputTokens: plan.inputTokens, verbatimTurns: plan.verbatimTurnIds.length } } : {}) }));
+      this.saveJob(this.bump({ ...job, status: keepCandidate ? 'awaiting_review' : status, ...outcome, ...(plan ? { outcome: { inputTokens: plan.inputTokens, verbatimTurns: plan.verbatimTurnIds.length } } : {}) }));
     })();
   }
   review(id: string, revision: number, accept: boolean, editedText?: string) {
@@ -327,7 +344,7 @@ export class ContextStore {
       this.store.checkRevision(revision, job.chatId); this.store.ensureIdle(job.chatId);
       if (job.status !== 'awaiting_review') throw new AppError(409, 'no_repair_candidate', message("errors.this_repair_no_longer_awaits_review"));
       if (accept) {
-        const snapshot = this.current(job), step = [...this.steps(id)].reverse().find(step => step.status === 'candidate');
+        const snapshot = this.current(job, true), step = [...this.steps(id)].reverse().find(step => step.status === 'candidate');
         if (!step?.result || !step.operation.repair) throw new AppError(409, 'missing_candidate', message("errors.the_repair_candidate_is_missing"));
         const candidate = nodeFor(snapshot.context, step.result);
         if (!candidate) throw new AppError(409, 'missing_candidate', message("errors.the_repair_candidate_is_missing"));
@@ -398,21 +415,30 @@ export class ContextStore {
     return this.sqlite.transaction(() => {
       this.store.checkRevision(revision, chatId);
       this.store.ensureIdle(chatId);
-      if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) {
-        throw new AppError(409, 'context_review_pending', message("memory.close_the_repair_review_before_deleting_summaries"));
-      }
+      this.ensureLayoutReviewClosed(chatId);
       const deletion = summaryDeletion(this.store.engineSnapshot(chatId).context, ref);
       return this.commitDeletion(chatId, deletion);
     })();
   }
-  private commitDeletion(chatId: string, deletion: ReturnType<typeof summaryDeletion>) {
+  ensureLayoutReviewClosed(chatId: string) {
+    if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) {
+      throw new AppError(409, 'context_review_pending', message('memory.close_the_repair_review_before_deleting_summaries'));
+    }
+  }
+  private deleteSummaryRecords(chatId: string, deletedIds: Set<string>) {
+    const ids = JSON.stringify([...deletedIds]);
     this.sqlite.prepare(`UPDATE context_steps SET data = json_set(data, '$.resultDeleted', json('true'))
       WHERE job_id IN (SELECT id FROM context_jobs WHERE chat_id = ?)
       AND json_extract(data, '$.result.id') IN (SELECT value FROM json_each(?))`)
-      .run(chatId, JSON.stringify([...deletion.deletedIds]));
-    const remove = this.sqlite.prepare('DELETE FROM summaries WHERE chat_id = ? AND id = ?');
-    for (const id of deletion.deletedIds) remove.run(chatId, id);
+      .run(chatId, ids);
+    this.sqlite.prepare('DELETE FROM summaries WHERE chat_id = ? AND id IN (SELECT value FROM json_each(?))').run(chatId, ids);
+  }
+  applyLayoutCleanup(chatId: string, deletion: MemoryLayoutCleanup) {
+    if (deletion.deletedIds.size) this.deleteSummaryRecords(chatId, deletion.deletedIds);
     this.saveState(chatId, deletion.after);
+  }
+  private commitDeletion(chatId: string, deletion: MemoryLayoutCleanup) {
+    this.applyLayoutCleanup(chatId, deletion);
     this.store.bumpRevision(chatId);
     return { deletedIds: [...deletion.deletedIds], restoredTurnIds: deletion.restoredTurnIds };
   }

@@ -2,7 +2,6 @@ import { test, expect, devices, type Page } from '@playwright/test';
 import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
 import { chatBehaviorStatusSchema, defaultChatBehavior } from '../../src/shared/chat-behavior';
 import { defaultContextPreset } from '../../src/shared/context';
-import { openChatTool } from './chat-tools';
 
 const headers = { Origin: 'http://127.0.0.1:4173' };
 const behaviorUrl = '/api/application/chat-behavior';
@@ -83,7 +82,10 @@ for (const device of ['desktop', 'phone'] as const) test.describe(`automatic mem
       await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
       await expect(page.locator('.memory-preparation-status')).toHaveCount(0);
       await page.request.post('/__test/finish');
-      await expect(page.locator('.memory-preparation-status')).toHaveText('Preparing memory…');
+      const progress = page.locator('.memory-preparation-status');
+      await expect(progress).toContainText('Preparing memory…');
+      await expect(progress).toContainText(/Estimated working input [\d,]+ \/ [\d,]+ target tokens/);
+      await expect(progress).toContainText('Step 1 · Summarize oldest turns');
       await expect(send).toBeDisabled();
       await expect(composer).toBeEditable();
       await composer.fill('My next draft stays available.');
@@ -92,9 +94,7 @@ for (const device of ['desktop', 'phone'] as const) test.describe(`automatic mem
       expect(saved.context.jobs[0]).toMatchObject({ automatic: true, generationId: null, status: 'running' });
       await page.screenshot({ path: `test-results/${device}-background-memory.png` });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      await openChatTool(page, 'Inspect memory');
-      await page.getByRole('button', { name: 'Stop preparation', exact: true }).click();
-      await page.getByRole('button', { name: 'Return to chat', exact: true }).click();
+      await progress.getByRole('button', { name: 'Stop', exact: true }).click();
       await expect(page.locator('.memory-preparation-status')).toHaveCount(0);
       await expect(send).toBeEnabled();
       await expect(composer).toHaveValue('My next draft stays available.');
@@ -104,14 +104,16 @@ for (const device of ['desktop', 'phone'] as const) test.describe(`automatic mem
       await page.request.post('/__test/mode', { data: { mode: 'hold-first-token' } });
       await send.click();
       await expect(page.locator('.part.assistant').last()).toContainText('Preparing memory…');
-      await expect(page.locator('.memory-preparation-status')).toHaveCount(0);
+      await expect(progress).toContainText(/Estimated working input [\d,]+ \/ [\d,]+ target tokens/);
       await expect(page.locator('.composer')).not.toContainText('Preparing memory');
       await expect(page.locator('.composer').locator(':scope > *')).toHaveCount(2);
       await expect(composer).toBeEditable();
       await composer.fill('Draft during preparation.');
       await page.screenshot({ path: `test-results/${device}-before-response-memory.png` });
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await progress.getByRole('button', { name: 'Stop', exact: true }).click();
       await expect(page.locator('.part.assistant').last()).not.toContainText('Preparing memory…');
+      await expect(page.getByRole('button', { name: 'Retry response', exact: true })).toBeEnabled();
+      expect((await state()).turns.at(-1)).toMatchObject({ complete: false, user: { text: 'My next draft stays available.' } });
       await expect(composer).toHaveValue('Draft during preparation.');
     } finally {
       if (chatId) {

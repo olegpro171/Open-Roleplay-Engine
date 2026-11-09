@@ -1,10 +1,13 @@
 import { openModal } from './dialog-focus';
 import { ModalDialog } from './ModalDialog';
-import { LocalizedError, t, message as msg, useLocale } from './localization';
+import { formatMessage, LocalizedError, t, message as msg, useLocale } from './localization';
+import type { LocalizedMessage } from '../shared/localization';
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
-type Confirmation = { title: string; message: string; actionLabel: string; confirmOnEnter?: true; onConfirm: () => void };
+type ConfirmationText = string | LocalizedMessage;
+export type ConfirmationCopy = { title: ConfirmationText; message: ConfirmationText; actionLabel: ConfirmationText; confirmOnEnter?: true };
+type Confirmation = ConfirmationCopy & { details?: ReactNode; returnFocus?: HTMLElement; onConfirm: () => void };
 type Request = Confirmation & { owner: string };
 type ConfirmationControl = { open: (request: Request) => void; dismiss: (owner: string) => void };
 const ConfirmationContext = createContext<ConfirmationControl | null>(null);
@@ -47,7 +50,7 @@ function ConfirmationDialog({ request, cancel, confirm }: { request: Confirmatio
   const confirmButton = useRef<HTMLButtonElement>(null);
   const title = useId(), description = useId();
   useLayoutEffect(() => {
-    const trigger = document.activeElement;
+    const trigger = request.returnFocus ?? document.activeElement;
     const node = dialog.current;
     openModal(node);
     return () => {
@@ -73,8 +76,9 @@ function ConfirmationDialog({ request, cancel, confirm }: { request: Confirmatio
     next?.focus();
   }}>
     <span className="confirmation-symbol" aria-hidden="true">!</span>
-    <h2 id={title}>{request.title}</h2>
-    <p id={description}>{request.message}</p>
-    <div className="actions"><button type="button" ref={cancelButton} className="secondary" onClick={cancel}>{t("character_import.cancel")}</button><button type="button" ref={confirmButton} className="danger" onClick={confirm} aria-keyshortcuts={request.confirmOnEnter ? 'Enter' : undefined}>{request.actionLabel}</button></div>
+    <h2 id={title}>{formatMessage(request.title)}</h2>
+    <p id={description}>{formatMessage(request.message)}</p>
+    {request.details}
+    <div className="actions"><button type="button" ref={cancelButton} className="secondary" onClick={cancel}>{t("character_import.cancel")}</button><button type="button" ref={confirmButton} className="danger" onClick={confirm} aria-keyshortcuts={request.confirmOnEnter ? 'Enter' : undefined}>{formatMessage(request.actionLabel)}</button></div>
   </ModalDialog>, document.body);
 }

@@ -115,10 +115,15 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
       expect(started.ok()).toBe(true);
       jobId = (await started.json()).jobId;
       const status = page.locator('.memory-preparation-status');
-      await expect(status).toHaveText('Preparing memory…');
+      await expect(status).toContainText('Preparing memory…');
+      await expect(status).toContainText(/Estimated working input [\d,]+ \/ 600 target tokens/);
+      await expect(status).toContainText('Step 1 · Summarize oldest turns');
       for (const width of [1280, 801, 800, 390]) {
         await page.setViewportSize({ width, height: 850 });
         await expect(status).toBeInViewport({ ratio: 1 });
+        const stop = status.getByRole('button', { name: 'Stop', exact: true });
+        await expect(stop).toBeEnabled();
+        expect((await stop.boundingBox())?.height).toBeGreaterThanOrEqual(44);
         const notice = await status.boundingBox(), composer = await page.locator('.composer').boundingBox();
         if (!notice || !composer) throw new Error('Missing preparation notice or composer');
         expect(notice.y + notice.height).toBeLessThanOrEqual(composer.y);

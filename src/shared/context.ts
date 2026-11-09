@@ -93,10 +93,13 @@ export type ContextOperation = { level: number; turnIds: string[]; children: Sum
 export type ContextJobStatus = 'running' | 'awaiting_review' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export const summaryRetrySchema = z.object({ maxRetries: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }).strict();
 export type SummaryRetry = z.infer<typeof summaryRetrySchema>;
+export const preparationRunLimit = 100;
+export type ContextWorking = { inputTokens: number; targetInputTokens: number; operation: Pick<ContextOperation, 'level'> | null };
+export type PreparationDeletionPreview = { token: string; revision: number; deletedIds: string[]; restoredTurnIds: string[] };
 export type ContextJob = {
   errorMessage?: import('./localization.js').LocalizedMessage;
   retry?: SummaryRetry;
-  /** Automatic continuation never restores finer saved detail. */
+  /** Post-response preparation has its own job after the response commits. */
   automatic?: true;
   id: string; chatId: string; status: ContextJobStatus; mode: 'prepare' | 'step' | 'repair' | 'refresh'; generationId: string | null;
   sourceRevision: number; config: ContextPreset & SummaryRef; stepCount: number; error: string | null; createdAt: string; updatedAt: string;
@@ -108,6 +111,7 @@ export type ContextJob = {
   unchangedCount?: number; revalidatedCount?: number;
   repairCommands?: Record<string, string>;
   outcome?: { inputTokens: number; verbatimTurns: number };
+  working?: ContextWorking;
 };
 export type ContextRefresh = {
   limitationMessage?: import('./localization.js').LocalizedMessage;
@@ -138,6 +142,9 @@ export type ContextJobProgress = {
   status: ContextJobStatus;
   /** Transient observed stream phase, omitted after the request ends. */
   phase?: SummaryPhase;
+  retrying?: true;
+  deletionReviewToken?: string;
+  working?: ContextWorking;
 };
 export type ContextJobDetails = {
   job: ContextJob; steps: ContextStep[];

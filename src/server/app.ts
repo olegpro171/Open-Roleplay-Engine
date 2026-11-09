@@ -3,7 +3,8 @@ import { diagnosticMessage, message } from '../shared/localization.js';
 import { authorNoteStatusSchema } from '../shared/author-note.js';
 import { copyBranchSchema, deleteChatSchema, renameBranchSchema } from '../shared/branches.js';
 import { refreshContext } from '../core/context-refresh.js';
-import { defaultContextPreset, summaryRetrySchema } from '../shared/context.js';
+import { contextPresetSchema, defaultContextPreset, summaryRetrySchema } from '../shared/context.js';
+import { memoryImpactTokenSchema } from '../shared/memory-cleanup.js';
 import { buildInfo } from './installation.js';
 import { BackupService } from './backups.js';
 import { attachmentDisposition, Downloads } from './downloads.js';
@@ -363,6 +364,7 @@ export async function createApp(options: {
   });
   async function saveLibrary(body: unknown, id?: string) {
     const input = libraryCommandSchema.parse(body);
+    if (input.kind === 'contexts') return { id: store.saveLibrary(input.revision, input.kind, input.data, id, undefined, undefined, input.memoryImpactToken) };
     if (input.kind !== 'characters') return { id: store.saveLibrary(input.revision, input.kind, input.data, id, input.kind === 'connections' ? input.apiKey : undefined) };
     const replay = store.replayCharacterSave(input, id);
     if (replay.found) return replay.result;
@@ -381,6 +383,11 @@ export async function createApp(options: {
   app.put('/api/library/:id', { bodyLimit: 30_000_000 }, async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
     const result = await saveLibrary(request.body, id); coordinator.changed({ kind: 'library' }); return result;
+  });
+  app.post('/api/library/contexts/:id/impact', async request => {
+    const { id } = z.object({ id: identity }).parse(request.params);
+    const { revision, data } = z.object({ revision: revisionSchema, data: contextPresetSchema }).strict().parse(request.body);
+    return { impact: store.contextPresetMemoryImpact(revision, id, data) };
   });
   async function previewPicture(bytes: Buffer, reply: FastifyReply) {
     const controller = new AbortController();
@@ -417,8 +424,8 @@ export async function createApp(options: {
     store.saveLibrary(revision, 'prompts', defaultPrompt, 'default'); coordinator.changed({ kind: 'library' }); return { ok: true };
   });
   app.post('/api/library/default-context/reset', async request => {
-    const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-    store.saveLibrary(revision, 'contexts', defaultContextPreset, 'default-context'); coordinator.changed({ kind: 'library' }); return { ok: true };
+    const { revision, memoryImpactToken } = z.object({ revision: revisionSchema, memoryImpactToken: memoryImpactTokenSchema.optional() }).strict().parse(request.body);
+    store.saveLibrary(revision, 'contexts', defaultContextPreset, 'default-context', undefined, undefined, memoryImpactToken); coordinator.changed({ kind: 'library' }); return { ok: true };
   });
   app.post('/api/library/import', { bodyLimit: pictureBase64Limit + 2000 }, async request => {
     const input = z.object({ revision: revisionSchema, requestId: z.string().uuid().optional(), kind: z.enum(['personas', 'characters']), tagPolicy: tagPolicySchema.optional(), pictureMode: pictureModeSchema.optional(), base64: pictureBase64Schema }).strict().parse(request.body);
@@ -566,8 +573,12 @@ export async function createApp(options: {
     return { id: result.id };
   });
   app.put('/api/chats/:chatId/selections', async request => {
-    const input = z.object({ revision: revisionSchema, settings: selectionsSchema }).strict().parse(request.body);
-    store.updateChat(input.revision, chatId(request.params), input.settings); coordinator.changed({ kind: 'library' }); return mutationSnapshot(request);
+    const input = z.object({ revision: revisionSchema, settings: selectionsSchema, memoryImpactToken: memoryImpactTokenSchema.optional() }).strict().parse(request.body);
+    store.updateChat(input.revision, chatId(request.params), input.settings, input.memoryImpactToken); coordinator.changed({ kind: 'library' }); return mutationSnapshot(request);
+  });
+  app.post('/api/chats/:chatId/settings/memory-impact', async request => {
+    const input = z.object({ revision: revisionSchema, contextPresetId: identity.nullable() }).strict().parse(request.body);
+    return { impact: store.contextSelectionMemoryImpact(input.revision, chatId(request.params), input.contextPresetId) };
   });
   app.post('/api/chats/:chatId/prompt-diagnostics', async request => {
     const input = z.object({ revision: revisionSchema, settings: selectionsSchema }).strict().parse(request.body);
@@ -630,7 +641,10 @@ export async function createApp(options: {
     const live = (generation: NonNullable<typeof snapshot.latestGeneration>) => generation.status === 'running'
       ? { ...generation, partialText: coordinator.partialText(generation.id), reasoningText: coordinator.reasoningText(generation.id).slice(-2000), reasoningLength: coordinator.reasoningText(generation.id).length }
       : generation;
-    return { ...snapshot, latestGeneration: snapshot.latestGeneration ? live(snapshot.latestGeneration) : null,
+    const preparation = snapshot.preparation?.status === 'running'
+      ? { ...snapshot.preparation, ...coordinator.context.liveProgress(snapshot.preparation.id) }
+      : snapshot.preparation;
+    return { ...snapshot, preparation, latestGeneration: snapshot.latestGeneration ? live(snapshot.latestGeneration) : null,
       page: { ...snapshot.page, generations: snapshot.page.generations.map(generation => live(generation)) } };
   });
   app.get('/api/chats/:chatId/pins', async request => storyReader.pins(chatId(request.params)));
@@ -687,10 +701,7 @@ export async function createApp(options: {
     const input = z.object({ revision: revisionSchema, requestId: z.string().uuid() }).strict().parse(request.body);
     const existing = store.contexts.commandJob(chatId(request.params), input.requestId, 'refresh');
     if (existing?.refresh) return { jobId: existing.id, report: existing.refresh };
-    const snapshot = store.engineSnapshot(chatId(request.params));
-    const lore = await resolveRequestLore(snapshot, coordinator.loreRegex);
-    const result = store.contexts.refresh(snapshot.id, input.revision, input.requestId, lore);
-    coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return result;
+    throw new AppError(410, 'refresh_retired', message('memory.refresh_retired'));
   });
   app.delete('/api/chats/:chatId/context/summaries/:id', async request => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
@@ -712,6 +723,16 @@ export async function createApp(options: {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     return coordinator.context.progress(id);
   });
+  app.get('/api/context/jobs/:id/deletion', async request => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    return coordinator.context.deletionPreview(id);
+  });
+  app.post('/api/context/jobs/:id/deletion', async request => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const { token } = z.object({ token: z.string().uuid() }).strict().parse(request.body);
+    coordinator.context.confirmDeletion(id, token);
+    return { ok: true };
+  });
   app.post('/api/context/jobs/:id/cancel', async request => {
     z.object({}).strict().parse(request.body);
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
@@ -730,8 +751,8 @@ export async function createApp(options: {
   for (const prefix of ['/api', '/api/chats/:chatId']) {
     app.get(prefix + (prefix === '/api' ? '/chat' : ''), async request => publicSnapshot(chatId(request.params)));
     app.put(prefix + '/settings', async request => {
-      const input = saveSettingsSchema.parse(request.body);
-      store.saveSettings(input.revision, input.connection, input.settings, input.apiKey, chatId(request.params));
+      const input = saveSettingsSchema.extend({ memoryImpactToken: memoryImpactTokenSchema.optional() }).parse(request.body);
+      store.saveSettings(input.revision, input.connection, input.settings, input.apiKey, chatId(request.params), input.memoryImpactToken);
       coordinator.changed({ kind: 'library' }); return mutationSnapshot(request);
     });
     app.post(prefix + '/preview', async (request, reply) => {
@@ -781,10 +802,15 @@ export async function createApp(options: {
       const input = editSchema.parse(request.body);
       store.editPart(input.revision, id, part, input.text, chatId(request.params)); coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return mutationSnapshot(request);
     });
-    app.delete(prefix + '/turns/:id', async request => {
+    app.post(prefix + '/turns/:id/deletion-impact', async request => {
       const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
       const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-      store.deleteTurn(revision, id, chatId(request.params)); coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return mutationSnapshot(request);
+      return { impact: store.turnDeletionMemoryImpact(revision, id, chatId(request.params)) };
+    });
+    app.delete(prefix + '/turns/:id', async request => {
+      const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+      const { revision, memoryImpactToken } = z.object({ revision: revisionSchema, memoryImpactToken: memoryImpactTokenSchema.optional() }).strict().parse(request.body);
+      store.deleteTurn(revision, id, chatId(request.params), memoryImpactToken); coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return mutationSnapshot(request);
     });
   }
   app.post('/api/generations/:id/cancel', async request => {

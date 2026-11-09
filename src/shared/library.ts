@@ -9,6 +9,7 @@ import { lorebookSchema, type Lorebook } from './lorebook.js';
 import { cardInstructionTextSchema, characterDepthPromptSchema } from './card-instructions.js';
 import { speechColorSchema } from './appearance.js';
 import { branchNameSchema } from './branches.js';
+import { memoryImpactTokenSchema } from './memory-cleanup.js';
 
 const name = z.string().trim().min(1).max(100);
 const text = z.string().max(100_000);
@@ -127,7 +128,7 @@ export const libraryCommandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('personas'), revision: revisionSchema, data: libraryPersonaSchema }).strict(),
   z.object({ kind: z.literal('characters'), revision: revisionSchema, data: libraryCharacterSchema, tagIds: tagIdsSchema.optional(), requestId: z.string().uuid().optional(), expectedPicture: z.string().uuid().nullable().optional(), picture: pictureMutationSchema.optional() }).strict(),
   z.object({ kind: z.literal('prompts'), revision: revisionSchema, data: promptSchema }).strict(),
-  z.object({ kind: z.literal('contexts'), revision: revisionSchema, data: contextPresetSchema }).strict(),
+  z.object({ kind: z.literal('contexts'), revision: revisionSchema, data: contextPresetSchema, memoryImpactToken: memoryImpactTokenSchema.optional() }).strict(),
   z.object({ kind: z.literal('lorebooks'), revision: revisionSchema, data: lorebookSchema }).strict(),
   z.object({ kind: z.literal('connections'), revision: revisionSchema, data: connectionSchema, apiKey: z.string().max(10_000).refine(v => !/[\r\n]/.test(v)).optional() }).strict(),
 ]);

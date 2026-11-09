@@ -88,7 +88,7 @@ export function ActionMenu({ label, disabled, revision, focusMode = 'item', chil
     {menuHost && createPortal(<div ref={panel} id={id} role="menu" aria-label={label}
       className="action-menu floating-controls" style={position} tabIndex={focusMode === 'panel' ? -1 : undefined}
       onClickCapture={event => {
-        if (focusMode === 'item' && event.target instanceof Element && event.target.closest('button:not(:disabled)')) {
+        if (event.target instanceof Element && event.target.closest('button:not(:disabled)')) {
           // Restore the surviving trigger before an action opens a dialog, so
           // that dialog can return focus after this transient panel disappears.
           trigger.current?.focus({ preventScroll: true });

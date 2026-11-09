@@ -4,10 +4,12 @@ import { formatMessage } from './localization';
 import { useTextState, errorText, t, useLocale, locale } from './localization';
 import { newId } from './uuid';
 import { useConfirmation } from './Confirmation';
+import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatToolsSnapshot } from '../shared/contracts';
 import { hasPromptMarker, type LibrarySnapshot } from '../shared/library';
-import { refKey, type ContextJob, type ContextPlan, type ContextStep, type SummaryNode } from '../shared/context';
+import { preparationRunLimit, refKey, type ContextJob, type ContextPlan, type ContextStep, type PreparationDeletionPreview, type SummaryNode } from '../shared/context';
+import type { StoryPreparation } from '../shared/transcript';
 import { summaryDeletion } from '../core/context-delete';
 import { staleSummaries } from '../core/context';
 import { api } from './api';
@@ -18,7 +20,7 @@ import { SummaryInspection } from './SummaryInspection';
 import { MemoryTimeline } from './MemoryTimeline';
 import { RefusalReview } from './RefusalReview';
 import { RejectedSummary } from './RejectedSummary';
-import type { ChatBehaviorStatus } from '../shared/chat-behavior';
+import { defaultChatBehavior, type ChatBehaviorStatus } from '../shared/chat-behavior';
 import type { SettingsAutosave } from './settings-autosave';
 import { SettingsSaveStatus, useSettingsState } from './useSettingsAutosave';
 const RepairReview = lazy(() => import('./RepairReview').then(module => ({ default: module.RepairReview })));
@@ -30,13 +32,14 @@ function legendText(value: string): string {
 
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 type JobDetails = { job: ContextJob; steps: ContextStep[] };
-export function Memory({ snapshot, library, busy, run, editPreset, behavior, openPins }: { snapshot: ChatToolsSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; editPreset: (id: string) => void; openPins: () => void; behavior: SettingsAutosave<ChatBehaviorStatus['settings'], ChatBehaviorStatus> }) {
+export function Memory({ snapshot, library, busy, run, editPreset, behavior, openPins, preparation }: { snapshot: ChatToolsSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; editPreset: (id: string) => void; openPins: () => void; behavior: SettingsAutosave<ChatBehaviorStatus['settings'], ChatBehaviorStatus>; preparation?: StoryPreparation }) {
   useLocale();
   const confirmAction = useConfirmation(snapshot.id);
+  const reviewMemoryCleanup = useMemoryCleanup(run, snapshot.id);
   const retryControls = useRef<HTMLFieldSetElement>(null);
   const retrySettings = useSettingsState(behavior);
   const autoRetry = retrySettings.draft?.autoRetryMemory ?? true;
-  const maxRetries = retrySettings.draft?.memoryMaxRetries ?? 10;
+  const maxRetries = retrySettings.draft?.memoryMaxRetries ?? defaultChatBehavior.memoryMaxRetries;
   const retrySettingsUnavailable = !retrySettings.draft || retrySettings.saving || Boolean(retrySettings.error);
   const [planError, setPlanError] = useTextState('');
   const [calculation, setCalculation] = useState<{ key: string; plan: ContextPlan | null; error: MessageText }>({ key: '', plan: null, error: '' });
@@ -56,10 +59,33 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
   const [repairSession, setRepairSession] = useState('');
   const [zoom, setZoom] = useState(false), [inspected, setInspected] = useState<SummaryNode | null>(null);
   const [deletionTarget, setDeletionTarget] = useState<{ node: SummaryNode; revision: number } | null>(null);
+  const reviewToken = preparation?.deletionReviewToken;
+  const reviewJobId = reviewToken ? preparation?.id : undefined;
+  const [reviewRead, setReviewRead] = useState<{ token: string; preview?: PreparationDeletionPreview; error?: MessageText }>();
+  const [reviewRetry, setReviewRetry] = useState(0);
+  useEffect(() => {
+    if (!reviewToken || !reviewJobId) return;
+    setHistoryId('');
+    setDeletionTarget(null);
+    const controller = new AbortController();
+    api<PreparationDeletionPreview>(`/context/jobs/${reviewJobId}/deletion`, 'GET', undefined, controller.signal)
+      .then(preview => { if (!controller.signal.aborted && preview.token === reviewToken) setReviewRead({ token: reviewToken, preview }); })
+      .catch(error => { if (!controller.signal.aborted) setReviewRead({ token: reviewToken, error: errorText(error) }); });
+    return () => controller.abort();
+  }, [reviewToken, reviewJobId, reviewRetry]);
+  const review = reviewRead?.token === reviewToken ? reviewRead?.preview : undefined;
+  const reviewError = reviewRead?.token === reviewToken ? reviewRead?.error : undefined;
+  const reviewCurrent = review && review.revision === snapshot.revision && !historyId;
+  const preparationDeletion = useMemo(() => {
+    if (!reviewCurrent || !review) return null;
+    const deletedIds = new Set(review.deletedIds);
+    return { deletedIds, deleted: snapshot.context.summaries.filter(node => deletedIds.has(node.id)), restoredTurnIds: review.restoredTurnIds };
+  }, [reviewCurrent, review, snapshot.context.summaries]);
   const deletionHeading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => { if (deletionTarget) deletionHeading.current?.focus(); }, [deletionTarget]);
-  const deletion = useMemo(() => deletionTarget && deletionTarget.revision === snapshot.revision && !historyId
+  useEffect(() => { if (deletionTarget || reviewCurrent) deletionHeading.current?.focus(); }, [deletionTarget, reviewCurrent, reviewToken]);
+  const manualDeletion = useMemo(() => deletionTarget && deletionTarget.revision === snapshot.revision && !historyId
     ? summaryDeletion(snapshot.context, deletionTarget.node) : null, [deletionTarget, snapshot.context, snapshot.revision, historyId]);
+  const deletion = reviewToken ? preparationDeletion : manualDeletion;
   const restoring = new Set(deletion?.restoredTurnIds ?? []);
   const inspectSummary = (node: SummaryNode | null) => {
     setInspected(node);
@@ -118,8 +144,22 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
   const prepared = latestJob?.sourceRevision === snapshot.revision && latestJob.status === 'succeeded' && latestJob.outcome ? latestJob : null;
   const selectionReport = prepared?.finalRefresh ?? prepared?.refresh;
   const unsavedSettings = presetId !== (snapshot.settings.contextPresetId ?? '') || target !== snapshot.settings.targetInputTokens;
+  function saveMemorySettings() {
+    const { id, revision } = snapshot;
+    const contextPresetId = presetId || null;
+    const settings = { title: snapshot.settings.title, targetInputTokens: target, connectionId: snapshot.settings.connectionId ?? null,
+      promptId: snapshot.settings.promptId ?? 'default', characterId: snapshot.settings.characterId ?? null,
+      personaId: snapshot.settings.personaId ?? null, contextPresetId };
+    const commit = (memoryImpactToken?: string) => api(`/chats/${id}/selections`, 'PUT', { revision, settings, memoryImpactToken });
+    if (contextPresetId !== (snapshot.settings.contextPresetId ?? null)) {
+      void reviewMemoryCleanup({
+        path: `/chats/${id}/settings/memory-impact`, body: { revision, contextPresetId },
+        copy: saveMemoryCleanupCopy(), commit,
+      });
+    } else void run(() => commit());
+  }
   return <section className="document-panel memory-panel chat-panel" aria-label={t("memory.memory")}><p className="eyebrow">{t("memory.context_memory")}</p><h1>{t("memory.make_room_for_the_next_chapter")}</h1><p className="muted">{t("memory.original_turns_stay_saved_memory_changes_which")}</p>
-    <form className="memory-selection" onSubmit={e => { e.preventDefault(); void run(() => api(`/chats/${snapshot.id}/selections`, 'PUT', { revision: snapshot.revision, settings: { title: snapshot.settings.title, targetInputTokens: target, connectionId: snapshot.settings.connectionId ?? null, promptId: snapshot.settings.promptId ?? 'default', characterId: snapshot.settings.characterId ?? null, personaId: snapshot.settings.personaId ?? null, contextPresetId: presetId || null } })); }}>
+    <form className="memory-selection" onSubmit={e => { e.preventDefault(); if (!locked && unsavedSettings) saveMemorySettings(); }}>
       <fieldset disabled={locked}><legend>{t("memory.preparation_settings")}</legend><div className="form-grid"><label>{t("libraries.context_preset")}<Dropdown aria-label={t("memory.memory_context_preset")} value={presetId} onChange={setPresetId} options={[{ value: '', label: t("memory.no_context_preset") }, ...library.contexts.map(item => ({ value: item.id, label: item.name }))]} /></label><label>{t("app.input_target")}<NumberInput required value={target} onChange={setTarget} /></label></div><p className="small muted">{t("memory.edit_the_summarization_connection_batch_sizes_and")}</p><button className="secondary" disabled={presetId === (snapshot.settings.contextPresetId ?? '') && target === snapshot.settings.targetInputTokens}>{t("memory.save_memory_settings")}</button></fieldset>
     </form>
     {!summariesEnabled && <p role="status"><strong>{t("memory.summaries_are_disabled")}</strong> {t("memory.enable_a_summary_marker_in_the_prompt")}</p>}
@@ -132,19 +172,19 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
       <button disabled={!summariesEnabled || locked || retrySettingsUnavailable || !planCurrent || !snapshot.context.preset || !plan || Boolean(plan.stale.length) || Boolean(awaiting) || unsavedSettings} onClick={() => void start('prepare')}>{t("memory.prepare_chat")}</button>
       <button className="secondary" disabled={!summariesEnabled || locked || retrySettingsUnavailable || !planCurrent || !plan?.next || Boolean(plan.blocked) || Boolean(awaiting) || unsavedSettings} onClick={() => void start('step')}>{t("memory.save_next_summary")}</button>
       <button className="secondary" disabled={!summariesEnabled || locked || !planCurrent || !plan?.repairCount || Boolean(awaiting)} onClick={() => void start('repair')}>{t("memory.repair_summaries")}</button>
-      {active && <button className="secondary" disabled={busy} onClick={() => void run(() => active.generationId ? api(`/generations/${active.generationId}/cancel`, 'POST', {}) : api(`/context/jobs/${active.id}/cancel`, 'POST', {}))}>{t("memory.stop_preparation")}</button>}
+      {active && !reviewToken && <button className="secondary" disabled={busy} onClick={() => void run(() => active.generationId ? api(`/generations/${active.generationId}/cancel`, 'POST', {}) : api(`/context/jobs/${active.id}/cancel`, 'POST', {}))}>{t("memory.stop_preparation")}</button>}
     </div>
     {summariesEnabled && <fieldset ref={retryControls} disabled={locked || !retrySettings.draft} className="summary-retry-controls"><legend className="sr-only">{t("memory.preparation_retries")}</legend>
       <SettingsSaveStatus saving={retrySettings.saving} error={retrySettings.error} retry={behavior.retry} />
       <label className="checkbox"><input type="checkbox" checked={autoRetry} onChange={event => behavior.update({ autoRetryMemory: event.target.checked })} />{t("memory.auto_retry_failed_or_refused_requests")}</label>
-      {autoRetry && <label>{t("memory.maximum_retries")}<NumberInput required aria-label={t("memory.maximum_retries")} min={0} max={Number.MAX_SAFE_INTEGER} value={maxRetries} onChange={value => { if (Number.isSafeInteger(value) && value >= 0) behavior.update({ memoryMaxRetries: value }); }} /><small>{t("memory.retries_after_the_initial_attempt_per_request")}</small></label>}
+      {autoRetry && <label>{t("memory.maximum_retries")}<NumberInput required aria-label={t("memory.maximum_retries")} min={0} max={Number.MAX_SAFE_INTEGER} value={maxRetries} onChange={value => { if (Number.isSafeInteger(value) && value >= 0) behavior.update({ memoryMaxRetries: value }); }} /><small>{t("memory.retries_after_the_initial_attempt_per_request", { defaultRetries: defaultChatBehavior.memoryMaxRetries, runLimit: preparationRunLimit })}</small></label>}
     </fieldset>}
     {summariesEnabled && <p className="small muted">{t("memory.prepare_chat_reconsiders_memory_for_the_saved")}</p>}
     {summariesEnabled && prepared && <p role="status" data-testid="memory-prepare-result">{t("memory.saved_summaries_reused_new_summaries_generated", { value: prepared.mode === 'step' ? t("interface.summary_step_saved") : t("interface.memory_prepared"), value2: prepared.reusedCount ?? 0, value3: prepared.generatedCount ?? 0 })}{prepared.refresh ? <> {t("memory.verbatim_turns_estimated_input", { verbatimBefore: prepared.refresh.verbatimBefore, verbatimTurns: prepared.outcome!.verbatimTurns, value: prepared.refresh.inputBefore.toLocaleString(locale()), value2: prepared.outcome!.inputTokens.toLocaleString(locale()), value3: selectionReport?.protectedSummaries ? t("memory.protected_corrections", { count: selectionReport.protectedSummaries }) : '', value4: selectionReport?.limitation ? ` ${formatMessage(selectionReport.limitationMessage ?? selectionReport.limitation)}` : selectionReport?.limited && !prepared.stepCount ? t("interface.no_different_fitting_selection_was_available_in_saved") : '' })}</> : null}</p>}
     {latestJob?.mode === 'repair' && latestJob.status === 'succeeded' && latestJob.sourceRevision === snapshot.revision && <p role="status" data-testid="memory-repair-result">{t("memory.repair_complete_approved_unchanged_after_model_check", { value: latestJob.reviewedCount ?? 0, value2: latestJob.unchangedCount ?? 0, value3: latestJob.revalidatedCount ?? 0 })}</p>}
     {repairJob && <Suspense fallback={<p role="status">{t("memory.opening_repair_review")}</p>}><RepairReview key={repairJob.id} snapshot={snapshot} job={repairJob} busy={busy} run={run} dismissed={() => setRepairSession('')} /></Suspense>}
     <section className="memory-chart"><div className="memory-chart-heading"><div><h2>{t("memory.summary_layers")}</h2><p className="small muted">{t("memory.select_a_summary_to_inspect_its_coverage")}</p></div><label className="checkbox"><input type="checkbox" checked={zoom} onChange={e => setZoom(e.target.checked)} />{t("memory.zoom_timeline")}</label></div>
-      <label>{t("memory.inspect_saved_preparation")}<Dropdown aria-label={t("memory.saved_preparation")} value={historyId} onChange={id => { setHistoryId(id); setInspected(null); }} options={[{ value: '', label: t("memory.current_committed_selection") }, ...snapshot.context.jobs.map(job => ({ value: job.id, label: `${new Date(job.createdAt).toLocaleString(locale())} · ${stateLabel(job.mode)} · ${stateLabel(job.status)}` }))]} /></label>
+      <label>{t("memory.inspect_saved_preparation")}<Dropdown aria-label={t("memory.saved_preparation")} disabled={Boolean(reviewToken)} value={historyId} onChange={id => { setHistoryId(id); setInspected(null); }} options={[{ value: '', label: t("memory.current_committed_selection") }, ...snapshot.context.jobs.map(job => ({ value: job.id, label: `${new Date(job.createdAt).toLocaleString(locale())} · ${stateLabel(job.mode)} · ${stateLabel(job.status)}` }))]} /></label>
       {details && <label className="snapshot-slider">{t("memory.saved_step", { frame: frame, frameCount: frameCount })}<input type="range" aria-label={t("memory.saved_preparation_step")} min={0} max={frameCount} value={frame} onChange={e => { setFrame(Number(e.target.value)); setInspected(null); }} /><small>{t("memory.history_inspection_only_current_chat_memory_is")}</small></label>}
       <MemoryTimeline nodes={nodes} selected={selected} stale={stale} archived={archived} turnIds={viewTurnIds} operation={operation} reusable={reusable} levels={levels} zoom={zoom} inspectedId={inspected?.id ?? null} deleting={deletion?.deletedIds} restoring={restoring} inspect={inspectSummary} />
       <div className="memory-legend">
@@ -154,21 +194,31 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
         <span className="stale"><i className="memory-legend-swatch" aria-hidden="true" />{legendText(t("memory.out_of_date"))}</span>
         <span className="manual"><i className="memory-legend-swatch" aria-hidden="true" />{legendText(t("memory.manually_edited"))}</span>
       </div>
-      {deletionTarget && <section className="summary-deletion" aria-label={t("memory.summary_deletion_preview")}>
+      {(deletionTarget || reviewToken) && <section className="summary-deletion" aria-label={t("memory.summary_deletion_preview")}>
         <h3 ref={deletionHeading} tabIndex={-1}>{t("memory.delete_summary_and_dependents")}</h3>
+        {reviewToken && <p>{t('memory.preparation_deletion_description')}</p>}
         {deletion ? <>
-          <p role="status">{t("memory.summaries_saved_versions_will_be_deleted_including", { size: deletion.deletedIds.size, length: deletion.deleted.length })}</p>
-          <p>{t("memory.archived_turns_return_to_verbatim_from_the", { length: deletion.restoredTurnIds.length })}</p>
+          {reviewToken ? <>
+            <p role="status">{t('memory_cleanup.discarded', { count: deletion.deletedIds.size })}</p>
+            {deletion.restoredTurnIds.length > 0 && <p>{t('memory_cleanup.restored', { count: deletion.restoredTurnIds.length })}</p>}
+          </> : <>
+            <p role="status">{t("memory.summaries_saved_versions_will_be_deleted_including", { size: deletion.deletedIds.size, length: deletion.deleted.length })}</p>
+            <p>{t("memory.archived_turns_return_to_verbatim_from_the", { length: deletion.restoredTurnIds.length })}</p>
+          </>}
           {deletion.deleted.some(node => node.manual) && <p><strong>{t("memory.this_includes_manually_corrected_summaries")}</strong></p>}
           <p>{t("memory.all_versions_of_these_summaries_are_removed")}</p>
           {awaiting && <p role="status">{t("memory.close_the_repair_review_before_deleting_summaries")}</p>}
-          <ul>{nodes.filter(node => deletion.deletedIds.has(node.id)).map(node => <li key={node.id}>{summaryOptions.find(option => option.value === node.id)?.label}</li>)}</ul>
-          <button type="button" disabled={locked || Boolean(awaiting)} onClick={() => void run(async () => {
+          <ul>{nodes.filter(node => deletion.deletedIds.has(node.id)).map(node => <li key={node.id}>{summaryOptions.find(option => option.value === node.id)?.label}
+            {reviewToken && node.manual && <p>{node.text}</p>}</li>)}</ul>
+          {reviewJobId && review ? <button type="button" disabled={busy} onClick={() => void run(() => api(`/context/jobs/${reviewJobId}/deletion`, 'POST', { token: review.token }))}>{t('memory.delete_and_continue_preparation')}</button>
+          : deletionTarget && <button type="button" disabled={locked || Boolean(awaiting)} onClick={() => void run(async () => {
             await api(`/chats/${snapshot.id}/context/summaries/${deletionTarget.node.id}`, 'DELETE', { revision: deletionTarget.revision, summaryRevision: deletionTarget.node.revision });
             setDeletionTarget(null); setInspected(null); setPlanError('');
-          })}>{t("memory.delete_summaries", { size: deletion.deletedIds.size })}</button>
-        </> : <p role="status">{t("memory.the_chat_or_view_changed_cancel_this")}</p>}
-        <button type="button" className="quiet" disabled={busy} onClick={() => setDeletionTarget(null)}>{t("memory.cancel_deletion")}</button>
+          })}>{t("memory.delete_summaries", { size: deletion.deletedIds.size })}</button>}
+        </> : reviewError ? <><p role="alert">{formatMessage(reviewError)}</p><button type="button" className="secondary" onClick={() => { setReviewRead(undefined); setReviewRetry(value => value + 1); }}>{t('app.retry_loading')}</button></>
+          : <p role="status">{t(reviewToken ? 'memory.loading_preparation_deletion' : 'memory.the_chat_or_view_changed_cancel_this')}</p>}
+        {reviewJobId && preparation ? <button type="button" className="quiet" disabled={busy} onClick={() => void run(() => api(preparation.generationId ? `/generations/${preparation.generationId}/cancel` : `/context/jobs/${reviewJobId}/cancel`, 'POST', {}))}>{t('memory.decline_preparation_deletion')}</button>
+          : <button type="button" className="quiet" disabled={busy} onClick={() => setDeletionTarget(null)}>{t("memory.cancel_deletion")}</button>}
       </section>}
     </section>
     {nodes.length > 0 && <label>{t("memory.inspect_saved_summary")}<Dropdown aria-label={t("memory.inspect_saved_summary")} value={inspected?.id ?? ''} onChange={id => inspectSummary(nodes.find(node => node.id === id) ?? null)} options={[{ value: '', label: t("memory.choose_an_identity_and_range") }, ...summaryOptions]} /></label>}

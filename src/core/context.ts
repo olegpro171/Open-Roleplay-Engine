@@ -62,12 +62,18 @@ export function selectedContext(turns: Turn[], state: ContextState, allowStale =
   return { summaries, verbatim: turns.filter(turn => !archived.has(turn.id)) };
 }
 
+export const minimumTailDiagnostic = message("diagnostics.the_saved_cutoff_no_longer_leaves_the_configured");
+
+export function belowMinimumTail(turns: Turn[], state: ContextState, minimum: number): boolean {
+  return state.archivedTurnIds.length > 0 && turns.slice(state.archivedTurnIds.length).filter(turn => turn.complete).length < minimum;
+}
+
 /** Budget-driven state transition; callers measure and commit the actual replacement. */
 export function nextCompaction(turns: Turn[], state: ContextState, config: ContextPreset, input: number, limit: number, required: number, summarySizes: Map<string, number>, pinnedFloor?: number): { next: ContextOperation | null; blocked: string | null; blockedMessage?: import('../shared/localization.js').LocalizedMessage } {
   const { summaries, verbatim } = selectedContext(turns, state);
   if (correctionProtection(turns, state).unresolved.length) return { next: null, ...blockedText(correctionDiagnostic) };
   const completed = verbatim.filter(turn => turn.complete);
-  if (state.archivedTurnIds.length && completed.length < config.minTail) return { next: null, ...blockedText(message("diagnostics.the_saved_cutoff_no_longer_leaves_the_configured")) };
+  if (belowMinimumTail(turns, state, config.minTail)) return { next: null, ...blockedText(minimumTailDiagnostic) };
   if (input <= limit) return { next: null, blocked: null };
   if (pinnedFloor !== undefined && pinnedFloor >= limit) return { next: null, ...blockedText(message('pins.required_budget')) };
   if (completed.length >= config.minTail + config.batchSize) {
@@ -95,7 +101,6 @@ export function rankedPromotions(summaries: SummaryNode[], config: ContextPreset
     const first = summaries.indexOf(children[0]);
     if (!children.every((node, index) => summaries[first + index] === node)) continue;
     // Promoting a middle range must not make it coarser than older memory.
-    // This also keeps continuation safe after a manual detail restoration.
     if (first > 0 && summaries[first - 1].level < level + 1) continue;
     const used = layer.reduce((total, node) => total + (summarySizes.get(refKey(node)) ?? 0), 0);
     candidates.push({ score: summaryPressure(level, used), level, children });
@@ -149,8 +154,8 @@ export function repairQueue(turns: Turn[], state: ContextState, replacements = n
   }
   for (const group of groups) {
     if (!group.some(node => protection.unresolved.some(correction => correction.id === node.id))) continue;
-    // Prefer an already selected container. Otherwise reconcile the smallest
-    // saved container, and leave its activation to explicit manual preparation.
+    // Prefer an already selected container. If none covers the corrections,
+    // reconcile the smallest compatible saved container without changing coverage.
     const candidates = [...latest.values()].filter(node => group.every(correction => contains(node, correction)
       && (node.id === correction.id || !dependsOn(correction, node.id))));
     candidates.sort((a, b) => Number(selectedNodes.some(node => node.id === b.id)) - Number(selectedNodes.some(node => node.id === a.id))

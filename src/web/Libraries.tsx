@@ -14,6 +14,7 @@ import { PersonaIcon } from './PersonaIcon';
 import { defaultChatInputTarget, type ChatDefaultsStatus, type ChatDefaultKind } from '../shared/chat-defaults';
 import type { PromptDiagnostic } from '../shared/prompt-diagnostics';
 import { useConfirmation } from './Confirmation';
+import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { CharacterAvatar, PictureSquare } from './Pictures';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ChatWorkspace } from './ChatWorkspace';
@@ -135,6 +136,7 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
   const [value, setValue] = useState(() => selection(snapshot));
   const [revision] = useState(snapshot.revision);
   const confirmAction = useConfirmation(snapshot.id);
+  const reviewMemoryCleanup = useMemoryCleanup(run, snapshot.id);
   const [diagnosticsRetry, setDiagnosticsRetry] = useState(0);
   const diagnosticsKey = JSON.stringify([snapshot.id, snapshot.revision, library.revision, value.promptId, value.characterId, value.personaId, value.lorebookId, diagnosticsRetry]);
   const [diagnostics, setDiagnostics] = useState<{ key: string; warnings: PromptDiagnostic[]; error?: MessageText } | null>(null);
@@ -167,8 +169,13 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
       submitting.current = true;
       setSaving(true);
       try {
-        const committed = await run(() => api(`/chats/${snapshot.id}/selections`, 'PUT', { revision, settings: value }));
-        if (committed && mounted.current) saved();
+        const commit = (memoryImpactToken?: string) => api(`/chats/${snapshot.id}/selections`, 'PUT', { revision, settings: value, memoryImpactToken });
+        if (value.contextPresetId !== (snapshot.settings.contextPresetId ?? null)) {
+          await reviewMemoryCleanup({
+            path: `/chats/${snapshot.id}/settings/memory-impact`, body: { revision, contextPresetId: value.contextPresetId },
+            copy: saveMemoryCleanupCopy(), commit, saved,
+          });
+        } else if (await run(() => commit()) && mounted.current) saved();
       } finally { submitting.current = false; if (mounted.current) setSaving(false); }
     }}><fieldset disabled={busy}><legend>{t("libraries.selections")}</legend><SelectionFields value={value} change={setValue} library={library} /></fieldset>
       {revision !== snapshot.revision && <p role="status">{t("libraries.this_chat_changed_reopen_chat_settings_to")}</p>}
@@ -268,6 +275,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     const { id, revision: _revision, ...data } = record;
     return { kind: initialTarget.kind, id, revision: library.revision, data };
   });
+  const reviewMemoryCleanup = useMemoryCleanup(run, `${section}:${editing?.id ?? editing?.kind ?? ''}`);
   const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
   const panel = useRef<HTMLElement>(null);
   const wasEditing = useRef(Boolean(editing));
@@ -473,7 +481,14 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
                       setConnectionFile({ kind: 'export', id: item.id, name: item.name });
                     }}><Icon name="Upload" />{t('connection_files.export_button')}</button> : <button className="secondary" role="menuitem" tabIndex={-1} aria-label={section === 'characters' ? t("libraries.export_json", { value: characterLabel(item) }) : undefined} onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}><Icon name="Upload" />{section === 'characters' ? t("libraries.export_json_2") : t("libraries.export")}</button>}
                     {item.id === 'default' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => { confirmAction({ title: t("libraries.restore_original_prompt"), message: t("libraries.restore_the_built_in_default_prompt_chats"), actionLabel: t("libraries.restore_original"), onConfirm: () => { void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.restore_original")}</button>}
-                    {section === 'contexts' && item.id === 'default-context' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => { confirmAction({ title: t("libraries.reset_context"), message: t("libraries.reset_context_confirmation"), actionLabel: t("libraries.reset"), onConfirm: () => { void run(() => api('/library/default-context/reset', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.reset")}</button>}
+                    {section === 'contexts' && item.id === 'default-context' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => {
+                      const revision = library.revision;
+                      void reviewMemoryCleanup({
+                        path: '/library/contexts/default-context/impact', body: { revision, data: defaultContextPreset }, alwaysConfirm: true,
+                        copy: { title: msg('libraries.reset_context'), message: msg('libraries.reset_context_confirmation'), actionLabel: msg('libraries.reset') },
+                        commit: memoryImpactToken => api('/library/default-context/reset', 'POST', { revision, memoryImpactToken }),
+                      });
+                    }}><Icon name="TrashOutline" />{t("libraries.reset")}</button>}
                     {item.id !== 'default' && !(section === 'contexts' && item.id === 'default-context') && <button className="secondary" role="menuitem" tabIndex={-1} aria-label={section === 'characters' ? t("libraries.delete", { value: characterLabel(item) }) : undefined} disabled={busy || (section === 'lorebooks' && library.lorebookUses.some(use => use.bookId === item.id && (use.characters.length > 0 || use.chats.length > 0)))} onClick={() => { confirmAction({ confirmOnEnter: true, title: t("libraries.delete_library_item"), message: t("libraries.delete_from_the_library", { value: section === 'characters' || section === 'personas' ? characterLabel(item) : item.name }), actionLabel: t("libraries.delete_2"), onConfirm: () => { void run(() => api(`/library/${item.id}`, 'DELETE', { kind: section, revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.delete_2")}</button>}
                   </ActionMenu>
                 </div>
@@ -536,6 +551,7 @@ function LibraryEditor({ initial, connections, currentRevision, busy, run, close
   const [parameters, setParameters] = useState(JSON.stringify((initial.data as Connection).customParameters ?? {}, null, 2));
   const [error, setError] = useTextState('');
   const stale = initial.revision !== currentRevision;
+  const reviewMemoryCleanup = useMemoryCleanup(run, initial.id);
   async function save(e: FormEvent) {
     e.preventDefault(); setError('');
     if (initial.kind === 'connections' && !(data as Connection).model.trim()) {
@@ -545,6 +561,17 @@ function LibraryEditor({ initial, connections, currentRevision, busy, run, close
     let value = data;
     try { if (initial.kind === 'connections') value = { ...data as Connection, customParameters: JSON.parse(parameters) }; }
     catch { setError(msg("libraries.custom_parameters_must_be_valid_json")); return; }
+    if (initial.kind === 'contexts' && initial.id && 'batchSize' in value && 'batchSize' in initial.data
+      && (value.batchSize !== initial.data.batchSize || value.promotionGroup !== initial.data.promotionGroup)) {
+      const id = initial.id;
+      const body = { revision: initial.revision, data: value };
+      await reviewMemoryCleanup({
+        path: `/library/contexts/${id}/impact`, body, copy: saveMemoryCleanupCopy(), alwaysConfirm: true,
+        commit: memoryImpactToken => api(`/library/${id}`, 'PUT', { ...body, kind: 'contexts', memoryImpactToken }),
+        saved: close,
+      });
+      return;
+    }
     if (await run(() => api(initial.id ? `/library/${initial.id}` : '/library', initial.id ? 'PUT' : 'POST', { revision: initial.revision, kind: initial.kind, data: value, ...(initial.kind === 'connections' && (key || removeKey) ? { apiKey: removeKey ? '' : key } : {}) }))) close();
   }
   function textField(field: string, label: string, multiline = true, full = true) {

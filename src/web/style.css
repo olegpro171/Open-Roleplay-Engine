@@ -255,7 +255,9 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
   /* Visually center the diagonal artwork within Send. */
   transform: translate(-0.8px, 0.8px);
 }
-.memory-preparation-status{max-width:100%;padding:7px 12px;border:1px solid var(--line);border-radius:18px;background:var(--surface);color:var(--muted);font-size:11px;box-shadow:0 2px 8px var(--shadow-soft)}
+.memory-preparation-status{max-width:100%;padding:8px 12px;flex-wrap:nowrap;gap:12px;border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 8px var(--shadow-soft);pointer-events:auto}
+.memory-preparation-status button{min-height:44px}
+.memory-preparation-status .actions{flex-direction:column;align-items:stretch;margin:0}
 .request-details[open]>summary{margin-bottom:22px}
 .timeline-layout{display:grid;grid-template-columns:36px minmax(0,1fr);margin-top:26px}
 .timeline-labels{position:relative;color:var(--muted);font-size:11px}
@@ -497,6 +499,10 @@ button.turn-action, .turn-actions > .action-menu-trigger { display: inline-flex;
 .confirmation-symbol{display:grid;place-items:center;width:36px;height:36px;margin-bottom:18px;border:1px solid var(--danger-border);border-radius:50%;background:var(--danger-surface);color:var(--danger-text);font-weight:700}
 .confirmation-dialog h2{font-size:21px;margin-bottom:12px}
 .confirmation-dialog p{color:var(--text-secondary);font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:24px}
+.memory-cleanup-branches{padding-inline-start:20px;overflow-wrap:anywhere}
+.memory-cleanup-branches>li+li{margin-top:16px}
+.memory-cleanup-branches ul{padding-inline-start:20px}
+.confirmation-dialog .memory-cleanup-branches p{margin:4px 0 8px}
 .confirmation-dialog .actions{justify-content:flex-end;gap:10px}
 .confirmation-dialog button{min-height:44px}
 button.danger{background:var(--danger-button);color:var(--on-danger-button);border-color:var(--danger)}

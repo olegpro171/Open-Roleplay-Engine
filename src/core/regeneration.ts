@@ -34,8 +34,8 @@ export function regenerationView(snapshot: EngineSnapshot): EngineSnapshot {
       throw new AppError(422, 'regeneration_correction_conflict', message("errors.a_manually_corrected_summary_includes_this_response_preserve"));
     }
   }
-  // Keep only the valid selected prefix. A parent crossing the endpoint cannot
-  // be sliced; its retained children remain available for ordinary saved reuse.
+  // Keep the whole selected prefix that leaves the protected completed tail.
+  // Any replacement must then match the ordinary forward planner's operation.
   const selected = [];
   const archivedTurnIds: string[] = [];
   for (const ref of snapshot.context.selected) {

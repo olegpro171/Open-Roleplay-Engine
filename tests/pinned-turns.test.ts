@@ -244,7 +244,8 @@ test('compacts a pinned turn normally and rejects impossible required input befo
   target(full.budget.inputTokens);
   expect((await prepare()).statusCode).toBe(202);
   await f.idle();
-  expect(f.state().context.archivedTurnIds).toEqual([]);
+  expect(f.state().context.archivedTurnIds).toEqual([first.id]);
+  expect(f.state().context.jobs[0]).toMatchObject({ status: 'succeeded', stepCount: 0 });
   expect(f.mock.requests).toHaveLength(1);
 });
 

@@ -17,21 +17,21 @@ import { compactPrompt } from './support/compact-prompt.js';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
-function fixture(behavior: Partial<ChatBehavior> = {}) {
+function fixture(behavior: Partial<ChatBehavior> = {}, completedTurns = 8) {
   const folder = mkdtempSync(join(tmpdir(), 'ore-auto-memory-'));
   const filename = join(folder, 'chat.sqlite');
   let store = new Store(filename);
   store.saveLibrary(store.libraryRevision(), 'prompts', compactPrompt, 'default');
   const settings: ChatBehavior = { ...defaultChatBehavior, autoRetryMemory: false, ...behavior };
   const calls: string[] = [];
-  let holdSummaryAt = Number.POSITIVE_INFINITY, failSummaries = 0, reply = 'Leon waits. ';
+  let holdSummaryAt = Number.POSITIVE_INFINITY, failSummaries = 0, reply = 'Leon waits. ', summaryText = 'Mira kept the brass key.';
   const provider: Provider = { async stream(request, key, signal, onText) {
     const summary = request.body.model === 'summary';
     calls.push(request.body.model);
     expect(key).toBe(summary ? 'summary-secret' : 'story-secret');
     if (summary && calls.filter(model => model === 'summary').length >= holdSummaryAt) await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }));
     if (summary && failSummaries-- > 0) throw new Error('private upstream error');
-    onText(summary ? 'Mira kept the brass key.' : reply);
+    onText(summary ? summaryText : reply);
     return { finishReason: 'stop' };
   } };
   const connection = { name: 'Story', endpoint: 'http://localhost:1234/v1', model: 'story', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} };
@@ -39,25 +39,34 @@ function fixture(behavior: Partial<ChatBehavior> = {}) {
   const summaryId = store.saveLibrary(store.libraries().revision, 'connections', { ...connection, name: 'Summary', model: 'summary' }, undefined, 'summary-secret');
   const presetId = store.saveLibrary(store.libraries().revision, 'contexts', { ...defaultContextPreset, connectionId: summaryId, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 });
   const chatId = store.createChat({ title: 'Automatic memory', connectionId: storyId, promptId: 'default', characterId: null, personaId: null, contextPresetId: presetId, targetInputTokens: 20_000 });
-  seedTranscript(store, store.snapshot(chatId).revision, chatId, Array.from({ length: 8 }, (_, index) => ({ user: `Mira offers the key, turn ${index}. ` + 'The cellar remains closed. '.repeat(12), assistant: 'Leon waits by the door. '.repeat(12), complete: true })));
+  seedTranscript(store, store.snapshot(chatId).revision, chatId, Array.from({ length: completedTurns }, (_, index) => ({ user: sourceText(index), assistant: 'Leon waits by the door. '.repeat(12), complete: true })));
   let coordinator = new GenerationCoordinator(store, provider, () => settings);
   const state = () => store.snapshot(chatId);
   const target = (value: number) => store.updateChat(state().revision, chatId, { ...state().settings, connectionId: storyId, promptId: 'default', characterId: null, personaId: null, contextPresetId: presetId, targetInputTokens: value });
   const estimate = (text?: string) => {
     const snapshot = state();
-    const turns = text === undefined ? snapshot.turns : [...snapshot.turns, { id: 'draft', position: 9, complete: false, user: { id: 'draft-u', text, revision: 0 }, assistant: { id: 'draft-a', text: '', revision: 0 } }];
+    const turns = text === undefined ? snapshot.turns : [...snapshot.turns, { id: 'draft', position: completedTurns + 1, complete: false, user: { id: 'draft-u', text, revision: 0 }, assistant: { id: 'draft-a', text: '', revision: 0 } }];
     if (!snapshot.connection) throw new Error('Missing test Connection');
     return assembleRequest(snapshot.connection, snapshot.settings, turns, snapshot.sources, snapshot.context, { validateLimits: false }).budget.inputTokens;
   };
   const send = (text = 'Mira opens the door.', requestId = randomUUID()) => coordinator.start(state().revision, requestId, text, chatId).generationId;
+  const regenerate = () => {
+    const current = state();
+    const latest = current.turns.at(-1);
+    if (!latest) throw new Error('No turn to regenerate');
+    return coordinator.regenerate(current.revision, randomUUID(), latest.id, chatId).generationId;
+  };
   const idle = async () => { await expect.poll(() => coordinator.hasActiveWork(), { timeout: 8_000 }).toBe(false); };
   cleanups.push(async () => { await coordinator.shutdown(); store.close(); rmSync(folder, { recursive: true, force: true }); });
-  return { get store() { return store; }, get coordinator() { return coordinator; }, state, settings, target, estimate, send, idle, calls, chatId, presetId,
+  return { get store() { return store; }, get coordinator() { return coordinator; }, state, settings, target, estimate, send, regenerate, idle, calls, chatId, presetId,
     hold(after = 1) { holdSummaryAt = after; }, fail(count: number) { failSummaries = count; }, reply(text: string) { reply = text; },
+    summary(text: string) { summaryText = text; },
     physicalWindow(value: number) { const current = store.connection(storyId); store.saveLibrary(store.libraries().revision, 'connections', { ...current, contextWindow: value }, storyId); },
     async restart() { await coordinator.shutdown(); store.close(); store = new Store(filename); coordinator = new GenerationCoordinator(store, provider, () => settings); },
   };
 }
+
+const sourceText = (index: number) => `Mira offers the key, turn ${index}. ` + 'The cellar remains closed. '.repeat(12);
 
 it.each([
   [999, 1000, true, 100, true], [1000, 1000, false, 0, true],
@@ -233,4 +242,166 @@ it('does not start post-response preparation when the response fails acceptance'
   expect(f.state().generations[0].status).toBe('failed');
   expect(f.state().context.jobs).toHaveLength(0);
   expect(f.calls).toEqual(['story']);
+});
+
+it.each(['prepare', 'send', 'regenerate', 'post-reply'] as const)('takes the same two full batches for %s after a sharp target drop', async trigger => {
+  const f = fixture({ allowInputOvershoot: trigger === 'post-reply', maximumOvershootTokens: 20_000 }, trigger === 'regenerate' ? 8 : 7);
+  const input = sourceText(7);
+  f.target(700);
+  if (trigger === 'prepare') {
+    const pending = f.store.begin(f.state().revision, randomUUID(), input, f.chatId);
+    f.store.finish(pending.id, 'failed', '');
+    f.coordinator.context.start(f.chatId, f.state().revision, randomUUID(), 'prepare');
+  } else if (trigger === 'regenerate') {
+    f.regenerate();
+  } else {
+    f.send(input);
+  }
+  await f.idle();
+  const state = f.state();
+  const job = state.context.jobs.find(job => trigger === 'regenerate' ? job.generationId !== null : job.automatic === (trigger === 'post-reply' ? true : undefined));
+  expect(job).toMatchObject({ status: 'succeeded', generatedCount: 2, reusedCount: 0 });
+  if (!job) throw new Error('No preparation job');
+  const steps = f.store.contexts.steps(job.id);
+  expect(steps.map(step => step.operation)).toEqual([0, 2].map(start => ({
+    level: 1, turnIds: state.turns.slice(start, start + 2).map(turn => turn.id), children: [],
+  })));
+  expect(steps[1].inputBefore).toBe(steps[0].inputAfter);
+  for (const step of steps) expect(step.inputAfter).toBeLessThan(step.inputBefore);
+  expect(steps[1].inputAfter).toBeLessThanOrEqual(700);
+  if (trigger === 'regenerate') {
+    const generation = state.generations[0];
+    expect(generation).toMatchObject({ status: 'succeeded', kind: 'regeneration' });
+    expect(generation.request?.budget.inputTokens).toBe(steps[1].inputAfter);
+    expect(generation.request?.body.messages.at(-1)?.content).toBe(input);
+    const followUp = state.context.jobs.find(job => job.automatic);
+    expect(followUp).toMatchObject({ status: 'succeeded', generatedCount: 0, reusedCount: 2 });
+  } else if (trigger === 'prepare') {
+    expect(state.turns.at(-1)?.complete).toBe(false);
+  } else {
+    expect(state.generations[0].status).toBe('succeeded');
+  }
+  expect(state.context.archivedTurnIds).toEqual(state.turns.slice(0, 4).map(turn => turn.id));
+  expect(f.calls).toEqual(trigger === 'prepare' ? ['summary', 'summary'] : trigger === 'post-reply'
+    ? ['story', 'summary', 'summary'] : ['summary', 'summary', 'story']);
+});
+
+it('records a no-savings attempt and leaves Send pending without dispatching the reply', async () => {
+  const f = fixture({ allowInputOvershoot: false, autoRetryMemory: true });
+  f.target(700);
+  f.summary('A vault contains forty sealed maps. '.repeat(60) + 'Leon held the brass key.');
+  f.send();
+  await f.idle();
+  const state = f.state();
+  const job = state.context.jobs[0];
+  expect(job).toMatchObject({ status: 'failed', errorMessage: { key: 'errors.the_summary_did_not_reduce_the_assembled_input' } });
+  expect(state.turns.at(-1)).toMatchObject({ complete: false, user: { text: 'Mira opens the door.' } });
+  expect(state.generations[0]).toMatchObject({ status: 'failed', request: null });
+  expect(state.context.selected).toEqual([]);
+  expect(state.context.summaries).toEqual([]);
+  expect(f.store.contexts.steps(job.id)).toMatchObject([{ status: 'failed', request: { body: { model: 'summary' } }, result: null, after: null }]);
+  expect(f.calls).toEqual(['summary']);
+});
+
+it('Stops Send during a retry delay and resumes its existing pending turn only on explicit Retry', async () => {
+  const f = fixture({ allowInputOvershoot: false, autoRetryMemory: true });
+  f.target(700);
+  f.fail(1);
+  const id = f.send();
+  await expect.poll(() => {
+    const job = f.state().context.jobs[0];
+    return job && f.store.contexts.steps(job.id)[0]?.status;
+  }).toBe('failed');
+  f.coordinator.cancel(id);
+  await f.idle();
+  const stopped = f.state();
+  expect(stopped.generations[0]).toMatchObject({ status: 'cancelled', request: null });
+  expect(stopped.context.jobs[0]).toMatchObject({ status: 'cancelled' });
+  expect(stopped.context.selected).toEqual([]);
+  expect(stopped.turns.at(-1)?.complete).toBe(false);
+  expect(f.calls).toEqual(['summary']);
+  const { generationId } = f.coordinator.start(stopped.revision, randomUUID(), undefined, f.chatId);
+  await f.idle();
+  const resumed = f.state();
+  expect(resumed.generations[0]).toMatchObject({ id: generationId, status: 'succeeded' });
+  expect(resumed.turns).toHaveLength(stopped.turns.length);
+  expect(resumed.turns.at(-1)).toMatchObject({ id: stopped.turns.at(-1)?.id, complete: true });
+  expect(f.calls).toEqual(['summary', 'summary', 'summary', 'story']);
+});
+
+it('keeps the completed Send checkpoint when Stop rejects a late summary', async () => {
+  const f = fixture({ allowInputOvershoot: false });
+  f.target(700);
+  f.hold(2);
+  const id = f.send();
+  await expect.poll(() => f.calls).toEqual(['summary', 'summary']);
+  const before = f.state();
+  const job = before.context.jobs[0];
+  const steps = f.store.contexts.steps(job.id);
+  expect(steps).toMatchObject([
+    { status: 'saved', after: { selected: before.context.selected, archivedTurnIds: before.context.archivedTurnIds } },
+    { status: 'running', request: { body: { model: 'summary' } }, result: null, after: null },
+  ]);
+  expect(before.context.archivedTurnIds).toEqual(before.turns.slice(0, 2).map(turn => turn.id));
+
+  f.coordinator.cancel(id);
+  await f.idle();
+  const stopped = f.state();
+  expect(stopped.context.jobs[0]).toMatchObject({ status: 'cancelled', generatedCount: 1 });
+  expect(stopped.context.summaries).toEqual(before.context.summaries);
+  expect(stopped.context.selected).toEqual(before.context.selected);
+  expect(stopped.turns.at(-1)).toEqual(before.turns.at(-1));
+  expect(stopped.turns.at(-1)?.complete).toBe(false);
+  expect(f.calls).toEqual(['summary', 'summary']);
+
+  f.hold(Number.POSITIVE_INFINITY);
+  f.coordinator.start(stopped.revision, randomUUID(), undefined, f.chatId);
+  await f.idle();
+  const resumed = f.state();
+  expect(resumed.generations[0].status).toBe('succeeded');
+  expect(resumed.turns).toHaveLength(stopped.turns.length);
+  expect(resumed.context.selected[0]).toEqual(stopped.context.selected[0]);
+  expect(f.calls).toEqual(['summary', 'summary', 'summary', 'story']);
+});
+
+it.each(['stop', 'restart'] as const)('keeps the previous reply and the saved working checkpoint after regeneration %s', async outcome => {
+  const f = fixture({ allowInputOvershoot: false });
+  f.target(700);
+  f.hold(2);
+  const committed = f.state();
+  const id = f.regenerate();
+  await expect.poll(() => f.calls).toEqual(['summary', 'summary']);
+  const before = f.state();
+  const working = f.store.generation(id)?.contextSelection;
+  expect(working?.archivedTurnIds).toEqual(committed.turns.slice(0, 2).map(turn => turn.id));
+  expect(before.context.summaries).toHaveLength(1);
+  expect(before.context.selected).toEqual(committed.context.selected);
+  expect(before.turns.at(-1)).toEqual(committed.turns.at(-1));
+  if (outcome === 'stop') {
+    f.coordinator.cancel(id);
+    await f.idle();
+  } else {
+    await f.restart();
+  }
+  const stopped = f.state();
+  const status = outcome === 'stop' ? 'cancelled' : 'interrupted';
+  expect(stopped.generations[0]).toMatchObject({ id, status, request: null });
+  expect(stopped.context.jobs[0]).toMatchObject({ status });
+  expect(stopped.turns.at(-1)).toEqual(committed.turns.at(-1));
+  expect(stopped.context.selected).toEqual(committed.context.selected);
+  expect(stopped.context.summaries).toEqual(before.context.summaries);
+  expect(f.store.generation(id)?.contextSelection).toEqual(working);
+  expect(f.calls).toEqual(['summary', 'summary']);
+
+  f.hold();
+  const retryId = f.regenerate();
+  await expect.poll(() => f.calls).toHaveLength(3);
+  const resumed = f.state();
+  expect(resumed.context.jobs[0]).toMatchObject({ generationId: retryId, reusedCount: 1, generatedCount: 0 });
+  expect(f.store.contexts.steps(resumed.context.jobs[0].id)[0]).toMatchObject({ status: 'saved', reused: true, request: null });
+  expect(f.store.generation(retryId)?.contextSelection?.selected).toEqual(working?.selected);
+  expect(resumed.context.selected).toEqual(committed.context.selected);
+  expect(resumed.turns.at(-1)).toEqual(committed.turns.at(-1));
+  f.coordinator.cancel(retryId);
+  await f.idle();
 });

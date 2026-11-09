@@ -8,6 +8,7 @@ import { startMockProvider, syntheticReasoningStart } from './support/mock-provi
 import type { ChatSnapshot } from '../src/shared/contracts.js';
 import { defaultContextPreset } from '../src/shared/context.js';
 import { compactPrompt } from './support/compact-prompt.js';
+import type { StorySnapshot } from '../src/shared/transcript.js';
 
 it.each(['hold', 'reasoning'] as const)('recovers a real server crash during %s with checkpointed output and no automatic provider retry', async mode => {
   const directory = mkdtempSync(join(tmpdir(), 'roleplay-crash-'));
@@ -114,6 +115,11 @@ it('keeps committed summaries after a real process crash and resumes only on an 
     const recovered = await state();
     expect(recovered.context.jobs[0].status).toBe('interrupted');
     expect(recovered.context.selected).toEqual(committed); expect(mock.requests).toHaveLength(2);
+    const story = await fetch(`${address}/api/chats/${chatId}/story`, { headers: { cookie } }).then(response => response.json() as Promise<StorySnapshot>);
+    expect(story).toMatchObject({ preparing: false, preparation: {
+      id: recovered.context.jobs[0].id, status: 'interrupted', working: { targetInputTokens: 2_200 },
+    } });
+    expect(mock.requests).toHaveLength(2);
     mock.setMode('normal');
     await post(`/api/chats/${chatId}/context/prepare`, { revision: recovered.revision, requestId: randomUUID(), mode: 'prepare' });
     await expect.poll(async () => (await state()).context.jobs[0].status, { timeout: 5_000 }).toBe('succeeded');

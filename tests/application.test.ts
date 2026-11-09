@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createApp } from '../src/server/app.js';
 import type { ChatSnapshot, RequestPreview } from '../src/shared/contracts.js';
+import type { ContextJob } from '../src/shared/context.js';
 import { compactPrompt } from './support/compact-prompt.js';
 import { defaultChatBehavior } from '../src/shared/chat-behavior.js';
 import { startMockProvider, syntheticReasoningStart, syntheticReasoningTail } from './support/mock-provider.js';
@@ -195,7 +196,8 @@ describe('persistent chat and generation', () => {
     const result = await command('/api/chats/main/context/prepare', { revision: current.revision, requestId, mode: 'prepare' });
     expect(result.statusCode).toBe(202);
     const job = instance.store.contexts.job(result.json().jobId);
-    expect(job).toMatchObject({ status: 'succeeded', mode: 'prepare', generatedCount: 0, refresh: { changed: false }, outcome: { verbatimTurns: 0 } });
+    expect(job).toMatchObject({ status: 'succeeded', mode: 'prepare', generatedCount: 0, stepCount: 0, outcome: { verbatimTurns: 0 } });
+    expect(job.refresh).toBeUndefined();
     const after = await state();
     expect((await command('/api/chats/main/context/prepare', { revision: current.revision, requestId, mode: 'prepare' })).json()).toEqual(result.json());
     expect(await state()).toEqual(after);
@@ -205,19 +207,30 @@ describe('persistent chat and generation', () => {
     expect(unauthorized.statusCode).toBe(401); expect(mock.requests).toHaveLength(0);
   });
 
-  it('validates and authenticates the local refresh endpoint without issuing a provider request', async () => {
+  it('replays saved Refresh receipts while rejecting new reselection commands', async () => {
     const snapshot = await state();
     const preset = instance.store.libraries().contexts[0];
     instance.store.updateChat(snapshot.revision, 'main', { title: snapshot.settings.title, targetInputTokens: 10_000, connectionId: 'main', promptId: 'default', characterId: null, personaId: null, contextPresetId: preset.id });
     const current = await state(), requestId = randomUUID();
+    const selection = { selected: [], archivedTurnIds: [] };
+    const report = { before: selection, after: selection, inputBefore: 3, inputAfter: 3, verbatimBefore: 0, verbatimAfter: 0, changed: false, protectedSummaries: 0, limited: false };
+    const createdAt = new Date().toISOString();
+    const legacy: ContextJob = {
+      id: randomUUID(), chatId: 'main', mode: 'refresh', status: 'succeeded', generationId: null, sourceRevision: current.revision,
+      config: preset, stepCount: 0, error: null, createdAt, updatedAt: createdAt, historyTurnIds: [], refresh: report,
+    };
+    instance.store.sqlite.prepare('INSERT INTO context_jobs (id, chat_id, request_id, command, data) VALUES (?, ?, ?, ?, ?)')
+      .run(legacy.id, 'main', requestId, JSON.stringify({ mode: 'refresh', generationId: null }), JSON.stringify(legacy));
+    const before = await state();
     const result = await command('/api/chats/main/context/refresh', { revision: current.revision, requestId });
     expect(result.statusCode).toBe(200);
-    expect(result.json().report).toMatchObject({ changed: false, verbatimBefore: 0, verbatimAfter: 0 });
-    expect((await command('/api/chats/main/context/refresh', { revision: current.revision, requestId })).json()).toEqual(result.json());
-    expect((await command('/api/chats/main/context/refresh', { revision: current.revision, requestId: randomUUID() })).statusCode).toBe(409);
+    expect(result.json()).toEqual({ jobId: legacy.id, report });
+    expect(instance.store.contexts.details(legacy.id)).toEqual({ job: legacy, steps: [] });
+    expect((await command('/api/chats/main/context/refresh', { revision: current.revision, requestId: randomUUID() })).statusCode).toBe(410);
     expect((await command('/api/chats/main/context/refresh', { revision: (await state()).revision, requestId: 'invalid' })).statusCode).toBe(400);
     const unauthorized = await instance.app.inject({ method: 'POST', url: '/api/chats/main/context/refresh', headers: { host: 'localhost', origin: 'http://localhost' }, payload: { revision: 0, requestId: randomUUID() } });
     expect(unauthorized.statusCode).toBe(401); expect(mock.requests).toHaveLength(0);
+    expect(await state()).toEqual(before);
   });
 
   it('checks and tests unsaved Connection settings without changing chat history or calibrating the counter', async () => {

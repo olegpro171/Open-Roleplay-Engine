@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { revisionSchema } from './contracts.js';
 import type { ChatSnapshot, Generation, Turn } from './contracts.js';
+import type { ContextJob, ContextJobProgress } from './context.js';
 
 export const transcriptInitialSize = 15;
 export const transcriptBatchSize = 40;
@@ -21,6 +22,10 @@ export type PinList = {
   turns: { id: string; ordinal: number; user: string; assistant: string; hasModelText: boolean }[];
 };
 export type TranscriptTurn = Turn & { ordinal: number; archived: boolean };
+export type StoryPreparation = Pick<ContextJob, 'id' | 'generationId' | 'mode' | 'status' | 'error' | 'errorMessage'> & Pick<ContextJobProgress, 'phase' | 'retrying' | 'deletionReviewToken'> & {
+  working?: { inputTokens: number; targetInputTokens: number; level: number | null };
+  completedSteps: number;
+};
 
 // This display window is deliberately distinct from the complete engine snapshot.
 export type StorySnapshot = Pick<ChatSnapshot, 'id' | 'revision' | 'settings' | 'connection' | 'hasApiKey' | 'sources' | 'promptDiagnostics'> & {
@@ -31,6 +36,7 @@ export type StorySnapshot = Pick<ChatSnapshot, 'id' | 'revision' | 'settings' | 
   latestTurn: { id: string; complete: boolean } | null;
   latestGeneration: StoryGeneration | null;
   preparing: boolean;
+  preparation: StoryPreparation | null;
   memory: { revision: number; selectedCount: number; archivedCount: number; stale: boolean; awaitingReview: boolean; refusalCount: number; refusalBlocked: boolean };
   page: { turns: TranscriptTurn[]; generations: StoryGeneration[]; hasOlder: boolean; hasNewer: boolean };
 };
