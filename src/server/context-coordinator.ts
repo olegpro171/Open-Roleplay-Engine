@@ -184,11 +184,12 @@ export class ContextCoordinator {
   private async run(id: string, chatId: string, signal: AbortSignal) {
     let replay: PreparationReplay | undefined;
     let reusedCount = 0;
+    let consideredReuseCount = 0;
     try {
       while (!signal.aborted && !this.stopping) {
-        const job = this.store.contexts.job(id);
+        let job = this.store.contexts.job(id);
         if (job.status !== 'running') return;
-        const committed = this.store.contexts.operationSnapshot(id);
+        let committed = this.store.contexts.operationSnapshot(id);
         if (job.mode === 'prepare' && !replay) {
           const savedLayout = job.generationId && this.store.generation(job.generationId)?.kind === 'regeneration'
             ? this.store.contexts.savedState(job.chatId) : committed.context;
@@ -205,7 +206,20 @@ export class ContextCoordinator {
           }
         }
         if (signal.aborted || this.stopping) break;
-        const frame = replay?.next();
+        let frame = replay?.next();
+        // Publish consecutive saved steps together before waiting on a provider or a review.
+        // A fitting replay is published by finish, including runs with no selection change.
+        if (replay && frame && !frame.plan.ready && reusedCount !== consideredReuseCount) {
+          consideredReuseCount = reusedCount;
+          const revisions = this.store.contexts.activateReusedProgress(id, frame, reusedCount);
+          if (revisions) {
+            replay.updateRevisions(revisions);
+            frame = replay.next();
+            job = this.store.contexts.job(id);
+            committed = this.store.contexts.operationSnapshot(id);
+            this.changed(chatId);
+          }
+        }
         const snapshot = frame?.snapshot ?? committed;
         const plan = frame?.plan ?? contextPlan(snapshot);
         const replacements = new Map();
@@ -219,6 +233,7 @@ export class ContextCoordinator {
             await this.waitForDeletionReview(job, deletion, signal, frame);
             replay = undefined;
             reusedCount = 0;
+            consideredReuseCount = 0;
             continue;
           }
           if (plan.blocked) throw new AppError(422, 'context_blocked', plan.blockedMessage ?? plan.blocked);
@@ -276,12 +291,16 @@ export class ContextCoordinator {
             continue;
           }
           if (signal.aborted || this.stopping) break;
-          saved = this.store.contexts.completeStep(step, text, prepared.prior, frame);
+          const result = this.store.contexts.completeStep(step, text, prepared.prior, frame);
+          saved = result.node;
+          if (replay && frame) {
+            replay.advance(frame, saved);
+            replay.updateRevisions(result);
+          }
           this.phases.delete(id);
           break;
         }
         if (!saved) break;
-        if (replay && frame) replay.advance(frame, saved, this.store.contexts.job(id).sourceRevision);
         this.changed(chatId);
         if (repairing) {
           if (saved.approved) { await yieldForCommands(); continue; }

@@ -25,8 +25,7 @@ const reference = ({ id, revision }: SummaryRef): SummaryRef => ({ id, revision 
 const turnIds = (node: SummaryNode) => node.turns.map(turn => turn.turnId);
 const asOperation = (node: SummaryNode): ContextOperation => ({ level: node.level, turnIds: turnIds(node), children: node.children });
 
-/** A run owns one provisional prefix. Its checkpoint and the stored originals
- * are independent of every transition until publication. */
+/** A run follows one working prefix, independently of when it can be selected. */
 export class PreparationReplay {
   private readonly base: EngineSnapshot;
   private active: SummaryNode[] = [];
@@ -326,7 +325,7 @@ export class PreparationReplay {
       correctionConflicts: this.protection.corrections.filter(correction => represented.has(refKey(correction))) };
   }
 
-  advance(frame: ReplayDecision, node: SummaryNode, sourceRevision = this.base.revision) {
+  advance(frame: ReplayDecision, node: SummaryNode) {
     const operation = frame.next;
     if (!operation) throw new Error('Cannot advance a finished memory replay');
     if (frame.anchor || operation.level === 1) {
@@ -340,12 +339,16 @@ export class PreparationReplay {
     }
     if (!frame.saved) {
       this.base.context = { ...this.base.context, summaries: [...this.base.context.summaries, node] };
-      this.base.revision = sourceRevision;
       for (const source of node.turns) {
         const key = this.alternativeKey(node.level, source.turnId);
         this.alternatives.set(key, (this.alternatives.get(key) ?? 0) + 1);
       }
     }
+  }
+
+  updateRevisions({ sourceRevision, selectionRevision }: { sourceRevision: number; selectionRevision: number }) {
+    this.base.revision = sourceRevision;
+    this.base.context = { ...this.base.context, revision: selectionRevision };
   }
 }
 

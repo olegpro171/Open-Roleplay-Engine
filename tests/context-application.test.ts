@@ -651,8 +651,9 @@ describe('durable imported-session preparation', () => {
     const id = f.start();
     await expect.poll(() => f.calls.length).toBe(2);
     const saved = f.state().context;
-    expect(saved.archivedTurnIds).toEqual([]);
     expect(saved.summaries).toHaveLength(1);
+    expect(saved.archivedTurnIds).toEqual(f.state().turns.slice(0, 2).map(turn => turn.id));
+    expect(saved.selected).toEqual([{ id: saved.summaries[0].id, revision: saved.summaries[0].revision }]);
     expect(() => f.store.editPart(f.state().revision, f.state().turns[0].id, 'user', 'Competing edit', f.chatId)).toThrow('preparation');
     f.coordinator.context.cancel(id); f.release();
     await f.idle(id);
@@ -811,7 +812,7 @@ describe('durable imported-session preparation', () => {
     expect(f.state().context.summaries).toEqual(saved.context.summaries);
   });
 
-  it('reuses an exact saved batch in the working replay after a generated batch', async () => {
+  it('activates an exact saved batch after a generated batch before a later request fails', async () => {
     const f = fixture(15);
     expect((await f.idle(f.start('step'))).status).toBe('succeeded');
     const saved = f.state();
@@ -831,11 +832,38 @@ describe('durable imported-session preparation', () => {
     expect(failedStep.before.selected).toEqual([
       ...firstStep.after!.selected, { id: retained.id, revision: retained.revision },
     ]);
-    expect(checkpoint.context.selected).toEqual(saved.context.selected);
+    expect(checkpoint.context.selected).toEqual(failedStep.before.selected);
+    expect(checkpoint.context.archivedTurnIds).toEqual(saved.turns.slice(0, 8).map(turn => turn.id));
     expect(checkpoint.context.summaries).toHaveLength(3);
     await f.resume();
     expect(f.state().context.selected).toEqual(checkpoint.context.selected);
     expect(f.calls).toHaveLength(calls + 2);
+  });
+
+  it('stages generated batches until replay can keep a later approved correction in active memory', async () => {
+    const f = fixture(12);
+    const initial = f.state();
+    const correction: SummaryNode = {
+      id: randomUUID(), revision: 0, level: 1, approved: true, manual: true, createdAt: '2026-10-20T00:00:00Z',
+      text: 'Mira left the key with her sister.', turns: initial.turns.slice(4, 6).map(sourceOf), children: [], prior: [],
+    };
+    retainedAlternative(f, correction);
+    f.setNextModes(['normal', 'normal', 'refusal']);
+    f.holdNext(2);
+    const id = f.start();
+    await expect.poll(() => f.calls.length).toBe(2);
+    const staged = f.store.contexts.steps(id)[0];
+    expect(staged.status).toBe('saved');
+    expect(f.state().context.selected).toEqual(initial.context.selected);
+    expect(f.state().context.archivedTurnIds).toEqual(initial.context.archivedTurnIds);
+
+    f.release();
+    expect(await f.idle(id)).toMatchObject({ status: 'failed', generatedCount: 2, reusedCount: 1 });
+    const active = f.state();
+    expect(active.context.selected).toContainEqual(staged.result);
+    expect(active.context.archivedTurnIds).toEqual(initial.turns.slice(0, 6).map(turn => turn.id));
+    expect(correctionProtection(active.turns, active.context).unresolved).toEqual([]);
+    expect(f.calls).toHaveLength(3);
   });
 
   it('restores verbatim turns after a raised minimum while preserving an earlier correction', async () => {
@@ -1326,7 +1354,7 @@ describe('opt-in summary request retries', () => {
     const steps = f.store.contexts.steps(job.id);
     expect(steps).toHaveLength(preparationRunLimit);
     expect(steps.at(-1)?.after?.archivedTurnIds).toEqual(archivedTurnIds);
-    expect(f.state().context.archivedTurnIds).toEqual(fits ? archivedTurnIds : []);
+    expect(f.state().context.archivedTurnIds).toEqual(archivedTurnIds);
     expect(f.state().context.summaries).toHaveLength(preparationRunLimit);
     expect(f.calls).toHaveLength(preparationRunLimit);
   }, 22_000);
@@ -1432,8 +1460,8 @@ describe('opt-in summary request retries', () => {
     expect(f.calls).toHaveLength(3);
     expect(f.store.contexts.steps(id).map(step => step.status)).toEqual(['saved', 'failed', 'failed']);
     expect(f.state().context.summaries).toHaveLength(1);
-    expect(f.state().context.archivedTurnIds).toEqual([]);
-    expect(f.store.contexts.steps(id)[0].after?.archivedTurnIds).toEqual(f.state().turns.slice(0, 2).map(turn => turn.id));
+    expect(f.state().context.archivedTurnIds).toEqual(f.state().turns.slice(0, 2).map(turn => turn.id));
+    expect(f.state().context.selected).toEqual(f.store.contexts.steps(id)[0].after?.selected);
   });
 
   it('validates saved retry settings at the backup import boundary while accepting older jobs', async () => {

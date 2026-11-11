@@ -204,15 +204,16 @@ it('keeps preparing across several fixed batches until the complete input fits',
   expect(() => validateContent(f.store.sqlite)).not.toThrow();
 });
 
-it('retains completed results without publishing the interrupted background replay', async () => {
+it('retains active progress after interrupting post-reply preparation', async () => {
   const f = fixture({ maximumOvershootTokens: Number.MAX_SAFE_INTEGER });
   f.target(500);
   f.hold(2);
   f.send();
   await expect.poll(() => f.calls).toEqual(['story', 'summary', 'summary']);
-  const committed = f.state().context;
+  const { context: committed, turns } = f.state();
   expect(committed.summaries).toHaveLength(1);
-  expect(committed.archivedTurnIds).toEqual([]);
+  expect(committed.archivedTurnIds).toEqual(turns.slice(0, 2).map(turn => turn.id));
+  expect(committed.selected).toEqual([{ id: committed.summaries[0].id, revision: 0 }]);
   await f.restart();
   expect(f.state().context.summaries).toEqual(committed.summaries);
   expect(f.state().context.selected).toEqual(committed.selected);
@@ -329,7 +330,7 @@ it('Stops Send during a retry delay and resumes its existing pending turn only o
   expect(f.calls).toEqual(['summary', 'summary', 'summary', 'story']);
 });
 
-it('keeps committed input and reusable Send results when Stop rejects a late summary', async () => {
+it('keeps active Send progress when Stop rejects a late summary', async () => {
   const f = fixture({ allowInputOvershoot: false });
   f.target(700);
   f.hold(2);
@@ -342,7 +343,8 @@ it('keeps committed input and reusable Send results when Stop rejects a late sum
     { status: 'saved', after: { selected: [{ id: before.context.summaries[0].id, revision: 0 }], archivedTurnIds: before.turns.slice(0, 2).map(turn => turn.id) } },
     { status: 'running', request: { body: { model: 'summary' } }, result: null, after: null },
   ]);
-  expect(before.context.archivedTurnIds).toEqual([]);
+  expect(before.context.selected).toEqual(steps[0].after?.selected);
+  expect(before.context.archivedTurnIds).toEqual(steps[0].after?.archivedTurnIds);
 
   f.coordinator.cancel(id);
   await f.idle();

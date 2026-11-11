@@ -20,6 +20,7 @@ import { hasPromptMarker } from '../shared/library.js';
 import type { LoreResolution } from '../shared/lorebook.js';
 
 type JsonRow = { data: string };
+type ReplayRevisions = { sourceRevision: number; selectionRevision: number };
 export class ContextStore {
   constructor(private store: Store) {}
   private get sqlite() { return this.store.sqlite; }
@@ -103,6 +104,9 @@ export class ContextStore {
   }
   private saveJob(job: ContextJob) { this.sqlite.prepare('UPDATE context_jobs SET data = ? WHERE id = ?').run(JSON.stringify(job), job.id); }
   private saveStep(step: ContextStep) { this.sqlite.prepare('UPDATE context_steps SET data = ? WHERE id = ?').run(JSON.stringify(step), step.id); }
+  private isRegenerating(job: ContextJob) {
+    return job.generationId !== null && this.store.generation(job.generationId)?.kind === 'regeneration';
+  }
   private saveState(chatId: string, state: ContextState, generationId?: string | null) {
     if (generationId && this.store.generation(generationId)?.kind === 'regeneration') {
       this.store.saveGenerationContext(generationId, state);
@@ -148,7 +152,7 @@ export class ContextStore {
     const blockedByCorrection = plan.blockedMessage?.key === correctionDiagnostic.key && !plan.repairCount;
     if (!plan.next && !blockedByCorrection) return null;
     if (replay && !replay.maySupersede && !blockedByCorrection) return null;
-    const regenerating = job.generationId !== null && this.store.generation(job.generationId)?.kind === 'regeneration';
+    const regenerating = this.isRegenerating(job);
     const committed = regenerating ? this.savedState(job.chatId) : snapshot.context;
     const working = regenerating ? { ...snapshot.context, summaries: committed.summaries } : committed;
     const roots: SummaryRef[] = [];
@@ -191,12 +195,14 @@ export class ContextStore {
   private assertPreparationDeletionReviewed(job: ContextJob, snapshot: EngineSnapshot, plan: ContextPlan, replay?: ReplayFrame) {
     if (this.preparationDeletion(job, snapshot, plan, replay)) throw new AppError(409, 'memory_impact_required', message('memory.review_cleanup_first'));
   }
+  private workingEstimate(plan: ContextPlan) {
+    return { inputTokens: plan.inputTokens, targetInputTokens: plan.targetInputTokens, operation: plan.next ? { level: plan.next.level } : null };
+  }
   trackPlan(id: string, plan: ContextPlan, reusedCount?: number) {
     // Transient phases live in the coordinator. Keep the last authoritative
     // estimate and planned operation available after reconnect or restart.
-    const working = { inputTokens: plan.inputTokens, targetInputTokens: plan.targetInputTokens, operation: plan.next ? { level: plan.next.level } : null };
     this.sqlite.prepare("UPDATE context_jobs SET data = json_set(data, '$.working', json(?), '$.reusedCount', coalesce(?, json_extract(data, '$.reusedCount'))) WHERE id = ? AND json_extract(data, '$.status') = 'running'")
-      .run(JSON.stringify(working), reusedCount ?? null, id);
+      .run(JSON.stringify(this.workingEstimate(plan)), reusedCount ?? null, id);
   }
   begin(chatId: string, revision: number, requestId: string, mode: Exclude<ContextJob['mode'], 'refresh'>, generationId: string | null = null, loreResolution?: LoreResolution | null, retry?: SummaryRetry, automatic = false): { job: ContextJob; fresh: boolean } {
     return this.sqlite.transaction(() => {
@@ -297,7 +303,7 @@ export class ContextStore {
       this.saveStep({ ...saved, status: 'failed', ...outcome, ...(job.mode === 'repair' && rejectedText !== undefined ? { rejectedText } : {}) });
     })();
   }
-  completeStep(attempt: ContextStep, text: string, prior: SummaryRef[], replay?: ReplayFrame): SummaryNode {
+  completeStep(attempt: ContextStep, text: string, prior: SummaryRef[], replay?: ReplayFrame): { node: SummaryNode } & ReplayRevisions {
     return this.sqlite.transaction(() => {
       const job = this.job(attempt.jobId), snapshot = this.current(job);
       this.checkReplay(job, snapshot, replay);
@@ -323,11 +329,15 @@ export class ContextStore {
         approved: !repair || unchanged, createdAt: new Date().toISOString(), manual: inputs?.old.manual ?? false, ...(repair ? { basedOn: repair } : {}) };
       let after: ContextState | null = null, inputAfter: number | null = null;
       if (plan) {
-        after = replaceSelection(working, step.operation, node);
-        selectedContext(snapshot.turns, after);
-        const connection = snapshot.connection;
-        if (!connection) throw new AppError(422, 'connection_required', message("errors.select_a_roleplay_connection_to_measure_the_complete"));
-        inputAfter = assembleRequest(connection, snapshot.settings, snapshot.turns, snapshot.sources, after, { validateLimits: false, allowStale: Boolean(replay), lore: snapshot.loreResolution }).budget.inputTokens;
+        after = replaceSelection({ ...working, summaries: snapshot.context.summaries }, step.operation, node);
+        if (replay) {
+          inputAfter = this.measureReplaySelection(snapshot, after);
+        } else {
+          selectedContext(snapshot.turns, after);
+          const connection = snapshot.connection;
+          if (!connection) throw new AppError(422, 'connection_required', message("errors.select_a_roleplay_connection_to_measure_the_complete"));
+          inputAfter = assembleRequest(connection, snapshot.settings, snapshot.turns, snapshot.sources, after, { validateLimits: false, lore: snapshot.loreResolution }).budget.inputTokens;
+        }
         if (plan.inputTokens !== step.inputBefore) throw new AppError(409, 'stale_context_result', message("errors.this_batch_is_no_longer_the_next_eligible"));
         if (inputAfter >= plan.inputTokens) throw new AppError(422, 'summary_no_savings', message("errors.the_summary_did_not_reduce_the_assembled_input"));
       }
@@ -335,12 +345,32 @@ export class ContextStore {
       // Keep an existing candidate usable until regeneration succeeds.
       if (repair) this.discardCandidates(job.id);
       this.saveNode(job.chatId, node);
-      if (after && !replay) this.saveState(job.chatId, after, job.generationId);
+      let selectionRevision = snapshot.context.revision;
+      // A replay can save an earlier batch before reaching a later approved correction.
+      if (after && (!replay || this.canActivateProgress(job, snapshot, after))) {
+        this.saveState(job.chatId, after, job.generationId);
+        selectionRevision = after.revision;
+      }
       this.saveStep({ ...step, status: repair && !unchanged ? 'candidate' : 'saved', result: { id: node.id, revision: node.revision }, after: after ? { selected: after.selected, archivedTurnIds: after.archivedTurnIds } : null, inputAfter, ...(unchanged ? { repairOutcome: 'model_unchanged' } : {}) });
-      this.saveJob(this.bump({ ...job, generatedCount: (job.generatedCount ?? 0) + Number(Boolean(step.request)),
+      const updatedJob = this.bump({ ...job, generatedCount: (job.generatedCount ?? 0) + Number(Boolean(step.request)),
         unchangedCount: (job.unchangedCount ?? 0) + Number(unchanged),
-        ...(plan && inputAfter !== null ? { working: { inputTokens: inputAfter, targetInputTokens: plan.targetInputTokens, operation: null } } : {}) }));
-      return node;
+        ...(plan && inputAfter !== null ? { working: { inputTokens: inputAfter, targetInputTokens: plan.targetInputTokens, operation: null } } : {}) });
+      this.saveJob(updatedJob);
+      return { node, sourceRevision: updatedJob.sourceRevision, selectionRevision };
+    })();
+  }
+
+  activateReusedProgress(id: string, frame: ReplayFrame, reusedCount: number): ReplayRevisions | null {
+    return this.sqlite.transaction(() => {
+      const job = this.job(id), snapshot = this.current(job);
+      this.checkReplay(job, snapshot, frame);
+      const state = this.changedReplaySelection(snapshot, frame);
+      if (!state || !this.canActivateProgress(job, snapshot, state)) return null;
+      this.checkReplayInput(snapshot, state, frame);
+      this.saveState(job.chatId, state);
+      const updatedJob = this.bump({ ...job, reusedCount, working: this.workingEstimate(frame.plan) });
+      this.saveJob(updatedJob);
+      return { sourceRevision: updatedJob.sourceRevision, selectionRevision: state.revision };
     })();
   }
   finish(id: string, status: Exclude<ContextJob['status'], 'running'>, error: string | LocalizedMessage | null = null, replay?: { frame: ReplayFrame; reusedCount: number }) {
@@ -366,20 +396,42 @@ export class ContextStore {
     })();
   }
   private publishReplay(job: ContextJob, snapshot: EngineSnapshot, frame: ReplayFrame) {
-    const { selected, archivedTurnIds } = frame.snapshot.context;
-    const state = { ...snapshot.context, selected, archivedTurnIds };
-    const { summaries } = selectedContext(snapshot.turns, state);
+    const changed = this.changedReplaySelection(snapshot, frame);
+    const state = changed ?? snapshot.context;
     assertCorrectionSelection(snapshot.turns, state);
-    if (!snapshot.connection || !state.preset || !frame.plan.ready || !hasChronologicalLevels(summaries)
-      || hasPromptMarker(snapshot.sources.prompt, 'messages') && belowMinimumTail(snapshot.turns, state, state.preset.minTail)) {
+    if (!frame.plan.ready || frame.plan.inputTokens > frame.plan.effectiveLimit) {
       throw new AppError(409, 'stale_context_result', message("errors.this_memory_operation_is_no_longer_eligible"));
     }
-    const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, state, { validateLimits: false, lore: snapshot.loreResolution });
-    if (request.budget.inputTokens !== frame.plan.inputTokens || request.budget.inputTokens > frame.plan.effectiveLimit) {
+    this.checkReplayInput(snapshot, state, frame);
+    if (changed) this.saveState(job.chatId, changed, job.generationId);
+  }
+
+  private changedReplaySelection(snapshot: EngineSnapshot, frame: ReplayFrame): ContextState | null {
+    const { selected, archivedTurnIds } = frame.snapshot.context;
+    if (JSON.stringify(selected) === JSON.stringify(snapshot.context.selected)
+      && JSON.stringify(archivedTurnIds) === JSON.stringify(snapshot.context.archivedTurnIds)) return null;
+    return { ...snapshot.context, selected, archivedTurnIds, revision: snapshot.context.revision + 1 };
+  }
+
+  private canActivateProgress(job: ContextJob, snapshot: EngineSnapshot, state: ContextState): boolean {
+    return !this.isRegenerating(job) && !correctionProtection(snapshot.turns, state).unresolved.length;
+  }
+
+  private measureReplaySelection(snapshot: EngineSnapshot, state: ContextState): number {
+    const { summaries } = selectedContext(snapshot.turns, state);
+    const preset = snapshot.context.preset;
+    if (!snapshot.connection || !preset || !hasChronologicalLevels(summaries)
+      || hasPromptMarker(snapshot.sources.prompt, 'messages') && belowMinimumTail(snapshot.turns, state, preset.minTail)) {
       throw new AppError(409, 'stale_context_result', message("errors.this_memory_operation_is_no_longer_eligible"));
     }
-    if (JSON.stringify(selected) !== JSON.stringify(snapshot.context.selected) || JSON.stringify(archivedTurnIds) !== JSON.stringify(snapshot.context.archivedTurnIds)) {
-      this.saveState(job.chatId, { ...state, revision: state.revision + 1 }, job.generationId);
+    // Coverage and freshness were checked above. Measure even when a later correction is still pending.
+    return assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, state,
+      { validateLimits: false, allowStale: true, lore: snapshot.loreResolution }).budget.inputTokens;
+  }
+
+  private checkReplayInput(snapshot: EngineSnapshot, state: ContextState, frame: ReplayFrame) {
+    if (this.measureReplaySelection(snapshot, state) !== frame.plan.inputTokens) {
+      throw new AppError(409, 'stale_context_result', message("errors.this_memory_operation_is_no_longer_eligible"));
     }
   }
   review(id: string, revision: number, accept: boolean, editedText?: string) {

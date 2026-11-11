@@ -175,26 +175,31 @@ it('keeps a compatible saved prefix before a direct parent correction when the c
   expect(correctionProtection(after.turns, after.context).unresolved).toEqual([]);
 });
 
-it('retains generated results when publishing the fit fails and reuses them on explicit retry', async () => {
+it('rolls back a failed summary activation and reuses earlier committed progress on retry', async () => {
   const f = fixture(12, 3, 850);
   await f.step();
   const before = f.state();
-  f.store.sqlite.exec("CREATE TRIGGER reject_publish BEFORE UPDATE ON context_states BEGIN SELECT RAISE(ABORT, 'synthetic publication failure'); END");
+  f.store.sqlite.exec(`CREATE TRIGGER reject_publish BEFORE UPDATE ON context_states
+    WHEN NEW.revision = ${before.context.revision + 2}
+    BEGIN SELECT RAISE(ABORT, 'synthetic publication failure'); END`);
   const prepare = () => f.coordinator.context.start(f.chatId, f.state().revision, randomUUID(), 'prepare').jobId;
   const id = prepare();
   await expect.poll(() => f.store.contexts.job(id).status).toBe('failed');
   const failed = f.state();
-  expect(failed.context.selected).toEqual(before.context.selected);
-  expect(failed.context.archivedTurnIds).toEqual(before.context.archivedTurnIds);
-  expect(failed.context.summaries).toHaveLength(3);
+  expect(failed.context.revision).toBe(before.context.revision + 1);
+  expect(failed.context.archivedTurnIds).toEqual(before.turns.slice(0, 6).map(turn => turn.id));
+  expect(failed.context.summaries).toHaveLength(2);
+  expect(failed.context.selected.map(refKey)).toEqual(failed.context.summaries.map(refKey));
+  expect(f.store.contexts.steps(id)).toMatchObject([{ status: 'saved' }, { status: 'failed', result: null, after: null }]);
   expect(f.calls).toHaveLength(3);
 
   f.store.sqlite.exec('DROP TRIGGER reject_publish');
   const retry = prepare();
   await expect.poll(() => f.store.contexts.job(retry).status).toBe('succeeded');
-  expect(f.state().context.selected.map(refKey)).toEqual(failed.context.summaries.map(refKey));
-  expect(f.store.contexts.steps(retry)).toEqual([]);
-  expect(f.calls).toHaveLength(3);
+  expect(f.state().context.selected.slice(0, 2)).toEqual(failed.context.selected);
+  expect(f.store.contexts.job(retry)).toMatchObject({ reusedCount: 2, generatedCount: 1 });
+  expect(f.calls).toHaveLength(4);
+  expect(f.calls[3].coverage).toEqual(f.calls[2].coverage);
 });
 
 it('promotes within the saved cutoff when the prompt uses Summary alone', async () => {

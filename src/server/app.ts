@@ -736,7 +736,8 @@ export async function createApp(options: {
     store.checkRevision(snapshot.revision, snapshot.id);
     const resolved = { ...snapshot, loreResolution };
     const checkpoint = contextPlan(resolved);
-    if (!resolved.context.preset || !hasPromptMarker(resolved.sources.prompt, 'summary')) return checkpoint;
+    if (!resolved.context.preset || !hasPromptMarker(resolved.sources.prompt, 'summary')
+      || resolved.context.jobs.some(job => job.mode === 'prepare' && job.status === 'running')) return checkpoint;
     const { inputTokens, next, ready, blocked, blockedMessage } = inspectPreparation(resolved).plan;
     return { ...checkpoint, preparation: { inputTokens, next, ready, blocked, blockedMessage } };
   });

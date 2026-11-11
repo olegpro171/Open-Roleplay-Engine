@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
 import type { ChatSnapshot } from '../../src/shared/contracts';
-import { defaultContextPreset } from '../../src/shared/context';
+import { defaultContextPreset, type ContextPlan } from '../../src/shared/context';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import type { StorySnapshot } from '../../src/shared/transcript';
 import { createCompactPrompt } from './compact-prompt';
@@ -73,6 +73,53 @@ async function memoryStory(page: Page, url: string, title: string, length: numbe
   await expect(page.getByLabel('Your next turn')).toBeVisible();
   return { path, state, read, write, library, presetId: preset.id };
 }
+
+test('updates Memory and Chat Details while preparation is waiting on the next summary', async ({ page, browserApp }) => {
+  const { path, state, read, write } = await memoryStory(page, browserApp.url, 'Live memory selection', 12);
+  const plan = () => read<ContextPlan>(`${path}/context/plan`);
+  const calls = () => read<unknown[]>('/__test/requests');
+  const initial = await plan();
+  await openChatTool(page, 'Inspect memory');
+  const sidebarEstimate = page.locator('.chat-details dl > div').filter({ has: page.getByText('Estimated input', { exact: true }) }).locator('dd');
+  const memoryEstimate = page.getByText(/^Estimated input: [\d,]+ \/ 200$/);
+  const format = (input: number) => input.toLocaleString('en');
+  await expect(sidebarEstimate).toHaveText(format(initial.inputTokens));
+  await expect(memoryEstimate).toHaveText(`Estimated input: ${format(initial.inputTokens)} / 200`);
+
+  await page.request.post('/__test/mode', { data: { mode: 'hold' } });
+  await page.getByRole('button', { name: 'Prepare chat', exact: true }).click();
+  await expect.poll(async () => (await calls()).length).toBe(1);
+  await page.request.post('/__test/finish');
+  await expect.poll(async () => (await calls()).length).toBe(2);
+  const active = await state();
+  const progress = await plan();
+  expect(active.context.jobs[0].status).toBe('running');
+  expect(active.context.archivedTurnIds).toEqual(active.turns.slice(0, 2).map(turn => turn.id));
+  expect(progress.inputTokens).toBeLessThan(initial.inputTokens);
+  expect(progress.inputTokens).toBeGreaterThan(progress.targetInputTokens);
+
+  const toggle = page.getByRole('button', { name: 'Chat details', exact: true });
+  for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+    const appearance = appearanceStatusSchema.parse(await read<unknown>('/api/application/appearance'));
+    await write('PUT', '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(memoryEstimate).toBeVisible();
+      await expect(memoryEstimate).toHaveText(`Estimated input: ${format(progress.inputTokens)} / 200`);
+      if (width === 390) await toggle.click();
+      await expect(sidebarEstimate).toBeVisible();
+      await expect(sidebarEstimate).toHaveText(format(progress.inputTokens));
+      if (width === 390) await toggle.click();
+    }
+  }
+
+  await page.getByRole('button', { name: 'Stop preparation', exact: true }).click();
+  await expect.poll(async () => (await state()).context.jobs[0].status).toBe('cancelled');
+  expect((await state()).context.selected).toEqual(active.context.selected);
+  await expect(memoryEstimate).toHaveText(`Estimated input: ${format(progress.inputTokens)} / 200`);
+  expect(await calls()).toHaveLength(2);
+});
 
 test('Story tracks and stops regeneration outside the transcript window and reviews a preset change', async ({ page, browserApp }, testInfo) => {
   const title = 'Regeneration memory';
