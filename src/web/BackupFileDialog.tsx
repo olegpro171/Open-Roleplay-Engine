@@ -44,7 +44,7 @@ export function BackupFileDialog({ action, busy, error, errorDetails, cancel, su
           <input type="password" autoComplete="new-password" maxLength={filePasswordMaxLength} value={confirmation} disabled={busy} onChange={event => setConfirmation(event.target.value)} />
         </label>}
       </div>
-      {busy && <p role="status">{t('application_settings.working_upload_validation_and_snapshot_work_must')}</p>}
+      {busy && <BackupProgress operation={saving ? 'save' : 'preview'} />}
       {error && <div role="alert"><p>{error}</p>
         {errorDetails && <details className="backup-error-details"><summary>{t('application_settings.details')}</summary><pre>{errorDetails}</pre></details>}
       </div>}
@@ -53,5 +53,38 @@ export function BackupFileDialog({ action, busy, error, errorDetails, cancel, su
         <button type="button" className="secondary" disabled={busy} onClick={cancel}>{t('character_import.cancel')}</button>
       </div>
     </form>
+  </ModalDialog>, document.body);
+}
+
+function BackupProgress({ operation }: { operation: 'save' | 'preview' | 'restore' }) {
+  const id = useId();
+  const label = operation === 'save' ? 'application_settings.preparing_backup_file'
+    : operation === 'preview' ? 'application_settings.opening_backup_review'
+    : 'application_settings.restoring_backup';
+  return <div className="backup-progress">
+    <p role="status" id={id}>{t(label)}</p>
+    <progress aria-labelledby={id} />
+  </div>;
+}
+
+export function BackupRestoreDialog({ busy, error, close }: { busy: boolean; error: string; close: () => void }) {
+  useLocale();
+  const dialog = useRef<HTMLDialogElement>(null);
+  const title = useId();
+  useLayoutEffect(() => {
+    const trigger = document.activeElement;
+    const node = dialog.current;
+    openModal(node);
+    return () => {
+      node?.close();
+      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
+    };
+  }, []);
+  return createPortal(<ModalDialog ref={dialog} className="confirmation-dialog backup-file-dialog" aria-labelledby={title}
+    onDismiss={() => { if (!busy) close(); }}>
+    <h2 id={title}>{t('application_settings.import_entire_backup')}</h2>
+    {busy && <BackupProgress operation="restore" />}
+    {error && <p role="alert">{error}</p>}
+    {!busy && <div className="actions"><button type="button" className="secondary" onClick={close}>{t('reasoning.close')}</button></div>}
   </ModalDialog>, document.body);
 }

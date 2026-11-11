@@ -613,6 +613,15 @@ export class Store {
       chats: this.chatSummaries(),
     };
   }
+  importContextPreset(revision: number, preset: ContextPreset) {
+    return this.sqlite.transaction(() => {
+      const connectionId = preset.connectionId;
+      const usedChatConnection = connectionId !== null
+        && !this.db.select({ id: schema.connections.id }).from(schema.connections).where(eq(schema.connections.id, connectionId)).get();
+      const id = this.saveLibrary(revision, 'contexts', usedChatConnection ? { ...preset, connectionId: null } : preset);
+      return { id, usedChatConnection };
+    })();
+  }
   saveLibrary(expected: number, kind: LibraryKind, data: LibraryCharacter | LibraryPersona | PromptPreset | ContextPreset | Connection | Lorebook, id?: string, apiKey?: string, tagIds?: string[], memoryImpactToken?: string) {
     if (kind === 'prompts') data = upgradePrompt(data);
     return this.sqlite.transaction(() => {

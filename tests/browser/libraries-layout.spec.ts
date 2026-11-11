@@ -221,11 +221,14 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     if (width > 800) expect(title.y).toBe(name.y);
     const pictureEditor = page.getByRole('region', { name: 'Character picture', exact: true });
     const picture = await pictureEditor.locator('.picture-editor-square').boundingBox();
-    const choosePicture = await pictureEditor.locator('.file-button').boundingBox();
-    const pictureControls = await pictureEditor.locator('.picture-editor-controls').boundingBox();
+    const choosePicture = await pictureEditor.getByRole('button', { name: 'Choose picture', exact: true }).boundingBox();
+    const pictureControls = await pictureEditor.locator(width > 800 ? '.picture-editor-controls' : '.picture-editor-controls > .actions').boundingBox();
     if (!picture || !choosePicture || !pictureControls) throw new Error('Missing picture controls');
     expect(choosePicture.x).toBeGreaterThan(picture.x + picture.width);
-    expect(Math.abs(pictureControls.y + pictureControls.height / 2 - picture.y - picture.height / 2)).toBeLessThanOrEqual(1);
+    const alignment = width > 800
+      ? (pictureControls.y + pictureControls.height / 2) - (picture.y + picture.height / 2)
+      : pictureControls.y - picture.y;
+    expect(Math.abs(alignment)).toBeLessThanOrEqual(1);
     const greetingGroup = page.getByRole('group', { name: 'Alternate greetings', exact: true });
     const groupBounds = await greetingGroup.boundingBox();
     const addBounds = await greetingGroup.getByRole('button', { name: 'Add alternate greeting', exact: true }).boundingBox();
@@ -261,7 +264,7 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     const lore = page.getByLabel('Lore content', { exact: true });
     const longLore = await lore.evaluate(element => ({ height: element.getBoundingClientRect().height, base: parseFloat(getComputedStyle(element).minHeight) }));
     expect(longLore.height).toBe(longLore.base * 4);
-    await page.getByRole('group', { name: 'Lorebook entries', exact: true }).getByRole('button', { name: /Short entry/ }).click();
+    await page.getByRole('group', { name: 'Lorebook entries', exact: true }).getByRole('button', { name: /^Short entry/ }).click();
     expect(await lore.evaluate(element => element.scrollHeight <= element.clientHeight)).toBe(true);
     expect(await lore.evaluate(element => element.getBoundingClientRect().height)).toBe(longLore.base);
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();

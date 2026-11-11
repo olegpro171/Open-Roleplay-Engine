@@ -103,3 +103,20 @@ for (const width of [1280, 390]) {
     await expect(editor).toHaveValue('Keep this unsaved persona draft.');
   });
 }
+
+test('reports browser offline immediately while an existing event stream is still open', async ({ page }) => {
+  const editor = await openPersonaDraft(page, 'Keep draft during network loss');
+  await expect(page.getByRole('img', { name: 'Connected', exact: true })).toBeVisible();
+  const api = '**/api/**';
+  await page.route(api, route => route.abort('internetdisconnected'));
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  const warning = page.getByRole('alert').filter({ hasText: 'Cannot reach the server. Check that it is running.' });
+  await expect(warning).toBeVisible();
+  await expect(editor).toHaveValue('Keep this unsaved persona draft.');
+  await warning.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await expect(warning).toHaveCount(0);
+  await page.unroute(api);
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(page.getByRole('img', { name: 'Connected', exact: true })).toBeVisible();
+  await expect(warning).toHaveCount(0);
+});

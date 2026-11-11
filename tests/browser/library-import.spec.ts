@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import { defaultPrompt } from '../../src/shared/library';
+import { defaultContextPreset, type ContextPreset } from '../../src/shared/context';
+import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 
 async function login(page: Page) {
   const session = await page.request.get('/api/session').then(response => response.json());
@@ -89,3 +90,34 @@ for (const width of [800, 390]) {
     await expect(page.getByRole('dialog')).toBeVisible();
   });
 }
+
+test('imports a portable context preset with an unavailable Connection and keeps valid references', async ({ page }) => {
+  await login(page);
+  const read = async () => page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
+  const headers = { Origin: new URL(page.url()).origin };
+  const before = await read();
+  const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
+  const created = await page.request.post('/api/library', { headers, data: {
+    revision: before.revision, kind: 'connections',
+    data: { endpoint, name: 'Preset import Connection', model: 'synthetic', contextWindow: 20_000, maxOutputTokens: 512, customParameters: {} },
+  } });
+  expect(created.ok(), await created.text()).toBe(true);
+  const { id: connectionId } = await created.json();
+  await page.getByRole('button', { name: 'Context presets', exact: true }).click();
+
+  const unavailable = { ...defaultContextPreset, name: 'Portable memory preset', connectionId: 'missing-synthetic-connection', minTail: 11 };
+  const normalCreate = await page.request.post('/api/library', { headers, data: { revision: (await read()).revision, kind: 'contexts', data: unavailable } });
+  expect(normalCreate.ok()).toBe(false);
+  async function importPreset(data: ContextPreset) {
+    await page.locator('input[type="file"][accept=".json"]').setInputFiles({
+      name: 'memory.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(data)),
+    });
+    await expect(page.getByRole('heading', { name: data.name, exact: true })).toBeVisible();
+  }
+  await importPreset(unavailable);
+  await expect(page.getByRole('status')).toContainText('it will use the chat’s Connection');
+  expect((await read()).contexts.find(preset => preset.name === unavailable.name)).toMatchObject({ ...unavailable, connectionId: null });
+  await importPreset({ ...unavailable, name: 'Local memory preset', connectionId });
+  await expect(page.getByText(/it will use the chat’s Connection/)).toHaveCount(0);
+  expect((await read()).contexts.find(preset => preset.name === 'Local memory preset')?.connectionId).toBe(connectionId);
+});

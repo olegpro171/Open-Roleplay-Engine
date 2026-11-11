@@ -43,10 +43,11 @@ for (const width of [1440, 390, 320]) test(`imports partial packs with actionabl
   expect(await page.request.get('/api/localization/ru').then(response => response.json())).toEqual(source);
   await chooseLanguage(page, 'Interface language', 'Русский');
   await expect(page.getByRole('heading', { name: 'Язык', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Download translation template', exact: true })).toBeVisible();
+  const actions = await openLanguageActions(page);
+  await expect(actions.getByRole('menuitem', { name: 'Download translation template', exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Язык', exact: true })).toContainText(`${Object.keys(russian.messages).length} of`);
   const downloading = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download extended translation', exact: true }).click();
+  await actions.getByRole('menuitem', { name: 'Download extended translation', exact: true }).click();
   const path = await (await downloading).path();
   if (!path) throw new Error('Missing exported pack');
   const exported = languagePackSchema.parse(JSON.parse(await readFile(path, 'utf8')));
@@ -68,7 +69,9 @@ for (const width of [1440, 390, 320]) test(`imports partial packs with actionabl
   await importPack(fixed);
   await expect(page.getByRole('status').filter({ hasText: 'Language file saved.' })).toBeVisible();
   await expect(report).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Скачать шаблон', exact: true })).toBeVisible();
+  await openLanguageActions(page);
+  await expect(page.getByRole('menuitem', { name: 'Скачать шаблон', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
   await chooseLanguage(page, 'Язык интерфейса', 'English');
 });
 
@@ -102,6 +105,11 @@ async function signIn(page: Page) {
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
+}
+
+async function openLanguageActions(page: Page) {
+  await page.getByRole('button', { name: 'Language file actions', exact: true }).click();
+  return page.getByRole('menu', { name: 'Language file actions', exact: true });
 }
 
 async function chooseLanguage(page: Page, label: string, language: string) {
@@ -141,7 +149,9 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
   }
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Language', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Download extended translation', exact: true })).toBeDisabled();
+  await openLanguageActions(page);
+  await expect(page.getByRole('menuitem', { name: 'Download extended translation', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
   await page.getByLabel('Import language file', { exact: true }).setInputFiles({ name: 'ru.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(russian)) });
   const replace = page.getByRole('button', { name: 'Replace language file', exact: true });
   await expect(replace.or(page.getByRole('status').filter({ hasText: 'Language file saved.' }))).toBeVisible();
@@ -151,10 +161,11 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
   await expect(page.locator('html')).toHaveAttribute('lang', 'ru');
   await expect(page.getByRole('heading', { name: 'Язык', exact: true })).toBeVisible();
   // Missing translation is a readable English fallback, not an internal key.
-  await expect(page.getByRole('button', { name: 'Download translation template', exact: true })).toBeVisible();
+  const actions = await openLanguageActions(page);
+  await expect(actions.getByRole('menuitem', { name: 'Download translation template', exact: true })).toBeVisible();
   const installedBefore = await page.request.get('/api/localization/ru').then(response => response.json());
   const downloading = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download extended translation', exact: true }).click();
+  await actions.getByRole('menuitem', { name: 'Download extended translation', exact: true }).click();
   const download = await downloading;
   expect(download.suggestedFilename()).toBe('ru.json');
   const path = await download.path();

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { api } from './api';
+import { api, NetworkError } from './api';
 import { SettingsAutosave, type SettingsStatus } from './settings-autosave';
 import { errorText, formatMessage, t, useLocale } from './localization';
 
@@ -36,7 +36,7 @@ export function SettingsSaveStatus({ saving, error, retry }: { saving: boolean; 
   }, [saving]);
   return <>
     {saving && slow && error == null && <div className="error-banner settings-save-status" role="alert">{t('settings.save_slow')}</div>}
-    {error != null && <div className="error-banner settings-save-status" role="alert"><p>{t('settings.save_failed', { error: formatMessage(errorText(error)) })}</p>
-      <button type="button" className="secondary" disabled={saving} onClick={() => void retry()}>{t('settings.retry')}</button></div>}
+    {error != null && <div className="error-banner settings-save-status" role="alert"><p>{error instanceof NetworkError ? t('settings.save_offline') : t('settings.save_failed', { error: formatMessage(errorText(error)) })}</p>
+      <div className="actions error-banner-actions"><button type="button" className="quiet" disabled={saving} onClick={() => void retry()}>{t('settings.retry')}</button></div></div>}
   </>;
 }

@@ -276,7 +276,7 @@ test('preserves regex commas and key boundaries when switching modes and entries
   await expect(primary).toHaveValue('gate\ntower');
   await expect(secondary).toHaveValue('moon\nstar');
   await regex.uncheck();
-  await page.getByRole('button', { name: 'Regex commas', exact: false }).click();
+  await page.getByRole('button', { name: /^Regex commas/ }).click();
   await expect(primary).toHaveValue('gate{1,3}\n[red,blue]+\n  literal, spaces  ');
   await expect(secondary).toHaveValue('moon,light\nstar{2,4}');
   await regex.uncheck();
@@ -290,7 +290,7 @@ test('preserves regex commas and key boundaries when switching modes and entries
   ]);
   await page.getByRole('heading', { name: 'Key editor atlas', exact: true }).getByRole('button').click();
   await expect(primary).toHaveValue('gate{1,3}\n[red,blue]+\n  literal, spaces  ');
-  await page.getByRole('button', { name: 'Literal keys', exact: false }).click();
+  await page.getByRole('button', { name: /^Literal keys/ }).click();
   const originalAppearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
   try {
     for (const theme of ['dark', 'light', 'midnight-black']) {
@@ -318,10 +318,15 @@ test('keeps unsaved entries on failures and revision conflicts, with bounded edi
   const created = await command(page, '/api/library', { kind: 'lorebooks', revision: (await library(page)).revision, data: large });
   await books(page);
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Large browser atlas', exact: true }) }).getByRole('heading').getByRole('button').click();
-  await expect(page.locator('.lore-entry-list > button')).toHaveCount(50);
+  const entries = page.getByRole('group', { name: 'Lorebook entries', exact: true });
+  await expect(entries.locator('button[aria-pressed]')).toHaveCount(50);
+  const acrossPages = entries.getByRole('button', { name: 'Move Record 49 down', exact: true });
+  await acrossPages.press('Enter');
+  await expect(entries.locator('button[aria-pressed]').first()).toContainText('Record 49');
+  await expect(acrossPages).toBeFocused();
   await expect(page.getByLabel('Lore content', { exact: true })).toHaveCount(1);
   await page.getByLabel('Search entries', { exact: true }).fill('key-124');
-  await page.getByRole('button', { name: 'Record 124', exact: false }).click();
+  await page.getByRole('button', { name: /^Record 124/ }).click();
   await page.getByLabel('Lore content', { exact: true }).fill('Unsaved detail survives the failed write.');
   await page.getByLabel('Primary keys', { exact: true }).fill(' key-124, lighthouse\n bell ');
   await page.getByLabel('Entry name', { exact: true }).scrollIntoViewIfNeeded();
@@ -418,8 +423,8 @@ test('scrolls the entry list within the selected editor height on wide screens',
           await expect.poll(async () => (await measure()).listHeight).toBe(initial.listHeight);
         }
         await search.fill('scroll-key-64');
-        await expect(list.locator(':scope > button')).toHaveCount(1);
-        expect(await list.getByRole('button').evaluate(button => button.getBoundingClientRect().height)).toBeLessThan(200);
+        await expect(list.locator('button[aria-pressed]')).toHaveCount(1);
+        expect(await list.locator('button[aria-pressed]').evaluate(button => button.getBoundingClientRect().height)).toBeLessThan(200);
         await search.fill('');
         await list.getByRole('button', { name: /^Scroll record 0 / }).click();
         await editor.getByLabel('Entry name', { exact: true }).scrollIntoViewIfNeeded();
@@ -498,7 +503,7 @@ for (const browserName of ['chromium', 'webkit'] as const) {
             await duplicate.click();
             await expect(page.getByLabel('Entry name', { exact: true })).toHaveValue('Anchored record 48 copy');
             await expect(page.getByLabel('Primary keys', { exact: true })).toHaveValue('anchor-48');
-            // Duplication opens the next list page, which can be shorter on phones.
+            // A duplicate stays next to its source and keeps the page position.
             await expect.poll(() => scroller.evaluate((element, before) => Math.abs(element.scrollTop - Math.min(before, element.scrollHeight - element.clientHeight)), beforeDuplicate)).toBeLessThanOrEqual(1);
             const beforeDelete = await scroller.evaluate(element => element.scrollTop);
             await page.getByRole('button', { name: 'Delete entry', exact: true }).click();
@@ -518,3 +523,67 @@ for (const browserName of ['chromium', 'webkit'] as const) {
     });
   }
 }
+
+test('reorders a lorebook draft with drag and arrows and changes admission without rewriting saved requests', async ({ page }) => {
+  await login(page);
+  const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
+  const connection = await command(page, '/api/library', { kind: 'connections', revision: (await library(page)).revision,
+    data: { name: 'Order model', endpoint, model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 1000, customParameters: {} },
+  });
+  const { id: bookId } = await command(page, '/api/library', { kind: 'lorebooks', revision: (await library(page)).revision,
+    data: { ...newLorebook(), name: 'Ordered lore', tokenBudget: 15, entries: [
+      { ...newLoreEntry('raw-first'), name: 'Far', content: 'D', constant: true, placement: 'history', insertionOrder: 15 },
+      { ...newLoreEntry('early'), name: 'Harbor', content: 'A', constant: true, placement: 'history', insertionOrder: -4.5 },
+      { ...newLoreEntry('tied'), name: 'Tower', content: 'B', constant: true, placement: 'history', insertionOrder: -4.5 },
+      { ...newLoreEntry('priority'), name: 'Priority', content: 'C', constant: true, placement: 'history', priority: 1, insertionOrder: 9 },
+    ] },
+  });
+  const { id } = await command(page, '/api/chats', {
+    title: 'Story with ordered lore', connectionId: connection.id, lorebookId: bookId, targetInputTokens: 20_000,
+    characterId: null, personaId: null,
+  });
+  const state = async (): Promise<ChatSnapshot> => page.request.get(`/api/chats/${id}`).then(response => response.json());
+  const request = async (text: string): Promise<RequestPreview> => command(page, `/api/chats/${id}/preview`, { revision: (await state()).revision, text, inspection: true });
+  const before = await request('Take a step.');
+  const admitted = (preview: RequestPreview) => preview.lore?.outcomes.filter(entry => entry.status === 'admitted').map(entry => entry.name);
+  expect(admitted(before)).toEqual(['Harbor', 'Tower', 'Priority']);
+  await page.evaluate(id => localStorage.setItem('roleplay-chat', id), id);
+  await page.reload();
+  await page.getByLabel('Your next turn').fill('Take a step.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect.poll(async () => (await state()).turns[0]?.complete).toBe(true);
+  const savedRequest = (await state()).generations[0].request;
+  await books(page);
+  const editBook = page.getByRole('heading', { name: 'Ordered lore', exact: true }).getByRole('button');
+  await editBook.click();
+  const list = page.getByRole('group', { name: 'Lorebook entries', exact: true });
+  const rowNames = () => list.locator('button[aria-pressed] strong').allTextContents();
+  expect(await rowNames()).toEqual(['Harbor', 'Tower', 'Priority', 'Far']);
+  const search = page.getByRole('searchbox', { name: 'Search entries', exact: true });
+  await search.fill('Tower');
+  await expect(list.getByRole('button', { name: 'Move Tower up', exact: true })).toBeDisabled();
+  await search.clear();
+  const tower = list.getByRole('button', { name: /^Tower/ });
+  await tower.click();
+  const comment = page.getByLabel('Entry comment', { exact: true });
+  await comment.fill('Unsaved text stays with this entry.');
+  await list.getByRole('button', { name: 'Move Tower up', exact: true }).press('Enter');
+  await expect(tower).toHaveAttribute('aria-pressed', 'true');
+  await expect(comment).toHaveValue('Unsaved text stays with this entry.');
+  expect(await rowNames()).toEqual(['Tower', 'Harbor', 'Priority', 'Far']);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await editBook.click();
+  expect(await rowNames()).toEqual(['Harbor', 'Tower', 'Priority', 'Far']);
+
+  const farHandle = list.locator('.lore-entry-row').filter({ has: page.getByRole('button', { name: /^Far/ }) }).locator('.drag-handle');
+  await farHandle.dragTo(tower, { targetPosition: { x: 10, y: 2 } });
+  expect(await rowNames()).toEqual(['Harbor', 'Far', 'Tower', 'Priority']);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(editBook).toBeVisible();
+  const after = await request('Take another step.');
+  expect(admitted(after)).toEqual(['Harbor', 'Far', 'Priority']);
+  expect(after.body.messages.filter(message => /^[A-D]$/.test(message.content)).map(message => message.content)).toEqual(['A', 'D', 'C']);
+  expect((await state()).generations[0].request).toEqual(savedRequest);
+  await editBook.click();
+  expect(await rowNames()).toEqual(['Harbor', 'Far', 'Tower', 'Priority']);
+});

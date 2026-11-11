@@ -1,3 +1,4 @@
+import { moveListItem, useListReorder } from './useListReorder';
 import { LibraryImport } from './LibraryImport';
 import { ActionMenu } from './ActionMenu';
 import { LibrarySearchField } from './LibrarySearchField';
@@ -420,7 +421,25 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
             setNotice(msg("libraries.imported_persona_s", { length: result.ids.length, value: result.books?.map(book => t("interface.lorebook_entries", { name: String(book.name), entries: String(book.entries) })).join('') ?? '' })); setDiagnostics(result.diagnostics ?? []);
           });
         }} />}
-        {(section === 'prompts' || section === 'contexts') && <LibraryImport label={t("libraries.import", { value: section === 'contexts' ? t("interface.context_preset") : t("interface.prompt_preset") })} description={t(section === 'contexts' ? 'library_import.context_description' : 'library_import.prompt_description')} accept=".json" disabled={busy} onChange={async e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) await run(async () => { if (file.size > 1_000_000) throw new LocalizedError(msg("libraries.preset_file_is_too_large")); const value: unknown = JSON.parse(await file.text()); await api('/library', 'POST', { kind: section, revision: library.revision, data: section === 'prompts' ? upgradePrompt(value) : value }); }); }} />}
+        {(section === 'prompts' || section === 'contexts') && <LibraryImport
+          label={t("libraries.import", { value: section === 'contexts' ? t("interface.context_preset") : t("interface.prompt_preset") })}
+          description={t(section === 'contexts' ? 'library_import.context_description' : 'library_import.prompt_description')}
+          accept=".json" disabled={busy} onChange={event => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (!file) return;
+            setNotice('');
+            void run(async () => {
+              if (file.size > 1_000_000) throw new LocalizedError(msg("libraries.preset_file_is_too_large"));
+              const value: unknown = JSON.parse(await file.text());
+              if (section === 'prompts') {
+                await api('/library', 'POST', { kind: section, revision: library.revision, data: upgradePrompt(value) });
+              } else {
+                const result = await api<{ usedChatConnection: boolean }>('/library/contexts/import', 'POST', { revision: library.revision, data: value });
+                if (result.usedChatConnection) setNotice(msg('library_import.context_connection_missing'));
+              }
+            });
+          }} />}
       </div>}
       {!editing && section === 'lorebooks' && <LorebookImport leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_lorebook")}</button>} revision={library.revision} busy={busy} run={run} imported={(_id, message) => setNotice(message)} />}
       {section === 'characters' && <CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_character")}</button>} revision={library.revision} busy={busy} run={run} imported={(result, missing) => { setNotice(missing ? msg("libraries.the_original_import_was_saved_but_its") : ""); setDiagnostics(result.diagnostics); }} />}
@@ -633,30 +652,18 @@ function ContextPresetFields({ value, change, connections }: { value: ContextPre
 }
 function PromptEditor({ value, change }: { value: PromptPreset; change: (value: PromptPreset) => void }) {
   useLocale();
-  const [dragged, setDragged] = useState<number | null>(null), [dropPosition, setDropPosition] = useState<number | null>(null);
   const [expandedBlocks, setExpandedBlocks] = useState<Set<string>>(() => new Set());
   function update(index: number, block: PromptBlock) { change({ ...value, blocks: value.blocks.map((old, i) => i === index ? block : old) }); }
-  function move(from: number, to: number) { if (to < 0 || to >= value.blocks.length || from === to) return; const blocks = [...value.blocks]; blocks.splice(to, 0, blocks.splice(from, 1)[0]); change({ ...value, blocks }); }
-  function boundary(element: HTMLElement, y: number) {
-    const index = [...element.children].findIndex(child => { const rect = child.getBoundingClientRect(); return y < rect.top + rect.height / 2; });
-    return index < 0 ? value.blocks.length : index;
+  function move(from: number, to: number) {
+    if (to < 0 || to >= value.blocks.length || from === to) return;
+    change({ ...value, blocks: moveListItem(value.blocks, from, to) });
   }
-  function endDrag() { setDragged(null); setDropPosition(null); }
-  return <>{promptWarnings(value).map(warning => <p className="small" role="status" key={warning}>{warning}</p>)}<div className="prompt-blocks" onDragOver={event => {
-    if (dragged === null || event.currentTarget.closest('fieldset')?.disabled) return;
-    event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDropPosition(boundary(event.currentTarget, event.clientY));
-  }} onDrop={event => {
-    event.preventDefault();
-    if (dragged !== null && !event.currentTarget.closest('fieldset')?.disabled) { const position = boundary(event.currentTarget, event.clientY); move(dragged, position > dragged ? position - 1 : position); }
-    endDrag();
-  }} onDragLeave={event => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) setDropPosition(null);
-  }}>{value.blocks.map((block, index) => {
+  const reorder = useListReorder(move);
+  return <>{promptWarnings(value).map(warning => <p className="small" role="status" key={warning}>{warning}</p>)}<div className="prompt-blocks" {...reorder.list}>{value.blocks.map((block, index) => {
     const expanded = expandedBlocks.has(block.id);
-    return <section className={`prompt-block${dragged === index ? ' dragging' : ''}${dropPosition === index ? ' drop-before' : ''}${index === value.blocks.length - 1 && dropPosition === value.blocks.length ? ' drop-after' : ''}`} aria-label={t("libraries.prompt_block", { value: index + 1 })} key={block.id}>
+    return <section className={`prompt-block${reorder.rowClass(index, value.blocks.length)}`} aria-label={t("libraries.prompt_block", { value: index + 1 })} key={block.id}>
       <div className="block-heading">
-        <span draggable onDragStart={event => { if (event.currentTarget.closest('fieldset')?.disabled) { event.preventDefault(); return; } event.dataTransfer.setData('text/plain', block.id); event.dataTransfer.effectAllowed = 'move'; setDragged(index); }} onDragEnd={endDrag} title={t("libraries.drag_to_reorder")} className="drag-handle" aria-label={t("libraries.drag_block", { value: index + 1 })}><Icon name="Menu" /></span>
+        <span {...reorder.handle(index, block.id)} title={t("libraries.drag_to_reorder")} className="drag-handle" aria-label={t("libraries.drag_block", { value: index + 1 })}><Icon name="Menu" /></span>
         <input type="checkbox" aria-label={t("libraries.enable_block", { value: index + 1 })} checked={block.enabled} onChange={event => update(index, { ...block, enabled: event.target.checked })} />
         <label className="block-name">{t("libraries.block_name")}<input required value={block.name} onChange={event => update(index, { ...block, name: event.target.value })} /></label>
         <label className="block-role">{t("libraries.role")}<Dropdown aria-label={t("libraries.role_for_block", { value: index + 1 })} disabled={block.kind === 'marker' && block.marker === 'messages'} value={block.role} onChange={role => update(index, { ...block, role: role as PromptBlock['role'] })} options={['system', 'user', 'assistant'].map(role => ({ value: role, label: stateLabel(role === 'system' || role === 'user' ? role : 'assistant') }))} /></label>

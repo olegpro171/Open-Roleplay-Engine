@@ -69,7 +69,7 @@ for (const width of [1440, 390]) test(`next request updates automatically and re
   await expect(page.getByRole('button', { name: 'Prompt peek', exact: true })).toBeEnabled();
   await page.screenshot({ path: test.info().outputPath('next-request.png') });
   await page.getByRole('button', { name: 'Review memory', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Make room for the next chapter' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Memory', exact: true })).toBeVisible();
 });
 
 for (const width of [1440, 390]) test(`turn editors reveal their start and allow scrolling to their end at ${width}px`, async ({ page }) => {

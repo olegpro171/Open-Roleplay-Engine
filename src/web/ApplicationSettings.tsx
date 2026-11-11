@@ -1,9 +1,10 @@
 import { LocalizedError, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
+import { LibraryImport } from './LibraryImport';
 import { LanguageSettings } from './LanguageSettings';
 import { localizedMessageSchema, type LocalizedMessage } from '../shared/localization';
 import { newId } from './uuid';
 import { About } from './About';
-import { BackupFileDialog, type BackupFileAction } from './BackupFileDialog';
+import { BackupFileDialog, BackupRestoreDialog, type BackupFileAction } from './BackupFileDialog';
 import { startDownload } from './downloads';
 import { LanSettings } from './LanSettings';
 import { ChatAppearanceSettings } from './ChatAppearanceSettings';
@@ -50,8 +51,8 @@ export function ApplicationSettings({ openLibraries, appearance, chatBehavior, l
   const [uncertain,setUncertain] = useState<Command|null>(recoveredCommand);
   const [loading,setLoading] = useState(false);
   const [feedbackArea, setFeedbackArea] = useState<'backup' | 'wipe'>('backup');
+  const [restoreOpen, setRestoreOpen] = useState(false);
   const [fileAction, setFileAction] = useState<BackupFileAction | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
   const mounted = useRef(true), pending = useRef(false), stage = useRef<string|null>(null);
   const confirm = useConfirmation();
   function scrollToCategory(id: string) {
@@ -130,6 +131,11 @@ export function ApplicationSettings({ openLibraries, appearance, chatBehavior, l
       window.location.reload();
     }
   }
+  function restore(command: Command) {
+    if (pending.current) return;
+    setRestoreOpen(true);
+    void run(() => execute(command));
+  }
   const feedback = <>
     {busy && <p role="status">{t("application_settings.working_upload_validation_and_snapshot_work_must")}</p>}
     {message && <p role="status">{message}</p>}{error && <div role="alert"><p>{error}</p>{errorDetails && <details className="backup-error-details"><summary>{t("application_settings.details")}</summary><pre>{errorDetails}</pre></details>}</div>}
@@ -147,22 +153,26 @@ export function ApplicationSettings({ openLibraries, appearance, chatBehavior, l
       </nav>
     </aside>
     <div className="document-panel library-panel settings-panel" aria-labelledby="application-settings-heading">
-    {uncertain && <div className="recovery"><p>{t("application_settings.the_command_may_have_committed_retry_this")}</p><button disabled={busy} onClick={() => void run(() => execute(uncertain), uncertain.path === '/data/wipe' ? 'wipe' : 'backup')}>{t("application_settings.retry_data_command")}</button></div>}
+    {uncertain && <div className="recovery"><p>{t("application_settings.the_command_may_have_committed_retry_this")}</p><button disabled={busy} onClick={() => {
+      if (uncertain.path === '/data/wipe') void run(() => execute(uncertain), 'wipe');
+      else restore(uncertain);
+    }}>{t("application_settings.retry_data_command")}</button></div>}
     <LanguageSettings /><ChatAppearanceSettings autosave={appearance} />
     <ChatBehaviorSettings autosave={chatBehavior} />
     <LanSettings autosave={lan} />
     <section className="settings-section" aria-labelledby="data-backup-heading">
     <h2 id="data-backup-heading" tabIndex={-1}>{t("application_settings.data_backup")}</h2>
     <p>{t('application_settings.backup_contents')}</p>
-    {!fileAction && feedbackArea === 'backup' && feedback}
+    {!fileAction && !restoreOpen && feedbackArea === 'backup' && feedback}
     <button type="button" disabled={busy} aria-haspopup="dialog" onClick={event => {
       event.currentTarget.focus({ preventScroll: true });
       setError(''); setErrorDetails(''); setMessage(''); setFileAction({ kind: 'save' });
     }}>{t('application_settings.open_save_backup')}</button>
     <section className="settings-subsection" aria-labelledby="import-backup-heading">
     <h3 id="import-backup-heading">{t("application_settings.import_backup")}</h3>
-    <button type="button" className="secondary" disabled={busy || Boolean(uncertain)} onClick={() => fileInput.current?.click()}>{t('application_settings.select_backup_file')}</button>
-    <input ref={fileInput} type="file" hidden aria-label={t('application_settings.select_backup_file')} accept=".orebackup,.sqlite,.db,application/octet-stream" disabled={busy || Boolean(uncertain)} onChange={event => {
+    <LibraryImport label={t('application_settings.select_backup_file')} dialogTitle={t('application_settings.import_backup')}
+      description={t('library_import.backup_description')} accept=".orebackup,.sqlite,.db,application/octet-stream"
+      disabled={busy || Boolean(uncertain)} onChange={event => {
       const file = event.target.files?.[0]; event.target.value = '';
       if (file) { setError(''); setErrorDetails(''); setMessage(''); setFileAction({ kind: 'import', file }); }
     }} />
@@ -178,7 +188,7 @@ export function ApplicationSettings({ openLibraries, appearance, chatBehavior, l
     {review.blockers.map((blocker,index) => <p role="alert" key={index}>{blocker}</p>)}
     <p>{t("application_settings.to_preserve_another_copy_cancel_and_use")}<a href="#" onClick={event => { event.preventDefault(); openLibraries(); }}>{t("app.libraries")}</a>{t("application_settings.or_save_backup_first_library_copies_may")}</p>
     <div className="actions"><button disabled={busy || loading || Boolean(uncertain)} className="secondary" onClick={() => void refresh()}>{t("application_settings.refresh_import_review")}</button><button disabled={busy || loading || Boolean(uncertain)} className="secondary" onClick={() => void run(async () => { await api(`/data/stages/${review.stageId}`,'DELETE',{}); stage.current = null; setReview(null); })}>{t("application_settings.cancel_inspection")}</button>
-    <button disabled={busy || loading || Boolean(uncertain) || review.blockers.length > 0} onClick={() => confirm({ title: review.overlaps ? t("application_settings.overwrite_overlapping_records") : t("application_settings.import_backup_2"),message: t("application_settings.additions_and_overwrites_overlapping_chats_lose_all", { additions: review.additions, overlaps: review.overlaps }),actionLabel: review.overlaps ? t("application_settings.overwrite_and_import") : t("application_settings.import_backup"),onConfirm: () => void run(() => execute({ path: `/data/stages/${review.stageId}/import`,body: { requestId: newId(),digest: review.digest,token: review.token,overwrite: review.overlaps > 0 } })) })}>{t("application_settings.import_entire_backup")}</button></div>
+    <button disabled={busy || loading || Boolean(uncertain) || review.blockers.length > 0} onClick={() => confirm({ title: review.overlaps ? t("application_settings.overwrite_overlapping_records") : t("application_settings.import_backup_2"),message: t("application_settings.additions_and_overwrites_overlapping_chats_lose_all", { additions: review.additions, overlaps: review.overlaps }),actionLabel: review.overlaps ? t("application_settings.overwrite_and_import") : t("application_settings.import_backup"),onConfirm: () => restore({ path: `/data/stages/${review.stageId}/import`, body: { requestId: newId(), digest: review.digest, token: review.token, overwrite: review.overlaps > 0 } }) })}>{t("application_settings.import_entire_backup")}</button></div>
   </section>}
   </section></section>
   <section className="settings-section" aria-labelledby="wipe-data-heading"><h2 id="wipe-data-heading" tabIndex={-1}>{t("application_settings.wipe_application_data")}</h2><p>{t("application_settings.delete_all_chats_memory_libraries_api_keys")}</p>
@@ -189,6 +199,7 @@ export function ApplicationSettings({ openLibraries, appearance, chatBehavior, l
       confirm({ title: t("application_settings.wipe_application_data_2"),message: t("application_settings.all_saved_story_content_libraries_api_keys"),actionLabel: t("application_settings.wipe_application_data"),onConfirm: () => void run(() => execute({ path: '/data/wipe',body: { ...preview,requestId: newId(),overwrite: true } }), 'wipe') });
     }, 'wipe')}>{t("application_settings.wipe_application_data")}</button>
   </section><About /></div>
+  {restoreOpen && <BackupRestoreDialog busy={busy} error={error} close={() => setRestoreOpen(false)} />}
   {fileAction && <BackupFileDialog action={fileAction} busy={busy} error={error} errorDetails={errorDetails}
     cancel={() => { if (!pending.current) { setFileAction(null); setError(''); setErrorDetails(''); } }}
     submit={(password, confirmation) => { if (fileAction.kind === 'save') void download(password, confirmation); else void select(fileAction.file, password); }} />}

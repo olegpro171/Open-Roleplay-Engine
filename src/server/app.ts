@@ -416,6 +416,12 @@ export async function createApp(options: {
     const { id } = z.object({ id: identity }).parse(request.params);
     const result = await saveLibrary(request, id); coordinator.changed({ kind: 'library' }); return result;
   });
+  app.post('/api/library/contexts/import', { bodyLimit: librarySaveRequestLimit }, async request => {
+    const { revision, data } = z.object({ revision: revisionSchema, data: contextPresetSchema }).strict().parse(request.body);
+    const result = store.importContextPreset(revision, data);
+    coordinator.changed({ kind: 'library' });
+    return result;
+  });
   app.post('/api/library/contexts/:id/impact', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
     const { revision, data } = z.object({ revision: revisionSchema, data: contextPresetSchema }).strict().parse(request.body);

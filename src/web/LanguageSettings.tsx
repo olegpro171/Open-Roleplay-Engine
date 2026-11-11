@@ -2,6 +2,9 @@ import { currentPack, errorText, formatMessage, loadLanguages, locale, message, 
 import { useEffect, useRef, useState } from 'react';
 import { extendTranslation, languageFileProblem, languageLimits, languagePackSchema, languageStatusSchema, translationTemplate, type LanguagePack, type LanguageStatus } from '../shared/localization';
 import { api } from './api';
+import { ActionMenu } from './ActionMenu';
+import { Icon } from './Icon';
+import { LibraryImport } from './LibraryImport';
 import { Dropdown } from './Controls';
 import { useConfirmation } from './Confirmation';
 
@@ -32,7 +35,6 @@ export function LanguageSettings() {
   const pending = useRef(false);
   const mounted = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const fileInput = useRef<HTMLInputElement>(null);
   const confirm = useConfirmation();
   const selected = status?.languages.find(item => item.locale === locale());
   async function run(action: () => Promise<void>) {
@@ -86,17 +88,22 @@ export function LanguageSettings() {
   return <section className="settings-section" aria-labelledby="language-heading">
     <h2 id="language-heading" tabIndex={-1}>{t('language.heading')}</h2>
     <p>{t('language.description')}</p>
-    <label>{t('language.select')}<Dropdown aria-label={t('language.select')} disabled={busy} value={locale()} options={(status?.languages ?? [{ locale: 'en', nativeName: 'English' }, { locale: 'ru', nativeName: 'Русский' }]).map(item => ({ value: item.locale, label: item.nativeName }))} onChange={value => void run(async () => {
+    <div className="language-selection"><label>{t('language.select')}<Dropdown aria-label={t('language.select')} disabled={busy} value={locale()} options={(status?.languages ?? [{ locale: 'en', nativeName: 'English' }, { locale: 'ru', nativeName: 'Русский' }]).map(item => ({ value: item.locale, label: item.nativeName }))} onChange={value => void run(async () => {
       if (!await selectLanguage(value)) setError(message('language.storageFailed'));
     })} /></label>
-    {selected && <p className="small muted">{t('language.coverage', { translated: selected.translated, total: selected.total })}</p>}
-    <div className="actions">
-      <button type="button" className="secondary" disabled={busy} onClick={() => fileInput.current?.click()}>{t('language.import')}</button>
-      <button type="button" className="secondary" onClick={() => download(translationTemplate(), 'ORE-language-template.json')}>{t('language.template')}</button>
-      <button type="button" className="secondary" disabled={busy || locale() === 'en'} aria-describedby="language-extend-help" onClick={() => download(extendTranslation(currentPack()), `${locale()}.json`)}>{t('language.extend')}</button>
+      <LibraryImport label={t('language.import')} description={t('library_import.language_description')} accept=".json,application/json"
+        disabled={busy} onChange={event => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (file) void inspect(file);
+        }} renderTrigger={chooseFile => <ActionMenu label={t('language.actions')} disabled={busy}>
+          <button type="button" className="secondary" role="menuitem" tabIndex={-1} onClick={chooseFile}><Icon name="Import" />{t('language.import')}</button>
+          <button type="button" className="secondary" role="menuitem" tabIndex={-1} onClick={() => download(translationTemplate(), 'ORE-language-template.json')}><Icon name="Upload" />{t('language.template')}</button>
+          <button type="button" className="secondary" role="menuitem" tabIndex={-1} disabled={locale() === 'en'} aria-describedby="language-extend-help" onClick={() => download(extendTranslation(currentPack()), `${locale()}.json`)}><Icon name="Upload" />{t('language.extend')}</button>
+        </ActionMenu>} />
     </div>
+    {selected && <p className="small muted">{t('language.coverage', { translated: selected.translated, total: selected.total })}</p>}
     <p id="language-extend-help" className="small muted">{t('language.extendHelp')}</p>
-    <input ref={fileInput} hidden type="file" accept=".json,application/json" aria-label={t('language.import')} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void inspect(file); }} />
     {busy && <p role="status">{t('language.loading')}</p>}{notice && <p role="status">{notice}</p>}{error && <p role="alert">{error}</p>}
     {status?.languages.filter(language => language.translationIssues.length).map(language => <TranslationReport key={`${language.locale}:${language.revision}`} language={language} />)}
     {status?.issues.map(issue => <p role="status" key={issue.file}>{issue.file}: {formatMessage(issue.message)}</p>)}

@@ -205,3 +205,82 @@ test('Character and Persona choices follow each Library sort in new and existing
   await expect(page.getByRole('region', { name: 'Chat settings', exact: true })).toBeVisible();
   await check();
 });
+
+test('reuses the file drop box and fits the Russian editing controls across themes', async ({ page, browserApp }, testInfo) => {
+  test.setTimeout(60_000);
+  await register(page);
+  const headers = { Origin: browserApp.url };
+  const library: LibrarySnapshot = await page.request.get('/api/library').then(response => response.json());
+  const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
+  const connectionName = 'Connection with saved key';
+  const connection = await page.request.post('/api/library', { headers, data: {
+    revision: library.revision, kind: 'connections', apiKey: 'synthetic-key-only',
+    data: { name: connectionName, endpoint, model: 'synthetic', contextWindow: 20_000, maxOutputTokens: 512, customParameters: {} },
+  } });
+  expect(connection.ok(), await connection.text()).toBe(true);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const languageActions = page.getByRole('button', { name: 'Language file actions', exact: true });
+  const drop = page.getByRole('button', { name: 'Drop file here or click to browse', exact: true });
+  await languageActions.click();
+  await page.getByRole('menuitem', { name: 'Import language file', exact: true }).click();
+  await expect(drop).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(languageActions).toBeFocused();
+  await page.getByRole('button', { name: 'Select file...', exact: true }).click();
+  await expect(drop).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await page.getByRole('button', { name: 'New character', exact: true }).click();
+  const choosePicture = page.getByRole('button', { name: 'Choose picture', exact: true });
+  await choosePicture.click();
+  await expect(drop).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 390, height: 844 });
+  const picker = page.waitForEvent('filechooser');
+  await choosePicture.click();
+  await (await picker).setFiles([]);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Interface language', exact: true }).click();
+  await page.getByRole('option', { name: 'Русский', exact: true }).click();
+
+  for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+    const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+    const result = await page.request.put('/api/application/appearance', { headers, data: { revision: appearance.revision, settings: { ...appearance.settings, theme } } });
+    expect(result.ok(), await result.text()).toBe(true);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    for (const width of [1280, 801, 800, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.getByRole('button', { name: 'Библиотека', exact: true }).click();
+      await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+      await page.getByRole('button', { name: connectionName, exact: true }).click();
+      const key = page.getByLabel('API-ключ', { exact: true });
+      const remove = page.getByRole('checkbox', { name: 'Удалить сохранённый API-ключ', exact: true });
+      await expect(key).toHaveValue('');
+      await remove.scrollIntoViewIfNeeded();
+      const inputBox = await key.boundingBox(), checkbox = await remove.boundingBox();
+      if (!inputBox || !checkbox) throw new Error('Missing saved-key controls');
+      if (width <= 800) expect(checkbox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height);
+      else expect(checkbox.x).toBeGreaterThanOrEqual(inputBox.x + inputBox.width);
+      await page.screenshot({ path: testInfo.outputPath(`saved-key-${theme}-${width}.png`) });
+      await page.getByRole('button', { name: 'Отмена', exact: true }).click();
+      await page.getByRole('button', { name: 'История', exact: true }).click();
+      if (width <= 800) await page.getByRole('button', { name: 'О чате', exact: true }).click();
+      await page.getByRole('button', { name: 'Заметка автора', exact: true }).click();
+      const note = page.getByRole('dialog', { name: 'Заметка автора', exact: true });
+      const role = note.getByRole('combobox', { name: 'Роль', exact: true });
+      await role.click();
+      await note.getByRole('option', { name: 'пользователь', exact: true }).click();
+      await expect(role).toHaveText('пользователь');
+      const lines = await role.locator('.select-label').evaluate(node => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        return range.getClientRects().length;
+      });
+      expect(lines).toBe(1);
+      await note.screenshot({ path: testInfo.outputPath(`author-role-${theme}-${width}.png`) });
+      await note.getByRole('button', { name: 'Закрыть заметку автора', exact: true }).click();
+    }
+  }
+});

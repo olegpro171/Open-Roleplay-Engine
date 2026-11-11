@@ -2,23 +2,24 @@ import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
 
-export function ActionMenu({ label, disabled, revision, focusMode = 'item', children }: {
+export function ActionMenu({ label, disabled, revision = null, focusMode = 'item', children }: {
   label: string;
   disabled: boolean;
-  revision: number;
+  revision?: number | null;
   focusMode?: 'item' | 'panel';
   children: ReactNode;
 }) {
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const [openedAt, setOpenedAt] = useState<number | null>(null);
+  const [openedAt, setOpenedAt] = useState<number | null>();
   const open = openedAt === revision && !disabled;
+  if (openedAt !== undefined && !open) setOpenedAt(undefined);
   const [position, setPosition] = useState({ left: 0, top: 0, maxHeight: 0 });
 
   function close(restoreFocus = false) {
     if (restoreFocus) trigger.current?.focus({ preventScroll: true });
-    setOpenedAt(null);
+    setOpenedAt(undefined);
   }
 
   useLayoutEffect(() => {
@@ -47,8 +48,11 @@ export function ActionMenu({ label, disabled, revision, focusMode = 'item', chil
     const outside = (event: Event) => {
       if (event.target instanceof Node && !button.contains(event.target) && !menu.contains(event.target)) close();
     };
+    const modal = button.closest('dialog[open]');
     const dismiss = (event: Event) => {
       if (event.target instanceof Node && menu.contains(event.target)) return;
+      // Story can scroll behind a modal as streamed text arrives.
+      if (modal && event.target instanceof Element && !modal.contains(event.target)) return;
       close(menu.contains(document.activeElement));
     };
     // Capture nested scrolling too. Wheel/touch close at gesture start,
@@ -88,7 +92,7 @@ export function ActionMenu({ label, disabled, revision, focusMode = 'item', chil
     {menuHost && createPortal(<div ref={panel} id={id} role="menu" aria-label={label}
       className="action-menu floating-controls" style={position} tabIndex={focusMode === 'panel' ? -1 : undefined}
       onClickCapture={event => {
-        if (event.target instanceof Element && event.target.closest('button:not(:disabled)')) {
+        if (focusMode === 'item' && event.target instanceof Element && event.target.closest('button:not(:disabled)')) {
           // Restore the surviving trigger before an action opens a dialog, so
           // that dialog can return focus after this transient panel disappears.
           trigger.current?.focus({ preventScroll: true });

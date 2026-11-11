@@ -97,9 +97,12 @@ for (const device of ['desktop', 'phone'] as const) test.describe(`automatic mem
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await progress.getByRole('button', { name: 'Stop', exact: true }).click();
       await expect(page.locator('.memory-preparation-status')).toHaveCount(0);
+      await expect(page.getByRole('status').filter({ hasText: 'Preparation stopped. Saved summaries remain available.' })).toHaveCount(0);
       await expect(send).toBeEnabled();
       await expect(composer).toHaveValue('My next draft stays available.');
-      expect((await state()).generations[0].status).toBe('succeeded');
+      const stopped = await state();
+      expect(stopped.generations[0].status).toBe('succeeded');
+      expect(stopped.context.jobs[0].status).toBe('cancelled');
 
       await updateBehavior({ ...defaultChatBehavior, allowInputOvershoot: false, autoRetryMemory: false });
       await page.request.post('/__test/mode', { data: { mode: 'hold-first-token' } });

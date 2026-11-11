@@ -428,3 +428,61 @@ test('imports a downloaded branch into its group and as a standalone chat', asyn
   await expect.poll(async () => (await state(branchId)).turns.at(-1)?.complete).toBe(true);
   expect(await state(sourceId)).toEqual(source);
 });
+
+test('branch actions stay open while the Story behind the dialog scrolls during generation', async ({ page, browserApp }) => {
+  const headers = { Origin: browserApp.url };
+  await page.goto('/');
+  await page.getByLabel('Owner password').fill('browser-synthetic-password');
+  await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
+  await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible();
+  const library = async (): Promise<LibrarySnapshot> => page.request.get('/api/library').then(response => response.json());
+  const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
+  const connection = await page.request.post('/api/library', { headers, data: {
+    kind: 'connections', revision: (await library()).revision,
+    data: { endpoint, name: 'Branch streaming', model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 1000, customParameters: {} },
+  } });
+  expect(connection.ok(), await connection.text()).toBe(true);
+  const created = await page.request.post('/api/chats', { headers, data: {
+    title: 'Branch menu during streaming', connectionId: (await connection.json()).id, targetInputTokens: 20_000,
+    characterId: null, personaId: null,
+  } });
+  expect(created.ok(), await created.text()).toBe(true);
+  const { id } = await created.json();
+  const story = async (): Promise<StorySnapshot> => page.request.get(`/api/chats/${id}/story`).then(response => response.json());
+  const imported = await page.request.put(`/api/__test/transcripts/${id}`, { headers, data: {
+    revision: (await story()).revision,
+    turns: [{ user: 'Earlier turn.', assistant: 'A long reply.\n\n'.repeat(100), complete: true }],
+  } });
+  expect(imported.ok(), await imported.text()).toBe(true);
+  await page.evaluate(id => localStorage.setItem('roleplay-chat', id), id);
+  await page.reload();
+  await page.request.post('/__test/mode', { data: { mode: 'hold' } });
+  try {
+    await page.getByLabel('Your next turn').fill('Generate behind the branch manager.');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Chat branches', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Chat branches' });
+    const actions = dialog.getByRole('button', { name: 'Actions for Main', exact: true });
+    await actions.click();
+    const rename = dialog.getByRole('menuitem', { name: 'Rename branch', exact: true });
+    await expect(rename).toBeDisabled();
+    const transcript = page.locator('.transcript');
+    const scrolled = await transcript.evaluate(element => new Promise<boolean>(resolve => {
+      const start = element.scrollTop;
+      element.addEventListener('scroll', () => resolve(start !== element.scrollTop), { once: true });
+      element.scrollTop = start > 30 ? start - 30 : start + 30;
+    }));
+    expect(scrolled).toBe(true);
+    await expect(actions).toHaveAttribute('aria-expanded', 'true');
+    await page.request.post('/__test/finish', { data: {} });
+    await expect(rename).toBeEnabled();
+    await rename.click();
+    await dialog.getByLabel('Branch name').fill('Renamed after streaming');
+    await dialog.getByRole('button', { name: 'Rename branch', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: 'Renamed after streaming', exact: true })).toBeVisible();
+  } finally {
+    await page.request.post('/__test/finish', { data: {} });
+    await page.request.post('/__test/mode', { data: { mode: 'normal' } });
+  }
+});

@@ -310,9 +310,20 @@ export function App() {
     };
     events.onerror = () => { setOnline(false); void refreshSession(); };
     const visible = () => { if (document.visibilityState === 'visible') { void refreshSession(); void refresh(); } };
+    const offline = reportServerError;
+    const online = () => { void recoverConnection(); };
     document.addEventListener('visibilitychange', visible);
-    return () => { events.close(); setOnline(false); document.removeEventListener('visibilitychange', visible); };
-  }, [session?.authenticated, refresh, refreshSession, clearServerError]);
+    window.addEventListener('offline', offline);
+    window.addEventListener('online', online);
+    if (!navigator.onLine) offline();
+    return () => {
+      events.close();
+      setOnline(false);
+      document.removeEventListener('visibilitychange', visible);
+      window.removeEventListener('offline', offline);
+      window.removeEventListener('online', online);
+    };
+  }, [session?.authenticated, refresh, refreshSession, clearServerError, reportServerError, recoverConnection]);
   useEffect(() => {
     if (session?.authenticated && libraryCache.current) void refresh({ library: true, story: true, tools: true });
   }, [chatId, session?.authenticated, refresh]);
@@ -723,12 +734,12 @@ export function App() {
             review={() => setTab('memory')}
             stop={() => void command(() => api(preparing.generationId ? `/generations/${preparing.generationId}/cancel` : `/context/jobs/${preparing.id}/cancel`, 'POST', {}))} />}
         </div></div>
-        {!working && preparation?.generationId === null && preparation.error && ['cancelled', 'failed', 'interrupted'].includes(preparation.status) && <div className="recovery" role="status">
+        {!working && preparation?.generationId === null && preparation.error && ['failed', 'interrupted'].includes(preparation.status) && <div className="recovery" role="status">
           <p>{formatMessage(preparation.errorMessage ?? preparation.error)}</p>
           <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('story_preparation.open_memory')}</button>
         </div>}
         {!active && pending && <div className="recovery" role="status"><div><strong>{t("app.last_turn_is_still_pending")}</strong><p>{latest?.status === 'cancelled' ? t("app.response_cancelled_generate_response_before_next_turn") : formatMessage(latestError ?? msg("app.generate_response_before_next_turn"))}</p>{partial && <small>{t("app.partial_text_is_preserved_for_inspection_it")}</small>}</div><button className="secondary" disabled={busy || working || authorNote.pending} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: newId() }))}>{t("app.retry_response")}</button></div>}
-        {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted' || latest.status === 'cancelled') && <p className="recovery" role="status">{formatMessage(latestError ?? msg("app.regeneration_did_not_finish_try_again"))}</p>}
+        {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <p className="recovery" role="status">{formatMessage(latestError ?? msg("app.regeneration_did_not_finish_try_again"))}</p>}
         {drafts.needsReview && <div className="recovery" role="alert"><p>{t("app.this_browser_draft_predates_a_backup_import")}</p><button onClick={drafts.review}>{t("app.use_recovered_draft")}</button></div>}
         {drafts.storageError && <div className="recovery" role="alert">{t("app.draft_could_not_be_saved_in_this")}</div>}
         {!authorNoteOpen && <AuthorNoteSaveStatus saving={authorNote.saving} error={authorNote.error} retry={authorNote.editor.retry} disabled={working || busy || dataChanged} />}

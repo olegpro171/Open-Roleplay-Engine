@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState, type ChangeEventHandler, type Ref } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ChangeEventHandler, type ReactNode, type Ref } from 'react';
 import { createPortal } from 'react-dom';
 import { openModal } from './dialog-focus';
 import { ModalDialog } from './ModalDialog';
@@ -6,7 +6,7 @@ import { Icon } from './Icon';
 import { t, useLocale } from './localization';
 
 /** File selection only; validation and import/recovery remain with the caller. */
-export function LibraryImport({ label, dialogTitle = label, description, inputLabel = label, accept, disabled, triggerRef, onChange }: {
+export function LibraryImport({ label, dialogTitle = label, description, inputLabel = label, accept, disabled, triggerRef, renderTrigger, onChange }: {
   label: string;
   dialogTitle?: string;
   description: string;
@@ -14,17 +14,21 @@ export function LibraryImport({ label, dialogTitle = label, description, inputLa
   accept: string;
   disabled: boolean;
   triggerRef?: Ref<HTMLButtonElement>;
+  renderTrigger?: (open: () => void) => ReactNode;
   onChange: ChangeEventHandler<HTMLInputElement>;
 }) {
   useLocale();
   const [open, setOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  function chooseFile() {
+    if (disabled) return;
+    // Match the Library's existing narrow-layout breakpoint, including rotation.
+    if (window.matchMedia('(max-width: 800px)').matches) input.current?.click();
+    else setOpen(true);
+  }
   return <>
-    <button ref={triggerRef} type="button" className="secondary" disabled={disabled} onClick={() => {
-      // Match the Library's existing narrow-layout breakpoint, including rotation.
-      if (window.matchMedia('(max-width: 800px)').matches) input.current?.click();
-      else setOpen(true);
-    }}><Icon name="Import" />{label}</button>
+    {renderTrigger ? renderTrigger(chooseFile) : <button ref={triggerRef} type="button" className="secondary"
+      disabled={disabled} onClick={chooseFile}><Icon name="Import" />{label}</button>}
     <input ref={input} type="file" hidden accept={accept} aria-label={inputLabel} disabled={disabled} onChange={event => {
       if (!event.target.files?.length) return;
       setOpen(false);

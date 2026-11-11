@@ -17,7 +17,7 @@ async function headers(page: Page) {
 async function fixture(page: Page,width: number) {
   const initial = await headers(page);
   const wipePreview = await page.request.get('/api/data/wipe-preview').then(response => response.json());
-  const wiped = await page.request.post('/api/data/wipe',{ headers: initial,data: { ...wipePreview,requestId: crypto.randomUUID(),overwrite: true } }); expect(wiped.ok()).toBe(true); await page.reload();
+  const wiped = await page.request.post('/api/data/wipe',{ headers: initial,data: { ...wipePreview,requestId: crypto.randomUUID(),overwrite: true } }); expect(wiped.ok(), await wiped.text()).toBe(true); await page.reload();
   const auth = await headers(page), { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
   const library: LibrarySnapshot = await page.request.get('/api/library').then(response => response.json());
   const connection = await page.request.post('/api/library',{ headers: auth,data: { kind: 'connections',revision: library.revision,data: { name: `Backup model ${width}`,endpoint,model: 'synthetic',contextWindow: 100000,maxOutputTokens: 1000,customParameters: {} },apiKey: 'synthetic-backup-api-key' } }); expect(connection.ok()).toBe(true);
@@ -66,9 +66,25 @@ test('backup dialogs cancel without requests and clear transient passwords', asy
   expect(requests).toBe(0);
 });
 
-test('pending backup opening prevents duplicate requests and dismissal', async ({ page }) => {
+test('pending backup saving and opening show progress and prevent dismissal', async ({ page }) => {
   await login(page);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  let releaseSave: (() => void) | undefined;
+  const saveResponse = new Promise<void>(resolve => { releaseSave = resolve; });
+  await page.route('**/api/data/backup', async route => {
+    await saveResponse;
+    await route.fulfill({ status: 429, json: { message: 'Synthetic backup preparation failure' } });
+  });
+  await page.getByRole('button', { name: 'Save...', exact: true }).click();
+  const saving = page.getByRole('dialog');
+  await saving.getByRole('button', { name: 'Save', exact: true }).click();
+  try {
+    await expect(saving.getByRole('progressbar', { name: 'Preparing backup file…' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(saving).toBeVisible();
+  } finally { releaseSave?.(); }
+  await expect(saving.getByRole('alert')).toContainText('Synthetic backup preparation failure');
+  await saving.getByRole('button', { name: 'Cancel', exact: true }).click();
   let release: (() => void) | undefined;
   const response = new Promise<void>(resolve => { release = resolve; });
   let attempts = 0;
@@ -83,6 +99,7 @@ test('pending backup opening prevents duplicate requests and dismissal', async (
   await submit.click();
   await expect.poll(() => attempts).toBe(1);
   await expect(submit).toBeDisabled();
+  await expect(dialog.getByRole('progressbar', { name: 'Opening backup for review…' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
   await page.mouse.click(2, 2);
   await expect(dialog).toBeVisible();
@@ -227,8 +244,23 @@ for (const width of [1440,390]) test(`backup inspection, cancel, overwrite retry
   expect((await page.request.get(`/api/chats/${chatId}`).then(response => response.json())).turns).toHaveLength(85);
   await page.getByRole('button',{ name: 'Cancel inspection',exact: true }).click(); await expect(page.getByRole('heading',{ name: 'Import review',exact: true })).toHaveCount(0);
   await upload(); await expect(page.getByRole('heading',{ name: 'Import review',exact: true })).toBeVisible();
-  await page.route('**/api/data/stages/*/import',async route => { const response = await route.fetch(); expect(response.ok()).toBe(true); await route.abort('failed'); },{ times: 1 });
+  let releaseImport: (() => void) | undefined;
+  const heldImport = new Promise<void>(resolve => { releaseImport = resolve; });
+  await page.route('**/api/data/stages/*/import', async route => {
+    const response = await route.fetch();
+    expect(response.ok()).toBe(true);
+    await heldImport;
+    await route.abort('failed');
+  }, { times: 1 });
   await page.getByRole('button',{ name: 'Import entire backup',exact: true }).click(); await page.getByRole('dialog').getByRole('button',{ name: 'Overwrite and import',exact: true }).click();
+  const importing = page.getByRole('dialog', { name: 'Import entire backup', exact: true });
+  try {
+    await expect(importing.getByRole('progressbar', { name: 'Importing saved data…' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(importing).toBeVisible();
+  } finally { releaseImport?.(); }
+  await expect(importing.getByRole('alert')).toBeVisible();
+  await importing.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByRole('button',{ name: 'Retry data command',exact: true })).toBeVisible();
   await expect(other.getByRole('alert').filter({ hasText: 'Application data was imported or wiped in another tab' })).toBeVisible();
   await expect(saveEdit).toBeDisabled();

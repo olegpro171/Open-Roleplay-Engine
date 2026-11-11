@@ -191,14 +191,18 @@ test('fits Russian color controls and centers picture actions across the editor 
     await page.getByRole('button', { name: 'Задать цвет', exact: true }).click();
     await picture.scrollIntoViewIfNeeded();
     const square = await picture.locator('.picture-editor-square').boundingBox();
-    const controls = await picture.locator('.picture-editor-controls').boundingBox();
+    const upload = picture.getByRole('button', { name: 'Заменить', exact: true });
+    const controls = await picture.locator('.picture-editor-controls > .actions').boundingBox();
     if (!square || !controls) throw new Error('Missing picture layout');
-    if (controls.x > square.x + square.width) {
-      expect(Math.abs(controls.y + controls.height / 2 - square.y - square.height / 2)).toBeLessThanOrEqual(1);
+    expect(controls.x).toBeGreaterThan(square.x + square.width);
+    if (width > 800) {
+      const content = await picture.locator('.picture-editor-controls').boundingBox();
+      if (!content) throw new Error('Missing picture controls');
+      expect(Math.abs(content.y + content.height / 2 - square.y - square.height / 2)).toBeLessThanOrEqual(1);
     } else {
-      expect(controls.y).toBeGreaterThanOrEqual(square.y + square.height);
+      expect(Math.abs(controls.y - square.y)).toBeLessThanOrEqual(1);
     }
-    const uploadFont = await picture.locator('.file-button').evaluate(element => {
+    const uploadFont = await upload.evaluate(element => {
       const style = getComputedStyle(element);
       return { size: style.fontSize, weight: style.fontWeight };
     });

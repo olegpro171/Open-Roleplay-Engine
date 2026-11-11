@@ -1,3 +1,4 @@
+import { compareInsertionOrder } from './lore-entry-order.js';
 import { diagnosticMessage } from '../shared/localization.js';
 import { message } from '../shared/localization.js';
 import type { Message, Turn } from '../shared/contracts.js';
@@ -129,7 +130,7 @@ type PreparedEntry = {
 function admissionOrder(left: PreparedEntry, right: PreparedEntry): number {
   const leftConstant = left.entry.constant && !left.entry.useRegex;
   const rightConstant = right.entry.constant && !right.entry.useRegex;
-  return right.entry.priority - left.entry.priority || Number(rightConstant) - Number(leftConstant) || left.entry.insertionOrder - right.entry.insertionOrder || left.sourceIndex - right.sourceIndex;
+  return right.entry.priority - left.entry.priority || Number(rightConstant) - Number(leftConstant) || compareInsertionOrder(left.entry, right.entry) || left.sourceIndex - right.sourceIndex;
 }
 
 function excludedReason(entry: PreparedEntry, assistantCount: number, pressure: boolean): string | null {
@@ -278,7 +279,7 @@ export async function resolveLore(input: LoreInput, matchRegex: RegexMatcher): P
     version: 'ore-lore-v1', book: { id: book.id, revision: book.revision, name: book.name }, epoch: state.epoch,
     settings: { scanDepth: book.scanDepth, tokenBudget: book.tokenBudget, recursiveScanning: book.recursiveScanning },
     scan: scan.map(({ text: _text, ...message }) => message), assistantCount,
-    outcomes: prepared.sort((left, right) => left.entry.insertionOrder - right.entry.insertionOrder || left.sourceIndex - right.sourceIndex).map(entry => entry.outcome.status === 'admitted' ? entry.outcome : { ...entry.outcome, text: '' }),
+    outcomes: prepared.sort((left, right) => compareInsertionOrder(left.entry, right.entry) || left.sourceIndex - right.sourceIndex).map(entry => entry.outcome.status === 'admitted' ? entry.outcome : { ...entry.outcome, text: '' }),
     diagnostics, tokens: usedTokens, pressure, stateBefore, stateDelta: Object.fromEntries(stateDelta),
   };
 }

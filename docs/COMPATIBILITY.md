@@ -79,6 +79,8 @@ Literal keys use NFC normalization and locale-independent Unicode lowercase unle
 
 Primary keys use any-match. Selective literal entries require any secondary key as well. Constants bypass keywords, with V3's explicit regex precedence: regex mode ignores constant and standard secondary/exclusion keys. Repeated additional-key directives form separate required groups. Disabled and empty entries never insert. Invalid regex yields a nonmatching entry with a diagnostic; timeout/resource failures fail the attempt before transport.
 
+The Lorebook editor shows the effective insertion order. Drag within the visible page or use the move arrows, which can cross pages. Clear search to reorder. A new entry goes last, and a duplicate goes immediately below its source. Save commits these draft changes. Explicit moves update numeric insertion ranks so the order survives export, including World Info maps. Opening the book or saving unrelated fields preserves its existing ranks and tie order.
+
 Admission order is descending priority, constant-first among ties, ascending insertion order, then source order. Final placement order is insertion order then source order. Each admitted entry is a separate message and consumes its fully resolved content, role and framing against the cap. Consider smaller lower-ranked entries after an oversized exclusion. Constants obey the cap. Recursion discovers only from admitted, actually placeable prose; prior admissions remain selected and cycles cannot insert an identity twice. Safety-limit failures are explicit.
 
 | Lore destination | Automatic anchor |

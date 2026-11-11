@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { compareInsertionOrder, rankLoreEntry } from '../src/core/lore-entry-order.js';
+import { exportCharacter } from '../src/core/cards.js';
 import fixtures from './fixtures/lorebooks.json';
 import { exportLorebook, importLorebook, loreCompatibility, markLoreEdits } from '../src/core/lorebook-formats.js';
 import { newLorebook, newLoreEntry, type Lorebook } from '../src/shared/lorebook.js';
@@ -449,5 +451,49 @@ describe('lorebook boundary validation', () => {
     let nested: Record<string, unknown> = {};
     for (let i = 0; i < 101; i++) nested = { child: nested };
     expect(() => imported({ entries: [], nested })).toThrow('nesting depth');
+  });
+});
+
+describe('edited lore entry order', () => {
+  it.each(['v2', 'v3', 'world_info'] as const)('encodes reordering tied entries in %s and linked Character export', format => {
+    const source = { ...fixtures.worldInfo, entries: {
+      '17': { ...fixtures.worldInfo.entries['17'], uid: 17, order: -2, content: 'First' },
+      '23': { ...fixtures.worldInfo.entries['17'], uid: 23, order: -2, content: 'Second' },
+      '42': { ...fixtures.worldInfo.entries['17'], uid: 42, order: 9.5, content: 'Third' },
+    } };
+    const before = imported(source).book;
+    const desired = [before.entries[0], before.entries[2], before.entries[1]];
+    const ranks = rankLoreEntry(desired, 1);
+    const next = markLoreEdits(before, { ...before, entries: before.entries.map(entry => ({
+      ...entry, insertionOrder: ranks.get(entry.id) ?? entry.insertionOrder,
+    })) });
+    const check = (book: Lorebook) => {
+      const ordered = [...book.entries].sort(compareInsertionOrder);
+      expect(ordered.map(entry => entry.content)).toEqual(['First', 'Third', 'Second']);
+      expect(ordered.map(entry => entry.externalId)).toEqual([17, 42, 23]);
+      expect(ordered.every(entry => entry.source?.raw.foreign_field)).toBe(true);
+    };
+    const output = exportLorebook(next, format);
+    check(imported(output).book);
+    if (format === 'world_info') expect(output.entries).toMatchObject({ '17': { uid: 17 }, '23': { uid: 23 }, '42': { uid: 42 } });
+    const card = exportCharacter({ name: 'Lore character', description: '', personality: '', scenario: '', first_mes: '', mes_example: '' }, next);
+    const embedded = data(card).character_book;
+    check(imported(embedded, 'v2').book);
+  });
+
+  it('preserves unaffected ranks and redistributes finite ranks when adjacent values have no midpoint', () => {
+    const entries = [-12, 1, 1 + Number.EPSILON, Number.MAX_VALUE].map((insertionOrder, index) => ({
+      ...newLoreEntry(String(index)), insertionOrder,
+    }));
+    const easy = rankLoreEntry([entries[0], entries[3], entries[1], entries[2]], 1);
+    expect([...easy.keys()]).toEqual(['3']);
+    expect(easy.get('3')).toBeGreaterThan(-12);
+    expect(easy.get('3')).toBeLessThan(1);
+    const adjacent = [entries[0], entries[1], entries[3], entries[2]];
+    const ranks = rankLoreEntry(adjacent, 2);
+    const values = adjacent.map(entry => ranks.get(entry.id) ?? entry.insertionOrder);
+    expect(values.every(Number.isFinite)).toBe(true);
+    expect(values.every((value, index) => index === 0 || value > values[index - 1])).toBe(true);
+    expect(values[0]).toBe(-12);
   });
 });

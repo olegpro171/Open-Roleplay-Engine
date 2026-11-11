@@ -3,6 +3,7 @@ import { ModalDialog } from './ModalDialog';
 import { LocalizedError, useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { LibraryImport } from './LibraryImport';
 import { Icon } from './Icon';
 import { cropControls, cropFromControls, cropPixels, pictureLimits, type CharacterPicture, type PictureAnalysis, type PictureCrop, type PictureDimensions, type PictureMutation } from '../shared/pictures';
 import { api } from './api';
@@ -81,7 +82,9 @@ export function PictureEditor({ value, change, original, disabled, processing }:
   const attempt = useRef(0), abort = useRef<AbortController | null>(null);
   useEffect(() => () => { attempt.current++; abort.current?.abort(); }, []);
   return <section className="full picture-editor" aria-label={t("pictures.character_picture")}><div className="picture-editor-square">{value ? <CroppedPicture image={value} /> : <PictureSquare />}</div><div className="picture-editor-controls"><div className="actions">
-    <label className={`file-button${disabled || working ? ' disabled' : ''}`}>{value ? t("pictures.replace_picture") : t("pictures.choose_picture")}<input type="file" accept="image/png,image/jpeg,image/webp" aria-label={value ? t("pictures.replace_picture") : t("pictures.choose_picture")} disabled={disabled || working} onChange={async event => {
+    <LibraryImport label={t(value ? 'pictures.replace_picture' : 'pictures.choose_picture')}
+      description={t('pictures.png_jpeg_or_webp_up_to_10')} accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+      disabled={disabled || working} onChange={async event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
       const current = ++attempt.current; abort.current?.abort(); const controller = new AbortController(); abort.current = controller;
       setWorking(true); processing(true); setError('');
@@ -93,7 +96,7 @@ export function PictureEditor({ value, change, original, disabled, processing }:
         if (current === attempt.current) change({ origin: 'local', base64, width: image.width, height: image.height, crop: image.crop, preview: image.preview });
       } catch (error) { if (current === attempt.current) setError(errorText(error, msg("pictures.could_not_read_this_picture"))); }
       finally { if (current === attempt.current) { setWorking(false); processing(false); } }
-    }} /></label>
+    }} />
     {value && <><button ref={cropTrigger} type="button" className="secondary" disabled={disabled || working} onClick={async () => {
       if (value.origin === 'local') { setCropOpen(true); return; }
       const current = ++attempt.current, controller = new AbortController(); abort.current?.abort(); abort.current = controller;

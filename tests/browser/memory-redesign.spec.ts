@@ -116,7 +116,7 @@ test('Story tracks and stops regeneration outside the transcript window and revi
   await page.screenshot({ path: testInfo.outputPath('regeneration-preparation.png') });
   await progress.getByRole('button', { name: 'Stop', exact: true }).click();
   await expect(progress).toHaveCount(0);
-  await expect(page.getByRole('status').filter({ hasText: 'The selected response was kept' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'The selected response was kept' })).toHaveCount(0);
   await page.request.post('/__test/finish');
   const stopped = await state();
   expect(stopped.generations.find(generation => generation.id === generationId)?.status).toBe('cancelled');
@@ -262,4 +262,93 @@ test('Send pauses for deletion review, survives reload, and resumes only after c
   await expect.poll(async () => (await state()).turns.at(-1)?.complete).toBe(true);
   expect((await state()).context.summaries).toEqual([]);
   expect(await calls()).toHaveLength(3);
+});
+
+test('keeps the Memory view in place when switching summaries and localizes authority', async ({ page, browserApp }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 950 });
+  const { state, write } = await memoryStory(page, browserApp.url, 'Memory inspection switch', 120);
+  await openChatTool(page, 'Inspect memory');
+  const saveNext = page.getByRole('button', { name: 'Save next summary', exact: true });
+  for (const count of [1, 2]) {
+    await saveNext.click();
+    await expect.poll(async () => (await state()).context.selected.length).toBe(count);
+  }
+  const picker = page.getByRole('combobox', { name: 'Inspect saved summary', exact: true });
+  await picker.click();
+  const list = page.getByRole('listbox', { name: 'Inspect saved summary', exact: true });
+  await list.getByRole('option').nth(1).click();
+  const authority = page.getByTestId('summary-authority');
+  await expect(authority).toHaveText('Represented directly in the saved model input.');
+  await page.getByRole('button', { name: 'Edit summary', exact: true }).click();
+  const edit = page.getByRole('textbox', { name: 'Summary text', exact: true });
+  const original = await edit.inputValue();
+  await edit.fill('Unsaved edit in the first summary.');
+  await picker.click();
+  const before = await page.locator('.memory-panel').evaluate(node => node.scrollTop);
+  await list.getByRole('option').nth(2).click();
+  await expect(edit).toHaveCount(0);
+  expect(Math.abs(await page.locator('.memory-panel').evaluate(node => node.scrollTop) - before)).toBeLessThanOrEqual(2);
+  const timeline = page.getByLabel('Layered memory timeline', { exact: true });
+  await timeline.getByRole('button').first().click();
+  await expect(timeline.getByRole('button').first()).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('region', { name: 'Summary text', exact: true })).toHaveText(original);
+
+  for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+    const response = await page.request.get('/api/application/appearance');
+    const appearance = appearanceStatusSchema.parse(await response.json());
+    await write('PUT', '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await page.setViewportSize({ width: 620, height: 844 });
+    await expect(timeline.getByRole('img', { name: /^Turns 1–4/ })).toBeVisible();
+    await expect(timeline.getByRole('button').first()).toHaveCSS('border-top-width', '1px');
+    await expect(timeline.getByRole('button').last()).toHaveCSS('border-top-width', '1px');
+    await timeline.screenshot({ path: testInfo.outputPath(`summary-timeline-${theme}-620.png`) });
+
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      if (width === 390) {
+        await expect(timeline.locator('.summary-band')).toHaveCount(1);
+        await expect(timeline.getByRole('button')).toHaveCount(2);
+        const zoom = page.getByRole('checkbox', { name: 'Zoom timeline', exact: true });
+        await zoom.check();
+        await expect(timeline.getByRole('button').first()).toHaveText('1–2');
+        await zoom.uncheck();
+        await expect(timeline.locator('.summary-band')).toHaveCount(1);
+      } else {
+        await expect(timeline.getByRole('button').first()).toHaveCSS('border-top-width', '1px');
+      }
+      await page.getByRole('button', { name: 'Edit summary', exact: true }).click();
+      expect((await edit.boundingBox())?.height).toBeGreaterThanOrEqual(300);
+      await page.screenshot({ path: testInfo.outputPath(`summary-editor-${theme}-${width}.png`) });
+      await page.getByRole('button', { name: 'Cancel edit', exact: true }).click();
+      const clear = page.locator('details.restore-memory');
+      await clear.locator('summary').click();
+      const deleteMemory = clear.getByRole('button', { name: 'Clear memory', exact: true });
+      await page.mouse.move(0, 0);
+      const background = await deleteMemory.evaluate(button => {
+        const probe = document.createElement('span');
+        probe.style.backgroundColor = 'var(--danger-button)';
+        button.append(probe);
+        const color = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return color;
+      });
+      await expect(deleteMemory).toHaveCSS('background-color', background);
+      await deleteMemory.click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog.getByRole('button', { name: 'Clear memory', exact: true })).toHaveCSS('background-color', background);
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await clear.locator('summary').click();
+    }
+  }
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Interface language', exact: true }).click();
+  await page.getByRole('option', { name: 'Русский', exact: true }).click();
+  await page.getByRole('button', { name: 'История', exact: true }).click();
+  await page.getByRole('button', { name: 'О чате', exact: true }).click();
+  await page.getByRole('button', { name: 'Просмотр памяти', exact: true }).click();
+  const summaryPicker = page.getByRole('combobox', { name: 'Просмотр сохранённой сводки', exact: true });
+  await summaryPicker.click();
+  await page.getByRole('listbox', { name: 'Просмотр сохранённой сводки', exact: true }).getByRole('option').nth(1).click();
+  await expect(authority).toHaveText('Входит напрямую в сохранённый вход модели.');
 });

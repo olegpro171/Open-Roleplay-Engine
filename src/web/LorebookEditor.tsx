@@ -1,3 +1,5 @@
+import { compareInsertionOrder, rankLoreEntry } from '../core/lore-entry-order';
+import { moveListItem, useListReorder } from './useListReorder';
 import { LibraryImport } from './LibraryImport';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
 import { validationMessage } from '../shared/localization-validation';
@@ -82,7 +84,8 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
   useLocale();
   const formId = useId();
   const confirmAction = useConfirmation();
-  const [book, setBook] = useState(initial.data), [selectedId, setSelectedId] = useState(initial.data.entries[0]?.id ?? '');
+  const [book, setBook] = useState(initial.data);
+  const [selectedId, setSelectedId] = useState(() => [...initial.data.entries].sort(compareInsertionOrder)[0]?.id ?? '');
   const form = useRef<HTMLFormElement>(null);
   const selectionScroll = useRef<{ element: HTMLElement; top: number }[]>([]);
   useLayoutEffect(() => {
@@ -100,10 +103,49 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
   const stale = initial.revision !== currentRevision;
   const selected = book.entries.find(entry => entry.id === selectedId);
   const needle = query.normalize('NFC').toLowerCase();
-  const matching = useMemo(() => needle ? book.entries.filter(entry => [entry.name, entry.comment, entry.content, ...entry.keys, ...entry.secondaryKeys].some(value => value.normalize('NFC').toLowerCase().includes(needle))) : book.entries, [book.entries, needle]);
+  const ordered = useMemo(() => [...book.entries].sort(compareInsertionOrder), [book.entries]);
+  const matching = useMemo(() => {
+    const indexed = ordered.map((entry, position) => ({ entry, position }));
+    if (!needle) return indexed;
+    return indexed.filter(({ entry }) => [entry.name, entry.comment, entry.content, ...entry.keys, ...entry.secondaryKeys]
+      .some(value => value.normalize('NFC').toLowerCase().includes(needle)));
+  }, [ordered, needle]);
   const last = Math.max(0, Math.ceil(matching.length / pageSize) - 1), shown = Math.min(page, last);
+  const start = shown * pageSize;
+  const visible = matching.slice(start, start + pageSize);
+  const list = useRef<HTMLDivElement>(null);
+  const moveFocus = useRef<{ id: string; direction: number } | null>(null);
+  useLayoutEffect(() => {
+    const target = moveFocus.current;
+    moveFocus.current = null;
+    if (!target || !list.current) return;
+    const row = list.current.querySelector(`[data-entry-id="${CSS.escape(target.id)}"]`);
+    if (!row) return;
+    const focus = row.querySelector<HTMLButtonElement>(`button[data-direction="${target.direction}"]:enabled`)
+      ?? row.querySelector<HTMLButtonElement>('button[aria-pressed]');
+    focus?.focus({ preventScroll: true });
+    const bounds = row.getBoundingClientRect();
+    const viewport = list.current.getBoundingClientRect();
+    if (bounds.top < viewport.top) list.current.scrollTop -= viewport.top - bounds.top;
+    else if (bounds.bottom > viewport.bottom) list.current.scrollTop += bounds.bottom - viewport.bottom;
+  }, [ordered]);
   function update(patch: Partial<Lorebook>) { setBook(value => markBook(value, patch)); }
   function updateEntry(patch: Partial<LoreEntry>) { update({ entries: book.entries.map(entry => entry.id === selectedId ? markEntry(entry, patch) : entry) }); }
+  function applyOrder(next: LoreEntry[], position: number, newEntry?: LoreEntry) {
+    const ranks = rankLoreEntry(next, position);
+    const entries = newEntry ? [...book.entries, newEntry] : book.entries;
+    update({ entries: entries.map(entry => {
+      const insertionOrder = ranks.get(entry.id);
+      return insertionOrder === undefined || insertionOrder === entry.insertionOrder ? entry : markEntry(entry, { insertionOrder });
+    }) });
+  }
+  function move(from: number, to: number, direction?: number) {
+    if (needle || to < 0 || to >= ordered.length || from === to) return;
+    if (direction !== undefined) moveFocus.current = { id: ordered[from].id, direction };
+    applyOrder(moveListItem(ordered, from, to), to);
+    setPage(Math.floor(to / pageSize));
+  }
+  const reorder = useListReorder((from, to) => move(start + from, start + to), !needle);
   function selectEntry(id: string) {
     if (id === selectedId) return;
     const positions: { element: HTMLElement; top: number }[] = [];
@@ -115,8 +157,14 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
   }
   function add(duplicate?: LoreEntry) {
     const id = newId();
-    const entry = duplicate ? { ...structuredClone(duplicate), id, name: `${duplicate.name.slice(0, 190)} copy` } : { ...newLoreEntry(id), insertionOrder: Math.max(-1, ...book.entries.map(item => item.insertionOrder)) + 1 };
-    update({ entries: [...book.entries, entry] }); selectEntry(id); setQuery(''); setPage(Math.floor(book.entries.length / pageSize));
+    const entry = duplicate ? { ...structuredClone(duplicate), id, name: `${duplicate.name.slice(0, 190)} copy` } : newLoreEntry(id);
+    const position = duplicate ? ordered.findIndex(item => item.id === duplicate.id) + 1 : ordered.length;
+    const next = [...ordered];
+    next.splice(position, 0, entry);
+    applyOrder(next, position, entry);
+    selectEntry(id);
+    setQuery('');
+    setPage(Math.floor(position / pageSize));
   }
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -146,8 +194,26 @@ export function LorebookEditor({ initial, currentRevision, busy, run, close }: {
           setPage(0);
         }} />
       </div>
-      <div className="lore-workspace"><div className="lore-entry-list" role="group" aria-label={t("lorebook_editor.lorebook_entries")}>
-        {matching.slice(shown * pageSize, (shown + 1) * pageSize).map(entry => <button type="button" className="secondary" aria-pressed={entry.id === selectedId} key={entry.id} onClick={() => selectEntry(entry.id)}><strong>{entry.name || t("lorebook_editor.unnamed_entry")}</strong><small>{t("lorebook_editor.order_priority", { value: entry.enabled ? t("interface.enabled") : t("interface.disabled"), insertionOrder: entry.insertionOrder, priority: entry.priority })}</small></button>)}
+      {needle && <p className="small muted">{t('lorebook_editor.clear_search_to_reorder')}</p>}
+      <div className="lore-workspace"><div className="lore-entry-list" ref={list} role="group" aria-label={t("lorebook_editor.lorebook_entries")}>
+        <div className="lore-entry-rows" {...reorder.list}>
+          {visible.map(({ entry, position }, index) => {
+            const name = entry.name || t('lorebook_editor.unnamed_entry');
+            return <div key={entry.id} data-entry-id={entry.id} className={`lore-entry-row${reorder.rowClass(index, visible.length)}`}>
+              <span className="drag-handle" aria-hidden="true" {...reorder.handle(index, entry.id)} title={t('libraries.drag_to_reorder')}><Icon name="Menu" /></span>
+              <button type="button" className="secondary lore-entry-select" aria-pressed={entry.id === selectedId} onClick={() => selectEntry(entry.id)}>
+                <strong>{name}</strong>
+                <small>{t("lorebook_editor.order_priority", { value: entry.enabled ? t("interface.enabled") : t("interface.disabled"), insertionOrder: position + 1, priority: entry.priority })}</small>
+              </button>
+              <div className="block-actions">
+                <button type="button" className="quiet" data-direction="-1" disabled={Boolean(needle) || position === 0} title={t('libraries.move_up')}
+                  aria-label={t('lorebook_editor.move_entry_up', { name })} onClick={() => move(position, position - 1, -1)}><Icon name="ArrowLongTop" /></button>
+                <button type="button" className="quiet" data-direction="1" disabled={Boolean(needle) || position + 1 === ordered.length} title={t('libraries.move_down')}
+                  aria-label={t('lorebook_editor.move_entry_down', { name })} onClick={() => move(position, position + 1, 1)}><Icon name="ArrowLongBottom" /></button>
+              </div>
+            </div>;
+          })}
+        </div>
         {matching.length === 0 && <p className="small muted">{book.entries.length ? t("lorebook_editor.no_entries_match_your_search") : t("lorebook_editor.this_book_is_empty_add_an_entry")}</p>}
         {last > 0 && <Pagination page={shown} last={last} change={setPage} />}
       </div>{selected ? <section className="lore-entry-editor" aria-label={t("lorebook_editor.selected_lore_entry")}><EntryFields key={selected.id} entry={selected} update={updateEntry} issues={entryIssues} /><div className="actions"><button type="button" className="secondary" disabled={book.entries.length >= LOREBOOK_ENTRY_LIMIT} onClick={() => add(selected)}><Icon name="CopyOutline" />{t("lorebook_editor.duplicate_entry")}</button><button type="button" className="quiet" onClick={() => { confirmAction({ confirmOnEnter: true, title: t("lorebook_editor.delete_lore_entry"), message: t("lorebook_editor.delete_entry_save_the_book_to_commit", { name: selected.name }), actionLabel: t("lorebook_editor.delete_entry"), onConfirm: () => { update({ entries: book.entries.filter(entry => entry.id !== selectedId) }); selectEntry(book.entries.find(entry => entry.id !== selectedId)?.id ?? ''); } }); }}><Icon name="TrashOutline" />{t("lorebook_editor.delete_entry")}</button></div></section> : <p className="small muted">{t("lorebook_editor.select_an_entry_to_edit_its_content")}</p>}</div>
@@ -185,7 +251,6 @@ function EntryFields({ entry, update, issues }: { entry: LoreEntry; update: (pat
     }} />{t("lorebook_editor.use_regular_expressions")}</label>
     <label className="full">{t("lorebook_editor.lore_content")}<EditorTextarea aria-label={t("lorebook_editor.lore_content")} className="lore-content" maxLength={100_000} value={entry.content} onChange={event => update({ content: event.target.value })} /><small>{t("lorebook_editor.inserted_prose_supports_and_v3_decorator_lines", { value: '{{user}}', value2: '{{char}}' })}</small>{errors('content')}</label>
     <label className="full">{t("lorebook_editor.entry_comment")}<EditorTextarea aria-label={t("lorebook_editor.entry_comment")} maxLength={100_000} value={entry.comment} onChange={event => update({ comment: event.target.value })} /><small>{t("lorebook_editor.for_you_never_inserted_into_the_prompt")}</small>{errors('comment')}</label>
-    <label>{t("lorebook_editor.insertion_order")}<input required type="number" step="any" value={entry.insertionOrder} onChange={event => update({ insertionOrder: Number(event.target.value) })} />{errors('insertionOrder')}</label>
     <label>{t("lorebook_editor.admission_priority")}<input required type="number" step="any" value={entry.priority} onChange={event => update({ priority: Number(event.target.value) })} />{errors('priority')}</label>
     <label>{t("lorebook_editor.placement")}<Dropdown aria-label={t("lorebook_editor.lore_entry_placement")} value={entry.placement} options={lorePlacements.map(value => ({ value, label: placementLabel(value) }))} onChange={placement => { const parsed = lorePlacements.find(value => value === placement); if (parsed) update({ placement: parsed }); }} /></label>
     <label>{t("lorebook_editor.message_role")}<Dropdown aria-label={t("lorebook_editor.lore_entry_role")} value={entry.role ?? ''} options={[{ value: '', label: t("lorebook_editor.use_prompt_control_role") }, ...['system', 'user', 'assistant'].map(role => ({ value: role, label: stateLabel(role === 'system' || role === 'user' ? role : 'assistant') }))]} onChange={role => { if (role === '' || role === 'system' || role === 'user' || role === 'assistant') update({ role: role || null }); }} /></label>

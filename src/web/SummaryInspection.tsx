@@ -1,5 +1,5 @@
 import { t, useLocale, locale } from './localization';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChatToolsSnapshot } from '../shared/contracts';
 import { refKey, type SummaryNode } from '../shared/context';
 import { correctionProtection } from '../core/context-corrections';
@@ -15,9 +15,11 @@ export function SummaryInspection({ snapshot, node, historical, selected, locked
   previewDelete: (node: SummaryNode) => void;
 }) {
   useLocale();
-  const [edit, setEdit] = useState<{ text: string; revision: number } | null>(null);
+  const [edit, setEdit] = useState<{ summary: string; text: string; revision: number } | null>(null);
+  const summaryKey = refKey(node);
+  if (edit && edit.summary !== summaryKey) setEdit(null);
   const summaryText = useRef<HTMLDivElement>(null);
-  useEffect(() => { summaryText.current?.scrollTo(0, 0); }, [node.id, node.revision]);
+  useLayoutEffect(() => { summaryText.current?.scrollTo(0, 0); }, [summaryKey]);
   const textTokens = useMemo(() => countText(node.text), [node.text]);
   const versions = snapshot.context.summaries.filter(version => version.id === node.id && version.approved).sort((a, b) => b.revision - a.revision);
   const latest = versions[0]?.revision === node.revision;
@@ -28,9 +30,12 @@ export function SummaryInspection({ snapshot, node, historical, selected, locked
     return summary && protection.represented(summary).has(refKey(node));
   });
   const summariesEnabled = hasPromptMarker(snapshot.sources.prompt, 'summary');
+  const directlySelected = snapshot.context.selected.some(ref => refKey(ref) === summaryKey);
   const status = !latest ? t("summary_inspection.historical_version_editing_uses_the_current_approved")
     : node.manual && (!represented || stale) ? t("summary_inspection.correction_awaiting_reconciliation_use_repair_summaries_for")
-    : represented ? `${summariesEnabled ? t("summary_inspection.represented_in_the_saved_model_input") : t("summary_inspection.represented_in_saved_memory_summaries_are_disabled")}${snapshot.context.selected.some(ref => refKey(ref) === refKey(node)) ? ' directly.' : t("summary_inspection.through_a_higher_summary")}`
+    : represented ? t(summariesEnabled
+      ? directlySelected ? "summary_inspection.represented_in_the_saved_model_input" : "summary_inspection.represented_in_input_through_higher_summary"
+      : directlySelected ? "summary_inspection.represented_in_saved_memory_summaries_are_disabled" : "summary_inspection.represented_in_memory_through_higher_summary")
     : t("summary_inspection.retained_for_inspection_this_summary_is_not");
   return <section className="summary-inspection">
     <h2>{t("summary_inspection.level_summary_revision", { level: node.level, revision: node.revision })}</h2>
@@ -44,11 +49,11 @@ export function SummaryInspection({ snapshot, node, historical, selected, locked
       event.preventDefault();
       if (await run(() => api(`/chats/${snapshot.id}/context/summaries/${node.id}`, 'PATCH', { revision: edit.revision, summaryRevision: node.revision, text: edit.text }))) saved();
     }}>
-      <label>{t("summary_inspection.summary_text")}<textarea aria-label={t("summary_inspection.summary_text")} required maxLength={1_000_000} value={edit.text} onChange={event => setEdit({ ...edit, text: event.target.value })} /></label>
+      <label>{t("summary_inspection.summary_text")}<textarea className="summary-edit-text" aria-label={t("summary_inspection.summary_text")} required maxLength={1_000_000} value={edit.text} onChange={event => setEdit({ ...edit, text: event.target.value })} /></label>
       <p className="small muted">{t("summary_inspection.an_unchanged_save_does_nothing_changed_text")}</p>
       <div className="actions"><button disabled={locked || edit.revision !== snapshot.revision || !edit.text.trim()}>{t("summary_inspection.save_summary_edit")}</button><button type="button" className="quiet" onClick={() => setEdit(null)}>{t("app.cancel_edit")}</button></div>
       {edit.revision !== snapshot.revision && <p role="status">{t("summary_inspection.the_chat_changed_cancel_and_reopen_the")}</p>}
-    </form> : <><div ref={summaryText} className="prose summary-text" role="region" aria-label={t("summary_inspection.summary_text")} tabIndex={0}>{node.text}</div>{!historical && latest && <button type="button" className="quiet" disabled={locked} onClick={() => setEdit({ text: node.text, revision: snapshot.revision })}>{t("summary_inspection.edit_summary")}</button>}</>}
+    </form> : <><div ref={summaryText} className="prose summary-text" role="region" aria-label={t("summary_inspection.summary_text")} tabIndex={0}>{node.text}</div>{!historical && latest && <button type="button" className="quiet" disabled={locked} onClick={() => setEdit({ summary: summaryKey, text: node.text, revision: snapshot.revision })}>{t("summary_inspection.edit_summary")}</button>}</>}
     {!historical && latest && !edit && <button type="button" className="quiet" disabled={locked} onClick={() => previewDelete(node)}>{t("summary_inspection.delete_summary")}</button>}
     <details><summary>{t("summary_inspection.source_turns_and_dependencies")}</summary><pre>{JSON.stringify({ turns: node.turns, children: node.children, earlierContext: node.prior, reconciledCorrections: node.corrections ?? [] }, null, 2)}</pre>
       {node.turns.slice(0, 30).map(source => {

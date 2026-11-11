@@ -41,7 +41,7 @@ test('library action menus stack controls consistently across categories and vie
       const panel = page.getByRole('region', { name: fixture.category, exact: true });
       const toolbar = panel.getByRole('group', { name: 'Library actions', exact: true });
       const create = await bounds(toolbar.getByRole('button').first());
-      const importControl = await bounds(toolbar.locator('button, label.file-button').nth(1));
+      const importControl = await bounds(toolbar.getByRole('button').nth(1));
       expect(importControl.y).toBe(create.y);
       expect(Math.abs(importControl.width - create.width)).toBeLessThanOrEqual(1);
       if (creationSlot) {
