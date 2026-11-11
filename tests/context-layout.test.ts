@@ -556,6 +556,68 @@ it('reviews both sibling branches when switching shape and leaves other chats us
   expect(f.calls).toHaveLength(1);
 });
 
+it('preserves and reuses batches deactivated by a higher target after deleting an unrelated latest turn', async () => {
+  const f = fixture(13, 3, 1_200);
+  const prepare = async () => {
+    const { jobId } = f.coordinator.context.start(f.chatId, f.state().revision, randomUUID(), 'prepare');
+    await expect.poll(() => f.store.contexts.job(jobId).status).toBe('succeeded');
+    return jobId;
+  };
+  const initialJob = await prepare();
+  const prepared = f.state();
+  expect(prepared.context.selected).toHaveLength(3);
+  const steps = f.store.contexts.steps(initialJob);
+  const calls = f.calls.length;
+  if (!prepared.connection) throw new Error('Missing story Connection');
+  const oneBatch = { ...prepared.context, selected: prepared.context.selected.slice(0, 1), archivedTurnIds: prepared.context.archivedTurnIds.slice(0, 3) };
+  const target = assembleRequest(prepared.connection, prepared.settings, prepared.turns, prepared.sources, oneBatch, { validateLimits: false }).budget.inputTokens;
+  f.store.updateChat(prepared.revision, f.chatId, { ...f.settings, targetInputTokens: target });
+  await prepare();
+  const before = f.state();
+  expect(before.context.selected).toEqual(oneBatch.selected);
+  expect(before.context.summaries).toEqual(prepared.context.summaries);
+
+  const last = before.turns.at(-1)!;
+  expect(f.store.turnDeletionMemoryImpact(before.revision, last.id, f.chatId)).toBeNull();
+  f.store.deleteTurn(before.revision, last.id, f.chatId);
+  expect(f.state().turns).toEqual(before.turns.slice(0, -1));
+  expect(f.state().context).toEqual(before.context);
+  expect(f.store.contexts.steps(initialJob)).toEqual(steps);
+  f.store.updateChat(f.state().revision, f.chatId, f.settings);
+  await prepare();
+  expect(f.state().context.selected).toEqual(prepared.context.selected);
+  expect(f.calls).toHaveLength(calls);
+});
+
+it('removes affected versions and dependents but keeps independent inactive memory when the cutoff retreats', async () => {
+  const f = fixture(12, 3);
+  for (let index = 0; index < 3; index++) await f.step();
+  const displaced = f.state().context.selected[2];
+  const independent = addLegacyAlternative(f, f.chatId, 9, 11);
+  const consumer = addLegacyAlternative(f, f.chatId, 9, 11, { prior: [displaced] });
+  const crossing = addLegacyAlternative(f, f.chatId, 9, 12);
+  const correction = 'Ada locked the gate after the key went missing.';
+  f.store.contexts.editSummary(f.chatId, f.state().revision, crossing, correction);
+  const before = f.state();
+  const last = before.turns.at(-1)!;
+  const impact = f.store.turnDeletionMemoryImpact(before.revision, last.id, f.chatId);
+  expect(impact?.branches).toMatchObject([{
+    discardedSummaries: 3, restoredTurns: 3, corrections: [{ id: crossing.id, text: correction }],
+  }]);
+  f.store.deleteTurn(before.revision, last.id, f.chatId, impact?.token);
+
+  const after = f.state();
+  expect(after.context.selected).toEqual(before.context.selected.slice(0, 2));
+  expect(after.context.archivedTurnIds).toEqual(before.turns.slice(0, 6).map(turn => turn.id));
+  const removed = new Set([displaced.id, consumer.id, crossing.id]);
+  expect(after.context.summaries).toEqual(before.context.summaries.filter(node => !removed.has(node.id)));
+  expect(after.context.summaries.map(refKey)).toContain(refKey(independent));
+  expect(() => validateContent(f.store.sqlite)).not.toThrow();
+  await f.reopen();
+  expect(f.state()).toEqual(after);
+  expect(f.calls).toHaveLength(3);
+});
+
 it('keeps a fitting committed cutoff after deleting a verbatim turn, then returns a whole span to protect the tail', async () => {
   const f = fixture(16, 2, 10_000);
   // Historical roleplay requests belong to their turns. Keep one and delete the other.

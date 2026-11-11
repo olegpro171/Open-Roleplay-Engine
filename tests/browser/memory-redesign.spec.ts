@@ -212,6 +212,40 @@ test('Story tracks and stops regeneration outside the transcript window and revi
   expect(await calls()).toHaveLength(2);
 });
 
+test('keeps inactive summaries when Story deletes an unrelated latest turn', async ({ page, browserApp }) => {
+  const { path, state, read, write } = await memoryStory(page, browserApp.url, 'Keep saved memory', 7);
+  const prepare = async (mode: 'step' | 'prepare') => {
+    const { jobId } = await write<{ jobId: string }>('POST', `${path}/context/prepare`, {
+      revision: (await state()).revision, requestId: crypto.randomUUID(), mode,
+    });
+    await expect.poll(async () => (await state()).context.jobs.find(job => job.id === jobId)?.status).toBe('succeeded');
+  };
+  await prepare('step');
+  await prepare('step');
+  const prepared = await state();
+  expect(prepared.context.selected).toHaveLength(2);
+  const { title, connectionId, promptId, characterId, personaId, contextPresetId, lorebookId } = prepared.settings;
+  await write('PUT', `${path}/selections`, {
+    revision: prepared.revision,
+    settings: { title, connectionId, promptId, characterId, personaId, contextPresetId, lorebookId, targetInputTokens: 20_000 },
+  });
+  await prepare('prepare');
+  const before = await state();
+  expect(before.context.selected).toEqual([]);
+  expect(before.context.summaries).toEqual(prepared.context.summaries);
+  await page.reload();
+
+  const last = page.getByRole('article', { name: 'Turn 7', exact: true });
+  await last.getByRole('button', { name: 'More turn actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Delete turn', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Delete turn?', exact: true }).getByRole('button', { name: 'Delete turn', exact: true }).click();
+  await expect(last).toHaveCount(0);
+  const after = await state();
+  expect(after.turns).toEqual(before.turns.slice(0, -1));
+  expect(after.context.summaries).toEqual(before.context.summaries);
+  expect(await read<unknown[]>('/__test/requests')).toHaveLength(2);
+});
+
 test('latest-turn deletion previews restored turns and an approved correction', async ({ page, browserApp }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const { path, state, read, write } = await memoryStory(page, browserApp.url, 'Review turn deletion', 4);

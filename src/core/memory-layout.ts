@@ -24,10 +24,10 @@ function versionsByIdentity(summaries: SummaryNode[]): Map<string, SummaryNode[]
   return versions;
 }
 
-function keepProvenance(kept: Set<string>, versions: Map<string, SummaryNode[]>) {
-  for (const id of kept) {
+function includeProvenance(ids: Set<string>, versions: Map<string, SummaryNode[]>) {
+  for (const id of ids) {
     for (const node of versions.get(id) ?? []) {
-      for (const dependency of provenance(node)) kept.add(dependency.id);
+      for (const dependency of provenance(node)) ids.add(dependency.id);
     }
   }
 }
@@ -43,7 +43,7 @@ export function supersededMemoryAlternatives(committed: ContextState, selection:
   // selection still needs its own complete provenance.
   const kept = new Set([...committed.selected, ...selection, ...operation.children].map(ref => ref.id));
   if (reusable) kept.add(reusable.id);
-  keepProvenance(kept, versionsByIdentity(committed.summaries));
+  includeProvenance(kept, versionsByIdentity(committed.summaries));
 
   return competing.filter(node => !kept.has(node.id)).map(({ id, revision }) => ({ id, revision }));
 }
@@ -104,7 +104,7 @@ export function resizedMemoryLayout(state: ContextState, turns: TurnMembership[]
       kept.add(node.id);
     }
   }
-  keepProvenance(kept, versions);
+  includeProvenance(kept, versions);
   const removed = new Set([...versions.keys()].filter(id => !kept.has(id)));
   return cleanup(state, removed, state.selected, state.archivedTurnIds);
 }
@@ -160,7 +160,22 @@ export function shortenedMemoryLayout(state: ContextState, turns: TurnMembership
       selectedCount = i + 1;
     }
   }
-  const removed = new Set([...requiredEnd].filter(([, end]) => end >= cutoff).map(([id]) => id));
+  const removed = new Set<string>();
+  for (const [id, end] of requiredEnd) {
+    if (end >= shortened.length) removed.add(id);
+  }
+  if (selectedCount < state.selected.length) {
+    // The cutoff limits committed coverage. Saved alternatives outside it can
+    // still be reused if they don't depend on the deleted or displaced memory.
+    const displaced = new Set(state.selected.slice(selectedCount).map(ref => ref.id));
+    includeProvenance(displaced, versionsByIdentity(state.summaries));
+    for (const id of displaced) {
+      if ((requiredEnd.get(id) ?? -1) >= cutoff) removed.add(id);
+    }
+    for (const id of removed) {
+      for (const consumer of consumers.get(id) ?? []) removed.add(consumer);
+    }
+  }
   const result = cleanup(state, removed, state.selected.slice(0, selectedCount), state.archivedTurnIds.slice(0, cutoff));
   return { ...result, restoredTurnIds: result.restoredTurnIds.filter(id => (positions.get(id) ?? Infinity) < shortened.length) };
 }
