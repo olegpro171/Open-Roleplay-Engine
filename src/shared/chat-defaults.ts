@@ -15,11 +15,15 @@ export const defaultChatInputTarget = 32_000;
 export const initialChatDefaults: ChatDefaultsStatus = { revision: 0, settings: { prompts: 'default', connections: null, contexts: 'default-context' } };
 
 /** Deleted selections fall back to the original new-chat behavior. */
-export function resolveChatDefaults(settings: ChatDefaultsStatus['settings'], library: Pick<LibrarySnapshot, ChatDefaultKind>) {
+export function resolveChatDefaults(settings: ChatDefaultsStatus['settings'], library: { [K in ChatDefaultKind]: Pick<LibrarySnapshot[K][number], 'id'>[] }) {
   const selected = (kind: ChatDefaultKind) => library[kind].find(item => item.id === settings[kind])?.id;
   return {
     promptId: selected('prompts') ?? 'default',
     connectionId: selected('connections') ?? library.connections[0]?.id ?? null,
     contextPresetId: selected('contexts') ?? null,
   };
+}
+
+export function roleplayConnectionId(selection: string | null | undefined): string | null {
+  return selection === undefined ? 'main' : selection;
 }

@@ -48,6 +48,8 @@ Changing Turn batch or Promotion group preserves the committed layout, its histo
 
 Review the affected branches and any approved correction that would be removed before committing a size change or latest-turn deletion. A shared preset can affect every branch of multiple chats. The setting or deletion, cleanup and selection checkpoint commit together with current revisions and idle guards. Reads, restarts and upgrades preserve saved memory and make zero model calls. Legacy stored alternatives remain subject to exact next-operation eligibility.
 
+Library deletion checks the same selection and layout rules on every branch of each linked chat. Clearing requires an empty committed cutoff. Replacing the preset can keep managed memory, including with the protected Default context preset, when the resulting layout keeps saved summaries, corrections and committed coverage. If the candidate needs cleanup, the deletion review names the affected branches. Change the preset through Chat Settings to review that cleanup, or choose a compatible replacement. The library command preserves all saved memory and preparation history and makes no provider calls.
+
 ## Manual correction authority
 
 Protect the latest approved manual revision of each identity with surviving coverage, including retained alternatives outside the selected tree. Historical versions are inspection, not extra obligations. Empty tombstones/identities without surviving coverage have no inclusion obligation. Do not infer old manual flags away from text equality.

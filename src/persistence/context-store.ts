@@ -32,6 +32,11 @@ export class ContextStore {
     const summaries = (this.sqlite.prepare('SELECT data FROM summaries WHERE chat_id = ? ORDER BY rowid').all(chatId) as JsonRow[]).map(row => JSON.parse(row.data) as SummaryNode);
     return { ...emptyContextState(), ...(row ? JSON.parse(row.data) as ContextState : {}), revision: row?.revision ?? 0, summaries };
   }
+  selectionCheckpoint(chatId: string) {
+    const row = this.sqlite.prepare("SELECT revision, json_array_length(data, '$.archivedTurnIds') AS archivedCount FROM context_states WHERE chat_id = ?")
+      .get(chatId) as { revision: number; archivedCount: number | null } | undefined;
+    return { revision: row?.revision ?? 0, archivedCount: row?.archivedCount ?? 0 };
+  }
   snapshot(chatId: string, presetId: string | null): ContextSnapshot {
     const state = this.savedState(chatId);
     const update = this.sqlite.prepare("UPDATE summaries SET data = json_set(data, '$.refusalCheck', json(?)) WHERE chat_id = ? AND id = ? AND revision = ?");
@@ -517,8 +522,11 @@ export class ContextStore {
       return this.commitDeletion(chatId, deletion);
     })();
   }
+  hasOpenLayoutReview(chatId: string) {
+    return Boolean(this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId));
+  }
   ensureLayoutReviewClosed(chatId: string) {
-    if (this.sqlite.prepare("SELECT id FROM context_jobs WHERE chat_id = ? AND json_extract(data, '$.status') = 'awaiting_review'").get(chatId)) {
+    if (this.hasOpenLayoutReview(chatId)) {
       throw new AppError(409, 'context_review_pending', message('memory.close_the_repair_review_before_deleting_summaries'));
     }
   }

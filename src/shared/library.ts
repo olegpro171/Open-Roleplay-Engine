@@ -78,7 +78,8 @@ export function readCharacterAlternateGreetings(card: Pick<Character, 'alternate
 }
 export type PromptPreset = z.infer<typeof promptSchema>;
 export type PromptBlock = z.infer<typeof promptBlockSchema>;
-export type LibraryKind = 'personas' | 'characters' | 'prompts' | 'connections' | 'contexts' | 'lorebooks';
+export const libraryKindSchema = z.enum(['connections', 'prompts', 'contexts', 'lorebooks', 'characters', 'personas']);
+export type LibraryKind = z.infer<typeof libraryKindSchema>;
 export type Saved<T> = T & { id: string; revision: number };
 export type PromptSources = { prompt: Saved<PromptPreset> | null; character: Saved<Character> | null; persona: Saved<Persona> | null; lorebook?: Saved<Lorebook> | null };
 export type LibraryDates = { createdAt: string | null; updatedAt: string | null };
@@ -92,7 +93,7 @@ export type LibrarySnapshot = {
   connections: (Saved<Connection> & { hasApiKey: boolean })[]; chats: ChatSummary[];
   contexts: Saved<ContextPreset>[];
   lorebooks: Saved<Lorebook>[];
-  lorebookUses: { bookId: string; characters: { id: string; name: string; titleComment?: string }[]; chats: { id: string; title: string }[] }[];
+  lorebookUses?: { bookId: string; characters: { id: string; name: string; titleComment?: string }[]; chats: { id: string; title: string }[] }[];
 };
 export const defaultInstructions = 'Write the next response in this roleplay. Stay consistent with the established story.';
 export const defaultPrompt: PromptPreset = factoryPrompt;

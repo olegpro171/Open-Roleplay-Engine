@@ -149,3 +149,13 @@ const editKeys = {
 export function libraryEditorTitle(value: keyof typeof newKeys, editing: boolean) {
   return editing ? t(editKeys[value]) : newLibraryLabel(value);
 }
+
+export function displayLibraryRecord<T extends { id: string; name: string }>(record: T): T {
+  if (record.id === 'default' && ['Default prompt', 'Default roleplay'].includes(record.name)) {
+    return { ...record, name: t('libraries.default_prompt') };
+  }
+  if (record.id === 'default-context' && ['Default context preset', 'Layered narrative memory'].includes(record.name)) {
+    return { ...record, name: t('libraries.default_context_preset') };
+  }
+  return record;
+}

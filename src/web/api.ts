@@ -6,7 +6,7 @@ let changed = false;
 export function datasetChanged() { return changed; }
 export function datasetEpoch() { return epoch ?? 'initial'; }
 export class ApiError extends Error {
-  constructor(message: string, public status: number, public readonly localized?: LocalizedMessage, public readonly issues?: z.infer<typeof issueSchema>) { super(message); }
+  constructor(message: string, public status: number, public readonly localized?: LocalizedMessage, public readonly issues?: z.infer<typeof issueSchema>, public readonly code?: string) { super(message); }
 }
 export class NetworkError extends Error {
   readonly localized = message('errors.network_request_failed');
@@ -37,7 +37,7 @@ export async function api<T>(path: string, method = 'GET', body?: unknown, signa
   if (!response.ok) {
     const localized = localizedMessageSchema.safeParse(result.localized);
     const issues = issueSchema.safeParse(result.issues);
-    throw new ApiError(result.message ?? 'The request failed.', response.status, localized.success ? localized.data : undefined, issues.success ? issues.data : undefined);
+    throw new ApiError(result.message ?? 'The request failed.', response.status, localized.success ? localized.data : undefined, issues.success ? issues.data : undefined, typeof result.code === 'string' ? result.code : undefined);
   }
   return result as T;
 }

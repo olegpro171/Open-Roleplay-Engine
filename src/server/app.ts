@@ -29,8 +29,9 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { ServerOptions } from 'node:https';
 import { importPersonas, exportCharacter, exportPersona } from '../core/cards.js';
 import { tagIdsSchema, tagNameSchema, tagPolicySchema } from '../shared/tags.js';
-import { hasPromptMarker, defaultPrompt, libraryCommandSchema, selectionsSchema, createChatSchema, importChatSchema, importBranchSchema, transcriptRequestLimit } from '../shared/library.js';
-import { defaultChatInputTarget, resolveChatDefaults } from '../shared/chat-defaults.js';
+import { hasPromptMarker, defaultPrompt, libraryCommandSchema, libraryKindSchema, selectionsSchema, createChatSchema, importChatSchema, importBranchSchema, transcriptRequestLimit } from '../shared/library.js';
+import { defaultChatInputTarget } from '../shared/chat-defaults.js';
+import { libraryDeletionCommandSchema, libraryDeletionQuerySchema } from '../shared/library-deletion.js';
 import { ChatDefaultsSettings } from './chat-defaults.js';
 import { readCardFile, readCharacterCardFile, readCharacterCardUpload } from './card-import.js';
 import { characterCardLimits } from '../shared/character-card-limits.js';
@@ -383,8 +384,11 @@ export async function createApp(options: {
     return { ...diagnosticMessage(message('libraries.connection_test_completed')), request: preview, response, usage: completion?.usage ?? null };
   });
   app.get('/api/library', async request => {
-    const { knownRevision } = z.object({ knownRevision: z.coerce.number().int().nonnegative().optional() }).strict().parse(request.query);
-    return store.libraryUpdate(knownRevision);
+    const { knownRevision, includeLorebookUses } = z.object({
+      knownRevision: z.coerce.number().int().nonnegative().optional(),
+      includeLorebookUses: z.enum(['true', 'false']).optional(),
+    }).strict().parse(request.query);
+    return store.libraryUpdate(knownRevision, includeLorebookUses !== 'false');
   });
   async function saveLibrary(request: FastifyRequest, id?: string) {
     const input = libraryCommandSchema.parse(request.body);
@@ -456,8 +460,22 @@ export async function createApp(options: {
   });
   app.delete('/api/library/:id', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
-    const input = z.object({ revision: revisionSchema, kind: z.enum(['personas', 'characters', 'prompts', 'connections', 'contexts', 'lorebooks']) }).strict().parse(request.body);
+    const input = z.object({ revision: revisionSchema, kind: libraryKindSchema }).strict().parse(request.body);
     store.deleteLibrary(input.revision, input.kind, id); coordinator.changed({ kind: 'library' }); return { ok: true };
+  });
+  app.get('/api/library/:id/deletion', async request => {
+    const { id } = z.object({ id: identity }).parse(request.params);
+    const { kind, replacementId } = libraryDeletionQuerySchema.parse(request.query);
+    return store.reviewLibraryDeletion(kind, id, replacementId === undefined ? { mode: 'clear' } : { mode: 'replace', replacementId },
+      () => chatDefaults.status().settings, coordinator.hasActiveWork());
+  });
+  app.post('/api/library/:id/deletion', async request => {
+    const { id } = z.object({ id: identity }).parse(request.params);
+    const command = libraryDeletionCommandSchema.parse(request.body);
+    const { result, affectedBranches } = store.commitLibraryDeletion(id, command, () => chatDefaults.status().settings, () => coordinator.hasActiveWork());
+    coordinator.changed({ kind: 'library' });
+    for (const chatId of affectedBranches) coordinator.changed({ kind: 'chat', chatId, detail: 'state' });
+    return result;
   });
   app.post('/api/library/default/restore', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
@@ -614,7 +632,7 @@ export async function createApp(options: {
     return data;
   });
   function newChatSettings(input: z.infer<typeof createChatSchema>) {
-    const defaults = resolveChatDefaults(chatDefaults.status().settings, store.libraries());
+    const defaults = store.newChatDefaults(chatDefaults.status().settings);
     return {
       ...input,
       promptId: input.promptId ?? defaults.promptId,

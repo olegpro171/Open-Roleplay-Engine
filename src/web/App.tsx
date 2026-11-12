@@ -196,7 +196,7 @@ export function App() {
       const cached = libraryCache.current;
       const scope = cached ? requested : fullRefresh;
       const [update, appearanceResult, defaults, behaviorResult] = await Promise.all([
-        scope.library ? api<LibrarySnapshot | UnchangedLibrary>(`/library${cached ? `?knownRevision=${cached.revision}` : ''}`) : null,
+        scope.library ? api<LibrarySnapshot | UnchangedLibrary>(`/library?includeLorebookUses=false${cached ? `&knownRevision=${cached.revision}` : ''}`) : null,
         scope.appearance ? api<unknown>('/application/appearance')
           .then(value => ({ value: appearanceStatusSchema.parse(value), error: null }))
           .catch(error => ({ value: null, error: errorText(error, msg("app.chat_appearance_could_not_be_loaded")) })) : null,

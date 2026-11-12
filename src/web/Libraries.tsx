@@ -3,7 +3,7 @@ import { LibraryImport } from './LibraryImport';
 import { ActionMenu } from './ActionMenu';
 import { LibrarySearchField } from './LibrarySearchField';
 import type { MessageText } from './localization';
-import { libraryEditorTitle, newLibraryLabel, searchLibraryLabel, sortLibraryLabel } from './localization-labels';
+import { displayLibraryRecord, libraryEditorTitle, newLibraryLabel, searchLibraryLabel, sortLibraryLabel } from './localization-labels';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale, currentPack } from './localization';
 import { libraryLabel, characterFieldLabel, markerLabel as localizedMarkerLabel, stateLabel } from './localization-labels';
 import { librarySortSchema, readLibrarySort, sortLibraryItems, sortOptions, type LibrarySort } from './library-sorting';
@@ -15,6 +15,7 @@ import { PersonaIcon } from './PersonaIcon';
 import { defaultChatInputTarget, type ChatDefaultsStatus, type ChatDefaultKind } from '../shared/chat-defaults';
 import type { PromptDiagnostic } from '../shared/prompt-diagnostics';
 import { useConfirmation } from './Confirmation';
+import { LibraryDeletionDialog, readDeletionRetry, type LibraryDeletionTarget } from './LibraryDeletionDialog';
 import { WarningDetails, WarningDialog, WarningMessages } from './WarningDialog';
 import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { CharacterAvatar, PictureSquare } from './Pictures';
@@ -76,15 +77,6 @@ function selection(snapshot: ChatToolsSnapshot): Selection {
   return { title: snapshot.settings.title, targetInputTokens: snapshot.settings.targetInputTokens,
     connectionId: snapshot.settings.connectionId ?? null, promptId: snapshot.settings.promptId ?? 'default',
     characterId: snapshot.settings.characterId ?? null, personaId: snapshot.settings.personaId ?? null, contextPresetId: snapshot.settings.contextPresetId ?? null, lorebookId: snapshot.settings.lorebookId ?? null };
-}
-function displayLibraryRecord<T extends { id: string; name: string }>(record: T): T {
-  if (record.id === 'default' && record.name === 'Default roleplay') {
-    return { ...record, name: t('libraries.default_prompt') };
-  }
-  if (record.id === 'default-context' && record.name === 'Layered narrative memory') {
-    return { ...record, name: t('libraries.default_context_preset') };
-  }
-  return record;
 }
 function libraryDropdownOptions(library: LibrarySnapshot, kind: Exclude<LibraryKind, 'characters' | 'personas'>) {
   const records: readonly { id: string; name: string }[] = library[kind];
@@ -357,6 +349,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     };
   }, [editing]);
   const [creatingChat, setCreatingChat] = useState(false);
+  const [deletion, setDeletion] = useState<LibraryDeletionTarget | null>(() => readDeletionRetry()?.target ?? null);
   const [connectionFile, setConnectionFile] = useState<ConnectionFileAction | null>(null);
   const [notice, setNotice] = useTextState(''), [diagnostics, setDiagnostics] = useState<LoreDiagnostic[]>([]), [search, setSearch] = useState('');
   const [warning, setWarning] = useState<{ message: MessageText; returnFocus?: HTMLElement | null } | null>(null);
@@ -588,7 +581,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
                     {section === 'connections' ? <button type="button" className="secondary" role="menuitem" tabIndex={-1} disabled={busy} aria-haspopup="dialog" onClick={() => {
                       setConnectionFile({ kind: 'export', id: item.id, name: item.name });
                     }}><Icon name="Upload" />{t('connection_files.export_button')}</button> : <button className="secondary" role="menuitem" tabIndex={-1} aria-label={section === 'characters' ? t("libraries.export_json", { value: characterLabel(item) }) : undefined} onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}><Icon name="Upload" />{section === 'characters' ? t("libraries.export_json_2") : t("libraries.export")}</button>}
-                    {item.id === 'default' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => { confirmAction({ title: t("libraries.restore_original_prompt"), message: t("libraries.restore_the_built_in_default_prompt_chats"), actionLabel: t("libraries.restore_original"), onConfirm: () => { void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.restore_original")}</button>}
+                    {section === 'prompts' && item.id === 'default' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => { confirmAction({ title: t("libraries.restore_original_prompt"), message: t("libraries.restore_the_built_in_default_prompt_chats"), actionLabel: t("libraries.restore_original"), onConfirm: () => { void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.restore_original")}</button>}
                     {section === 'contexts' && item.id === 'default-context' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => {
                       const revision = library.revision;
                       void reviewMemoryCleanup({
@@ -597,7 +590,12 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
                         commit: memoryImpactToken => api('/library/default-context/reset', 'POST', { revision, memoryImpactToken }),
                       });
                     }}><Icon name="TrashOutline" />{t("libraries.reset")}</button>}
-                    {item.id !== 'default' && !(section === 'contexts' && item.id === 'default-context') && <button className="secondary" role="menuitem" tabIndex={-1} aria-label={section === 'characters' ? t("libraries.delete", { value: characterLabel(item) }) : undefined} disabled={busy || (section === 'lorebooks' && library.lorebookUses.some(use => use.bookId === item.id && (use.characters.length > 0 || use.chats.length > 0)))} onClick={() => { confirmAction({ confirmOnEnter: true, title: t("libraries.delete_library_item"), message: t("libraries.delete_from_the_library", { value: section === 'characters' || section === 'personas' ? characterLabel(item) : item.name }), actionLabel: t("libraries.delete_2"), onConfirm: () => { void run(() => api(`/library/${item.id}`, 'DELETE', { kind: section, revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.delete_2")}</button>}
+                    {!(section === 'prompts' && item.id === 'default') && !(section === 'contexts' && item.id === 'default-context') &&
+                      <button type="button" className="secondary" role="menuitem" tabIndex={-1}
+                        aria-label={section === 'characters' ? t('libraries.delete', { value: characterLabel(item) }) : undefined}
+                        aria-haspopup="dialog" disabled={busy} onClick={() => setDeletion({ kind: section, id: item.id })}>
+                        <Icon name="TrashOutline" />{t('libraries.delete_2')}
+                      </button>}
                   </ActionMenu>
                 </div>
               </div>
@@ -605,10 +603,8 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
                   : section === 'prompts' && 'blocks' in item ? t("libraries.block_count", { count: item.blocks.length })
                   : section === 'contexts' && 'minTail' in item ? t("libraries.minimum_tail_batch", { minTail: item.minTail, batchSize: item.batchSize })
                   : 'description' in item ? item.description : ''}>
-                {section === 'lorebooks' && 'entries' in item && <>
-                  <p>{t("libraries.entries_enabled", { length: item.entries.length, length2: item.entries.filter(entry => entry.enabled).length })}</p>
-                  <LorebookUses bookId={item.id} library={library} />
-                </>}
+                {section === 'lorebooks' && 'entries' in item &&
+                  <p>{t("libraries.entries_enabled", { length: item.entries.length, length2: item.entries.filter(entry => entry.enabled).length })}</p>}
               </LibraryDescription>
             </div>
           </div>
@@ -617,7 +613,12 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
       </>}
     </>}
     </section>
-  </main>{connectionFile && <ConnectionFileDialog action={connectionFile} cancel={() => setConnectionFile(null)} complete={kind => {
+  </main>{deletion && <LibraryDeletionDialog target={deletion}
+    name={library[deletion.kind].find(item => item.id === deletion.id)?.name}
+    busy={busy} run={run} cancel={() => setDeletion(null)} complete={() => {
+      setDeletion(null);
+      setNotice(msg('library_delete.success'));
+    }} />}{connectionFile && <ConnectionFileDialog action={connectionFile} cancel={() => setConnectionFile(null)} complete={kind => {
     setConnectionFile(null);
     setNotice(kind === 'import' ? msg('connection_files.imported') : '');
     if (kind === 'import') void run(async () => {});
@@ -647,11 +648,6 @@ function DefaultBookmark({ kind, item, defaults, libraryRevision, busy, run }: {
     }))}><Icon name={selected ? 'Bookmark' : 'BookmarkOutline'} /></button>;
 }
 
-function LorebookUses({ bookId, library }: { bookId: string; library: LibrarySnapshot }) {
-  useLocale();
-  const use = library.lorebookUses.find(item => item.bookId === bookId);
-  return use && (use.characters.length > 0 || use.chats.length > 0) ? <p className="small">{t("libraries.used_by_unlink_these_selections_before_deleting", { value: use.characters.map(character => t("interface.character", { value: String(characterLabel(character)) })).concat(use.chats.map(chat => t("interface.chat", { title: String(chat.title) }))).join(', ') })}</p> : <p className="small">{t("libraries.no_character_or_chat_links")}</p>;
-}
 type StandardDraft = Exclude<LibraryEditorDraft, { kind: 'characters' | 'lorebooks' }>;
 
 function comparableLibraryFields(data: StandardDraft['data']) {

@@ -1,8 +1,8 @@
 import { flushSync } from 'react-dom';
-import { popupInput } from './popup-input';
+import { popupInput, type PopupInput } from './popup-input';
 
-type OpenDialog = { input: 'keyboard' } | {
-  input: 'pointer';
+type OpenDialog = {
+  input: PopupInput;
   dismissing: boolean;
   parent: HTMLDialogElement | null;
 };
@@ -12,9 +12,7 @@ const openDialogs = new Map<HTMLDialogElement, OpenDialog>();
 export function openModal(dialog: HTMLDialogElement | null, returnFocus?: Element | null) {
   if (!dialog) return;
   const opener = returnFocus ?? document.activeElement;
-  const state: OpenDialog = popupInput() === 'pointer'
-    ? { input: 'pointer', dismissing: false, parent: Array.from(openDialogs.keys()).at(-1) ?? null }
-    : { input: 'keyboard' };
+  const state: OpenDialog = { input: popupInput(), dismissing: false, parent: Array.from(openDialogs.keys()).at(-1) ?? null };
   const heading = dialog.querySelector('h2');
   if (heading) {
     // Native showModal otherwise focuses the first control, even without React
@@ -27,9 +25,9 @@ export function openModal(dialog: HTMLDialogElement | null, returnFocus?: Elemen
   if (!heading) dialog.focus({ preventScroll: true });
   return () => {
     openDialogs.delete(dialog);
-    // Closing an attached native dialog restores its previous focus. On
-    // pointer-opened Escape dismissal, let React remove it from the top layer first.
-    if (state.input === 'pointer' && state.dismissing) return;
+    // Closing a native dialog restores its previous focus. For pointer dismissal,
+    // let React remove the dialog from the top layer without closing it explicitly.
+    if (state.dismissing) return;
     dialog.close();
     if (opener instanceof HTMLElement && opener.isConnected) opener.focus({ preventScroll: true });
   };
@@ -37,12 +35,19 @@ export function openModal(dialog: HTMLDialogElement | null, returnFocus?: Elemen
 
 export function dismissModalWithEscape(dialog: HTMLDialogElement | null, dismiss: () => void) {
   const state = dialog && openDialogs.get(dialog);
-  if (!dialog || state?.input !== 'pointer') {
-    dismiss();
-    return;
-  }
+  if (dialog && state?.input === 'pointer') dismissWithoutRestoringFocus(dialog, state, dismiss);
+  else dismiss();
+}
+
+export function dismissModalFromAction(dialog: HTMLDialogElement | null, dismiss: () => void) {
+  const state = dialog && openDialogs.get(dialog);
+  if (dialog && state && popupInput() === 'pointer') dismissWithoutRestoringFocus(dialog, state, dismiss);
+  else dismiss();
+}
+
+function dismissWithoutRestoringFocus(dialog: HTMLDialogElement, state: OpenDialog, dismiss: () => void) {
   // Keep the dismissal reason through unmount, then clear it even if a guard
-  // keeps the dialog open. A later button click uses normal focus restoration.
+  // keeps the dialog open.
   state.dismissing = true;
   try {
     flushSync(dismiss);

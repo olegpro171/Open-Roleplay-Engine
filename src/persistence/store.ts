@@ -3,10 +3,13 @@ import { PictureStore } from './picture-store.js';
 import type { PictureImportIntent } from '../shared/pictures.js';
 import type { PreparedPicture } from './picture-data.js';
 import type { CharacterSaveCommand, ImportBranch, ImportChat } from '../shared/library.js';
-import { defaultChatInputTarget } from '../shared/chat-defaults.js';
+import { defaultChatInputTarget, resolveChatDefaults, roleplayConnectionId, type ChatDefaultsStatus } from '../shared/chat-defaults.js';
+import { libraryDeletionResultSchema, type LibraryDeletionChoice, type LibraryDeletionCommand, type LibraryDeletionReview } from '../shared/library-deletion.js';
+import { hasLibraryDependencies, libraryItemLabels, resolveLibraryDependencies, selectionKeys } from './library-dependencies.js';
+import { datasetEpoch } from './backup-store.js';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -348,7 +351,7 @@ export class Store {
     const siblings = this.siblingIds(previous.groupId);
     for (const id of siblings) {
       this.ensureIdle(id);
-      if (settings.contextPresetId === null && this.contexts.snapshot(id, null).archivedTurnIds.length) {
+      if (settings.contextPresetId === null && this.contexts.selectionCheckpoint(id).archivedCount) {
         throw new AppError(409, 'restore_context_first', message("errors.clear_memory_in_memory_before_disabling_the_context"));
       }
     }
@@ -356,13 +359,19 @@ export class Store {
     assertMemoryImpact(review.impact, memoryImpactToken);
     this.applyMemoryLayoutReviews(review.branches);
     const { authorNote, ...shared } = settings;
-    this.db.update(schema.chatGroups).set({ settings: shared }).where(eq(schema.chatGroups.id, previous.groupId)).run();
-    this.db.update(schema.chats).set({ updatedAt: new Date().toISOString() }).where(eq(schema.chats.groupId, previous.groupId)).run();
+    this.writeSharedChatSelections(previous.groupId, previous.settings, shared, siblings);
     this.db.update(schema.chats).set({ settings: { authorNote } }).where(eq(schema.chats.id, chatId)).run();
-    for (const id of siblings) {
-      if (settings.characterId !== previous.settings.characterId || settings.personaId !== previous.settings.personaId) this.resetLoreEpoch(id);
-      this.bumpRevision(id);
+  }
+  private writeSharedChatSelections(groupId: string, previous: ChatSettings, settings: Omit<ChatSettings, 'authorNote'>, branches: string[]) {
+    this.db.update(schema.chatGroups).set({ settings }).where(eq(schema.chatGroups.id, groupId)).run();
+    if (settings.characterId !== previous.characterId || settings.personaId !== previous.personaId) {
+      for (const id of branches) this.resetLoreEpoch(id);
     }
+    this.touchSharedChat(groupId);
+  }
+  private touchSharedChat(groupId: string) {
+    this.db.update(schema.chats).set({ updatedAt: new Date().toISOString(), revision: sql`${schema.chats.revision} + 1` })
+      .where(eq(schema.chats.groupId, groupId)).run();
   }
   private selected<T>(id: string | null | undefined, kind: LibraryKind): Saved<T> | null {
     if (!id) return null;
@@ -396,7 +405,7 @@ export class Store {
   }
   chatHeader(chatId = 'main') {
     const chat = this.chat(chatId);
-    const connectionId = chat.settings.connectionId === undefined ? 'main' : chat.settings.connectionId;
+    const connectionId = roleplayConnectionId(chat.settings.connectionId);
     const connection = connectionId ? this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get()?.settings ?? null : null;
     const hasApiKey = Boolean(connectionId && this.db.select().from(schema.credentials).where(eq(schema.credentials.id, connectionId)).get()?.apiKey);
     return {
@@ -518,11 +527,11 @@ export class Store {
   }
   private bumpLibrary() { this.sqlite.prepare('UPDATE library_state SET revision = revision + 1 WHERE id = 1').run(); }
   private bumpAffected(kind: LibraryKind, id: string, exceptGroup?: string) {
-    const key = kind === 'personas' ? 'personaId' : kind === 'characters' ? 'characterId' : kind === 'prompts' ? 'promptId' : kind === 'contexts' ? 'contextPresetId' : kind === 'lorebooks' ? 'lorebookId' : 'connectionId';
+    const key = selectionKeys[kind];
     for (const chat of this.chats()) {
       if (chat.groupId === exceptGroup) continue;
       const usesConnection = kind === 'connections'
-        && ((id === 'main' && chat.settings.connectionId === undefined) || this.contextPreset(chat.settings.contextPresetId)?.connectionId === id);
+        && (roleplayConnectionId(chat.settings.connectionId) === id || this.contextPreset(chat.settings.contextPresetId)?.connectionId === id);
       if (chat.settings[key] === id || usesConnection) this.bumpRevision(chat.id);
     }
   }
@@ -533,13 +542,17 @@ export class Store {
     return this.db.select({ id: schema.turns.id, complete: schema.turns.complete })
       .from(schema.turns).where(eq(schema.turns.chatId, chatId)).orderBy(asc(schema.turns.position)).all();
   }
+  private shapeLayoutReview(chatId: string, next: ContextPreset) {
+    const before = this.contexts.savedState(chatId);
+    const turns = before.summaries.length ? this.memoryTurnMembership(chatId) : [];
+    return { before, cleanup: resizedMemoryLayout(before, turns, next) };
+  }
   private shapeLayoutReviews(chats: ReturnType<Store['chats']>, next: ContextPreset) {
     return chats.map(chat => {
       this.ensureIdle(chat.id);
       this.contexts.ensureLayoutReviewClosed(chat.id);
-      const before = this.contexts.savedState(chat.id);
-      const turns = before.summaries.length ? this.memoryTurnMembership(chat.id) : [];
-      return this.layoutReview(chat, before, resizedMemoryLayout(before, turns, next));
+      const { before, cleanup } = this.shapeLayoutReview(chat.id, next);
+      return this.layoutReview(chat, before, cleanup);
     });
   }
   private describeMemoryImpact(branches: MemoryLayoutReview[], command: unknown) {
@@ -597,11 +610,15 @@ export class Store {
       running: this.generationRunning(chat.id) || this.contexts.running(chat.id),
     }));
   }
-  libraryUpdate(knownRevision?: number): LibrarySnapshot | UnchangedLibrary {
+  libraryUpdate(knownRevision?: number): (LibrarySnapshot & Required<Pick<LibrarySnapshot, 'lorebookUses'>>) | UnchangedLibrary;
+  libraryUpdate(knownRevision: number | undefined, includeLorebookUses: boolean): LibrarySnapshot | UnchangedLibrary;
+  libraryUpdate(knownRevision?: number, includeLorebookUses = true): LibrarySnapshot | UnchangedLibrary {
     const revision = this.libraryRevision();
-    return knownRevision === revision ? { unchanged: true, revision, chats: this.chatSummaries() } : this.libraries();
+    return knownRevision === revision ? { unchanged: true, revision, chats: this.chatSummaries() } : this.libraries(includeLorebookUses);
   }
-  libraries(): LibrarySnapshot {
+  libraries(): LibrarySnapshot & Required<Pick<LibrarySnapshot, 'lorebookUses'>>;
+  libraries(includeLorebookUses: boolean): LibrarySnapshot;
+  libraries(includeLorebookUses = true): LibrarySnapshot {
     const rows = this.db.select().from(schema.library).all();
     const list = <T>(kind: string) => rows.filter(r => r.kind === kind).map(r => ({ ...r.data, id: r.id, revision: r.revision })) as unknown as Saved<T>[];
     return {
@@ -614,13 +631,23 @@ export class Store {
       revision: this.libraryRevision(), personas: list<LibraryPersona>('personas'), characters: list<LibraryCharacter>('characters'), prompts: list<PromptPreset>('prompts'),
       contexts: list<ContextPreset>('contexts').map(preset => ({ ...preset, repairPrompt: preset.repairPrompt ?? defaultContextPreset.repairPrompt })),
       lorebooks: list<Lorebook>('lorebooks'),
-      lorebookUses: list<Lorebook>('lorebooks').map(book => ({ bookId: book.id,
-        characters: list<LibraryCharacter>('characters').filter(card => card.lorebookId === book.id).map(card => ({ id: card.id, name: card.name, ...(card.titleComment ? { titleComment: card.titleComment } : {}) })),
-        chats: this.db.select().from(schema.chatGroups).all().filter(chat => chat.settings.lorebookId === book.id).map(chat => ({ id: chat.id, title: chat.settings.title })),
-      })),
+      ...(includeLorebookUses ? { lorebookUses: this.legacyLorebookUses(list<Lorebook>('lorebooks'), list<LibraryCharacter>('characters')) } : {}),
       connections: this.db.select().from(schema.connections).all().map(r => ({ ...r.settings, id: r.id, revision: r.revision, hasApiKey: Boolean(this.db.select().from(schema.credentials).where(eq(schema.credentials.id, r.id)).get()?.apiKey) })),
       chats: this.chatSummaries(),
     };
+  }
+  private legacyLorebookUses(books: Saved<Lorebook>[], characters: Saved<LibraryCharacter>[]) {
+    const uses = new Map(books.map(book => [book.id, {
+      bookId: book.id, characters: new Array<{ id: string; name: string; titleComment?: string }>(),
+      chats: new Array<{ id: string; title: string }>(),
+    }]));
+    for (const { id, name, titleComment, lorebookId } of characters) {
+      if (lorebookId) uses.get(lorebookId)?.characters.push({ id, name, ...(titleComment ? { titleComment } : {}) });
+    }
+    for (const { id, settings } of this.db.select().from(schema.chatGroups).all()) {
+      if (settings.lorebookId) uses.get(settings.lorebookId)?.chats.push({ id, title: settings.title });
+    }
+    return [...uses.values()];
   }
   importContextPreset(revision: number, preset: ContextPreset) {
     return this.sqlite.transaction(() => {
@@ -630,6 +657,10 @@ export class Store {
       const id = this.saveLibrary(revision, 'contexts', usedChatConnection ? { ...preset, connectionId: null } : preset);
       return { id, usedChatConnection };
     })();
+  }
+  private updateLibraryRecord(id: string, data: typeof schema.library.$inferInsert['data'] | SQL, revision?: number) {
+    this.db.update(schema.library).set({ data, revision, updatedAt: new Date().toISOString() })
+      .where(eq(schema.library.id, id)).run();
   }
   saveLibrary(expected: number, kind: LibraryKind, data: LibraryCharacter | LibraryPersona | PromptPreset | ContextPreset | Connection | Lorebook, id?: string, apiKey?: string, tagIds?: string[], memoryImpactToken?: string) {
     if (kind === 'prompts') data = upgradePrompt(data);
@@ -695,10 +726,10 @@ export class Store {
           if (previous && previous.name !== card.name) for (const chat of this.chats()) if (chat.settings.characterId === identity) this.resetLoreEpoch(chat.id);
           if (old && previous && isDeepStrictEqual(this.comparableCharacter(previous), this.comparableCharacter(updated))) {
             const metadataChanged = !isDeepStrictEqual(old.data, data);
-            if (metadataChanged) this.db.update(schema.library).set({ data }).where(eq(schema.library.id, identity)).run();
+            if (metadataChanged) this.updateLibraryRecord(identity, data);
             const tagsChanged = tagIds !== undefined && this.tags.replaceInTransaction(identity, tagIds);
             if (metadataChanged || tagsChanged) {
-              this.db.update(schema.library).set({ updatedAt: new Date().toISOString() }).where(eq(schema.library.id, identity)).run();
+              if (!metadataChanged) this.db.update(schema.library).set({ updatedAt: new Date().toISOString() }).where(eq(schema.library.id, identity)).run();
               this.bumpLibrary();
             }
             return identity;
@@ -714,14 +745,15 @@ export class Store {
           if (previous && previous.name !== updated.name) for (const chat of this.chats()) if (chat.settings.personaId === identity) this.resetLoreEpoch(chat.id);
           if (old && previous && isDeepStrictEqual(this.promptPersona(previous), this.promptPersona(updated))) {
             if (!isDeepStrictEqual(old.data, updated)) {
-              this.db.update(schema.library).set({ data: updated, updatedAt: new Date().toISOString() }).where(eq(schema.library.id, identity)).run();
+              this.updateLibraryRecord(identity, updated);
               this.bumpLibrary();
             }
             return identity;
           }
         }
         const saved = data as LibraryCharacter | LibraryPersona | PromptPreset | ContextPreset | Lorebook;
-        this.db.insert(schema.library).values({ id: identity, kind, revision: (old?.revision ?? -1) + 1, data: saved }).onConflictDoUpdate({ target: schema.library.id, set: { updatedAt: new Date().toISOString(), data: saved, revision: (old?.revision ?? -1) + 1 } }).run();
+        if (old) this.updateLibraryRecord(identity, saved, old.revision + 1);
+        else this.db.insert(schema.library).values({ id: identity, kind, revision: 0, data: saved }).run();
       }
       if (kind === 'characters' && tagIds !== undefined) this.tags.replaceInTransaction(identity, tagIds);
       this.bumpLibrary(); this.bumpAffected(kind, identity); return identity;
@@ -767,10 +799,10 @@ export class Store {
       return items.map(data => this.saveLibrary(this.libraryRevision(), kind, data));
     })();
   }
-  private recordedLibraryCommand<T>(requestId: string, fingerprint: string, parse: (value: unknown) => T, legacyFingerprint?: string | string[]): { found: false } | { found: true; result: T } {
+  private recordedLibraryCommand<T>(requestId: string, fingerprint: string, parse: (value: unknown) => T, legacyFingerprint?: string | string[], conflict = message('errors.this_import_identity_was_already_used_for_a')): { found: false } | { found: true; result: T } {
     const existing = this.sqlite.prepare('SELECT command, result FROM lore_commands WHERE request_id = ?').get(requestId) as { command: string; result: string } | undefined;
     if (!existing) return { found: false };
-    if (existing.command !== fingerprint && !(Array.isArray(legacyFingerprint) ? legacyFingerprint : [legacyFingerprint]).includes(existing.command)) throw new AppError(409, 'request_id_conflict', message("errors.this_import_identity_was_already_used_for_a"));
+    if (existing.command !== fingerprint && !(Array.isArray(legacyFingerprint) ? legacyFingerprint : [legacyFingerprint]).includes(existing.command)) throw new AppError(409, 'request_id_conflict', conflict);
     return { found: true, result: parse(JSON.parse(existing.result)) };
   }
   private libraryCommandFingerprint(command: unknown) {
@@ -924,25 +956,166 @@ export class Store {
     if (JSON.stringify(state.entries) !== JSON.stringify(resolution.stateBefore)) throw new AppError(409, 'stale_lore_state', message("errors.lore_activation_state_changed_before_the_response_completed"));
     this.sqlite.prepare('INSERT INTO lore_states (chat_id, book_id, epoch, data) VALUES (?, ?, ?, ?) ON CONFLICT(chat_id, book_id) DO UPDATE SET epoch = excluded.epoch, data = excluded.data').run(chatId, resolution.book.id, resolution.epoch, JSON.stringify({ ...state.entries, ...resolution.stateDelta }));
   }
+  private checkDeletableLibraryItem(kind: LibraryKind, id: string) {
+    if (kind === 'prompts' && id === 'default') throw new AppError(409, 'default_prompt', message("errors.the_default_prompt_can_be_edited_or_restored"));
+    if (kind === 'contexts' && id === 'default-context') throw new AppError(409, 'default_context', message("errors.default_context_cannot_be_deleted"));
+    const target = libraryItemLabels(this.db, kind, id)[0];
+    if (!target) throw new AppError(404, 'item_not_found', message(kind === 'connections' ? 'errors.connection_not_found' : 'errors.library_item_not_found'));
+    return target;
+  }
+  private removeLibraryItem(kind: LibraryKind, id: string) {
+    if (kind === 'connections') this.db.delete(schema.credentials).where(eq(schema.credentials.id, id)).run();
+    const deleted = kind === 'connections'
+      ? this.db.delete(schema.connections).where(eq(schema.connections.id, id)).run()
+      : this.db.delete(schema.library).where(and(eq(schema.library.id, id), eq(schema.library.kind, kind))).run();
+    if (deleted.changes !== 1) throw new Error('Library deletion did not remove its target.');
+    this.pictures.cleanup();
+    this.bumpLibrary();
+  }
   deleteLibrary(expected: number, kind: LibraryKind, id: string) {
     this.sqlite.transaction(() => {
       this.checkLibrary(expected);
-      if (kind === 'prompts' && id === 'default') throw new AppError(409, 'default_prompt', message("errors.the_default_prompt_can_be_edited_or_restored"));
-      if (kind === 'contexts' && id === 'default-context') throw new AppError(409, 'default_context', message("errors.default_context_cannot_be_deleted"));
-      const key = kind === 'personas' ? 'personaId' : kind === 'characters' ? 'characterId' : kind === 'prompts' ? 'promptId' : kind === 'contexts' ? 'contextPresetId' : kind === 'lorebooks' ? 'lorebookId' : 'connectionId';
-      if (kind === 'lorebooks') {
-        const uses = this.libraries().lorebookUses.find(use => use.bookId === id);
-        if (uses && (uses.characters.length || uses.chats.length)) throw new AppError(409, 'item_in_use', message("errors.this_lorebook_is_used_by_choose_none_or", { value: String([...uses.characters.map(card => `character “${characterLabel(card)}”`), ...uses.chats.map(chat => `chat “${chat.title}”`)].join(', ')) }));
+      this.checkDeletableLibraryItem(kind, id);
+      const dependencies = resolveLibraryDependencies(this.db, kind, id);
+      if (kind === 'lorebooks' && hasLibraryDependencies(dependencies)) {
+        const uses = [...dependencies.characters.map(card => `character “${card.name}”`),
+          ...dependencies.chats.map(chat => `chat “${chat.name}”`)];
+        throw new AppError(409, 'item_in_use', message('errors.this_lorebook_is_used_by_choose_none_or', { value: uses.join(', ') }));
       }
-      if (this.chats().some(c => c.settings[key] === id || (kind === 'connections' && id === 'main' && c.settings.connectionId === undefined))) throw new AppError(409, 'item_in_use', message("errors.select_a_different_item_in_the_chats_using"));
-      if (kind === 'connections') {
-        if (this.libraries().contexts.some(preset => preset.connectionId === id)) throw new AppError(409, 'item_in_use', message("errors.a_context_preset_uses_this_summarization_connection_change"));
-        this.db.delete(schema.credentials).where(eq(schema.credentials.id, id)).run();
-        if (!this.db.delete(schema.connections).where(eq(schema.connections.id, id)).run().changes) throw new AppError(404, 'item_not_found', message("errors.connection_not_found"));
-      } else if (!this.db.delete(schema.library).where(and(eq(schema.library.id, id), eq(schema.library.kind, kind))).run().changes) throw new AppError(404, 'item_not_found', message("errors.library_item_not_found"));
-      this.pictures.cleanup();
-      this.bumpLibrary();
+      if (hasLibraryDependencies(dependencies)) {
+        throw new AppError(409, 'item_in_use', message(dependencies.contexts.length && !dependencies.chats.some(chat => chat.direct)
+          ? 'errors.a_context_preset_uses_this_summarization_connection_change' : 'errors.select_a_different_item_in_the_chats_using'));
+      }
+      this.removeLibraryItem(kind, id);
     })();
+  }
+  newChatDefaults(settings: ChatDefaultsStatus['settings']) {
+    return resolveChatDefaults(settings, this.chatDefaultItems());
+  }
+  private chatDefaultItems() {
+    return {
+      connections: libraryItemLabels(this.db, 'connections'),
+      prompts: libraryItemLabels(this.db, 'prompts'),
+      contexts: libraryItemLabels(this.db, 'contexts'),
+    };
+  }
+  private deletionBookmark(kind: LibraryKind, id: string, defaults: () => ChatDefaultsStatus['settings']) {
+    if (kind !== 'connections' && kind !== 'prompts' && kind !== 'contexts') return null;
+    const settings = defaults();
+    if (settings[kind] !== id) return null;
+    const items = this.chatDefaultItems();
+    items[kind] = items[kind].filter(item => item.id !== id);
+    const { connectionId, promptId, contextPresetId } = resolveChatDefaults(settings, items);
+    const fallbackId = kind === 'connections' ? connectionId : kind === 'prompts' ? promptId : contextPresetId;
+    const fallback = items[kind].find(item => item.id === fallbackId);
+    return { fallback: fallback ? { id: fallback.id, name: fallback.name } : null };
+  }
+  private resolveLibraryDeletion(kind: LibraryKind, id: string, choice: LibraryDeletionChoice, settings: () => ChatDefaultsStatus['settings'], includeReplacements: boolean, coordinatingWork: boolean) {
+    const target = this.checkDeletableLibraryItem(kind, id);
+    const dependencies = resolveLibraryDependencies(this.db, kind, id);
+    const labels = dependencies.chats.flatMap(chat => chat.branches.map(({ id, branchName }) => ({
+      id, branchName, name: chat.name,
+    })));
+    const blockers: LibraryDeletionReview['blockers'] = [];
+    const actionBlockers: LibraryDeletionReview['action']['blockers'] = [];
+    if (coordinatingWork || this.generationRunning() || this.contexts.running()) {
+      blockers.push({ reason: 'busy', branches: labels.filter(branch => this.generationRunning(branch.id) || this.contexts.running(branch.id)) });
+    }
+    const repairs = labels.filter(branch => this.contexts.hasOpenLayoutReview(branch.id));
+    if (repairs.length) blockers.push({ reason: 'repair', branches: repairs });
+
+    const replacementId = choice.mode === 'replace' ? choice.replacementId : kind === 'prompts' && dependencies.chats.length ? 'default' : null;
+    const replacement = replacementId && replacementId !== id ? libraryItemLabels(this.db, kind, replacementId)[0] : undefined;
+    if ((replacementId && !replacement) || (choice.mode === 'replace' && !hasLibraryDependencies(dependencies))) {
+      actionBlockers.push({ reason: 'replacement', branches: [] });
+    }
+    const memory = kind === 'contexts' ? labels.map(branch => ({ ...branch, ...this.contexts.selectionCheckpoint(branch.id) })) : [];
+    const previous = kind === 'contexts' ? this.contextPreset(id) : null;
+    const next = kind === 'contexts' && replacement ? this.contextPreset(replacement.id) : null;
+    const layout = next && changedMemoryShape(previous, next) ? memory.map(branch => {
+      const { before, cleanup } = this.shapeLayoutReview(branch.id, next);
+      const altersCoverage = !isDeepStrictEqual(before.selected, cleanup.after.selected)
+        || !isDeepStrictEqual(before.archivedTurnIds, cleanup.after.archivedTurnIds);
+      return { id: branch.id, deletedIds: [...cleanup.deletedIds].sort(), altersCoverage };
+    }) : [];
+    if (kind === 'contexts' && choice.mode === 'clear') {
+      const excluded = new Set(memory.filter(branch => branch.archivedCount > 0).map(branch => branch.id));
+      if (excluded.size) actionBlockers.push({ reason: 'excluded', branches: labels.filter(branch => excluded.has(branch.id)) });
+    }
+    const layoutChanges = new Set(layout.filter(branch => branch.deletedIds.length || branch.altersCoverage).map(branch => branch.id));
+    if (layoutChanges.size) actionBlockers.push({ reason: 'layout', branches: labels.filter(branch => layoutChanges.has(branch.id)) });
+
+    const bookmark = this.deletionBookmark(kind, id, settings);
+    const version = this.libraryCommandFingerprint(['library-deletion-v1', datasetEpoch(this.sqlite), kind, target, dependencies, memory, bookmark]);
+    const token = this.libraryCommandFingerprint([version, choice, replacement, layout, actionBlockers]);
+    const named = ({ id, name }: { id: string; name: string }) => ({ id, name });
+    const review: LibraryDeletionReview = {
+      target: named(target), version, bookmark, blockers,
+      dependencies: {
+        chats: dependencies.chats.map(({ id, name, direct, memoryPreset }) => ({ id, name, direct, memoryPreset: memoryPreset && named(memoryPreset) })),
+        characters: dependencies.characters.map(named), contexts: dependencies.contexts.map(named),
+      },
+      replacements: includeReplacements && hasLibraryDependencies(dependencies)
+        ? libraryItemLabels(this.db, kind).filter(item => item.id !== id).map(named) : [],
+      action: { choice, token, blockers: actionBlockers },
+    };
+    return { review, dependencies, replacementId };
+  }
+  reviewLibraryDeletion(kind: LibraryKind, id: string, choice: LibraryDeletionChoice, settings: () => ChatDefaultsStatus['settings'], coordinatingWork = false) {
+    return this.sqlite.transaction(() => this.resolveLibraryDeletion(kind, id, choice, settings, true, coordinatingWork).review)();
+  }
+  commitLibraryDeletion(id: string, command: LibraryDeletionCommand, settings: () => ChatDefaultsStatus['settings'], hasCoordinatingWork: () => boolean = () => false) {
+    const transaction = { phase: 'receipt' as 'receipt' | 'mutation' | 'commit' };
+    try {
+      return this.sqlite.transaction(() => {
+        const { kind, requestId, token, choice } = command;
+        const fingerprint = this.libraryCommandFingerprint(['library-deletion-v1', datasetEpoch(this.sqlite), kind, id, token, choice]);
+        const recorded = this.recordedLibraryCommand(requestId, fingerprint, libraryDeletionResultSchema.parse, undefined,
+          message('errors.that_request_identity_was_already_used_for_a'));
+        if (recorded.found) return { result: recorded.result, affectedBranches: [] };
+        transaction.phase = 'mutation';
+        const { review, dependencies, replacementId } = this.resolveLibraryDeletion(kind, id, choice, settings, false, hasCoordinatingWork());
+        if (review.action.token !== token) throw new AppError(409, 'library_deletion_stale', message('library_delete.stale'));
+        const blocker = [...review.blockers, ...review.action.blockers][0];
+        if (blocker) throw new AppError(409, 'library_deletion_blocked', message(`library_delete.${blocker.reason}`));
+        this.applyLibraryDeletionSelections(kind, dependencies, replacementId);
+        if (hasLibraryDependencies(resolveLibraryDependencies(this.db, kind, id))) {
+          throw new AppError(409, 'library_deletion_stale', message('library_delete.stale'));
+        }
+        this.removeLibraryItem(kind, id);
+        const result = { ok: true } as const;
+        this.sqlite.prepare('INSERT INTO lore_commands (request_id, command, result) VALUES (?, ?, ?)').run(requestId, fingerprint, JSON.stringify(result));
+        transaction.phase = 'commit';
+        return { result, affectedBranches: dependencies.chats.flatMap(chat => chat.branches.map(branch => branch.id)) };
+      }).immediate();
+    } catch (error) {
+      // A failed receipt lookup or an error from COMMIT cannot establish that
+      // this command never committed. Preserve the client's exact retry.
+      if (transaction.phase !== 'mutation' || error instanceof AppError && error.status < 500) throw error;
+      const failure = new AppError(500, 'library_deletion_rolled_back', message('library_delete.rollback'));
+      failure.cause = error;
+      throw failure;
+    }
+  }
+  private applyLibraryDeletionSelections(kind: LibraryKind, dependencies: ReturnType<typeof resolveLibraryDependencies>, replacementId: string | null) {
+    for (const { id, direct, branches } of dependencies.chats) {
+      if (!direct) {
+        this.touchSharedChat(id);
+        continue;
+      }
+      const group = this.db.select().from(schema.chatGroups).where(eq(schema.chatGroups.id, id)).get();
+      if (!group) throw new AppError(409, 'library_deletion_stale', message('library_delete.stale'));
+      const settings = { ...group.settings, [selectionKeys[kind]]: replacementId };
+      this.writeSharedChatSelections(id, group.settings, settings, branches.map(branch => branch.id));
+    }
+    for (const { id, revision } of dependencies.contexts) {
+      this.updateLibraryRecord(id, sql`json_set(${schema.library.data}, '$.connectionId', ${replacementId})`, revision + 1);
+    }
+    for (const { id } of dependencies.characters) {
+      // The default is local metadata. Existing chat selections and Character
+      // content revisions stay authoritative.
+      this.updateLibraryRecord(id, sql`json_set(${schema.library.data}, '$.lorebookId', ${replacementId})`);
+    }
   }
   private validateSelections(settings: ReturnType<typeof selectionsSchema.parse>) {
     if (settings.connectionId && !this.db.select().from(schema.connections).where(eq(schema.connections.id, settings.connectionId)).get()) throw new AppError(422, 'missing_connection', message("errors.selected_connection_not_found"));

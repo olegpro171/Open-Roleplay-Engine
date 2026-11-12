@@ -1,3 +1,4 @@
+import { roleplayConnectionId } from '../shared/chat-defaults.js';
 import { randomUUID } from 'node:crypto';
 import { message, type LocalizedMessage } from '../shared/localization.js';
 import { defaultChatBehavior, type ChatBehavior } from '../shared/chat-behavior.js';
@@ -258,7 +259,7 @@ export class ContextCoordinator {
           this.changed(chatId);
           return;
         }
-        const connectionId = job.config.connectionId ?? (snapshot.settings.connectionId === undefined ? 'main' : snapshot.settings.connectionId);
+        const connectionId = job.config.connectionId ?? roleplayConnectionId(snapshot.settings.connectionId);
         if (operation.turnIds.length && !connectionId) throw new AppError(422, 'summary_connection_required', message("errors.select_a_roleplay_connection_to_measure_the_complete"));
         const connection = operation.turnIds.length && connectionId ? this.store.connection(connectionId) : null;
         const prepared = connection ? summaryRequest(snapshot, operation, connection, replacements, operation.repair ? this.store.contexts.sourceRequest(job.chatId, operation.repair) : null) : { request: null, prior: [] };

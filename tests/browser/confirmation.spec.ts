@@ -38,7 +38,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     const library = (): Promise<LibrarySnapshot> => page.request.get('/api/library').then(response => response.json());
     const before = await library();
     let deletes = 0;
-    page.on('request', request => { if (request.method() === 'DELETE') deletes++; });
+    page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith('/deletion')) deletes++; });
     page.on('dialog', () => { throw new Error('Unexpected browser confirmation'); });
     const theme = await page.locator('html').getAttribute('data-theme');
     try {
@@ -71,7 +71,12 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     expect((await library()).revision).toBe(before.revision);
 
     await (await openLibraryActions(page, row)).getByRole('menuitem', { name: 'Delete', exact: true }).click();
-    await expect(dialog).toContainText(name);
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(trigger).not.toBeFocused();
+
+    await (await openLibraryActions(page, row)).getByRole('menuitem', { name: 'Delete', exact: true }).click();
+    await expect(dialog).toContainText(`Delete “${name}” from the library?`);
     await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
@@ -88,6 +93,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await expect(row).toBeVisible();
     expect(deletes).toBe(0);
     await (await openLibraryActions(page, row)).getByRole('menuitem', { name: 'Delete', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
     await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
     await page.keyboard.press('Shift+Tab');
     await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeFocused();
@@ -95,21 +101,27 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(dialog).toHaveCount(0);
+    await expect(trigger).toBeFocused();
     expect(deletes).toBe(0);
     expect((await library()).revision).toBe(before.revision);
 
-    // A confirmation retains its captured revision when another device edits the library.
+    // A changed target requires a fresh review and confirmation.
     await (await openLibraryActions(page, row)).getByRole('menuitem', { name: 'Delete', exact: true }).click();
-    const update = await page.request.post('/api/library', { headers: { Origin: 'http://127.0.0.1:4173' }, data: { kind: 'personas', revision: before.revision, data: { name: `Other device ${viewport.width}`, description: '' } } });
+    await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
+    const item = before.personas.find(item => item.name === name);
+    if (!item) throw new Error('Missing saved persona');
+    const update = await page.request.put(`/api/library/${item.id}`, {
+      headers: { Origin: 'http://127.0.0.1:4173' },
+      data: { kind: 'personas', revision: before.revision, data: { name, description: 'Edited on another device' } },
+    });
     expect(update.ok()).toBe(true);
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('alert')).toBeVisible();
-    await expect(row).toBeVisible();
+    await expect(dialog.getByRole('alert')).toHaveText('Linked items have changed. Review the updated list before deleting.');
+    await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
     expect((await library()).personas.some(item => item.name === name)).toBe(true);
-    await (await openLibraryActions(page, row)).getByRole('menuitem', { name: 'Delete', exact: true }).click();
     await dialog.getByRole('heading', { level: 2 }).dispatchEvent('keydown', { key: 'Enter', repeat: true });
     await expect(dialog).toBeVisible();
-    await page.keyboard.press('Enter');
+    await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
     await expect(row).toHaveCount(0);
     expect(deletes).toBe(2);
     await page.reload();
