@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, type MouseEventHandler } from 'react';
 import { createPortal } from 'react-dom';
 import { t, useLocale } from './localization';
 import { Icon } from './Icon';
@@ -8,7 +8,7 @@ export const EditorActionsTarget = createContext<HTMLDivElement | null>(null);
 export function EditorActions({ formId, disabled, close, cancelDisabled = false }: {
   formId: string;
   disabled: boolean;
-  close: () => void;
+  close: MouseEventHandler<HTMLButtonElement>;
   cancelDisabled?: boolean;
 }) {
   useLocale();

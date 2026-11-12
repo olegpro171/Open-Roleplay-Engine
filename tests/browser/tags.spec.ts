@@ -1,4 +1,4 @@
-import { openLibraryActions } from './library-card-helpers';
+import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
 
@@ -62,6 +62,7 @@ test('filters with AND, preserves character drafts through catalog edits, and ma
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await row(page, 'Tag A').getByRole('heading').getByRole('button').click();
   await chooser(page).getByRole('button', { name: 'Remove tag-new, punctuation', exact: true }).click(); await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await confirmLeaveEditor(page);
   await row(page, 'Tag A').getByRole('heading').getByRole('button').click(); await expect(chooser(page).getByRole('checkbox', { name: /tag-new, punctuation/ })).toBeChecked();
   await chooser(page).getByRole('button', { name: 'Remove tag-new, punctuation', exact: true }).click(); await page.getByRole('button', { name: 'Save', exact: true }).click();
   await openFilters(page); await filters(page).getByRole('checkbox', { name: /tag-unused/ }).check(); await expect(page.getByRole('status').filter({ hasText: 'No characters match all selected tags' })).toBeVisible();
@@ -103,6 +104,7 @@ test('reviews every import mode before commit, cancels without writes and safely
       await page.getByRole('button', { name: 'New character', exact: true }).click();
       await page.getByLabel('Name', { exact: true }).fill('Temporary draft during import recovery');
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await confirmLeaveEditor(page);
       await expect(page.getByRole('button', { name: 'Retry reviewed character import', exact: true })).toBeEnabled();
       await page.route(importRoute, async route => { commands.push({ url: route.request().url(), bytes: route.request().postDataBuffer() }); await route.continue(); });
       await page.getByRole('button', { name: 'Retry reviewed character import', exact: true }).click(); await expect(row(page, 'Tag import all')).toBeVisible();
@@ -122,7 +124,8 @@ test('reviews every import mode before commit, cancels without writes and safely
   await row(page, 'Tag import none').getByRole('heading').getByRole('button').click(); await page.getByLabel('Character description').fill('Unsaved text during apply');
   await page.getByRole('button', { name: 'Review embedded tags', exact: true }).click(); await page.getByText('Review tags', { exact: true }).click(); await page.getByRole('radio', { name: 'Import all', exact: true }).check(); await page.getByRole('button', { name: 'Apply reviewed tags', exact: true }).click();
   await expect(page.getByLabel('Character description')).toHaveValue('Unsaved text during apply'); await expect(chooser(page).getByRole('checkbox', { name: /import-adventure/ })).toBeChecked();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(row(page, 'Tag import none')).not.toContainText('import-adventure');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click(); await confirmLeaveEditor(page);
+  await expect(row(page, 'Tag import none')).not.toContainText('import-adventure');
   await row(page, 'Tag import none').getByRole('heading').getByRole('button').click();
   await expect(chooser(page).getByRole('checkbox', { name: /import-adventure/ })).toBeChecked();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(row(page, 'Tag import none')).toContainText('Saved character text');
@@ -233,7 +236,8 @@ test('refreshes another tab, prunes deleted filters, retains failed drafts and r
   await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(page.getByRole('alert').filter({ hasText: 'Synthetic tag save conflict' }).first()).toBeVisible(); await expect(page.getByLabel('Character description')).toHaveValue('Draft retained on conflict'); await page.unroute(`**/api/library/${character.id}`);
   await command(other, '/library/tags', { revision: (await library(other)).revision, name: 'concurrent-change' });
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click(); await row(page, 'Tag concurrent').getByRole('heading').getByRole('button').click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click(); await confirmLeaveEditor(page);
+  await row(page, 'Tag concurrent').getByRole('heading').getByRole('button').click();
   await openManager(page); await manager(page).getByLabel('New tag name').fill('CONCURRENT-CHANGE'); await manager(page).getByRole('button', { name: 'Create tag', exact: true }).click();
   await expect(manager(page).getByRole('alert')).toContainText('already exists'); await expect(manager(page).getByLabel('New tag name')).toHaveValue('CONCURRENT-CHANGE');
   await page.setViewportSize({ width: 1280, height: 900 }); await page.screenshot({ path: 'test-results/tags-desktop.png', fullPage: true }); await other.close();

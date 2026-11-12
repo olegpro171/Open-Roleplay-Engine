@@ -1,4 +1,4 @@
-import { openLibraryActions } from './library-card-helpers';
+import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import sharp from 'sharp';
@@ -237,6 +237,7 @@ test('keeps crop/editor save levels separate, recovers exact saves, and refreshe
   await row(page, card.name).getByRole('button', { name: `${card.name}`, exact: true }).click();
   await upload(page, await sharp({ create: { width: 100, height: 300, channels: 4, background: 'teal' } }).png().toBuffer(), 'Replace picture');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await confirmLeaveEditor(page);
   expect((await library(page)).characterPictures.find(item => item.characterId === card.id)?.key).toBe(picture.key);
   await row(page, card.name).getByRole('button', { name: `${card.name}`, exact: true }).click();
   const cancelled = await corner(page);
@@ -381,6 +382,7 @@ test('ignores a closed editor’s delayed picture analysis and preserves the nex
   await expect(page.getByText('Validating and preparing picture…', { exact: true })).toBeVisible();
   await expect.poll(() => Boolean(finish)).toBe(true);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await confirmLeaveEditor(page);
   await page.getByRole('button', { name: 'New character', exact: true }).click(); await page.getByLabel('Name', { exact: true }).fill('Picture new delayed draft');
   if (!finish) throw new Error('Missing delayed analysis'); await finish(); await page.unroute('**/api/pictures/preview');
   await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Picture new delayed draft'); await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toHaveCount(0);
@@ -405,6 +407,7 @@ test('clamps a phone touch drag and keeps the crop footer reachable', async ({ b
     await expect(dialog.getByRole('button', { name: 'Use crop', exact: true })).toBeInViewport();
     await dialog.getByRole('button', { name: 'Use crop', exact: true }).click();
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await confirmLeaveEditor(page);
     expect((await library(page)).characters.some(card => card.name === 'Picture touch draft')).toBe(false);
     await session.detach();
   } finally { await context.close(); }

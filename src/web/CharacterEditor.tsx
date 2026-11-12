@@ -4,17 +4,18 @@ import { SpeechColorSelector } from './SpeechColorSelector';
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { cardInstructionFields, cardInstructionLabels, readCardInstruction, readCharacterDepthPrompt } from '../shared/card-instructions';
-import { useConfirmation } from './Confirmation';
 import { WarningDetails, WarningMessages } from './WarningDialog';
 import type { CharacterSaveCommand } from '../shared/library';
 import { PictureEditor, PictureSquare, pictureMutation, savedPictureDraft } from './Pictures';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useContext, useEffect, useId, useMemo, useRef, useState, type MouseEventHandler } from 'react';
 import { EditorActions } from './EditorActions';
+import { CopyLibraryDraft, LibraryDraftNotice, useLibraryEditorDraft, useLibraryNumberDraft } from './LibraryDraft';
+import type { DraftOf } from './library-draft';
 import { EditorTextarea } from './EditorTextarea';
 import { readCharacterAlternateGreetings, characterLabel, maxAlternateGreetings, type LibraryCharacter, type LibrarySnapshot } from '../shared/library';
 import type { TagPolicy, TagReview } from '../shared/tags';
 import { ApiError, api } from './api';
-import { Dropdown, NumberInput } from './Controls';
+import { Dropdown, NumberDraftContext, NumberInput } from './Controls';
 import { TagChooser, TagImportOptions, TagManager, type TagCommit } from './Tags';
 
 type Initial = { id?: string; revision: number; data: LibraryCharacter };
@@ -29,18 +30,17 @@ function editableCharacter(data: LibraryCharacter): LibraryCharacter {
   if (note.success) editable.depth_prompt = note.data;
   return editable;
 }
-export function CharacterEditor({ initial, library, busy, run, close, openBook, extracted, saved }: { initial: Initial; library: LibrarySnapshot; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; close: () => void; openBook: (id: string) => void; extracted: (id: string) => void; saved: () => void }) {
+export function CharacterEditor({ initial, recovered, library, busy, run, close, closeAfterSave, openBook, extracted, saved }: { initial: Initial; recovered?: DraftOf<'characters'>; library: LibrarySnapshot; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; close: MouseEventHandler<HTMLButtonElement>; closeAfterSave: () => void; openBook: (id: string, returnFocus: HTMLElement) => void; extracted: (id: string) => void; saved: () => void }) {
   useLocale();
   const formId = useId();
-  const confirmAction = useConfirmation();
   const [baselineData, setBaselineData] = useState(() => editableCharacter(initial.data));
   const [baselinePicture, setBaselinePicture] = useState(() => library.characterPictures.find(picture => picture.characterId === initial.id) ?? null);
   const [picture, setPicture] = useState(() => savedPictureDraft(baselinePicture));
   const [processing, setProcessing] = useState(false), [uncertain, setUncertain] = useState<CharacterSaveCommand | null>(null);
   const submitting = useRef(false);
-  const [data, setData] = useState(() => editableCharacter(initial.data)), [revision, setRevision] = useState(initial.revision);
+  const [data, setData] = useState(() => recovered?.data ?? baselineData), [revision, setRevision] = useState(initial.revision);
   const [baseline, setBaseline] = useState(() => library.characterTags.filter(link => link.characterId === initial.id).map(link => link.tagId));
-  const [tagIds, setTagIds] = useState(baseline), [manager, setManager] = useState(false);
+  const [tagIds, setTagIds] = useState(recovered?.tagIds ?? baseline), [manager, setManager] = useState(false);
   const [embedded, setEmbedded] = useState<{ revision: number; tags: TagReview } | null>(null), [policy, setPolicy] = useState<TagPolicy>('none');
   const [error, setError] = useTextState(''), [pending, setPending] = useState(false);
   const originalRevision = useRef(library.characters.find(character => character.id === initial.id)?.revision);
@@ -49,11 +49,19 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
   const stale = revision !== library.revision;
   const greetings = readCharacterAlternateGreetings(data);
   const alternatives = greetings.success ? greetings.data : [];
-  const characterChanged = (['name', 'titleComment', 'speechColor', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'lorebookId', 'system_prompt', 'post_history_instructions'] as const).some(field => data[field] !== baselineData[field])
+  const characterChanged = (['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'system_prompt', 'post_history_instructions'] as const).some(field => data[field] !== baselineData[field])
+    || (data.titleComment ?? '') !== (baselineData.titleComment ?? '')
+    || (data.speechColor ?? null) !== (baselineData.speechColor ?? null)
+    || (data.lorebookId ?? null) !== (baselineData.lorebookId ?? null)
     || JSON.stringify(data.alternate_greetings) !== JSON.stringify(baselineData.alternate_greetings)
     || JSON.stringify(data.depth_prompt) !== JSON.stringify(baselineData.depth_prompt);
   const pictureChanged = pictureMutation(picture, baselinePicture) !== undefined;
-  function safeClose() { alive.current = false; close(); }
+  const tagsChanged = tagIds.length !== baseline.length || tagIds.some(id => !baseline.includes(id));
+  const numberDraft = useLibraryNumberDraft(recovered);
+  const dirty = characterChanged || pictureChanged || tagsChanged || processing || numberDraft.dirty;
+  const draft = useMemo<DraftOf<'characters'>>(() => ({ kind: 'characters', id: initial.id, revision, data, tagIds, pictureOmitted: pictureChanged || processing, numbers: numberDraft.values }),
+    [initial.id, revision, data, tagIds, pictureChanged, processing, numberDraft.values]);
+  const storageError = useLibraryEditorDraft(draft, dirty);
   const committed: TagCommit = (before, after, snapshot, deletedId) => {
     if (!alive.current || before !== revision || snapshot.revision !== after) return;
     const character = snapshot.characters.find(character => character.id === initial.id);
@@ -98,7 +106,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
     submitting.current = false;
     if (!alive.current) return;
     setPending(false);
-    if (ok) { setUncertain(null); saved(); safeClose(); }
+    if (ok) { setUncertain(null); saved(); closeAfterSave(); }
   }
   function reconcile() {
     const current = library.characters.find(card => card.id === initial.id);
@@ -111,6 +119,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
     }
     const savedPicture = library.characterPictures.find(item => item.characterId === initial.id) ?? null;
     if (!pictureChanged) setPicture(savedPictureDraft(savedPicture));
+    numberDraft.set('characterDepth', undefined);
     setBaselinePicture(savedPicture); setRevision(library.revision); setEmbedded(null); setError('');
   }
   const source = initial.data.source ?? {};
@@ -118,8 +127,8 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
   const embeddedBook = source.spec === 'chara_card_v2' || source.spec === 'chara_card_v3'
     ? typeof nested === 'object' && nested !== null && 'character_book' in nested && nested.character_book != null
     : source.character_book != null;
-  return <>
-    <form id={formId} onSubmit={event => { event.preventDefault(); void save(); }}><fieldset disabled={busy || pending || stale || Boolean(uncertain)}><legend>{t("character_editor.character", { value: initial.id ? t("libraries.edit_2") : t("libraries.create") })}</legend><div className="form-grid">
+  return <NumberDraftContext.Provider value={numberDraft}>
+    <form id={formId} onSubmit={event => { event.preventDefault(); void save(); }}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy || pending || stale || Boolean(uncertain)}><legend>{t("character_editor.character", { value: initial.id ? t("libraries.edit_2") : t("libraries.create") })}</legend><div className="form-grid">
       <label>{t("character_editor.name")}<input required maxLength={100} value={data.name} onChange={event => setData({ ...data, name: event.target.value })} /></label>
       <label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={data.titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("character_editor.an_optional_label_useful_for_distinguishing_between")}</small></label>
       <SpeechColorSelector value={data.speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || pending || stale || Boolean(uncertain)} />
@@ -137,15 +146,15 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
           : <button type="button" className="secondary" onClick={() => setData({ ...data, alternate_greetings: [] })}>{t("character_editor.clear_invalid_alternate_greetings")}</button>}
       </div>
       <label className="full">{t("character_editor.default_lorebook")}<Dropdown aria-label={t("character_editor.default_lorebook")} value={data.lorebookId ?? ''} options={[{ value: '', label: t("character_editor.none_selected") }, ...library.lorebooks.map(book => ({ value: book.id, label: book.name }))]} onChange={id => setData({ ...data, lorebookId: id || null })} /></label>
-      {data.lorebookId && <button type="button" className="secondary" onClick={() => { const bookId = data.lorebookId; if (!bookId) return; if (!characterChanged && !pictureChanged && tagIds.join() === baseline.join()) openBook(bookId); else confirmAction({ title: t("character_editor.discard_character_edits"), message: t("character_editor.open_the_book_and_discard_unsaved_character"), actionLabel: t("character_editor.discard_edits"), onConfirm: () => openBook(bookId) }); }}>{t("character_editor.open_book")}</button>}
-      {initial.id && !data.lorebookId && embeddedBook && <div className="full"><button type="button" className="secondary" disabled={characterChanged || pictureChanged || tagIds.join() !== baseline.join()} onClick={async () => { let bookId = ''; if (await run(async () => { bookId = (await api<{ bookId: string }>(`/library/characters/${initial.id}/extract`, 'POST', { revision, requestId: extractionId.current })).bookId; })) extracted(bookId); }}>{t("character_editor.extract_embedded_lorebook")}</button><p className="small muted">{t("character_editor.save_character_edits_first_extraction_creates_and")}</p></div>}
+      {data.lorebookId && <button type="button" className="secondary" onClick={event => { if (data.lorebookId) openBook(data.lorebookId, event.currentTarget); }}>{t("character_editor.open_book")}</button>}
+      {initial.id && !data.lorebookId && embeddedBook && <div className="full"><button type="button" className="secondary" disabled={dirty} onClick={async () => { let bookId = ''; if (await run(async () => { bookId = (await api<{ bookId: string }>(`/library/characters/${initial.id}/extract`, 'POST', { revision, requestId: extractionId.current })).bookId; })) extracted(bookId); }}>{t("character_editor.extract_embedded_lorebook")}</button><p className="small muted">{t("character_editor.save_character_edits_first_extraction_creates_and")}</p></div>}
       <div className="full"><TagChooser label={t("character_editor.assign_tags")} tags={library.tags} selected={tagIds} change={setTagIds} /><button type="button" className="secondary" onClick={() => setManager(true)}>{t("character_editor.manage_tags")}</button>
         {initial.id && <button type="button" className="quiet" onClick={async () => { setPending(true); await run(async () => { const preview = await api<{ revision: number; tags: TagReview }>(`/library/characters/${initial.id}/tags/preview`); if (alive.current) { setEmbedded(preview); setPolicy('none'); } }); setPending(false); }}>{t("character_editor.review_embedded_tags")}</button>}
       </div>
-    </div></fieldset>{error && <p role="alert">{error}</p>}{uncertain && <p role="status">{t("character_editor.acknowledgement_uncertain_the_save_may_have_reached")}</p>}{stale && !uncertain && <CharacterReconciliation library={library} characterId={initial.id} disabled={busy || pending} reconcile={reconcile} />}{uncertain && <button type="button" disabled={busy || pending} onClick={() => void save(uncertain)}>{t("character_editor.retry_same_save")}</button>}<EditorActions formId={formId} disabled={busy || pending || processing || stale || Boolean(uncertain)} cancelDisabled={pending} close={safeClose} /></form>
+    </div></fieldset>{error && <p role="alert">{error}</p>}{uncertain && <p role="status">{t("character_editor.acknowledgement_uncertain_the_save_may_have_reached")}</p>}{stale && !uncertain && <CharacterReconciliation library={library} characterId={initial.id} disabled={busy || pending} reconcile={reconcile} />}{stale && dirty && <CopyLibraryDraft editor={draft} />}{uncertain && <button type="button" disabled={busy || pending} onClick={() => void save(uncertain)}>{t("character_editor.retry_same_save")}</button>}<EditorActions formId={formId} disabled={busy || pending || processing || stale || Boolean(uncertain)} cancelDisabled={busy || pending} close={close} /></form>
     {manager && <TagManager library={library} busy={busy || pending} run={run} committed={committed} close={() => setManager(false)} />}
     {embedded && <section className="character-import-review"><h2>{t("character_editor.review_embedded_tags")}</h2><p className="small">{t("character_editor.this_saves_only_local_tags_preserving_your")}</p><TagImportOptions review={embedded.tags} policy={policy} change={setPolicy} disabled={busy || pending} /><button type="button" disabled={busy || pending || stale || embedded.revision !== revision || Boolean(embedded.tags.modes[policy].blocked)} onClick={() => void applyEmbedded()}>{t("character_editor.apply_reviewed_tags")}</button><button type="button" className="quiet" onClick={() => setEmbedded(null)}>{t("character_editor.cancel_embedded_tags")}</button></section>}
-  </>;
+  </NumberDraftContext.Provider>;
 }
 
 function CharacterReconciliation({ library, characterId, disabled, reconcile }: { library: LibrarySnapshot; characterId?: string; disabled: boolean; reconcile: () => void }) {
@@ -179,7 +188,8 @@ function CharacterReconciliation({ library, characterId, disabled, reconcile }: 
 
 function CardInstructions({ value, change }: { value: LibraryCharacter; change?: (value: LibraryCharacter) => void }) {
   useLocale();
-  const [open, setOpen] = useState(false);
+  const numberDraft = useContext(NumberDraftContext);
+  const [open, setOpen] = useState(() => Boolean(change && numberDraft?.values.characterDepth !== undefined));
   const note = readCharacterDepthPrompt(value);
   const instructions = open ? cardInstructionFields.map(field => ({
     field, instruction: readCardInstruction(value, field), label: cardInstructionLabel(field),
@@ -196,7 +206,11 @@ function CardInstructions({ value, change }: { value: LibraryCharacter; change?:
       <EditorTextarea aria-label={label} maxLength={100_000} value={instruction.data} onChange={event => change({ ...value, [field]: event.target.value })} />
     </label>;
   }
-  return <details className="full card-instructions" onToggle={event => setOpen(event.currentTarget.open)}>
+  return <details className="full card-instructions" open={open} onToggle={event => {
+    const expanded = event.currentTarget.open;
+    if (change && !expanded) numberDraft?.set('characterDepth', undefined);
+    setOpen(expanded);
+  }}>
     <summary>{t("character_editor.card_instructions")}</summary>
     {open && <div className="form-grid">
       <p className="small muted full">{t("character_editor.the_prompt_preset_controls_whether_these_instructions")}</p>
@@ -207,7 +221,7 @@ function CardInstructions({ value, change }: { value: LibraryCharacter; change?:
       </div> : change ? <>
         <label className="full">{t("character_editor.character_depth_note")}<EditorTextarea aria-label={t("character_editor.character_depth_note_2")} maxLength={100_000} value={note.data.prompt} onChange={event => change({ ...value, depth_prompt: { ...note.data, prompt: event.target.value } })} />
         </label>
-        <label>{t("character_editor.character_note_depth")}<NumberInput aria-label={t("character_editor.character_note_depth_2")} required min={0} max={1000} value={note.data.depth} onChange={depth => change({ ...value, depth_prompt: { ...note.data, depth } })} />
+        <label>{t("character_editor.character_note_depth")}<NumberInput draftField="characterDepth" aria-label={t("character_editor.character_note_depth_2")} required min={0} max={1000} value={note.data.depth} onChange={depth => change({ ...value, depth_prompt: { ...note.data, depth } })} />
         </label>
         <label>{t("character_editor.character_note_role")}<Dropdown aria-label={t("character_editor.character_note_role_2")} value={note.data.role} onChange={role => {
             if (role === 'system' || role === 'user' || role === 'assistant') change({ ...value, depth_prompt: { ...note.data, role } });

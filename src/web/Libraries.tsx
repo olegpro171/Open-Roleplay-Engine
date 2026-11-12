@@ -18,7 +18,7 @@ import { useConfirmation } from './Confirmation';
 import { WarningDetails, WarningDialog, WarningMessages } from './WarningDialog';
 import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { CharacterAvatar, PictureSquare } from './Pictures';
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
 import { ChatWorkspace } from './ChatWorkspace';
 import type { ChatToolsSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
 import { characterLabel, personaLabel, characterFields, defaultPrompt, markers, markerLabel, promptWarningMessages, type ChatSummary, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
@@ -33,11 +33,13 @@ import { EditorActions, EditorActionsTarget } from './EditorActions';
 import { EditorTextarea } from './EditorTextarea';
 import { TagChips, TagFilterMenu } from './Tags';
 import { characterTagIndex, matchesCharacterTags } from '../shared/tags';
-import { api } from './api';
-import { Dropdown, NumberInput } from './Controls';
+import { api, datasetEpoch } from './api';
+import { Dropdown, NumberDraftContext, NumberInput } from './Controls';
 import { defaultContextPreset, type ContextPreset } from '../shared/context';
 import { newLorebook, type Lorebook, type LoreDiagnostic } from '../shared/lorebook';
 import { LorebookEditor, LorebookImport, LoreDiagnostics } from './LorebookEditor';
+import { CopyLibraryDraft, LibraryDraftNotice, StaleLibraryDraft, useLibraryEditorDraft, useLibraryNumberDraft, type LeaveLibraryEditor } from './LibraryDraft';
+import { sameDraftValue, type LibraryDraft, type LibraryEditorDraft } from './library-draft';
 
 export const defaultConnection: Connection = { name: 'My Connection', endpoint: 'https://api.openai.com/v1', model: '', contextWindow: 128_000, maxOutputTokens: 8196, customParameters: {} };
 
@@ -264,9 +266,24 @@ function LibraryHeader({ editing, children }: { editing: boolean; children: Reac
 }
 
 export type LibraryTarget = { kind: 'prompts' | 'characters' | 'lorebooks' | 'contexts'; id: string };
-export function Libraries({ library, defaults, currentBranchId, branchSelections, busy, run, openChat, initialTarget }: { library: LibrarySnapshot; defaults: ChatDefaultsStatus; currentBranchId: string | null; branchSelections: ReadonlyMap<string, string>; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void; initialTarget?: LibraryTarget | null }) {
+type LibraryEditing = { kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean };
+
+function savedEditor(library: LibrarySnapshot, kind: LibraryKind, id: string): LibraryEditing | null {
+  const record = library[kind].find(record => record.id === id);
+  if (!record) return null;
+  const { id: _id, revision: _revision, hasApiKey, ...data } = { ...record, hasApiKey: 'hasApiKey' in record && record.hasApiKey };
+  return { kind, id, revision: library.revision, data, hasApiKey };
+}
+
+function newEditor(kind: LibraryKind, revision: number): LibraryEditing {
+  const data = kind === 'lorebooks' ? newLorebook() : kind === 'connections' ? defaultConnection : kind === 'contexts' ? { ...structuredClone(defaultContextPreset), name: newLibraryLabel('contexts') } : kind === 'prompts' ? newPrompt() : kind === 'personas' ? { name: '', titleComment: '', description: '' } : { name: '', titleComment: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', lorebookId: null };
+  return { kind, revision, data };
+}
+
+export function Libraries({ library, defaults, currentBranchId, branchSelections, busy, run, openChat, initialTarget, recoveredDraft, leaveEditor, clearDraft }: { library: LibrarySnapshot; defaults: ChatDefaultsStatus; currentBranchId: string | null; branchSelections: ReadonlyMap<string, string>; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void; initialTarget?: LibraryTarget | null; recoveredDraft: LibraryDraft | null; leaveEditor: LeaveLibraryEditor; clearDraft: () => void }) {
   useLocale();
-  const [section, setSection] = useState<LibraryKind | 'chats'>(initialTarget?.kind ?? lastLibrarySection);
+  const [recovery, setRecovery] = useState(recoveredDraft);
+  const [section, setSection] = useState<LibraryKind | 'chats'>(recovery?.editor.kind ?? initialTarget?.kind ?? lastLibrarySection);
   useEffect(() => {
     try { localStorage.setItem('roleplay-library-section', section); }
     catch { /* Navigation still works when browser storage is unavailable. */ }
@@ -284,12 +301,28 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     catch { /* Keep the current choice for this visit if storage is unavailable. */ }
   }
   const confirmAction = useConfirmation(section);
-  const [editing, setEditing] = useState<{ kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean } | null>(() => {
-    const record = initialTarget ? library[initialTarget.kind].find(record => record.id === initialTarget.id) : undefined;
-    if (!record || !initialTarget) return null;
-    const { id, revision: _revision, ...data } = record;
-    return { kind: initialTarget.kind, id, revision: library.revision, data };
+  const [editing, setEditing] = useState<LibraryEditing | null>(() => {
+    if (recovery) {
+      const { kind, id, revision } = recovery.editor;
+      if (recovery.epoch !== datasetEpoch() || revision !== library.revision) return null;
+      return id ? savedEditor(library, kind, id) : newEditor(kind, revision);
+    }
+    return initialTarget ? savedEditor(library, initialTarget.kind, initialTarget.id) : null;
   });
+  const staleRecovery = !editing && recovery;
+  const editorOpen = Boolean(editing || staleRecovery);
+  const mounted = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  function closeEditor() {
+    if (!mounted.current) return;
+    clearDraft();
+    setRecovery(null);
+    setEditing(null);
+  }
+  const cancelEditor: MouseEventHandler<HTMLButtonElement> = event => leaveEditor(closeEditor, { returnFocus: event.currentTarget });
   const reviewMemoryCleanup = useMemoryCleanup(run, `${section}:${editing?.id ?? editing?.kind ?? ''}`);
   const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
   const panel = useRef<HTMLElement>(null);
@@ -368,16 +401,45 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     const { id, revision: _revision, ...data } = book;
     setFilters([]); setSearch(''); setSection('lorebooks'); setEditing({ kind: 'lorebooks', id, revision: library.revision, data }); setPendingBook(null);
   }, [pendingBook, library]);
-  function openBook(id: string) {
-    const book = library.lorebooks.find(item => item.id === id);
+  function openBook(id: string, returnFocus: HTMLElement) {
+    const book = savedEditor(library, 'lorebooks', id);
     if (!book) { setWarning({ message: msg("libraries.the_lorebook_is_not_yet_loaded_reopen") }); return; }
-    const { id: bookId, revision: _revision, ...data } = book;
-    setFilters([]); setSearch(''); setSection('lorebooks'); setEditing({ kind: 'lorebooks', id: bookId, revision: library.revision, data });
+    leaveEditor(() => {
+      setRecovery(null);
+      setFilters([]);
+      setSearch('');
+      setSection('lorebooks');
+      setEditing(book);
+    }, { returnFocus });
   }
   function create() {
-    const kind = section as LibraryKind;
-    const data = kind === 'lorebooks' ? newLorebook() : kind === 'connections' ? defaultConnection : kind === 'contexts' ? { ...structuredClone(defaultContextPreset), name: newLibraryLabel('contexts') } : kind === 'prompts' ? newPrompt() : kind === 'personas' ? { name: '', titleComment: '', description: '' } : { name: '', titleComment: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', lorebookId: null };
-    setEditing({ kind, revision: library.revision, data });
+    if (section !== 'chats') setEditing(newEditor(section, library.revision));
+  }
+  function renderEditor(initial: LibraryEditing) {
+    const recovered = recovery?.editor;
+    if (initial.kind === 'characters' && 'personality' in initial.data) {
+      return <CharacterEditor key={initial.id ?? 'new-character'} initial={{ ...initial, data: initial.data }}
+        recovered={recovered?.kind === 'characters' ? recovered : undefined} library={library} busy={busy} run={run}
+        close={cancelEditor} closeAfterSave={closeEditor} openBook={openBook}
+        saved={() => setNotice(msg("libraries.character_saved", { value: filters.length ? t("interface.it_may_be_hidden_by_your_tag_filters") : '' }))}
+        extracted={id => {
+          closeEditor();
+          setFilters([]);
+          setSection('lorebooks');
+          setNotice(msg("libraries.embedded_lorebook_extracted_review_its_shared_library"));
+          setPendingBook(id);
+        }} />;
+    }
+    if (initial.kind === 'lorebooks' && 'entries' in initial.data) {
+      return <LorebookEditor key={initial.id ?? 'new-lorebook'} initial={{ ...initial, data: initial.data }}
+        recovered={recovered?.kind === 'lorebooks' ? recovered : undefined} currentRevision={library.revision}
+        busy={busy} run={run} close={cancelEditor} committed={closeEditor} />;
+    }
+    if ('personality' in initial.data || 'entries' in initial.data) return null;
+    const restored = recovered?.kind !== 'characters' && recovered?.kind !== 'lorebooks' ? recovered : undefined;
+    return <LibraryEditor key={initial.id ?? initial.kind} initial={{ ...initial, data: initial.data }} recovered={restored}
+      connections={library.connections} currentRevision={library.revision} busy={busy} run={run}
+      close={cancelEditor} committed={closeEditor} />;
   }
   async function duplicate(item: Saved<LibraryRecord>) {
     if (section === 'chats') return;
@@ -407,27 +469,28 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
           type="button"
           aria-pressed={section === kind}
           key={kind}
-          onClick={() => {
+          disabled={busy && editorOpen}
+          onClick={event => leaveEditor(() => {
             if (kind !== 'characters') setFilters([]);
             setSection(kind);
-            setEditing(null);
+            closeEditor();
             setCreatingChat(false);
             setNotice('');
             setDiagnostics([]);
             setSearch('');
-          }}
+          }, { returnFocus: event.currentTarget })}
         ><LibraryIcon kind={kind} />{libraryLabel(kind)}</button>)}
       </nav>
       </div>
       <div className="library-editor-target" ref={setActionsTarget} />
     </aside>
     <section ref={panel} key={section} className="document-panel library-panel" aria-labelledby="library-heading">
-    <LibraryHeader editing={Boolean(editing) || creatingChat}>
+    <LibraryHeader editing={editorOpen || creatingChat}>
       <h1 id="library-heading">{libraryLabel(section)}</h1>
       {section === 'chats' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy || creatingChat} onClick={() => setCreatingChat(true)}><Icon name="AddToList" />{t("libraries.new_chat")}</button>
         <TranscriptImport destination={{ kind: 'chat', library }} disabled={busy || creatingChat} created={id => openChat(id, 'settings')} />
       </div>}
-      {!editing && section !== 'chats' && section !== 'characters' && section !== 'lorebooks' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy} onClick={create}><Icon name="AddToList" />{newLibraryLabel(section)}</button>
+      {!editorOpen && section !== 'chats' && section !== 'characters' && section !== 'lorebooks' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy} onClick={create}><Icon name="AddToList" />{newLibraryLabel(section)}</button>
         {section === 'connections' && <LibraryImport label={t('connection_files.import_button')} description={t('library_import.connection_description')} accept=".oreconnection,application/octet-stream" disabled={busy} onChange={event => {
           const file = event.target.files?.[0]; event.target.value = '';
           if (file) setConnectionFile({ kind: 'import', file, revision: library.revision });
@@ -464,13 +527,13 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
             if (saved && usedChatConnection) setWarning({ message: msg('library_import.context_connection_missing'), returnFocus });
           }} />}
       </div>}
-      {!editing && section === 'lorebooks' && <LorebookImport leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_lorebook")}</button>} revision={library.revision} busy={busy} run={run} imported={(_id, message) => setNotice(message)} />}
-      {section === 'characters' && <CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_character")}</button>} revision={library.revision} busy={busy} run={run} imported={(result, missing) => {
+      {!editorOpen && section === 'lorebooks' && <LorebookImport leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_lorebook")}</button>} revision={library.revision} busy={busy} run={run} imported={(_id, message) => setNotice(message)} />}
+      {section === 'characters' && <CharacterImport hidden={editorOpen} leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_character")}</button>} revision={library.revision} busy={busy} run={run} imported={(result, missing) => {
         setNotice('');
         if (missing) setWarning({ message: msg("libraries.the_original_import_was_saved_but_its") });
         setDiagnostics(result.diagnostics);
       }} />}
-      {!editing && !creatingChat && <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort}>
+      {!editorOpen && !creatingChat && <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort}>
         {section === 'characters' && <TagFilterMenu library={library} busy={busy} run={run} selected={filters} change={setFilters} />}
       </LibrarySearch>}
     </LibraryHeader>
@@ -500,7 +563,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
         {query && visibleChats.length === 0 && library.chats.length > 0 && <p className="muted" role="status">{t("libraries.no_chats_match_your_search")}</p>}
       </div>
     </> : <>
-      {editing ? editing.kind === 'characters' && 'personality' in editing.data ? <CharacterEditor key={editing.id ?? 'new-character'} initial={{ ...editing, data: editing.data }} library={library} busy={busy} run={run} close={() => setEditing(null)} openBook={openBook} saved={() => setNotice(msg("libraries.character_saved", { value: filters.length ? t("interface.it_may_be_hidden_by_your_tag_filters") : '' }))} extracted={id => { setEditing(null); setFilters([]); setSection('lorebooks'); setNotice(msg("libraries.embedded_lorebook_extracted_review_its_shared_library")); setPendingBook(id); }} /> : editing.kind === 'lorebooks' && 'entries' in editing.data ? <LorebookEditor key={editing.id ?? editing.kind} initial={{ ...editing, data: editing.data }} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <LibraryEditor key={editing.id ?? editing.kind} initial={editing} connections={library.connections} currentRevision={library.revision} busy={busy} run={run} close={() => setEditing(null)} /> : <>
+      {staleRecovery ? <StaleLibraryDraft draft={staleRecovery} close={cancelEditor} /> : editing ? renderEditor(editing) : <>
       {section === 'characters' && filters.length > 0 && <div className="character-active-filters" aria-label={t("libraries.active_tag_filters")} role="group">
         <TagChips tags={library.tags} catalog={tagCatalog} selected={filters} remove={id => setFilters(filters.filter(value => value !== id))} />
         <button type="button" className="quiet" onClick={() => setFilters([])}>{t("libraries.clear_filters")}</button>
@@ -514,9 +577,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
               <div className="library-card-heading">
                 <h2 title={characterLabel(displayLibraryRecord(item))}>
                   <button type="button" className="library-card-open" disabled={busy} onClick={() => {
-                    const { id, revision: _revision, ...record } = item;
-                    const { hasApiKey, ...data } = { ...record, hasApiKey: 'hasApiKey' in record && record.hasApiKey === true };
-                    setEditing({ kind: section, id, revision: library.revision, data, hasApiKey });
+                    setEditing(savedEditor(library, section, item.id));
                   }}><span className="library-card-title">{displayLibraryRecord(item).name}
                   {(section === 'characters' || section === 'personas') && 'titleComment' in item && item.titleComment && <span className="character-comment"> · {item.titleComment}</span>}</span></button>
                 </h2>
@@ -591,11 +652,34 @@ function LorebookUses({ bookId, library }: { bookId: string; library: LibrarySna
   const use = library.lorebookUses.find(item => item.bookId === bookId);
   return use && (use.characters.length > 0 || use.chats.length > 0) ? <p className="small">{t("libraries.used_by_unlink_these_selections_before_deleting", { value: use.characters.map(character => t("interface.character", { value: String(characterLabel(character)) })).concat(use.chats.map(chat => t("interface.chat", { title: String(chat.title) }))).join(', ') })}</p> : <p className="small">{t("libraries.no_character_or_chat_links")}</p>;
 }
-function LibraryEditor({ initial, connections, currentRevision, busy, run, close }: { initial: { kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean }; connections: Saved<Connection>[]; currentRevision: number; busy: boolean; run: Run; close: () => void }) {
+type StandardDraft = Exclude<LibraryEditorDraft, { kind: 'characters' | 'lorebooks' }>;
+
+function comparableLibraryFields(data: StandardDraft['data']) {
+  if ('description' in data) return { ...data, titleComment: data.titleComment ?? '', speechColor: data.speechColor ?? null };
+  if ('endpoint' in data) return { ...data, requestUsage: data.requestUsage !== false };
+  return data;
+}
+
+function LibraryEditor({ initial, recovered, connections, currentRevision, busy, run, close, committed }: { initial: LibraryEditing & { data: StandardDraft['data'] }; recovered?: StandardDraft; connections: Saved<Connection>[]; currentRevision: number; busy: boolean; run: Run; close: MouseEventHandler<HTMLButtonElement>; committed: () => void }) {
   useLocale();
   const formId = useId();
-  const [data, setData] = useState(initial.data), [key, setKey] = useState(''), [removeKey, setRemoveKey] = useState(false);
-  const [parameters, setParameters] = useState(JSON.stringify((initial.data as Connection).customParameters ?? {}, null, 2));
+  const [data, setData] = useState(recovered?.data ?? initial.data);
+  const [key, setKey] = useState('');
+  const [removeKey, setRemoveKey] = useState(recovered?.kind === 'connections' && recovered.removeKey);
+  const [baselineParameters] = useState(() => 'customParameters' in initial.data ? JSON.stringify(initial.data.customParameters, null, 2) : '');
+  const [parameters, setParameters] = useState(recovered?.kind === 'connections' ? recovered.parameters : baselineParameters);
+  const numberDraft = useLibraryNumberDraft(recovered);
+  const keyOmitted = !removeKey && key !== '';
+  const draft = useMemo<StandardDraft>(() => {
+    const target = { id: initial.id, revision: initial.revision, numbers: numberDraft.values };
+    if ('endpoint' in data) return { ...target, kind: 'connections', data, parameters, removeKey, keyOmitted };
+    if ('blocks' in data) return { ...target, kind: 'prompts', data };
+    if ('batchSize' in data) return { ...target, kind: 'contexts', data };
+    return { ...target, kind: 'personas', data };
+  }, [initial.id, initial.revision, data, parameters, removeKey, keyOmitted, numberDraft.values]);
+  const dataChanged = useMemo(() => data !== initial.data && !sameDraftValue(comparableLibraryFields(data), comparableLibraryFields(initial.data)), [data, initial.data]);
+  const dirty = dataChanged || parameters !== baselineParameters || removeKey || key !== '' || numberDraft.dirty;
+  const storageError = useLibraryEditorDraft(draft, dirty);
   const [error, setError] = useTextState('');
   const stale = initial.revision !== currentRevision;
   const reviewMemoryCleanup = useMemoryCleanup(run, initial.id);
@@ -615,17 +699,17 @@ function LibraryEditor({ initial, connections, currentRevision, busy, run, close
       await reviewMemoryCleanup({
         path: `/library/contexts/${id}/impact`, body, copy: saveMemoryCleanupCopy(), alwaysConfirm: true,
         commit: memoryImpactToken => api(`/library/${id}`, 'PUT', { ...body, kind: 'contexts', memoryImpactToken }),
-        saved: close,
+        saved: committed,
       });
       return;
     }
-    if (await run(() => api(initial.id ? `/library/${initial.id}` : '/library', initial.id ? 'PUT' : 'POST', { revision: initial.revision, kind: initial.kind, data: value, ...(initial.kind === 'connections' && (key || removeKey) ? { apiKey: removeKey ? '' : key } : {}) }))) close();
+    if (await run(() => api(initial.id ? `/library/${initial.id}` : '/library', initial.id ? 'PUT' : 'POST', { revision: initial.revision, kind: initial.kind, data: value, ...(initial.kind === 'connections' && (key || removeKey) ? { apiKey: removeKey ? '' : key } : {}) }))) committed();
   }
   function textField(field: string, label: string, multiline = true, full = true) {
     const value = (data as unknown as Record<string, string>)[field];
     return <label className={full ? 'full' : undefined} key={field}>{label}{multiline ? <EditorTextarea value={value} maxLength={100_000} onChange={e => setData({ ...data, [field]: e.target.value })} /> : <input required maxLength={100} value={value} onChange={e => setData({ ...data, [field]: e.target.value })} />}</label>;
   }
-  return <form id={formId} onSubmit={e => void save(e)}><fieldset disabled={busy || stale}><legend>{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend><div className="form-grid">{textField('name', t("character_editor.name"), false, initial.kind !== 'personas')}
+  return <NumberDraftContext.Provider value={numberDraft}><form id={formId} onSubmit={e => void save(e)}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy || stale}><legend>{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend><div className="form-grid">{textField('name', t("character_editor.name"), false, initial.kind !== 'personas')}
     {initial.kind === 'personas' && <><label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={(data as LibraryPersona).titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("libraries.an_optional_label_useful_for_distinguishing_between")}</small></label><SpeechColorSelector speaker="persona" value={(data as LibraryPersona).speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || stale} />{textField('description', t("libraries.persona_description"))}</>}
     {initial.kind === 'contexts' && <ContextPresetFields value={data as ContextPreset} change={setData} connections={connections} />}
     {initial.kind === 'connections' && <>
@@ -633,11 +717,11 @@ function LibraryEditor({ initial, connections, currentRevision, busy, run, close
       <div className="full api-key-row"><label>{t("libraries.api_key")}<input type="password" autoComplete="new-password" disabled={removeKey} placeholder={initial.hasApiKey ? t("libraries.saved_leave_blank_to_keep_it") : t("libraries.optional_for_endpoints_without_authentication")} value={key} onChange={e => setKey(e.target.value)} /></label>{initial.hasApiKey && <label className="checkbox"><input type="checkbox" checked={removeKey} onChange={e => setRemoveKey(e.target.checked)} />{t("libraries.remove_the_saved_api_key")}</label>}</div>
       <ModelField value={(data as Connection).model} endpoint={(data as Connection).endpoint} connectionId={initial.id}
         apiKey={removeKey ? '' : key || undefined} disabled={busy || stale} change={model => setData({ ...data as Connection, model })} />
-      <label>{t("libraries.model_context_window")}<NumberInput required value={(data as Connection).contextWindow} onChange={contextWindow => setData({ ...data as Connection, contextWindow })} /></label><label>{t("libraries.reserved_output_tokens")}<NumberInput required max={1_000_000} value={(data as Connection).maxOutputTokens} onChange={maxOutputTokens => setData({ ...data as Connection, maxOutputTokens })} /></label><label className="checkbox full"><input type="checkbox" checked={(data as Connection).requestUsage !== false} onChange={e => setData({ ...data as Connection, requestUsage: e.target.checked })} />{t("libraries.request_token_usage_from_the_endpoint")}</label><p className="small muted full">{t("libraries.turn_statistics_use_counts_supplied_by_the")}</p><label className="full">{t("libraries.custom_request_parameters")}<EditorTextarea className="code-input" value={parameters} onChange={e => setParameters(e.target.value)} /><small>{t("libraries.temperature_top_p_presence_penalty_frequency_penalty")}</small></label>
+      <label>{t("libraries.model_context_window")}<NumberInput draftField="contextWindow" required value={(data as Connection).contextWindow} onChange={contextWindow => setData({ ...data as Connection, contextWindow })} /></label><label>{t("libraries.reserved_output_tokens")}<NumberInput draftField="maxOutputTokens" required max={1_000_000} value={(data as Connection).maxOutputTokens} onChange={maxOutputTokens => setData({ ...data as Connection, maxOutputTokens })} /></label><label className="checkbox full"><input type="checkbox" checked={(data as Connection).requestUsage !== false} onChange={e => setData({ ...data as Connection, requestUsage: e.target.checked })} />{t("libraries.request_token_usage_from_the_endpoint")}</label><p className="small muted full">{t("libraries.turn_statistics_use_counts_supplied_by_the")}</p><label className="full">{t("libraries.custom_request_parameters")}<EditorTextarea className="code-input" value={parameters} onChange={e => setParameters(e.target.value)} /><small>{t("libraries.temperature_top_p_presence_penalty_frequency_penalty")}</small></label>
       <ConnectionTools connection={data as Connection} parameters={parameters} connectionId={initial.id} apiKey={removeKey ? '' : key || undefined} />
     </>}
     {initial.kind === 'prompts' && <div className="full"><p className="small muted">{t("libraries.enabled_blocks_and_markers_compose_the_base", { value: '{{user}}', value2: '{{char}}' })}</p><PromptEditor value={data as PromptPreset} change={setData} /></div>}
-  </div></fieldset>{error && <p role="alert">{error}</p>}{stale && <p role="status">{t("libraries.the_library_changed_close_this_editor_and")}</p>}<EditorActions formId={formId} disabled={busy || stale} close={close} /></form>;
+  </div></fieldset>{error && <p role="alert">{error}</p>}{stale && <p role="status">{t("libraries.the_library_changed_close_this_editor_and")}</p>}{stale && dirty && <CopyLibraryDraft editor={draft} />}<EditorActions formId={formId} disabled={busy || stale} cancelDisabled={busy} close={close} /></form></NumberDraftContext.Provider>;
 }
 function ConnectionTools({ connection, parameters, connectionId, apiKey }: { connection: Connection; parameters: string; connectionId?: string; apiKey?: string }) {
   useLocale();
@@ -669,7 +753,7 @@ function ContextPresetFields({ value, change, connections }: { value: ContextPre
   useLocale();
   const fields = [['minTail', t("libraries.minimum_verbatim_turns"), 0], ['batchSize', t("libraries.turns_per_batch"), 1], ['summaryTokens', t("libraries.requested_summary_tokens"), 1], ['promotionGroup', t("libraries.summaries_per_promotion"), 2], ['retainedPerLevel', t("libraries.retain_summaries_per_level"), 0]] as const;
   return <><label className="full">{t("libraries.summarization_connection")}<Dropdown aria-label={t("libraries.summarization_connection")} value={value.connectionId ?? ''} onChange={connectionId => change({ ...value, connectionId: connectionId || null })} options={[{ value: '', label: t("libraries.same_as_current_chat_connection") }, ...connections.map(connection => ({ value: connection.id, label: `${connection.name} · ${connection.model}` }))]} /></label>
-    {fields.map(([field, label, min]) => <label key={field}>{label}<NumberInput required min={min} max={field === 'summaryTokens' ? 1_000_000 : 50_000} value={value[field]} onChange={number => change({ ...value, [field]: number })} /></label>)}
+    {fields.map(([field, label, min]) => <label key={field}>{label}<NumberInput draftField={field} required min={min} max={field === 'summaryTokens' ? 1_000_000 : 50_000} value={value[field]} onChange={number => change({ ...value, [field]: number })} /></label>)}
     <p className="small muted full">{t("libraries.the_input_target_belongs_to_each_chat")}</p>
     <label className="full">{t("libraries.first_layer_extraction_prompt")}<EditorTextarea required value={value.extractionPrompt} maxLength={100_000} onChange={e => change({ ...value, extractionPrompt: e.target.value })} /></label>
     <label className="full">{t("libraries.higher_layer_compression_prompt")}<EditorTextarea required value={value.promotionPrompt} maxLength={100_000} onChange={e => change({ ...value, promotionPrompt: e.target.value })} /></label>

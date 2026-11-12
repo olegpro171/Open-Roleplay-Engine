@@ -1,4 +1,4 @@
-import { openLibraryActions } from './library-card-helpers';
+import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import { defaultPrompt, type LibraryKind, type LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
@@ -169,6 +169,7 @@ for (const width of [1280, 820, 800, 390, 320]) {
       await actions.scrollIntoViewIfNeeded();
       await page.screenshot({ path: testInfo.outputPath(`sidebar-${fixture.kind}.png`), animations: 'disabled' });
       await close.click();
+      await confirmLeaveEditor(page);
       await expect(actions).toHaveCount(0);
       expect((await library(page))[fixture.kind].some(record => record.name === 'Discard this sidebar draft')).toBe(false);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -246,6 +247,7 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     await page.getByLabel('Name', { exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath(`character-editor-${width}.png`), animations: 'disabled' });
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await confirmLeaveEditor(page);
     await page.getByRole('button', { name: 'Sized character editor · Night watch', exact: true }).click();
     expect((await measure()).height).toBe(loaded.base * 4);
     await expect(description).toHaveValue(longText);
@@ -377,6 +379,7 @@ test('keeps every category and the library editors usable on narrow screens', as
     await expect(page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Save', exact: true })).toBeInViewport();
     expect(await content.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Cancel', exact: true }).click();
+    await confirmLeaveEditor(page);
   }
 });
 

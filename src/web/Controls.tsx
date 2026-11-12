@@ -1,6 +1,6 @@
 import { t, useLocale, locale } from './localization';
 import { Icon } from './Icon';
-import { useEffect, useId, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 type Option = { value: string; label: string; disabled?: boolean; leading?: ReactNode };
@@ -120,16 +120,31 @@ function OptionLabel({ label, leading }: Pick<Option, 'label' | 'leading'>) {
   return <span className="select-option-content"><span className="select-option-leading" aria-hidden="true">{leading}</span><span className="select-option-text">{label}</span></span>;
 }
 
-export function NumberInput({ value, onChange, min = 1, max = 10_000_000, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max' | 'type'> & { value: number; onChange: (value: number) => void; min?: number; max?: number }) {
+export const NumberDraftContext = createContext<{
+  values: Readonly<Record<string, string>>;
+  set: (field: string, value: string | undefined) => void;
+} | null>(null);
+
+export function NumberInput({ value, onChange, min = 1, max = 10_000_000, draftField, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max' | 'type'> & { value: number; onChange: (value: number) => void; min?: number; max?: number; draftField?: string }) {
   useLocale();
   const numberLocale = locale();
   const [text, setText] = useState(String(value));
+  const draft = useContext(NumberDraftContext);
+  const visibleText = draftField ? draft?.values[draftField] ?? text : text;
   const input = useRef<HTMLInputElement>(null);
   const published = useRef(value);
   useEffect(() => { if (value !== published.current) { setText(String(value)); published.current = value; } }, [value]);
-  useEffect(() => { input.current?.setCustomValidity(text !== '' && (!/^\d+$/.test(text) || Number(text) < min || Number(text) > max) ? t("controls.enter_a_whole_number_from_to", { value: min.toLocaleString(numberLocale), value2: max.toLocaleString(numberLocale) }) : ''); }, [text, min, max, numberLocale]);
-  return <input {...props} ref={input} type="text" inputMode="numeric" pattern="[0-9]+" value={text} onChange={event => {
-    const next = event.target.value; setText(next);
-    if (/^\d+$/.test(next)) { published.current = Number(next); onChange(published.current); }
+  useEffect(() => { input.current?.setCustomValidity(visibleText !== '' && (!/^\d+$/.test(visibleText) || Number(visibleText) < min || Number(visibleText) > max) ? t("controls.enter_a_whole_number_from_to", { value: min.toLocaleString(numberLocale), value2: max.toLocaleString(numberLocale) }) : ''); }, [visibleText, min, max, numberLocale]);
+  return <input {...props} ref={input} type="text" inputMode="numeric" pattern="[0-9]+" value={visibleText} onChange={event => {
+    const next = event.target.value;
+    const numeric = /^\d+$/.test(next);
+    const parsed = Number(next);
+    if (draftField && draft) {
+      const valid = numeric && parsed >= min && parsed <= max;
+      draft.set(draftField, valid ? undefined : next);
+      if (!valid) return;
+    }
+    setText(next);
+    if (numeric) { published.current = parsed; onChange(parsed); }
   }} />;
 }

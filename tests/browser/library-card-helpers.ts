@@ -10,3 +10,7 @@ export async function openLibraryActions(page: Page, card: Locator): Promise<Loc
   await expect(menu).toBeVisible();
   return menu;
 }
+
+export async function confirmLeaveEditor(page: Page) {
+  await page.getByRole('dialog', { name: 'Leave editor?', exact: true }).getByRole('button', { name: 'Leave editor', exact: true }).click();
+}

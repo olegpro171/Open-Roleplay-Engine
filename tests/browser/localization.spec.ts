@@ -222,9 +222,12 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
   await colorPicker.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath(`localized-${width}.png`) });
+  page.once('dialog', dialog => dialog.accept());
   await page.reload();
   await expect(page.getByRole('button', { name: 'Библиотеки', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Unsaved persona name');
   await page.getByRole('button', { name: 'Настройки', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Leave editor?', exact: true }).getByRole('button', { name: 'Leave editor', exact: true }).click();
   await page.getByRole('button', { name: 'Язык', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Язык интерфейса', exact: true })).toHaveText('Русский');
   await chooseLanguage(page, 'Язык интерфейса', 'English');

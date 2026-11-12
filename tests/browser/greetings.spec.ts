@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
+import { confirmLeaveEditor } from './library-card-helpers';
 
 async function library(page: Page): Promise<LibrarySnapshot> {
   return page.request.get('/api/library').then(response => response.json());
@@ -42,6 +43,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByLabel('Alternate greeting 2', { exact: true })).toHaveValue('A third beginning.\n\nA second paragraph.');
     await page.getByLabel('Alternate greeting 1', { exact: true }).fill('Discard this draft.');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await confirmLeaveEditor(page);
     await page.getByRole('button', { name: `${name}`, exact: true }).click();
     await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue('Edited greeting for {{user}} from {{char}}.');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();

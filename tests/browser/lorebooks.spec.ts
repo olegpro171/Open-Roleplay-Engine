@@ -1,4 +1,4 @@
-import { openLibraryActions } from './library-card-helpers';
+import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
 import { openChatTool } from './chat-tools';
 import { test, expect, type Page } from '@playwright/test';
 import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
@@ -574,6 +574,7 @@ test('reorders a lorebook draft with drag and arrows and changes admission witho
   await expect(comment).toHaveValue('Unsaved text stays with this entry.');
   expect(await rowNames()).toEqual(['Tower', 'Harbor', 'Priority', 'Far']);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await confirmLeaveEditor(page);
   await editBook.click();
   expect(await rowNames()).toEqual(['Harbor', 'Tower', 'Priority', 'Far']);
 

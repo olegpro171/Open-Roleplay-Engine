@@ -55,6 +55,7 @@ for (const width of [1440, 390]) {
     await page.getByRole('article').filter({ has: page.getByRole('heading', { name: university, exact: true }) }).getByRole('heading').getByRole('button').click();
     await page.getByLabel('Title / comment', { exact: true }).fill('Unsaved draft');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await confirmLeaveEditor(page);
     await expect(page.getByRole('heading', { name: university, exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: 'Chats', exact: true }).click();
@@ -86,3 +87,4 @@ for (const width of [1440, 390]) {
     await expect(page.locator('.part.user .part-heading strong')).toHaveText(name);
   });
 }
+import { confirmLeaveEditor } from './library-card-helpers';

@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom';
 
 type ConfirmationText = string | LocalizedMessage;
 export type ConfirmationCopy = { title: ConfirmationText; message: ConfirmationText; actionLabel: ConfirmationText; confirmOnEnter?: true };
-type Confirmation = ConfirmationCopy & { details?: ReactNode; returnFocus?: HTMLElement; onConfirm: () => void };
+type Confirmation = ConfirmationCopy & { cancelLabel?: ConfirmationText; details?: ReactNode; returnFocus?: HTMLElement; onConfirm: () => void };
 type Request = Confirmation & { owner: string };
 type ConfirmationControl = { open: (request: Request) => void; dismiss: (owner: string) => void };
 const ConfirmationContext = createContext<ConfirmationControl | null>(null);
@@ -79,6 +79,6 @@ function ConfirmationDialog({ request, cancel, confirm }: { request: Confirmatio
     <h2 id={title}>{formatMessage(request.title)}</h2>
     <p id={description}>{formatMessage(request.message)}</p>
     {request.details}
-    <div className="actions"><button type="button" ref={cancelButton} className="secondary" onClick={cancel}>{t("character_import.cancel")}</button><button type="button" ref={confirmButton} className="danger" onClick={confirm} aria-keyshortcuts={request.confirmOnEnter ? 'Enter' : undefined}>{formatMessage(request.actionLabel)}</button></div>
+    <div className="actions"><button type="button" ref={cancelButton} className="secondary" onClick={cancel}>{request.cancelLabel ? formatMessage(request.cancelLabel) : t("character_import.cancel")}</button><button type="button" ref={confirmButton} className="danger" onClick={confirm} aria-keyshortcuts={request.confirmOnEnter ? 'Enter' : undefined}>{formatMessage(request.actionLabel)}</button></div>
   </ModalDialog>, document.body);
 }
