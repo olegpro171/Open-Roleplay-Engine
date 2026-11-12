@@ -727,13 +727,12 @@ export function App() {
           })}
           {snapshot.page.hasNewer && <div className="history-page-control" data-history-direction="newer"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('newer')}>{pageLoading ? t("app.loading_history") : t("app.load_newer_turns")}</button></div>}
           {edit && !snapshot.page.turns.some(turn => turn.id === edit.turnId) && <div className="recovery" role="alert"><div><p>{t("app.the_edited_turn_was_removed_or_replaced")}</p><ChatTextarea aria-label={t("app.unsaved_turn_edit")} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><button onClick={() => setEdit(null)}>{t("app.close_edit")}</button></div></div>}
-        </div><div className="transcript-overlays">
-          {(awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}
-          {preparing && <PreparationStatus preparation={preparing} regeneration={regenerationPreparation}
-            committedInput={inspectionCurrent ? currentRequest?.budget.inputTokens : undefined} disabled={busy || dataChanged}
+        </div>
+          {preparing && <PreparationStatus preparation={preparing} transcript={transcript} hasOlderTurns={snapshot.page.hasOlder} disabled={busy || dataChanged}
             review={() => setTab('memory')}
             stop={() => void command(() => api(preparing.generationId ? `/generations/${preparing.generationId}/cancel` : `/context/jobs/${preparing.id}/cancel`, 'POST', {}))} />}
-        </div></div>
+          {(awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}
+        </div>
         {!working && preparation?.generationId === null && preparation.error && ['failed', 'interrupted'].includes(preparation.status) && <div className="recovery" role="status">
           <p>{formatMessage(preparation.errorMessage ?? preparation.error)}</p>
           <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('story_preparation.open_memory')}</button>

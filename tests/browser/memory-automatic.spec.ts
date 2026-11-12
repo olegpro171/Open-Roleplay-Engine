@@ -83,10 +83,9 @@ for (const device of ['desktop', 'phone'] as const) test.describe(`automatic mem
       await expect(page.locator('.memory-preparation-status')).toHaveCount(0);
       await page.request.post('/__test/finish');
       const progress = page.locator('.memory-preparation-status');
-      await expect(progress).toContainText('Preparing memory…');
-      await expect(progress).toContainText(/Estimated working input [\d,]+ \/ [\d,]+ target tokens/);
-      await expect(progress).toContainText('Step 1 · Summarize oldest turns');
-      await expect(progress).toContainText(/Estimated committed input [\d,]+ tokens/);
+      await expect(progress.getByRole('status')).toHaveText(/^Preparing memory…\s*Estimated input [\d,]+ \/ [\d,]+ tokens\s*Generating…$/);
+      const latestReply = page.locator('.part.assistant').last().getByText('The lantern flickers. 🕯', { exact: true });
+      await expect(latestReply).toBeInViewport({ ratio: 1 });
       await expect(send).toBeDisabled();
       await expect(composer).toBeEditable();
       await composer.fill('My next draft stays available.');
@@ -97,6 +96,7 @@ for (const device of ['desktop', 'phone'] as const) test.describe(`automatic mem
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await progress.getByRole('button', { name: 'Stop', exact: true }).click();
       await expect(page.locator('.memory-preparation-status')).toHaveCount(0);
+      await expect(latestReply).toBeInViewport({ ratio: 1 });
       await expect(page.getByRole('status').filter({ hasText: 'Preparation stopped. Saved summaries remain available.' })).toHaveCount(0);
       await expect(send).toBeEnabled();
       await expect(composer).toHaveValue('My next draft stays available.');
@@ -108,7 +108,7 @@ for (const device of ['desktop', 'phone'] as const) test.describe(`automatic mem
       await page.request.post('/__test/mode', { data: { mode: 'hold-first-token' } });
       await send.click();
       await expect(page.locator('.part.assistant').last()).toContainText('Preparing memory…');
-      await expect(progress).toContainText(/Estimated working input [\d,]+ \/ [\d,]+ target tokens/);
+      await expect(progress.getByRole('status')).toHaveText(/^Preparing memory…\s*Estimated input [\d,]+ \/ [\d,]+ tokens\s*Connecting…$/);
       await expect(page.locator('.composer')).not.toContainText('Preparing memory');
       await expect(page.locator('.composer').locator(':scope > *')).toHaveCount(2);
       await expect(composer).toBeEditable();

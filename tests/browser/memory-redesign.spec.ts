@@ -140,9 +140,13 @@ test('Story tracks and stops regeneration outside the transcript window and revi
   });
   const progress = page.locator('.memory-preparation-status');
   const calls = () => read<unknown[]>('/__test/requests');
-  await expect(progress).toContainText('Preparing memory for Regenerate');
-  await expect(progress).toContainText(/Estimated committed input [\d,]+ tokens/);
-  await expect(progress).toContainText('Step 1 · Summarize oldest turns');
+  await expect(progress.getByRole('status')).toHaveText(/^Preparing memory…\s*Estimated input [\d,]+ \/ 200 tokens\s*Connecting…$/);
+  const popupInset = async () => {
+    const notice = await progress.boundingBox(), scrollArea = await transcript.boundingBox();
+    if (!notice || !scrollArea) throw new Error('Missing preparation popup or transcript');
+    return notice.y - scrollArea.y;
+  };
+  await expect.poll(popupInset).toBeLessThan(24);
   await expect.poll(async () => (await calls()).length).toBe(1);
   const first = (await read<StorySnapshot>(`${path}/story`)).preparation?.working;
   expect(first?.inputTokens).toBeLessThan((await write<{ budget: { inputTokens: number } }>('POST', `${path}/preview`, {
@@ -152,15 +156,24 @@ test('Story tracks and stops regeneration outside the transcript window and revi
   await page.request.post('/__test/finish');
   await expect(progress).toContainText('Generating…');
   await page.request.post('/__test/finish');
-  await expect(progress).toContainText('Step 2 · Summarize oldest turns');
   await expect.poll(async () => (await calls()).length).toBe(2);
   const second = (await read<StorySnapshot>(`${path}/story`)).preparation?.working;
   expect(second?.inputTokens).toBeLessThan(first?.inputTokens ?? 0);
   expect(second?.targetInputTokens).toBe(200);
-  await expect(progress).toContainText(`Estimated working input ${second?.inputTokens.toLocaleString('en')} / 200 target tokens`);
+  await expect(progress).toContainText(`Estimated input ${second?.inputTokens.toLocaleString('en')} / 200 tokens`);
   await expect(latestTurn).toHaveCount(0);
   await expect(progress.getByRole('button', { name: 'Stop', exact: true })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath('regeneration-preparation.png') });
+  const storyRoute = '**/api/chats/*/story?*';
+  await page.route(storyRoute, route => new URL(route.request().url()).searchParams.get('shift') === '-40'
+    ? route.fulfill({ status: 503, json: { message: 'Synthetic history loading failure' } }) : route.continue());
+  await transcript.evaluate(node => { node.scrollTop = 0; });
+  await expect(page.getByRole('alert')).toContainText('Synthetic history loading failure');
+  const loadOlder = transcript.getByRole('button', { name: 'Load older turns', exact: true });
+  await loadOlder.click({ trial: true });
+  await transcript.evaluate(node => { node.scrollTop = 300; });
+  await expect.poll(popupInset).toBeLessThan(24);
+  await page.unroute(storyRoute);
   await progress.getByRole('button', { name: 'Stop', exact: true }).click();
   await expect(progress).toHaveCount(0);
   await expect(page.getByRole('status').filter({ hasText: 'The selected response was kept' })).toHaveCount(0);
@@ -321,6 +334,7 @@ test('Send pauses for deletion review, survives reload, and resumes only after c
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   const reviewLink = page.getByRole('button', { name: 'Review deletion', exact: true });
   await expect(reviewLink).toBeVisible();
+  await expect(page.locator('.memory-preparation-status').getByRole('status')).toContainText('Preparation is waiting for deletion review.');
   expect(await calls()).toHaveLength(2);
   await page.reload();
   await inspectReview(page, page.locator('.memory-preparation-status'), testInfo, browserApp.url, 'Review deletion', 'waiting');

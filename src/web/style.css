@@ -244,11 +244,10 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 @media(max-width:800px){.peek-content{padding-top:0}.peek-heading{padding-top:18px}}
 
 /* The scroll hook preserves the reading position during viewport resize. */
-.transcript-frame{position:relative;display:flex;flex:1;min-height:0;min-width:0}
+.transcript-frame{--history-page-control-height:64px;position:relative;display:flex;flex:1;min-height:0;min-width:0}
 .transcript{min-height:0;overflow-anchor:none}
-.history-page-control{display:flex;justify-content:center;align-items:center;min-height:64px;padding:8px 0}
-.transcript-overlays{position:absolute;z-index:2;left:24px;right:24px;bottom:14px;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
-.latest-turn{align-self:flex-end;pointer-events:auto;font-size:12px;box-shadow:0 4px 16px var(--shadow)}
+.history-page-control{display:flex;justify-content:center;align-items:center;min-height:var(--history-page-control-height);padding:8px 0}
+.latest-turn{position:absolute;z-index:2;inset-inline-end:24px;bottom:14px;font-size:12px;box-shadow:0 4px 16px var(--shadow)}
 .composer{--composer-control-height:44px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:10px 14px}
 .composer textarea{min-height:var(--composer-control-height);line-height:calc(22px * var(--chat-text-scale,1));resize:none;overflow-x:hidden;overflow-y:auto}
 .composer .send-turn{display:inline-flex;align-items:center;justify-content:center;width:var(--composer-control-height);height:var(--composer-control-height);padding:0}
@@ -265,8 +264,10 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
   /* Visually center the diagonal artwork within Send. */
   transform: translate(-0.8px, 0.8px);
 }
-.memory-preparation-status{max-width:100%;padding:8px 12px;flex-wrap:nowrap;gap:12px;border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 8px var(--shadow-soft);pointer-events:auto}
-.memory-preparation-status button{min-height:44px}
+.memory-preparation-status{position:absolute;z-index:2;top:14px;inset-inline:0;width:max-content;max-width:calc(100% - 36px);margin-inline:auto;padding:8px 12px;flex-wrap:nowrap;gap:12px;border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 8px var(--shadow-soft)}
+/* Leave the older-history control clickable when the reader reaches the top. */
+.memory-preparation-status[data-older-control-visible]{top:calc(24px + var(--history-page-control-height))}
+.memory-preparation-status button{min-height:44px;margin:0}
 .memory-preparation-status .actions{flex-direction:column;align-items:stretch;margin:0}
 .request-details[open]>summary{margin-bottom:22px}
 .timeline-layout{display:grid;grid-template-columns:36px minmax(0,1fr);margin-top:26px}
@@ -277,7 +278,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .turn-tick.summary-band{height:30px;pointer-events:none}
 .summary-span.over-summary-band{background:transparent;border-width:0;border-radius:0}
 .timeline-tooltip{position:fixed;z-index:200;pointer-events:none;transform:translateX(-50%);width:max-content;max-width:270px;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;background:var(--tooltip-bg);color:var(--text);font-size:12px;box-shadow:0 4px 14px var(--shadow)}
-@media(max-width:800px){.composer{column-gap:10px}.transcript-overlays{left:18px;right:18px}}
+@media(max-width:800px){.composer{column-gap:10px}.latest-turn{inset-inline-end:18px}}
 @media(max-width:800px){.composer-ios{padding-left:max(26px,env(safe-area-inset-left));padding-right:max(26px,env(safe-area-inset-right));padding-bottom:max(28px,env(safe-area-inset-bottom))}}
 .composer-ios[data-keyboard-visible]{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right));padding-bottom:8px}
 @media(pointer:coarse) and (orientation:landscape){.composer textarea{font-size:calc(16px * var(--chat-text-scale,1))}}

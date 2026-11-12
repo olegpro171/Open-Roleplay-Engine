@@ -1,38 +1,44 @@
+import { useEffect, useState, type RefObject } from 'react';
 import type { StoryPreparation } from '../shared/transcript';
 import { locale, t, useLocale } from './localization';
 
-export function PreparationStatus({ preparation, regeneration, committedInput, disabled, stop, review }: {
+export function PreparationStatus({ preparation, transcript, hasOlderTurns, disabled, stop, review }: {
   preparation: StoryPreparation;
-  regeneration: boolean;
-  committedInput?: number;
+  transcript: RefObject<HTMLDivElement | null>;
+  hasOlderTurns: boolean;
   disabled: boolean;
   stop: () => void;
   review: () => void;
 }) {
   useLocale();
-  const { working, completedSteps, mode, phase, retrying } = preparation;
-  const level = working?.level;
-  const step = completedSteps + 1;
-  const operation = mode === 'repair' ? t('story_preparation.repairing')
-    : level === 1 ? t('story_preparation.batch', { step })
-      : level ? t('story_preparation.promotion', { step, level }) : t('story_preparation.checking');
+  const [olderControlVisible, setOlderControlVisible] = useState(false);
+  useEffect(() => {
+    if (!hasOlderTurns) return;
+    const scroller = transcript.current;
+    const control = scroller?.querySelector('[data-history-direction="older"]');
+    if (!scroller || !control) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry) setOlderControlVisible(entry.isIntersecting);
+    }, { root: scroller });
+    observer.observe(control);
+    return () => observer.disconnect();
+  }, [hasOlderTurns, transcript]);
+
+  const { working, phase, retrying, deletionReviewToken } = preparation;
   const activity = retrying ? t('story_preparation.retry_wait')
     : phase ? t(`repair_review.phase_${phase}`) : '';
   const formatted = (tokens: number) => tokens.toLocaleString(locale());
-  return <div className="recovery memory-preparation-status">
+  return <div className="recovery memory-preparation-status" data-older-control-visible={hasOlderTurns && olderControlVisible ? '' : undefined}>
     <div role="status">
-      <strong>{t(regeneration ? 'story_preparation.regeneration' : 'app.preparing_memory')}</strong>
+      <strong>{t('app.preparing_memory')}</strong>
       <p>{working
         ? t('story_preparation.working_input', { input: formatted(working.inputTokens), target: formatted(working.targetInputTokens) })
         : t('app.counting_current_input')}</p>
-      {(mode === 'prepare' || regeneration) && <p>{committedInput === undefined
-        ? t('story_preparation.counting_committed_input')
-        : t('story_preparation.committed_input', { input: formatted(committedInput) })}</p>}
-      <p>{preparation.deletionReviewToken ? t('memory.preparation_deletion_waiting') : operation}</p>
+      {deletionReviewToken && <p>{t('memory.preparation_deletion_waiting')}</p>}
       {activity && <small>{activity}</small>}
     </div>
     <div className="actions">
-      {preparation.deletionReviewToken && <button type="button" className="secondary" disabled={disabled} onClick={review}>{t('memory.review_preparation_deletion')}</button>}
+      {deletionReviewToken && <button type="button" className="secondary" disabled={disabled} onClick={review}>{t('memory.review_preparation_deletion')}</button>}
       <button type="button" className="secondary" disabled={disabled} onClick={stop}>{t('story_preparation.stop')}</button>
     </div>
   </div>;
