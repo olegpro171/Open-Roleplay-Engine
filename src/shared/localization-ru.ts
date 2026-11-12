@@ -469,7 +469,7 @@ export const russianMessages = {
   "character_editor.none_selected": "Не выбрано",
   "library_draft.leave_title": "Выйти из редактора?",
   "library_draft.leave_message": "Несохранённые изменения будут потеряны.",
-  "library_draft.go_back": "Вернуться к правкам",
+  "library_draft.go_back": "Вернуться",
   "library_draft.leave_editor": "Выйти из редактора",
   "library_draft.recovered": "Черновик восстановлен из этой вкладки. Проверьте изменения перед сохранением.",
   "library_draft.picture_omitted": "Несохранённые изменения изображения не удалось восстановить.",
