@@ -399,7 +399,7 @@ test('keeps tag tools optional, dismisses the picker, and retains visible remova
     await page.screenshot({ path: `test-results/tag-picker-${width}.png`, fullPage: true });
     await page.keyboard.press('Escape');
     await expect(filters(page)).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /^Tags/ })).toBeFocused();
+    await expect(page.getByRole('button', { name: /^Tags/ })).not.toBeFocused();
     const active = page.getByRole('group', { name: 'Active tag filters' });
     await expect(active).toContainText('quiet-ui-tag');
     await expect(row(page, 'Quiet tagged card')).toBeVisible();
@@ -414,8 +414,15 @@ test('keeps tag tools optional, dismisses the picker, and retains visible remova
     await expect(manager(page).getByRole('heading', { level: 2 })).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(manager(page)).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Manage tags', exact: true })).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Manage tags', exact: true })).not.toBeFocused();
     await page.keyboard.press('Escape');
+    await expect(filters(page)).toHaveCount(0);
+    const trigger = page.getByRole('button', { name: /^Tags/ });
+    await trigger.press('Enter');
+    await expect(filters(page)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(filters(page)).toHaveCount(0);
+    await expect(trigger).toBeFocused();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
   await openFilters(page);

@@ -34,8 +34,14 @@ for (const width of [320, 390, 800]) {
     await expect(toggle).toBeFocused();
     await toggle.press('Tab');
     await page.keyboard.press('Escape');
-    await expect(toggle).toBeFocused();
+    await expect(toggle).not.toBeFocused();
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await toggle.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await toggle.press('Tab');
+    await page.keyboard.press('Escape');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(toggle).toBeFocused();
     await toggle.click();
     await sidebar.locator('.context-dropdown summary').click();
     await sidebar.getByRole('button', { name: 'Request inspector', exact: true }).scrollIntoViewIfNeeded();

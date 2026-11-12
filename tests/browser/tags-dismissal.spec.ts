@@ -55,11 +55,13 @@ for (const [width, input] of [[1280, 'mouse'], [390, 'touch'], [320, 'mouse']] a
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
     await trigger.click();
-    await panel.getByRole('button', { name: 'Manage tags', exact: true }).click();
+    const manage = panel.getByRole('button', { name: 'Manage tags', exact: true });
+    if (input === 'touch') await manage.tap();
+    else await manage.click();
     await expect(page.getByRole('dialog', { name: 'Manage tags', exact: true })).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(panel).toBeVisible();
-    await expect(panel.getByRole('button', { name: 'Manage tags', exact: true })).toBeFocused();
+    await expect(manage).not.toBeFocused();
     await activateOutside(page.getByRole('button', { name: 'Settings', exact: true }));
     await expect(panel).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toHaveAttribute('aria-current', 'page');

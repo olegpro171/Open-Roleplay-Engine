@@ -231,7 +231,7 @@ test('reuses the file drop box and fits the Russian editing controls across them
   await page.getByRole('menuitem', { name: 'Import language file', exact: true }).click();
   await expect(drop).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(languageActions).toBeFocused();
+  await expect(languageActions).not.toBeFocused();
   await page.getByRole('button', { name: 'Select file...', exact: true }).click();
   await expect(drop).toBeVisible();
   await page.keyboard.press('Escape');

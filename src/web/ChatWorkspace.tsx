@@ -2,6 +2,7 @@ import { t, useLocale } from './localization';
 import { createContext, useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
+import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
 
 export const ChatDetailsTarget = createContext<HTMLDivElement | null>(null);
 
@@ -10,6 +11,7 @@ export function ChatWorkspace({ sidebar, actions, navigation = false, dismissDet
 }) {
   useLocale();
   const [expanded, setExpanded] = useState(false);
+  const openedWith = useRef<PopupInput>('keyboard');
   const detailsId = useId();
   const target = useContext(ChatDetailsTarget);
   const toggle = useRef<HTMLButtonElement>(null);
@@ -32,8 +34,9 @@ export function ChatWorkspace({ sidebar, actions, navigation = false, dismissDet
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('dialog[open]')) return;
+      event.preventDefault();
       setExpanded(false);
-      toggle.current?.focus();
+      restorePopupFocusAfterEscape(toggle.current, openedWith.current);
     };
     const wide = window.matchMedia('(min-width: 801px)');
     const resize = (event: MediaQueryListEvent) => { if (event.matches) setExpanded(false); };
@@ -50,7 +53,10 @@ export function ChatWorkspace({ sidebar, actions, navigation = false, dismissDet
   }, [expanded, dismissDetails]);
   const pageActions = <div className={`chat-page-actions${navigation ? '' : ' editor-actions floating-controls'}`}>{actions}</div>;
   return <main className="story-layout">
-    {target && createPortal(<button ref={toggle} type="button" className="quiet chat-details-toggle" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)} onKeyDown={event => {
+    {target && createPortal(<button ref={toggle} type="button" className="quiet chat-details-toggle" aria-expanded={expanded} aria-controls={detailsId} onClick={() => {
+      if (!expanded) openedWith.current = popupInput();
+      setExpanded(!expanded);
+    }} onKeyDown={event => {
       if (expanded && event.key === 'Tab' && !event.shiftKey) {
         const first = details.current?.querySelector<HTMLElement>('summary, button:not(:disabled)');
         if (first) { event.preventDefault(); first.focus(); }

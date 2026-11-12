@@ -1,5 +1,6 @@
 import { t, useLocale, locale } from './localization';
 import { Icon } from './Icon';
+import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
 import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -12,6 +13,7 @@ type DropdownProps = {
 export function Dropdown({ value, onChange, options, disabled, editable, required, 'aria-label': label }: DropdownProps) {
   useLocale();
   const id = useId(), anchor = useRef<HTMLDivElement>(null), popup = useRef<HTMLDivElement>(null);
+  const openedWith = useRef<PopupInput>('keyboard');
   const [open, setOpen] = useState(false), [active, setActive] = useState(0);
   const [position, setPosition] = useState({ left: 0, top: 0, width: 0, maxHeight: 280 });
   const visible = editable ? options.filter(option => option.label.toLowerCase().includes(value.toLowerCase())).slice(0, 100) : options;
@@ -21,6 +23,7 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   // A modal makes outside content inert, so its options must share the dialog.
   const portalTarget = anchor.current?.closest('dialog[open]') ?? document.body;
   function show() {
+    openedWith.current = popupInput();
     const index = visible.findIndex(option => option.value === value);
     setActive(Math.max(0, index)); setOpen(true);
   }
@@ -84,9 +87,13 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   const props = {
     role: 'combobox' as const, 'aria-label': label, 'aria-expanded': expanded, 'aria-controls': expanded ? id : undefined,
     'aria-haspopup': 'listbox' as const, 'aria-activedescendant': expanded ? `${id}-${activeIndex}` : undefined, disabled,
-    onKeyDown: (event: KeyboardEvent) => {
+    onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
       if (event.key === 'Escape') {
-        if (expanded) event.preventDefault();
+        if (expanded) {
+          event.preventDefault();
+          // Escape dismisses editable suggestions without leaving the input.
+          if (!editable) restorePopupFocusAfterEscape(event.currentTarget, openedWith.current);
+        }
         setOpen(false);
         event.stopPropagation();
       }
@@ -104,13 +111,25 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
       else if (expanded && !editable && (event.key === 'Home' || event.key === 'End')) { event.preventDefault(); setActive(event.key === 'Home' ? 0 : visible.length - 1); }
       else if (!editable && event.key.length === 1) {
         const index = visible.findIndex(option => !option.disabled && option.label.toLowerCase().startsWith(event.key.toLowerCase()));
-        if (index >= 0) { setOpen(true); setActive(index); }
+        if (index >= 0) {
+          if (!expanded) openedWith.current = 'keyboard';
+          setOpen(true);
+          setActive(index);
+        }
       }
     },
   };
   return <div className="dropdown" ref={anchor}>
     {editable ? <input {...props} required={required} autoComplete="off" value={value} onFocus={show} onClick={show} onChange={event => { onChange(event.target.value); setActive(0); setOpen(true); }} />
-      : <button {...props} type="button" className="select-trigger" onClick={() => expanded ? setOpen(false) : show()}><span className="select-label"><OptionLabel label={selected?.label ?? t("character_editor.none_selected")} leading={selected?.leading} /></span><Icon name="ArrowShortBottom" /></button>}
+      : <button {...props} type="button" className="select-trigger" onClick={event => {
+        if (expanded) setOpen(false);
+        else {
+          // WebKit can leave a pointer-activated button unfocused. The
+          // combobox needs focus to handle arrows and Escape while open.
+          event.currentTarget.focus({ preventScroll: true });
+          show();
+        }
+      }}><span className="select-label"><OptionLabel label={selected?.label ?? t("character_editor.none_selected")} leading={selected?.leading} /></span><Icon name="ArrowShortBottom" /></button>}
     {expanded && createPortal(<div ref={popup} id={id} role="listbox" aria-label={label} className="select-menu" style={position} onMouseDown={event => event.preventDefault()}>{visible.map((option, index) => <div role="option" id={`${id}-${index}`} key={option.value} aria-selected={option.value === value} aria-disabled={option.disabled || undefined} data-active={index === activeIndex} onPointerMove={() => setActive(index)} onClick={() => choose(option)}><OptionLabel label={option.label} leading={option.leading} />{option.value === value && <Icon name="Check" />}</div>)}</div>, portalTarget)}
   </div>;
 }

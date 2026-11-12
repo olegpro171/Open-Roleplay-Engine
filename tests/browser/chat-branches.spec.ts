@@ -112,7 +112,7 @@ test('forks, remembers the branch in the Chats library, and exports its transcri
       if (width === 1280 || width === 390) await page.screenshot({ path: testInfo.outputPath(`branches-${theme}-${width}.png`) });
       await page.keyboard.press('Escape');
       await expect(menu).toHaveCount(0);
-      await expect(manager.getByRole('button', { name: `Actions for ${branchTitle}` })).toBeFocused();
+      await expect(manager.getByRole('button', { name: `Actions for ${branchTitle}` })).not.toBeFocused();
     }
     await page.keyboard.press('Escape');
     await expect(manager).toHaveCount(0);
@@ -184,7 +184,10 @@ test('forks, remembers the branch in the Chats library, and exports its transcri
       if (width === 1280) await page.keyboard.press('Escape');
       else await cancelDelete.click();
       await expect(warning).toHaveCount(0);
-      await expect(duplicateActions).toBeFocused();
+      if (width === 1280) {
+        await expect(duplicateActions).not.toBeFocused();
+        await expect(manager.getByRole('heading', { name: 'Chat branches', exact: true })).toBeFocused();
+      } else await expect(duplicateActions).toBeFocused();
       await expect(duplicateButton).toHaveAttribute('aria-current', 'true');
     }
   }
@@ -353,7 +356,8 @@ test('imports a downloaded branch into its group and as a standalone chat', asyn
         else await page.keyboard.press('Escape');
         await expect(review).toHaveCount(0);
         if (kind === 'branch') await expect(manager).toBeVisible();
-        await expect(importButton).toBeFocused();
+        if (width === 1280 || width === 390) await expect(importButton).toBeFocused();
+        else await expect(importButton).not.toBeFocused();
       }
     }
     await page.setViewportSize({ width: 1280, height: 850 });

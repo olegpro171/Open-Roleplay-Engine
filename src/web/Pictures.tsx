@@ -1,7 +1,7 @@
 import { openModal } from './dialog-focus';
 import { ModalDialog } from './ModalDialog';
 import { LocalizedError, useTextState, errorText, t, message as msg, useLocale } from './localization';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { LibraryImport } from './LibraryImport';
 import { Icon } from './Icon';
@@ -49,15 +49,7 @@ function OriginalPictureViewer({ picture, close }: { picture: CharacterPicture; 
   useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const [status, setStatus] = useState<'loading' | 'loaded' | 'failed'>('loading');
-  useEffect(() => {
-    const opener = document.activeElement;
-    const node = dialog.current;
-    openModal(node);
-    return () => {
-      node?.close();
-      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
-    };
-  }, []);
+  useLayoutEffect(() => openModal(dialog.current), []);
   return createPortal(<ModalDialog ref={dialog} className="original-picture-viewer" aria-label={t("pictures.original_picture")} onDismiss={close} dismissOnEmptySpace>
     <button type="button" className="quiet" aria-label={t("reasoning.close")} title={t("reasoning.close")} onClick={close}><Icon name="Close" /></button>
     {status === 'loading' && <p role="status">{t("pictures.loading_original")}</p>}
@@ -122,10 +114,7 @@ export function CropDialog({ image, close, apply, focusTarget }: { focusTarget?:
   useLocale();
   const [crop, setCrop] = useState(image.crop), dialog = useRef<HTMLDialogElement>(null), title = useId();
   const drag = useRef<{ id: number; x: number; y: number; left: number; top: number; side: number; screen: number } | null>(null);
-  useEffect(() => {
-    const opener = focusTarget ?? document.activeElement, node = dialog.current; openModal(node);
-    return () => { node?.close(); if (opener instanceof HTMLElement) opener.focus(); };
-  }, [focusTarget]);
+  useLayoutEffect(() => openModal(dialog.current, focusTarget), [focusTarget]);
   const controls = cropControls(image, crop), region = cropPixels(image, crop);
   function update(values: Partial<typeof controls>) { const next = { ...controls, ...values }; setCrop(cropFromControls(image, next.zoom, next.horizontal, next.vertical)); }
   return <ModalDialog ref={dialog} className="crop-dialog" aria-labelledby={title} onDismiss={close}><h2 id={title}>{t("pictures.adjust_picture_crop")}</h2><p className="small muted">{t("pictures.drag_to_frame_your_picture_or_use")}</p>

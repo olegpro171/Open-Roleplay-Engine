@@ -1,7 +1,10 @@
 import { useRef, type ComponentPropsWithRef, type MouseEvent } from 'react';
+import { dismissModalWithEscape } from './dialog-focus';
+
+export type ModalDismissReason = 'escape' | 'backdrop';
 
 type Props = Omit<ComponentPropsWithRef<'dialog'>, 'onCancel' | 'onClick' | 'onPointerDown' | 'onPointerCancel'> & {
-  onDismiss: () => void;
+  onDismiss: (reason: ModalDismissReason) => void;
   dismissOnEmptySpace?: boolean;
 };
 
@@ -20,7 +23,7 @@ export function ModalDialog({ onDismiss, dismissOnEmptySpace = false, ...props }
       if (event.target !== event.currentTarget) return;
       event.preventDefault();
       event.stopPropagation();
-      onDismiss();
+      dismissModalWithEscape(event.currentTarget, () => onDismiss('escape'));
     }}
     onPointerDown={event => {
       if (event.isPrimary) pressedBackdrop.current = event.button === 0 && isBackdrop(event, dismissOnEmptySpace);
@@ -34,7 +37,7 @@ export function ModalDialog({ onDismiss, dismissOnEmptySpace = false, ...props }
       pressedBackdrop.current = false;
       if (dismiss) {
         event.stopPropagation();
-        onDismiss();
+        onDismiss('backdrop');
       }
     }}
   />;

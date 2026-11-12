@@ -1,10 +1,10 @@
-import { openModal } from './dialog-focus';
-import { ModalDialog } from './ModalDialog';
+import { dismissModalWithEscape, openModal } from './dialog-focus';
+import { ModalDialog, type ModalDismissReason } from './ModalDialog';
 import { formatMessage } from './localization';
 import { useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { newId } from './uuid';
 import { Icon } from './Icon';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChatToolsSnapshot } from '../shared/contracts';
 import { refKey, type ContextJob, type ContextJobDetails, type ContextJobProgress, type SummaryPhase, type RepairAction } from '../shared/context';
 import { api } from './api';
@@ -23,7 +23,7 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
   const [error, setError] = useTextState('');
   const [sourcesOpen, setSourcesOpen] = useState(false), [priorOpen, setPriorOpen] = useState(false);
   const [draft, setDraft] = useState<{ key: string; text: string }>({ key: '', text: '' });
-  useEffect(() => { openModal(dialog.current); }, []);
+  useLayoutEffect(() => openModal(dialog.current), []);
   useEffect(() => {
     const controller = new AbortController();
     api<ContextJobDetails>(`/context/jobs/${job.id}`, 'GET', undefined, controller.signal)
@@ -59,7 +59,7 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
   const obsolete = Boolean(candidate && job.sourceRevision !== snapshot.revision);
   const remaining = current ? details?.repair?.remaining : undefined;
   const positions = candidate?.turns.map(source => snapshot.turns.findIndex(turn => turn.id === source.turnId) + 1).filter(Boolean) ?? [];
-  async function act(action: RepairAction) {
+  async function act(action: RepairAction, finishClose = dismissed) {
     if (pending.current) return;
     pending.current = true; setError('');
     const body = { revision: snapshot.revision, action, ...(action === 'approve' && text !== candidate?.text ? { text } : {}) };
@@ -69,13 +69,15 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
       try {
         await api(`/context/jobs/${job.id}/repair`, 'POST', { ...body, requestId: retry.current!.requestId });
         retry.current = null;
-        if (action === 'close') dismissed();
+        if (action === 'close') finishClose();
       } catch (error) { setError(errorText(error, msg("repair_review.repair_could_not_continue"))); throw error; }
     });
     pending.current = false;
   }
-  function close() {
-    if (!busy) void act('close');
+  function close(reason?: ModalDismissReason) {
+    if (busy) return;
+    const finish = reason === 'escape' ? () => dismissModalWithEscape(dialog.current, dismissed) : dismissed;
+    void act('close', finish);
   }
 
   return <ModalDialog ref={dialog} className="repair-dialog" aria-labelledby="repair-title" onDismiss={close}>
@@ -98,6 +100,6 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
       {(error || job.error) && <p className="repair-error" role="alert">{error || formatMessage(job.errorMessage ?? job.error)}</p>}
       {obsolete && !running && <p role="status">{t("repair_review.the_chat_or_settings_changed_regenerate_this")}</p>}
     </div>
-    <div className="repair-footer"><div className="actions"><button disabled={locked || !current || obsolete || !candidate || Boolean(candidate.turns.length && !text.trim())} onClick={() => void act('approve')}>{remaining === 1 ? t("repair_review.approve_finish") : t("repair_review.approve_next")}</button><button className="secondary" disabled={locked} onClick={() => void act('regenerate')}>{t("repair_review.regenerate")}</button><button className="secondary" disabled={busy} title={t("reasoning.close")} onClick={close}><Icon name="Close" /><span className="sr-only">{t("reasoning.close")}</span></button></div><small className="muted">{t("repair_review.close_discards_this_candidate_and_your_unapproved")}</small></div>
+    <div className="repair-footer"><div className="actions"><button disabled={locked || !current || obsolete || !candidate || Boolean(candidate.turns.length && !text.trim())} onClick={() => void act('approve')}>{remaining === 1 ? t("repair_review.approve_finish") : t("repair_review.approve_next")}</button><button className="secondary" disabled={locked} onClick={() => void act('regenerate')}>{t("repair_review.regenerate")}</button><button className="secondary" disabled={busy} title={t("reasoning.close")} onClick={() => close()}><Icon name="Close" /><span className="sr-only">{t("reasoning.close")}</span></button></div><small className="muted">{t("repair_review.close_discards_this_candidate_and_your_unapproved")}</small></div>
   </ModalDialog>;
 }

@@ -91,7 +91,9 @@ Duplicate copies the committed story, pins, memory, requests, current saved Auth
 
 Warnings use dismissible modal dialogs. An action that completes with a fallback or a choice that carries a risk opens its warning immediately. Ongoing configuration and inspection warnings remain available from review buttons, so editing and ordinary navigation can continue. Dismissing a warning keeps drafts and saved choices.
 
-The Story turn footer keeps response versions, regeneration or cancellation, editing and pinning directly accessible when applicable. More contains reasoning, branching and whole-turn deletion. It opens with focus on the menu panel, and its dialogs return focus to the page on close. At narrow widths the footer wraps to keep actions accessible without horizontal scrolling.
+The Story turn footer keeps response versions, regeneration or cancellation, editing and pinning directly accessible when applicable. More contains reasoning, branching and whole-turn deletion. It opens with focus on the menu panel. At narrow widths the footer wraps to keep actions accessible without horizontal scrolling.
+
+Escape closes a click- or tap-opened popup without focusing or highlighting its opener. When the opener is available, a keyboard-opened popup returns focus to it so keyboard navigation can continue. Editable suggestions keep focus in the input for continued typing.
 
 Memory and Chat Details update Estimated input as valid steps become active. A popup floats near the top edge of the Story transcript and shows the working preparation estimate against the target, live activity and Stop. It gives Load older turns space while that control is visible. Stop, failure and interruption keep the latest committed selection. Completed results that could not yet become active remain available for reuse. A pending Send turn and the previous selected reply during Regenerate remain saved. Interrupted work requires an explicit retry after restart.
 
@@ -99,7 +101,7 @@ Story, Libraries and Settings are top-level navigation. Chat settings, Inspect m
 
 Application settings autosave valid changes, serialize rapid edits and reconcile only locally changed fields on conflicts. Preserve failed choices with Retry. Routine saves are silent; after one second show the pending-delay alert, and failures show immediately. App-default color pickers save immediately; library color pickers keep Apply/Cancel. Backups, deletion and reusable editors retain explicit actions/confirmations. Action-error banners offer Dismiss, while loading failures offer Retry loading. A server outage is reported separately and recovery preserves unresolved action errors. Delete confirmations for individual records and entries accept Enter from the heading or Delete button. Enter on the focused Cancel button dismisses the dialog.
 
-A click or tap on a modal backdrop uses the top dialog's Escape behavior, including cancellation of a confirmation and any operation guards. Pressing inside a dialog and dragging onto the backdrop keeps it open.
+A click or tap on a modal backdrop dismisses the top dialog through the same cancellation and operation guards as Escape. Pressing inside a dialog and dragging onto the backdrop keeps it open.
 
 Leaving a changed Library editor through in-app navigation or sign-out requires confirmation. Browser document exits use the browser's native warning when available. Each tab can recover one Library draft on reload, subject to session storage availability. Review recovered edits before saving. If the Library revision or dataset changed, the old draft is available to copy. Newly entered API keys and unsaved picture changes require re-entry. Confirmed saves, explicit discards and successful sign-out clear the current tab's draft.
 

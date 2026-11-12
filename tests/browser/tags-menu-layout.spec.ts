@@ -76,7 +76,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
       expect(await panel.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
       await page.setViewportSize({ width, height: 844 });
       await page.keyboard.press('Escape');
-      await expect(trigger).toBeFocused();
+      await expect(trigger).not.toBeFocused();
       await expect(panel).toHaveCount(0);
       await page.getByRole('button', { name: /^Remove Layout tag/ }).click();
 
@@ -131,7 +131,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
       expect(Math.abs(counter.x + counter.width / 2 - popup.x - popup.width / 2)).toBeLessThanOrEqual(1);
       await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-tags.png`) });
       await page.keyboard.press('Escape');
-      await expect(trigger).toBeFocused();
+      await expect(trigger).not.toBeFocused();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     }
 

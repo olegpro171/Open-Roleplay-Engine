@@ -21,15 +21,7 @@ export function WarningDialog({ title, message, children, actions, close, return
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const messageId = useId();
-  useLayoutEffect(() => {
-    const trigger = returnFocus ?? document.activeElement;
-    const node = dialog.current;
-    openModal(node);
-    return () => {
-      node?.close();
-      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
-    };
-  }, []);
+  useLayoutEffect(() => openModal(dialog.current, returnFocus), []);
   return createPortal(<ModalDialog ref={dialog} className="confirmation-dialog warning-dialog" aria-labelledby={titleId}
     aria-describedby={message ? messageId : undefined} onDismiss={close}>
     <span className="confirmation-symbol" aria-hidden="true">!</span>

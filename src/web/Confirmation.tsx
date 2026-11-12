@@ -49,15 +49,7 @@ function ConfirmationDialog({ request, cancel, confirm }: { request: Confirmatio
   const cancelButton = useRef<HTMLButtonElement>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
   const title = useId(), description = useId();
-  useLayoutEffect(() => {
-    const trigger = request.returnFocus ?? document.activeElement;
-    const node = dialog.current;
-    openModal(node);
-    return () => {
-      node?.close();
-      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus();
-    };
-  }, []);
+  useLayoutEffect(() => openModal(dialog.current, request.returnFocus), []);
   return createPortal(<ModalDialog ref={dialog} className="confirmation-dialog" aria-labelledby={title} aria-describedby={description} onDismiss={cancel} onKeyDown={event => {
     if (request.confirmOnEnter && event.key === 'Enter' && event.target !== cancelButton.current) {
       event.preventDefault();

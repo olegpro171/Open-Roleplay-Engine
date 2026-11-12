@@ -4,6 +4,7 @@ import { useTextState, errorText, t, message as msg, useLocale } from './localiz
 import { Icon } from './Icon';
 import { useConfirmation } from './Confirmation';
 import { WarningDetails } from './WarningDialog';
+import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { LibrarySnapshot } from '../shared/library';
@@ -80,6 +81,7 @@ export function TagFilterMenu({ library, busy, run, selected, change }: { librar
   const [open, setOpen] = useState(false), [manager, setManager] = useState(false);
   const root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const openedWith = useRef<PopupInput>('keyboard');
   const [reservedHeight, setReservedHeight] = useState<number>();
   const [position, setPosition] = useState({ left: 0, top: 0, width: 380, maxHeight: 624 });
   const panelId = useId();
@@ -142,21 +144,26 @@ export function TagFilterMenu({ library, busy, run, selected, change }: { librar
     const dismissAfterTab = (event: KeyboardEvent) => {
       if (event.key === 'Tab' && !root.current?.contains(document.activeElement) && !panel.current?.contains(document.activeElement)) setOpen(false);
     };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('dialog[open]')) return;
+      event.preventDefault();
+      setOpen(false);
+      restorePopupFocusAfterEscape(trigger.current, openedWith.current);
+    };
     document.addEventListener('pointerdown', interceptOutside, true);
     document.addEventListener('pointerup', interceptOutside, true);
     document.addEventListener('click', interceptOutside, true);
+    document.addEventListener('keydown', escape);
     document.addEventListener('keyup', dismissAfterTab);
     return () => {
       document.removeEventListener('pointerdown', interceptOutside, true);
       document.removeEventListener('pointerup', interceptOutside, true);
       document.removeEventListener('click', interceptOutside, true);
+      document.removeEventListener('keydown', escape);
       document.removeEventListener('keyup', dismissAfterTab);
     };
   }, [open, manager]);
   return <div className="tag-filter-menu" ref={root} onKeyDown={event => {
-    if (event.key === 'Escape' && open && !manager) {
-      event.preventDefault(); setOpen(false); trigger.current?.focus({ preventScroll: true });
-    }
     // The panel stays in one portal across viewport changes. Connect its first
     // control to the trigger in both directions without trapping keyboard focus.
     if (event.key === 'Tab' && open && !manager) {
@@ -168,7 +175,10 @@ export function TagFilterMenu({ library, busy, run, selected, change }: { librar
       }
     }
   }}>
-    <button type="button" className="secondary tag-filter-trigger" ref={trigger} aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(!open)}>
+    <button type="button" className="secondary tag-filter-trigger" ref={trigger} aria-expanded={open} aria-controls={panelId} onClick={() => {
+      if (!open) openedWith.current = popupInput();
+      setOpen(!open);
+    }}>
       {t("character_editor.tags")}{selected.length > 0 && <span className="tag-filter-count">{selected.length}</span>}<Icon name="ArrowShortBottom" />
     </button>
     {open && createPortal(<div id={panelId} ref={panel} className="tag-filter-panel" style={{ ...position, minHeight: reservedHeight === undefined ? undefined : Math.min(reservedHeight, position.maxHeight) }}>
@@ -192,12 +202,7 @@ export function TagManager({ library, busy, run, committed, close }: { library: 
   const [error, setError] = useTextState(''), [pending, setPending] = useState(false), [page, setPage] = useState(0);
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
-  useLayoutEffect(() => {
-    const trigger = document.activeElement;
-    const node = dialog.current;
-    openModal(node);
-    return () => { node?.close(); if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true }); };
-  }, []);
+  useLayoutEffect(() => openModal(dialog.current), []);
   const query = canonicalTagName(search);
   const matches = useMemo(() => library.tags.filter(tag => canonicalTagName(tag.name).includes(query)).sort((a, b) => a.name.localeCompare(b.name)), [library.tags, query]);
   const last = Math.max(0, Math.ceil(matches.length / tagLimits.page) - 1), shown = Math.min(page, last);

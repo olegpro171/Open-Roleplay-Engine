@@ -55,15 +55,7 @@ function ColorPickerDialog({ label, value, instant, change, cancel, apply }: {
   const [hexDraft, setHexDraft] = useState(value);
   const valid = speechColorSchema.safeParse(hexDraft).success;
 
-  useLayoutEffect(() => {
-    const trigger = document.activeElement;
-    const node = dialog.current;
-    openModal(node);
-    return () => {
-      node?.close();
-      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus();
-    };
-  }, []);
+  useLayoutEffect(() => openModal(dialog.current), []);
 
   function chooseHex(hex: string) {
     setHexDraft(hex);

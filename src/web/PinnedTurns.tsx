@@ -53,10 +53,11 @@ export function PinnedTurns({ branch, revision, estimate, estimateCurrent, estim
 
   useLayoutEffect(() => {
     alive.current = true;
-    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const node = dialog.current;
-    openModal(node);
-    return () => { alive.current = false; node?.close(); trigger?.focus({ preventScroll: true }); };
+    const closeModal = openModal(dialog.current);
+    return () => {
+      alive.current = false;
+      closeModal?.();
+    };
   }, []);
   useEffect(() => {
     const controller = new AbortController();

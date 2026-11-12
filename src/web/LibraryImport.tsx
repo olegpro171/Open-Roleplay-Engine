@@ -60,15 +60,7 @@ function ImportPopup({ title, description, formats, disabled, close, browse, dro
   const formatsId = useId();
   const [dragging, setDragging] = useState(false);
   const [multiple, setMultiple] = useState(false);
-  useLayoutEffect(() => {
-    const trigger = document.activeElement;
-    const node = dialog.current;
-    openModal(node);
-    return () => {
-      node?.close();
-      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
-    };
-  }, []);
+  useLayoutEffect(() => openModal(dialog.current), []);
   return createPortal(<ModalDialog ref={dialog} className="confirmation-dialog library-import-dialog" aria-labelledby={heading} aria-describedby={descriptionId}
     onDismiss={close}
     onDragOver={event => event.preventDefault()} onDrop={event => event.preventDefault()}>

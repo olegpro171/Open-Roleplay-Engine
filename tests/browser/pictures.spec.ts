@@ -217,7 +217,7 @@ test('fits Russian color controls and centers picture actions across the editor 
   await picture.getByRole('button', { name: 'Обрезать', exact: true }).click();
   await expect(page.getByRole('dialog').getByRole('heading', { level: 2 })).toBeFocused();
   await page.keyboard.press('Escape');
-  await expect(picture.getByRole('button', { name: 'Обрезать', exact: true })).toBeFocused();
+  await expect(picture.getByRole('button', { name: 'Обрезать', exact: true })).not.toBeFocused();
 });
 
 test('keeps crop/editor save levels separate, recovers exact saves, and refreshes another tab', async ({ page, context }) => {

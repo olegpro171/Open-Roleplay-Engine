@@ -28,7 +28,7 @@ test('edits explicit markers, uses recent history, and enables preparation again
   const warning = page.getByRole('dialog', { name: 'Warning', exact: true });
   await expect(warning).toContainText('Summary marker is absent or disabled. Summaries will not be sent.');
   await page.keyboard.press('Escape');
-  await expect(review).toBeFocused();
+  await expect(review).not.toBeFocused();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   const prompt = (await library()).prompts.find(item => item.name === 'Explicit prompt proof')!;
   const model = await command('/api/library', { revision: (await library()).revision, kind: 'connections', data: { name: 'Prompt proof model', endpoint, model: 'synthetic-roleplay', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
@@ -62,7 +62,8 @@ test('edits explicit markers, uses recent history, and enables preparation again
   await expect(warning).toContainText('Summary marker is absent or disabled. Summaries will not be sent.');
   await page.keyboard.press('Escape');
   await expect(warning).toHaveCount(0);
-  await expect(peekReview).toBeFocused();
+  await expect(peekReview).not.toBeFocused();
+  await expect(peek.getByRole('heading', { level: 2 })).toBeFocused();
   await page.getByRole('button', { name: 'Close peek', exact: true }).click();
   await page.getByRole('textbox', { name: 'Your next turn', exact: true }).fill('I return the key.');
   await expect.poll(async () => {

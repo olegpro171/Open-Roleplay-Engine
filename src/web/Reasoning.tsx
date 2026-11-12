@@ -45,15 +45,7 @@ export function ReasoningDialog({ text: preview, live, chatId, generationId, len
     if (stream.current) stream.current.scrollTop = stream.current.scrollHeight;
     setAwayFromLatest(false);
   }
-  useLayoutEffect(() => {
-    const trigger = document.activeElement;
-    const node = dialog.current;
-    openModal(node);
-    return () => {
-      node?.close();
-      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
-    };
-  }, []);
+  useLayoutEffect(() => openModal(dialog.current), []);
   useLayoutEffect(() => {
     if (following.current) latest();
   }, [text]);

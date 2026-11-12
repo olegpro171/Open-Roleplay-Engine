@@ -72,6 +72,7 @@ test('library action menus stack controls consistently across categories and vie
       }
       await page.keyboard.press('Escape');
       await expect(menu).toHaveCount(0);
+      await expect(card.getByRole('button', { name: /^Actions for / })).not.toBeFocused();
       expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
       if (['prompts', 'connections', 'contexts'].includes(fixture.kind)) {
         const bookmark = card.getByRole('button', { name: /^Set .* default/ });

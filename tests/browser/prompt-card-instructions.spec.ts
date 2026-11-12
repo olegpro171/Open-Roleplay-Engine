@@ -47,7 +47,7 @@ test('edits card instructions, enables preset injection, explains unavailable so
   await expect(warnings.getByRole('listitem')).toHaveCount(4);
   await expect(warnings).toContainText('Missing personality');
   await page.keyboard.press('Escape');
-  await expect(review).toBeFocused();
+  await expect(review).not.toBeFocused();
   // A selection change updates structural diagnostics without saving the chat.
   await choose(page, 'Character', 'None selected');
   await review.click();

@@ -75,8 +75,13 @@ test('card surfaces open editors and floating actions flip, dismiss, and retain 
       await page.screenshot({ path: testInfo.outputPath(`menu-${placement}-${width}.png`) });
       await page.keyboard.press('Escape');
       await expect(menu).toHaveCount(0);
-      await expect(more).toBeFocused();
+      await expect(more).not.toBeFocused();
     }
+    await more.press('Space');
+    await expect(page.getByRole('menu')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(more).toBeFocused();
     await more.press('Space');
     await expect(page.getByRole('menu')).toBeVisible();
     await scroller.evaluate(node => { node.scrollTop += 20; });

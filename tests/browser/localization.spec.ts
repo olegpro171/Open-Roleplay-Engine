@@ -45,7 +45,7 @@ for (const width of [1440, 390, 320]) test(`imports partial packs with actionabl
   await expect(report).toContainText('Expected: {{value}}, {{value2}}, {{value3}}, {{value4}}. Found: {{value}}, {{value2}}, {{value3}}, {{value4}}, {{value5}}.');
   await expect(report).toContainText('counts.turns_few, counts.turns_many');
   await page.keyboard.press('Escape');
-  await expect(review).toBeFocused();
+  await expect(review).not.toBeFocused();
   expect(await page.request.get('/api/localization/ru').then(response => response.json())).toEqual(source);
   await chooseLanguage(page, 'Interface language', 'Русский');
   await expect(page.getByRole('heading', { name: 'Язык', exact: true })).toBeVisible();

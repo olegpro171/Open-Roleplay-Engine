@@ -55,7 +55,8 @@ for (const width of [1440, 390]) test(`Connection export/import with optional ke
       await warning.screenshot({ path: testInfo.outputPath('export-key-warning.png') });
       await page.keyboard.press('Escape');
       await expect(warning).toHaveCount(0);
-      await expect(keyOption).toBeFocused();
+      await expect(keyOption).not.toBeFocused();
+      await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
       await expect(keyOption).toBeChecked();
       await expect(dialog.getByLabel('File password (optional)', { exact: true })).toHaveValue(password);
     }
@@ -107,6 +108,10 @@ test('Connection dialogs cancel without requests, clear secrets, and block dupli
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('File password (optional)', { exact: true }).fill('discard password');
   await dialog.getByLabel('Include API key').check();
+  const warning = page.getByRole('dialog', { name: 'Warning', exact: true });
+  await expect(warning).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(warning).toHaveCount(0);
   await page.mouse.click(2, 2);
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toBeFocused();
@@ -125,11 +130,14 @@ test('Connection dialogs cancel without requests, clear secrets, and block dupli
   await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
   await page.mouse.click(2, 2);
   await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
   await dialog.locator('form').dispatchEvent('submit');
   release?.();
   await expect(dialog.getByRole('alert')).toContainText('Synthetic busy error');
   await expect(dialog.getByLabel('File password (optional)', { exact: true })).toHaveValue('retained on error');
   expect(requests).toBe(1);
-  await page.keyboard.press('Escape');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
 });

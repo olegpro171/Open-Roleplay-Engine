@@ -134,7 +134,7 @@ test('opens chat cards by pointer and keyboard, keeps deletion separate and show
     await page.screenshot({ path: `test-results/chat-original-picture-${width}.png`, fullPage: true });
     await page.keyboard.press('Escape');
     await expect(viewer).toHaveCount(0);
-    await expect(openPicture).toBeFocused();
+    await expect(openPicture).not.toBeFocused();
     await openPicture.press('Enter');
     await viewer.click({ position: { x: width / 2, y: imageBounds.y / 2 } });
     await expect(viewer).toHaveCount(0);

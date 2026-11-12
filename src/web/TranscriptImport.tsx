@@ -54,13 +54,13 @@ export function TranscriptImport({ destination, disabled, created }: {
         if (file) setSelection({ file, requestId: newId() });
       }} />
     {selection && <ImportReview key={selection.requestId} destination={destination} file={selection.file} initialRequestId={selection.requestId}
-      close={() => setSelection(null)} restoreFocus={() => trigger.current?.focus({ preventScroll: true })} created={created} />}
+      close={() => setSelection(null)} returnFocus={trigger.current} created={created} />}
   </>;
 }
 
-function ImportReview({ destination, file, initialRequestId, close, restoreFocus, created }: {
+function ImportReview({ destination, file, initialRequestId, close, returnFocus, created }: {
   destination: Destination; file: File; initialRequestId: string;
-  close: () => void; restoreFocus: () => void; created: (id: string) => void;
+  close: () => void; returnFocus: HTMLElement | null; created: (id: string) => void;
 }) {
   useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -79,10 +79,9 @@ function ImportReview({ destination, file, initialRequestId, close, restoreFocus
   const locked = saving || uncertainName !== null;
 
   useLayoutEffect(() => {
-    const node = dialog.current;
     const controller = new AbortController();
     lifecycle.current = controller;
-    openModal(node);
+    const closeModal = openModal(dialog.current, returnFocus);
     async function read() {
       try {
         if (file.size > transcriptFileLimit) throw new MessageError(message('importErrors.file_too_large'));
@@ -95,8 +94,7 @@ function ImportReview({ destination, file, initialRequestId, close, restoreFocus
     void read();
     return () => {
       controller.abort();
-      node?.close();
-      restoreFocus();
+      closeModal?.();
     };
   // A newly selected file mounts its own review and owns its read/submit lifetime.
   }, [file]);

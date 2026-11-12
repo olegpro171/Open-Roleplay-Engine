@@ -4,7 +4,7 @@ import { formatMessage, message, type MessageText } from './localization';
 import { t, useLocale, locale } from './localization';
 import { loreReasonLabel, placementLabel, stateLabel } from './localization-labels';
 import { Icon } from './Icon';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PromptEntry, RequestPreview, RequestEstimate } from '../shared/contracts';
 import { requestEstimate } from '../shared/contracts';
 import { LoreDiagnostics } from './LorebookEditor';
@@ -142,12 +142,7 @@ export function PromptPeek({ request, stale, close, error, retry }: { request: R
   useLocale();
   const [loreOpen, setLoreOpen] = useState(savedLoreDisclosure);
   const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const trigger = document.activeElement as HTMLElement | null;
-    const node = dialog.current;
-    openModal(node);
-    return () => { node?.close(); trigger?.focus(); };
-  }, []);
+  useLayoutEffect(() => openModal(dialog.current), []);
   const entries = new Map(request?.layout?.map(part => [part.messageIndex, part]));
   const limit = request ? Math.min(request.budget.targetInputTokens, request.budget.contextWindow - request.budget.reservedOutputTokens) : 0;
   return <ModalDialog ref={dialog} className="prompt-peek" aria-labelledby="prompt-peek-title" onDismiss={close}>

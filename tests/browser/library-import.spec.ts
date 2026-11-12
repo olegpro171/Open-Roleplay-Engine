@@ -141,11 +141,13 @@ test('warns after a portable context preset falls back and keeps valid Connectio
         await expect(warning.getByRole('heading')).toBeFocused();
         expect((await read()).contexts.find(preset => preset.name === data.name)).toMatchObject({ ...data, connectionId: null });
         await page.screenshot({ path: testInfo.outputPath(`preset-warning-${theme}-${width}.png`) });
-        if (theme === 'light' && width === 1280) await page.mouse.click(4, 4);
-        else if (width === 1280) await page.keyboard.press('Escape');
+        const escape = theme !== 'light' && width === 1280;
+        if (escape) await page.keyboard.press('Escape');
+        else if (width === 1280) await page.mouse.click(4, 4);
         else await warning.getByRole('button', { name: 'Dismiss', exact: true }).click();
         await expect(warning).toHaveCount(0);
-        await expect(trigger).toBeFocused();
+        if (escape) await expect(trigger).not.toBeFocused();
+        else await expect(trigger).toBeFocused();
         await expect(page.getByRole('heading', { name: data.name, exact: true })).toBeVisible();
       }
     }

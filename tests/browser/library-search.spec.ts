@@ -126,6 +126,12 @@ test('keeps search close to the actions on narrow screens and opens reviewed lor
       await sort.press('Enter');
       await expect(page.getByRole('listbox', { name: `Sort ${category.toLowerCase()}`, exact: true })).toBeVisible();
       await sort.press('Escape');
+      await expect(sort).toBeFocused();
+      await sort.click();
+      await expect(sort).toHaveAttribute('aria-expanded', 'true');
+      await page.keyboard.press('Escape');
+      await expect(sort).toHaveAttribute('aria-expanded', 'false');
+      await expect(sort).not.toBeFocused();
       expect(bounds.y - actions.y - actions.height).toBeGreaterThanOrEqual(0);
       expect(bounds.y - actions.y - actions.height).toBeLessThanOrEqual(8);
       await search.fill('no-such-library-item-778');

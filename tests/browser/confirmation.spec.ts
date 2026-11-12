@@ -1,10 +1,27 @@
-import { openLibraryActions } from './library-card-helpers';
+import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
 import { test, expect } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
 
 for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
   test(`deletion confirmation preserves data on dismissal and stale writes at ${viewport.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
+    if (viewport.width === 1280) {
+      await page.addInitScript(() => {
+        // Safari 26.5 can restore focus even when close() runs after removal.
+        // Reproduce that browser behavior while keeping the real modal lifecycle.
+        const openers = new WeakMap<HTMLDialogElement, Element | null>();
+        const { showModal, close } = HTMLDialogElement.prototype;
+        HTMLDialogElement.prototype.showModal = function () {
+          if (!this.open) openers.set(this, document.activeElement);
+          showModal.call(this);
+        };
+        HTMLDialogElement.prototype.close = function (returnValue) {
+          close.call(this, returnValue);
+          const opener = openers.get(this);
+          if (!this.isConnected && opener instanceof HTMLElement) opener.focus();
+        };
+      });
+    }
     const session = await page.request.get('/api/session').then(response => response.json());
     await page.goto('/');
     await page.getByLabel('Owner password').fill('browser-synthetic-password');
@@ -23,6 +40,36 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     let deletes = 0;
     page.on('request', request => { if (request.method() === 'DELETE') deletes++; });
     page.on('dialog', () => { throw new Error('Unexpected browser confirmation'); });
+    const theme = await page.locator('html').getAttribute('data-theme');
+    try {
+      for (const preview of ['dark', 'light', 'midnight-black']) {
+        await page.locator('html').evaluate((element, value) => element.setAttribute('data-theme', value), preview);
+        await (await openLibraryActions(page, row)).getByRole('menuitem', { name: 'Delete', exact: true }).click();
+        await expect(dialog).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(dialog).toHaveCount(0);
+        await expect(trigger).not.toBeFocused();
+        await expect(row).toBeVisible();
+        expect(deletes).toBe(0);
+        await row.screenshot({ path: testInfo.outputPath(`dismissed-${preview}.png`) });
+      }
+    } finally {
+      await page.locator('html').evaluate((element, value) => {
+        if (value === null) element.removeAttribute('data-theme');
+        else element.setAttribute('data-theme', value);
+      }, theme);
+    }
+
+    await trigger.press('ArrowDown');
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await expect(trigger.locator(':scope:focus-visible')).toHaveCount(1);
+    expect((await library()).revision).toBe(before.revision);
+
     await (await openLibraryActions(page, row)).getByRole('menuitem', { name: 'Delete', exact: true }).click();
     await expect(dialog).toContainText(name);
     await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
@@ -94,6 +141,7 @@ test('lore entry deletion stays in the book draft until saved', async ({ page })
   await page.keyboard.press('Enter');
   await expect(entry).toHaveCount(0);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await confirmLeaveEditor(page);
   await row.getByRole('heading').getByRole('button').click();
   await expect(entry).toHaveValue('Keep the gate');
   await page.getByRole('button', { name: 'Delete entry', exact: true }).click();

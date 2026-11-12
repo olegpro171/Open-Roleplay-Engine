@@ -36,15 +36,7 @@ export function ChatBranches({ current, branches, fork, locked, close, open, ref
   const [failure, setFailure] = useState<MessageText>('');
   const [pending, setPending] = useState(false);
   const inFlight = useRef(false);
-  useLayoutEffect(() => {
-    const trigger = document.activeElement;
-    const node = dialog.current;
-    openModal(node);
-    return () => {
-      node?.close();
-      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
-    };
-  }, []);
+  useLayoutEffect(() => openModal(dialog.current), []);
 
   const query = search.trim().normalize('NFC').toLowerCase();
   const visible = branches.filter(branch => branchName(branch).normalize('NFC').toLowerCase().includes(query));

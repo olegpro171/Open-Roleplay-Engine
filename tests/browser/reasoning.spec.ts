@@ -107,7 +107,7 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   await expect.poll(() => stream.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);
   await popup.press('Escape');
   await expect(popup).toHaveCount(0);
-  await expect(more).not.toBeFocused();
+  await expect(more).toBeFocused();
   expect((await state()).generations[0].status).toBe('running');
   await page.reload();
   await expect(preview).toContainText('The newest thought');

@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
+import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
 
 export function ActionMenu({ label, disabled, revision = null, focusMode = 'item', children }: {
   label: string;
@@ -12,10 +13,17 @@ export function ActionMenu({ label, disabled, revision = null, focusMode = 'item
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const openedWith = useRef<PopupInput>('keyboard');
   const [openedAt, setOpenedAt] = useState<number | null>();
   const open = openedAt === revision && !disabled;
   if (openedAt !== undefined && !open) setOpenedAt(undefined);
   const [position, setPosition] = useState({ left: 0, top: 0, maxHeight: 0 });
+
+  function show() {
+    if (open) return;
+    openedWith.current = popupInput();
+    setOpenedAt(revision);
+  }
 
   function close(restoreFocus = false) {
     if (restoreFocus) trigger.current?.focus({ preventScroll: true });
@@ -82,17 +90,18 @@ export function ActionMenu({ label, disabled, revision = null, focusMode = 'item
   return <>
     <button ref={trigger} type="button" className="quiet action-menu-trigger" disabled={disabled}
       aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined}
-      onClick={() => open ? close() : setOpenedAt(revision)}
+      onClick={() => open ? close() : show()}
       onKeyDown={event => {
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
           event.preventDefault();
-          setOpenedAt(revision);
+          show();
         }
       }}><Icon name="MoreHorizontal" /></button>
     {menuHost && createPortal(<div ref={panel} id={id} role="menu" aria-label={label}
       className="action-menu floating-controls" style={position} tabIndex={focusMode === 'panel' ? -1 : undefined}
       onClickCapture={event => {
-        if (focusMode === 'item' && event.target instanceof Element && event.target.closest('button:not(:disabled)')) {
+        if ((focusMode === 'item' || popupInput() === 'keyboard')
+          && event.target instanceof Element && event.target.closest('button:not(:disabled)')) {
           // Restore the surviving trigger before an action opens a dialog, so
           // that dialog can return focus after this transient panel disappears.
           trigger.current?.focus({ preventScroll: true });
@@ -103,7 +112,8 @@ export function ActionMenu({ label, disabled, revision = null, focusMode = 'item
         if (event.key === 'Escape') {
           event.preventDefault();
           event.stopPropagation();
-          close(true);
+          restorePopupFocusAfterEscape(trigger.current, openedWith.current);
+          close();
         } else if (event.key === 'Tab') {
           close(true);
         } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {

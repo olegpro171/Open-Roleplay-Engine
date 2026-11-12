@@ -42,7 +42,8 @@ test('reviews a repair queue with source diffs, regeneration and dismissal on de
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Inspect memory');
   await request.post('/__test/mode', { data: { mode: 'hold-first-token' } });
-  await page.getByRole('button', { name: 'Repair summaries', exact: true }).click();
+  const repair = page.getByRole('button', { name: 'Repair summaries', exact: true });
+  await repair.click();
   const dialog = page.getByRole('dialog', { name: 'Review the proposed replacement' });
   await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
   await expect(dialog.getByTestId('repair-phase')).toHaveText('Connecting…');
@@ -93,8 +94,9 @@ test('reviews a repair queue with source diffs, regeneration and dismissal on de
   await expect(dialog.getByLabel('Current sources', { exact: true })).toContainText('Mira kept the key');
   await expect(dialog.getByLabel('Previous sources', { exact: true })).toContainText('Mira gives Leon');
   await dialog.screenshot({ path: 'test-results/repair-desktop.png' });
-  await page.mouse.click(2, 2);
+  await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
+  await expect(repair).not.toBeFocused();
   expect((await state()).context.summaries.filter(node => !node.approved)).toEqual([]);
   const calls = (await requests()).length;
   await page.getByRole('button', { name: 'Repair summaries', exact: true }).click();

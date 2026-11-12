@@ -38,15 +38,7 @@ export function AuthorNoteDialog({ note, editor, locked, preparing, missingMessa
   const [depth, setDepth] = useState(String(note.depth));
   const validDepth = /^\d+$/.test(depth) && Number(depth) <= 1000;
   useEffect(() => { setDepth(String(note.depth)); }, [note.depth]);
-  useLayoutEffect(() => {
-    const trigger = document.activeElement;
-    const node = dialog.current;
-    openModal(node);
-    return () => {
-      node?.close();
-      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
-    };
-  }, []);
+  useLayoutEffect(() => openModal(dialog.current), []);
   return createPortal(<ModalDialog ref={dialog} className="prompt-peek author-note-dialog" aria-labelledby={title}
     onDismiss={close}>
     <div className="peek-content">

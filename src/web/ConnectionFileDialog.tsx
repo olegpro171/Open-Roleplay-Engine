@@ -30,13 +30,10 @@ export function ConnectionFileDialog({ action, cancel, complete }: {
   const pending = useRef(false), mounted = useRef(true);
   useLayoutEffect(() => {
     mounted.current = true;
-    const trigger = document.activeElement;
-    const node = dialog.current;
-    openModal(node);
+    const closeModal = openModal(dialog.current);
     return () => {
       mounted.current = false;
-      node?.close();
-      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
+      closeModal?.();
     };
   }, []);
   const exporting = action.kind === 'export';

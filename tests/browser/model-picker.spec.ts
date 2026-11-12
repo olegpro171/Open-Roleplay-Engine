@@ -129,7 +129,8 @@ for (const width of [1280, 801, 800, 390]) {
         else await search.press('Escape');
         await expect(dialog).toHaveCount(0);
         await expect(trigger).toHaveText(models[1]);
-        await expect(trigger).toBeFocused();
+        if (width === 390 || width === 1280) await expect(trigger).toBeFocused();
+        else await expect(trigger).not.toBeFocused();
         await page.evaluate(() => window.dispatchEvent(new CustomEvent('test-model-viewport', { detail: { height: 844, top: 0, type: 'resize' } })));
         await page.getByRole('button', { name: 'Save', exact: true }).click();
         await expect(page.getByRole('article')).toContainText(models[1]);
@@ -269,8 +270,7 @@ test('Russian picker preserves literal model identifiers and rejects malformed d
   await page.evaluate(() => localStorage.setItem('ore-interface-language', 'ru'));
   await page.reload();
   await page.getByRole('button', { name: 'Библиотека', exact: true }).click();
-  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
-  await page.getByRole('button', { name: 'Новое подключение', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Новое подключение', exact: true })).toBeVisible();
   await page.route('**/api/models', route => route.fulfill({ json: { models: ['valid-model', 42] } }));
   await page.getByRole('button', { name: 'Идентификатор модели', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Выберите модель', exact: true });

@@ -54,7 +54,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await peek.evaluate(node => { node.scrollTop = 0; });
   await page.screenshot({ path: 'test-results/desktop-prompt-peek.png', fullPage: true });
   await page.keyboard.press('Escape'); await expect(peek).toHaveCount(0);
-  await expect(meta.getByRole('button', { name: 'Prompt peek', exact: true })).toBeFocused();
+  await expect(meta.getByRole('button', { name: 'Prompt peek', exact: true })).not.toBeFocused();
   await page.setViewportSize({ width: 390, height: 844 });
   const detailsToggle = page.getByRole('button', { name: 'Chat details', exact: true });
   await detailsToggle.click();
@@ -64,9 +64,9 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await page.keyboard.press('Escape');
   await expect(peek).toHaveCount(0);
   await expect(detailsToggle).toHaveAttribute('aria-expanded', 'true');
-  await expect(meta.getByRole('button', { name: 'Prompt peek', exact: true })).toBeFocused();
+  await expect(meta.getByRole('button', { name: 'Prompt peek', exact: true })).not.toBeFocused();
   await page.keyboard.press('Escape');
-  await expect(detailsToggle).toBeFocused();
+  await expect(detailsToggle).not.toBeFocused();
   await expect(detailsToggle).toHaveAttribute('aria-expanded', 'false');
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole('button', { name: 'Send', exact: true }).click();

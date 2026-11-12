@@ -52,7 +52,6 @@ function ModelPicker({ value, endpoint, connectionId, apiKey, cancel, select }: 
   useLayoutEffect(() => {
     const node = dialog.current;
     if (!node) return;
-    const trigger = document.activeElement;
     const viewport = window.visualViewport;
     const resize = () => {
       // The entire picker occupies the visible area above the keyboard. Its
@@ -69,7 +68,7 @@ function ModelPicker({ value, endpoint, connectionId, apiKey, cancel, select }: 
     // There is no visible title row. Focus the dialog itself from the start,
     // before showModal can focus the search field and raise a phone keyboard.
     node.autofocus = true;
-    openModal(node);
+    const closeModal = openModal(node);
     viewport?.addEventListener('resize', resize);
     viewport?.addEventListener('scroll', resize);
     window.addEventListener('resize', resize);
@@ -77,8 +76,7 @@ function ModelPicker({ value, endpoint, connectionId, apiKey, cancel, select }: 
       viewport?.removeEventListener('resize', resize);
       viewport?.removeEventListener('scroll', resize);
       window.removeEventListener('resize', resize);
-      node.close();
-      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
+      closeModal?.();
     };
   }, []);
 

@@ -6,7 +6,9 @@ import { App } from './App';
 import './palette.css';
 import './style.css';
 import { ConfirmationProvider } from './Confirmation';
+import { trackPopupInput } from './popup-input';
 
 applyTheme(initialTheme());
+trackPopupInput();
 
 createRoot(document.getElementById('root')!).render(<React.StrictMode><LocalizationStartup /><ConfirmationProvider><App /></ConfirmationProvider></React.StrictMode>);

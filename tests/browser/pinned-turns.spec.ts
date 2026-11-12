@@ -173,7 +173,7 @@ test('manages and jumps to off-page pins with stable estimates and prompt warnin
       if (width === 1280 || width === 390) await page.screenshot({ path: testInfo.outputPath(`pins-${theme}-${width}.png`) });
       await page.keyboard.press('Escape');
       await expect(manager).toHaveCount(0);
-      await expect(page.getByRole('button', { name: 'Pinned turns', exact: true })).toBeFocused();
+      await expect(page.getByRole('button', { name: 'Pinned turns', exact: true })).not.toBeFocused();
     }
   }
   await open();

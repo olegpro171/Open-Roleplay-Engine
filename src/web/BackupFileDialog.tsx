@@ -20,15 +20,7 @@ export function BackupFileDialog({ action, busy, error, errorDetails, cancel, su
   const title = useId(), description = useId();
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
-  useLayoutEffect(() => {
-    const trigger = document.activeElement;
-    const node = dialog.current;
-    openModal(node);
-    return () => {
-      node?.close();
-      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
-    };
-  }, []);
+  useLayoutEffect(() => openModal(dialog.current), []);
   const saving = action.kind === 'save';
   return createPortal(<ModalDialog ref={dialog} className="confirmation-dialog backup-file-dialog" aria-labelledby={title} aria-describedby={description}
     onDismiss={() => { if (!busy) cancel(); }}>
@@ -71,15 +63,7 @@ export function BackupRestoreDialog({ busy, error, close }: { busy: boolean; err
   useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useId();
-  useLayoutEffect(() => {
-    const trigger = document.activeElement;
-    const node = dialog.current;
-    openModal(node);
-    return () => {
-      node?.close();
-      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
-    };
-  }, []);
+  useLayoutEffect(() => openModal(dialog.current), []);
   return createPortal(<ModalDialog ref={dialog} className="confirmation-dialog backup-file-dialog" aria-labelledby={title}
     onDismiss={() => { if (!busy) close(); }}>
     <h2 id={title}>{t('application_settings.import_entire_backup')}</h2>
