@@ -832,6 +832,7 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .library-deletion-list button,.library-deletion-blocker button{margin-top:6px}
 .library-deletion-body fieldset{min-width:0;margin:0 0 12px;padding:8px 12px}
 .library-deletion-body fieldset p{margin:0 0 6px}
+.library-deletion-lorebook .checkbox{min-height:44px;overflow-wrap:anywhere}
 .library-deletion-clear-help{display:grid;gap:6px;margin-block:6px}
 .library-deletion-body .library-deletion-clear-help p{margin:0}
 .library-deletion-replacement{display:grid;gap:5px;margin:4px 0 8px;font-size:14px}

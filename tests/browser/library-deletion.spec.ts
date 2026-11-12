@@ -4,6 +4,7 @@ import { defaultContextPreset } from '../../src/shared/context';
 import type { StorySnapshot } from '../../src/shared/transcript';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import type { LibraryDeletionCommand } from '../../src/shared/library-deletion';
+import { newLorebook } from '../../src/shared/lorebook';
 import { test } from './isolated-app';
 import { openLibraryActions } from './library-card-helpers';
 
@@ -29,6 +30,93 @@ async function enterLibrary(page: Page, category: string) {
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: category, exact: true }).click();
 }
+
+test('keeps a Character’s Lorebook by default and supports deleting both', async ({ page, browserApp }, testInfo) => {
+  const f = await fixture(page, browserApp.url);
+  const card = { description: '', personality: '', scenario: '', first_mes: '', mes_example: '' };
+  const keepBook = await f.save('lorebooks', { ...newLorebook(), name: 'Lore to keep' });
+  const deleteBook = await f.save('lorebooks', { ...newLorebook(), name: 'Lore to remove' });
+  const keepCharacter = await f.save('characters', { ...card, name: 'First Keeper', lorebookId: keepBook });
+  const deleteCharacter = await f.save('characters', { ...card, name: 'Second Keeper', lorebookId: deleteBook });
+  await page.goto('/');
+  await enterLibrary(page, 'Characters');
+  const dialog = page.getByRole('dialog', { name: 'Delete library item?' });
+  const confirm = dialog.getByRole('button', { name: 'Delete', exact: true });
+  async function open(name: string) {
+    const card = page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
+    await (await openLibraryActions(page, card)).getByRole('menuitem', { name: `Delete ${name}`, exact: true }).click();
+  }
+  await open('First Keeper');
+  await expect(confirm).toBeEnabled();
+  await expect(dialog.getByRole('checkbox', { name: 'Also delete the Lorebook “Lore to keep”' })).not.toBeChecked();
+  await confirm.click();
+  await expect(dialog).toHaveCount(0);
+  const kept = await f.library();
+  expect(kept.characters.some(card => card.id === keepCharacter)).toBe(false);
+  expect(kept.lorebooks.some(book => book.id === keepBook)).toBe(true);
+
+  for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+    const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+    await f.send('/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } }, 'PUT');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 730 });
+      await open('Second Keeper');
+      await expect(confirm).toBeEnabled();
+      await dialog.screenshot({ path: testInfo.outputPath(`character-lorebook-${theme}-${width}.png`), animations: 'disabled' });
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await expect(dialog).toHaveCount(0);
+    }
+  }
+  const option = dialog.getByRole('checkbox', { name: 'Also delete the Lorebook “Lore to remove”' });
+  const progress = dialog.getByText('Checking linked items…', { exact: true });
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
+  await page.clock.pauseAt(new Date('2026-01-01T00:01:00Z'));
+  let release = () => {};
+  let gate: Promise<void>;
+  const hold = () => { gate = new Promise<void>(resolve => { release = resolve; }); };
+  let reviews = 0;
+  hold();
+  await page.route(`**/api/library/${deleteCharacter}/deletion?*`, async route => {
+    reviews++;
+    await gate;
+    await route.continue();
+  });
+  try {
+    await open('Second Keeper');
+    await expect.poll(() => reviews).toBe(1);
+    await page.clock.runFor(999);
+    await expect(progress).toHaveCount(0);
+    release();
+    await expect(confirm).toBeEnabled();
+    await page.clock.runFor(1);
+    await expect(progress).toHaveCount(0);
+
+    hold();
+    await page.keyboard.press('Tab');
+    await expect(option).toBeFocused();
+    await option.press('Space');
+    await expect(option).toBeChecked();
+    await expect.poll(() => reviews).toBe(2);
+    await page.clock.runFor(999);
+    await expect(progress).toHaveCount(0);
+    await expect(confirm).toBeDisabled();
+    await page.clock.runFor(1);
+    await expect(progress).toBeVisible();
+    release();
+    await expect(confirm).toBeEnabled();
+    await expect(progress).toHaveCount(0);
+  } finally {
+    release();
+    await page.clock.resume();
+  }
+  await confirm.click();
+  await expect(dialog).toHaveCount(0);
+  const saved = await f.library();
+  expect(saved.characters.some(card => card.id === deleteCharacter)).toBe(false);
+  expect(saved.lorebooks.map(book => book.id)).toContain(keepBook);
+  expect(saved.lorebooks.map(book => book.id)).not.toContain(deleteBook);
+});
 
 test('reviews all 300 saved Connection users with bounded search, visible actions and bilingual theme coverage', async ({ page, browserApp }, testInfo) => {
   test.setTimeout(75_000);

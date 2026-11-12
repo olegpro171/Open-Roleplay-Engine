@@ -45,10 +45,12 @@ async function fixture() {
   const connection: Connection = { name: 'Original Connection', endpoint: mock.url, model: 'mock', contextWindow: 4096, maxOutputTokens: 256, customParameters: {} };
   const request = (method: 'GET' | 'POST' | 'DELETE' | 'PUT', path: string, payload?: object, headers = {}) =>
     instance.app.inject({ method, url: '/api' + path, headers: { ...host, cookie, ...headers }, payload });
-  const inspect = (kind: LibraryKind, id: string, replacementId?: string) =>
-    request('GET', `/library/${id}/deletion?${new URLSearchParams({ kind, ...(replacementId ? { replacementId } : {}) })}`);
-  const review = async (kind: LibraryKind, id: string, replacementId?: string) => {
-    const response = await inspect(kind, id, replacementId);
+  const inspect = (kind: LibraryKind, id: string, replacementId?: string, deleteLorebookId?: string) =>
+    request('GET', `/library/${id}/deletion?${new URLSearchParams({
+      kind, ...(replacementId && { replacementId }), ...(deleteLorebookId && { deleteLorebookId }),
+    })}`);
+  const review = async (kind: LibraryKind, id: string, replacementId?: string, deleteLorebookId?: string) => {
+    const response = await inspect(kind, id, replacementId, deleteLorebookId);
     expect(response.statusCode, response.body).toBe(200);
     expect(response.body).not.toContain(key);
     expect(response.body).not.toContain(mock.url);
@@ -78,6 +80,61 @@ function sibling(store: Store, groupId: string, name = 'Sibling branch', turns =
 function persistentState(store: Store) {
   return [stateToken(store.sqlite), store.libraryRevision(), store.sqlite.prepare('SELECT * FROM lore_commands ORDER BY request_id').all()];
 }
+
+test('keeps a Character’s Lorebook by default and protects independent chat and Character links', async () => {
+  const f = await fixture();
+  const { store } = f;
+  const book = store.saveLibrary(store.libraryRevision(), 'lorebooks', { ...newLorebook(), name: 'Tower lore' });
+  const character = store.saveLibrary(store.libraryRevision(), 'characters', { ...card, lorebookId: book });
+  const choice = await f.review('characters', character, undefined, book);
+  expect(choice.linkedLorebook).toEqual({ id: book, name: 'Tower lore', inUse: false });
+  const other = store.saveLibrary(store.libraryRevision(), 'characters', { ...card, name: 'Other Keeper', lorebookId: book });
+  const otherCharacterReview = await f.review('characters', character, undefined, book);
+  expect(otherCharacterReview.linkedLorebook?.inUse).toBe(true);
+  const blocked = await f.commit(character, command('characters', otherCharacterReview));
+  expect(blocked.json().localized.key).toBe('library_delete.lorebook_unavailable');
+  store.deleteLibrary(store.libraryRevision(), 'characters', other);
+  const chat = store.createChat({ ...base, characterId: character });
+  const before = persistentState(store);
+  expect((await f.commit(character, command('characters', choice))).json().code).toBe('library_deletion_stale');
+  const shared = await f.review('characters', character, undefined, book);
+  expect(shared.linkedLorebook?.inUse).toBe(true);
+  expect((await f.commit(character, command('characters', shared))).json().code).toBe('library_deletion_blocked');
+  expect(persistentState(store)).toEqual(before);
+  const keep = await f.review('characters', character);
+  expect((await f.commit(character, command('characters', keep))).statusCode).toBe(200);
+  expect(store.libraries().lorebooks.map(book => book.id)).toContain(book);
+  expect(store.chatHeader(chat).settings).toMatchObject({ characterId: null, lorebookId: book });
+});
+
+test('deletes a Character and its opted-in Lorebook together, with rollback and receipt replay', async () => {
+  const f = await fixture();
+  const { store } = f;
+  const book = store.saveLibrary(store.libraryRevision(), 'lorebooks', newLorebook());
+  const unrelated = store.saveLibrary(store.libraryRevision(), 'lorebooks', { ...newLorebook(), name: 'Unrelated' });
+  const character = store.saveLibrary(store.libraryRevision(), 'characters', { ...card, lorebookId: book });
+  const replacement = store.saveLibrary(store.libraryRevision(), 'characters', { ...card, name: 'Other Keeper' });
+  const chat = store.createChat({ ...base, characterId: character, lorebookId: null });
+  const before = persistentState(store);
+  const wrong = await f.review('characters', character, replacement, unrelated);
+  expect((await f.commit(character, command('characters', wrong))).json().code).toBe('library_deletion_blocked');
+  const keep = await f.review('characters', character, replacement);
+  expect((await f.commit(character, { ...command('characters', keep), choice: { mode: 'replace', replacementId: replacement, deleteLorebookId: book } })).json().code).toBe('library_deletion_stale');
+  expect(persistentState(store)).toEqual(before);
+  const pending = command('characters', await f.review('characters', character, replacement, book));
+  store.sqlite.exec(`CREATE TRIGGER reject_book_delete BEFORE DELETE ON library
+    WHEN OLD.id = '${book}' AND NOT EXISTS (SELECT 1 FROM library WHERE id = '${character}')
+    BEGIN SELECT RAISE(ABORT, 'synthetic lorebook deletion failure'); END`);
+  expect((await f.commit(character, pending)).json().code).toBe('library_deletion_rolled_back');
+  expect(persistentState(store)).toEqual(before);
+  store.sqlite.exec('DROP TRIGGER reject_book_delete');
+  expect((await f.commit(character, pending)).statusCode).toBe(200);
+  expect((await f.commit(character, pending)).statusCode).toBe(200);
+  expect((await f.commit(character, { ...pending, choice: keep.action.choice })).json().code).toBe('request_id_conflict');
+  expect(store.libraries().characters.map(card => card.id)).toEqual([replacement]);
+  expect(store.libraries().lorebooks.map(book => book.id)).toEqual([unrelated]);
+  expect(store.chatHeader(chat).settings).toMatchObject({ characterId: replacement, lorebookId: null });
+});
 
 test('Connection review deduplicates shared chats, resolves legacy main, preserves provenance and clears the correct selections', async () => {
   const f = await fixture();

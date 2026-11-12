@@ -145,10 +145,12 @@ export function LibraryDeletionDialog({ target, name, busy, run, cancel, complet
     return retry?.target.id === id && retry.target.kind === kind ? retry.command : null;
   });
   const [phase, setPhase] = useState<Phase>(staged ? 'uncertain' : 'loading');
+  const [slowReview, setSlowReview] = useState(false);
   const [review, setReview] = useState<LibraryDeletionReview | null>(null);
   const [feedback, setFeedback] = useState<MessageText>(staged ? message('library_delete.uncertain') : '');
   const [mode, setMode] = useState<LibraryDeletionChoice['mode']>(staged?.choice.mode ?? 'clear');
   const [replacement, setReplacement] = useState(staged?.choice.mode === 'replace' ? staged.choice.replacementId : '');
+  const [deleteLorebookId, setDeleteLorebookId] = useState(staged?.choice.deleteLorebookId);
   const [attempt, setAttempt] = useState(0);
   const active = useRef(false);
   const previousReview = useRef<LibraryDeletionReview | null>(null);
@@ -156,7 +158,10 @@ export function LibraryDeletionDialog({ target, name, busy, run, cancel, complet
   const path = `/library/${encodeURIComponent(id)}/deletion`;
   const locked = busy || phase === 'submitting' || phase === 'uncertain';
   const linked = Boolean(review && Object.values(review.dependencies).some(items => items.length));
+  const linkedLorebook = review?.linkedLorebook;
+  const simpleConfirmation = !linked && (!linkedLorebook || linkedLorebook.inUse);
   const actionMatches = Boolean(review && review.action.choice.mode === mode &&
+    review.action.choice.deleteLorebookId === deleteLorebookId &&
     (mode === 'clear' || review.action.choice.mode === 'replace' && review.action.choice.replacementId === replacement));
   const blockers = review ? [...review.blockers, ...(actionMatches ? review.action.blockers : [])] : [];
   const canConfirm = !locked && phase === 'ready' && actionMatches && blockers.length === 0;
@@ -167,8 +172,12 @@ export function LibraryDeletionDialog({ target, name, busy, run, cancel, complet
   useEffect(() => {
     if (!reading) return;
     const controller = new AbortController();
-    const query = new URLSearchParams({ kind, ...(candidate ? { replacementId: candidate } : {}) });
+    const query = new URLSearchParams({
+      kind, ...(candidate && { replacementId: candidate }), ...(deleteLorebookId && { deleteLorebookId }),
+    });
     setPhase('loading');
+    setSlowReview(false);
+    const progressTimer = window.setTimeout(() => setSlowReview(true), 1000);
     void (async () => {
       try {
         const next = libraryDeletionReviewSchema.parse(await api<unknown>(`${path}?${query}`, 'GET', undefined, controller.signal));
@@ -178,6 +187,9 @@ export function LibraryDeletionDialog({ target, name, busy, run, cancel, complet
         previousReview.current = next;
         setReview(next);
         if (!Object.values(next.dependencies).some(items => items.length)) setMode('clear');
+        if (deleteLorebookId && (next.linkedLorebook?.id !== deleteLorebookId || next.linkedLorebook.inUse)) {
+          setDeleteLorebookId(undefined);
+        }
         setPhase('ready');
       } catch (error) {
         if (!controller.signal.aborted) {
@@ -185,10 +197,16 @@ export function LibraryDeletionDialog({ target, name, busy, run, cancel, complet
             ? errorText(error, message('library_delete.load_failed')) : message('library_delete.load_failed'));
           setPhase('failed');
         }
+      } finally {
+        window.clearTimeout(progressTimer);
+        if (!controller.signal.aborted) setSlowReview(false);
       }
     })();
-    return () => controller.abort();
-  }, [path, kind, candidate, attempt, reading]);
+    return () => {
+      controller.abort();
+      window.clearTimeout(progressTimer);
+    };
+  }, [path, kind, candidate, deleteLorebookId, attempt, reading]);
 
   function reload(notice: MessageText = '') {
     setFeedback(notice);
@@ -249,14 +267,14 @@ export function LibraryDeletionDialog({ target, name, busy, run, cancel, complet
     className={`confirmation-dialog library-deletion-dialog${linked ? ' library-deletion-linked' : ''}`}
     aria-labelledby={title} aria-describedby={description} onDismiss={() => { if (!locked) cancel(); }}
     onKeyDown={event => {
-      if (event.key === 'Tab' && !linked && canConfirm) {
+      if (event.key === 'Tab' && simpleConfirmation && canConfirm) {
         event.preventDefault();
         const active = document.activeElement;
         const next = active === cancelButton.current ? confirmButton.current
           : active === confirmButton.current || !event.shiftKey ? cancelButton.current : confirmButton.current;
         next?.focus();
       }
-      if (event.key === 'Enter' && !linked && canConfirm && event.target !== cancelButton.current &&
+      if (event.key === 'Enter' && simpleConfirmation && canConfirm && event.target !== cancelButton.current &&
         !event.repeat && !event.nativeEvent.isComposing && event.keyCode !== 229 &&
         !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
         event.preventDefault();
@@ -271,7 +289,7 @@ export function LibraryDeletionDialog({ target, name, busy, run, cancel, complet
     </header>
     <div className="library-deletion-body">
       {feedback && <p className="library-deletion-feedback" role="alert">{formatMessage(feedback)}</p>}
-      {phase === 'loading' && <p role="status">{t('library_delete.loading')}</p>}
+      {phase === 'loading' && slowReview && <p role="status">{t('library_delete.loading')}</p>}
       {linked && review && <>
         <DependencyList key={review.version} dependencies={review.dependencies} kind={kind} />
         <fieldset disabled={locked}>
@@ -303,6 +321,17 @@ export function LibraryDeletionDialog({ target, name, busy, run, cancel, complet
           </>}
         </fieldset>
       </>}
+      {linkedLorebook && <fieldset className="library-deletion-lorebook" disabled={locked}>
+        <label className="checkbox">
+          <input type="checkbox" checked={deleteLorebookId === linkedLorebook.id} disabled={linkedLorebook.inUse}
+            onChange={event => {
+              setFeedback('');
+              setDeleteLorebookId(event.currentTarget.checked ? linkedLorebook.id : undefined);
+            }} />
+          <span>{t('library_delete.also_delete_lorebook', { name: linkedLorebook.name })}</span>
+        </label>
+        {linkedLorebook.inUse && <p>{t('library_delete.lorebook_in_use')}</p>}
+      </fieldset>}
       {review?.bookmark && <div className="library-deletion-bookmark">
         <p>{t('library_delete.bookmark')}</p>
         <p>{t('library_delete.fallback', { name: review.bookmark.fallback ? displayLibraryRecord(review.bookmark.fallback).name : t('character_editor.none') })}</p>

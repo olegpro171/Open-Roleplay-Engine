@@ -969,6 +969,8 @@ export class Store {
       ? this.db.delete(schema.connections).where(eq(schema.connections.id, id)).run()
       : this.db.delete(schema.library).where(and(eq(schema.library.id, id), eq(schema.library.kind, kind))).run();
     if (deleted.changes !== 1) throw new Error('Library deletion did not remove its target.');
+  }
+  private finishLibraryDeletion() {
     this.pictures.cleanup();
     this.bumpLibrary();
   }
@@ -987,6 +989,7 @@ export class Store {
           ? 'errors.a_context_preset_uses_this_summarization_connection_change' : 'errors.select_a_different_item_in_the_chats_using'));
       }
       this.removeLibraryItem(kind, id);
+      this.finishLibraryDeletion();
     })();
   }
   newChatDefaults(settings: ChatDefaultsStatus['settings']) {
@@ -1010,6 +1013,17 @@ export class Store {
     const fallback = items[kind].find(item => item.id === fallbackId);
     return { fallback: fallback ? { id: fallback.id, name: fallback.name } : null };
   }
+  private characterDeletionLorebook(characterId: string) {
+    const row = this.db.select({
+      lorebookId: sql<string | null>`json_extract(${schema.library.data}, '$.lorebookId')`,
+    }).from(schema.library).where(eq(schema.library.id, characterId)).get();
+    if (!row?.lorebookId) return undefined;
+    const book = libraryItemLabels(this.db, 'lorebooks', row.lorebookId)[0];
+    if (!book) return undefined;
+    const uses = resolveLibraryDependencies(this.db, 'lorebooks', book.id);
+    const inUse = uses.chats.length > 0 || uses.characters.some(character => character.id !== characterId);
+    return { book, inUse };
+  }
   private resolveLibraryDeletion(kind: LibraryKind, id: string, choice: LibraryDeletionChoice, settings: () => ChatDefaultsStatus['settings'], includeReplacements: boolean, coordinatingWork: boolean) {
     const target = this.checkDeletableLibraryItem(kind, id);
     const dependencies = resolveLibraryDependencies(this.db, kind, id);
@@ -1018,6 +1032,10 @@ export class Store {
     })));
     const blockers: LibraryDeletionReview['blockers'] = [];
     const actionBlockers: LibraryDeletionReview['action']['blockers'] = [];
+    const linkedLorebook = kind === 'characters' ? this.characterDeletionLorebook(id) : undefined;
+    if (choice.deleteLorebookId && (choice.deleteLorebookId !== linkedLorebook?.book.id || linkedLorebook.inUse)) {
+      actionBlockers.push({ reason: 'lorebook_unavailable', branches: [] });
+    }
     if (coordinatingWork || this.generationRunning() || this.contexts.running()) {
       blockers.push({ reason: 'busy', branches: labels.filter(branch => this.generationRunning(branch.id) || this.contexts.running(branch.id)) });
     }
@@ -1046,11 +1064,15 @@ export class Store {
     if (layoutChanges.size) actionBlockers.push({ reason: 'layout', branches: labels.filter(branch => layoutChanges.has(branch.id)) });
 
     const bookmark = this.deletionBookmark(kind, id, settings);
-    const version = this.libraryCommandFingerprint(['library-deletion-v1', datasetEpoch(this.sqlite), kind, target, dependencies, memory, bookmark]);
+    const version = this.libraryCommandFingerprint([
+      'library-deletion-v1', datasetEpoch(this.sqlite), kind, target, dependencies, memory, bookmark,
+      ...(linkedLorebook ? [linkedLorebook] : []),
+    ]);
     const token = this.libraryCommandFingerprint([version, choice, replacement, layout, actionBlockers]);
     const named = ({ id, name }: { id: string; name: string }) => ({ id, name });
     const review: LibraryDeletionReview = {
       target: named(target), version, bookmark, blockers,
+      ...(linkedLorebook && { linkedLorebook: { ...named(linkedLorebook.book), inUse: linkedLorebook.inUse } }),
       dependencies: {
         chats: dependencies.chats.map(({ id, name, direct, memoryPreset }) => ({ id, name, direct, memoryPreset: memoryPreset && named(memoryPreset) })),
         characters: dependencies.characters.map(named), contexts: dependencies.contexts.map(named),
@@ -1083,6 +1105,13 @@ export class Store {
           throw new AppError(409, 'library_deletion_stale', message('library_delete.stale'));
         }
         this.removeLibraryItem(kind, id);
+        if (choice.deleteLorebookId) {
+          if (hasLibraryDependencies(resolveLibraryDependencies(this.db, 'lorebooks', choice.deleteLorebookId))) {
+            throw new AppError(409, 'library_deletion_stale', message('library_delete.stale'));
+          }
+          this.removeLibraryItem('lorebooks', choice.deleteLorebookId);
+        }
+        this.finishLibraryDeletion();
         const result = { ok: true } as const;
         this.sqlite.prepare('INSERT INTO lore_commands (request_id, command, result) VALUES (?, ?, ?)').run(requestId, fingerprint, JSON.stringify(result));
         transaction.phase = 'commit';

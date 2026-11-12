@@ -465,8 +465,9 @@ export async function createApp(options: {
   });
   app.get('/api/library/:id/deletion', async request => {
     const { id } = z.object({ id: identity }).parse(request.params);
-    const { kind, replacementId } = libraryDeletionQuerySchema.parse(request.query);
-    return store.reviewLibraryDeletion(kind, id, replacementId === undefined ? { mode: 'clear' } : { mode: 'replace', replacementId },
+    const { kind, replacementId, deleteLorebookId } = libraryDeletionQuerySchema.parse(request.query);
+    const choice = replacementId === undefined ? { mode: 'clear' as const } : { mode: 'replace' as const, replacementId };
+    return store.reviewLibraryDeletion(kind, id, { ...choice, ...(deleteLorebookId && { deleteLorebookId }) },
       () => chatDefaults.status().settings, coordinator.hasActiveWork());
   });
   app.post('/api/library/:id/deletion', async request => {
