@@ -118,11 +118,15 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
   await page.evaluate(chatId => localStorage.setItem('roleplay-chat', chatId), id);
   await page.route('**/api/application/appearance', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic appearance load failure.' }) }));
   await page.reload();
-  await expect(page.getByRole('alert')).toContainText('Synthetic appearance load failure.');
+  const review = page.getByRole('button', { name: 'Application warnings', exact: true });
+  await review.click();
+  const warning = page.getByRole('dialog', { name: 'Warning', exact: true });
+  await expect(warning).toContainText('Synthetic appearance load failure.');
   await expect(page.locator('.part.user .direct-speech')).toHaveCSS('color', 'rgb(168, 201, 240)');
   await page.unroute('**/api/application/appearance');
-  await page.getByRole('button', { name: 'Retry chat appearance', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Retry chat appearance', exact: true })).toHaveCount(0);
+  await warning.getByRole('button', { name: 'Retry loading', exact: true }).click();
+  await expect(warning).toHaveCount(0);
+  await expect(review).toHaveCount(0);
   const observer = await context.newPage();
   await observer.setViewportSize({ width, height: 900 });
   await observer.goto('/');

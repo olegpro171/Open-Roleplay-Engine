@@ -7,6 +7,7 @@ import { Icon } from './Icon';
 import { LibraryImport } from './LibraryImport';
 import { Dropdown } from './Controls';
 import { useConfirmation } from './Confirmation';
+import { WarningDetails, WarningDialog } from './WarningDialog';
 
 function TranslationReport({ language }: { language: LanguageStatus['languages'][number] }) {
   useLocale();
@@ -14,16 +15,16 @@ function TranslationReport({ language }: { language: LanguageStatus['languages']
   const size = 20;
   const issues = language.translationIssues;
   const offset = page * size;
-  return <details open>
-    <summary>{t('language.report', { language: language.nativeName, count: issues.length })}</summary>
+  const label = t('language.report', { language: language.nativeName, count: issues.length });
+  return <WarningDetails label={label} title={label}>
     <p className="small muted">{t('language.reportHelp')}</p>
-    <ul>{issues.slice(offset, offset + size).map(issue => <li key={issue.key}><code>{issue.key}</code>: {formatMessage(issue.message)}</li>)}</ul>
+    <ul className="warning-messages">{issues.slice(offset, offset + size).map(issue => <li key={issue.key}><code>{issue.key}</code>: {formatMessage(issue.message)}</li>)}</ul>
     {issues.length > size && <div className="actions">
       <button className="secondary" disabled={page === 0} onClick={() => setPage(page - 1)}>{t('language.reportPrevious')}</button>
       <span>{t('language.reportPage', { first: offset + 1, last: Math.min(offset + size, issues.length), total: issues.length })}</span>
       <button className="secondary" disabled={offset + size >= issues.length} onClick={() => setPage(page + 1)}>{t('language.reportNext')}</button>
     </div>}
-  </details>;
+  </WarningDetails>;
 }
 
 export function LanguageSettings() {
@@ -32,6 +33,7 @@ export function LanguageSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useTextState('');
   const [notice, setNotice] = useTextState('');
+  const [importWarning, setImportWarning] = useState(false);
   const pending = useRef(false);
   const mounted = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -79,7 +81,9 @@ export function LanguageSettings() {
         publishLanguages(result);
         if (locale() === captured.locale) await selectLanguage(captured.locale, false);
         const savedLanguage = result.languages.find(item => item.locale === captured.locale);
-        if (mounted.current) setNotice(message(savedLanguage?.translationIssues.length ? 'language.importedWithIssues' : 'language.imported'));
+        if (!mounted.current) return;
+        if (savedLanguage?.translationIssues.length) setImportWarning(true);
+        else setNotice(message('language.imported'));
       };
       if (installed?.custom) confirm({ title: t('language.confirmTitle'), message: t('language.confirmBody', { language: pack.nativeName }), actionLabel: t('language.replace'), onConfirm: () => void run(savePack) });
       else await savePack();
@@ -106,6 +110,9 @@ export function LanguageSettings() {
     <p id="language-extend-help" className="small muted">{t('language.extendHelp')}</p>
     {busy && <p role="status">{t('language.loading')}</p>}{notice && <p role="status">{notice}</p>}{error && <p role="alert">{error}</p>}
     {status?.languages.filter(language => language.translationIssues.length).map(language => <TranslationReport key={`${language.locale}:${language.revision}`} language={language} />)}
-    {status?.issues.map(issue => <p role="status" key={issue.file}>{issue.file}: {formatMessage(issue.message)}</p>)}
+    {Boolean(status?.issues.length) && <WarningDetails>
+      <ul className="warning-messages">{status?.issues.map(issue => <li key={issue.file}>{issue.file}: {formatMessage(issue.message)}</li>)}</ul>
+    </WarningDetails>}
+    {importWarning && <WarningDialog message={message('language.importedWithIssues')} close={() => setImportWarning(false)} />}
   </section>;
 }

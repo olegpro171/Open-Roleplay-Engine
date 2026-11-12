@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { defaultContextPreset, type ContextPreset } from '../../src/shared/context';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
+import { appearanceStatusSchema } from '../../src/shared/appearance';
 
 async function login(page: Page) {
   const session = await page.request.get('/api/session').then(response => response.json());
@@ -91,7 +92,7 @@ for (const width of [800, 390]) {
   });
 }
 
-test('imports a portable context preset with an unavailable Connection and keeps valid references', async ({ page }) => {
+test('warns after a portable context preset falls back and keeps valid Connection references', async ({ page }, testInfo) => {
   await login(page);
   const read = async () => page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
   const headers = { Origin: new URL(page.url()).origin };
@@ -112,12 +113,47 @@ test('imports a portable context preset with an unavailable Connection and keeps
     await page.locator('input[type="file"][accept=".json"]').setInputFiles({
       name: 'memory.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(data)),
     });
-    await expect(page.getByRole('heading', { name: data.name, exact: true })).toBeVisible();
   }
-  await importPreset(unavailable);
-  await expect(page.getByRole('status')).toContainText('it will use the chat’s Connection');
-  expect((await read()).contexts.find(preset => preset.name === unavailable.name)).toMatchObject({ ...unavailable, connectionId: null });
+  const warning = page.getByRole('dialog', { name: 'Warning', exact: true });
+  const trigger = page.getByRole('button', { name: 'Import context preset', exact: true });
+  const readAppearance = async () => appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+  const originalTheme = (await readAppearance()).settings.theme;
+  async function setTheme(theme: typeof originalTheme) {
+    const appearance = await readAppearance();
+    const themed = await page.request.put('/api/application/appearance', {
+      headers, data: { revision: appearance.revision, settings: { ...appearance.settings, theme } },
+    });
+    expect(themed.ok(), await themed.text()).toBe(true);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+  }
+  try {
+    for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+      await setTheme(theme);
+      for (const width of [1280, 320]) {
+        await page.setViewportSize({ width, height: 720 });
+        const data = { ...unavailable, name: `Portable preset ${theme} ${width}` };
+        await importPreset(data);
+        await expect(warning).toContainText('it will use the chat’s Connection');
+        await expect(warning.getByRole('heading')).toBeFocused();
+        await expect(warning).toBeInViewport();
+        await expect(warning.getByRole('button', { name: 'Dismiss', exact: true })).toBeInViewport();
+        await trigger.evaluate(button => button.focus());
+        await expect(warning.getByRole('heading')).toBeFocused();
+        expect((await read()).contexts.find(preset => preset.name === data.name)).toMatchObject({ ...data, connectionId: null });
+        await page.screenshot({ path: testInfo.outputPath(`preset-warning-${theme}-${width}.png`) });
+        if (theme === 'light' && width === 1280) await page.mouse.click(4, 4);
+        else if (width === 1280) await page.keyboard.press('Escape');
+        else await warning.getByRole('button', { name: 'Dismiss', exact: true }).click();
+        await expect(warning).toHaveCount(0);
+        await expect(trigger).toBeFocused();
+        await expect(page.getByRole('heading', { name: data.name, exact: true })).toBeVisible();
+      }
+    }
+  } finally {
+    await setTheme(originalTheme);
+  }
   await importPreset({ ...unavailable, name: 'Local memory preset', connectionId });
-  await expect(page.getByText(/it will use the chat’s Connection/)).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Local memory preset', exact: true })).toBeVisible();
+  await expect(warning).toHaveCount(0);
   expect((await read()).contexts.find(preset => preset.name === 'Local memory preset')?.connectionId).toBe(connectionId);
 });

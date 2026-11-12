@@ -29,13 +29,14 @@ test('warns about a lost server while retaining a rejected action, then recovers
   const api = '**/api/**';
   await page.route(api, route => route.abort('connectionrefused'));
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-  const connectionBanner = page.getByRole('alert').filter({ hasText: warning });
-  await expect(connectionBanner.getByRole('button', { name: 'Retry loading' })).toBeVisible();
-  await expect(page.getByRole('img', { name: 'Reconnecting', exact: true })).toBeVisible();
-  await expect(page.getByRole('alert').filter({ hasText: rejection })).toBeVisible();
+  const connectionWarning = page.getByRole('dialog', { name: 'Warning', exact: true });
+  await expect(connectionWarning).toContainText(warning);
+  await expect(connectionWarning.getByRole('button', { name: 'Retry loading' })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Reconnecting', exact: true, includeHidden: true })).toBeVisible();
+  await expect(page.locator('[role=alert]').filter({ hasText: rejection })).toBeVisible();
 
   await page.unroute(api);
-  await expect(connectionBanner).toHaveCount(0);
+  await expect(connectionWarning).toHaveCount(0);
   await expect(connected).toBeVisible();
   await expect(page.getByRole('alert').filter({ hasText: rejection })).toBeVisible();
   await expect(editor).toHaveValue('Keep this unsaved persona draft.');
@@ -110,11 +111,11 @@ test('reports browser offline immediately while an existing event stream is stil
   const api = '**/api/**';
   await page.route(api, route => route.abort('internetdisconnected'));
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
-  const warning = page.getByRole('alert').filter({ hasText: 'Cannot reach the server. Check that it is running.' });
-  await expect(warning).toBeVisible();
-  await expect(editor).toHaveValue('Keep this unsaved persona draft.');
+  const warning = page.getByRole('dialog', { name: 'Warning', exact: true });
+  await expect(warning).toContainText('Cannot reach the server. Check that it is running.');
   await warning.getByRole('button', { name: 'Dismiss', exact: true }).click();
   await expect(warning).toHaveCount(0);
+  await expect(editor).toHaveValue('Keep this unsaved persona draft.');
   await page.unroute(api);
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect(page.getByRole('img', { name: 'Connected', exact: true })).toBeVisible();

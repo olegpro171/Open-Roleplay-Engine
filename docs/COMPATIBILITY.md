@@ -51,7 +51,7 @@ Malformed preserved fields remain intact on unrelated saves and exports. The edi
 
 ### Configuration warnings
 
-Chat Settings lists structural warnings for the selected character, preset and lorebook, including unsaved selection changes. Story's Chat settings button shows the count for saved selections. Server diagnostics use the same field readers and lore destination/directive-fallback resolution as generation; they do not scan keywords, advance lore state or call models.
+Chat Settings opens structural warnings for the selected character, preset and lorebook in a dialog, including warnings for unsaved selection changes. Story's Chat settings button shows the count for saved selections. Server diagnostics use the same field readers and lore destination/directive-fallback resolution as generation; they do not scan keywords, advance lore state or call models.
 
 Warnings identify nonempty card instructions whose markers are unavailable, depth notes whose Messages permission is unavailable, malformed card instruction data, and enabled nonempty lore entries without a usable destination. Lore warnings group unavailable entries and show up to three names. Each warning opens the relevant saved library editor; leaving changed settings requires an explicit discard choice. Failed diagnostic requests show an error and an explicit retry. Aborted/superseded responses cannot populate another selection's list.
 

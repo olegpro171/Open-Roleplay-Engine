@@ -27,7 +27,8 @@ import { trimBoundaryNewlines } from '../shared/text';
 import { Memory } from './Memory';
 import { PreparationStatus } from './PreparationStatus';
 import { transcriptInitialSize, transcriptBatchSize, transcriptWindowLimit, type StorySnapshot } from '../shared/transcript';
-import { BudgetBreakdown, InputMeter, PromptPeek, LoreInspection } from './PromptPeek';
+import { BudgetBreakdown, InputMeter, PromptPeek, LoreInspection, requestWarnings } from './PromptPeek';
+import { WarningDetails, WarningDialog, WarningMessages } from './WarningDialog';
 import { useTranscriptScroll } from './useTranscriptScroll';
 import { useChatDraft } from './useChatDraft';
 import { TurnControls } from './TurnControls';
@@ -111,7 +112,6 @@ export function App() {
   const [failure, setFailure] = useState<AppFailure | null>(null);
   const error = formatMessage(failure?.message);
   const [connectionWarning, setConnectionWarning] = useState<'visible' | 'dismissed' | null>(null);
-  const connectionError = connectionWarning === 'visible' ? formatMessage(serverUnavailable) : '';
   const reportLoadFailure = useCallback((message: MessageText) => {
     // A failed background read must not replace the action the user needs to resolve.
     setFailure(current => current?.kind === 'action' ? current : { kind: 'loading', message });
@@ -579,7 +579,10 @@ export function App() {
     }
   }
 
-  if (!session) return <main className="login"><p>{t("app.opening_ore")}</p>{(error || connectionError) && <p role="alert">{error || connectionError}</p>}</main>;
+  const connectionDialog = connectionWarning === 'visible' && <WarningDialog message={serverUnavailable}
+    close={() => setConnectionWarning(current => current === 'visible' ? 'dismissed' : current)}
+    actions={() => <button type="button" className="secondary" disabled={busy} onClick={() => void recoverConnection()}>{t("app.retry_loading")}</button>} />;
+  if (!session) return <main className="login"><p>{t("app.opening_ore")}</p>{error && <p role="alert">{error}</p>}{connectionDialog}</main>;
   if (!session.authenticated) return <Login session={session} onLogin={async () => { setFailure(null); await refreshSession(); }} />;
   function openChat(id: string, destination: 'story' | 'settings' = 'story') {
     loadId.current++;
@@ -600,7 +603,7 @@ export function App() {
       setToolSnapshot(null);
     }
   }
-  if (!library) return <main className="login"><p>{t("app.loading_your_story")}</p>{(error || connectionError) && <p role="alert">{error || connectionError}</p>}</main>;
+  if (!library) return <main className="login"><p>{t("app.loading_your_story")}</p>{error && <p role="alert">{error}</p>}{connectionDialog}</main>;
   const selectedCharacter = library.characters.find(character => character.id === snapshot?.settings.characterId);
   const selectedCharacterPicture = library.characterPictures.find(picture => picture.characterId === snapshot?.settings.characterId);
   const selectedPersona = library.personas.find(persona => persona.id === snapshot?.settings.personaId);
@@ -637,16 +640,14 @@ export function App() {
       <button className="quiet signout" onClick={() => void command(async () => { await api('/logout', 'POST', {}); setSnapshot(null); await refreshSession(); })}>{t("app.sign_out")}</button>
     </header>
     {dataChanged && <div className="error-banner" role="alert"><span>{t("app.application_data_was_imported_or_wiped_in")}</span><button onClick={() => window.location.reload()}>{t("app.reload_current_data")}</button></div>}
-    {connectionError && <div className="error-banner" role="alert"><span>{connectionError}</span><div className="actions error-banner-actions">
-      <button className="quiet" disabled={busy} onClick={() => void recoverConnection()}>{t("app.retry_loading")}</button>
-      <button className="quiet" onClick={() => setConnectionWarning('dismissed')}>{t("app.dismiss")}</button>
-    </div></div>}
     {error && <div className="error-banner" role="alert"><span>{error}</span><div className="actions error-banner-actions">
       {failure?.kind === 'loading' && <button className="quiet" disabled={busy} onClick={() => { setFailure(null); void refresh(); }}>{t("app.retry_loading")}</button>}
       <button className="quiet" onClick={() => setFailure(null)}>{t("app.dismiss")}</button>
     </div></div>}
-    {appearanceError && <div className="error-banner" role="alert"><span>{t("app.using_the_last_loaded_chat_appearance_or", { appearanceError: appearanceError })}</span><button className="quiet" onClick={() => void refresh()}>{t("app.retry_chat_appearance")}</button></div>}
-    {chatBehaviorError && <div className="error-banner" role="alert"><span>{t('chat_behavior.shortcuts_unavailable', { error: chatBehaviorError })}</span><button className="quiet" onClick={() => void refresh()}>{t('chat_behavior.retry')}</button></div>}
+    <WarningMessages label={t('warning.application')} messages={[
+      ...(appearanceError ? [msg("app.using_the_last_loaded_chat_appearance_or", { appearanceError })] : []),
+      ...(chatBehaviorError ? [msg('chat_behavior.shortcuts_unavailable', { error: chatBehaviorError })] : []),
+    ]} actions={() => <button type="button" className="secondary" onClick={() => void refresh()}>{t('app.retry_loading')}</button>} />
     {tab === 'data' && <ApplicationSettings chatBehavior={behaviorEditor} appearance={appearanceEditor} lan={lanEditor} openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
     {snapshot && ['settings', 'memory', 'request'].includes(tab) && toolError && <div className="error-banner" role="alert">{toolError}<button onClick={() => setToolRetry(value => value + 1)}>{t("app.retry_loading")}</button></div>}
     {snapshot && ['settings', 'memory'].includes(tab) && toolSnapshot?.id !== snapshot.id && <main className="document-panel"><p role="status">{t("app.loading_chat_tools")}</p></main>}
@@ -659,8 +660,10 @@ export function App() {
         <button className="quiet chat-navigation-action" onClick={() => setTab('request')}><Icon name="Code" />{t("app.request_inspector")}</button>
       </>}>
       <section className="conversation" aria-label={t("app.conversation")}>
-        {Boolean(snapshot.memory.refusalCount) && <div className="recovery" role="status"><div><strong>{t('refusals.notice', { count: snapshot.memory.refusalCount })}</strong></div><button className="secondary" onClick={() => setTab('memory')}>{t('refusals.review')}</button></div>}
-        {memoryStale && !snapshot.memory.refusalCount && <div className="recovery" role="status"><div><strong>{t("app.memory_needs_review")}</strong><p>{t("app.archived_history_changed_repair_the_affected_summaries")}</p></div><button className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button></div>}
+        {snapshot.memory.refusalCount > 0 ? <WarningDetails label={t('refusals.review')} message={msg('refusals.notice', { count: snapshot.memory.refusalCount })}
+          actions={() => <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.review_memory')}</button>} />
+          : memoryStale && <WarningDetails label={t("app.memory_needs_review")} message={msg("app.archived_history_changed_repair_the_affected_summaries")}
+            actions={() => <button type="button" className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button>} />}
         {pageError && <div className="recovery" role="alert">{pageError}<button className="secondary" onClick={() => setPageError('')}>{t("app.dismiss")}</button></div>}
         <div className="transcript-frame"><div className="transcript" ref={transcript}>
           {snapshot.page.hasOlder && <div className="history-page-control" data-history-direction="older"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('older')}>{pageLoading ? t("app.loading_history") : t("app.load_older_turns")}</button></div>}
@@ -762,18 +765,20 @@ export function App() {
       <div className="actions">{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('latest').then(moved => { if (moved) setGenerationId(''); })}>{t('app.latest_requests')}</button>}{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('newer').then(moved => { if (moved) setGenerationId(''); })}>{t('app.newer_requests')}</button>}{history.older && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('older').then(moved => { if (moved) setGenerationId(''); })}>{t('app.older_requests')}</button>}</div>
       {history.error && <p role="alert">{formatMessage(history.error)} <button type="button" className="secondary" onClick={history.retry}>{t('app.retry_loading')}</button></p>}
       <p className="small muted">{generationId ? t("app.saved_attempt_its_ceiling_is_historical", { value: shownGeneration ? stateLabel(shownGeneration.status) : t("app.usage_unavailable"), value2: formatMessage(shownGeneration?.errorMessage ?? shownGeneration?.error) }) : t("app.live_preview_of_the_current_setup_and")}</p>
-      {!generationId && memoryStale && <p role="status">{t("app.memory_is_out_of_date_this_inspection")}</p>}
-      {!generationId && inspectionBudgetWarning && <div className="recovery" role="status">
-        <p>{t(inspectionBudgetWarning)}</p>
-        {pinsIncluded && <button type="button" className="secondary" onClick={openPins}>{t('pins.title')}</button>}
-        {summariesEnabled && <button className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button>}
-      </div>}
+      <WarningMessages key={generationId} messages={[
+        ...(!generationId && memoryStale ? [msg("app.memory_is_out_of_date_this_inspection")] : []),
+        ...(!generationId && inspectionBudgetWarning ? [msg(inspectionBudgetWarning)] : []),
+        ...requestWarnings(shownRequest),
+      ]} actions={close => !generationId && inspectionBudgetWarning && <>
+        {pinsIncluded && <button type="button" className="secondary" onClick={() => { close(); openPins(); }}>{t('pins.title')}</button>}
+        {summariesEnabled && <button type="button" className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button>}
+      </>} />
       {!generationId && (inspectionError || currentRequest && !inspectionCurrent) && <div role="status">
         <p>{inspectionError || t("app.counting_current_input")}</p>
         {preview.error && <button type="button" className="secondary" onClick={preview.retry}>{t("app.retry_preview")}</button>}
       </div>}{generationId && matchingSavedInspection?.error && <p role="alert">{formatMessage(matchingSavedInspection.error)} <button type="button" className="secondary" onClick={() => setSavedInspectionRetry(value => value + 1)}>{t("app.retry_loading")}</button></p>}
       {shownGeneration?.usage && <p className="small">{t("app.provider_reported_input_output_tokens", { value: shownGeneration.usage.inputTokens.toLocaleString(locale()), value2: shownGeneration.usage.outputTokens.toLocaleString(locale()) })}</p>}
-      {shownRequest && <>{shownRequest.warnings?.map((warning, index) => <p role="status" key={warning}>{formatMessage(shownRequest.warningMessages?.[index] ?? warning)}</p>)}<div className="budget"><strong>{t("app.estimated_input_2", { value: shownRequest.budget.inputTokens.toLocaleString(locale()), value2: shownRequest.budget.targetInputTokens.toLocaleString(locale()) })}</strong><InputMeter input={shownRequest.budget.inputTokens} limit={Math.min(shownRequest.budget.targetInputTokens, shownRequest.budget.contextWindow - shownRequest.budget.reservedOutputTokens)} /><span>{t("app.reserved_output_model_window", { value: shownRequest.budget.reservedOutputTokens.toLocaleString(locale()), value2: shownRequest.budget.contextWindow.toLocaleString(locale()) })}</span></div>{shownRequest.layout && <BudgetBreakdown request={shownRequest} />}<LoreInspection request={shownRequest} historical={Boolean(generationId)} /><details className="request-details"><summary>{t("app.endpoint_and_request_body")}</summary><h2>{t("app.endpoint")}</h2><pre>{shownRequest.endpoint}</pre><h2>{t("app.request_body")}</h2><pre data-testid="request-body">{JSON.stringify(shownRequest.body, null, 2)}</pre></details><details><summary>{t("app.turn_identities_and_source_revisions")}</summary><pre>{JSON.stringify(shownRequest.coverage, null, 2)}</pre></details></>}
+      {shownRequest && <><div className="budget"><strong>{t("app.estimated_input_2", { value: shownRequest.budget.inputTokens.toLocaleString(locale()), value2: shownRequest.budget.targetInputTokens.toLocaleString(locale()) })}</strong><InputMeter input={shownRequest.budget.inputTokens} limit={Math.min(shownRequest.budget.targetInputTokens, shownRequest.budget.contextWindow - shownRequest.budget.reservedOutputTokens)} /><span>{t("app.reserved_output_model_window", { value: shownRequest.budget.reservedOutputTokens.toLocaleString(locale()), value2: shownRequest.budget.contextWindow.toLocaleString(locale()) })}</span></div>{shownRequest.layout && <BudgetBreakdown request={shownRequest} />}<LoreInspection request={shownRequest} historical={Boolean(generationId)} /><details className="request-details"><summary>{t("app.endpoint_and_request_body")}</summary><h2>{t("app.endpoint")}</h2><pre>{shownRequest.endpoint}</pre><h2>{t("app.request_body")}</h2><pre data-testid="request-body">{JSON.stringify(shownRequest.body, null, 2)}</pre></details><details><summary>{t("app.turn_identities_and_source_revisions")}</summary><pre>{JSON.stringify(shownRequest.coverage, null, 2)}</pre></details></>}
     </section></ChatWorkspace>}
     {branchDialog && activeBranch?.id === chatId && tab === 'story' && <ChatBranches key={activeBranch.id} current={{ ...activeBranch, revision: snapshot?.revision ?? activeBranch.revision }}
       branches={chatBranches} fork={branchDialog.through} locked={authorNote.pending} close={() => setBranchDialog(null)}
@@ -788,6 +793,7 @@ export function App() {
       locked={working || busy || dataChanged} preparing={Boolean(preparing)} missingMessages={!hasPromptMarker(snapshot.sources.prompt, 'messages')}
       saving={authorNote.saving} error={authorNote.error} storageError={authorNote.storageError} close={() => setAuthorNoteOpen(false)} />}
 
+    {connectionDialog}
   </div></ChatDetailsTarget.Provider>;
 }
 

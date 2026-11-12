@@ -5,6 +5,7 @@ import { newId } from './uuid';
 import { Icon } from './Icon';
 import { cardInstructionFields, cardInstructionLabels, readCardInstruction, readCharacterDepthPrompt } from '../shared/card-instructions';
 import { useConfirmation } from './Confirmation';
+import { WarningDetails, WarningMessages } from './WarningDialog';
 import type { CharacterSaveCommand } from '../shared/library';
 import { PictureEditor, PictureSquare, pictureMutation, savedPictureDraft } from './Pictures';
 import { useEffect, useId, useRef, useState } from 'react';
@@ -127,7 +128,7 @@ export function CharacterEditor({ initial, library, busy, run, close, openBook, 
       <CardInstructions value={data} change={setData} />
       <div className="full" role="group" aria-label={t("character_editor.alternate_greetings")}>
         <h3>{t("character_editor.alternate_greetings")}</h3>
-        {!greetings.success && <p role="alert">{t("character_editor.the_preserved_alternate_greetings_are_invalid_they")}</p>}
+        {!greetings.success && <WarningDetails message={msg("character_editor.the_preserved_alternate_greetings_are_invalid_they")} />}
         {alternatives.map((greeting, index) => <div className="alternate-greeting" key={index}>
           <label>{t("character_editor.alternate_greeting", { value: index + 1 })}<EditorTextarea aria-label={t("character_editor.alternate_greeting", { value: index + 1 })} maxLength={100_000} value={greeting} onChange={event => setData({ ...data, alternate_greetings: alternatives.map((text, position) => position === index ? event.target.value : text) })} /></label>
           <button type="button" className="quiet" aria-label={t("character_editor.remove_alternate_greeting", { value: index + 1 })} onClick={() => setData({ ...data, alternate_greetings: alternatives.filter((_, position) => position !== index) })}>{t("character_editor.remove_greeting")}</button>
@@ -180,11 +181,14 @@ function CardInstructions({ value, change }: { value: LibraryCharacter; change?:
   useLocale();
   const [open, setOpen] = useState(false);
   const note = readCharacterDepthPrompt(value);
-  function instructionField(field: typeof cardInstructionFields[number]) {
-    const instruction = readCardInstruction(value, field);
-    const label = cardInstructionLabel(field);
+  const instructions = open ? cardInstructionFields.map(field => ({
+    field, instruction: readCardInstruction(value, field), label: cardInstructionLabel(field),
+  })) : [];
+  const warnings = instructions.flatMap(({ instruction, label }) => instruction.success ? []
+    : [msg("character_editor.is_invalid_the_preserved_value_will_remain", { label })]);
+  if (!note.success) warnings.push(msg("character_editor.the_character_depth_note_has_invalid_settings"));
+  function instructionField({ field, instruction, label }: typeof instructions[number]) {
     if (!instruction.success) return <div className="full" key={field}>
-      <p role="alert">{t("character_editor.is_invalid_the_preserved_value_will_remain", { label: label })}</p>
       {change && <button type="button" className="secondary" onClick={() => change({ ...value, [field]: '' })}>{t("character_editor.clear_invalid", { value: label.toLowerCase() })}</button>}
     </div>;
     if (!change) return <p className="prose small full" key={field}>{label}: {instruction.data || t("character_editor.empty")}</p>;
@@ -196,9 +200,9 @@ function CardInstructions({ value, change }: { value: LibraryCharacter; change?:
     <summary>{t("character_editor.card_instructions")}</summary>
     {open && <div className="form-grid">
       <p className="small muted full">{t("character_editor.the_prompt_preset_controls_whether_these_instructions")}</p>
-      {cardInstructionFields.map(instructionField)}
+      {warnings.length > 0 && <div className="full"><WarningMessages messages={warnings} /></div>}
+      {instructions.map(instructionField)}
       {!note.success ? <div className="full">
-        <p role="alert">{t("character_editor.the_character_depth_note_has_invalid_settings")}</p>
         {change && <button type="button" className="secondary" onClick={() => change({ ...value, depth_prompt: { prompt: '', depth: 2, role: 'system' } })}>{t("character_editor.clear_invalid_character_depth_note")}</button>}
       </div> : change ? <>
         <label className="full">{t("character_editor.character_depth_note")}<EditorTextarea aria-label={t("character_editor.character_depth_note_2")} maxLength={100_000} value={note.data.prompt} onChange={event => change({ ...value, depth_prompt: { ...note.data, prompt: event.target.value } })} />

@@ -53,6 +53,7 @@
     "--input-character": "var(--palette-accent)",
     "--input-overhead": "var(--palette-border)",
     "--success-text": "color-mix(in srgb, var(--success) 20%, var(--text))",
+    "--warning-icon": "#855d00",
     "--warning-text": "color-mix(in srgb, var(--warning) 30%, var(--text))",
     "--speech-persona": "#562a0a"
   },

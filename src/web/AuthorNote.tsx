@@ -5,7 +5,8 @@ import { openModal } from './dialog-focus';
 import { ModalDialog } from './ModalDialog';
 import { Dropdown } from './Controls';
 import { Icon } from './Icon';
-import { errorText, formatMessage, t, useLocale } from './localization';
+import { errorText, formatMessage, message, t, useLocale } from './localization';
+import { WarningDetails } from './WarningDialog';
 import { stateLabel } from './localization-labels';
 import type { SettingsAutosave } from './settings-autosave';
 
@@ -51,7 +52,7 @@ export function AuthorNoteDialog({ note, editor, locked, preparing, missingMessa
     <div className="peek-content">
       <div className="peek-heading"><h2 id={title}>{t('author_note.title')}</h2>
         <button type="button" className="secondary" aria-label={t('author_note.close')} onClick={close}><Icon name="Close" /></button></div>
-      {locked && <p className="warning-banner" role="status">{t(preparing ? 'app.preparing_memory' : 'author_note.locked')}</p>}
+      {locked && <p className="small muted" role="status">{t(preparing ? 'app.preparing_memory' : 'author_note.locked')}</p>}
       <label>{t('author_note.text')}<textarea rows={12} maxLength={100_000} value={note.prompt} disabled={locked}
         onChange={event => editor.update({ prompt: event.target.value })} /></label>
       <div className="author-note-controls">
@@ -68,7 +69,7 @@ export function AuthorNoteDialog({ note, editor, locked, preparing, missingMessa
       </div>
       {!validDepth && <p className="error-banner" role="alert">{t('author_note.depth_invalid')}</p>}
       <p className="small muted">{t('author_note.depth_help')}</p>
-      {missingMessages && note.prompt.trim() && <p className="warning-banner" role="status">{t('author_note.messages_missing')}</p>}
+      {missingMessages && note.prompt.trim() && <WarningDetails message={message('author_note.messages_missing')} />}
       {storageError && <p className="error-banner" role="alert">{t('author_note.storage_failed')}</p>}
       <AuthorNoteSaveStatus saving={saving} error={error} retry={editor.retry} disabled={locked} />
     </div>

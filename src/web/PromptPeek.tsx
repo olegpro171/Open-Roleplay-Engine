@@ -1,6 +1,6 @@
 import { openModal } from './dialog-focus';
 import { ModalDialog } from './ModalDialog';
-import { formatMessage } from './localization';
+import { formatMessage, message, type MessageText } from './localization';
 import { t, useLocale, locale } from './localization';
 import { loreReasonLabel, placementLabel, stateLabel } from './localization-labels';
 import { Icon } from './Icon';
@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PromptEntry, RequestPreview, RequestEstimate } from '../shared/contracts';
 import { requestEstimate } from '../shared/contracts';
 import { LoreDiagnostics } from './LorebookEditor';
+import { WarningMessages } from './WarningDialog';
 
 const loreDisclosureKey = 'ore-prompt-peek-lore-open';
 
@@ -132,6 +133,10 @@ export function LoreInspection({ request, historical = false }: { request: Reque
   </section>;
 }
 
+export function requestWarnings(request?: RequestPreview | null): MessageText[] {
+  return request?.warnings?.map((warning, index) => request.warningMessages?.[index] ?? warning) ?? [];
+}
+
 export function PromptPeek({ request, stale, close, error, retry }: { request: RequestPreview | null; stale: boolean; close: () => void; error?: string; retry?: () => void }) {
   useLocale();
   const [loreOpen, setLoreOpen] = useState(savedLoreDisclosure);
@@ -148,7 +153,7 @@ export function PromptPeek({ request, stale, close, error, retry }: { request: R
     <div className="peek-content"><div className="peek-heading"><div><p className="eyebrow">{t("prompt_peek.current_input")}</p><h2 id="prompt-peek-title">{t("app.prompt_peek")}</h2></div><button className="secondary" onClick={close} title={t("prompt_peek.close_peek")}><Icon name="Close" /><span className="sr-only">{t("prompt_peek.close_peek")}</span></button></div>
       {request ? <>
       <p className="small muted">{t("prompt_peek.resolved_messages_in_model_order_including_unsent")}</p>
-      <p className="small over-limit" hidden={!stale}>{t("prompt_peek.memory_is_out_of_date_repair_and")}</p>
+      <WarningMessages messages={[...(stale ? [message("prompt_peek.memory_is_out_of_date_repair_and")] : []), ...requestWarnings(request)]} />
       <strong>{t("app.estimated_input_2", { value: request.budget.inputTokens.toLocaleString(locale()), value2: limit.toLocaleString(locale()) })}</strong><InputMeter input={request.budget.inputTokens} limit={limit} />
       <BudgetBreakdown request={request} />
       <details className="peek-lore" open={loreOpen}>
@@ -161,7 +166,6 @@ export function PromptPeek({ request, stale, close, error, retry }: { request: R
         }}>{t("prompt_peek.resolved_lore")}</summary>
         <LoreInspection request={request} />
       </details>
-      {request.warnings?.map((warning, index) => <p className="small" key={warning}>{formatMessage(request.warningMessages?.[index] ?? warning)}</p>)}
       <PromptCopy messages={request.body.messages} />
       <section className="prompt-message-list" aria-label={t("prompt_peek.assembled_prompt")}><PromptMessages request={request} entries={entries} /></section>
       <details><summary>{t("prompt_peek.effective_request_parameters")}</summary><pre>{JSON.stringify({ ...request.body, messages: undefined }, null, 2)}</pre></details>

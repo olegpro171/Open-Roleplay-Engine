@@ -118,8 +118,12 @@ test('manages and jumps to off-page pins with stable estimates and prompt warnin
     return Math.abs(node.getBoundingClientRect().top - transcript.getBoundingClientRect().top);
   })).toBeLessThanOrEqual(1);
 
-  const warning = page.getByRole('region', { name: 'Prompt configuration warnings' });
-  const warningText = 'This branch has pinned turns, but the selected prompt has no enabled Pinned messages marker.';
+  const warning = page.getByRole('dialog', { name: 'Prompt configuration warnings' });
+  async function checkPinWarning() {
+    await page.getByRole('button', { name: 'Prompt configuration warnings', exact: true }).click();
+    await expect(warning).toContainText('This branch has pinned turns, but the selected prompt has no enabled Pinned messages marker.');
+    await page.keyboard.press('Escape');
+  }
   await openChatTool(page, 'Chat settings');
   const prompt = page.getByRole('combobox', { name: 'Prompt preset' });
   async function choose(name: string) {
@@ -127,10 +131,10 @@ test('manages and jumps to off-page pins with stable estimates and prompt warnin
     await page.getByRole('option', { name, exact: true }).click();
   }
   await choose('Disabled Pinned messages');
-  await expect(warning).toContainText(warningText);
+  await checkPinWarning();
   expect((await story()).settings.promptId).toBe(enabled.id);
   await choose('Without Pinned messages');
-  await expect(warning).toContainText(warningText);
+  await checkPinWarning();
   await page.getByRole('button', { name: 'Save and return', exact: true }).click();
   await expect.poll(async () => (await story()).settings.promptId).toBe(missing.id);
   await expect(page.getByRole('button', { name: 'Chat settings', exact: true })).toContainText('(1)');
@@ -141,7 +145,7 @@ test('manages and jumps to off-page pins with stable estimates and prompt warnin
   await expect(older).toContainText('Omitted · marker unavailable');
   await manager.getByRole('button', { name: 'Close Pinned turns' }).click();
   await openChatTool(page, 'Chat settings');
-  await expect(warning).toContainText(warningText);
+  await checkPinWarning();
   await choose('With Pinned messages');
   await page.getByRole('button', { name: 'Save and return', exact: true }).click();
   await expect.poll(async () => (await story()).settings.promptId).toBe(enabled.id);

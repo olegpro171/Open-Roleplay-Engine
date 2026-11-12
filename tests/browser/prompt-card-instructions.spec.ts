@@ -41,13 +41,25 @@ test('edits card instructions, enables preset injection, explains unavailable so
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Card instructions story', exact: true }) }).click();
   await expect(page.getByRole('button', { name: 'Chat settings', exact: true })).toHaveText('Chat settings (4)');
   await openChatTool(page, 'Chat settings');
-  const warnings = page.getByRole('region', { name: 'Prompt configuration warnings', exact: true });
+  const review = page.getByRole('button', { name: 'Prompt configuration warnings', exact: true });
+  const warnings = page.getByRole('dialog', { name: 'Prompt configuration warnings', exact: true });
+  await review.click();
   await expect(warnings.getByRole('listitem')).toHaveCount(4);
   await expect(warnings).toContainText('Missing personality');
+  await page.keyboard.press('Escape');
+  await expect(review).toBeFocused();
   // A selection change updates structural diagnostics without saving the chat.
   await choose(page, 'Character', 'None selected');
+  await review.click();
   await expect(warnings.getByRole('listitem')).toHaveCount(1);
+  await warnings.getByRole('button', { name: 'Edit Lorebook', exact: true }).click();
+  const discard = page.getByRole('dialog', { name: 'Discard chat settings changes?', exact: true });
+  await expect(warnings).toHaveCount(0);
+  await discard.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(review).toBeFocused();
+  await expect(page.getByRole('combobox', { name: 'Character', exact: true })).toHaveText('None selected');
   await choose(page, 'Character', 'Instruction Mira');
+  await review.click();
   await expect(warnings.getByRole('listitem')).toHaveCount(4);
   await page.screenshot({ path: 'test-results/card-warnings-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -72,7 +84,9 @@ test('edits card instructions, enables preset injection, explains unavailable so
   await page.getByRole('button', { name: 'Chat details', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Chat settings', exact: true })).toHaveText('Chat settings (1)');
   await openChatTool(page, 'Chat settings');
+  await review.click();
   await expect(warnings.getByRole('listitem')).toHaveCount(1);
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'Characters', exact: true }).click();

@@ -219,13 +219,19 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
     await page.route(`**${url}`, route => route.request().method() === 'GET'
       ? route.fulfill({ status: 500, json: { message: 'Synthetic behavior load failure.' } }) : route.continue());
     await page.reload();
-    await expect(page.getByRole('alert')).toContainText('Sending shortcuts are disabled');
+    const review = page.getByRole('button', { name: 'Application warnings', exact: true });
+    const warning = page.getByRole('dialog', { name: 'Warning', exact: true });
+    await review.click();
+    await expect(warning).toContainText('Sending shortcuts are disabled');
+    await page.keyboard.press('Escape');
     await composer.fill('Recover settings safely.');
     await composer.press('Enter');
     await expect(composer).toHaveValue('Recover settings safely.\n');
     await expect(send).toHaveAttribute('title', 'Send');
     await page.unroute(`**${url}`);
-    await page.getByRole('button', { name: 'Retry chat behavior', exact: true }).click();
+    await review.click();
+    await warning.getByRole('button', { name: 'Retry loading', exact: true }).click();
+    await expect(warning).toHaveCount(0);
     await expect(send).toHaveAttribute('title', 'Send (Enter)');
   } finally {
     await page.unroute(`**${url}`);

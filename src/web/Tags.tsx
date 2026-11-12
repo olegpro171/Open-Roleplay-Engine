@@ -3,6 +3,7 @@ import { ModalDialog } from './ModalDialog';
 import { useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { Icon } from './Icon';
 import { useConfirmation } from './Confirmation';
+import { WarningDetails } from './WarningDialog';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { LibrarySnapshot } from '../shared/library';
@@ -258,7 +259,10 @@ export function TagImportOptions({ review, policy, change, disabled }: { review:
       </tbody></table>}
       {last > 0 && <div className="actions"><button type="button" disabled={!shown} onClick={() => setPage(shown - 1)}>{t("tags.previous_candidates")}</button><span>{shown + 1} / {last + 1}</span><button type="button" disabled={shown === last} onClick={() => setPage(shown + 1)}>{t("tags.next_candidates")}</button></div>}
     </details>
-    {review.notices.length > 0 && <details><summary>{t("tags.tag_compatibility_notices", { value: review.notices.length + review.omittedNotices })}</summary><ul>{review.notices.map((notice, i) => <li key={i}>{notice}</li>)}</ul>{review.omittedNotices > 0 && <p>{t("tags.additional_notices_omitted", { omittedNotices: review.omittedNotices })}</p>}</details>}
+    {review.notices.length > 0 && <WarningDetails label={t("tags.tag_compatibility_notices", { value: review.notices.length + review.omittedNotices })}>
+      <ul className="warning-messages">{review.notices.map((notice, i) => <li key={i}>{notice}</li>)}</ul>
+      {review.omittedNotices > 0 && <p>{t("tags.additional_notices_omitted", { omittedNotices: review.omittedNotices })}</p>}
+    </WarningDetails>}
     <p className="small">{policy === 'all' ? t("tags.matching_tags_new_tags", { length: review.existing.length, create: review.modes.all.create }) : policy === 'existing' ? t("tags.matching_tags", { length: review.existing.length }) : t("tags.tags_are_not_imported")}</p>
   </div>;
 }

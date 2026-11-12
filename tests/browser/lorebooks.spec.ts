@@ -206,7 +206,9 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   await expect(page.getByRole('heading', { name: 'Review Imported harbor atlas' })).toBeVisible();
   await expect(page.locator('.lore-import-review')).toContainText('1 entries (1 enabled)');
   await page.locator('.lore-import-review').getByText(/Compatibility notices/).click();
-  await expect(page.locator('.lore-import-review')).toContainText('preserved');
+  const notices = page.getByRole('dialog', { name: /Compatibility notices/ });
+  await expect(notices).toContainText('preserved');
+  await notices.getByRole('button', { name: 'Dismiss', exact: true }).click();
   const before = (await library(page)).lorebooks.length;
   const commands: unknown[] = [];
   await page.route('**/api/library/lorebooks/import', async route => { commands.push(route.request().postDataJSON()); await route.fetch(); await route.abort('failed'); });

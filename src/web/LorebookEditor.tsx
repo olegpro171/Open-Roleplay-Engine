@@ -8,6 +8,7 @@ import { placementLabel, stateLabel } from './localization-labels';
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { useConfirmation } from './Confirmation';
+import { WarningDetails } from './WarningDialog';
 import { EditorActions } from './EditorActions';
 import { EditorTextarea } from './EditorTextarea';
 import { LibrarySearchField } from './LibrarySearchField';
@@ -26,7 +27,15 @@ export function LoreDiagnostics({ diagnostics }: { diagnostics: LoreDiagnostic[]
   const [page, setPage] = useState(0);
   const last = Math.max(0, Math.ceil(diagnostics.length / pageSize) - 1);
   const shown = Math.min(page, last);
-  return diagnostics.length > 0 ? <details className="lore-diagnostics"><summary>{t("lorebook_editor.compatibility_notices", { length: diagnostics.length })}</summary><p className="small muted">{t("lorebook_editor.unsupported_behavior_is_preserved_for_export_and")}</p><ul>{diagnostics.slice(shown * pageSize, (shown + 1) * pageSize).map((item, index) => <li key={`${shown}-${index}`}>{formatMessage(item.localized ?? item.message)}{item.field && <small> · {item.field}</small>}</li>)}</ul>{last > 0 && <Pagination page={shown} last={last} change={setPage} />}</details> : null;
+  if (diagnostics.length === 0) return null;
+  const label = t("lorebook_editor.compatibility_notices", { length: diagnostics.length });
+  return <WarningDetails label={label} title={label}>
+    <p>{t("lorebook_editor.unsupported_behavior_is_preserved_for_export_and")}</p>
+    <ul className="warning-messages">{diagnostics.slice(shown * pageSize, (shown + 1) * pageSize).map((item, index) => (
+      <li key={index}>{formatMessage(item.localized ?? item.message)}{item.field && <small> · {item.field}</small>}</li>
+    ))}</ul>
+    {last > 0 && <Pagination page={shown} last={last} change={setPage} />}
+  </WarningDetails>;
 }
 
 function Pagination({ page, last, change }: { page: number; last: number; change: (page: number) => void }) {

@@ -4,6 +4,7 @@ import { lanSettingsSchema, type LanSettings as Settings, type LanStatus } from 
 import { SettingsSaveStatus, useSettingsState } from './useSettingsAutosave';
 import { Dropdown, NumberInput } from './Controls';
 import type { SettingsAutosave } from './settings-autosave';
+import { WarningDetails } from './WarningDialog';
 
 export function LanSettings({ autosave }: { autosave: SettingsAutosave<Settings, LanStatus> }) {
   useLocale();
@@ -36,7 +37,7 @@ export function LanSettings({ autosave }: { autosave: SettingsAutosave<Settings,
     {status?.runtime.state === 'listening' && <>
       {status.runtime.hostname.state === 'available'
         ? <label className="lan-address">{t('lan_settings.hostname_recommended')}<input aria-label={t('lan_settings.hostname_address')} aria-describedby="lan-address-help" type="text" readOnly spellCheck={false} value={status.runtime.hostname.url} /></label>
-        : <p role="status">{formatMessage(status.runtime.hostname.localized)}</p>}
+        : <WarningDetails message={status.runtime.hostname.localized} />}
       <label className="lan-address">{t('lan_settings.ipv4_fallback')}<input aria-label={t('lan_settings.ipv4_address')} aria-describedby="lan-address-help" type="text" readOnly spellCheck={false} value={status.runtime.ipv4Url} />
         <small id="lan-address-help">{t('lan_settings.address_help')}</small>
       </label>

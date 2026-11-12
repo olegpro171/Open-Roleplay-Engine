@@ -88,6 +88,8 @@ Duplicate copies the committed story, pins, memory, requests, current saved Auth
 
 ## Interface and recovery behavior
 
+Warnings use dismissible modal dialogs. An action that completes with a fallback or a choice that carries a risk opens its warning immediately. Ongoing configuration and inspection warnings remain available from review buttons, so editing and ordinary navigation can continue. Dismissing a warning keeps drafts and saved choices.
+
 The Story turn footer keeps response versions, regeneration or cancellation, editing and pinning directly accessible when applicable. More contains reasoning, branching and whole-turn deletion. It opens with focus on the menu panel, and its dialogs return focus to the page on close. At narrow widths the footer wraps to keep actions accessible without horizontal scrolling.
 
 Memory and Chat Details update Estimated input as valid steps become active. A popup floats near the top edge of the Story transcript and shows the working preparation estimate against the target, live activity and Stop. It gives Load older turns space while that control is visible. Stop, failure and interruption keep the latest committed selection. Completed results that could not yet become active remain available for reuse. A pending Send turn and the previous selected reply during Regenerate remain saved. Interrupted work requires an explicit retry after restart.

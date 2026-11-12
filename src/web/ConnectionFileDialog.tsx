@@ -6,6 +6,7 @@ import { api } from './api';
 import { startDownload } from './downloads';
 import { openModal } from './dialog-focus';
 import { ModalDialog } from './ModalDialog';
+import { WarningDialog } from './WarningDialog';
 import { errorText, LocalizedError, message, t, useLocale, useTextState } from './localization';
 
 export type ConnectionFileAction =
@@ -19,9 +20,11 @@ export function ConnectionFileDialog({ action, cancel, complete }: {
 }) {
   useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
-  const title = useId(), description = useId(), warning = useId();
+  const title = useId(), description = useId();
   const [password, setPassword] = useState('');
   const [includeApiKey, setIncludeApiKey] = useState(false);
+  const [warnAboutKey, setWarnAboutKey] = useState(false);
+  const keyOption = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useTextState('');
   const pending = useRef(false), mounted = useRef(true);
@@ -74,9 +77,13 @@ export function ConnectionFileDialog({ action, cancel, complete }: {
         <label className="full">{t(exporting ? 'connection_files.export_password' : 'connection_files.import_password')}
           <input type="password" autoComplete={exporting ? 'new-password' : 'off'} maxLength={filePasswordMaxLength} value={password} disabled={busy} aria-describedby={description} onChange={event => setPassword(event.target.value)} />
         </label>
-        {exporting && <label className="checkbox full"><input type="checkbox" checked={includeApiKey} disabled={busy} aria-describedby={includeApiKey ? warning : undefined} onChange={event => setIncludeApiKey(event.target.checked)} />{t('connection_files.include_key')}</label>}
+        {exporting && <label className="checkbox full"><input ref={keyOption} type="checkbox" checked={includeApiKey} disabled={busy} onChange={event => {
+          setIncludeApiKey(event.target.checked);
+          setWarnAboutKey(event.target.checked);
+        }} />{t('connection_files.include_key')}</label>}
       </div>
-      {exporting && includeApiKey && <p id={warning} role="alert">{t('connection_files.key_warning')}</p>}
+      {warnAboutKey && <WarningDialog message={message('connection_files.key_warning')} returnFocus={keyOption.current}
+        close={() => setWarnAboutKey(false)} />}
       {busy && <p role="status">{t('connection_files.working')}</p>}
       {error && <p role="alert">{error}</p>}
       <div className="actions">

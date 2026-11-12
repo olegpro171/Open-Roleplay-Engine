@@ -70,6 +70,7 @@
   --info-surface: color-mix(in srgb, var(--info) 35%, var(--surface));
   --on-info: color-mix(in srgb, var(--info) 20%, var(--palette-black));
   --warning: var(--palette-warning);
+  --warning-icon: var(--warning);
   --warning-text: color-mix(in srgb, var(--warning) 70%, var(--text));
   --warning-border: color-mix(in srgb, var(--warning) 80%, var(--surface));
   --warning-surface: color-mix(in srgb, var(--warning) 25%, var(--page));
@@ -164,6 +165,7 @@
   --info-text: color-mix(in srgb, var(--info) 30%, var(--text));
   --info-surface: color-mix(in srgb, var(--info) 12%, var(--surface));
   --on-info: var(--text);
+  --warning-icon: #855d00;
   --warning-text: color-mix(in srgb, var(--warning) 30%, var(--text));
   --warning-surface: color-mix(in srgb, var(--warning) 65%, var(--page));
   --overlay-bg: color-mix(in srgb, var(--palette-black) 32%, transparent);

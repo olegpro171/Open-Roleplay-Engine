@@ -15,12 +15,13 @@ import { PersonaIcon } from './PersonaIcon';
 import { defaultChatInputTarget, type ChatDefaultsStatus, type ChatDefaultKind } from '../shared/chat-defaults';
 import type { PromptDiagnostic } from '../shared/prompt-diagnostics';
 import { useConfirmation } from './Confirmation';
+import { WarningDetails, WarningDialog, WarningMessages } from './WarningDialog';
 import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { CharacterAvatar, PictureSquare } from './Pictures';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ChatWorkspace } from './ChatWorkspace';
 import type { ChatToolsSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
-import { characterLabel, personaLabel, characterFields, defaultPrompt, markers, markerLabel, promptWarnings, type ChatSummary, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
+import { characterLabel, personaLabel, characterFields, defaultPrompt, markers, markerLabel, promptWarningMessages, type ChatSummary, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { upgradePrompt } from '../core/prompt-upgrade';
 import { ChatParticipants, characterDropdownOptions, personaDropdownOptions, type ChatParticipantsValue } from './ChatParticipants';
 import { TranscriptImport } from './TranscriptImport';
@@ -180,9 +181,22 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
       } finally { submitting.current = false; if (mounted.current) setSaving(false); }
     }}><fieldset disabled={busy}><legend>{t("libraries.selections")}</legend><SelectionFields value={value} change={setValue} library={library} /></fieldset>
       {revision !== snapshot.revision && <p role="status">{t("libraries.this_chat_changed_reopen_chat_settings_to")}</p>}
-    </form>{(diagnostics?.key !== diagnosticsKey || diagnostics.error || diagnostics.warnings.length > 0) && <section className="import-panel" aria-label={t("libraries.prompt_configuration_warnings")}><h2>{t("libraries.prompt_configuration_warnings")}</h2>
-      {diagnostics?.key !== diagnosticsKey ? <p role="status">{t("libraries.checking_prompt_configuration")}</p> : diagnostics.error ? <><p role="alert">{formatMessage(diagnostics.error)}</p><button type="button" className="secondary" onClick={() => setDiagnosticsRetry(value => value + 1)}>{t("libraries.check_again")}</button></> : diagnostics.warnings.length ? <ul>{diagnostics.warnings.map(warning => <li key={warning.code}><p>{formatMessage(warning.localized ?? warning.message)}</p><button type="button" className="secondary" onClick={() => openWarning(warning)}><Icon name="EditOutline" />{t("libraries.edit", { value: warning.target === 'prompts' ? t("interface.prompt_preset") : warning.target === 'characters' ? t("app.character") : t("libraries.lorebook") })}</button></li>)}</ul> : null}
-    </section>}
+    </form>
+    {diagnostics?.key !== diagnosticsKey || diagnostics.error ? <section className="import-panel" aria-label={t("libraries.prompt_configuration_warnings")}>
+      <h2>{t("libraries.prompt_configuration_warnings")}</h2>
+      {diagnostics?.key !== diagnosticsKey ? <p role="status">{t("libraries.checking_prompt_configuration")}</p> : <>
+        <p role="alert">{formatMessage(diagnostics.error)}</p>
+        <button type="button" className="secondary" onClick={() => setDiagnosticsRetry(value => value + 1)}>{t("libraries.check_again")}</button>
+      </>}
+    </section> : diagnostics.warnings.length > 0 && <WarningDetails key={diagnosticsKey} label={t("libraries.prompt_configuration_warnings")}
+      title={t("libraries.prompt_configuration_warnings")}>{close => (
+        <ul className="warning-messages">{diagnostics.warnings.map(warning => <li key={warning.code}>
+          <p>{formatMessage(warning.localized ?? warning.message)}</p>
+          <button type="button" className="secondary" onClick={() => { close(); openWarning(warning); }}>
+            <Icon name="EditOutline" />{t("libraries.edit", { value: warning.target === 'prompts' ? t("interface.prompt_preset") : warning.target === 'characters' ? t("app.character") : t("libraries.lorebook") })}
+          </button>
+        </li>)}</ul>
+      )}</WarningDetails>}
   </section></ChatWorkspace>;
 }
 function download(value: unknown, name: string) {
@@ -312,6 +326,8 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
   const [creatingChat, setCreatingChat] = useState(false);
   const [connectionFile, setConnectionFile] = useState<ConnectionFileAction | null>(null);
   const [notice, setNotice] = useTextState(''), [diagnostics, setDiagnostics] = useState<LoreDiagnostic[]>([]), [search, setSearch] = useState('');
+  const [warning, setWarning] = useState<{ message: MessageText; returnFocus?: HTMLElement | null } | null>(null);
+  const presetImportTrigger = useRef<HTMLButtonElement>(null);
   const [pendingBook, setPendingBook] = useState<string | null>(null);
   const [filters, setFilters] = useState<string[]>([]);
   const pictureIndex = useMemo(() => new Map(library.characterPictures.map(picture => [picture.characterId, picture])), [library.characterPictures]);
@@ -354,7 +370,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
   }, [pendingBook, library]);
   function openBook(id: string) {
     const book = library.lorebooks.find(item => item.id === id);
-    if (!book) { setNotice(msg("libraries.the_lorebook_is_not_yet_loaded_reopen")); return; }
+    if (!book) { setWarning({ message: msg("libraries.the_lorebook_is_not_yet_loaded_reopen") }); return; }
     const { id: bookId, revision: _revision, ...data } = book;
     setFilters([]); setSearch(''); setSection('lorebooks'); setEditing({ kind: 'lorebooks', id: bookId, revision: library.revision, data });
   }
@@ -374,9 +390,13 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
         ...('entries' in data ? { entries: data.entries.map(entry => ({ ...entry, id: newId() })) } : {}),
       } });
     }
-    setNotice(section === 'connections' ? msg("libraries.connection_copied_add_its_api_key_in")
-      : section === 'characters' && 'lorebookId' in item && item.lorebookId ? msg("libraries.character_copied_its_default_lorebook_is_shared")
-      : section === 'lorebooks' ? msg("libraries.independent_lorebook_copy_saved") : msg("libraries.copy_saved"));
+    if (section === 'connections') {
+      setNotice('');
+      setWarning({ message: msg("libraries.connection_copied_add_its_api_key_in") });
+    } else {
+      setNotice(section === 'characters' && 'lorebookId' in item && item.lorebookId ? msg("libraries.character_copied_its_default_lorebook_is_shared")
+        : section === 'lorebooks' ? msg("libraries.independent_lorebook_copy_saved") : msg("libraries.copy_saved"));
+    }
   }
   return <EditorActionsTarget.Provider value={actionsTarget}><div className="library-workspace"><main className="library-layout">
     <aside className="library-sidebar">
@@ -424,30 +444,38 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
         {(section === 'prompts' || section === 'contexts') && <LibraryImport
           label={t("libraries.import", { value: section === 'contexts' ? t("interface.context_preset") : t("interface.prompt_preset") })}
           description={t(section === 'contexts' ? 'library_import.context_description' : 'library_import.prompt_description')}
-          accept=".json" disabled={busy} onChange={event => {
+          accept=".json" disabled={busy} triggerRef={presetImportTrigger} onChange={async event => {
             const file = event.target.files?.[0];
             event.target.value = '';
             if (!file) return;
             setNotice('');
-            void run(async () => {
+            const returnFocus = presetImportTrigger.current;
+            let usedChatConnection = false;
+            const saved = await run(async () => {
               if (file.size > 1_000_000) throw new LocalizedError(msg("libraries.preset_file_is_too_large"));
               const value: unknown = JSON.parse(await file.text());
               if (section === 'prompts') {
                 await api('/library', 'POST', { kind: section, revision: library.revision, data: upgradePrompt(value) });
               } else {
                 const result = await api<{ usedChatConnection: boolean }>('/library/contexts/import', 'POST', { revision: library.revision, data: value });
-                if (result.usedChatConnection) setNotice(msg('library_import.context_connection_missing'));
+                usedChatConnection = result.usedChatConnection;
               }
             });
+            if (saved && usedChatConnection) setWarning({ message: msg('library_import.context_connection_missing'), returnFocus });
           }} />}
       </div>}
       {!editing && section === 'lorebooks' && <LorebookImport leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_lorebook")}</button>} revision={library.revision} busy={busy} run={run} imported={(_id, message) => setNotice(message)} />}
-      {section === 'characters' && <CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_character")}</button>} revision={library.revision} busy={busy} run={run} imported={(result, missing) => { setNotice(missing ? msg("libraries.the_original_import_was_saved_but_its") : ""); setDiagnostics(result.diagnostics); }} />}
+      {section === 'characters' && <CharacterImport hidden={Boolean(editing)} leadingAction={<button disabled={busy} onClick={create}><Icon name="AddToList" />{t("libraries.new_character")}</button>} revision={library.revision} busy={busy} run={run} imported={(result, missing) => {
+        setNotice('');
+        if (missing) setWarning({ message: msg("libraries.the_original_import_was_saved_but_its") });
+        setDiagnostics(result.diagnostics);
+      }} />}
       {!editing && !creatingChat && <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort}>
         {section === 'characters' && <TagFilterMenu library={library} busy={busy} run={run} selected={filters} change={setFilters} />}
       </LibrarySearch>}
     </LibraryHeader>
     {notice && <p className="library-notice" role="status">{notice}</p>}<LoreDiagnostics diagnostics={diagnostics} />
+    {warning && <WarningDialog {...warning} close={() => setWarning(null)} />}
     {section === 'chats' ? <>
       {creatingChat && <NewChat library={library} busy={busy} run={run} created={id => { setCreatingChat(false); openChat(id, 'settings'); }} cancel={() => setCreatingChat(false)} />}
       <div className="library-list chat-list">
@@ -659,7 +687,7 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
     change({ ...value, blocks: moveListItem(value.blocks, from, to) });
   }
   const reorder = useListReorder(move);
-  return <>{promptWarnings(value).map(warning => <p className="small" role="status" key={warning}>{warning}</p>)}<div className="prompt-blocks" {...reorder.list}>{value.blocks.map((block, index) => {
+  return <><WarningMessages messages={promptWarningMessages(value)} /><div className="prompt-blocks" {...reorder.list}>{value.blocks.map((block, index) => {
     const expanded = expandedBlocks.has(block.id);
     return <section className={`prompt-block${reorder.rowClass(index, value.blocks.length)}`} aria-label={t("libraries.prompt_block", { value: index + 1 })} key={block.id}>
       <div className="block-heading">

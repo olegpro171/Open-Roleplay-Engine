@@ -39,7 +39,11 @@ for (const width of [1440, 390]) test(`next request updates automatically and re
   await page.setViewportSize({ width, height: 844 });
   await setup(page, 300);
   await openChatTool(page, 'Request inspector');
-  await expect(page.getByRole('status').filter({ hasText: 'The estimated input exceeds your target.' })).toBeVisible();
+  const reviewWarnings = page.getByRole('button', { name: 'Review warnings', exact: true });
+  const warning = page.getByRole('dialog', { name: 'Warning', exact: true });
+  await reviewWarnings.click();
+  await expect(warning).toContainText('The estimated input exceeds your target.');
+  await page.keyboard.press('Escape');
   await page.route('**/preview', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Preview temporarily unavailable.' }) }));
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await page.getByLabel('Your next turn').fill('A new unsent turn.');
@@ -68,7 +72,8 @@ for (const width of [1440, 390]) test(`next request updates automatically and re
   await expect(page.getByText('Preview temporarily unavailable.', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Prompt peek', exact: true })).toBeEnabled();
   await page.screenshot({ path: test.info().outputPath('next-request.png') });
-  await page.getByRole('button', { name: 'Review memory', exact: true }).click();
+  await reviewWarnings.click();
+  await warning.getByRole('button', { name: 'Review memory', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Memory', exact: true })).toBeVisible();
 });
 

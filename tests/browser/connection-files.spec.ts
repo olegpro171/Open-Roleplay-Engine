@@ -46,10 +46,18 @@ for (const width of [1440, 390]) test(`Connection export/import with optional ke
     await expect(dialog.getByText(/This file will contain/)).toHaveCount(0);
     const password = includeApiKey ? '  Пароль 🔑 exact  ' : '';
     if (includeApiKey) {
-      await dialog.getByLabel('Include API key').check();
-      await expect(dialog.getByRole('alert')).toContainText('anyone with ORE can extract the key');
+      const keyOption = dialog.getByLabel('Include API key');
       await dialog.getByLabel('File password (optional)', { exact: true }).fill(password);
-      await page.screenshot({ path: testInfo.outputPath('export-key-warning.png') });
+      await keyOption.check();
+      const warning = page.getByRole('dialog', { name: 'Warning', exact: true });
+      await expect(warning).toContainText('anyone with ORE can extract the key');
+      await expect(warning.getByRole('heading')).toBeFocused();
+      await warning.screenshot({ path: testInfo.outputPath('export-key-warning.png') });
+      await page.keyboard.press('Escape');
+      await expect(warning).toHaveCount(0);
+      await expect(keyOption).toBeFocused();
+      await expect(keyOption).toBeChecked();
+      await expect(dialog.getByLabel('File password (optional)', { exact: true })).toHaveValue(password);
     }
     const downloading = page.waitForEvent('download');
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
