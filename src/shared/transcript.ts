@@ -33,7 +33,7 @@ export type StorySnapshot = Pick<ChatSnapshot, 'id' | 'revision' | 'settings' | 
   branchName?: string | null;
   totalTurns: number;
   pinCount: number;
-  latestTurn: { id: string; complete: boolean } | null;
+  latestTurn: { id: string; complete: boolean; continuationBlocked?: import('./localization.js').LocalizedMessage | null } | null;
   latestGeneration: StoryGeneration | null;
   preparing: boolean;
   preparation: StoryPreparation | null;

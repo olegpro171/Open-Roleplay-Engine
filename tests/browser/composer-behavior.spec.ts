@@ -120,7 +120,7 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
     expect((await page.request.get(`/api/chats/${id}`).then(r => r.json())).turns).toHaveLength(0);
     await composer.press('Enter');
     await expect(composer).toHaveValue('');
-    await expect(send).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Regenerate', exact: true })).toBeEnabled();
     const saved = await page.request.get(`/api/chats/${id}`).then(r => r.json());
     expect(saved.turns).toHaveLength(1);
@@ -155,7 +155,7 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
     await expect.poll(async () => (await status(page)).settings.enterKeyBehavior).toBe('ctrl-enter');
     await story(page);
     await page.reload();
-    await expect(send).toHaveAttribute('title', /^Send \(Ctrl(?: \/ ⌘)? \+ Enter\)$/);
+    await expect(page.getByRole('button', { name: 'Continue', exact: true })).toHaveAttribute('title', /^Continue \(Ctrl(?: \/ ⌘)? \+ Enter\)$/);
     await page.getByRole('button', { name: 'Edit response', exact: true }).click();
     const responseEditor = page.getByLabel('Edit assistant text');
     await responseEditor.fill('An edited reply.');
@@ -205,7 +205,7 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
     await observer.goto('/');
     await expect(observer.getByLabel('Your next turn')).toBeVisible();
     await preference(page, 'button-only');
-    await expect(observer.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute('title', 'Send');
+    await expect(observer.getByRole('button', { name: 'Continue', exact: true })).toHaveAttribute('title', 'Continue');
     await observer.close();
     const lastTurn = page.getByRole('article', { name: /^Turn / }).last();
     await lastTurn.getByRole('button', { name: 'Edit response', exact: true }).click();

@@ -36,6 +36,7 @@ import { readCardFile, readCharacterCardFile, readCharacterCardUpload } from './
 import { characterCardLimits } from '../shared/character-card-limits.js';
 import { AppError, BackupValidationError } from '../core/errors.js';
 import { assembleRequest } from '../core/prompt.js';
+import { continuationTarget } from '../core/continuation.js';
 import { Store } from '../persistence/store.js';
 import { StoryReader } from '../persistence/story-reader.js';
 import { turnPinSchema, transcriptQuerySchema } from '../shared/transcript.js';
@@ -828,13 +829,18 @@ export async function createApp(options: {
       coordinator.changed({ kind: 'library' }); return mutationSnapshot(request);
     });
     app.post(prefix + '/preview', async (request, reply) => {
-      const input = z.object({ revision: revisionSchema, text: z.string().max(100_000).optional(), inspection: z.boolean().optional(), detail: z.enum(['estimate', 'full']).default('full') }).strict().parse(request.body);
+      const input = z.object({ revision: revisionSchema, text: z.string().max(100_000).optional(), continuationTurnId: identity.optional(),
+        inspection: z.boolean().optional(), detail: z.enum(['estimate', 'full']).default('full') }).strict().parse(request.body);
       if (input.text !== undefined) input.text = trimBoundaryNewlines(input.text);
       const snapshot = store.engineSnapshot(chatId(request.params));
       if (snapshot.revision !== input.revision) throw new AppError(409, 'revision_conflict', message("errors.the_chat_changed_refresh_the_preview"));
       if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.save_a_connection_first"));
+      if (input.continuationTurnId) {
+        if (input.text?.trim()) throw new AppError(400, 'continuation_with_draft', message('continue.empty_composer_required'));
+        continuationTarget(snapshot, input.continuationTurnId);
+      }
       const turns = [...snapshot.turns];
-      if (input.text !== undefined && input.text !== '') {
+      if (!input.continuationTurnId && input.text !== undefined && input.text !== '') {
         if (turns.at(-1)?.complete === false) throw new AppError(409, 'pending_turn', message("errors.resolve_the_pending_turn_before_previewing_a_new"));
         turns.push({ id: 'draft', position: (turns.at(-1)?.position ?? 0) + 1, complete: false, user: { id: 'draft-user', revision: 0, text: input.text }, assistant: { id: 'draft-assistant', revision: 0, text: '' } });
       }
@@ -842,9 +848,10 @@ export async function createApp(options: {
       const disconnect = () => controller.abort();
       request.raw.once('aborted', disconnect); reply.raw.once('close', disconnect);
       try {
-        const lore = await resolveRequestLore({ ...snapshot, turns }, coordinator.loreRegex, controller.signal);
+        const lore = await resolveRequestLore({ ...snapshot, turns, continuationTurnId: input.continuationTurnId }, coordinator.loreRegex, controller.signal);
         store.checkRevision(input.revision, snapshot.id);
-        const assembled = assembleRequest(snapshot.connection, snapshot.settings, turns, snapshot.sources, snapshot.context, { ...(input.inspection ? { validateLimits: false, allowStale: true } : {}), lore });
+        const assembled = assembleRequest(snapshot.connection, snapshot.settings, turns, snapshot.sources, snapshot.context,
+          { ...(input.inspection ? { validateLimits: false, allowStale: true } : {}), lore, continuationTurnId: input.continuationTurnId });
         if (input.detail === 'full') return assembled;
         return requestEstimate(assembled);
       } finally { request.raw.removeListener('aborted', disconnect); reply.raw.removeListener('close', disconnect); }
@@ -861,6 +868,11 @@ export async function createApp(options: {
       const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
       const input = retrySchema.parse(request.body);
       return reply.code(202).send(coordinator.regenerate(input.revision, input.requestId, id, chatId(request.params)));
+    });
+    app.post(prefix + '/turns/:id/continue', async (request, reply) => {
+      const { id } = z.object({ id: identity }).parse(request.params);
+      const input = retrySchema.parse(request.body);
+      return reply.code(202).send(coordinator.continueResponse(input.revision, input.requestId, id, chatId(request.params)));
     });
     app.post(prefix + '/turns/:id/variants/:variantId/select', async request => {
       const { id, variantId } = z.object({ id: z.string().uuid(), variantId: z.string().min(1).max(100) }).parse(request.params);

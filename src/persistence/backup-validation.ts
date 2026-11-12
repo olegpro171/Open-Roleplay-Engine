@@ -175,6 +175,7 @@ export function validateContent(db: Database.Database) {
   for (const row of rows(db, 'character_tags')) requireLibrary(str(row, 'character_id'), 'characters');
   const turnChat = db.prepare('SELECT chat_id FROM turns WHERE id = ?').pluck();
   const chosenVariant = db.prepare('SELECT 1 FROM response_variants WHERE id = ? AND turn_id = ? AND text = ?');
+  const variantTurn = db.prepare('SELECT turn_id FROM response_variants WHERE id = ?').pluck();
   const successfulGeneration = db.prepare("SELECT 1 FROM generations WHERE id = ? AND turn_id = ? AND status = 'succeeded'");
   const generationChat = db.prepare('SELECT chat_id FROM generations WHERE id = ?').pluck();
   for (const row of rows(db, 'turns', 'id, user_id, assistant_id, user_revision, assistant_revision, position, complete, pinned, selected_variant_id, assistant_text')) {
@@ -188,9 +189,12 @@ export function validateContent(db: Database.Database) {
     id.parse(row.id); num(row, 'source_revision');
     if (row.generation_id && !successfulGeneration.get(row.generation_id, row.turn_id)) throw invalidBackup('A response variant references a missing, unsuccessful or unrelated generation.');
   }
-  for (const row of rows(db, 'generations', 'id, source_revision, turn_id, chat_id, request, usage, error_message, context_selection')) {
+  for (const row of rows(db, 'generations', 'id, source_revision, turn_id, chat_id, request, usage, error_message, context_selection, continuation_variant_id')) {
     id.parse(row.id); num(row, 'source_revision');
     if (turnChat.get(row.turn_id) !== row.chat_id) throw invalidBackup('A generation references a turn in another chat or a missing turn.');
+    if (row.continuation_variant_id !== null && variantTurn.get(id.parse(row.continuation_variant_id)) !== row.turn_id) {
+      throw invalidBackup('A continuation references a missing response variant or one from another turn.');
+    }
     if (row.request !== null) parseRecord(requestSchema,row,'generations','request');
     if (row.usage !== null) parseRecord(usageSchema,row,'generations','usage');
     if (row.error_message !== null) parseRecord(localizedMessageSchema,row,'generations','error_message');

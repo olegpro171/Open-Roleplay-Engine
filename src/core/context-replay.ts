@@ -9,6 +9,7 @@ import { operationKey, savedSummaries } from './context-reuse.js';
 import { managedInputCosts, summarySeparator, summaryText } from './prompt.js';
 import { refusalAffected } from './summary-refusals.js';
 import { countText } from './tokens.js';
+import { requiredVerbatimTail } from './continuation.js';
 
 type ReplayDecision = {
   next: ContextOperation | null;
@@ -61,8 +62,9 @@ export class PreparationReplay {
     this.hasMessages = hasPromptMarker(sources.prompt, 'messages');
     this.limit = Math.min(settings.targetInputTokens, connection.contextWindow - connection.maxOutputTokens);
     this.positions = new Map(turns.map((turn, index) => [turn.id, index + 1]));
-    this.costs = managedInputCosts(connection, settings, turns, sources, snapshot.loreResolution);
-    this.lastCutoff = this.hasMessages ? Math.max(0, turns.filter(turn => turn.complete).length - this.config.minTail) : context.archivedTurnIds.length;
+    this.costs = managedInputCosts(connection, settings, turns, sources, snapshot.loreResolution, snapshot.continuationTurnId);
+    const minimum = requiredVerbatimTail(this.config.minTail, snapshot.continuationTurnId);
+    this.lastCutoff = this.hasMessages ? Math.max(0, turns.filter(turn => turn.complete).length - minimum) : context.archivedTurnIds.length;
     this.protection = correctionProtection(turns, context);
 
     const nodes = new Map(context.summaries.map(node => [refKey(node), node]));

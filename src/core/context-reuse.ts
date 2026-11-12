@@ -22,11 +22,13 @@ export function savedSummaries(turns: Turn[], state: ContextState): SummaryNode[
 
 /** Reuse the exact eligible batch/parent only when it reduces the complete input. */
 export function savedReplacement(snapshot: EngineSnapshot, operation: ContextOperation): { node: SummaryNode; state: ContextState; inputAfter: number } | null {
-  if (operation.repair || !snapshot.connection) return null;
+  const { connection } = snapshot;
+  if (operation.repair || !connection) return null;
   const protection = correctionProtection(snapshot.turns, snapshot.context);
   if (protection.unresolved.length) return null;
   selectedContext(snapshot.turns, snapshot.context);
-  const measure = (state: ContextState) => assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, state, { validateLimits: false, lore: snapshot.loreResolution }).budget.inputTokens;
+  const measure = (state: ContextState) => assembleRequest(connection, snapshot.settings, snapshot.turns, snapshot.sources, state,
+    { validateLimits: false, lore: snapshot.loreResolution, continuationTurnId: snapshot.continuationTurnId }).budget.inputTokens;
   const inputBefore = measure(snapshot.context), key = operationKey(operation);
   for (const node of savedSummaries(snapshot.turns, snapshot.context)) {
     if (protection.missingFor(node).length) continue;

@@ -32,6 +32,7 @@ export class BackupService {
   private readonly directory: string;
   private readonly template: Buffer;
   private readonly schema: ReturnType<typeof schemaEntries>;
+  private readonly schema18: ReturnType<typeof schemaEntries>;
   private readonly schema17: ReturnType<typeof schemaEntries>;
   private readonly schema16: ReturnType<typeof schemaEntries>;
   private readonly schema15: ReturnType<typeof schemaEntries>;
@@ -54,6 +55,8 @@ export class BackupService {
     try {
       this.template = factory.sqlite.serialize();
       this.schema = schemaEntries(factory.sqlite);
+      factory.sqlite.exec('ALTER TABLE generations DROP COLUMN continuation_variant_id');
+      this.schema18 = schemaEntries(factory.sqlite);
       factory.sqlite.exec('DROP TABLE character_pictures; DROP TABLE picture_assets');
       factory.sqlite.exec(readFileSync(join(migrationsDirectory ?? defaultMigrationsDirectory, '0010_pictures.sql'), 'utf8'));
       this.schema17 = schemaEntries(factory.sqlite);
@@ -96,8 +99,8 @@ export class BackupService {
   }
   private validateSchema(db: Database.Database) {
     const version = db.pragma('user_version',{ simple: true });
-    if (version !== 12 && version !== 13 && version !== 14 && version !== 15 && version !== 16 && version !== 17 && version !== databaseSchemaVersion) throw invalidBackup(`Unsupported database schema version ${String(version)}; supported versions are 12 through ${databaseSchemaVersion}.`);
-    const expected = (version === databaseSchemaVersion ? this.schema : version === 17 ? this.schema17 : version === 16 ? this.schema16 : version === 15 ? this.schema15 : version === 14 ? this.schema14 : this.legacySchema).filter(entry => version !== 12 || !['dataset_state','data_commands'].includes(entry.tbl_name));
+    if (version !== 12 && version !== 13 && version !== 14 && version !== 15 && version !== 16 && version !== 17 && version !== 18 && version !== databaseSchemaVersion) throw invalidBackup(`Unsupported database schema version ${String(version)}; supported versions are 12 through ${databaseSchemaVersion}.`);
+    const expected = (version === databaseSchemaVersion ? this.schema : version === 18 ? this.schema18 : version === 17 ? this.schema17 : version === 16 ? this.schema16 : version === 15 ? this.schema15 : version === 14 ? this.schema14 : this.legacySchema).filter(entry => version !== 12 || !['dataset_state','data_commands'].includes(entry.tbl_name));
     const maxObjects = expected.length + 1;
     const maxSqlLength = Math.max(metadataSql.length, ...expected.map(entry => entry.sql?.length ?? 0)) * 2 + 1;
     const actual = masterSchema.parse(db.prepare(`SELECT substr(type, 1, 50) AS type, substr(name, 1, 200) AS name,

@@ -7,7 +7,7 @@ import type { MessageText } from './localization';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
 import { chatBehaviorStatusSchema, type ChatBehaviorStatus } from '../shared/chat-behavior';
 import { isComposerSendKey, isMacKeyboard, isPhoneOrTablet } from './composer-shortcuts';
-import { appearanceStatusSchema, defaultAppearance, type AppearanceStatus } from '../shared/appearance';
+import { appearanceStatusSchema, defaultAppearance, type AppearanceStatus, type ChatTextScale } from '../shared/appearance';
 import { chatDefaultsStatusSchema, initialChatDefaults, type ChatDefaultsStatus } from '../shared/chat-defaults';
 import { newId } from './uuid';
 import { Icon } from './Icon';
@@ -24,7 +24,7 @@ import { hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '..
 import { ChatSetup, Libraries, type LibraryTarget } from './Libraries';
 import { LibraryDraftContext, useLibraryLeaveGuard } from './LibraryDraft';
 import { Dropdown } from './Controls';
-import { trimBoundaryNewlines } from '../shared/text';
+import { appendContinuation, trimBoundaryNewlines } from '../shared/text';
 import { Memory } from './Memory';
 import { PreparationStatus } from './PreparationStatus';
 import { transcriptInitialSize, transcriptBatchSize, transcriptWindowLimit, type StorySnapshot } from '../shared/transcript';
@@ -32,6 +32,7 @@ import { BudgetBreakdown, InputMeter, PromptPeek, LoreInspection, requestWarning
 import { WarningDetails, WarningDialog, WarningMessages } from './WarningDialog';
 import { useTranscriptScroll } from './useTranscriptScroll';
 import { useChatDraft } from './useChatDraft';
+import { continueResponse } from './continue-response';
 import { TurnControls } from './TurnControls';
 import { ReasoningPreview } from './Reasoning';
 import { ChatMarkdown } from './ChatMarkdown';
@@ -64,6 +65,15 @@ function rememberChat(id: string | null) {
     if (id) localStorage.setItem('roleplay-chat', id);
     else localStorage.removeItem('roleplay-chat');
   } catch { /* Selection is optional; the composer separately reports draft storage failures. */ }
+}
+
+function UnfinishedContinuation({ text, textScale, speechColor }: { text: string; textScale: ChatTextScale; speechColor: string }) {
+  useLocale();
+  const [open, setOpen] = useState(false);
+  return <details onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>{t('continue.partial_output')}</summary>
+    {open && <ChatMarkdown text={text} textScale={textScale} speechColor={speechColor} />}
+  </details>;
 }
 
 export function App() {
@@ -476,6 +486,11 @@ export function App() {
   const memoryStale = summariesEnabled && Boolean(snapshot?.memory.stale || snapshot?.memory.refusalBlocked);
   const pending = snapshot?.latestTurn?.complete === false;
   const latest = snapshot?.latestGeneration;
+  const hasDraft = Boolean(draft.trim());
+  const continuationTarget = !hasDraft && snapshot?.latestTurn?.complete ? snapshot.latestTurn : null;
+  const continuationBlocked = continuationTarget?.continuationBlocked;
+  const continuationPreview = !continuationBlocked && (!working || active?.kind === 'continuation') && !drafts.needsReview
+    ? continuationTarget?.id : undefined;
   const interruption = preparation?.status === 'interrupted' && preparation.generationId === latest?.id
     ? preparation.errorMessage ?? preparation.error : null;
   const latestError = interruption ?? latest?.errorMessage ?? latest?.error;
@@ -487,8 +502,14 @@ export function App() {
     ?? (history.selected?.id === generationId ? history.selected : null);
   const requestOptions = shownGeneration && !history.items.some(item => item.id === shownGeneration.id)
     ? [shownGeneration, ...history.items] : history.items;
+  const savedRequestOptions = requestOptions.map(generation => {
+    const date = new Date(generation.createdAt).toLocaleString(locale());
+    const status = stateLabel(generation.status);
+    return { value: generation.id, label: generation.kind === 'continuation' ? t('continue.attempt_label', { date, status }) : `${date} · ${status}` };
+  });
   const preview = useRequestPreview(snapshot, preparing?.mode === 'prepare' || regenerationPreparation ? '' : draft,
-    tab !== 'library' && tab !== 'data', tab === 'request' && !generationId || peek);
+    tab !== 'library' && tab !== 'data', tab === 'request' && !generationId || peek,
+    tab === 'memory' || tab === 'settings' ? undefined : continuationPreview);
   const currentRequest = snapshot?.connection ? preview.estimate : null;
   const inspectionCurrent = preview.current;
   const inspectionError = formatMessage(preview.error) || (!currentRequest && snapshot?.connection ? t('app.counting_current_input') : '');
@@ -520,10 +541,10 @@ export function App() {
     : targetOverflow ? 'errors.the_estimated_input_exceeds_your_target_prepare_context'
     : physicalOverflow ? 'errors.the_estimated_input_plus_reserved_output_exceeds_the' : null;
   const generationById = new Map(snapshot?.page.generations.map(generation => [generation.id, generation]));
-  const turnUsage = new Map(snapshot?.page.turns.flatMap(turn => {
+  const selectedGenerations = new Map(snapshot?.page.turns.flatMap(turn => {
     const variant = turn.variants?.find(item => item.id === turn.assistant.variantId);
     const generation = variant?.generationId ? generationById.get(variant.generationId) : undefined;
-    return generation ? [[turn.id, generation.usage] as const] : [];
+    return generation ? [[turn.id, generation] as const] : [];
   }));
   const partial = active?.partialText ?? (pending ? latest?.partialText : '');
 
@@ -535,15 +556,18 @@ export function App() {
       await refresh(); return false;
     } finally { setBusy(false); }
   }
-  const canSend = Boolean(snapshot?.connection && !busy && !pending && !working && !memoryStale && !authorNote.pending
-    && !dataChanged && !drafts.needsReview && draft.trim());
+  const canSubmit = Boolean(snapshot?.connection && !busy && !pending && !working && !memoryStale && !authorNote.pending
+    && !dataChanged && !drafts.needsReview && (hasDraft || continuationTarget && !continuationBlocked && !edit));
   const canSaveEdit = Boolean(edit && snapshot?.id === chatId && !busy && !working && !dataChanged);
   const enterKeyBehavior = chatBehaviorError ? 'button-only' : chatBehavior?.settings.enterKeyBehavior ?? 'button-only';
   const mobileKeyboard = isPhoneOrTablet(navigator);
   const macKeyboard = isMacKeyboard(navigator);
   const sendTitle = authorNote.pending ? t('author_note.pending') : busy ? t('app.saving_changes')
-    : enterKeyBehavior === 'ctrl-enter' ? t(macKeyboard ? 'chat_behavior.send_ctrl_mac' : 'chat_behavior.send_ctrl')
-      : enterKeyBehavior === 'enter' && !mobileKeyboard ? t('chat_behavior.send_enter') : t('app.send');
+    : continuationTarget
+      ? formatMessage(continuationBlocked) || (enterKeyBehavior === 'ctrl-enter' ? t(macKeyboard ? 'continue.shortcut_mac' : 'continue.shortcut_ctrl')
+        : enterKeyBehavior === 'enter' && !mobileKeyboard ? t('continue.shortcut_enter') : t('continue.action'))
+      : enterKeyBehavior === 'ctrl-enter' ? t(macKeyboard ? 'chat_behavior.send_ctrl_mac' : 'chat_behavior.send_ctrl')
+        : enterKeyBehavior === 'enter' && !mobileKeyboard ? t('chat_behavior.send_enter') : t('app.send');
   const saveEditTitle = enterKeyBehavior === 'ctrl-enter' ? t(macKeyboard ? 'chat_behavior.save_edit_ctrl_mac' : 'chat_behavior.save_edit_ctrl')
     : enterKeyBehavior === 'enter' && !mobileKeyboard ? t('chat_behavior.save_edit_enter') : t('app.save_edit');
 
@@ -555,18 +579,21 @@ export function App() {
 
   async function send(event: FormEvent) {
     event.preventDefault();
-    if (!snapshot || !canSend || authorNote.editor.getSnapshot().pending || sendInFlight.current) return;
+    if (!snapshot || !canSubmit || authorNote.editor.getSnapshot().pending || sendInFlight.current) return;
     const id = snapshot.id;
-    const sent = drafts.stage(id, snapshot.revision);
+    const sent = continuationTarget ? null : drafts.stage(id, snapshot.revision);
     sendInFlight.current = true;
     setBusy(true); setFailure(null);
     try {
-      await api(`/chats/${id}/turns`, 'POST', sent.submission);
-      drafts.acknowledge(id, sent);
+      if (continuationTarget) await continueResponse(id, continuationTarget.id, snapshot.revision);
+      else if (sent) {
+        await api(`/chats/${id}/turns`, 'POST', sent.submission);
+        drafts.acknowledge(id, sent);
+      }
       if (selectedChat.current === id) { setPeek(false); scrollToLatest(); forceLatest.current = true; }
     } catch (error) {
       // A server rejection is definite; a lost response is ambiguous, so retain its request identity.
-      if (error instanceof ApiError && error.status < 500) drafts.reject(id, sent);
+      if (sent && error instanceof ApiError && error.status < 500) drafts.reject(id, sent);
       setFailure({ kind: 'action', message: errorText(error, msg("app.the_request_failed")) });
     } finally {
       await latestRefresh.current();
@@ -689,22 +716,36 @@ export function App() {
           {snapshot.totalTurns === 0 && <div className="empty-state"><h2>{t("app.set_up_your_story")}</h2><button className="secondary" onClick={() => setTab('settings')}>{t("app.open_chat_settings")}</button></div>}
           {snapshot.page.turns.map((turn) => {
             const generating = active?.turnId === turn.id;
+            const continuing = generating && active.kind === 'continuation';
             const cancelled = !turn.complete && latest?.turnId === turn.id && latest.status === 'cancelled';
             const responseText = generating ? active.partialText : !turn.complete && latest?.turnId === turn.id ? latest.partialText : '';
-            const selectedVariant = turn.variants?.find(variant => variant.id === turn.assistant.variantId);
+            const visibleResponse = trimBoundaryNewlines(responseText);
+            const streamedAddition = continuing && visibleResponse.trim() ? visibleResponse : '';
+            const speechColor = selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor ?? 'var(--speech-character)';
+            const continuationOutcome = latest?.turnId === turn.id && latest.kind === 'continuation'
+              && ['failed', 'interrupted', 'cancelled'].includes(latest.status) ? latest : null;
+            const selectedGeneration = selectedGenerations.get(turn.id);
+            const usage = selectedGeneration?.usage;
             const reasoningGeneration = generating ? active : !turn.complete && latest?.turnId === turn.id ? latest
-              : selectedVariant?.generationId ? generationById.get(selectedVariant.generationId) : undefined;
+              : selectedGeneration;
             const reasoning = reasoningGeneration?.reasoningText?.trim() ? {
               text: reasoningGeneration.reasoningText, live: generating, chatId: snapshot.id,
               generationId: reasoningGeneration.id, length: reasoningGeneration.reasoningLength ?? 0,
             } : null;
+            const showLiveReasoning = appearance.settings.showReasoningDuringGeneration && reasoning && generating && !(continuing ? streamedAddition : responseText);
+            const waiting = preparing && preparing.generationId === active?.id ? "app.preparing_memory"
+              : reasoning ? "app.reasoning" : "app.waiting_for_first_token";
             const inputVisible = !(turn.complete && turn.user.text === '' && turn.user.revision === 0)
               || (edit?.turnId === turn.id && edit.part === 'user');
             return <article className="turn" key={turn.id} data-turn-id={turn.id} aria-label={t("app.turn", { ordinal: turn.ordinal })}>
-            <div className="turn-heading"><span className="turn-number">{turn.pinned && <span className="turn-pinned" title={t('pins.pinned')}><Icon name="Bookmark" /><span className="sr-only">{t('pins.pinned')}</span></span>}{t("app.turn_2", { ordinal: turn.ordinal, value: turn.complete ? summariesEnabled && turn.archived ? t("interface.archived") : '' : t("interface.pending") })}</span>{turn.complete && !generating && turnUsage.has(turn.id) && <span className="turn-usage" title={t("app.provider_reported_counts_for_the_saved_response")}>{turnUsage.get(turn.id) ? t("app.in_out", { value: turnUsage.get(turn.id)!.inputTokens.toLocaleString(locale()), value2: turnUsage.get(turn.id)!.outputTokens.toLocaleString(locale()) }) : t("app.usage_unavailable")}</span>}</div>
+            <div className="turn-heading"><span className="turn-number">{turn.pinned && <span className="turn-pinned" title={t('pins.pinned')}><Icon name="Bookmark" /><span className="sr-only">{t('pins.pinned')}</span></span>}{t("app.turn_2", { ordinal: turn.ordinal, value: turn.complete ? summariesEnabled && turn.archived ? t("interface.archived") : '' : t("interface.pending") })}</span>
+              {turn.complete && !generating && selectedGeneration && <span className="turn-usage" title={t(selectedGeneration.kind === 'continuation' ? 'continue.usage' : "app.provider_reported_counts_for_the_saved_response")}>
+                {usage ? t("app.in_out", { value: usage.inputTokens.toLocaleString(locale()), value2: usage.outputTokens.toLocaleString(locale()) }) : t("app.usage_unavailable")}
+              </span>}
+            </div>
             {(['user', 'assistant'] as const).filter(part => part !== 'user' || inputVisible).map((part) => <div className={`part ${part}`} key={part}>
               <div className="part-heading"><strong>{part === 'user' ? selectedPersonaName : selectedCharacterName}</strong></div>
-              {part === 'assistant' && appearance.settings.showReasoningDuringGeneration && reasoning && generating && !responseText && <ReasoningPreview text={reasoning.text} />}
+              {part === 'assistant' && showLiveReasoning && !continuing && <ReasoningPreview text={reasoning.text} />}
               {edit?.turnId === turn.id && edit.part === part ? <form ref={editForm} onSubmit={saveEdit} className="edit-form">
                 <ChatTextarea autoSize enterKeyHint="enter" aria-label={t("app.edit_text", { part })} value={edit.text} readOnly={busy}
                   onKeyDown={event => submitWithChatShortcut(event, canSaveEdit)}
@@ -715,12 +756,24 @@ export function App() {
                   <button type="button" className="quiet" onClick={() => setEdit(null)}>{t("app.cancel_edit")}</button>
                 </div>
               </form> : <div className="prose">
-                {part === 'assistant' && (!turn.complete || generating && !regenerationPreparation)
-                  ? <>{trimBoundaryNewlines(responseText) ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={trimBoundaryNewlines(responseText)} speechColor={selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor ?? 'var(--speech-character)'} /> : <span className="muted">{generating ? t(preparing ? "app.preparing_memory" : reasoning ? "app.reasoning" : "app.waiting_for_first_token") : cancelled ? t("app.generation_cancelled") : t("app.awaiting_response")}</span>}{generating && <span className="cursor" aria-label={t("app.generating")} />}</>
-                  : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor ?? 'var(--speech-persona)' : selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor ?? 'var(--speech-character)'} /> : <span className="muted blank">{t("app.blank")}</span>}
+                {part === 'assistant' && continuing
+                  ? <><ChatMarkdown textScale={appearance.settings.chatTextScale} text={streamedAddition ? appendContinuation(turn.assistant.text, streamedAddition) : turn.assistant.text} speechColor={speechColor} />
+                    {streamedAddition ? <span className="cursor" aria-label={t("app.generating")} /> : <div className="continuation-progress">
+                      {showLiveReasoning && <ReasoningPreview text={reasoning.text} />}
+                      <span className="muted" role="status">{t(waiting)}</span><span className="cursor" aria-label={t("app.generating")} />
+                    </div>}</>
+                  : part === 'assistant' && (!turn.complete || generating && !regenerationPreparation)
+                    ? <>{visibleResponse ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={visibleResponse} speechColor={speechColor} /> : <span className="muted">{generating ? t(waiting) : cancelled ? t("app.generation_cancelled") : t("app.awaiting_response")}</span>}{generating && <span className="cursor" aria-label={t("app.generating")} />}</>
+                    : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor ?? 'var(--speech-persona)' : speechColor} /> : <span className="muted blank">{t("app.blank")}</span>}
+              </div>}
+              {part === 'assistant' && continuationOutcome && !edit && <div className="continuation-progress">
+                <div className="muted small" role="status">{formatMessage(latestError ?? msg('continue.failed'))}</div>
+                {continuationOutcome.partialText.trim() && <UnfinishedContinuation key={continuationOutcome.id}
+                  text={continuationOutcome.partialText} textScale={appearance.settings.chatTextScale} speechColor={speechColor} />}
               </div>}
             </div>)}
             <TurnControls turn={turn} revision={snapshot.revision} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}
+              continuing={continuing}
               pin={turn.complete ? {
                 disabled: dataChanged || snapshot.memory.awaitingReview,
                 toggle: () => void command(() => saveTurnPin(snapshot.id, turn.id, snapshot.revision, !turn.pinned)),
@@ -766,14 +819,15 @@ export function App() {
         {!authorNoteOpen && <AuthorNoteSaveStatus saving={authorNote.saving} error={authorNote.error} retry={authorNote.editor.retry} disabled={working || busy || dataChanged} />}
         {!authorNoteOpen && authorNote.storageError && authorNote.pending && <p role="alert">{t('author_note.storage_failed')}</p>}
         <form className={isIOS ? 'composer composer-ios' : 'composer'} data-keyboard-visible={composerKeyboard || undefined} onSubmit={(event) => void send(event)}>
+          {continuationBlocked && <span className="continuation-unavailable muted small">{formatMessage(continuationBlocked)}</span>}
           <ChatTextarea autoSize textScale={appearance.settings.chatTextScale} rows={1} aria-label={t("app.your_next_turn")} id="turn-input" enterKeyHint="enter"
-            onKeyDown={event => submitWithChatShortcut(event, canSend)}
+            onKeyDown={event => submitWithChatShortcut(event, canSubmit)}
             placeholder={t("app.what_happens_next")} value={draft} disabled={busy} onValueChange={text => { drafts.change(text); setPeek(false); }} />
-          <button className="send-turn" aria-label={t("app.send")} title={sendTitle} disabled={!canSend} onMouseDown={event => {
+          <button className="send-turn" aria-label={t(continuationTarget ? 'continue.action' : "app.send")} title={sendTitle} disabled={!canSubmit} onMouseDown={event => {
             // Touch taps synthesize mousedown before click. Blurring the iOS
             // composer here changes its padding and moves Send out of the tap.
             if (isIOS && event.button === 0 && document.activeElement?.id === 'turn-input') event.preventDefault();
-          }}><span className="send-icon" aria-hidden="true" /></button>
+          }}>{continuationTarget ? <Icon name="PlayOutline" /> : <span className="send-icon" aria-hidden="true" />}</button>
         </form>
       </section>
     </ChatWorkspace>}
@@ -784,7 +838,7 @@ export function App() {
     </LibraryDraftContext.Provider>}
     {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
     {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><Memory behavior={behaviorEditor} key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} openPins={openPins} preparation={preparing} editPreset={id => { setLibraryTarget({ kind: 'contexts', id }); setTab('library'); }} /></ChatWorkspace>}
-    {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} disabled={history.loading} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...requestOptions.map(generation => ({ value: generation.id, label: `${new Date(generation.createdAt).toLocaleString(locale())} · ${stateLabel(generation.status)}` }))]} /></label><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>
+    {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} disabled={history.loading} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...savedRequestOptions]} /></label><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>
       <div className="actions">{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('latest').then(moved => { if (moved) setGenerationId(''); })}>{t('app.latest_requests')}</button>}{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('newer').then(moved => { if (moved) setGenerationId(''); })}>{t('app.newer_requests')}</button>}{history.older && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('older').then(moved => { if (moved) setGenerationId(''); })}>{t('app.older_requests')}</button>}</div>
       {history.error && <p role="alert">{formatMessage(history.error)} <button type="button" className="secondary" onClick={history.retry}>{t('app.retry_loading')}</button></p>}
       <p className="small muted">{generationId ? t("app.saved_attempt_its_ceiling_is_historical", { value: shownGeneration ? stateLabel(shownGeneration.status) : t("app.usage_unavailable"), value2: formatMessage(shownGeneration?.errorMessage ?? shownGeneration?.error) }) : t("app.live_preview_of_the_current_setup_and")}</p>

@@ -2,6 +2,7 @@ import { seedTranscript } from './support/transcript-fixture.js';
 import { removePinSchema } from './support/schema-16.js';
 import { restoreLegacyPictureSchema } from './support/schema-17.js';
 import { removeBranchSchema } from './support/schema-15.js';
+import { removeContinuationSchema } from './support/schema-18.js';
 import { Readable } from 'node:stream';
 import { removeSortingSchema } from './support/legacy-sorting.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -20,6 +21,7 @@ import { BackupStore, datasetEpoch } from '../src/persistence/backup-store.js';
 import { backupLimits, type BackupReview } from '../src/shared/backups.js';
 import { defaultPrompt } from '../src/shared/library.js';
 import { sourceOf } from '../src/core/context.js';
+import { assembleRequest } from '../src/core/prompt.js';
 import { summaryRefusalFilterVersion } from '../src/core/summary-validation.js';
 import type { SummaryNode } from '../src/shared/context.js';
 
@@ -37,6 +39,25 @@ beforeEach(() => { directory = mkdtempSync(join(tmpdir(),'ore-backup-test-')); }
 afterEach(() => { for (const value of services.splice(0)) value.close(); for (const value of stores.splice(0)) if (value.sqlite.open) value.close(); rmSync(directory,{ recursive: true,force: true }); });
 
 describe('portable backup persistence',() => {
+  it('round-trips a continuation and the earlier response version it extended', async () => {
+    const source = store('continue-source'), backups = service(source, 'continue-source');
+    const connection = { name: 'Synthetic', endpoint: 'http://localhost/v1', model: 'mock', contextWindow: 32_000, maxOutputTokens: 1_000, customParameters: {} };
+    source.saveSettings(source.snapshot().revision, connection, source.snapshot().settings);
+    seedTranscript(source, source.snapshot().revision, 'main', [{ user: '', assistant: 'The lantern burns.', complete: true }]);
+    const before = source.snapshot(), targetTurn = before.turns[0];
+    const { id } = source.beginCompletedResponse(before.revision, randomUUID(), targetTurn.id, 'main', 'continuation');
+    const current = source.generationSnapshot(id);
+    const request = assembleRequest(connection, current.settings, current.turns, current.sources, current.context, { continuationTurnId: targetTurn.id });
+    source.saveRequest(id, request);
+    source.finish(id, 'succeeded', 'The door opens.');
+    const destination = store('continue-destination'), target = service(destination, 'continue-destination');
+    const review = await target.inspect(Readable.from([await bytes(backups)]), owner);
+    expect(review.blockers).toEqual([]);
+    target.commit(review.stageId, owner, receipt(review));
+    expect(destination.snapshot().turns).toEqual(source.snapshot().turns);
+    expect(destination.snapshot().generations[0]).toMatchObject({ id, kind: 'continuation', request, status: 'succeeded' });
+    expect(destination.generation(id)?.continuationVariantId).toBe(targetTurn.assistant.variantId);
+  });
   it('round-trips per-chat Author’s notes while chats without one retain their older settings', async () => {
     const source = store('note-source'), backups = service(source, 'note-source');
     const note = { prompt: 'The guard has not seen the key.', depth: 3, role: 'assistant' as const };
@@ -99,6 +120,8 @@ describe('portable backup persistence',() => {
   });
 
   it.each([
+    { sourceEnding: 'LF', targetEnding: 'CRLF', version: 19 },
+    { sourceEnding: 'CRLF', targetEnding: 'LF', version: 19 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 18 },
     { sourceEnding: 'CRLF', targetEnding: 'LF', version: 18 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 17 },
@@ -134,6 +157,13 @@ describe('portable backup persistence',() => {
     const expectedTurns = source.snapshot(chatId).turns;
     const path = join(directory,'input.sqlite');
     writeFileSync(path,await bytes(sourceBackups));
+    if (version === 18) {
+      const legacy = new Database(path);
+      try {
+        removeContinuationSchema(legacy);
+        legacy.exec("PRAGMA user_version = 18; UPDATE backup_metadata SET data = json_set(data, '$.schema', 18)");
+      } finally { legacy.close(); }
+    }
     if (version < 18) {
       const legacy = new Database(path);
       try {

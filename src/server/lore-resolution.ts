@@ -12,7 +12,8 @@ export async function resolveRequestLore(snapshot: EngineSnapshot, pool: LoreReg
   const input = { book, turns: snapshot.turns, sources: snapshot.sources, state: snapshot.loreState ?? { epoch: 0, entries: {} } };
   const matchRegex = pool.matcher(signal);
   const first = await resolveLore(input, matchRegex);
-  const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context, { validateLimits: false, allowStale: true, lore: first });
+  const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context,
+    { validateLimits: false, allowStale: true, lore: first, continuationTurnId: snapshot.continuationTurnId });
   const ceiling = Math.min(snapshot.settings.targetInputTokens, snapshot.connection.contextWindow - snapshot.connection.maxOutputTokens);
   const included = new Set(request.history?.verbatimTurnIds);
   const trimmed = !hasPromptMarker(snapshot.sources.prompt, 'summary') && hasPromptMarker(snapshot.sources.prompt, 'messages') && snapshot.turns.some(turn => turn.complete && !included.has(turn.id));

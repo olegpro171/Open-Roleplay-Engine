@@ -29,7 +29,9 @@ import { characterCardLimits } from '../shared/character-card-limits.js';
 import { semanticFingerprint, unchangedLoreEntries } from '../core/lorebook.js';
 import * as schema from './schema.js';
 import * as legacyLibrarySchema from './legacy-library-schema.js';
-import { trimBoundaryNewlines } from '../shared/text.js';
+import { appendContinuation, trimBoundaryNewlines } from '../shared/text.js';
+import { continuationTarget } from '../core/continuation.js';
+import { transcriptPartLimit } from '../shared/library.js';
 import { contextPresetSchema, defaultContextPreset, type ContextPreset } from '../shared/context.js';
 import { upgradedContextPrompts } from './context-prompt-upgrade.js';
 import { ContextStore } from './context-store.js';
@@ -299,6 +301,13 @@ export class Store {
         })();
         version = 18;
       }
+      if (version === 18) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0019_continuation.sql'), 'utf8'));
+          this.sqlite.pragma('user_version = 19');
+        })();
+        version = 19;
+      }
       if (version !== databaseSchemaVersion) throw new Error('Unsupported database schema version.');
       this.pictures = new PictureStore(this.sqlite, () => this.bumpLibrary());
       this.contexts = new ContextStore(this);
@@ -436,7 +445,7 @@ export class Store {
   snapshot(chatId = 'main'): ChatSnapshot {
     const generations: Generation[] = this.db.select({
       id: schema.generations.id, turnId: schema.generations.turnId, status: schema.generations.status,
-      sourceRevision: schema.generations.sourceRevision, kind: schema.generations.kind,
+      sourceRevision: schema.generations.sourceRevision, kind: schema.generationKind,
       request: schema.generations.request, usage: schema.generations.usage, partialText: schema.generations.partialText,
       reasoningText: sql<string>`substr(${schema.generations.reasoningText}, -2000)`,
       error: schema.generations.error, errorMessage: schema.generations.errorMessage, createdAt: schema.generations.createdAt, updatedAt: schema.generations.updatedAt,
@@ -457,7 +466,7 @@ export class Store {
     }
     const descriptors = () => this.db.select({
       id: schema.generations.id, turnId: schema.generations.turnId, status: schema.generations.status,
-      sourceRevision: schema.generations.sourceRevision, kind: schema.generations.kind,
+      sourceRevision: schema.generations.sourceRevision, kind: schema.generationKind,
       requestAvailable: sql<number>`${schema.generations.request} IS NOT NULL`, usage: schema.generations.usage,
       error: schema.generations.error, errorMessage: schema.generations.errorMessage,
       createdAt: schema.generations.createdAt, updatedAt: schema.generations.updatedAt,
@@ -1167,9 +1176,10 @@ export class Store {
     })();
   }
   generation(id: string) { return this.db.select().from(schema.generations).where(eq(schema.generations.id, id)).get(); }
-  beginRegeneration(expected: number, requestId: string, turnId: string, chatId: string) {
+  beginCompletedResponse(expected: number, requestId: string, turnId: string, chatId: string, kind: 'regeneration' | 'continuation') {
     return this.sqlite.transaction(() => {
-      const command = JSON.stringify({ kind: 'regenerate', turnId });
+      const regenerating = kind === 'regeneration';
+      const command = JSON.stringify({ kind: regenerating ? 'regenerate' : 'continue', turnId });
       const existing = this.db.select().from(schema.generations).where(eq(schema.generations.requestId, requestId)).get();
       if (existing) {
         if (existing.command !== command || existing.chatId !== chatId) throw new AppError(409, 'request_id_conflict', message("errors.that_request_identity_was_already_used_for_a"));
@@ -1177,22 +1187,34 @@ export class Store {
       }
       this.checkRevision(expected, chatId);
       this.ensureIdle(chatId);
-      const snapshot = this.engineSnapshot(chatId), target = snapshot.turns.at(-1);
+      const snapshot = this.engineSnapshot(chatId);
       if (hasPromptMarker(snapshot.sources.prompt, 'summary')) assertRefusalSelection(snapshot.context);
-      if (!target?.complete || target.id !== turnId) throw new AppError(409, 'latest_turn_only', message("errors.only_the_latest_completed_turn_can_be_regenerated"));
-      if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.select_a_connection_before_regenerating_a_response"));
-      const { context } = regenerationView(snapshot);
+      const target = snapshot.turns.at(-1);
+      if (regenerating && (!target?.complete || target.id !== turnId)) throw new AppError(409, 'latest_turn_only', message("errors.only_the_latest_completed_turn_can_be_regenerated"));
+      if (!snapshot.connection) throw new AppError(422, 'connection_required', message(regenerating
+        ? "errors.select_a_connection_before_regenerating_a_response" : 'continue.connection_required'));
+      const context = regenerating ? regenerationView(snapshot).context : null;
+      const continuationVariantId = regenerating ? null : continuationTarget(snapshot, turnId).variantId;
       const id = randomUUID(), now = new Date().toISOString();
-      this.db.insert(schema.generations).values({ id, chatId, requestId, command, turnId, kind: 'regeneration', status: 'running',
-        sourceRevision: this.bumpRevision(chatId), contextSelection: { revision: context.revision, selected: context.selected, archivedTurnIds: context.archivedTurnIds },
+      this.db.insert(schema.generations).values({ id, chatId, requestId, command, turnId, kind: regenerating ? 'regeneration' : 'response', status: 'running',
+        continuationVariantId, sourceRevision: this.bumpRevision(chatId),
+        contextSelection: context && { revision: context.revision, selected: context.selected, archivedTurnIds: context.archivedTurnIds },
         request: null, partialText: '', error: null, createdAt: now, updatedAt: now }).run();
       return { id, fresh: true };
     })();
+  }
+  beginRegeneration(expected: number, requestId: string, turnId: string, chatId: string) {
+    return this.beginCompletedResponse(expected, requestId, turnId, chatId, 'regeneration');
   }
   generationSnapshot(id: string): EngineSnapshot {
     const generation = this.generation(id);
     if (!generation) throw new AppError(404, 'generation_not_found', message("errors.response_attempt_not_found"));
     const snapshot = this.engineSnapshot(generation.chatId);
+    if (generation.continuationVariantId !== null) {
+      const target = continuationTarget(snapshot, generation.turnId);
+      if (target.variantId !== generation.continuationVariantId) throw new AppError(409, 'stale_result', message('continue.target_changed'));
+      return { ...snapshot, continuationTurnId: target.id };
+    }
     if (generation.kind !== 'regeneration') return snapshot;
     if (snapshot.turns.at(-1)?.id !== generation.turnId || !generation.contextSelection) throw new AppError(409, 'stale_result', message("errors.the_regeneration_endpoint_is_no_longer_available"));
     return regenerationView({ ...snapshot, context: { ...snapshot.context, ...generation.contextSelection } });
@@ -1270,12 +1292,19 @@ export class Store {
       const generation = this.generation(id);
       if (!generation || generation.status !== 'running') return false;
       if (status === 'succeeded') {
+        const regeneration = generation.kind === 'regeneration';
+        const continuation = generation.continuationVariantId !== null;
         text = trimBoundaryNewlines(text);
-        if (!text.trim()) throw new AppError(502, 'empty_response', generation.kind === 'regeneration' ? message("errors.the_model_returned_no_text_the_selected_response") : message("errors.the_model_returned_no_text_the_turn_remains"));
+        if (!text.trim()) throw new AppError(502, 'empty_response', message(continuation ? 'continue.empty_response' : regeneration
+          ? "errors.the_model_returned_no_text_the_selected_response" : "errors.the_model_returned_no_text_the_turn_remains"));
         this.checkRevision(generation.sourceRevision, generation.chatId);
         const turn = this.db.select().from(schema.turns).where(eq(schema.turns.id, generation.turnId)).get();
-        const regeneration = generation.kind === 'regeneration';
-        if (!turn || turn.complete !== regeneration) throw new AppError(409, 'stale_result', message("errors.the_turn_is_no_longer_awaiting_this_response"));
+        if (!turn || turn.chatId !== generation.chatId || turn.complete !== (regeneration || continuation)) {
+          throw new AppError(409, 'stale_result', message("errors.the_turn_is_no_longer_awaiting_this_response"));
+        }
+        if (continuation && turn.selectedVariantId !== generation.continuationVariantId) throw new AppError(409, 'stale_result', message('continue.target_changed'));
+        const reply = continuation ? appendContinuation(turn.assistantText, text) : text;
+        if (continuation && reply.length > transcriptPartLimit) throw new AppError(422, 'continuation_too_long', message('continue.reply_too_long', { limit: transcriptPartLimit }));
         if (regeneration) {
           if (generation.request?.lore) this.assertLoreCurrent(generation.chatId, generation.request.lore);
           this.resetLoreEpoch(generation.chatId);
@@ -1285,9 +1314,10 @@ export class Store {
           }
         } else if (generation.request?.lore) this.commitLoreState(generation.chatId, generation.request.lore);
         const variantId = turn.selectedVariantId ? randomUUID() : `original-${turn.id}`;
-        const equivalent = this.db.select().from(schema.responseVariants).where(and(eq(schema.responseVariants.turnId, turn.id), eq(schema.responseVariants.text, text))).get();
-        this.db.insert(schema.responseVariants).values({ id: variantId, turnId: turn.id, text, sourceRevision: equivalent?.sourceRevision ?? turn.assistantRevision + 1, generationId: id, createdAt: generation.createdAt }).run();
-        this.db.update(schema.turns).set({ messageAt: new Date().toISOString(), assistantText: text, assistantRevision: turn.assistantRevision + 1, complete: true, selectedVariantId: variantId }).where(eq(schema.turns.id, turn.id)).run();
+        const equivalent = this.db.select({ sourceRevision: schema.responseVariants.sourceRevision })
+          .from(schema.responseVariants).where(and(eq(schema.responseVariants.turnId, turn.id), eq(schema.responseVariants.text, reply))).get();
+        this.db.insert(schema.responseVariants).values({ id: variantId, turnId: turn.id, text: reply, sourceRevision: equivalent?.sourceRevision ?? turn.assistantRevision + 1, generationId: id, createdAt: generation.createdAt }).run();
+        this.db.update(schema.turns).set({ messageAt: new Date().toISOString(), assistantText: reply, assistantRevision: turn.assistantRevision + 1, complete: true, selectedVariantId: variantId }).where(eq(schema.turns.id, turn.id)).run();
       }
       this.db.update(schema.generations).set({ status, partialText: text, reasoningText: reasoningText ?? generation.reasoningText, error: outcome.error, errorMessage: outcome.errorMessage ?? null, usage, updatedAt: new Date().toISOString() }).where(eq(schema.generations.id, id)).run();
       this.bumpRevision(generation.chatId); return true;
@@ -1296,10 +1326,10 @@ export class Store {
   recoverInterrupted() {
     this.sqlite.transaction(() => {
       const running = this.db.select().from(schema.generations).where(eq(schema.generations.status, 'running')).all();
-      for (const kind of ['response', 'regeneration'] as const) {
-        const diagnostic = message(kind === 'regeneration' ? 'outcome.regenerationInterrupted' : 'outcome.generationInterrupted');
+      for (const [kind, key] of [['response', 'outcome.generationInterrupted'], ['regeneration', 'outcome.regenerationInterrupted'], ['continuation', 'continue.interrupted']] as const) {
+        const diagnostic = message(key);
         this.db.update(schema.generations).set({ status: 'interrupted', error: diagnostic.fallback, errorMessage: diagnostic, updatedAt: new Date().toISOString() })
-          .where(and(eq(schema.generations.status, 'running'), eq(schema.generations.kind, kind))).run();
+          .where(and(eq(schema.generations.status, 'running'), eq(schema.generationKind, kind))).run();
       }
       for (const id of new Set(running.map(g => g.chatId))) this.bumpRevision(id);
       this.contexts.recover();

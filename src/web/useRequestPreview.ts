@@ -7,15 +7,15 @@ import { errorText, type MessageText } from './localization';
 
 type Inspection = { chatId: string | null; key: string; estimate: RequestEstimate | null; request: RequestPreview | null; error: MessageText };
 
-export function useRequestPreview(snapshot: StorySnapshot | null, draft: string, enabled: boolean, full: boolean) {
+export function useRequestPreview(snapshot: StorySnapshot | null, draft: string, enabled: boolean, full: boolean, continuationTurnId?: string) {
   const pending = snapshot?.latestTurn?.complete === false;
   // The next composer draft is not part of the pending turn's model input.
-  const input = pending ? '' : draft;
+  const input = pending || continuationTurnId || !draft.trim() ? '' : draft;
   const [settled, setSettled] = useState('');
   const [retry, setRetry] = useState(0);
   const [inspection, setInspection] = useState<Inspection>({ chatId: null, key: '', estimate: null, request: null, error: '' });
   const cached = useRef(inspection);
-  const key = JSON.stringify([snapshot?.id, snapshot?.revision, snapshot?.memory.revision, snapshot?.connection, input, retry]);
+  const key = JSON.stringify([snapshot?.id, snapshot?.revision, snapshot?.memory.revision, snapshot?.connection, input, continuationTurnId, retry]);
   useEffect(() => {
     const timer = setTimeout(() => setSettled(input), 1000);
     return () => clearTimeout(timer);
@@ -31,7 +31,8 @@ export function useRequestPreview(snapshot: StorySnapshot | null, draft: string,
     if (previous.key === key && !previous.error && (!full || previous.request)) return;
     const controller = new AbortController();
     void api<RequestPreview | RequestEstimate>(`/chats/${snapshot.id}/preview`, 'POST', {
-      revision: snapshot.revision, inspection: true, detail: full ? 'full' : 'estimate', ...(!pending ? { text: input } : {}),
+      revision: snapshot.revision, inspection: true, detail: full ? 'full' : 'estimate',
+      ...(continuationTurnId ? { continuationTurnId } : !pending ? { text: input } : {}),
     }, controller.signal).then(result => {
       if (controller.signal.aborted || datasetChanged()) return;
       const estimate = 'body' in result ? requestEstimate(result) : result;

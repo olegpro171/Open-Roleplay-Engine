@@ -7,6 +7,7 @@ import { refKey } from '../shared/context.js';
 import { refusalAffected, refusalFindings } from '../core/summary-refusals.js';
 import { transcriptQuerySchema, type PinList, type StoryGeneration, type StoryPreparation, type StorySnapshot, type TranscriptQuery } from '../shared/transcript.js';
 import { pinnedExcerpts } from '../core/pinned-turns.js';
+import { continuationBlock } from '../core/continuation.js';
 import { hasPromptMarker } from '../shared/library.js';
 import type { Store } from './store.js';
 import * as schema from './schema.js';
@@ -36,11 +37,15 @@ export class StoryReader {
         .where(eq(schema.turns.chatId, chatId)).orderBy(asc(schema.turns.position)).limit(input.limit).offset(start).all();
       const first = positions[0], last = positions.at(-1);
       const turns = first && last ? this.store.readTurns(chatId, { first: first.position, last: last.position }) : [];
-      const latestTurn = this.store.db.select({ id: schema.turns.id, complete: schema.turns.complete }).from(schema.turns)
+      const latest = this.store.db.select({ id: schema.turns.id, complete: schema.turns.complete, reply: schema.turns.assistantText }).from(schema.turns)
         .where(eq(schema.turns.chatId, chatId)).orderBy(desc(schema.turns.position)).limit(1).get() ?? null;
       const latestGeneration = this.generations(chatId, undefined)[0] ?? null;
       const context = this.store.contexts.snapshot(chatId, header.settings.contextPresetId ?? null);
       const archived = new Set(context.archivedTurnIds);
+      const latestTurn = latest && { id: latest.id, complete: latest.complete, ...(latest.complete ? {
+        continuationBlocked: continuationBlock(latest.reply, hasPromptMarker(header.sources.prompt, 'messages'),
+          hasPromptMarker(header.sources.prompt, 'summary') && archived.has(latest.id)),
+      } : {}) };
       // Freshness needs provenance for all turns, never their prose or variants.
       const sources = this.store.db.select({ turnId: schema.turns.id, userRevision: schema.turns.userRevision,
         assistantRevision: sql<number>`coalesce(${schema.responseVariants.sourceRevision}, ${schema.turns.assistantRevision})`, complete: schema.turns.complete,
@@ -98,7 +103,7 @@ export class StoryReader {
   private generations(chatId: string, turnIds: string[] | undefined): StoryGeneration[] {
     const selection = this.store.db.select({
       id: schema.generations.id, turnId: schema.generations.turnId, status: schema.generations.status,
-      sourceRevision: schema.generations.sourceRevision, kind: schema.generations.kind,
+      sourceRevision: schema.generations.sourceRevision, kind: schema.generationKind,
       requestAvailable: sql<number>`${schema.generations.request} IS NOT NULL`, usage: schema.generations.usage,
       partialText: sql<string>`CASE WHEN ${schema.generations.status} = 'succeeded' THEN '' ELSE ${schema.generations.partialText} END`,
       reasoningText: sql<string>`substr(${schema.generations.reasoningText}, -2000)`,

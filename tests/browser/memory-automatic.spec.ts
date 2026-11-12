@@ -86,7 +86,7 @@ for (const device of ['desktop', 'phone'] as const) test.describe(`automatic mem
       await expect(progress.getByRole('status')).toHaveText(/^Preparing memory…\s*Estimated input [\d,]+ \/ [\d,]+ tokens\s*Generating…$/);
       const latestReply = page.locator('.part.assistant').last().getByText('The lantern flickers. 🕯', { exact: true });
       await expect(latestReply).toBeInViewport({ ratio: 1 });
-      await expect(send).toBeDisabled();
+      await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
       await expect(composer).toBeEditable();
       await composer.fill('My next draft stays available.');
       const saved = await state();

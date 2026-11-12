@@ -336,7 +336,8 @@ export class ContextStore {
           selectedContext(snapshot.turns, after);
           const connection = snapshot.connection;
           if (!connection) throw new AppError(422, 'connection_required', message("errors.select_a_roleplay_connection_to_measure_the_complete"));
-          inputAfter = assembleRequest(connection, snapshot.settings, snapshot.turns, snapshot.sources, after, { validateLimits: false, lore: snapshot.loreResolution }).budget.inputTokens;
+          inputAfter = assembleRequest(connection, snapshot.settings, snapshot.turns, snapshot.sources, after,
+            { validateLimits: false, lore: snapshot.loreResolution, continuationTurnId: snapshot.continuationTurnId }).budget.inputTokens;
         }
         if (plan.inputTokens !== step.inputBefore) throw new AppError(409, 'stale_context_result', message("errors.this_batch_is_no_longer_the_next_eligible"));
         if (inputAfter >= plan.inputTokens) throw new AppError(422, 'summary_no_savings', message("errors.the_summary_did_not_reduce_the_assembled_input"));
@@ -426,7 +427,7 @@ export class ContextStore {
     }
     // Coverage and freshness were checked above. Measure even when a later correction is still pending.
     return assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, state,
-      { validateLimits: false, allowStale: true, lore: snapshot.loreResolution }).budget.inputTokens;
+      { validateLimits: false, allowStale: true, lore: snapshot.loreResolution, continuationTurnId: snapshot.continuationTurnId }).budget.inputTokens;
   }
 
   private checkReplayInput(snapshot: EngineSnapshot, state: ContextState, frame: ReplayFrame) {

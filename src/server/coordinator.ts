@@ -35,6 +35,10 @@ export class GenerationCoordinator {
     if (this.stopping) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
     return this.dispatch(this.store.beginRegeneration(revision, requestId, turnId, chatId), chatId);
   }
+  continueResponse(revision: number, requestId: string, turnId: string, chatId: string) {
+    if (this.stopping) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
+    return this.dispatch(this.store.beginCompletedResponse(revision, requestId, turnId, chatId, 'continuation'), chatId);
+  }
   private dispatch(result: { id: string; fresh: boolean }, chatId: string) {
     if (result.fresh) {
       const operation = { controller: new AbortController(), task: Promise.resolve(), text: '', reasoning: '' };
@@ -57,7 +61,9 @@ export class GenerationCoordinator {
       await this.context.prepareForGeneration(chatId, id, operation.controller.signal, behavior);
       if (this.stopping || operation.controller.signal.aborted) return;
       const snapshot = this.store.generationSnapshot(id);
-      const request = assembleRequest(snapshot.connection!, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context, { lore: loreResolution, overshoot: behavior });
+      if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.save_a_connection_first"));
+      const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context,
+        { lore: loreResolution, overshoot: behavior, continuationTurnId: snapshot.continuationTurnId });
       this.store.saveRequest(id, request);
       this.changed({ kind: 'chat', chatId, detail: 'state' });
       let lastCheckpoint = 0;
@@ -107,7 +113,9 @@ export class GenerationCoordinator {
     const operation = this.active.get(id);
     const generation = this.store.generation(id);
     if (!operation || generation?.status !== 'running') throw new AppError(409, 'inactive_generation', message("errors.this_response_is_no_longer_active"));
-    this.store.finish(id, 'cancelled', operation.text, generation.kind === 'regeneration' ? message("diagnostics.regeneration_cancelled_the_selected_response_was_kept") : message("app.response_cancelled_generate_response_before_next_turn"), null, operation.reasoning);
+    const diagnostic = message(generation.continuationVariantId !== null ? 'continue.cancelled' : generation.kind === 'regeneration'
+      ? "diagnostics.regeneration_cancelled_the_selected_response_was_kept" : "app.response_cancelled_generate_response_before_next_turn");
+    this.store.finish(id, 'cancelled', operation.text, diagnostic, null, operation.reasoning);
     operation.controller.abort();
     this.context.cancelForGeneration(id);
     this.changed({ kind: 'chat', chatId: generation.chatId, detail: 'state' });

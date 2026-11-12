@@ -56,6 +56,7 @@ export function copyBranchContent(db: Database.Database, source: EngineSnapshot,
       ? selection.extend({ revision: z.number().int().nonnegative() }).parse(JSON.parse(row.context_selection)) : null;
     insertRow(db, 'generations', { ...row, id, chat_id: destination,
       request_id: randomUUID(), turn_id: turnId(generation.turn_id),
+      continuation_variant_id: typeof row.continuation_variant_id === 'string' ? variantId(row.continuation_variant_id) : null,
       context_selection: contextSelection && JSON.stringify({ revision: contextSelection.revision, ...copySelection(contextSelection) }) });
     retainedOperations.set(generation.id, id);
   }

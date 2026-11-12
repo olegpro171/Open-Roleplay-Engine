@@ -12,11 +12,13 @@ import { correctionProtection, correctionMessage, correctionDiagnostic, latestAp
 import { repairInputs } from './context-repair.js';
 import { modelText } from './model-text.js';
 import { assertCleanSummaryInput, refusalAffected } from './summary-refusals.js';
+import { requiredVerbatimTail } from './continuation.js';
 
 export function contextPlan(snapshot: EngineSnapshot): ContextPlan {
   if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.select_a_roleplay_connection_to_measure_the_complete"));
   const state = snapshot.context;
-  const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, state, { validateLimits: false, allowStale: true, lore: snapshot.loreResolution });
+  const options = { validateLimits: false, lore: snapshot.loreResolution, continuationTurnId: snapshot.continuationTurnId };
+  const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, state, { ...options, allowStale: true });
   const hasPinnedBlock = request.layout?.some(entry => entry.kind === 'pinned');
   const effectiveLimit = Math.min(snapshot.settings.targetInputTokens, snapshot.connection.contextWindow - snapshot.connection.maxOutputTokens);
   if (!hasPromptMarker(snapshot.sources.prompt, 'summary')) {
@@ -32,7 +34,7 @@ export function contextPlan(snapshot: EngineSnapshot): ContextPlan {
   const verbatim = snapshot.turns.filter(turn => !archived.has(turn.id));
   const connection = snapshot.connection;
   const measureWithoutMemory = (tail: typeof verbatim) => assembleRequest(connection, snapshot.settings, snapshot.turns,
-    snapshot.sources, emptyContextState(), { validateLimits: false, lore: snapshot.loreResolution, measureVerbatim: tail }).budget.inputTokens;
+    snapshot.sources, emptyContextState(), { ...options, measureVerbatim: tail }).budget.inputTokens;
   const required = measureWithoutMemory(verbatim);
   const pinBudgetMessage = message('pins.required_budget');
   // Rank with the shared reference tokenizer, including labels and separator.
@@ -53,15 +55,16 @@ export function contextPlan(snapshot: EngineSnapshot): ContextPlan {
     }
   }
   else if (state.preset) {
+    const config = { ...state.preset, minTail: requiredVerbatimTail(state.preset.minTail, snapshot.continuationTurnId) };
     let pinnedFloor: number | undefined;
     if (hasPinnedBlock && required >= effectiveLimit && request.budget.inputTokens > effectiveLimit) {
       // Even after every eligible whole batch, minimum tail, residual turns,
       // pending input and the pinned block must still fit together.
       const completed = verbatim.filter(turn => turn.complete).length;
-      const batches = Math.floor(Math.max(0, completed - state.preset.minTail) / state.preset.batchSize);
-      pinnedFloor = batches ? measureWithoutMemory(verbatim.slice(batches * state.preset.batchSize)) : required;
+      const batches = Math.floor(Math.max(0, completed - config.minTail) / config.batchSize);
+      pinnedFloor = batches ? measureWithoutMemory(verbatim.slice(batches * config.batchSize)) : required;
     }
-    ({ next, blocked, blockedMessage } = nextCompaction(snapshot.turns, state, state.preset, request.budget.inputTokens, effectiveLimit, required, sizes, pinnedFloor));
+    ({ next, blocked, blockedMessage } = nextCompaction(snapshot.turns, state, config, request.budget.inputTokens, effectiveLimit, required, sizes, pinnedFloor));
   }
   else if (request.budget.inputTokens > effectiveLimit) {
     ({ blocked, blockedMessage } = blockedText(hasPinnedBlock && required > effectiveLimit

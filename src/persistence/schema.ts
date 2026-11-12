@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { blob, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { ChatSettings, Connection, GenerationStatus, RequestPreview, TokenUsage } from '../shared/contracts.js';
+import type { ChatSettings, Connection, Generation, GenerationStatus, RequestPreview, TokenUsage } from '../shared/contracts.js';
 import type { LibraryCharacter, Persona, PromptPreset } from '../shared/library.js';
 import type { ContextPreset } from '../shared/context.js';
 import type { Lorebook } from '../shared/lorebook.js';
@@ -61,6 +61,7 @@ export const generations = sqliteTable('generations', {
   turnId: text('turn_id').notNull(), status: text('status').$type<GenerationStatus>().notNull(),
   sourceRevision: integer('source_revision').notNull(),
   kind: text('kind').$type<'response' | 'regeneration'>().notNull().default('response'),
+  continuationVariantId: text('continuation_variant_id'),
   contextSelection: text('context_selection', { mode: 'json' }).$type<Pick<import('../shared/context.js').ContextState, 'revision' | 'selected' | 'archivedTurnIds'> | null>(),
   request: text('request', { mode: 'json' }).$type<RequestPreview | null>(),
   usage: text('usage', { mode: 'json' }).$type<TokenUsage | null>(),
@@ -68,6 +69,7 @@ export const generations = sqliteTable('generations', {
   errorMessage: text('error_message', { mode: 'json' }).$type<import('../shared/localization.js').LocalizedMessage | null>(),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 });
+export const generationKind = sql<NonNullable<Generation['kind']>>`CASE WHEN ${generations.continuationVariantId} IS NOT NULL THEN 'continuation' ELSE ${generations.kind} END`;
 
 export const tags = sqliteTable('tags', {
   id: text('id').primaryKey(), name: text('name').notNull(),

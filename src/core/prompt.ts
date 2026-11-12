@@ -16,6 +16,7 @@ import { modelText } from './model-text.js';
 import { inlineSettingsPrompt } from './inline-prompt.js';
 import { fitsInputTarget, type InputOvershoot } from './input-target.js';
 import { pinnedBlock } from './pinned-turns.js';
+import { continuationInstruction } from './continuation.js';
 export { replaceNameMacros } from './names.js';
 
 export function estimateInputTokens(messages: Message[]): number {
@@ -38,11 +39,11 @@ function historyMessages(turn: Turn): Message[] {
 }
 
 /** Budget components for comparing managed selections without assembling every candidate. */
-export function managedInputCosts(connection: Connection, settings: ChatSettings, turns: Turn[], sources: PromptSources, lore?: LoreResolution | null) {
+export function managedInputCosts(connection: Connection, settings: ChatSettings, turns: Turn[], sources: PromptSources, lore?: LoreResolution | null, continuationTurnId?: string) {
   const preset = sources.prompt ?? inlineSettingsPrompt(settings.instructions);
   const summaryBlock = preset.blocks.find(block => block.enabled && block.kind === 'marker' && block.marker === 'summary');
   const required = assembleRequest(connection, settings, turns, sources, emptyContextState(),
-    { validateLimits: false, lore, measureVerbatim: [] });
+    { validateLimits: false, lore, measureVerbatim: [], continuationTurnId });
   const tailInput = Array<number>(turns.length + 1).fill(required.budget.inputTokens);
   if (hasPromptMarker(preset, 'messages')) {
     for (let i = turns.length - 1; i >= 0; i--) {
@@ -60,6 +61,7 @@ type AssemblyOptions = {
   allowStale?: boolean;
   lore?: LoreResolution | null;
   overshoot?: InputOvershoot;
+  continuationTurnId?: string;
   // Change only Messages when measuring a managed tail. Pins still use the full transcript.
   measureVerbatim?: Turn[];
 };
@@ -79,6 +81,11 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   const card = sources?.character;
   const resolve = (text: string) => modelText(replaceNameMacros(text, sources?.persona?.name ?? 'You', card?.name ?? 'Character'));
   const messagesBlock = preset.blocks.find(block => block.enabled && block.kind === 'marker' && block.marker === 'messages');
+  const continuation: Entry | null = options.continuationTurnId ? {
+    message: { role: 'user', content: continuationInstruction },
+    kind: 'continuation', ...promptLabel(message('continue.instruction')),
+  } : null;
+  if (continuation && !messagesBlock) throw new AppError(422, 'continuation_unavailable', message('continue.messages_required'));
   const authorNote = settings.authorNote;
   if (authorNote?.prompt.trim() && !messagesBlock) {
     warningMessages.push(message('author_note.messages_missing'));
@@ -188,19 +195,26 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     if (summariesEnabled) verbatim = options.measureVerbatim ?? resolved.verbatim;
     else {
       const limit = Math.min(settings.targetInputTokens, connection.contextWindow - connection.maxOutputTokens);
-      let used = countInput([...entries, ...historyInjections.map(injection => injection.entry)].map(entry => entry.message)).inputTokens;
+      const required = [...entries, ...historyInjections.map(injection => injection.entry)];
+      if (continuation) required.push(continuation);
+      let used = countInput(required.map(entry => entry.message)).inputTokens;
       let start = turns.length;
-      // A pending input is required when Messages is enabled. Completed turns
-      // form a contiguous newest suffix; neither parts nor text are truncated.
+      // Pending input and the continuation target are required. Other turns
+      // form a contiguous newest suffix without truncating parts or text.
       for (let index = turns.length - 1; index >= 0; index--) {
         const turn = turns[index];
         const cost = countInput(turnEntries(turn).map(entry => entry.message)).inputTokens - countInput([]).inputTokens;
-        if (turn.complete && used + cost > limit) break;
+        if (turn.complete && turn.id !== options.continuationTurnId && used + cost > limit) break;
         used += cost; start = index;
       }
       verbatim = turns.slice(start);
     }
+    if (continuation && options.measureVerbatim === undefined && verbatim.at(-1)?.id !== options.continuationTurnId) {
+      throw new AppError(422, 'continuation_unavailable', message('continue.archived_reply'));
+    }
     const history = verbatim.flatMap(turnEntries);
+    // Use the ordinary depth placement of a new user message without adding a story source.
+    if (continuation) history.push(continuation);
     const expanded = injectHistory(history, entry => Boolean(entry.message.content.trim()), historyInjections);
     entries = entries.slice(0, historyIndex).concat(expanded, entries.slice(historyIndex));
   }

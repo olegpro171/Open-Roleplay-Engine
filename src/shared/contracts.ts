@@ -58,7 +58,7 @@ export type RequestBody = {
 } & z.infer<typeof customParametersSchema>;
 export const pinnedSourceSchema = z.object({ turnId: z.string().min(1).max(100), ordinal: z.number().int().positive().safe() }).strict();
 export type PinnedSource = z.infer<typeof pinnedSourceSchema>;
-export const promptEntryKinds = ['prompt', 'character', 'persona', 'memory', 'history', 'draft', 'lore', 'pinned'] as const;
+export const promptEntryKinds = ['prompt', 'character', 'persona', 'memory', 'history', 'draft', 'lore', 'pinned', 'continuation'] as const;
 export type PromptEntry = { messageIndex: number; kind: (typeof promptEntryKinds)[number]; pinnedSources?: PinnedSource[]; label: string; labelMessage?: import('./localization.js').LocalizedMessage; tokens: number; group?: { id: string; label: string } };
 export type TokenUsage = { inputTokens: number; outputTokens: number; totalTokens: number };
 export type ConnectionDiagnostic = { message: string; localized?: import('./localization.js').LocalizedMessage; request?: RequestPreview; usage?: TokenUsage | null; response?: string };
@@ -100,7 +100,7 @@ export type GenerationStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' 
 export type Generation = {
   errorMessage?: import('./localization.js').LocalizedMessage | null;
   id: string; turnId: string; status: GenerationStatus; sourceRevision: number;
-  kind?: 'response' | 'regeneration';
+  kind?: 'response' | 'regeneration' | 'continuation';
   request: RequestPreview | null; partialText: string; error: string | null; usage: TokenUsage | null;
   // Bounded preview of separate per-attempt output; full text is fetched on demand.
   reasoningText?: string;
@@ -116,7 +116,7 @@ export type ChatSnapshot = {
   loreState?: import('./lorebook.js').LoreState;
   loreResolution?: import('./lorebook.js').LoreResolution | null;
 };
-export type EngineSnapshot = Omit<ChatSnapshot, 'generations'>;
+export type EngineSnapshot = Omit<ChatSnapshot, 'generations'> & { continuationTurnId?: string };
 export type ChatToolsSnapshot = EngineSnapshot & { generating: boolean };
 export type GenerationDescriptor = Omit<Generation, 'request' | 'partialText' | 'reasoningText' | 'reasoningLength'> & { requestAvailable: boolean };
 export type GenerationPage = { items: GenerationDescriptor[]; nextBefore: string | null; selected?: GenerationDescriptor | null };

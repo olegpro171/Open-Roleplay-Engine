@@ -7,13 +7,14 @@ import { ReasoningDialog, type ReasoningProps } from './Reasoning';
 import { ResponseVariants } from './ResponseVariants';
 import { TurnActionButton } from './TurnActionButton';
 
-export function TurnControls({ turn, revision, locked, editing, inputVisible, action, reasoning, select, edit, remove, fork, pin }: {
+export function TurnControls({ turn, revision, locked, editing, inputVisible, action, continuing, reasoning, select, edit, remove, fork, pin }: {
   turn: Turn;
   revision: number;
   locked: boolean;
   editing: boolean;
   inputVisible: boolean;
   action: { kind: 'regenerate' | 'cancel'; disabled: boolean; run: () => void } | null;
+  continuing: boolean;
   reasoning: ReasoningProps | null;
   select: (id: string) => Promise<boolean>;
   edit: (part: 'user' | 'assistant') => void;
@@ -29,7 +30,7 @@ export function TurnControls({ turn, revision, locked, editing, inputVisible, ac
   }
   return <div className="turn-controls" role="group" aria-label={t("turn_controls.turn_controls")}>
     <ResponseVariants turn={turn} locked={locked || editing} select={select}
-      regenerating={turn.complete && action?.kind === 'cancel'}
+      regenerating={turn.complete && action?.kind === 'cancel' && !continuing}
       regenerate={action?.kind === 'regenerate' && !action.disabled ? action.run : undefined} />
     <div className="turn-actions">
       {action && <TurnActionButton action={action.kind} label={action.kind === 'cancel' ? t("character_import.cancel") : t("turn_controls.regenerate")} disabled={action.disabled} onClick={action.run} />}
