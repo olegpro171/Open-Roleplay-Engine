@@ -37,7 +37,7 @@ import { TurnControls } from './TurnControls';
 import { ReasoningPreview } from './Reasoning';
 import { ChatMarkdown } from './ChatMarkdown';
 import { ChatTextarea } from './ChatTextarea';
-import { ChatDetailsTarget, ChatWorkspace } from './ChatWorkspace';
+import { ChatDetailsTarget, ChatWorkspace, useReturnToChatOnEscape } from './ChatWorkspace';
 import { ChatCharacterPortrait } from './Pictures';
 import { useComposerKeyboard } from './useComposerKeyboard';
 import { useTouchScrollGuard } from './useTouchScrollGuard';
@@ -152,6 +152,9 @@ export function App() {
   const [contextExpanded, setContextExpanded] = useState(false);
   const [chatDetailsTarget, setChatDetailsTarget] = useState<HTMLDivElement | null>(null);
   const [generationId, setGenerationId] = useState('');
+  const returnToChat = useCallback(() => { setTab('story'); setPeek(false); setGenerationId(''); }, []);
+  const chatToolsLoading = snapshot && (tab === 'settings' || tab === 'memory') && toolSnapshot?.id !== snapshot.id;
+  useReturnToChatOnEscape(session?.authenticated && library && chatToolsLoading ? returnToChat : undefined);
   const loadId = useRef(0);
   const { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest, jumpToTurn } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot, Boolean(edit));
   useLayoutEffect(() => {
@@ -661,7 +664,6 @@ export function App() {
         <dl><div><dt>{t("app.total_turns")}</dt><dd>{snapshot.totalTurns}</dd></div><div title={t("app.saved_turns_kept_verbatim_in_the_current")}><dt>{t("app.active_turns")}</dt><dd>{activeTurns}</dd></div><div><dt>{t("app.input_target")}</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString(locale())}</dd></div><div><dt>{t("app.estimated_input")}</dt><dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>{currentRequest?.budget.inputTokens.toLocaleString(locale()) ?? '—'}</dd></div></dl>
         <details className="context-dropdown" open={contextExpanded} onToggle={event => setContextExpanded(event.currentTarget.open)}><summary>{t("app.context")}<span>{!summariesEnabled ? t("app.summaries_are_disabled") : snapshot.memory.selectedCount ? t('counts.summaries', { count: snapshot.memory.selectedCount }) : t("app.full_history")}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></> : <p className="small muted">{inspectionError || t("app.select_a_connection_to_inspect_input")}</p>}</details>
   </>;
-  const returnToChat = () => { setTab('story'); setPeek(false); setGenerationId(''); };
   function signOut(returnFocus: HTMLElement) {
     libraryLeave.leave(() => void command(async () => {
       await api('/logout', 'POST', {});
@@ -696,7 +698,7 @@ export function App() {
     ]} actions={() => <button type="button" className="secondary" onClick={() => void refresh()}>{t('app.retry_loading')}</button>} />
     {tab === 'data' && <ApplicationSettings chatBehavior={behaviorEditor} appearance={appearanceEditor} lan={lanEditor} openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
     {snapshot && ['settings', 'memory', 'request'].includes(tab) && toolError && <div className="error-banner" role="alert">{toolError}<button onClick={() => setToolRetry(value => value + 1)}>{t("app.retry_loading")}</button></div>}
-    {snapshot && ['settings', 'memory'].includes(tab) && toolSnapshot?.id !== snapshot.id && <main className="document-panel"><p role="status">{t("app.loading_chat_tools")}</p></main>}
+    {chatToolsLoading && <main className="document-panel"><p role="status">{t("app.loading_chat_tools")}</p></main>}
     {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} navigation dismissDetails={jumpTarget?.chatId === snapshot.id} actions={<>
         <button className="quiet chat-navigation-action" aria-label={t("app.chat_settings")} onClick={() => setTab('settings')}><Icon name="Settings" />{t("app.chat_settings_2", { value: snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : '' })}</button>
         <button className="quiet chat-navigation-action" onClick={() => setTab('memory')}><Icon name="List" />{t("app.inspect_memory")}</button>
@@ -837,8 +839,8 @@ export function App() {
         leaveEditor={libraryLeave.leave} clearDraft={libraryLeave.drafts.clear} />
     </LibraryDraftContext.Provider>}
     {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
-    {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><Memory behavior={behaviorEditor} key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} openPins={openPins} preparation={preparing} editPreset={id => { setLibraryTarget({ kind: 'contexts', id }); setTab('library'); }} /></ChatWorkspace>}
-    {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} disabled={history.loading} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...savedRequestOptions]} /></label><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>
+    {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} returnToChat={returnToChat} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><Memory behavior={behaviorEditor} key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} openPins={openPins} preparation={preparing} editPreset={id => { setLibraryTarget({ kind: 'contexts', id }); setTab('library'); }} /></ChatWorkspace>}
+    {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} returnToChat={returnToChat} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} disabled={history.loading} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...savedRequestOptions]} /></label><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>
       <div className="actions">{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('latest').then(moved => { if (moved) setGenerationId(''); })}>{t('app.latest_requests')}</button>}{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('newer').then(moved => { if (moved) setGenerationId(''); })}>{t('app.newer_requests')}</button>}{history.older && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('older').then(moved => { if (moved) setGenerationId(''); })}>{t('app.older_requests')}</button>}</div>
       {history.error && <p role="alert">{formatMessage(history.error)} <button type="button" className="secondary" onClick={history.retry}>{t('app.retry_loading')}</button></p>}
       <p className="small muted">{generationId ? t("app.saved_attempt_its_ceiling_is_historical", { value: shownGeneration ? stateLabel(shownGeneration.status) : t("app.usage_unavailable"), value2: formatMessage(shownGeneration?.errorMessage ?? shownGeneration?.error) }) : t("app.live_preview_of_the_current_setup_and")}</p>

@@ -91,11 +91,11 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
       if (event.key === 'Escape') {
         if (expanded) {
           event.preventDefault();
+          event.stopPropagation();
           // Escape dismisses editable suggestions without leaving the input.
           if (!editable) restorePopupFocusAfterEscape(event.currentTarget, openedWith.current);
         }
         setOpen(false);
-        event.stopPropagation();
       }
       else if (event.key === 'Tab') setOpen(false);
       else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {

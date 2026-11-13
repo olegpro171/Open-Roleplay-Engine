@@ -1,15 +1,40 @@
 import { t, useLocale } from './localization';
-import { createContext, useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
 import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
 
 export const ChatDetailsTarget = createContext<HTMLDivElement | null>(null);
 
-export function ChatWorkspace({ sidebar, actions, navigation = false, dismissDetails = false, children }: {
-  sidebar: ReactNode; actions: ReactNode; navigation?: boolean; dismissDetails?: boolean; children: ReactNode;
-}) {
+export function useReturnToChatOnEscape(returnToChat: (() => void) | undefined) {
+  useEffect(() => {
+    if (!returnToChat) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229) return;
+      // Controls and the Chat details disclosure handle Escape before it reaches window.
+      // Native dialogs use the browser's cancel event after keydown.
+      if (document.querySelector('dialog[open]')) return;
+      event.preventDefault();
+      returnToChat();
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [returnToChat]);
+}
+
+type ChatWorkspaceProps = {
+  sidebar: ReactNode;
+  actions: ReactNode;
+  dismissDetails?: boolean;
+  children: ReactNode;
+} & (
+  | { navigation: true; returnToChat?: never }
+  | { navigation?: false; returnToChat: (() => void) | undefined }
+);
+
+export function ChatWorkspace({ sidebar, actions, navigation = false, dismissDetails = false, returnToChat, children }: ChatWorkspaceProps) {
   useLocale();
+  useReturnToChatOnEscape(returnToChat);
   const [expanded, setExpanded] = useState(false);
   const openedWith = useRef<PopupInput>('keyboard');
   const detailsId = useId();
