@@ -1,6 +1,7 @@
 import { seedTranscript } from './support/transcript-fixture.js';
 import { Readable } from 'node:stream';
 import { semanticFingerprint } from '../src/core/lorebook.js';
+import { PreparationReplay } from '../src/core/context-replay.js';
 import { z } from 'zod';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, readdirSync } from 'node:fs';
@@ -286,7 +287,12 @@ it.each(['succeeded', 'cancelled'] as const)('round trips %s preparation after d
   const { id: generationId } = source.begin(source.snapshot(chatId).revision, randomUUID(), 'Delete this turn', chatId);
   const turnId = requireValue(source.generation(generationId)).turnId;
   const { job } = source.contexts.begin(chatId, source.snapshot(chatId).revision, generationId, 'prepare', generationId);
-  source.contexts.finish(job.id, status);
+  if (status === 'succeeded') {
+    const replay = new PreparationReplay(source.contexts.operationSnapshot(job.id));
+    source.contexts.finish(job.id, 'succeeded', null, { frame: replay.next(), reusedCount: 0 });
+  } else {
+    source.contexts.finish(job.id, 'cancelled');
+  }
   source.finish(generationId, status, status === 'succeeded' ? 'A reply' : '');
   source.deleteTurn(source.snapshot(chatId).revision, turnId, chatId);
   expect(source.generation(generationId)).toBeUndefined();

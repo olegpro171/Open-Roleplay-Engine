@@ -1,5 +1,7 @@
-import { test, expect, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
+import { test } from './isolated-app';
+import { confirmLeaveEditor } from './library-card-helpers';
 
 async function library(page: Page): Promise<LibrarySnapshot> {
   return page.request.get('/api/library').then(response => response.json());
@@ -10,12 +12,11 @@ async function choose(page: Page, name: string) {
 }
 
 for (const width of [1440, 390]) {
-  test(`distinguishes same-name characters with local titles through editing and chat selection at ${width}px`, async ({ page }, testInfo) => {
+  test(`distinguishes same-name characters with local titles through editing and chat selection at ${width}px`, async ({ page, browserApp }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
-    const session = await page.request.get('/api/session').then(response => response.json());
     await page.goto('/');
     await page.getByLabel('Owner password').fill('browser-synthetic-password');
-    await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+    await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
     await page.getByRole('button', { name: 'Characters', exact: true }).click();
     const name = `Title Alice ${width}`;
@@ -23,10 +24,10 @@ for (const width of [1440, 390]) {
     const medieval = `${name} · Medieval version`;
     const fields = { name, description: '{{char}} at the university.', personality: '', scenario: '', first_mes: 'I am {{char}}.', mes_example: '' };
     const created = await page.request.post('/api/library', {
-      headers: { Origin: 'http://127.0.0.1:4173' },
+      headers: { Origin: browserApp.url },
       data: { kind: 'characters', revision: (await library(page)).revision, data: { ...fields, titleComment: 'Medieval version' } },
     });
-    expect(created.ok()).toBe(true);
+    expect(created.ok(), await created.text()).toBe(true);
     await expect(page.getByRole('heading', { name: medieval, exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: 'New character', exact: true }).click();
@@ -60,6 +61,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByLabel('Title / comment', { exact: true })).toHaveValue('University version');
     await page.getByLabel('Title / comment', { exact: true }).fill('Unsaved title');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await confirmLeaveEditor(page);
     await expect(page.getByRole('heading', { name: university, exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: `${university}`, exact: true }).click();
@@ -68,10 +70,10 @@ for (const width of [1440, 390]) {
     if (!saved) throw new Error('Missing saved character');
     const { id, revision: _revision, ...data } = saved;
     const changed = await page.request.put(`/api/library/${id}`, {
-      headers: { Origin: 'http://127.0.0.1:4173' },
+      headers: { Origin: browserApp.url },
       data: { kind: 'characters', revision: (await library(page)).revision, data: { ...data, titleComment: 'Newer version' } },
     });
-    expect(changed.ok()).toBe(true);
+    expect(changed.ok(), await changed.text()).toBe(true);
     const reconcile = page.getByRole('button', { name: 'Use current text and tags; keep my picture draft', exact: true });
     await expect(reconcile).toBeVisible();
     await expect(page.getByLabel('Title / comment', { exact: true })).toHaveValue('Local draft');

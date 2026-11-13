@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
+import { test } from './isolated-app';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { BackupReview } from '../../src/shared/backups';
@@ -12,7 +13,7 @@ async function login(page: Page) {
 }
 async function headers(page: Page) {
   const response = await page.request.get('/api/session');
-  return { Origin: 'http://127.0.0.1:4173','X-ORE-Epoch': response.headers()['x-ore-epoch'] ?? 'initial' };
+  return { Origin: new URL(page.url()).origin,'X-ORE-Epoch': response.headers()['x-ore-epoch'] ?? 'initial' };
 }
 async function fixture(page: Page,width: number) {
   const initial = await headers(page);
@@ -35,6 +36,7 @@ async function openChat(page: Page,title: string) {
 }
 
 test('backup dialogs cancel without requests and clear transient passwords', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
   await login(page);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const save = page.getByRole('button', { name: 'Save...', exact: true });
@@ -52,8 +54,9 @@ test('backup dialogs cancel without requests and clear transient passwords', asy
   await expect(dialog.getByLabel('Backup password (optional)', { exact: true })).toHaveValue('');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: 'Select file...', exact: true }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Drop file here or click to browse', exact: true }).click();
   await (await chooser).setFiles({ name: 'cancel.sqlite', mimeType: 'application/octet-stream', buffer: Buffer.alloc(100) });
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('Backup password (if set)', { exact: true }).fill('discard import password');
@@ -139,7 +142,8 @@ for (const width of [1440,390]) test(`password-protected backup, validation and 
   const downloadEvent = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   const download = await downloadEvent, path = await download.path();
-  expect(download.url()).toMatch(/^http:\/\/127\.0\.0\.1:4173\/api\/downloads\/[0-9a-f]{64}$/);
+  expect(new URL(download.url()).origin).toBe(new URL(page.url()).origin);
+  expect(new URL(download.url()).pathname).toMatch(/^\/api\/downloads\/[0-9a-f]{64}$/);
   if (!path) throw new Error('Missing synthetic encrypted backup');
   expect(download.suggestedFilename()).toMatch(/\.orebackup$/);
   const buffer = await readFile(path);
@@ -199,7 +203,6 @@ for (const width of [1440,390]) test(`invalid backup details and recovery at ${w
   await expect(page.getByRole('heading',{ name: 'Import review',exact: true })).toHaveCount(0);
 });
 
-// Runs after the existing suites because import/wipe intentionally invalidate every old client command.
 for (const width of [1440,390]) test(`backup inspection, cancel, overwrite retry, wipe and second-tab recovery at ${width}px`,async ({ page,context }) => {
   await page.setViewportSize({ width,height: 950 }); await login(page); const chatId = await fixture(page,width);
   await openChat(page,`Backup story ${width}`);

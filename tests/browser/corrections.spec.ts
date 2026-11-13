@@ -1,21 +1,21 @@
 import { openChatTool } from './chat-tools';
-import { test, expect } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './isolated-app';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
-import { defaultContextPreset } from '../../src/shared/context';
+import { defaultContextPreset, type ContextJobProgress, type PreparationDeletionPreview } from '../../src/shared/context';
 import { countText } from '../../src/core/tokens';
 import { createCompactPrompt } from './compact-prompt';
 
-test('inspects alternate identities and old versions without timeline collisions on desktop and phone', async ({ page, request }) => {
-  const session = await request.get('/api/session').then(response => response.json());
+test('inspects alternate identities and old versions without timeline collisions on desktop and phone', async ({ page, request, browserApp }) => {
   const { endpoint } = await request.get('/__test/endpoint').then(response => response.json());
   await request.post('/__test/mode', { data: { mode: 'normal' } });
   await page.goto('/');
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
-  await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+  await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
   const command = async (url: string, data: unknown, method = 'POST') => {
-    const response = await page.request.fetch(url, { method, headers: { Origin: 'http://127.0.0.1:4173' }, data });
+    const response = await page.request.fetch(url, { method, headers: { Origin: browserApp.url }, data });
     expect(response.ok(), await response.text()).toBe(true);
     return response.json();
   };
@@ -25,9 +25,17 @@ test('inspects alternate identities and old versions without timeline collisions
   const promptId = await createCompactPrompt(page);
   const chat = await command('/api/chats', { title: 'Alternate memories', targetInputTokens: 500, connectionId: connection.id, promptId, characterId: null, personaId: null, contextPresetId: preset.id });
   const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
-  const prepare = async () => {
-    await command(`/api/chats/${chat.id}/context/prepare`, { revision: (await state()).revision, requestId: crypto.randomUUID(), mode: 'prepare' });
-    await expect.poll(async () => (await state()).context.jobs[0]?.status).toBe('succeeded');
+  const prepare = async (replacedId?: string) => {
+    const { jobId } = await command(`/api/chats/${chat.id}/context/prepare`, { revision: (await state()).revision, requestId: crypto.randomUUID(), mode: 'prepare' });
+    const path = `/api/context/jobs/${jobId}`;
+    const progress = (): Promise<ContextJobProgress> => page.request.get(`${path}/progress`).then(response => response.json());
+    if (replacedId) {
+      await expect.poll(async () => (await progress()).deletionReviewToken).toBeTruthy();
+      const review: PreparationDeletionPreview = await page.request.get(`${path}/deletion`).then(response => response.json());
+      expect(review.deletedIds).toContain(replacedId);
+      await command(`${path}/deletion`, { token: review.token });
+    }
+    await expect.poll(async () => (await progress()).status).toBe('succeeded');
   };
   const target = async (value: number) => command(`/api/chats/${chat.id}/selections`, { revision: (await state()).revision, settings: { title: 'Alternate memories', targetInputTokens: value, connectionId: connection.id, promptId, characterId: null, personaId: null, contextPresetId: preset.id } }, 'PUT');
   await command(`/api/__test/transcripts/${chat.id}`, { revision: (await state()).revision, turns: Array.from({ length: 12 }, (_, i) => ({ user: `Turn ${i}. Mira gives Leon the key. ${'Rain on the roof. '.repeat(10)}`, assistant: 'Leon keeps the key. ' + 'The room is quiet. '.repeat(10), complete: true })) }, 'PUT');
@@ -36,7 +44,12 @@ test('inspects alternate identities and old versions without timeline collisions
   await target(50_000); await prepare();
   expect((await state()).context.selected).toEqual([]);
   await command(`/api/chats/${chat.id}/turns/${(await state()).turns[0].id}/user`, { revision: (await state()).revision, text: 'Mira kept the key.' }, 'PATCH');
-  await target(500); await prepare();
+  await target(500); await prepare(old.id);
+  expect((await state()).context.summaries.some(node => node.id === old.id)).toBe(false);
+  // Current preparation removes the reviewed alternative. Seed the legacy
+  // layout separately so the inspector still exercises overlapping identities.
+  browserApp.store.sqlite.prepare('INSERT INTO summaries (id, revision, chat_id, data) VALUES (?, ?, ?, ?)')
+    .run(old.id, old.revision, chat.id, JSON.stringify(old));
   const alternative = (await state()).context.summaries.find(node => node.id !== old.id && node.level === old.level && node.turns.map(source => source.turnId).join() === old.turns.map(source => source.turnId).join())!;
   expect(alternative).toBeTruthy();
   await page.reload();

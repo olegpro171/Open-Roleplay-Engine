@@ -73,7 +73,7 @@ test('discovers saved refusals, keeps false positives, regenerates without refus
   await review.getByRole('button', { name: 'Delete from here onward…', exact: true }).click();
   const deletion = page.getByRole('region', { name: 'Delete memory from this point onward?', exact: true });
   await expect(deletion.getByRole('heading')).toBeFocused();
-  await expect(deletion).toContainText('Original turns and historical requests remain saved');
+  await expect(deletion).toContainText('Original turns and saved requests are kept.');
   await review.screenshot({ path: 'test-results/refusals-desktop.png' });
   await page.setViewportSize({ width: 390, height: 844 });
   await deletion.getByRole('button', { name: 'Delete this memory suffix', exact: true }).scrollIntoViewIfNeeded();

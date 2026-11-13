@@ -23,12 +23,12 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     const check = page.getByRole('checkbox', { name: 'Display character picture in chat.', exact: true });
     await check.setChecked(!initial.settings.displayCharacterPicture);
     const alert = page.locator('.settings-save-status[role=alert]');
-    await expect(alert).toContainText('Could not reach the server.');
+    await expect(alert).toContainText('Couldn’t reach the server to save settings. Your changes are retained.');
     expect(writes).toBe(1);
     expect((await read()).settings.displayCharacterPicture).toBe(initial.settings.displayCharacterPicture);
     await page.getByRole('combobox', { name: 'Interface language', exact: true }).click();
     await page.getByRole('option', { name: 'Русский', exact: true }).click();
-    await expect(alert).toContainText('Не удалось связаться с сервером.');
+    await expect(alert).toContainText('Нет связи с сервером. Настройки не сохранены, изменения остались в редакторе.');
     await expect(alert).not.toContainText('Load failed');
     await expect(page.getByRole('checkbox', { name: 'Разрешить доступ из локальной сети', exact: true })).toBeVisible();
     await expect(page.getByText('Удалить все чаты, память, библиотеки, API-ключи, теги и остальные данные. Учётная запись владельца сохранится.', { exact: true })).toHaveCount(1);

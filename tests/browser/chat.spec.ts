@@ -1,5 +1,5 @@
 import { enterModel } from './model-picker-helpers';
-import { openLibraryActions } from './library-card-helpers';
+import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
 import { openChatTool } from './chat-tools';
 import { expect, devices, type Page } from '@playwright/test';
 import { test as isolatedTest } from './isolated-app';
@@ -386,6 +386,7 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/phone-prompt.png', fullPage: true });
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await confirmLeaveEditor(page);
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
   await page.getByRole('button', { name: 'Create chat', exact: true }).click();

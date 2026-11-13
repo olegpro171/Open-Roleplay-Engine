@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { cropSchema, pictureBase64Schema, pictureLimits, type PictureAnalysis, type PictureCrop } from '../shared/pictures.js';
-import { characterCardLimits } from '../shared/character-card-limits.js';
+import { pictureByteLimit } from './picture-input.js';
 
 const processedSchema = z.object({ ok: z.literal(true), width: z.number().int().positive().max(pictureLimits.edge), height: z.number().int().positive().max(pictureLimits.edge), orientation: z.number().int().min(1).max(8), mime: z.enum(['image/png', 'image/jpeg', 'image/webp']), firstFrame: z.boolean(), crop: cropSchema, preview: z.instanceof(Buffer).refine(bytes => bytes.length <= pictureLimits.previewBytes), thumbnail: z.instanceof(Buffer).refine(bytes => bytes.length <= pictureLimits.thumbBytes) });
 export type { PreparedPicture } from '../persistence/picture-data.js';
@@ -28,7 +28,13 @@ export class PictureProcessor {
   private closed = false;
   constructor(private readonly durationMs: number = pictureLimits.durationMs) {}
   process(bytes: Buffer, crop?: PictureCrop, signal?: AbortSignal): Promise<PreparedPicture> {
-    if (bytes.length > characterCardLimits.pngBytes) return Promise.reject(new AppError(413, 'picture_too_large', message('errors.card_files_are_limited_to_mb', { value: String(characterCardLimits.pngBytes / 1_000_000) })));
+    const limit = pictureByteLimit(bytes);
+    if (bytes.length > limit) {
+      if (limit === pictureLimits.bytes) {
+        return Promise.reject(new AppError(400, 'picture_too_large', message('pictures.pictures_are_limited_to_10_mb')));
+      }
+      return Promise.reject(new AppError(413, 'picture_too_large', message('errors.card_files_are_limited_to_mb', { value: String(limit / 1_000_000) })));
+    }
     return new Promise((resolve, reject) => {
       if (this.closed || signal?.aborted) { reject(new AppError(409, 'picture_cancelled', message("errors.picture_processing_was_cancelled"))); return; }
       if (this.queue.length >= pictureLimits.queued) { reject(new AppError(503, 'pictures_busy', message("errors.picture_processing_is_busy_try_again_shortly"))); return; }

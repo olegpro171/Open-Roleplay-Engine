@@ -121,7 +121,8 @@ for (const width of [1280, 820, 801, 800, 390, 320]) {
         expect(bounds.width).toBe(44);
         expect(bounds.height).toBe(44);
         expect(bounds.y).toBeGreaterThanOrEqual(header.y + header.height);
-        expect(bounds.y + bounds.height).toBeLessThanOrEqual(heading.y);
+        if (region === 'Memory') expect(heading.y + heading.height).toBeGreaterThanOrEqual(bounds.y + bounds.height);
+        else expect(bounds.y + bounds.height).toBeLessThanOrEqual(heading.y);
         expect(bounds.x + bounds.width).toBeGreaterThan(width - 40);
         await expect(close.locator('svg')).toBeVisible();
         await expect(close.locator('span')).toBeHidden();

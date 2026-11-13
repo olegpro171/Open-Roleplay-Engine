@@ -45,13 +45,20 @@ describe('isolated validated image processing', () => {
   it('rejects signatures without decodable pixels, corrupt/truncated and unsupported files, and resource excesses', async () => {
     const p = processor(), valid = await quadrantPicture();
     for (const bytes of [Buffer.from('<svg/>'), Buffer.from('GIF89a'), valid.subarray(0, 60), Buffer.concat([valid.subarray(0,8), pngChunk('tEXt', Buffer.from('chara\0e30='))])]) await expect(p.process(bytes)).rejects.toMatchObject({ status: 422 });
-    await expect(p.process(Buffer.alloc(10_000_001))).rejects.toMatchObject({ code: 'picture_too_large' });
     const overPixels = await sharp({ create: { width: 6400, height: 6400, channels: 3, background: 'white' } }).png().toBuffer();
     await expect(p.process(overPixels)).rejects.toMatchObject({ code: 'invalid_picture' });
     const overEdge = await sharp({ create: { width: 16385, height: 1, channels: 3, background: 'white' } }).png().toBuffer();
     await expect(p.process(overEdge)).rejects.toMatchObject({ code: 'invalid_picture' });
     await expect(p.process(valid, { version: 1, x: 0, y: 0, width: 1, height: 1 })).rejects.toMatchObject({ code: 'invalid_picture' });
     expect((await p.process(valid)).crop).toEqual(cropFromControls({ width: 400, height: 200 }));
+  });
+  it('reports the byte limit for oversized non-PNG inputs before decoding', async () => {
+    const p = processor();
+    const oversized = Buffer.alloc(10_000_001);
+    await expect(p.process(oversized)).rejects.toMatchObject({ status: 400, code: 'picture_too_large' });
+    const jpeg = await quadrantPicture('jpeg');
+    jpeg.copy(oversized);
+    await expect(p.process(oversized)).rejects.toMatchObject({ status: 400, code: 'picture_too_large' });
   });
   it('shows only the first WebP frame and rejects frame-count excesses', async () => {
     const red = await sharp({ create: { width: 20, height: 20, channels: 4, background: 'red' } }).png().toBuffer();

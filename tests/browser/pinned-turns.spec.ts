@@ -61,7 +61,10 @@ test('manages and jumps to off-page pins with stable estimates and prompt warnin
   await pinsButton.press('Enter');
   await expect(manager.getByRole('heading', { name: 'Pinned turns' })).toBeFocused();
   await expect(manager.getByRole('article')).toHaveCount(2);
-  const estimate = await command('POST', `/api/chats/${id}/preview`, { revision: (await story()).revision, detail: 'estimate', inspection: true }) as RequestEstimate;
+  const current = await story();
+  const estimate = await command('POST', `/api/chats/${id}/preview`, {
+    revision: current.revision, detail: 'estimate', inspection: true, continuationTurnId: current.latestTurn?.id,
+  }) as RequestEstimate;
   expect(estimate.allocations.pinned).toBeGreaterThan(0);
   await expect(manager.getByRole('meter')).toHaveAttribute('aria-valuenow', String(estimate.budget.inputTokens));
   await expect(manager.locator('.allocation-legend')).toContainText('Pinned turns');

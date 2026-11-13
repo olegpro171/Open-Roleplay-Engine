@@ -120,6 +120,9 @@ for (const width of [1440, 390, 320]) test(`built-in Russian needs no import and
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.reload();
   await expect(page.getByRole('button', { name: 'Библиотека', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Имя', { exact: true })).toHaveValue('Literal persona name');
   await page.getByRole('button', { name: 'История', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Выйти из редактора?', exact: true })
+    .getByRole('button', { name: 'Выйти из редактора', exact: true }).click();
   await expect(page.getByLabel('Ваш следующий ход')).toHaveValue(draft);
 });

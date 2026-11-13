@@ -6,8 +6,8 @@ import { PassThrough, type Readable } from 'node:stream';
 import { characterCardLimits } from '../shared/character-card-limits.js';
 import { pictureLimits } from '../shared/pictures.js';
 import { assertCharacterSourceDepth } from '../core/cards.js';
+import { pngSignature } from './picture-input.js';
 
-const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const { pngBytes, jsonBytes, embeddedBytes } = characterCardLimits;
 const legacyJsonBytes = 2_000_000;
 const cardSizeError = (limit: number) => new AppError(413, 'card_too_large', message('errors.card_files_are_limited_to_mb', { value: String(limit / 1_000_000) }));

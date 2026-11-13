@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import { z } from 'zod';
 import { cropFromControls, cropPixels, cropSchema, pictureLimits } from '../shared/pictures.js';
-import { characterCardLimits } from '../shared/character-card-limits.js';
+import { pictureByteLimit, pngSignature } from './picture-input.js';
 
 process.once('disconnect', () => process.exit(0));
 sharp.cache(false);
@@ -10,8 +10,8 @@ const inputSchema = z.object({ bytes: z.instanceof(Buffer), crop: cropSchema.opt
 process.once('message', async (message: unknown) => {
   try {
     const { bytes, crop: requested } = inputSchema.parse(message);
-    const png = bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
-    if (!bytes.length || bytes.length > (png ? characterCardLimits.pngBytes : pictureLimits.bytes)) throw new Error('Choose a picture of at most 10 MB.');
+    const png = bytes.subarray(0, pngSignature.length).equals(pngSignature);
+    if (!bytes.length || bytes.length > pictureByteLimit(bytes)) throw new Error('Choose a picture of at most 10 MB.');
     const jpeg = bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
     const webp = bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
     if (!png && !jpeg && !webp) throw new Error('Choose a PNG, JPEG or WebP raster picture.');

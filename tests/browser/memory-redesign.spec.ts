@@ -275,14 +275,16 @@ test('latest-turn deletion previews restored turns and an approved correction', 
   const menuButton = turn.getByRole('button', { name: 'More turn actions', exact: true });
   const review = page.getByRole('dialog', { name: 'Delete turn?', exact: true });
   const openReview = async () => {
-    await menuButton.click();
-    await page.getByRole('menuitem', { name: 'Delete turn', exact: true }).click();
+    await menuButton.press('Enter');
+    await page.keyboard.press('End');
+    await expect(page.getByRole('menuitem', { name: 'Delete turn', exact: true })).toBeFocused();
+    await page.keyboard.press('Enter');
     await expect(review).toContainText('2 surviving turns will return to verbatim history.');
     await expect(review).toContainText('1 summary will be discarded.');
     await expect(review).toContainText(correction);
   };
   await openReview();
-  await review.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await review.getByRole('button', { name: 'Cancel', exact: true }).press('Enter');
   await expect(menuButton).toBeFocused();
   expect((await state()).turns).toHaveLength(4);
   expect((await state()).context.archivedTurnIds).toEqual(before.context.archivedTurnIds);
@@ -400,6 +402,18 @@ test('keeps the Memory view in place when switching summaries and localizes auth
     await expect(save).toBeDisabled();
     for (const width of [1280, 801, 800, 390, 320]) {
       await page.setViewportSize({ width, height: 844 });
+      const close = page.getByRole('button', { name: 'Return to chat', exact: true });
+      await expect(close).toBeInViewport();
+      if (width <= 800) {
+        const heading = page.getByRole('region', { name: 'Memory', exact: true }).getByRole('heading', { level: 1 });
+        const textRight = await heading.evaluate(element => {
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          return range.getBoundingClientRect().right;
+        });
+        const bounds = await close.boundingBox();
+        expect(textRight).toBeLessThanOrEqual(bounds?.x ?? 0);
+      }
       await expect.poll(async () => {
         const [inputBox, saveBox] = await Promise.all([inputTarget.boundingBox(), save.boundingBox()]);
         if (!inputBox || !saveBox) return false;

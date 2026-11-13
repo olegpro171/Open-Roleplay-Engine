@@ -48,7 +48,7 @@ export async function startBrowserApp(port = 0) {
       return { revision: saved };
     });
     const url = await app.listen({ host: '127.0.0.1', port });
-    return { url, close, setLanHostname: (value: string | null) => { lanHostname = value; } };
+    return { url, close, store, setLanHostname: (value: string | null) => { lanHostname = value; } };
   } catch (error) {
     await close();
     throw error;

@@ -583,7 +583,7 @@ button.danger{background:var(--danger-button);color:var(--on-danger-button);bord
   .chat-details .chat-page-actions{flex-direction:column}
   .chat-details .chat-page-actions button{flex:none;width:100%;text-align:left}
   .chat-panel{padding:24px 18px 50px}
-  .story-layout:has(.story-meta>.editor-actions)>.chat-panel>.eyebrow{padding-right:120px;min-height:44px}
+  .story-layout:has(.story-meta>.editor-actions)>.chat-panel>:is(.eyebrow,h1:first-child){padding-right:120px;min-height:44px}
   .editor-actions{flex-direction:row;flex-wrap:nowrap;gap:8px;margin:0}
   .editor-actions>button{flex:none;width:44px;height:44px;padding:10px;justify-content:center}
   .editor-actions>button>.ui-icon{display:block;width:22px;height:22px}
