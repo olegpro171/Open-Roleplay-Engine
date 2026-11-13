@@ -78,7 +78,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Inspect memory');
   await page.getByLabel('Input target', { exact: true }).fill('700');
-  await page.getByRole('button', { name: 'Save memory settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Memory', exact: true }).getByRole('meter', { name: 'Input budget' })).toHaveClass(/overflow/);
   await expect(page.locator('.budget')).toHaveCSS('background-color', 'rgb(27, 33, 42)');
   await page.getByRole('button', { name: 'Save next summary', exact: true }).click();
@@ -106,19 +106,19 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   expect(JSON.parse((await page.getByTestId('request-body').textContent())!)).toEqual(originalRequest!.body);
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Inspect memory');
-  await expect(page.getByTestId('memory-status')).toContainText('Ready:');
+  await expect(page.getByTestId('memory-status')).toContainText('Current input fits.');
   await expect(page.locator('.memory-failure')).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Memory', exact: true }).getByRole('meter', { name: 'Input budget' })).toHaveClass(/fits/);
+  // The next plan request starts after Memory receives the updated chat revision.
+  const updatedPlan = page.waitForResponse(response => response.ok() && response.url().endsWith(`/api/chats/${chatId}/context/plan`));
   await command(`/api/library/${contextId}`, { revision: (await libraries()).revision, kind: 'contexts', data: preset }, 'PUT');
-  // This API edit advances the chat revision. Wait for its SSE snapshot before
-  // submitting a settings form captured from that snapshot.
-  await expect(page.getByText(/^Minimum tail 2 · Turn batch 2/)).toBeVisible();
+  await updatedPlan;
   await page.getByLabel('Input target', { exact: true }).fill('700');
-  await page.getByRole('button', { name: 'Save memory settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Save next summary', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Prepare chat', exact: true }).click();
-  await expect(page.getByTestId('memory-status')).toContainText('Ready:');
+  await expect(page.getByTestId('memory-status')).toContainText('Current input fits.');
   expect((await state()).context.summaries.length).toBeGreaterThan(0);
 
   const phoneContext = await browser.newContext({ ...devices['iPhone 13'] });
@@ -146,7 +146,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   expect(cleared.generations[0].request).toEqual(originalRequest);
 });
 
-test('keeps the reading turn during resize, jumps to latest, and makes dense memory readable', async ({ page, request }) => {
+test('keeps the reading turn during resize, jumps to latest, and makes dense memory readable', async ({ page, request, setAppearance }, testInfo) => {
   await page.setViewportSize({ width: 1380, height: 900 });
   const session = await request.get('/api/session').then(response => response.json());
   const { endpoint } = await request.get('/__test/endpoint').then(response => response.json());
@@ -248,8 +248,8 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   await page.route(`**/api/chats/${chatId}/tools`, async route => {
     const response = await route.fetch(), snapshot = await response.json() as ChatToolsSnapshot;
     const summary = (id: string, level: number, start: number, end: number): SummaryNode => ({ id, revision: 0, level, text: 'Mira keeps the brass key.', approved: true, manual: false, createdAt: new Date().toISOString(), children: [], prior: [], turns: snapshot.turns.slice(start, end).map(turn => ({ turnId: turn.id, userRevision: turn.user.revision, assistantRevision: turn.assistant.revision, complete: true })) });
-    const nodes = [summary('older-memory', 2, 0, 199), summary('recent-memory', 1, 199, 203), summary('retained-l1', 1, 0, 3), summary('retained-l2', 2, 0, 9)];
-    snapshot.context = { ...snapshot.context, archivedTurnIds: snapshot.turns.slice(0, 203).map(turn => turn.id), selected: nodes.slice(0, 2).map(node => ({ id: node.id, revision: node.revision })), summaries: nodes };
+    const nodes = [summary('older-memory', 2, 0, 198), summary('short-memory', 1, 198, 199), summary('recent-memory', 1, 199, 203), summary('retained-l1', 1, 0, 1), summary('retained-l2', 2, 0, 9)];
+    snapshot.context = { ...snapshot.context, archivedTurnIds: snapshot.turns.slice(0, 203).map(turn => turn.id), selected: nodes.slice(0, 3).map(node => ({ id: node.id, revision: node.revision })), summaries: nodes };
     await route.fulfill({ response, json: snapshot });
   });
   await page.reload();
@@ -276,4 +276,31 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   await expect(recent).toHaveText('');
   await page.screenshot({ path: 'test-results/memory-timeline-dense-phone.png', fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+  const timeline = page.getByLabel('Layered memory timeline', { exact: true });
+  const zoom = page.getByLabel('Zoom timeline', { exact: true });
+  for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+    await setAppearance({ theme });
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      const pairs = [
+        { band: timeline.locator('.summary-band.active').first(), block: timeline.locator('[data-summary-id="short-memory"]') },
+        { band: timeline.locator('.summary-band.retained').first(), block: timeline.locator('[data-summary-id="retained-l1"]') },
+        { band: timeline.locator('.turn-band.active'), block: timeline.getByRole('img', { name: 'Turn 204 · verbatim', exact: true }) },
+        { band: timeline.locator('.turn-band.retained'), block: timeline.getByRole('img', { name: 'Turn 1 · archived', exact: true }) },
+      ];
+      const colors = await Promise.all(pairs.map(({ band }) => band.evaluate(element => {
+        const style = getComputedStyle(element);
+        return { fill: style.backgroundColor, border: style.borderTopColor, width: style.borderTopWidth };
+      })));
+      await timeline.screenshot({ path: testInfo.outputPath(`timeline-bands-${theme}-${width}.png`) });
+      await zoom.check();
+      for (const [index, { block }] of pairs.entries()) {
+        await expect(block).toHaveCSS('background-color', colors[index].fill);
+        await expect(block).toHaveCSS('border-top-color', colors[index].border);
+        await expect(block).toHaveCSS('border-top-width', colors[index].width);
+      }
+      await zoom.uncheck();
+    }
+  }
 });

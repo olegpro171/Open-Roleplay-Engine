@@ -187,7 +187,8 @@ test('Story tracks and stops regeneration outside the transcript window and revi
 
   const summary = stopped.context.summaries[0];
   await openChatTool(page, 'Inspect memory');
-  await expect(page.getByTestId('memory-status')).toHaveText('Next: reuse a saved level 1 summary.');
+  await expect(page.getByRole('button', { name: 'Save next summary', exact: true })).toBeEnabled();
+  await expect(page.getByTestId('memory-status')).toHaveCount(0);
   const retained = page.locator(`[data-summary-id="${summary.id}"]`);
   const proposed = page.locator('.summary-span.preparing');
   await expect(retained).toHaveClass(/retained/);
@@ -393,6 +394,19 @@ test('keeps the Memory view in place when switching summaries and localizes auth
     const appearance = appearanceStatusSchema.parse(await response.json());
     await write('PUT', '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } });
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    const settings = page.getByRole('group', { name: 'Preparation settings', exact: true });
+    const save = settings.getByRole('button', { name: 'Save', exact: true });
+    const inputTarget = settings.getByLabel('Input target', { exact: true });
+    await expect(save).toBeDisabled();
+    for (const width of [1280, 801, 800, 390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect.poll(async () => {
+        const [inputBox, saveBox] = await Promise.all([inputTarget.boundingBox(), save.boundingBox()]);
+        if (!inputBox || !saveBox) return false;
+        return Math.abs(saveBox.x + saveBox.width - inputBox.x - inputBox.width) < 2;
+      }).toBe(width <= 800);
+      await settings.screenshot({ path: testInfo.outputPath(`memory-settings-${theme}-${width}.png`) });
+    }
     await page.setViewportSize({ width: 620, height: 844 });
     await expect(timeline.getByRole('img', { name: /^Turns 1–4/ })).toBeVisible();
     await expect(timeline.getByRole('button').first()).toHaveCSS('border-top-width', '1px');
@@ -442,6 +456,15 @@ test('keeps the Memory view in place when switching summaries and localizes auth
   await page.getByRole('button', { name: 'История', exact: true }).click();
   await page.getByRole('button', { name: 'О чате', exact: true }).click();
   await page.getByRole('button', { name: 'Просмотр памяти', exact: true }).click();
+  const settings = page.getByRole('group', { name: 'Настройки подготовки', exact: true });
+  const save = settings.getByRole('button', { name: 'Сохранить', exact: true });
+  const editPreset = settings.getByRole('button', { name: 'Изменить пресет', exact: true });
+  await page.setViewportSize({ width: 320, height: 844 });
+  await expect(save).toBeDisabled();
+  const [saveBox, editBox] = await Promise.all([save.boundingBox(), editPreset.boundingBox()]);
+  if (!saveBox || !editBox) throw new Error('Missing the memory settings buttons');
+  expect(saveBox.y).toBeLessThan(editBox.y + editBox.height);
+  await settings.screenshot({ path: testInfo.outputPath('russian-memory-settings-320.png') });
   const summaryPicker = page.getByRole('combobox', { name: 'Просмотр сохранённой сводки', exact: true });
   await summaryPicker.click();
   await page.getByRole('listbox', { name: 'Просмотр сохранённой сводки', exact: true }).getByRole('option').nth(1).click();

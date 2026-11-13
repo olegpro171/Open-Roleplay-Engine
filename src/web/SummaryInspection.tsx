@@ -43,7 +43,7 @@ export function SummaryInspection({ snapshot, node, historical, selected, locked
       const version = versions.find(version => refKey(version) === key);
       if (version) { setEdit(null); inspect(version); }
     }} options={versions.map(version => ({ value: refKey(version), label: t("summary_inspection.revision", { revision: version.revision, value: version.revision === versions[0]?.revision ? t("interface.current_approved") : t("interface.historical"), value2: version.manual ? t("interface.manually_corrected") : '' }) }))} /></label>
-    <p className="small muted">{t("summary_inspection.identity_source_turns_estimated_text_tokens", { id: node.id, length: node.turns.length, value: textTokens.toLocaleString(locale()), value2: selected.has(refKey(node)) ? t("interface.selected_in_this_view") : t("interface.retained_in_this_view"), value3: stale ? t("interface.stale") : t("interface.fresh"), value4: node.manual ? t("interface.manually_corrected_2") : '' })}</p>
+    <p className="small muted">{t("summary_inspection.source_turns_and_tokens", { count: node.turns.length, tokens: textTokens.toLocaleString(locale()), selection: selected.has(refKey(node)) ? t("interface.selected_in_this_view") : t("interface.retained_in_this_view"), freshness: stale ? t("interface.stale") : t("interface.fresh"), correction: node.manual ? t("interface.manually_corrected_2") : '' })}</p>
     <p role="status" data-testid="summary-authority">{status}</p>
     {edit ? <form onSubmit={async event => {
       event.preventDefault();
@@ -55,7 +55,7 @@ export function SummaryInspection({ snapshot, node, historical, selected, locked
       {edit.revision !== snapshot.revision && <p role="status">{t("summary_inspection.the_chat_changed_cancel_and_reopen_the")}</p>}
     </form> : <><div ref={summaryText} className="prose summary-text" role="region" aria-label={t("summary_inspection.summary_text")} tabIndex={0}>{node.text}</div>{!historical && latest && <button type="button" className="quiet" disabled={locked} onClick={() => setEdit({ summary: summaryKey, text: node.text, revision: snapshot.revision })}>{t("summary_inspection.edit_summary")}</button>}</>}
     {!historical && latest && !edit && <button type="button" className="quiet" disabled={locked} onClick={() => previewDelete(node)}>{t("summary_inspection.delete_summary")}</button>}
-    <details><summary>{t("summary_inspection.source_turns_and_dependencies")}</summary><pre>{JSON.stringify({ turns: node.turns, children: node.children, earlierContext: node.prior, reconciledCorrections: node.corrections ?? [] }, null, 2)}</pre>
+    <details><summary>{t("summary_inspection.source_turns_and_dependencies")}</summary><pre>{JSON.stringify({ id: node.id, turns: node.turns, children: node.children, earlierContext: node.prior, reconciledCorrections: node.corrections ?? [] }, null, 2)}</pre>
       {node.turns.slice(0, 30).map(source => {
         const position = snapshot.turns.findIndex(turn => turn.id === source.turnId), turn = snapshot.turns[position];
         return <details key={source.turnId}><summary>{t("summary_inspection.turn_current_source_text", { value: turn ? position + 1 : 'deleted' })}</summary><div className="prose">{turn ? `${turn.user.text}\n\n${turn.assistant.text}` : t("summary_inspection.this_source_turn_has_been_deleted")}</div></details>;

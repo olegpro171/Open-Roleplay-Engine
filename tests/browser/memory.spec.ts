@@ -86,7 +86,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await expect(page.getByLabel('Maximum retries', { exact: true })).toHaveCount(0);
   await request.post('/__test/mode', { data: { mode: 'normal' } });
   await page.getByRole('button', { name: 'Prepare chat', exact: true }).click();
-  await expect(page.getByTestId('memory-status')).toContainText('Ready:', { timeout: 15_000 });
+  await expect(page.getByTestId('memory-status')).toContainText('Current input fits.', { timeout: 15_000 });
   await expect(page.locator('.summary-span.active').first()).toBeVisible();
   await expect(page.locator('.summary-span.retained').first()).toBeVisible();
   const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
@@ -106,7 +106,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await page.getByRole('option', { name: /prepare · succeeded/ }).first().click();
   await page.getByLabel('Saved preparation step', { exact: true }).focus();
   await page.getByLabel('Saved preparation step', { exact: true }).press('Home');
-  await expect(page.getByText('History inspection only. Current chat memory is unchanged.')).toBeVisible();
+  await expect(page.getByText('Read-only history.')).toBeVisible();
   expect((await state()).context.selected).toEqual(saved.context.selected);
   await page.screenshot({ path: 'test-results/desktop-memory-history.png', fullPage: true });
 
@@ -120,7 +120,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await phone.getByRole('dialog', { name: 'Chat branches' }).getByRole('button', { name: 'synthetic-roleplay', exact: true }).click();
   await expect(phone.getByRole('region', { name: 'Conversation' })).toContainText('Turn 48.');
   await openChatTool(phone, 'Inspect memory');
-  await expect(phone.getByTestId('memory-status')).toContainText('Ready:');
+  await expect(phone.getByTestId('memory-status')).toContainText('Current input fits.');
   await expect(phone.getByRole('checkbox', { name: 'Auto retry failed or refused requests' })).not.toBeChecked();
   await phone.getByRole('checkbox', { name: 'Auto retry failed or refused requests' }).check();
   await expect(phone.getByLabel('Maximum retries', { exact: true })).toHaveValue('1');
@@ -132,11 +132,11 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   const callsBeforePrepare = await request.get('/__test/requests').then(response => response.json());
   await phone.getByLabel('Input target', { exact: true }).fill('3500');
   await expect(phone.getByRole('button', { name: 'Prepare chat', exact: true })).toBeDisabled();
-  await phone.getByRole('button', { name: 'Save memory settings', exact: true }).click();
+  await phone.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(phone.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();
-  await expect(phone.getByText(/Prepare chat can fit the replay with saved results/)).toBeVisible();
+  await expect(phone.locator('.memory-panel .budget strong')).toContainText('/ 3,500');
   await phone.getByRole('button', { name: 'Prepare chat', exact: true }).click();
-  await expect(phone.getByTestId('memory-prepare-result')).toContainText('0 new summaries generated.');
+  await expect(phone.getByTestId('memory-prepare-result')).toContainText('Generated: 0.');
   const restored = await state();
   expect(restored.context.archivedTurnIds.length).toBeLessThan(saved.context.archivedTurnIds.length);
   expect(restored.context.archivedTurnIds).toEqual(saved.turns.slice(0, restored.context.archivedTurnIds.length).map(turn => turn.id));
@@ -146,10 +146,11 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   expect(await request.get('/__test/requests').then(response => response.json())).toEqual(callsBeforePrepare);
   await expect(phone.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
   await phone.getByLabel('Input target', { exact: true }).fill('700');
-  await phone.getByRole('button', { name: 'Save memory settings', exact: true }).click();
-  await expect(phone.getByTestId('memory-status')).toContainText('Next:');
+  await phone.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(phone.getByRole('meter', { name: 'Input budget' })).toHaveClass(/overflow/);
+  await expect(phone.getByRole('button', { name: 'Save next summary', exact: true })).toBeEnabled();
   await phone.getByRole('button', { name: 'Prepare chat', exact: true }).click();
-  await expect(phone.getByTestId('memory-prepare-result')).toContainText('0 new summaries generated.');
+  await expect(phone.getByTestId('memory-prepare-result')).toContainText('Generated: 0.');
   expect((await state()).context.selected).toEqual(saved.context.selected);
   expect(await request.get('/__test/requests').then(response => response.json())).toEqual(callsBeforePrepare);
   await phone.screenshot({ path: 'test-results/phone-memory-prepare.png', fullPage: true });
@@ -161,7 +162,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await phone.reload();
   await phone.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(phone, 'Inspect memory');
-  await expect(phone.getByTestId('memory-prepare-result')).toContainText('0 new summaries generated.');
+  await expect(phone.getByTestId('memory-prepare-result')).toContainText('Generated: 0.');
   expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const editedId = saved.context.archivedTurnIds.at(-1)!;
   const edit = await page.request.patch(`/api/chats/${chat.id}/turns/${editedId}/user`, { headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: (await state()).revision, text: 'Mira kept her key after all.' } });
@@ -177,8 +178,9 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await expect(phone.getByRole('heading', { name: 'Review the proposed replacement' })).toHaveCount(0);
   expect((await state()).context.selected).not.toEqual(beforeReview);
   // A reviewed correction can be longer than the original and require more compaction.
-  if (!(await phone.getByTestId('memory-status').textContent())?.includes('Ready:')) await phone.getByRole('button', { name: 'Prepare chat', exact: true }).click();
-  await expect(phone.getByTestId('memory-status')).toContainText('Ready:');
+  const repairPlan = await phone.request.get(`/api/chats/${chat.id}/context/plan`).then(response => response.json());
+  if (!repairPlan.ready) await phone.getByRole('button', { name: 'Prepare chat', exact: true }).click();
+  await expect(phone.getByTestId('memory-status')).toContainText('Current input fits.');
   expect((await state()).context.summaries.some(node => node.approved && node.manual && node.text.includes('never received'))).toBe(true);
   await phone.locator('.summary-span.active').last().click();
   await phone.getByRole('button', { name: 'Edit summary', exact: true }).click();

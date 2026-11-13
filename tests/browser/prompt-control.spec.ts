@@ -82,7 +82,7 @@ test('edits explicit markers, uses recent history, and enables preparation again
   await openChatTool(page, 'Inspect memory');
   await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Prepare chat', exact: true }).click();
-  await expect(page.getByTestId('memory-status')).toContainText('Ready:', { timeout: 15_000 });
+  await expect(page.getByTestId('memory-status')).toContainText('Current input fits.', { timeout: 15_000 });
   const memory = structuredClone((await state()).context);
   expect(memory.summaries.length).toBeGreaterThan(0);
   await command(`/api/library/${prompt.id}`, { revision: (await library()).revision, kind: 'prompts', data: { name: prompt.name, blocks: prompt.blocks } }, 'PUT');

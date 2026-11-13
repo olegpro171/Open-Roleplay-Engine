@@ -97,7 +97,7 @@ export function MemoryTimeline({ nodes, selected, stale, archived, turnIds, oper
     <div className="timeline-labels" aria-hidden="true">{Array.from({ length: levels }, (_, i) => <span key={i} style={{ bottom: rowBottom.get(i + 1) }}>{t("memory_timeline.l", { value: i + 1 })}</span>)}<span className="turn-layer-label">{t("memory_timeline.turns")}</span></div>
     <div className="timeline-scroll" tabIndex={0} aria-label={t("memory_timeline.layered_memory_timeline")} onScroll={() => setHint(null)}><div ref={plot} className="timeline" style={{ width: zoom ? Math.max(720, Math.min(count * 40, 200_000)) : '100%', height }}>
       {Array.from({ length: levels }, (_, i) => <div className="timeline-row" key={i} style={{ bottom: rowBottom.get(i + 1) }} />)}
-      {summaryBands.map(band => <div key={`${band.row}:${band.start}`} className={`turn-tick turn-band summary-band ${band.status}`}
+      {summaryBands.map(band => <div key={`${band.row}:${band.start}`} className={`summary-band ${band.status}`}
         style={{ ...span(band.start, band.end), bottom: band.row }} aria-hidden="true" />)}
       {spans.map(({ node, start, end, status, row, width, banded }) => {
         const freshness = stale.has(refKey(node)) ? t("memory_timeline.stale") : t("memory_timeline.fresh");

@@ -165,11 +165,11 @@ test('reviews a repair queue with source diffs, regeneration and dismissal on de
   const beforeAutomatic = await state();
   await request.post('/__test/mode', { data: { mode: 'repair-unchanged' } });
   await page.getByRole('button', { name: 'Repair summaries', exact: true }).click();
-  await expect(page.getByTestId('memory-repair-result')).toContainText('0 approved;');
-  await expect(page.getByTestId('memory-repair-result')).toContainText('unchanged after model check');
+  await expect(page.getByTestId('memory-repair-result')).toContainText('Approved: 0.');
   await expect(dialog).toHaveCount(0);
   const automatic = await state();
   expect(automatic.context.jobs[0].unchangedCount).toBeGreaterThan(0);
+  await expect(page.getByTestId('memory-repair-result')).toContainText(`Unchanged after model check: ${automatic.context.jobs[0].unchangedCount}.`);
   const latestText = (snapshot: ChatSnapshot) => Object.fromEntries(snapshot.context.summaries.filter(node => node.approved).sort((a, b) => a.revision - b.revision).map(node => [node.id, node.text]));
   expect(latestText(automatic)).toEqual(latestText(beforeAutomatic));
   const autoDetails = await page.request.get(`/api/context/jobs/${automatic.context.jobs[0].id}`).then(response => response.json() as Promise<ContextJobDetails>);

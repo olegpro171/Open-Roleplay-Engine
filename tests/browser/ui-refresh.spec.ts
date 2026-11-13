@@ -80,7 +80,7 @@ test('keeps chat and memory budget panels mounted during debounced and delayed r
     await gate; await route.fulfill({ response });
   });
   await page.getByLabel('Input target', { exact: true }).fill('700');
-  await page.getByRole('button', { name: 'Save memory settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => planRequests).toBeGreaterThan(0);
   await expect(budget.locator('strong')).toHaveText(oldBudget!);
   expect(await budgetNode!.evaluate(node => node.isConnected)).toBe(true);
@@ -96,7 +96,7 @@ test('keeps chat and memory budget panels mounted during debounced and delayed r
   expect(await budgetNode!.evaluate(node => node.isConnected)).toBe(true);
   await expect(page.getByText('Counting current input…', { exact: true })).toHaveCount(0);
   releasePlan();
-  await expect(page.getByTestId('memory-status')).toContainText('Ready:');
+  await expect(page.getByTestId('memory-status')).toContainText('Current input fits.');
   await expect(budget.locator('strong')).not.toHaveText(beforePrepare!);
   const snapshot = await page.request.get(`/api/chats/${chatId}`).then(response => response.json() as Promise<ChatSnapshot>);
   expect(snapshot.context.archivedTurnIds.length).toBeGreaterThan(0);

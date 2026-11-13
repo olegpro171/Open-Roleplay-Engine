@@ -54,17 +54,20 @@ test('inspects alternate identities and old versions without timeline collisions
     expect(before).not.toBeNull(); expect(after).not.toBeNull();
     expect(Math.abs(before!.y - after!.y)).toBeGreaterThanOrEqual(before!.height);
     await oldBox.focus(); await oldBox.press('Enter');
-    await expect(page.locator('.summary-inspection')).toContainText(old.id);
+    const dependencies = page.locator('.summary-inspection').getByText('Source turns and dependencies', { exact: true });
+    await dependencies.click();
+    await expect(page.locator('.summary-inspection pre')).toContainText(old.id);
     await expect(page.locator('.summary-inspection')).toContainText(`${countText(old.text).toLocaleString()} estimated text tokens`);
     await expect(page.locator('.summary-inspection')).toContainText('Stale');
     await expect(oldBox).toHaveAttribute('aria-pressed', 'true');
     await expect(newBox).toHaveAttribute('aria-pressed', 'false');
     await newBox.click();
-    await expect(page.locator('.summary-inspection')).toContainText(alternative.id);
+    await expect(page.locator('.summary-inspection pre')).toContainText(alternative.id);
     await expect(page.locator('.summary-inspection')).toContainText('Fresh');
     await expect(oldBox).toHaveAttribute('aria-pressed', 'false');
     await expect(newBox).toHaveAttribute('aria-pressed', 'true');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await dependencies.click();
     await page.locator('.memory-chart').screenshot({ path: `test-results/alternatives-${width}.png` });
   }
   await oldBox.click();

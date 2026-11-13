@@ -54,7 +54,8 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
   const plan = calculation.plan;
   const planCurrent = calculation.key === planKey && !calculation.error;
   const calculationError = calculation.key === planKey ? formatMessage(calculation.error) : plan ? '' : t("app.counting_current_input");
-  const [presetId, setPresetId] = useState(snapshot.settings.contextPresetId ?? ''), [target, setTarget] = useState(snapshot.settings.targetInputTokens);
+  const savedPresetId = snapshot.settings.contextPresetId;
+  const [presetId, setPresetId] = useState(savedPresetId ?? ''), [target, setTarget] = useState(snapshot.settings.targetInputTokens);
   const [historyId, setHistoryId] = useState(''), [details, setDetails] = useState<JobDetails | null>(null), [frame, setFrame] = useState(0);
   const [repairSession, setRepairSession] = useState('');
   const [zoom, setZoom] = useState(false), [inspected, setInspected] = useState<SummaryNode | null>(null);
@@ -95,7 +96,7 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
   const active = snapshot.context.jobs.find(job => job.status === 'running');
   const awaiting = snapshot.context.jobs.find(job => job.status === 'awaiting_review');
   const locked = busy || Boolean(active) || snapshot.generating;
-  useEffect(() => { setPresetId(snapshot.settings.contextPresetId ?? ''); setTarget(snapshot.settings.targetInputTokens); }, [snapshot.settings.contextPresetId, snapshot.settings.targetInputTokens]);
+  useEffect(() => { setPresetId(savedPresetId ?? ''); setTarget(snapshot.settings.targetInputTokens); }, [savedPresetId, snapshot.settings.targetInputTokens]);
   useEffect(() => {
     let current = true;
     if (!historyId) { setDetails(null); return; }
@@ -130,6 +131,10 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
   });
   const currentPlan = planCurrent ? plan : null;
   const replay = currentPlan?.preparation;
+  const blocked = plan?.blockedMessage ? formatMessage(plan.blockedMessage) : plan?.blocked;
+  const replayBlocked = replay?.blockedMessage ? formatMessage(replay.blockedMessage) : replay?.blocked;
+  const status = summariesEnabled && active ? t("memory.preparing_memory_steps_started_preparation_continues_if", { stepCount: active.stepCount })
+    : blocked || (!summariesEnabled ? t("memory.summaries_are_disabled") : plan?.ready ? t("memory.ready_the_current_assembled_input_fits_the") : '');
   const operation = !historyId ? currentPlan?.next : frame === 0 || !selectedFrame?.after ? selectedFrame?.operation : null;
   const reusable = !historyId ? currentPlan?.reusable
     : selectedFrame && 'reused' in selectedFrame && selectedFrame.reused ? selectedFrame.result : null;
@@ -144,7 +149,7 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
   });
   const prepared = latestJob?.sourceRevision === snapshot.revision && latestJob.status === 'succeeded' && latestJob.outcome ? latestJob : null;
   const selectionReport = prepared?.finalRefresh ?? prepared?.refresh;
-  const unsavedSettings = presetId !== (snapshot.settings.contextPresetId ?? '') || target !== snapshot.settings.targetInputTokens;
+  const unsavedSettings = presetId !== (savedPresetId ?? '') || target !== snapshot.settings.targetInputTokens;
   function saveMemorySettings() {
     const { id, revision } = snapshot;
     const contextPresetId = presetId || null;
@@ -152,7 +157,7 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
       promptId: snapshot.settings.promptId ?? 'default', characterId: snapshot.settings.characterId ?? null,
       personaId: snapshot.settings.personaId ?? null, contextPresetId };
     const commit = (memoryImpactToken?: string) => api(`/chats/${id}/selections`, 'PUT', { revision, settings, memoryImpactToken });
-    if (contextPresetId !== (snapshot.settings.contextPresetId ?? null)) {
+    if (contextPresetId !== (savedPresetId ?? null)) {
       void reviewMemoryCleanup({
         path: `/chats/${id}/settings/memory-impact`, body: { revision, contextPresetId },
         copy: saveMemoryCleanupCopy(), commit,
@@ -161,18 +166,27 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
   }
   return <section className="document-panel memory-panel chat-panel" aria-label={t("memory.memory")}><h1>{t("memory.memory")}</h1>
     <form className="memory-selection" onSubmit={e => { e.preventDefault(); if (!locked && unsavedSettings) saveMemorySettings(); }}>
-      <fieldset disabled={locked}><legend>{t("memory.preparation_settings")}</legend><div className="form-grid"><label>{t("libraries.context_preset")}<Dropdown aria-label={t("memory.memory_context_preset")} value={presetId} onChange={setPresetId} options={[{ value: '', label: t("memory.no_context_preset") }, ...library.contexts.map(item => ({ value: item.id, label: item.name }))]} /></label><label>{t("app.input_target")}<NumberInput required value={target} onChange={setTarget} /></label></div><p className="small muted">{t("memory.edit_the_summarization_connection_batch_sizes_and")}</p><button className="secondary" disabled={presetId === (snapshot.settings.contextPresetId ?? '') && target === snapshot.settings.targetInputTokens}>{t("memory.save_memory_settings")}</button></fieldset>
+      <fieldset disabled={locked}>
+        <legend>{t("memory.preparation_settings")}</legend>
+        <div className="form-grid">
+          <label>{t("libraries.context_preset")}<Dropdown aria-label={t("libraries.context_preset")} value={presetId} onChange={setPresetId} options={[{ value: '', label: t("memory.no_context_preset") }, ...library.contexts.map(item => ({ value: item.id, label: item.name }))]} /></label>
+          <label>{t("app.input_target")}<NumberInput required value={target} onChange={setTarget} /></label>
+        </div>
+        <div className="actions memory-settings-actions">
+          {snapshot.context.preset && savedPresetId && summariesEnabled && <button type="button" className="quiet text-link" disabled={unsavedSettings} onClick={() => editPreset(savedPresetId)}><Icon name="EditOutline" />{t("memory.edit_context_preset")}</button>}
+          <button type="submit" className="secondary" disabled={!unsavedSettings}>{t("editor_actions.save")}</button>
+        </div>
+      </fieldset>
     </form>
-    {!summariesEnabled && <p role="status"><strong>{t("memory.summaries_are_disabled")}</strong> {t("memory.enable_a_summary_marker_in_the_prompt")}</p>}
     <RefusalReview snapshot={snapshot} locked={locked || Boolean(awaiting)} run={run} />
-    {snapshot.context.preset && summariesEnabled && <p className="small muted">{t("memory.minimum_tail_turn_batch_summary_target_promotion", { minTail: snapshot.context.preset.minTail, batchSize: snapshot.context.preset.batchSize, summaryTokens: snapshot.context.preset.summaryTokens, promotionGroup: snapshot.context.preset.promotionGroup, retainedPerLevel: snapshot.context.preset.retainedPerLevel })} <span aria-hidden="true">·</span> <button type="button" className="quiet text-link" disabled={locked || unsavedSettings} onClick={() => { if (snapshot.settings.contextPresetId) editPreset(snapshot.settings.contextPresetId); }}><Icon name="EditOutline" />{t("memory.edit_context_preset")}</button></p>}
-    {plan && <div className="budget"><strong>{t("app.estimated_input_2", { value: plan.inputTokens.toLocaleString(locale()), value2: plan.effectiveLimit.toLocaleString(locale()) })}</strong><InputMeter input={plan.inputTokens} limit={plan.effectiveLimit} /><span>{t("memory.verbatim_turns", { length: plan.verbatimTurnIds.length, value: summariesEnabled ? t("memory.coverage_counts", { summaries: snapshot.context.selected.length, turns: snapshot.context.archivedTurnIds.length }) : t("interface.recent_history_within_the_input_limit") })}</span><p role="status" data-testid="memory-status">{!summariesEnabled ? (plan.blockedMessage ? formatMessage(plan.blockedMessage) : plan.blocked) ?? t("memory.summaries_are_disabled_recent_whole_turns_are") : active ? t("memory.preparing_memory_steps_started_preparation_continues_if", { stepCount: active.stepCount }) : (plan.blockedMessage ? formatMessage(plan.blockedMessage) : plan.blocked) ?? (plan.ready ? t("memory.ready_the_current_assembled_input_fits_the") : plan.reusable ? t("memory.next_reuse_a_saved_level_summary", { level: plan.next?.level ?? '' }) : t("memory.next", { value: plan.next?.repair ? t("labels.state.repair") : plan.next?.level === 1 ? t("interface.summarize_oldest_turns") : t("interface.promote_to_level", { level: String(plan.next?.level) }) }))}</p>{plan.blockedMessage?.key === 'pins.required_budget' && <button type="button" className="secondary" onClick={openPins}>{t('pins.title')}</button>}</div>}
-    {replay && !active && (replay.inputTokens !== currentPlan?.inputTokens || replay.blocked !== currentPlan?.blocked
-      || replay.next?.level !== currentPlan?.next?.level || replay.next?.turnIds[0] !== currentPlan?.next?.turnIds[0]) && <p className="small muted">
-      {replay.blockedMessage ? formatMessage(replay.blockedMessage)
-        : replay.ready ? t('memory.replay_fits', { input: replay.inputTokens.toLocaleString(locale()) })
-        : t('memory.replay_estimate', { input: replay.inputTokens.toLocaleString(locale()), level: replay.next?.level ?? '' })}
-    </p>}
+    {plan ? <div className="budget">
+      <strong>{t("app.estimated_input_2", { value: plan.inputTokens.toLocaleString(locale()), value2: plan.effectiveLimit.toLocaleString(locale()) })}</strong>
+      <InputMeter input={plan.inputTokens} limit={plan.effectiveLimit} />
+      <span>{t("memory.verbatim_turns", { length: plan.verbatimTurnIds.length, value: summariesEnabled ? t("memory.coverage_counts", { summaries: snapshot.context.selected.length, turns: snapshot.context.archivedTurnIds.length }) : '' })}</span>
+      {status && <p role="status" data-testid="memory-status">{status}</p>}
+      {replayBlocked && !active && replayBlocked !== blocked && <p role="status">{replayBlocked}</p>}
+      {plan.blockedMessage?.key === 'pins.required_budget' && <button type="button" className="secondary" onClick={openPins}>{t('pins.title')}</button>}
+    </div> : status && <p role="status" data-testid="memory-status">{status}</p>}
     {(planError || calculationError) && <p role="status">{planError || calculationError}</p>}
     {latestJob?.error && latestJob.sourceRevision === snapshot.revision && !plan?.ready && <p className="memory-failure" role="status">{latestJob.status === 'interrupted' ? formatMessage(latestJob.errorMessage ?? latestJob.error) : t("memory.last_preparation_stopped", { error: formatMessage(latestJob.errorMessage ?? latestJob.error) })}</p>}
     <div className="actions memory-actions">
@@ -186,12 +200,14 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
       <label className="checkbox"><input type="checkbox" checked={autoRetry} onChange={event => behavior.update({ autoRetryMemory: event.target.checked })} />{t("memory.auto_retry_failed_or_refused_requests")}</label>
       {autoRetry && <label>{t("memory.maximum_retries")}<NumberInput required aria-label={t("memory.maximum_retries")} min={0} max={Number.MAX_SAFE_INTEGER} value={maxRetries} onChange={value => { if (Number.isSafeInteger(value) && value >= 0) behavior.update({ memoryMaxRetries: value }); }} /><small>{t("memory.retries_after_the_initial_attempt_per_request", { defaultRetries: defaultChatBehavior.memoryMaxRetries, runLimit: preparationRunLimit })}</small></label>}
     </fieldset>}
-    {summariesEnabled && <p className="small muted">{t("memory.prepare_chat_reconsiders_memory_for_the_saved")}</p>}
-    {summariesEnabled && prepared && <p role="status" data-testid="memory-prepare-result">{t("memory.saved_summaries_reused_new_summaries_generated", { value: prepared.mode === 'step' ? t("interface.summary_step_saved") : t("interface.memory_prepared"), value2: prepared.reusedCount ?? 0, value3: prepared.generatedCount ?? 0 })}{prepared.refresh ? <> {t("memory.verbatim_turns_estimated_input", { verbatimBefore: prepared.refresh.verbatimBefore, verbatimTurns: prepared.outcome!.verbatimTurns, value: prepared.refresh.inputBefore.toLocaleString(locale()), value2: prepared.outcome!.inputTokens.toLocaleString(locale()), value3: selectionReport?.protectedSummaries ? t("memory.protected_corrections", { count: selectionReport.protectedSummaries }) : '', value4: selectionReport?.limitation ? ` ${formatMessage(selectionReport.limitationMessage ?? selectionReport.limitation)}` : selectionReport?.limited && !prepared.stepCount ? t("interface.no_different_fitting_selection_was_available_in_saved") : '' })}</> : null}</p>}
+    {summariesEnabled && prepared && <p role="status" data-testid="memory-prepare-result">
+      {t("memory.saved_summaries_reused_new_summaries_generated", { value: prepared.mode === 'step' ? t("interface.summary_step_saved") : t("interface.memory_prepared"), value2: prepared.reusedCount ?? 0, value3: prepared.generatedCount ?? 0 })}
+      {selectionReport?.limitation && <> {formatMessage(selectionReport.limitationMessage ?? selectionReport.limitation)}</>}
+    </p>}
     {latestJob?.mode === 'repair' && latestJob.status === 'succeeded' && latestJob.sourceRevision === snapshot.revision && <p role="status" data-testid="memory-repair-result">{t("memory.repair_complete_approved_unchanged_after_model_check", { value: latestJob.reviewedCount ?? 0, value2: latestJob.unchangedCount ?? 0, value3: latestJob.revalidatedCount ?? 0 })}</p>}
     {repairJob && <Suspense fallback={<p role="status">{t("memory.opening_repair_review")}</p>}><RepairReview key={repairJob.id} snapshot={snapshot} job={repairJob} busy={busy} run={run} dismissed={() => setRepairSession('')} /></Suspense>}
     <section className="memory-chart"><div className="memory-chart-heading"><h2>{t("memory.summary_layers")}</h2><label className="checkbox"><input type="checkbox" checked={zoom} onChange={e => setZoom(e.target.checked)} />{t("memory.zoom_timeline")}</label></div>
-      <label>{t("memory.inspect_saved_preparation")}<Dropdown aria-label={t("memory.saved_preparation")} disabled={Boolean(reviewToken)} value={historyId} onChange={id => { setHistoryId(id); setInspected(null); }} options={[{ value: '', label: t("memory.current_committed_selection") }, ...snapshot.context.jobs.map(job => ({ value: job.id, label: `${new Date(job.createdAt).toLocaleString(locale())} · ${stateLabel(job.mode)} · ${stateLabel(job.status)}` }))]} /></label>
+      <label>{t("memory.saved_preparation")}<Dropdown aria-label={t("memory.saved_preparation")} disabled={Boolean(reviewToken)} value={historyId} onChange={id => { setHistoryId(id); setInspected(null); }} options={[{ value: '', label: t("memory.current_committed_selection") }, ...snapshot.context.jobs.map(job => ({ value: job.id, label: `${new Date(job.createdAt).toLocaleString(locale())} · ${stateLabel(job.mode)} · ${stateLabel(job.status)}` }))]} /></label>
       {details && <label className="snapshot-slider">{t("memory.saved_step", { frame: frame, frameCount: frameCount })}<input type="range" aria-label={t("memory.saved_preparation_step")} min={0} max={frameCount} value={frame} onChange={e => { setFrame(Number(e.target.value)); setInspected(null); }} /><small>{t("memory.history_inspection_only_current_chat_memory_is")}</small></label>}
       <MemoryTimeline nodes={nodes} selected={selected} stale={stale} archived={archived} turnIds={viewTurnIds} operation={operation} reusable={reusable} levels={levels} zoom={zoom} inspectedId={inspected?.id ?? null} deleting={deletion?.deletedIds} restoring={restoring} inspect={inspectSummary} />
       <div className="memory-legend">
@@ -205,13 +221,8 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
         <h3 ref={deletionHeading} tabIndex={-1}>{t("memory.delete_summary_and_dependents")}</h3>
         {reviewToken && <p>{t('memory.preparation_deletion_description')}</p>}
         {deletion ? <>
-          {reviewToken ? <>
-            <p role="status">{t('memory_cleanup.discarded', { count: deletion.deletedIds.size })}</p>
-            {deletion.restoredTurnIds.length > 0 && <p>{t('memory_cleanup.restored', { count: deletion.restoredTurnIds.length })}</p>}
-          </> : <>
-            <p role="status">{t("memory.summaries_saved_versions_will_be_deleted_including", { size: deletion.deletedIds.size, length: deletion.deleted.length })}</p>
-            <p>{t("memory.archived_turns_return_to_verbatim_from_the", { length: deletion.restoredTurnIds.length })}</p>
-          </>}
+          <p role="status">{t("memory.summaries_saved_versions_will_be_deleted_including", { size: deletion.deletedIds.size, length: deletion.deleted.length })}</p>
+          {deletion.restoredTurnIds.length > 0 && <p>{t('memory_cleanup.restored', { count: deletion.restoredTurnIds.length })}</p>}
           {deletion.deleted.some(node => node.manual) && <p><strong>{t("memory.this_includes_manually_corrected_summaries")}</strong></p>}
           <p>{t("memory.all_versions_of_these_summaries_are_removed")}</p>
           {awaiting && <p role="status">{t("memory.close_the_repair_review_before_deleting_summaries")}</p>}
@@ -231,6 +242,6 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
     {nodes.length > 0 && <label>{t("memory.inspect_saved_summary")}<Dropdown aria-label={t("memory.inspect_saved_summary")} value={inspected?.id ?? ''} onChange={id => inspectSummary(nodes.find(node => node.id === id) ?? null)} options={[{ value: '', label: t("memory.choose_an_identity_and_range") }, ...summaryOptions]} /></label>}
     {inspected && <SummaryInspection snapshot={snapshot} node={inspected} historical={Boolean(historyId)} selected={selected} locked={locked} inspect={inspectSummary} saved={() => setInspected(null)} run={run} previewDelete={node => setDeletionTarget({ node, revision: snapshot.revision })} />}
     {details && <details><summary>{t("memory.summary_requests_and_step_outcomes")}</summary>{details.job.error && <p className="small muted">{t("memory.saved_outcome", { error: formatMessage(details.job.errorMessage ?? details.job.error) })}</p>}{refreshFrame && <p className="small muted">{t("memory.saved_memory_selection_verbatim_turns_estimated_input", { verbatimBefore: refreshFrame.verbatimBefore, verbatimAfter: refreshFrame.verbatimAfter, value: refreshFrame.inputBefore.toLocaleString(locale()), value2: refreshFrame.inputAfter.toLocaleString(locale()) })}</p>}{finalRefresh && <p className="small muted">{t("memory.final_saved_memory_selection_verbatim_turns_estimated", { verbatimBefore: finalRefresh.verbatimBefore, verbatimAfter: finalRefresh.verbatimAfter, value: finalRefresh.inputBefore.toLocaleString(locale()), value2: finalRefresh.inputAfter.toLocaleString(locale()) })}</p>}{details.steps.map((step, i) => <details key={step.id}><summary>{t("memory.step_l", { value: i + 1, level: step.operation.level, value2: step.repairOutcome === 'model_unchanged' ? t("interface.model_checked_unchanged") : step.repairOutcome === 'inputs_unchanged' ? t("interface.unchanged_inputs_no_model_request") : step.reused ? t("interface.reused_saved_summary") : step.status })}</summary>{step.resultDeleted && <p>{t("memory.the_saved_result_summary_was_deleted_this")}</p>}{step.error && <p>{formatMessage(step.errorMessage ?? step.error)}</p>}{step.rejectedText !== undefined && <RejectedSummary text={step.rejectedText} />}<pre>{JSON.stringify(step.request ?? { note: step.repairOutcome === 'inputs_unchanged' ? t("memory.all_consumed_content_was_unchanged_updated_dependency") : step.reused ? t("memory.reused_a_saved_summary_no_model_request") : t("memory.no_model_request_all_covered_source_turns") }, null, 2)}</pre></details>)}</details>}
-    {snapshot.context.summaries.length > 0 || snapshot.context.jobs.length > 0 ? <details className="restore-memory"><summary>{t("memory.clear_memory")}</summary><p className="small muted">{t("memory.delete_every_summary_layer_previous_summary_version")}</p><button className="danger" disabled={locked} onClick={() => { confirmAction({ title: t("memory.clear_memory_2"), message: t("memory.clear_all_memory_layers_and_preparation_records"), actionLabel: t("memory.clear_memory"), onConfirm: () => { void run(async () => { await api(`/chats/${snapshot.id}/context/clear`, 'POST', { revision: snapshot.revision }); setHistoryId(''); setDetails(null); setInspected(null); setPlanError(''); }); } }); }}>{t("memory.clear_memory")}</button></details> : null}
+    {snapshot.context.summaries.length > 0 || snapshot.context.jobs.length > 0 ? <details className="restore-memory"><summary>{t("memory.clear_memory")}</summary><button className="danger" disabled={locked} onClick={() => { confirmAction({ title: t("memory.clear_memory_2"), message: t("memory.clear_all_memory_layers_and_preparation_records"), actionLabel: t("memory.clear_memory"), onConfirm: () => { void run(async () => { await api(`/chats/${snapshot.id}/context/clear`, 'POST', { revision: snapshot.revision }); setHistoryId(''); setDetails(null); setInspected(null); setPlanError(''); }); } }); }}>{t("memory.clear_memory")}</button></details> : null}
   </section>;
 }
