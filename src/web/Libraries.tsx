@@ -31,15 +31,16 @@ import { ConnectionFileDialog, type ConnectionFileAction } from './ConnectionFil
 import { ModelField } from './ModelPicker';
 import { CharacterEditor } from './CharacterEditor';
 import { EditorActions, EditorActionsTarget } from './EditorActions';
+import { useWarnOnEditorLeave, type LeaveEditor, type useEditorLeaveGuard } from './EditorLeaveGuard';
 import { EditorTextarea } from './EditorTextarea';
 import { TagChips, TagFilterMenu } from './Tags';
 import { characterTagIndex, matchesCharacterTags } from '../shared/tags';
 import { api, datasetEpoch } from './api';
-import { Dropdown, NumberDraftContext, NumberInput } from './Controls';
+import { Dropdown, NumberDraftContext, NumberInput, useNumberDraft } from './Controls';
 import { defaultContextPreset, type ContextPreset } from '../shared/context';
 import { newLorebook, type Lorebook, type LoreDiagnostic } from '../shared/lorebook';
 import { LorebookEditor, LorebookImport, LoreDiagnostics } from './LorebookEditor';
-import { CopyLibraryDraft, LibraryDraftNotice, StaleLibraryDraft, useLibraryEditorDraft, useLibraryNumberDraft, type LeaveLibraryEditor } from './LibraryDraft';
+import { CopyLibraryDraft, LibraryDraftNotice, StaleLibraryDraft, useLibraryEditorDraft } from './LibraryDraft';
 import { sameDraftValue, type LibraryDraft, type LibraryEditorDraft } from './library-draft';
 
 export const defaultConnection: Connection = { name: 'My Connection', endpoint: 'https://api.openai.com/v1', model: '', contextWindow: 128_000, maxOutputTokens: 8196, customParameters: {} };
@@ -98,7 +99,7 @@ function SelectionFields({ value, change, library }: { value: Selection; change:
   ] as const;
   return <div className="form-grid">
     <label>{t("libraries.chat_title")}<input required maxLength={100} value={value.title} onChange={e => change({ ...value, title: e.target.value })} /></label>
-    <label>{t("libraries.target_input_tokens")}<NumberInput required value={value.targetInputTokens} onChange={targetInputTokens => change({ ...value, targetInputTokens })} /></label>
+    <label>{t("libraries.target_input_tokens")}<NumberInput draftField="targetInputTokens" required value={value.targetInputTokens} onChange={targetInputTokens => change({ ...value, targetInputTokens })} /></label>
     {fields.map(({ key, label, options }) => <label key={key}>{label}
       <Dropdown aria-label={label} value={value[key] ?? ''} onChange={selected => change({ ...value, [key]: selected || null })} options={options} />
     </label>)}
@@ -127,12 +128,18 @@ function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnap
     <div className="actions"><button>{t("libraries.create_chat")}</button><button type="button" className="quiet" onClick={cancel}>{t("character_import.cancel")}</button></div>
   </fieldset></form>;
 }
-export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, returnToChat, openLibraryItem }: { snapshot: ChatToolsSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; saved: () => void; sidebar: ReactNode; returnToChat: () => void; openLibraryItem: (target: LibraryTarget) => void }) {
+export function ChatSetup({ snapshot, library, busy, working, run, sidebar, returnToChat, openLibraryItem, leaveGuard }: {
+  snapshot: ChatToolsSnapshot; library: LibrarySnapshot; busy: boolean; working: boolean; run: Run; sidebar: ReactNode;
+  returnToChat: () => void; openLibraryItem: (target: LibraryTarget) => void; leaveGuard: ReturnType<typeof useEditorLeaveGuard>;
+}) {
   useLocale();
-  const [value, setValue] = useState(() => selection(snapshot));
+  const [baseline] = useState(() => selection(snapshot));
+  const [value, setValue] = useState(baseline);
   const [revision] = useState(snapshot.revision);
-  const confirmAction = useConfirmation(snapshot.id);
+  const numberDraft = useNumberDraft();
+  useWarnOnEditorLeave(leaveGuard, numberDraft.dirty || !sameDraftValue(value, baseline));
   const reviewMemoryCleanup = useMemoryCleanup(run, snapshot.id);
+  const warningTrigger = useRef<HTMLButtonElement>(null);
   const [diagnosticsRetry, setDiagnosticsRetry] = useState(0);
   const diagnosticsKey = JSON.stringify([snapshot.id, snapshot.revision, library.revision, value.promptId, value.characterId, value.personaId, value.lorebookId, diagnosticsRetry]);
   const [diagnostics, setDiagnostics] = useState<{ key: string; warnings: PromptDiagnostic[]; error?: MessageText } | null>(null);
@@ -145,23 +152,21 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
     });
     return () => controller.abort();
   }, [snapshot.id, snapshot.revision, diagnosticsKey]);
-  function openWarning(warning: PromptDiagnostic) {
-    const target = { kind: warning.target, id: warning.itemId };
-    if (JSON.stringify(value) === JSON.stringify(selection(snapshot))) openLibraryItem(target);
-    else confirmAction({ title: t("libraries.discard_chat_settings_changes"), message: t("libraries.open_the_library_editor_and_discard_unsaved"), actionLabel: t("libraries.discard_changes"), onConfirm: () => openLibraryItem(target) });
-  }
   const formId = useId();
   const mounted = useRef(true);
   const submitting = useRef(false);
   const [saving, setSaving] = useState(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  return <ChatWorkspace sidebar={sidebar} returnToChat={saving ? undefined : returnToChat} actions={<>
-    <button type="submit" form={formId} disabled={busy || revision !== snapshot.revision} aria-label={t("libraries.save_and_return")} title={t("libraries.save_and_return")}><Icon name="SaveOutline" /><span>{t("libraries.save_and_return")}</span></button>
-    <button type="button" className="secondary" disabled={saving} onClick={returnToChat} aria-label={t("libraries.return_without_saving")} title={t("libraries.return_without_saving")}><Icon name="Close" /><span>{t("libraries.return_without_saving")}</span></button>
+  const leavingDisabled = busy || saving;
+  const saveDisabled = leavingDisabled || working || revision !== snapshot.revision;
+  const leaveForStory = (returnFocus?: HTMLElement) => leaveGuard.leave(returnToChat, { returnFocus });
+  return <ChatWorkspace sidebar={sidebar} returnToChat={leavingDisabled ? undefined : () => leaveForStory()} actions={<>
+    <button type="submit" form={formId} disabled={saveDisabled} aria-label={t("libraries.save_and_return")} title={t("libraries.save_and_return")}><Icon name="SaveOutline" /><span>{t("libraries.save_and_return")}</span></button>
+    <button type="button" className="secondary" disabled={leavingDisabled} onClick={event => leaveForStory(event.currentTarget)} aria-label={t("libraries.return_without_saving")} title={t("libraries.return_without_saving")}><Icon name="Close" /><span>{t("libraries.return_without_saving")}</span></button>
   </>}><section className="document-panel chat-panel" aria-label={t("app.chat_settings")}><p className="eyebrow">{t("libraries.chat_settings")}</p><h1>{t("libraries.choose_this_story_s_ingredients")}</h1><p className="muted">{t("libraries.each_chat_keeps_its_own_selections_edit")}</p>
     <form id={formId} onSubmit={async e => {
       e.preventDefault();
-      if (busy || submitting.current || revision !== snapshot.revision) return;
+      if (saveDisabled || submitting.current) return;
       submitting.current = true;
       setSaving(true);
       try {
@@ -169,11 +174,13 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
         if (value.contextPresetId !== (snapshot.settings.contextPresetId ?? null)) {
           await reviewMemoryCleanup({
             path: `/chats/${snapshot.id}/settings/memory-impact`, body: { revision, contextPresetId: value.contextPresetId },
-            copy: saveMemoryCleanupCopy(), commit, saved,
+            copy: saveMemoryCleanupCopy(), commit, saved: returnToChat,
           });
-        } else if (await run(() => commit()) && mounted.current) saved();
+        } else if (await run(() => commit()) && mounted.current) returnToChat();
       } finally { submitting.current = false; if (mounted.current) setSaving(false); }
-    }}><fieldset disabled={busy}><legend>{t("libraries.selections")}</legend><SelectionFields value={value} change={setValue} library={library} /></fieldset>
+    }}><fieldset disabled={leavingDisabled || working}><legend>{t("libraries.selections")}</legend>
+      <NumberDraftContext.Provider value={numberDraft}><SelectionFields value={value} change={setValue} library={library} /></NumberDraftContext.Provider>
+    </fieldset>
       {revision !== snapshot.revision && <p role="status">{t("libraries.this_chat_changed_reopen_chat_settings_to")}</p>}
     </form>
     {diagnostics?.key !== diagnosticsKey || diagnostics.error ? <section className="import-panel" aria-label={t("libraries.prompt_configuration_warnings")}>
@@ -182,11 +189,14 @@ export function ChatSetup({ snapshot, library, busy, run, saved, sidebar, return
         <p role="alert">{formatMessage(diagnostics.error)}</p>
         <button type="button" className="secondary" onClick={() => setDiagnosticsRetry(value => value + 1)}>{t("libraries.check_again")}</button>
       </>}
-    </section> : diagnostics.warnings.length > 0 && <WarningDetails key={diagnosticsKey} label={t("libraries.prompt_configuration_warnings")}
+    </section> : diagnostics.warnings.length > 0 && <WarningDetails key={diagnosticsKey} triggerRef={warningTrigger} label={t("libraries.prompt_configuration_warnings")}
       title={t("libraries.prompt_configuration_warnings")}>{close => (
         <ul className="warning-messages">{diagnostics.warnings.map(warning => <li key={warning.code}>
           <p>{formatMessage(warning.localized ?? warning.message)}</p>
-          <button type="button" className="secondary" onClick={() => { close(); openWarning(warning); }}>
+          <button type="button" className="secondary" disabled={leavingDisabled} onClick={() => {
+            close();
+            leaveGuard.leave(() => openLibraryItem({ kind: warning.target, id: warning.itemId }), { returnFocus: warningTrigger.current ?? undefined });
+          }}>
             <Icon name="EditOutline" />{t("libraries.edit", { value: warning.target === 'prompts' ? t("interface.prompt_preset") : warning.target === 'characters' ? t("app.character") : t("libraries.lorebook") })}
           </button>
         </li>)}</ul>
@@ -272,7 +282,7 @@ function newEditor(kind: LibraryKind, revision: number): LibraryEditing {
   return { kind, revision, data };
 }
 
-export function Libraries({ library, defaults, currentBranchId, branchSelections, busy, run, openChat, initialTarget, recoveredDraft, leaveEditor, clearDraft }: { library: LibrarySnapshot; defaults: ChatDefaultsStatus; currentBranchId: string | null; branchSelections: ReadonlyMap<string, string>; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void; initialTarget?: LibraryTarget | null; recoveredDraft: LibraryDraft | null; leaveEditor: LeaveLibraryEditor; clearDraft: () => void }) {
+export function Libraries({ library, defaults, currentBranchId, branchSelections, busy, run, openChat, initialTarget, recoveredDraft, leaveEditor, clearDraft }: { library: LibrarySnapshot; defaults: ChatDefaultsStatus; currentBranchId: string | null; branchSelections: ReadonlyMap<string, string>; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void; initialTarget?: LibraryTarget | null; recoveredDraft: LibraryDraft | null; leaveEditor: LeaveEditor; clearDraft: () => void }) {
   useLocale();
   const [recovery, setRecovery] = useState(recoveredDraft);
   const [section, setSection] = useState<LibraryKind | 'chats'>(recovery?.editor.kind ?? initialTarget?.kind ?? lastLibrarySection);
@@ -664,7 +674,7 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, busy,
   const [removeKey, setRemoveKey] = useState(recovered?.kind === 'connections' && recovered.removeKey);
   const [baselineParameters] = useState(() => 'customParameters' in initial.data ? JSON.stringify(initial.data.customParameters, null, 2) : '');
   const [parameters, setParameters] = useState(recovered?.kind === 'connections' ? recovered.parameters : baselineParameters);
-  const numberDraft = useLibraryNumberDraft(recovered);
+  const numberDraft = useNumberDraft(recovered?.numbers);
   const keyOmitted = !removeKey && key !== '';
   const draft = useMemo<StandardDraft>(() => {
     const target = { id: initial.id, revision: initial.revision, numbers: numberDraft.values };

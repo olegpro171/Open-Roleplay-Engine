@@ -36,6 +36,11 @@ for (const width of [1280, 390]) {
     const settings = page.getByRole('region', { name: 'Chat settings', exact: true });
     await settings.getByLabel('Chat title').fill('Discarded with Escape');
     await page.keyboard.press('Escape');
+    const leave = page.getByRole('dialog', { name: 'Leave editor?', exact: true });
+    await leave.getByRole('button', { name: 'Go back', exact: true }).click();
+    await expect(settings.getByLabel('Chat title')).toHaveValue('Discarded with Escape');
+    await page.keyboard.press('Escape');
+    await leave.getByRole('button', { name: 'Leave editor', exact: true }).click();
     await expect(composer).toHaveValue(draft);
     expect((await state()).settings.title).toBe(initial.settings.title);
 

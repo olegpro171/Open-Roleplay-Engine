@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { openModal } from './dialog-focus';
 import { Icon } from './Icon';
@@ -11,7 +11,7 @@ type WarningContent = {
   children?: ReactNode | ((close: () => void) => ReactNode);
   actions?: (close: () => void) => ReactNode;
 };
-type WarningDetailsProps = WarningContent & { label?: string };
+type WarningDetailsProps = WarningContent & { label?: string; triggerRef?: RefObject<HTMLButtonElement | null> };
 
 export function WarningDialog({ title, message, children, actions, close, returnFocus }: WarningContent & {
   close: () => void;
@@ -38,10 +38,11 @@ export function WarningDialog({ title, message, children, actions, close, return
 }
 
 /** Keep warnings for ongoing conditions available while the user works. */
-export function WarningDetails({ label, ...content }: WarningDetailsProps) {
+export function WarningDetails({ label, triggerRef, ...content }: WarningDetailsProps) {
   useLocale();
   const [open, setOpen] = useState(false);
-  const trigger = useRef<HTMLButtonElement>(null);
+  const localTrigger = useRef<HTMLButtonElement>(null);
+  const trigger = triggerRef ?? localTrigger;
   return <div className="warning-details">
     <button type="button" ref={trigger} className="secondary" aria-haspopup="dialog" onClick={() => setOpen(true)}>
       <Icon name="ErrorOutline" />

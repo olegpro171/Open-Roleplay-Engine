@@ -1,7 +1,7 @@
 import { t, useLocale, locale } from './localization';
 import { Icon } from './Icon';
 import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
-import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 type Option = { value: string; label: string; disabled?: boolean; leading?: ReactNode };
@@ -143,6 +143,19 @@ export const NumberDraftContext = createContext<{
   values: Readonly<Record<string, string>>;
   set: (field: string, value: string | undefined) => void;
 } | null>(null);
+
+export function useNumberDraft(initial?: Record<string, string>) {
+  const [values, setValues] = useState<Record<string, string>>(() => initial ?? {});
+  const set = useCallback((field: string, value: string | undefined) => {
+    setValues(previous => {
+      if (previous[field] === value) return previous;
+      if (value !== undefined) return { ...previous, [field]: value };
+      const { [field]: _removed, ...remaining } = previous;
+      return remaining;
+    });
+  }, []);
+  return { values, set, dirty: Object.keys(values).length > 0 };
+}
 
 export function NumberInput({ value, onChange, min = 1, max = 10_000_000, draftField, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max' | 'type'> & { value: number; onChange: (value: number) => void; min?: number; max?: number; draftField?: string }) {
   useLocale();

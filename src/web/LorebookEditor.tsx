@@ -10,14 +10,14 @@ import { Icon } from './Icon';
 import { useConfirmation } from './Confirmation';
 import { WarningDetails } from './WarningDialog';
 import { EditorActions } from './EditorActions';
-import { CopyLibraryDraft, LibraryDraftNotice, useLibraryEditorDraft, useLibraryNumberDraft } from './LibraryDraft';
+import { CopyLibraryDraft, LibraryDraftNotice, useLibraryEditorDraft } from './LibraryDraft';
 import { sameDraftValue, type DraftOf } from './library-draft';
 import { EditorTextarea } from './EditorTextarea';
 import { LibrarySearchField } from './LibrarySearchField';
 import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
 import { LOREBOOK_ENTRY_LIMIT, LOREBOOK_FILE_LIMIT, lorebookSchema, lorePlacements, newLoreEntry, type Lorebook, type LoreDiagnostic, type LoreEntry, type LoreImportPreview, type LorePlacement } from '../shared/lorebook';
 import { api, ApiError } from './api';
-import { Dropdown, NumberDraftContext, NumberInput } from './Controls';
+import { Dropdown, NumberDraftContext, NumberInput, useNumberDraft } from './Controls';
 import { loreCompatibility } from '../core/lorebook-formats';
 
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
@@ -110,7 +110,7 @@ export function LorebookEditor({ initial, recovered, currentRevision, busy, run,
   const confirmAction = useConfirmation();
   const [book, setBook] = useState(recovered?.data ?? initial.data);
   const [selectedId, setSelectedId] = useState(() => recovered?.selectedId ?? [...book.entries].sort(compareInsertionOrder)[0]?.id ?? '');
-  const numberDraft = useLibraryNumberDraft(recovered);
+  const numberDraft = useNumberDraft(recovered?.numbers);
   const bookChanged = useMemo(() => !sameBookDraft(book, initial.data), [book, initial.data]);
   const dirty = bookChanged || numberDraft.dirty;
   const draft = useMemo<DraftOf<'lorebooks'>>(() => ({ kind: 'lorebooks', id: initial.id, revision: initial.revision, data: book, selectedId, numbers: numberDraft.values }),

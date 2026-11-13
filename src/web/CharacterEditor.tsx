@@ -9,13 +9,13 @@ import type { CharacterSaveCommand } from '../shared/library';
 import { PictureEditor, PictureSquare, pictureMutation, savedPictureDraft } from './Pictures';
 import { useContext, useEffect, useId, useMemo, useRef, useState, type MouseEventHandler } from 'react';
 import { EditorActions } from './EditorActions';
-import { CopyLibraryDraft, LibraryDraftNotice, useLibraryEditorDraft, useLibraryNumberDraft } from './LibraryDraft';
+import { CopyLibraryDraft, LibraryDraftNotice, useLibraryEditorDraft } from './LibraryDraft';
 import type { DraftOf } from './library-draft';
 import { EditorTextarea } from './EditorTextarea';
 import { readCharacterAlternateGreetings, characterLabel, maxAlternateGreetings, type LibraryCharacter, type LibrarySnapshot } from '../shared/library';
 import type { TagPolicy, TagReview } from '../shared/tags';
 import { ApiError, api } from './api';
-import { Dropdown, NumberDraftContext, NumberInput } from './Controls';
+import { Dropdown, NumberDraftContext, NumberInput, useNumberDraft } from './Controls';
 import { TagChooser, TagImportOptions, TagManager, type TagCommit } from './Tags';
 
 type Initial = { id?: string; revision: number; data: LibraryCharacter };
@@ -57,7 +57,7 @@ export function CharacterEditor({ initial, recovered, library, busy, run, close,
     || JSON.stringify(data.depth_prompt) !== JSON.stringify(baselineData.depth_prompt);
   const pictureChanged = pictureMutation(picture, baselinePicture) !== undefined;
   const tagsChanged = tagIds.length !== baseline.length || tagIds.some(id => !baseline.includes(id));
-  const numberDraft = useLibraryNumberDraft(recovered);
+  const numberDraft = useNumberDraft(recovered?.numbers);
   const dirty = characterChanged || pictureChanged || tagsChanged || processing || numberDraft.dirty;
   const draft = useMemo<DraftOf<'characters'>>(() => ({ kind: 'characters', id: initial.id, revision, data, tagIds, pictureOmitted: pictureChanged || processing, numbers: numberDraft.values }),
     [initial.id, revision, data, tagIds, pictureChanged, processing, numberDraft.values]);

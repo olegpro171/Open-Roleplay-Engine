@@ -121,6 +121,7 @@ test('character selectors show saved portraits and fallbacks while preserving se
     await selector.press('Enter');
     await expect(selector.locator('.character-avatar')).toHaveCount(0);
     await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Leave editor?', exact: true }).getByRole('button', { name: 'Leave editor', exact: true }).click();
     expect((await state()).settings.characterId).toBe(unpictured.id);
   }
 });

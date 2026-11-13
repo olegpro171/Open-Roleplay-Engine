@@ -53,9 +53,9 @@ test('edits card instructions, enables preset injection, explains unavailable so
   await review.click();
   await expect(warnings.getByRole('listitem')).toHaveCount(1);
   await warnings.getByRole('button', { name: 'Edit Lorebook', exact: true }).click();
-  const discard = page.getByRole('dialog', { name: 'Discard chat settings changes?', exact: true });
+  const discard = page.getByRole('dialog', { name: 'Leave editor?', exact: true });
   await expect(warnings).toHaveCount(0);
-  await discard.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await discard.getByRole('button', { name: 'Go back', exact: true }).click();
   await expect(review).toBeFocused();
   await expect(page.getByRole('combobox', { name: 'Character', exact: true })).toHaveText('None selected');
   await choose(page, 'Character', 'Instruction Mira');

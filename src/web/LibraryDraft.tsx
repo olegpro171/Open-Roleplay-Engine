@@ -1,9 +1,9 @@
-import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useState, type MouseEventHandler } from 'react';
+import { createContext, useContext, useLayoutEffect, useMemo, useState, type MouseEventHandler } from 'react';
 import { datasetEpoch } from './api';
-import { useConfirmation } from './Confirmation';
+import { useConfirmEditorLeave, warnBeforeUnload } from './EditorLeaveGuard';
 import { EditorTextarea } from './EditorTextarea';
 import { readLibraryDraft, writeLibraryDraft, type LibraryDraft, type LibraryEditorDraft } from './library-draft';
-import { message as msg, t, useLocale } from './localization';
+import { t, useLocale } from './localization';
 
 function libraryDraftSession(recovered: LibraryDraft | null) {
   let draft = recovered;
@@ -29,8 +29,7 @@ function libraryDraftSession(recovered: LibraryDraft | null) {
   function beforeUnload(event: BeforeUnloadEvent) {
     if (!dirty) return;
     flush();
-    event.preventDefault();
-    event.returnValue = true;
+    warnBeforeUnload(event);
   }
   function onVisibilityChange() { if (document.visibilityState === 'hidden') flush(); }
 
@@ -65,24 +64,9 @@ function libraryDraftSession(recovered: LibraryDraft | null) {
 
 type DraftSession = ReturnType<typeof libraryDraftSession>;
 export const LibraryDraftContext = createContext<DraftSession | null>(null);
-export type LeaveLibraryEditor = (action: () => void, options: { returnFocus: HTMLElement; deferDiscard?: true }) => void;
-
 export function useLibraryLeaveGuard(authenticated: boolean) {
   const [drafts] = useState(() => libraryDraftSession(readLibraryDraft()));
-  const confirm = useConfirmation(authenticated ? 'library-editor' : null);
-
-  const leave: LeaveLibraryEditor = (action, { returnFocus, deferDiscard }) => {
-    if (!drafts.dirty()) { action(); return; }
-    confirm({
-      title: msg('library_draft.leave_title'), message: msg('library_draft.leave_message'),
-      cancelLabel: msg('library_draft.go_back'), actionLabel: msg('library_draft.leave_editor'),
-      returnFocus,
-      onConfirm: () => {
-        if (!deferDiscard) drafts.clear();
-        action();
-      },
-    });
-  };
+  const leave = useConfirmEditorLeave(authenticated ? 'library-editor' : null, drafts.dirty, drafts.clear);
   return { drafts, leave };
 }
 
@@ -95,19 +79,6 @@ export function useLibraryEditorDraft(editor: LibraryEditorDraft, dirty: boolean
   useLayoutEffect(() => { session?.update(draft, setStorageError); }, [session, draft]);
   useLayoutEffect(() => dirty ? session?.watchUnload() : undefined, [session, dirty]);
   return storageError;
-}
-
-export function useLibraryNumberDraft(recovered?: LibraryEditorDraft) {
-  const [values, setValues] = useState<Record<string, string>>(() => recovered?.numbers ?? {});
-  const set = useCallback((field: string, value: string | undefined) => {
-    setValues(previous => {
-      if (previous[field] === value) return previous;
-      if (value !== undefined) return { ...previous, [field]: value };
-      const { [field]: _removed, ...remaining } = previous;
-      return remaining;
-    });
-  }, []);
-  return { values, set, dirty: Object.keys(values).length > 0 };
 }
 
 export function LibraryDraftNotice({ recovered, storageError }: { recovered?: LibraryEditorDraft; storageError?: boolean }) {

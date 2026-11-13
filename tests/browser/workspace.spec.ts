@@ -87,6 +87,7 @@ for (const width of [1280, 820, 801, 800, 390, 320]) {
     await expect(navigation.getByRole('button')).toHaveText(['Story', 'Libraries', 'Settings']);
     await page.getByLabel('Chat title').fill('Discard this title');
     await sidebar.getByRole('button', { name: 'Return without saving', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Leave editor?', exact: true }).getByRole('button', { name: 'Leave editor', exact: true }).click();
     await expect(page.getByLabel('Conversation')).toBeVisible();
     expect(await state()).toEqual(initial);
     await page.getByLabel('Your next turn').fill('A composer draft survives the tools.');

@@ -23,6 +23,7 @@ import { useGenerationHistory } from './useGenerationHistory';
 import { hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
 import { ChatSetup, Libraries, type LibraryTarget } from './Libraries';
 import { LibraryDraftContext, useLibraryLeaveGuard } from './LibraryDraft';
+import { useEditorLeaveGuard } from './EditorLeaveGuard';
 import { Dropdown } from './Controls';
 import { appendContinuation, trimBoundaryNewlines } from '../shared/text';
 import { Memory } from './Memory';
@@ -131,6 +132,8 @@ export function App() {
   const [online, setOnline] = useState(false);
   const connected = online && !connectionWarning;
   const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory' | 'data'>(() => libraryLeave.drafts.recovered() ? 'library' : 'story');
+  const chatSettingsLeave = useEditorLeaveGuard(session?.authenticated && tab === 'settings' ? snapshot?.id ?? null : null);
+  const leaveEditor = tab === 'settings' ? chatSettingsLeave.leave : libraryLeave.leave;
   const visibleTab = useRef(tab);
   visibleTab.current = tab;
   const composerKeyboard = useComposerKeyboard(isIOS && tab === 'story');
@@ -665,11 +668,11 @@ export function App() {
         <details className="context-dropdown" open={contextExpanded} onToggle={event => setContextExpanded(event.currentTarget.open)}><summary>{t("app.context")}<span>{!summariesEnabled ? t("app.summaries_are_disabled") : snapshot.memory.selectedCount ? t('counts.summaries', { count: snapshot.memory.selectedCount }) : t("app.full_history")}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></> : <p className="small muted">{inspectionError || t("app.select_a_connection_to_inspect_input")}</p>}</details>
   </>;
   function signOut(returnFocus: HTMLElement) {
-    libraryLeave.leave(() => void command(async () => {
+    leaveEditor(() => void command(async () => {
       await api('/logout', 'POST', {});
       libraryLeave.drafts.clear();
       setLibraryTarget(null);
-      setTab(current => current === 'library' ? 'story' : current);
+      setTab(current => current === 'library' || current === 'settings' ? 'story' : current);
       setSnapshot(null);
       await refreshSession();
     }), { returnFocus, deferDiscard: true });
@@ -679,9 +682,12 @@ export function App() {
     <header className="topbar">
       <div className="brand"><span className="brand-mark" aria-hidden="true">{t("app.o")}</span><div><strong>{t("app.ore")}</strong><small>{t("app.your_stories_room_to_continue")}</small></div></div>
       <nav className="tabs" aria-label={t("app.workspace")}>
-        <button disabled={!snapshot || (busy && tab === 'library')} aria-current={tab !== 'library' && tab !== 'data' ? 'page' : undefined} onClick={event => libraryLeave.leave(() => setTab('story'), { returnFocus: event.currentTarget })}>{t("app.story")}</button>
-        <button aria-current={tab === 'library' ? 'page' : undefined} onClick={() => { setLibraryTarget(null); setTab('library'); }}>{t("app.libraries")}</button>
-        <button disabled={busy && tab === 'library'} aria-current={tab === 'data' ? 'page' : undefined} onClick={event => libraryLeave.leave(() => setTab('data'), { returnFocus: event.currentTarget })}>{t("app.settings")}</button>
+        <button disabled={!snapshot || (busy && (tab === 'library' || tab === 'settings'))} aria-current={tab !== 'library' && tab !== 'data' ? 'page' : undefined} onClick={event => leaveEditor(() => setTab('story'), { returnFocus: event.currentTarget })}>{t("app.story")}</button>
+        <button disabled={busy && tab === 'settings'} aria-current={tab === 'library' ? 'page' : undefined} onClick={event => {
+          if (tab === 'library') return;
+          leaveEditor(() => { setLibraryTarget(null); setTab('library'); }, { returnFocus: event.currentTarget });
+        }}>{t("app.libraries")}</button>
+        <button disabled={busy && (tab === 'library' || tab === 'settings')} aria-current={tab === 'data' ? 'page' : undefined} onClick={event => leaveEditor(() => setTab('data'), { returnFocus: event.currentTarget })}>{t("app.settings")}</button>
       </nav>
       <div className="chat-details-slot" ref={setChatDetailsTarget} />
       <div className="connection-status" role="img" aria-label={connected ? t("app.connected") : t("app.reconnecting")}><span className={connected ? 'dot online' : 'dot'} /></div>
@@ -838,7 +844,9 @@ export function App() {
         busy={busy} run={command} openChat={openChat} initialTarget={libraryTarget} recoveredDraft={libraryLeave.drafts.recovered()}
         leaveEditor={libraryLeave.leave} clearDraft={libraryLeave.drafts.clear} />
     </LibraryDraftContext.Provider>}
-    {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy || working} run={command} sidebar={sidebar} returnToChat={returnToChat} saved={returnToChat} openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
+    {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library}
+      busy={busy} working={working} run={command} sidebar={sidebar} returnToChat={returnToChat} leaveGuard={chatSettingsLeave}
+      openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
     {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} returnToChat={returnToChat} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><Memory behavior={behaviorEditor} key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} openPins={openPins} preparation={preparing} editPreset={id => { setLibraryTarget({ kind: 'contexts', id }); setTab('library'); }} /></ChatWorkspace>}
     {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} returnToChat={returnToChat} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} disabled={history.loading} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...savedRequestOptions]} /></label><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>
       <div className="actions">{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('latest').then(moved => { if (moved) setGenerationId(''); })}>{t('app.latest_requests')}</button>}{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('newer').then(moved => { if (moved) setGenerationId(''); })}>{t('app.newer_requests')}</button>}{history.older && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('older').then(moved => { if (moved) setGenerationId(''); })}>{t('app.older_requests')}</button>}</div>
