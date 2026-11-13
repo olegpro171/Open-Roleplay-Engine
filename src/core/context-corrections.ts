@@ -1,5 +1,4 @@
 import { message } from '../shared/localization.js';
-import type { Turn } from '../shared/contracts.js';
 import { refKey, type ContextState, type SummaryNode, type SummaryRef } from '../shared/context.js';
 import { AppError } from './errors.js';
 
@@ -14,7 +13,7 @@ export function latestApproved(state: ContextState): SummaryNode[] {
 /** Editorial authority belongs to identities, independently of the selected tree.
  * Old revisions are history; prior context conveys interpretation, not coverage.
  */
-export function correctionProtection(turns: Turn[], state: ContextState) {
+export function correctionProtection(turns: readonly { id: string }[], state: ContextState) {
   const existing = new Set(turns.map(turn => turn.id));
   const corrections = latestApproved(state).filter(node => node.manual && node.turns.some(source => existing.has(source.turnId)));
   const nodes = new Map(state.summaries.map(node => [refKey(node), node]));
@@ -74,7 +73,7 @@ export function correctionProtection(turns: Turn[], state: ContextState) {
 export const correctionDiagnostic = message('diagnostics.correctionRequired');
 export const correctionMessage = correctionDiagnostic.fallback;
 
-export function assertCorrectionSelection(turns: Turn[], state: ContextState): void {
+export function assertCorrectionSelection(turns: readonly { id: string }[], state: ContextState): void {
   if (correctionProtection(turns, state).unresolved.length) throw new AppError(422, 'correction_reconciliation_required', correctionDiagnostic);
 }
 

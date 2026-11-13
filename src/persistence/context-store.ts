@@ -18,6 +18,8 @@ import { emptyContextState, refKey, type SummaryRetry, type ContextJob, type Con
 import type { EngineSnapshot, RequestPreview } from '../shared/contracts.js';
 import { hasPromptMarker } from '../shared/library.js';
 import type { LoreResolution } from '../shared/lorebook.js';
+import { exportSummaryFile, importSummaryState } from '../core/summary-file.js';
+import type { SummaryFile, SummaryImportPreview } from '../shared/summary-file.js';
 
 type JsonRow = { data: string };
 type ReplayRevisions = { sourceRevision: number; selectionRevision: number };
@@ -119,9 +121,12 @@ export class ContextStore {
     }
     this.sqlite.prepare('INSERT INTO context_states (chat_id, revision, data) VALUES (?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET revision=excluded.revision, data=excluded.data').run(chatId, state.revision, JSON.stringify({ selected: state.selected, archivedTurnIds: state.archivedTurnIds }));
   }
+  private insertSummary(chatId: string, node: SummaryNode) {
+    this.sqlite.prepare('INSERT INTO summaries (id, revision, chat_id, data) VALUES (?, ?, ?, ?)').run(node.id, node.revision, chatId, JSON.stringify(node));
+  }
   private saveNode(chatId: string, node: SummaryNode) {
     node.refusalCheck = checkSummaryRefusal(node.text);
-    this.sqlite.prepare('INSERT INTO summaries (id, revision, chat_id, data) VALUES (?, ?, ?, ?)').run(node.id, node.revision, chatId, JSON.stringify(node));
+    this.insertSummary(chatId, node);
   }
   private repairedState(snapshot: EngineSnapshot, node: SummaryNode): ContextState {
     return { ...snapshot.context, revision: snapshot.context.revision + 1,
@@ -546,6 +551,64 @@ export class ContextStore {
     this.applyLayoutCleanup(chatId, deletion);
     this.store.bumpRevision(chatId);
     return { deletedIds: [...deletion.deletedIds], restoredTurnIds: deletion.restoredTurnIds };
+  }
+  exportSummaries(chatId: string, revision: number) {
+    this.store.checkRevision(revision, chatId);
+    const branch = this.store.summaryFileBranch(chatId);
+    return { file: exportSummaryFile(chatId, branch.createdAt, this.savedState(chatId)), branchName: branch.branchName };
+  }
+  importSummaries(chatId: string, revision: number, file: SummaryFile, reviewedToken?: string): SummaryImportPreview {
+    return this.sqlite.transaction(() => {
+      this.store.checkRevision(revision, chatId);
+      this.store.ensureIdle(chatId);
+      this.ensureLayoutReviewClosed(chatId);
+      const branch = this.store.summaryFileBranch(chatId);
+      if (file.branchId !== chatId || file.branchCreatedAt !== branch.createdAt) {
+        throw new AppError(422, 'summary_file_branch', message('summary_file.wrong_branch'));
+      }
+      if (file.archivedTurnIds.length && !branch.contextPresetId) {
+        throw new AppError(422, 'context_required', message('errors.select_a_context_preset_first'));
+      }
+      const token = createHash('sha256').update(JSON.stringify([revision, file])).digest('hex');
+      if (reviewedToken !== undefined && reviewedToken !== token) {
+        throw new AppError(409, 'summary_import_changed', message('summary_file.review_changed'));
+      }
+      const sources = this.store.readTurnSources(chatId);
+      const localIds = new Set(sources.map(source => source.turnId));
+      const missing = new Set<string>();
+      for (const node of file.summaries) {
+        for (const source of node.turns) if (!localIds.has(source.turnId)) missing.add(source.turnId);
+      }
+      if (missing.size && this.sqlite.prepare('SELECT 1 FROM turns WHERE id IN (SELECT value FROM json_each(?)) LIMIT 1').get(JSON.stringify([...missing]))) {
+        throw new AppError(422, 'summary_file_branch', message('summary_file.wrong_branch'));
+      }
+      const imported = importSummaryState(file, sources, new Date().toISOString());
+      const before = this.savedState(chatId);
+      const preview = { token, existingVersions: before.summaries.length, importedVersions: imported.summaries.length,
+        archivedTurns: imported.archivedTurnIds.length };
+      if (reviewedToken === undefined) return preview;
+
+      // Give the replacement its own identities. Historical requests and
+      // preparation frames continue to refer to the results they actually used.
+      const identities = new Map<string, string>();
+      for (const { id } of imported.summaries) if (!identities.has(id)) identities.set(id, randomUUID());
+      const remap = (ref: SummaryRef): SummaryRef => {
+        const id = identities.get(ref.id);
+        if (!id) throw new Error('Missing validated summary identity');
+        return { id, revision: ref.revision };
+      };
+      const removed = new Set(before.summaries.map(node => node.id));
+      if (removed.size) this.deleteSummaryRecords(chatId, removed);
+      for (const node of imported.summaries) {
+        this.insertSummary(chatId, {
+          ...node, ...remap(node), children: node.children.map(remap), prior: node.prior.map(remap),
+          corrections: node.corrections?.map(remap), basedOn: node.basedOn && remap(node.basedOn),
+        });
+      }
+      this.saveState(chatId, { ...imported, selected: imported.selected.map(remap), revision: before.revision + 1 });
+      this.store.bumpRevision(chatId);
+      return preview;
+    })();
   }
   resolveRefusals(chatId: string, revision: number, filterVersion: number, refs: SummaryRef[], action: 'keep' | 'regenerate' | 'delete') {
     return this.sqlite.transaction(() => {

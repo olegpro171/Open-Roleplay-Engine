@@ -60,6 +60,8 @@ import { Languages } from './languages.js';
 import { dirname } from 'node:path';
 import { languageLimits, localeSchema, MessageError } from '../shared/localization.js';
 import { validationMessage } from '../shared/localization-validation.js';
+import { summaryFileBytes, summaryFileSchema, summaryImportCommandSchema, summaryUploadBytes } from '../shared/summary-file.js';
+import { portableDownloadFilename } from '../shared/downloads.js';
 
 const contentSecurityPolicy = (styleNonce?: string) => `default-src 'self'; script-src 'self'; style-src 'self'${styleNonce ? ` 'nonce-${styleNonce}'` : ''}; connect-src 'self'; img-src 'self' data: https: http:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`;
 function loreImport<T>(parse: () => T): T {
@@ -201,6 +203,9 @@ export async function createApp(options: {
     if (status === 413 && request.routeOptions.bodyLimit === transcriptRequestLimit) {
       const localized = message('importErrors.upload_too_large');
       return reply.code(413).send({ code: 'transcript_too_large', message: localized.fallback, localized });
+    }
+    if (status === 413 && request.routeOptions.bodyLimit === summaryUploadBytes) {
+      return reply.code(413).send({ code: 'summary_file_too_large', ...diagnosticMessage(message('summary_file.too_large')) });
     }
     return reply.code(status && status < 500 ? status : 500).send({ code: 'request_failed', ...diagnosticMessage(message('errors.request_could_not_be_completed')) });
   });
@@ -780,6 +785,23 @@ export async function createApp(options: {
   app.post('/api/chats/:chatId/context/clear', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
     store.contexts.clearMemory(chatId(request.params), revision); coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return { ok: true };
+  });
+  app.post('/api/chats/:chatId/context/summaries/export', async request => {
+    const { revision } = z.strictObject({ revision: revisionSchema }).parse(request.body);
+    const { file, branchName } = store.contexts.exportSummaries(chatId(request.params), revision);
+    const bytes = Buffer.from(`${JSON.stringify(file, null, 2)}\n`);
+    if (bytes.length > summaryFileBytes) throw new AppError(413, 'summary_file_too_large', message('summary_file.too_large'));
+    const filename = portableDownloadFilename(branchName ?? 'Main', '-summaries.json');
+    return downloads.add(owner(request.cookies.session), filename, { bytes });
+  });
+  app.post('/api/chats/:chatId/context/summaries/import', { bodyLimit: summaryUploadBytes }, async request => {
+    const { revision, file, token } = summaryImportCommandSchema.parse(request.body);
+    const parsed = summaryFileSchema.safeParse(file);
+    if (!parsed.success) throw new AppError(422, 'invalid_summary_file', message('summary_file.invalid_file'));
+    const id = chatId(request.params);
+    const result = store.contexts.importSummaries(id, revision, parsed.data, token);
+    if (token !== undefined) coordinator.changed({ kind: 'chat', chatId: id, detail: 'state' });
+    return result;
   });
   app.post('/api/chats/:chatId/context/refusals', async request => {
     const input = z.object({ revision: revisionSchema, filterVersion: z.number().int().positive(),

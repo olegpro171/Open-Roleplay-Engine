@@ -47,10 +47,7 @@ export class StoryReader {
           hasPromptMarker(header.sources.prompt, 'summary') && archived.has(latest.id)),
       } : {}) };
       // Freshness needs provenance for all turns, never their prose or variants.
-      const sources = this.store.db.select({ turnId: schema.turns.id, userRevision: schema.turns.userRevision,
-        assistantRevision: sql<number>`coalesce(${schema.responseVariants.sourceRevision}, ${schema.turns.assistantRevision})`, complete: schema.turns.complete,
-      }).from(schema.turns).leftJoin(schema.responseVariants, eq(schema.responseVariants.id, schema.turns.selectedVariantId))
-        .where(eq(schema.turns.chatId, chatId)).all();
+      const sources = this.store.readTurnSources(chatId);
       const stale = staleSummarySources(sources, context);
       const refused = refusalAffected(context);
       const activePreparation = context.jobs.find(job => job.status === 'running');

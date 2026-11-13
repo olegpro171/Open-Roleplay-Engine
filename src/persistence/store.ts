@@ -419,6 +419,16 @@ export class Store {
       },
     };
   }
+  summaryFileBranch(chatId: string) {
+    const { createdAt, settings, branchName } = this.chat(chatId);
+    return { createdAt, branchName, contextPresetId: settings.contextPresetId };
+  }
+  readTurnSources(chatId: string) {
+    return this.db.select({ turnId: schema.turns.id, userRevision: schema.turns.userRevision,
+      assistantRevision: sql<number>`coalesce(${schema.responseVariants.sourceRevision}, ${schema.turns.assistantRevision})`, complete: schema.turns.complete,
+    }).from(schema.turns).leftJoin(schema.responseVariants, eq(schema.responseVariants.id, schema.turns.selectedVariantId))
+      .where(eq(schema.turns.chatId, chatId)).orderBy(asc(schema.turns.position)).all();
+  }
   readTurns(chatId: string, range?: { first: number; last: number }): Turn[] {
     const condition = and(eq(schema.turns.chatId, chatId), range ? gte(schema.turns.position, range.first) : undefined, range ? lte(schema.turns.position, range.last) : undefined);
     const variants = new Map<string, ResponseVariant[]>();
