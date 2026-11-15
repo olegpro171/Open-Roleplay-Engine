@@ -3,7 +3,6 @@ import type { ChatSettings, Connection, Message, PromptEntry, RequestPreview, Tu
 import { AppError } from './errors.js';
 import { hasPromptMarker, promptSchema, promptWarningMessages, type PromptSources } from '../shared/library.js';
 import { emptyContextState, type ContextState, type SummaryNode } from '../shared/context.js';
-import { assertCorrectionSelection } from './context-corrections.js';
 import { selectedContext, sourceOf } from './context.js';
 import { countInput, countText, messageFramingTokens } from './tokens.js';
 import { replaceNameMacros } from './names.js';
@@ -70,7 +69,6 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   // Saved presets are authoritative; legacy inline settings retain their own layout.
   const preset = sources?.prompt ? promptSchema.parse({ name: sources.prompt.name, blocks: sources.prompt.blocks }) : inlineSettingsPrompt(settings.instructions);
   const summariesEnabled = hasPromptMarker(preset, 'summary');
-  if (summariesEnabled && context && !options.allowStale) assertCorrectionSelection(turns, context);
   const resolved = summariesEnabled && context ? selectedContext(turns, context, options.allowStale) : { summaries: [], verbatim: turns };
   const positions = new Map(turns.map((turn, index) => [turn.id, index + 1]));
   const summary = resolved.summaries.map(node => summaryText(node, positions)).join(summarySeparator);

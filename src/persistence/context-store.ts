@@ -7,7 +7,7 @@ import { summariesDeletion, summaryDeletion, summarySuffixDeletion } from '../co
 import { supersededMemoryAlternatives, type MemoryLayoutCleanup } from '../core/memory-layout.js';
 import { checkSummaryRefusal, summaryRefusalCheck, unresolvedRefusal, assertRefusalSelection } from '../core/summary-refusals.js';
 import { summaryRefusalFilterVersion } from '../core/summary-validation.js';
-import { assertCorrectionSelection, correctionDiagnostic, correctionProtection, latestApproved } from '../core/context-corrections.js';
+import { latestApproved } from '../core/context-corrections.js';
 import { savedReplacement } from '../core/context-reuse.js';
 import type { ReplayFrame } from '../core/context-replay.js';
 import { belowMinimumTail, hasChronologicalLevels, nextRepair, nodeFor, repairQueue, replaceSelection, selectedContext, sourceOf } from '../core/context.js';
@@ -159,24 +159,11 @@ export class ContextStore {
   }
   private preparationDeletion(job: ContextJob, snapshot: EngineSnapshot, plan: ContextPlan, replay?: ReplayFrame) {
     if (job.mode !== 'prepare' && job.mode !== 'step') return null;
-    const blockedByCorrection = plan.blockedMessage?.key === correctionDiagnostic.key && !plan.repairCount;
-    if (!plan.next && !blockedByCorrection) return null;
-    if (replay && !replay.maySupersede && !blockedByCorrection) return null;
+    if (!plan.next || replay && !replay.maySupersede) return null;
     const regenerating = this.isRegenerating(job);
     const committed = regenerating ? this.savedState(job.chatId) : snapshot.context;
     const working = regenerating ? { ...snapshot.context, summaries: committed.summaries } : committed;
-    const roots: SummaryRef[] = [];
-    if (blockedByCorrection) {
-      roots.push(...(replay?.correctionConflicts ?? correctionProtection(snapshot.turns, snapshot.context).unresolved));
-      if (!replay) {
-        // In single-step mode an edited dependent can mask the operation that
-        // supersedes its source. Review them in the same cascade.
-        const projected = summariesDeletion(working, roots);
-        const after = { ...snapshot.context, ...projected.after };
-        const nextPlan = contextPlan({ ...snapshot, context: after });
-        if (nextPlan.next) roots.push(...supersededMemoryAlternatives(projected.after, after.selected, nextPlan.next, nextPlan.reusable));
-      }
-    } else if (plan.next) roots.push(...supersededMemoryAlternatives(committed, replay?.snapshot.context.selected ?? snapshot.context.selected, plan.next, plan.reusable));
+    const roots = supersededMemoryAlternatives(committed, replay?.snapshot.context.selected ?? snapshot.context.selected, plan.next, plan.reusable);
     if (!roots.length) return null;
     const deletion = summariesDeletion(committed, roots);
     const preview = { revision: job.sourceRevision, deletedIds: [...deletion.deletedIds], restoredTurnIds: deletion.restoredTurnIds };
@@ -357,8 +344,7 @@ export class ContextStore {
       if (repair) this.discardCandidates(job.id);
       this.saveNode(job.chatId, node);
       let selectionRevision = snapshot.context.revision;
-      // A replay can save an earlier batch before reaching a later approved correction.
-      if (after && (!replay || this.canActivateProgress(job, snapshot, after))) {
+      if (after && (!replay || !this.isRegenerating(job))) {
         this.saveState(job.chatId, after, job.generationId);
         selectionRevision = after.revision;
       }
@@ -376,7 +362,7 @@ export class ContextStore {
       const job = this.job(id), snapshot = this.current(job);
       this.checkReplay(job, snapshot, frame);
       const state = this.changedReplaySelection(snapshot, frame);
-      if (!state || !this.canActivateProgress(job, snapshot, state)) return null;
+      if (!state || this.isRegenerating(job)) return null;
       this.checkReplayInput(snapshot, state, frame);
       this.saveState(job.chatId, state);
       const updatedJob = this.bump({ ...job, reusedCount, working: this.workingEstimate(frame.plan) });
@@ -409,7 +395,6 @@ export class ContextStore {
   private publishReplay(job: ContextJob, snapshot: EngineSnapshot, frame: ReplayFrame) {
     const changed = this.changedReplaySelection(snapshot, frame);
     const state = changed ?? snapshot.context;
-    assertCorrectionSelection(snapshot.turns, state);
     if (!frame.plan.ready || frame.plan.inputTokens > frame.plan.effectiveLimit) {
       throw new AppError(409, 'stale_context_result', message("errors.this_memory_operation_is_no_longer_eligible"));
     }
@@ -424,10 +409,6 @@ export class ContextStore {
     return { ...snapshot.context, selected, archivedTurnIds, revision: snapshot.context.revision + 1 };
   }
 
-  private canActivateProgress(job: ContextJob, snapshot: EngineSnapshot, state: ContextState): boolean {
-    return !this.isRegenerating(job) && !correctionProtection(snapshot.turns, state).unresolved.length;
-  }
-
   private measureReplaySelection(snapshot: EngineSnapshot, state: ContextState): number {
     const { summaries } = selectedContext(snapshot.turns, state);
     const preset = snapshot.context.preset;
@@ -435,7 +416,6 @@ export class ContextStore {
       || hasPromptMarker(snapshot.sources.prompt, 'messages') && belowMinimumTail(snapshot.turns, state, preset.minTail)) {
       throw new AppError(409, 'stale_context_result', message("errors.this_memory_operation_is_no_longer_eligible"));
     }
-    // Coverage and freshness were checked above. Measure even when a later correction is still pending.
     return assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, state,
       { validateLimits: false, allowStale: true, lore: snapshot.loreResolution, continuationTurnId: snapshot.continuationTurnId }).budget.inputTokens;
   }
@@ -511,6 +491,8 @@ export class ContextStore {
         else if (job.sourceRevision !== revision) this.discardCandidates(id);
         const current = this.job(id), updated = this.store.engineSnapshot(job.chatId);
         const remaining = repairQueue(updated.turns, updated.context).length;
+        // Older repair reviews may have been opened solely for an inactive manual edit.
+        if (action === 'regenerate' && !remaining && job.sourceRevision === revision) this.discardCandidates(id);
         this.saveJob(this.bump({ ...current, config: updated.context.preset!, status: remaining ? 'running' : 'succeeded', error: null, errorMessage: undefined }));
       }
       const current = this.job(id);

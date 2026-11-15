@@ -119,6 +119,32 @@ it('replaces all versions and accepts edited layered memory against the current 
   expect(f.calls).toBe(3);
 });
 
+it('round-trips retained manual versions beside an empty selection', async () => {
+  const f = fixture();
+  await f.step();
+  const before = f.state();
+  const summary = before.context.selected[0];
+  const text = 'Mira kept the brass key.';
+  f.store.contexts.editSummary(f.chatId, before.revision, summary, text);
+  const { settings, revision } = f.state();
+  const { title, connectionId, promptId, characterId, personaId, contextPresetId } = settings;
+  f.store.updateChat(revision, f.chatId, { title, connectionId: connectionId ?? null, promptId: promptId ?? 'default', characterId: characterId ?? null, personaId: personaId ?? null, contextPresetId, targetInputTokens: 10_000 });
+  const { jobId } = f.coordinator.context.start(f.chatId, f.state().revision, randomUUID(), 'prepare');
+  await expect.poll(() => f.store.contexts.job(jobId).status).toBe('succeeded');
+
+  const file = f.exportFile();
+  expect(file).toMatchObject({ selected: [], archivedTurnIds: [] });
+  const current = f.state();
+  const review = f.store.contexts.importSummaries(f.chatId, current.revision, file);
+  expect(review).toMatchObject({ importedVersions: 2, archivedTurns: 0 });
+  f.store.contexts.importSummaries(f.chatId, current.revision, file, review.token);
+  const restored = f.state();
+  expect(restored.context).toMatchObject({ selected: [], archivedTurnIds: [] });
+  expect(restored.context.summaries.find(node => node.manual)).toMatchObject({ text, revision: 1 });
+  expect(restored.turns).toEqual(before.turns);
+  expect(f.calls).toBe(1);
+});
+
 it('rejects invalid references and stale or tampered reviews and rolls back a failed replace', async () => {
   const f = fixture();
   const step = await f.step();

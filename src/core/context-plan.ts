@@ -8,7 +8,7 @@ import { hasPromptMarker } from '../shared/library.js';
 import { assembleRequest, estimateInputTokens, summarySeparator, summaryText } from './prompt.js';
 import { countInput, countText } from './tokens.js';
 import { savedReplacement } from './context-reuse.js';
-import { correctionProtection, correctionMessage, correctionDiagnostic, latestApproved } from './context-corrections.js';
+import { latestApproved } from './context-corrections.js';
 import { repairInputs } from './context-repair.js';
 import { modelText } from './model-text.js';
 import { assertCleanSummaryInput, refusalAffected } from './summary-refusals.js';
@@ -46,7 +46,6 @@ export function contextPlan(snapshot: EngineSnapshot): ContextPlan {
   let next: ContextOperation | null = null, blocked: string | null = null;
   if (state.selected.some(ref => refused.has(refKey(ref)))) ({ blocked, blockedMessage } = blockedText(message('refusals.resolve_before_using_memory')));
   else if (stale.length || changedMembership) ({ blocked, blockedMessage } = blockedText(message("diagnostics.selected_memory_is_out_of_date_generate_a")));
-  else if (correctionProtection(snapshot.turns, state).unresolved.length) ({ blocked, blockedMessage } = blockedText(correctionDiagnostic));
   else if (state.preset && !hasPromptMarker(snapshot.sources.prompt, 'messages')) {
     if (request.budget.inputTokens > effectiveLimit) {
       next = required <= effectiveLimit ? rankedPromotions(state.selected.map(ref => nodeFor(state, ref)!), state.preset, sizes)[0] ?? null : null;
@@ -98,7 +97,6 @@ export function summaryRequest(snapshot: EngineSnapshot, operation: ContextOpera
       previous_summary: modelText(inputs.old.text), previously_manually_corrected: inputs.old.manual,
       coverage_unchanged: inputs.structureUnchanged, previous_inputs_available: inputs.known,
       changes: inputs.changes.map(change => ({ ...change, before: change.before === null ? null : modelText(change.before), after: change.after === null ? null : modelText(change.after) })),
-      ...(operation.reconcile?.length ? { reconciliation: 'The supplied manual corrections overlap this memory. Reconcile them with the existing summary. Do not silently prefer one correction or discard editorial content. Make conflicts explicit for user review; this result requires approval.' } : {}),
     };
     const messages: Message[] = [{ role: 'system', content: instructions }, { role: 'user', content: JSON.stringify(payload) }];
     const physicalInput = connection.contextWindow - connection.maxOutputTokens;
@@ -112,9 +110,6 @@ export function summaryRequest(snapshot: EngineSnapshot, operation: ContextOpera
       budget: { ...measurement, targetInputTokens: physicalInput, reservedOutputTokens: connection.maxOutputTokens, contextWindow: connection.contextWindow },
     } };
   }
-  const protection = correctionProtection(snapshot.turns, snapshot.context);
-  const proposed = { id: 'proposed', revision: 0, level: operation.level, text: '', turns: turns.map(sourceOf), children: operation.children, prior: [], approved: false, manual: false, createdAt: '' };
-  if (protection.missingFor(proposed).length) throw new AppError(422, 'correction_reconciliation_required', correctionMessage);
   const source = operation.level === 1 ? turns.map(turn => ({ turn: snapshot.turns.indexOf(turn) + 1, user: modelText(turn.user.text), assistant: modelText(turn.assistant.text) })) : operation.children.map(summaryInput);
   const sourceMessage: Message = { role: 'user', content: JSON.stringify({ task: 'Summarize only the supplied sources.', sources: source }) };
   const messages: Message[] = [{ role: 'system', content: instructions }, sourceMessage];

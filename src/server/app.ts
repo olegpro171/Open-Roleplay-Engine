@@ -703,7 +703,7 @@ export async function createApp(options: {
         state = { ...snapshot.context, ...refreshContext({ ...snapshot, loreResolution }, { allowOverflowFallback: true }).state };
       } catch (error) {
         // A saved-state planning conflict can be resolved later in Memory.
-        // Preserve the valid fork prefix and any compatible saved corrections.
+        // Preserve the valid fork prefix and its saved dependencies.
         if (!(error instanceof AppError) || error.status !== 422 || error.code === 'invalid_context') throw error;
       }
     }

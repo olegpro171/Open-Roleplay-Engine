@@ -2,7 +2,7 @@ import { t, useLocale, locale } from './localization';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChatToolsSnapshot } from '../shared/contracts';
 import { refKey, type SummaryNode } from '../shared/context';
-import { correctionProtection } from '../core/context-corrections';
+import { selectionRepresents } from '../core/context-corrections';
 import { staleSummaries } from '../core/context';
 import { hasPromptMarker } from '../shared/library';
 import { Dropdown } from './Controls';
@@ -24,15 +24,11 @@ export function SummaryInspection({ snapshot, node, historical, selected, locked
   const versions = snapshot.context.summaries.filter(version => version.id === node.id && version.approved).sort((a, b) => b.revision - a.revision);
   const latest = versions[0]?.revision === node.revision;
   const stale = staleSummaries(snapshot.turns, snapshot.context).has(refKey(node));
-  const protection = correctionProtection(snapshot.turns, snapshot.context);
-  const represented = snapshot.context.selected.some(ref => {
-    const summary = snapshot.context.summaries.find(summary => refKey(summary) === refKey(ref));
-    return summary && protection.represented(summary).has(refKey(node));
-  });
+  const represented = selectionRepresents(snapshot.context, node);
   const summariesEnabled = hasPromptMarker(snapshot.sources.prompt, 'summary');
   const directlySelected = snapshot.context.selected.some(ref => refKey(ref) === summaryKey);
   const status = !latest ? t("summary_inspection.historical_version_editing_uses_the_current_approved")
-    : node.manual && (!represented || stale) ? t("summary_inspection.correction_awaiting_reconciliation_use_repair_summaries_for")
+    : represented && stale && summariesEnabled ? t("summary_inspection.stale_selected_dependency")
     : represented ? t(summariesEnabled
       ? directlySelected ? "summary_inspection.represented_in_the_saved_model_input" : "summary_inspection.represented_in_input_through_higher_summary"
       : directlySelected ? "summary_inspection.represented_in_saved_memory_summaries_are_disabled" : "summary_inspection.represented_in_memory_through_higher_summary")

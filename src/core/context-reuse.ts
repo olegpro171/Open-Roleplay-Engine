@@ -1,7 +1,6 @@
 import type { EngineSnapshot, Turn } from '../shared/contracts.js';
 import { refKey, type ContextOperation, type ContextState, type SummaryNode } from '../shared/context.js';
 import { replaceSelection, selectedContext, staleSummaries } from './context.js';
-import { correctionProtection } from './context-corrections.js';
 import { assembleRequest } from './prompt.js';
 import { refusalAffected } from './summary-refusals.js';
 
@@ -24,14 +23,11 @@ export function savedSummaries(turns: Turn[], state: ContextState): SummaryNode[
 export function savedReplacement(snapshot: EngineSnapshot, operation: ContextOperation): { node: SummaryNode; state: ContextState; inputAfter: number } | null {
   const { connection } = snapshot;
   if (operation.repair || !connection) return null;
-  const protection = correctionProtection(snapshot.turns, snapshot.context);
-  if (protection.unresolved.length) return null;
   selectedContext(snapshot.turns, snapshot.context);
   const measure = (state: ContextState) => assembleRequest(connection, snapshot.settings, snapshot.turns, snapshot.sources, state,
     { validateLimits: false, lore: snapshot.loreResolution, continuationTurnId: snapshot.continuationTurnId }).budget.inputTokens;
   const inputBefore = measure(snapshot.context), key = operationKey(operation);
   for (const node of savedSummaries(snapshot.turns, snapshot.context)) {
-    if (protection.missingFor(node).length) continue;
     if (operationKey({ level: node.level, turnIds: node.turns.map(source => source.turnId), children: node.children }) !== key) continue;
     const state = { ...replaceSelection(snapshot.context, operation, node), summaries: snapshot.context.summaries };
     selectedContext(snapshot.turns, state);

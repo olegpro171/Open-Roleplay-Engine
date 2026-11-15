@@ -1,13 +1,12 @@
 import { limitationText, message } from '../shared/localization.js';
 import type { EngineSnapshot } from '../shared/contracts.js';
-import { refKey, type ContextRefresh, type ContextState, type SummaryNode } from '../shared/context.js';
+import { type ContextRefresh, type ContextState, type SummaryNode } from '../shared/context.js';
 import { AppError } from './errors.js';
-import { hasChronologicalLevels, selectedContext, staleSummaries } from './context.js';
+import { hasChronologicalLevels, selectedContext } from './context.js';
 import { contextPlan } from './context-plan.js';
 import { savedSummaries } from './context-reuse.js';
 import { planSavedSelection, replaySavedPressure } from './context-saved-plan.js';
 import { assembleRequest, managedInputCosts } from './prompt.js';
-import { assertCorrectionSelection, correctionMessage, correctionProtection } from './context-corrections.js';
 import { hasPromptMarker } from '../shared/library.js';
 
 /** Explicit re-selection only: never generates, deletes or edits a summary. */
@@ -24,35 +23,19 @@ export function refreshContext(snapshot: EngineSnapshot, options: { allowOverflo
   const inputBefore = measure(original);
   const before = { selected: original.selected, archivedTurnIds: original.archivedTurnIds };
   const hasMessages = hasPromptMarker(sources.prompt, 'messages');
-  const protection = correctionProtection(turns, original);
-  const summaryOnly = !hasMessages && !protection.unresolved.length;
+  const summaryOnly = !hasMessages;
   if (summaryOnly && inputBefore <= limit) {
     return { state: original, report: { before, after: before, inputBefore, inputAfter: inputBefore, verbatimBefore: 0, verbatimAfter: 0,
       changed: false, protectedSummaries: 0, limited: false } };
   }
 
-  const stale = staleSummaries(turns, original);
-  if (protection.corrections.some(node => stale.has(refKey(node)))) {
-    throw new AppError(422, 'correction_reconciliation_required', correctionMessage);
-  }
-  const positions = new Map(turns.map((turn, index) => [turn.id, index + 1]));
-  const correctionEnd = (node: SummaryNode) => positions.get(node.turns.at(-1)?.turnId ?? '') ?? 0;
-  const lastCorrection = protection.corrections.reduce<SummaryNode | null>((last, node) =>
-    !last || correctionEnd(node) > correctionEnd(last) ? node : last, null);
-  const protectedCutoff = lastCorrection ? correctionEnd(lastCorrection) : 0;
   const completed = turns.filter(turn => turn.complete).length;
   // Summary-only prompts cannot restore detail to Messages or extract unused turns.
   const lastCutoff = summaryOnly ? original.archivedTurnIds.length : Math.max(0, completed - config.minTail);
-  const firstCutoff = summaryOnly ? lastCutoff : protectedCutoff;
-  if (lastCorrection && protectedCutoff > lastCutoff) {
-    throw new AppError(422, 'manual_tail_conflict', message("errors.the_manually_edited_summary_for_turns_must_remain", {
-      value: String(positions.get(lastCorrection.turns[0]?.turnId)), value2: String(protectedCutoff), minTail: String(config.minTail),
-    }));
-  }
-
-  const available = savedSummaries(turns, original).filter(node => !protection.missingFor(node).length);
+  const firstCutoff = summaryOnly ? lastCutoff : 0;
+  const available = savedSummaries(turns, original);
   const { tailInput, summaryFrame } = managedInputCosts(connection, settings, turns, sources, snapshot.loreResolution);
-  const originalValid = !protection.unresolved.length && original.archivedTurnIds.length <= lastCutoff && hasChronologicalLevels(current.summaries);
+  const originalValid = original.archivedTurnIds.length <= lastCutoff && hasChronologicalLevels(current.summaries);
   const candidateFor = (nodes: SummaryNode[] | null) => {
     if (!nodes) return null;
     const state = { ...original, selected: nodes.map(({ id, revision }) => ({ id, revision })),
@@ -64,7 +47,7 @@ export function refreshContext(snapshot: EngineSnapshot, options: { allowOverflo
   );
   const baseline = summaryOnly
     ? originalValid ? current.summaries : null
-    : firstCutoff === 0 ? [] : planSavedSelection(turns, available, original.selected, firstCutoff, lastCutoff, tailInput, summaryFrame, Infinity);
+    : [];
   const replay = baseline && candidateFor(
     replaySavedPressure(turns, available, baseline, lastCutoff, tailInput, summaryFrame, limit),
   );
@@ -73,7 +56,6 @@ export function refreshContext(snapshot: EngineSnapshot, options: { allowOverflo
   const planned = replay && replay.input <= limit ? replay
     : originalValid && inputBefore <= limit ? { state: original, input: inputBefore }
     : chooseSaved(lastCutoff, replay?.state.archivedTurnIds.length);
-  if (!planned && protection.unresolved.length) throw new AppError(422, 'correction_reconciliation_required', correctionMessage);
   let state = original, inputAfter = inputBefore;
   if (planned && (planned.input <= limit || options.allowOverflowFallback && (!originalValid || planned.input < inputBefore))) {
     state = planned.state;
@@ -99,17 +81,13 @@ export function refreshContext(snapshot: EngineSnapshot, options: { allowOverflo
     }
   }
   selectedContext(turns, state);
-  assertCorrectionSelection(turns, state);
   const after = { selected: state.selected, archivedTurnIds: state.archivedTurnIds };
   const changed = JSON.stringify(before) !== JSON.stringify(after);
   const limited = inputAfter > limit;
   return { state: { ...state, revision: original.revision + Number(changed) }, report: {
     before, after, inputBefore, inputAfter,
     verbatimBefore: hasMessages ? current.verbatim.length : 0, verbatimAfter: hasMessages ? turns.length - state.archivedTurnIds.length : 0,
-    changed, protectedSummaries: protection.corrections.length, limited: limited || Boolean(lastCorrection),
-    ...(limited ? { ...limitationText(message("diagnostics.saved_summaries_could_not_produce_a_finer_fitting")) }
-      : lastCorrection ? { ...limitationText(message("diagnostics.the_manual_correction_for_turns_remains_represented_that", {
-        value: String(positions.get(lastCorrection.turns[0]?.turnId)), value2: String(protectedCutoff),
-      })) } : {}),
+    changed, protectedSummaries: 0, limited,
+    ...(limited ? limitationText(message("diagnostics.saved_summaries_could_not_produce_a_finer_fitting")) : {}),
   } };
 }

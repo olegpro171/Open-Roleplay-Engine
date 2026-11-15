@@ -17,7 +17,6 @@ import { defaultContextPreset, preparationRunLimit, refKey, type ContextJob, typ
 import { contextPlan, summaryRequest } from '../src/core/context-plan.js';
 import { repairInputs } from '../src/core/context-repair.js';
 import { repairQueue, selectedContext, sourceOf } from '../src/core/context.js';
-import { correctionProtection } from '../src/core/context-corrections.js';
 import { summaryRefusalFilterVersion } from '../src/core/summary-validation.js';
 import { refusalFindings } from '../src/core/summary-refusals.js';
 import { summarySuffixDeletion } from '../src/core/context-delete.js';
@@ -392,90 +391,94 @@ describe('summary deletion', () => {
   });
 });
 
-describe('retained editorial authority', () => {
-  it('selects a valid inactive direct correction without substituting its uncorrected children', async () => {
-    const f = fixture(24); await f.idle(f.start());
-    const original = f.state();
-    const source = original.context.summaries.find(node => node.level === 2)!;
-    const alternative = retainedAlternative(f, source);
-    const correction = 'Author correction: Mira kept a silver duplicate in her boot.';
-    const edited = f.store.contexts.editSummary(f.chatId, f.state().revision, alternative, source.text + ' ' + correction);
-    f.store.updateChat(f.state().revision, f.chatId, { title: 'Imported', targetInputTokens: 50_000, connectionId: f.state().settings.connectionId ?? null, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId });
-    const calls = f.calls.length, job = await f.idle(f.start());
-    expect(job).toMatchObject({ status: 'succeeded', stepCount: 0 });
-    expect(f.state().context.selected).toEqual([edited]);
-    expect(f.state().context.archivedTurnIds).toEqual(source.turns.map(turn => turn.turnId));
+describe('manual summary edits', () => {
+  it('replaces an edited promotion with finer memory and then originals as the target rises', async () => {
+    const f = fixture(24);
+    expect((await f.idle(f.start())).status).toBe('succeeded');
+    const before = f.state();
+    const parent = selectedContext(before.turns, before.context).summaries.filter(node => node.level === 2).at(-1);
+    const connection = before.connection;
+    if (!connection || parent?.level !== 2) throw new Error('Expected a selected Level 2 summary');
+    const edit = 'Mira kept a silver duplicate in her boot.';
+    const edited = f.store.contexts.editSummary(f.chatId, before.revision, parent, edit);
+    const end = before.turns.findIndex(turn => turn.id === parent.turns.at(-1)?.turnId) + 1;
+    const archivedTurnIds = before.turns.slice(0, end).map(turn => turn.id);
+    const prefix = new Set(archivedTurnIds);
+    const children = before.context.summaries.filter(node => node.level === 1 && node.turns.every(turn => prefix.has(turn.turnId)))
+      .map(({ id, revision }) => ({ id, revision }));
+    const childSelection = { ...before.context, selected: children, archivedTurnIds };
+    const target = assembleRequest(connection, before.settings, before.turns, before.sources, childSelection, { validateLimits: false }).budget.inputTokens;
+    const updateTarget = (targetInputTokens: number) => {
+      const { title, connectionId, promptId, characterId, personaId, contextPresetId } = f.state().settings;
+      f.store.updateChat(f.state().revision, f.chatId, { title, connectionId: connectionId ?? null, promptId: promptId ?? 'default', characterId: characterId ?? null, personaId: personaId ?? null, contextPresetId, targetInputTokens });
+    };
+    const calls = f.calls.length;
+    updateTarget(target);
+    const prepared = await f.idle(f.start());
+    expect(prepared, prepared.error ?? '').toMatchObject({ status: 'succeeded', generatedCount: 0 });
+    const finer = f.state();
+    expect(finer.context.selected).toEqual(children);
+    const request = assembleRequest(connection, finer.settings, finer.turns, finer.sources, finer.context);
+    expect(request.budget.inputTokens).toBe(target);
+    expect(JSON.stringify(request.body)).not.toContain(edit);
+
+    updateTarget(50_000);
+    expect(await f.idle(f.start())).toMatchObject({ status: 'succeeded', stepCount: 0 });
     await f.resume();
+    const restored = f.state();
+    expect(restored.context.selected).toEqual([]);
+    expect(restored.context.archivedTurnIds).toEqual([]);
+    expect(restored.context.summaries).toEqual(finer.context.summaries);
+    expect(restored.context.summaries.find(node => refKey(node) === refKey(edited))).toMatchObject({ text: edit, manual: true });
+    expect(restored.turns).toEqual(before.turns);
     expect(f.calls).toHaveLength(calls);
-    expect(f.state().context.selected).toEqual([edited]);
-    expect(correctionProtection(f.state().turns, f.state().context).unresolved).toEqual([]);
-    expect(f.state().context.summaries.find(node => refKey(node) === refKey(edited))?.text).toContain(correction);
+
+    updateTarget(before.settings.targetInputTokens);
+    expect(await f.idle(f.start())).toMatchObject({ status: 'succeeded', generatedCount: 0 });
+    expect(f.state().context.selected).toContainEqual(edited);
+    expect(f.calls).toHaveLength(calls);
   });
 
-  it('repairs a stale retained L2 baseline without selecting it, and rejects bypass through automatic or single-step preparation', async () => {
-    const f = fixture(24); await f.idle(f.start());
+  it('leaves an unused stale edit out of Prepare, single-step selection, repair and Send', async () => {
+    const f = fixture(24);
+    expect((await f.idle(f.start())).status).toBe('succeeded');
     const source = f.state().context.summaries.find(node => node.level === 2)!;
     const child = f.state().context.summaries.find(node => refKey(node) === refKey(source.children[0]))!;
     const copiedChild = retainedAlternative(f, child);
-    const correction = 'Editorial baseline: Mira kept the key; her sister has a duplicate.';
-    const alternative = retainedAlternative(f, source, { manual: true, text: correction, children: [copiedChild, ...source.children.slice(1)] });
-    retainedAlternative(f, copiedChild, { id: copiedChild.id, revision: 1, basedOn: copiedChild, text: 'Mira hid the key beneath the floor.' });
-    const before = f.state(), calls = f.calls.length;
-    expect((await f.idle(f.start())).error).toMatch(/correction.*reconciliation/i);
-    expect((await f.idle(f.start('step'))).status).toBe('failed');
+    const correction = retainedAlternative(f, source, {
+      manual: true, text: 'Mira kept the key; her sister has a duplicate.', children: [copiedChild, ...source.children.slice(1)],
+    });
+    f.store.contexts.editSummary(f.chatId, f.state().revision, copiedChild, 'Mira hid the key beneath the floor.');
+    const before = f.state();
+    expect(contextPlan(before).repairCount).toBe(0);
+
+    const { title, connectionId, promptId, characterId, personaId, contextPresetId } = before.settings;
+    f.store.updateChat(before.revision, f.chatId, { title, connectionId: connectionId ?? null, promptId: promptId ?? 'default', characterId: characterId ?? null, personaId: personaId ?? null, contextPresetId, targetInputTokens: 50_000 });
+    const calls = f.calls.length;
+    expect(await f.idle(f.start())).toMatchObject({ status: 'succeeded', stepCount: 0 });
+    expect(await f.idle(f.start('step'))).toMatchObject({ status: 'succeeded', stepCount: 0 });
+    expect(f.state().context.selected).toEqual([]);
+    expect(f.state().context.summaries).toEqual(before.context.summaries);
     expect(f.calls).toHaveLength(calls);
+
     f.coordinator.start(f.state().revision, randomUUID(), 'Leon waits.', f.chatId);
-    await expect.poll(() => f.state().generations[0]?.status).toBe('failed');
-    expect(f.calls).toHaveLength(calls);
-    expect(f.state().context.selected).toEqual(before.context.selected);
-    const job = f.start('repair');
-    expect((await f.idle(job)).status).toBe('awaiting_review');
-    const step = f.store.contexts.steps(job).at(-1)!;
-    expect(step.operation.repair).toMatchObject({ id: alternative.id });
-    expect(JSON.stringify(step.request?.body)).toContain(correction);
-    expect(JSON.stringify(step.request?.body)).toContain('Mira hid the key beneath the floor.');
-    expect(f.state().context.selected).toEqual(before.context.selected);
-    f.coordinator.context.repairAction(job, f.state().revision, randomUUID(), 'close');
-    expect(f.state().context.summaries.find(node => refKey(node) === refKey(alternative))?.text).toBe(correction);
-    expect(f.state().context.summaries.some(node => !node.approved)).toBe(false);
-  });
-
-  it('reviews conflicting corrected identities together even when the model returns exactly unchanged text', async () => {
-    const f = fixture(24); await f.idle(f.start());
-    const parent = f.state().context.summaries.find(node => refKey(node) === refKey(f.state().context.selected[0]))!;
-    const first = f.store.contexts.editSummary(f.chatId, f.state().revision, parent, 'Parent correction: Mira owns the key.');
-    const childSource = f.state().context.summaries.find(node => node.level === 1 && node.turns[0].turnId === parent.turns[0].turnId)!;
-    const child = retainedAlternative(f, childSource, { manual: true, text: 'Child correction: Leon owns the key.' });
-    const before = f.state(), calls = f.calls.length;
-    expect((await f.idle(f.start())).error).toMatch(/repair|reconciliation/i);
-    f.setMode('unchanged');
-    const id = f.start('repair');
-    expect((await f.idle(id)).status).toBe('awaiting_review');
-    const step = f.store.contexts.steps(id).at(-1)!;
-    expect(step.operation).toMatchObject({ repair: first, reconcile: [{ id: child.id, revision: child.revision }] });
-    const body = JSON.stringify(step.request?.body);
-    expect(body).toContain('Parent correction: Mira owns the key.');
-    expect(body).toContain(child.text);
+    await expect.poll(() => f.state().generations[0]?.status).toBe('succeeded');
     expect(f.calls).toHaveLength(calls + 1);
-    expect(f.state().context.selected).toEqual(before.context.selected);
-    const beforeRestart = f.calls.length;
-    await f.resume();
-    expect(f.calls).toHaveLength(beforeRestart);
-    expect(f.store.contexts.job(id).status).toBe('awaiting_review');
-    f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'approve', 'Reviewed: Mira owns the key; Leon borrows it.');
-    expect((await f.idle(id)).status).toBe('succeeded');
-    expect(correctionProtection(f.state().turns, f.state().context).unresolved).toEqual([]);
-    const approved = f.state().context.summaries.find(node => node.id === parent.id && node.approved && node.text.startsWith('Reviewed:'))!;
-    expect(approved.corrections).toContainEqual({ id: child.id, revision: child.revision });
-    const callCount = f.calls.length;
-    expect((await f.idle(f.start())).status).toBe('succeeded');
-    expect(f.calls).toHaveLength(callCount);
+    expect(f.calls.at(-1)?.request.body.model).toBe('story-model');
+    expect(JSON.stringify(f.calls.at(-1)?.request.body)).not.toContain(correction.text);
+    expect(f.state().context.summaries).toEqual(before.context.summaries);
   });
 
-  it('preserves editorial state across cancellation, stale review and a failed approval transaction', async () => {
+  it('repairs an existing correction dependency across cancellation, stale review and a failed approval transaction', async () => {
     const f = fixture(24); await f.idle(f.start());
     const source = f.state().context.summaries.find(node => node.level === 1)!;
     const correction = retainedAlternative(f, source, { manual: true, text: 'Author correction: Mira kept a silver duplicate.' });
+    const consumer = selectedContext(f.state().turns, f.state().context).summaries.at(-1);
+    if (!consumer) throw new Error('Expected a selected summary');
+    // Older reviewed repairs could explicitly consume a manual correction.
+    f.store.sqlite.prepare('UPDATE summaries SET data = ? WHERE chat_id = ? AND id = ? AND revision = ?')
+      .run(JSON.stringify({ ...consumer, corrections: [{ id: correction.id, revision: correction.revision }] }), f.chatId, consumer.id, consumer.revision);
+    const firstEdit = f.store.contexts.editSummary(f.chatId, f.state().revision, correction, correction.text + ' It is brass.');
     const obsolete = retainedAlternative(f, source, { turns: source.turns.map(turn => ({ ...turn, userRevision: 999 })) });
     const other = f.store.createChat({ title: 'Independent', targetInputTokens: 500, connectionId: null, promptId: 'default', characterId: null, personaId: null });
     const untouched = f.store.snapshot(other), before = f.state().context.selected;
@@ -488,15 +491,15 @@ describe('retained editorial authority', () => {
     expect((await f.idle(cancelled)).status).toBe('cancelled');
     expect(f.state().context.selected).toEqual(before);
     expect(f.state().context.summaries.some(node => !node.approved)).toBe(false);
-    f.setMode('unchanged');
+    f.setMode('near');
     const id = f.start('repair');
     expect((await f.idle(id)).status).toBe('awaiting_review');
-    const current = f.store.contexts.editSummary(f.chatId, f.state().revision, correction, correction.text + ' It opens the cellar.');
+    const current = f.store.contexts.editSummary(f.chatId, f.state().revision, firstEdit, correction.text + ' It opens the cellar.');
     expect(() => f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'approve')).toThrow(/changed/i);
     f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'regenerate');
     expect((await f.idle(id)).status).toBe('awaiting_review');
     const step = f.store.contexts.steps(id).at(-1)!;
-    expect(step.operation.reconcile).toContainEqual(current);
+    expect(step.operation.repair).toEqual({ id: consumer.id, revision: consumer.revision });
     expect(JSON.stringify(step.request?.body)).toContain('It opens the cellar.');
     const pending = f.state();
     f.store.sqlite.exec("CREATE TRIGGER reject_editorial_approval BEFORE UPDATE ON context_states BEGIN SELECT RAISE(ABORT, 'synthetic editorial write failure'); END;");
@@ -506,9 +509,35 @@ describe('retained editorial authority', () => {
     f.store.sqlite.exec('DROP TRIGGER reject_editorial_approval');
     f.coordinator.context.repairAction(id, pending.revision, command, 'approve');
     expect((await f.idle(id)).status).toBe('succeeded');
-    expect(correctionProtection(f.state().turns, f.state().context).unresolved).toEqual([]);
+    const repaired = selectedContext(f.state().turns, f.state().context).summaries.at(-1);
+    expect(repaired?.corrections).toEqual([current]);
     expect(f.store.snapshot(other)).toEqual(untouched);
     expect(f.state().context.summaries.find(node => refKey(node) === refKey(correction))?.text).toBe(correction.text);
+  });
+
+  it('retires a legacy inactive edit repair on Regenerate when it has no required work', async () => {
+    const f = fixture(8);
+    await f.idle(f.start('step'));
+    const before = f.state();
+    const text = 'Mira kept the spare key.';
+    const edited = f.store.contexts.editSummary(f.chatId, before.revision, before.context.selected[0], text);
+    f.store.editPart(f.state().revision, before.turns[0].id, 'user', 'Mira loaned the key to Leon.', f.chatId);
+    const id = f.start('repair');
+    expect((await f.idle(id)).status).toBe('awaiting_review');
+    const step = f.store.contexts.steps(id).at(-1)!;
+
+    // The old policy could produce this review even with no active summaries.
+    f.store.sqlite.prepare('UPDATE context_states SET data = ? WHERE chat_id = ?')
+      .run(JSON.stringify({ selected: [], archivedTurnIds: [] }), f.chatId);
+    await f.resume();
+    expect(f.store.contexts.job(id).status).toBe('awaiting_review');
+    const calls = f.calls.length;
+    f.coordinator.context.repairAction(id, f.state().revision, randomUUID(), 'regenerate');
+    expect((await f.idle(id)).status).toBe('succeeded');
+    expect(f.store.contexts.steps(id).at(-1)).toMatchObject({ id: step.id, status: 'discarded', result: null });
+    expect(f.state().context.summaries.find(node => refKey(node) === refKey(edited))).toMatchObject({ text, manual: true });
+    expect(f.state().context.summaries.every(node => node.approved)).toBe(true);
+    expect(f.calls).toHaveLength(calls);
   });
 });
 
@@ -840,33 +869,32 @@ describe('durable imported-session preparation', () => {
     expect(f.calls).toHaveLength(calls + 2);
   });
 
-  it('stages generated batches until replay can keep a later approved correction in active memory', async () => {
+  it('activates completed batches while a later manual edit remains inactive', async () => {
     const f = fixture(12);
     const initial = f.state();
-    const correction: SummaryNode = {
+    const correction = retainedAlternative(f, {
       id: randomUUID(), revision: 0, level: 1, approved: true, manual: true, createdAt: '2026-10-20T00:00:00Z',
       text: 'Mira left the key with her sister.', turns: initial.turns.slice(4, 6).map(sourceOf), children: [], prior: [],
-    };
-    retainedAlternative(f, correction);
+    });
     f.setNextModes(['normal', 'normal', 'refusal']);
     f.holdNext(2);
     const id = f.start();
     await expect.poll(() => f.calls.length).toBe(2);
     const staged = f.store.contexts.steps(id)[0];
     expect(staged.status).toBe('saved');
-    expect(f.state().context.selected).toEqual(initial.context.selected);
-    expect(f.state().context.archivedTurnIds).toEqual(initial.context.archivedTurnIds);
+    expect(f.state().context.selected).toEqual([staged.result]);
+    expect(f.state().context.archivedTurnIds).toEqual(initial.turns.slice(0, 2).map(turn => turn.id));
 
     f.release();
     expect(await f.idle(id)).toMatchObject({ status: 'failed', generatedCount: 2, reusedCount: 1 });
     const active = f.state();
     expect(active.context.selected).toContainEqual(staged.result);
     expect(active.context.archivedTurnIds).toEqual(initial.turns.slice(0, 6).map(turn => turn.id));
-    expect(correctionProtection(active.turns, active.context).unresolved).toEqual([]);
+    expect(active.context.selected).toContainEqual({ id: correction.id, revision: correction.revision });
     expect(f.calls).toHaveLength(3);
   });
 
-  it('restores verbatim turns after a raised minimum while preserving an earlier correction', async () => {
+  it('restores verbatim turns after a raised minimum and retains an earlier correction', async () => {
     const f = fixture(24);
     await f.idle(f.start());
     const child = f.state().context.summaries.find(node => node.level === 1 && node.turns[0].turnId === f.state().turns[4].id)!;
@@ -885,8 +913,8 @@ describe('durable imported-session preparation', () => {
     const after = f.state();
     expect(after.context.summaries).toEqual(before.context.summaries);
     expect(after.context.summaries.some(node => refKey(node) === refKey(corrected))).toBe(true);
-    expect(after.context.selected).toContainEqual(corrected);
-    expect(after.context.archivedTurnIds).toEqual(before.turns.slice(0, 6).map(turn => turn.id));
+    expect(after.context.selected).toEqual([]);
+    expect(after.context.archivedTurnIds).toEqual([]);
     expect(after.turns).toEqual(before.turns);
     expect(f.calls).toHaveLength(calls);
     await f.resume();

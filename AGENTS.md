@@ -71,7 +71,7 @@ Keep Connection settings, prompt arrangement, context configuration, per-chat st
 
 ## Product invariants to protect
 
-CONCEPTS.md owns current accepted behavior; the focused contracts above own detailed rules. Read the relevant contract before changing its subsystem. Protect whole-turn/pending semantics, explicit prompt authority, managed versus Summary-off history, saved correction authority, commit-before-exclusion, complete-input budgeting, dependency-scoped reviewed repair, immutable historical requests, and explicit server-owned recovery. Structural coverage, freshness, text equality and refusal heuristics never establish semantic summary quality. Tests or existing code do not independently authorize changing these policies.
+CONCEPTS.md owns current accepted behavior; the focused contracts above own detailed rules. Read the relevant contract before changing its subsystem. Protect whole-turn/pending semantics, explicit prompt authority, managed versus Summary-off history, saved summary revisions and dependency provenance, commit-before-exclusion, complete-input budgeting, dependency-scoped reviewed repair, immutable historical requests, and explicit server-owned recovery. Structural coverage, freshness, text equality and refusal heuristics never establish semantic summary quality. Tests or existing code do not independently authorize changing these policies.
 
 ## Security and user interface
 

@@ -90,8 +90,8 @@ test('inspects alternate identities and old versions without timeline collisions
   await page.getByRole('button', { name: 'Save summary edit', exact: true }).click();
   const editedBox = page.locator(`.summary-span[data-summary-id="${old.id}"][aria-label$="revision 1"]`);
   await editedBox.click();
-  await expect(page.getByTestId('summary-authority')).toContainText('awaiting reconciliation');
-  await expect(page.getByRole('button', { name: 'Repair summaries', exact: true })).toBeEnabled();
+  await expect(page.getByTestId('summary-authority')).toContainText('Retained for inspection.');
+  await expect(page.getByRole('button', { name: 'Repair summaries', exact: true })).toBeDisabled();
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const selector = page.getByRole('combobox', { name: 'Summary version', exact: true });

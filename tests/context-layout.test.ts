@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { sourceOf, staleSummaries } from '../src/core/context.js';
-import { correctionProtection } from '../src/core/context-corrections.js';
+import { selectionRepresents } from '../src/core/context-corrections.js';
 import { inspectPreparation } from '../src/core/context-replay.js';
 import { contextPlan } from '../src/core/context-plan.js';
 import { assembleRequest } from '../src/core/prompt.js';
@@ -126,15 +126,13 @@ it('promotes a corrected leaf through L2 and L3 and blocks replay when that reta
   const jobId = prepare();
   await expect.poll(() => f.store.contexts.job(jobId).status).toBe('succeeded');
   const saved = f.state();
-  const protection = correctionProtection(saved.turns, saved.context);
   const l2 = saved.context.summaries.find(node => node.level === 2 && node.children.some(ref => refKey(ref) === refKey(corrected)));
   const l3 = saved.context.summaries.find(node => node.level === 3);
   if (!l2 || !l3 || !saved.connection) throw new Error('Expected both promotion levels and a story Connection');
   expect(l3.children.map(refKey)).toContain(refKey(l2));
-  expect(protection.represented(l3).has(refKey(corrected))).toBe(true);
+  expect(selectionRepresents(saved.context, corrected)).toBe(true);
   expect(saved.context.selected.map(refKey)).toEqual([refKey(l3)]);
   expect(saved.context.archivedTurnIds).toEqual(context.archivedTurnIds);
-  expect(protection.unresolved).toEqual([]);
   expect(f.calls).toHaveLength(13);
   expect(assembleRequest(saved.connection, saved.settings, saved.turns, saved.sources, saved.context).body.messages
     .filter(part => part.content.startsWith('[Memory')).map(part => part.content)).toEqual([`[Memory L3 · turns 1–27]\n${output}`]);
@@ -154,7 +152,7 @@ it('promotes a corrected leaf through L2 and L3 and blocks replay when that reta
   expect(f.state().context.summaries.map(refKey)).toContain(refKey(editedAgain));
 });
 
-it('keeps a compatible saved prefix before a direct parent correction when the current floor prevents promotion', async () => {
+it('restores originals without forcing an edited parent under a higher retention floor', async () => {
   const f = fixture(25, 1);
   const initial = f.state();
   if (!initial.connection) throw new Error('Missing story Connection');
@@ -170,9 +168,9 @@ it('keeps a compatible saved prefix before a direct parent correction when the c
   await expect.poll(() => f.store.contexts.job(jobId).status).toBe('succeeded');
   expect(f.calls).toHaveLength(10);
   const after = f.state();
-  expect(after.context.selected).toEqual([parents[0], edited]);
-  expect(after.context.archivedTurnIds).toEqual(after.turns.slice(0, 18).map(turn => turn.id));
-  expect(correctionProtection(after.turns, after.context).unresolved).toEqual([]);
+  expect(after.context.selected).toEqual([]);
+  expect(after.context.archivedTurnIds).toEqual([]);
+  expect(after.context.summaries.find(node => refKey(node) === refKey(edited))).toMatchObject({ manual: true, text: "Ada had the key all along." });
 });
 
 it('rolls back a failed summary activation and reuses earlier committed progress on retry', async () => {
@@ -363,15 +361,12 @@ it('prunes unused overlaps during regeneration without deleting the committed la
   expect(() => validateContent(f.store.sqlite)).not.toThrow();
 });
 
-it('lets a pending Send decline and then explicitly review deletion of an inactive correction with no repair', async () => {
-  const f = fixture(12, 3);
-  await f.step();
-  // A direct correction in the protected tail cannot be restored as originals.
-  const old = addLegacyAlternative(f, f.chatId, 8, 11);
+it('lets a pending Send decline and then explicitly review supersession of an overlapping edited summary', async () => {
+  const f = fixture(12, 3, 1_400);
+  const old = addLegacyAlternative(f, f.chatId, 0, 6);
   const edited = f.store.contexts.editSummary(f.chatId, f.state().revision, old, 'Mira had already promised Ada the key.');
   const before = f.state();
   expect(contextPlan(before).repairCount).toBe(0);
-  f.store.updateChat(before.revision, f.chatId, { ...f.settings, targetInputTokens: 100_000 });
   const start = async (text?: string) => {
     const { generationId } = f.coordinator.start(f.state().revision, randomUUID(), text, f.chatId);
     const find = () => f.state().context.jobs.find(job => job.generationId === generationId)?.id;
@@ -383,7 +378,7 @@ it('lets a pending Send decline and then explicitly review deletion of an inacti
 
   const first = await start('Leon asks about the key.');
   expect(first.review.deletedIds).toEqual([edited.id]);
-  expect(f.calls).toHaveLength(1);
+  expect(f.calls).toHaveLength(0);
   f.coordinator.cancel(first.generationId);
   expect(f.store.generation(first.generationId)?.status).toBe('cancelled');
   expect(f.state().turns.at(-1)).toMatchObject({ complete: false, user: { text: 'Leon asks about the key.' } });
@@ -392,11 +387,13 @@ it('lets a pending Send decline and then explicitly review deletion of an inacti
 
   const second = await start();
   f.coordinator.context.confirmDeletion(second.jobId, second.review.token);
-  await expect.poll(() => f.store.generation(second.generationId)?.status).toBe('succeeded');
+  await expect.poll(() => f.store.generation(second.generationId)?.status).not.toBe('running');
+  const generation = f.store.generation(second.generationId);
+  expect(generation?.status, generation?.error ?? '').toBe('succeeded');
   expect(f.state().context.summaries.map(node => node.id)).not.toContain(old.id);
-  expect(f.state().context.selected).toEqual([]);
+  expect(f.state().context.selected.length).toBeGreaterThan(0);
   expect(f.state().turns).toHaveLength(before.turns.length + 1);
-  expect(f.calls).toHaveLength(2);
+  expect(f.calls.at(-1)?.body.messages.at(-1)).toMatchObject({ role: 'user', content: 'Leon asks about the key.' });
 });
 
 it('interrupts an unanswered deletion review on restart without changing memory or dispatching calls', async () => {

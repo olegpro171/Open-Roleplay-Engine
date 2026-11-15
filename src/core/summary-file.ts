@@ -2,7 +2,7 @@ import { refKey, type ContextState, type SummaryNode, type SummaryRef, type Turn
 import { message, type MessageKey } from '../shared/localization.js';
 import type { SummaryFile } from '../shared/summary-file.js';
 import { hasChronologicalLevels, staleSummarySources } from './context.js';
-import { correctionProtection, summaryDependencies } from './context-corrections.js';
+import { summaryDependencies } from './context-corrections.js';
 import { AppError } from './errors.js';
 import { checkSummaryRefusal } from './summary-refusals.js';
 
@@ -117,12 +117,8 @@ export function importSummaryState(file: SummaryFile, sources: TurnSource[], cre
   if (offset !== file.archivedTurnIds.length || !hasChronologicalLevels(selectedNodes)) invalid('summary_file.invalid_selection');
   const state = { revision: 0, selected: file.selected, archivedTurnIds: file.archivedTurnIds, summaries };
   const stale = staleSummarySources(sources, state);
-  // Retain historical records about deleted turns. Current selected memory and
-  // surviving manual corrections must be usable as a complete replacement.
+  // Retain historical and inactive records about deleted turns. The selected
+  // memory must be usable against the current transcript.
   if (state.selected.some(ref => stale.has(refKey(ref)))) invalid('summary_file.invalid_selection');
-  const protection = correctionProtection(sources.map(source => ({ id: source.turnId })), state);
-  if (protection.unresolved.length || protection.corrections.some(node => stale.has(refKey(node)))) {
-    invalid('summary_file.invalid_corrections');
-  }
   return state;
 }

@@ -299,7 +299,7 @@ test('latest-turn deletion previews restored turns and an approved correction', 
 });
 
 test('Send pauses for deletion review, survives reload, and resumes only after confirmation', async ({ page, browserApp }, testInfo) => {
-  const { path, state, read, write, library, presetId } = await memoryStory(page, browserApp.url, 'Preparation deletion', 8);
+  const { path, state, read, write } = await memoryStory(page, browserApp.url, 'Preparation deletion', 8);
   const before = await state();
   const calls = () => read<unknown[]>('/__test/requests');
   await page.request.post('/__test/mode', { data: { mode: 'hold-first-token' } });
@@ -321,16 +321,13 @@ test('Send pauses for deletion review, survives reload, and resumes only after c
   await write('PATCH', `${path}/context/summaries/${summary.id}`, {
     revision: stopped.revision, summaryRevision: summary.revision, text: correction,
   });
-  const lib = await library();
-  const savedPreset = lib.contexts.find(item => item.id === presetId);
-  if (!savedPreset) throw new Error('Missing preparation preset');
-  const { id: _id, revision: _revision, ...preset } = savedPreset;
-  // The correction intersects the protected tail, so replay requires explicit review.
-  await write('PUT', `/api/library/${presetId}`, { revision: lib.revision, kind: 'contexts', data: { ...preset, minTail: 8 } });
   const edited = await state();
+  await write('PATCH', `${path}/turns/${edited.turns[0].id}/user`, {
+    revision: edited.revision, text: 'Mira kept the spare key for Ada. ' + 'Leon waits for news. '.repeat(30),
+  });
   const { title, connectionId, promptId, characterId, personaId, contextPresetId, lorebookId } = edited.settings;
-  await write('PUT', `${path}/selections`, { revision: edited.revision, settings: {
-    title, connectionId, promptId, characterId, personaId, contextPresetId, lorebookId, targetInputTokens: 20_000,
+  await write('PUT', `${path}/selections`, { revision: (await state()).revision, settings: {
+    title, connectionId, promptId, characterId, personaId, contextPresetId, lorebookId, targetInputTokens: 600,
   } });
   await page.reload();
   await page.getByLabel('Your next turn').fill('Leon asks for the key.');
@@ -358,8 +355,51 @@ test('Send pauses for deletion review, survives reload, and resumes only after c
   await review.getByRole('button', { name: 'Delete and continue', exact: true }).click();
   await expect(review).toHaveCount(0);
   await expect.poll(async () => (await state()).turns.at(-1)?.complete).toBe(true);
-  expect((await state()).context.summaries).toEqual([]);
-  expect(await calls()).toHaveLength(3);
+  expect((await state()).context.summaries.some(node => node.id === summary.id)).toBe(false);
+  expect((await calls()).length).toBeGreaterThan(3);
+});
+
+test('Prepare restores verbatim turns and shows the saved manual edit as retained', async ({ page, browserApp }, testInfo) => {
+  const { path, state, read, write } = await memoryStory(page, browserApp.url, 'Keep the manual edit', 8);
+  await openChatTool(page, 'Inspect memory');
+  await page.getByRole('button', { name: 'Save next summary', exact: true }).click();
+  await expect.poll(async () => (await state()).context.selected.length).toBe(1);
+  const before = await state();
+  const [summary] = before.context.selected;
+  const span = page.locator(`[data-summary-id="${summary.id}"]`);
+  await span.click();
+  await page.getByRole('button', { name: 'Edit summary', exact: true }).click();
+  const correction = 'Mira promised Ada the spare key.';
+  await page.getByRole('textbox', { name: 'Summary text', exact: true }).fill(correction);
+  await page.getByRole('button', { name: 'Save summary edit', exact: true }).click();
+  await expect(span).toHaveAccessibleName(/active, manually edited/);
+  const edited = await state();
+  const { title, connectionId, promptId, characterId, personaId, contextPresetId, lorebookId } = edited.settings;
+  await write('PUT', `${path}/selections`, { revision: edited.revision, settings: {
+    title, connectionId, promptId, characterId, personaId, contextPresetId, lorebookId, targetInputTokens: 20_000,
+  } });
+  await page.reload();
+  await openChatTool(page, 'Inspect memory');
+  await page.getByRole('button', { name: 'Prepare chat', exact: true }).click();
+  await expect(span).toHaveAccessibleName(/retained, manually edited/i);
+  expect((await state()).context.archivedTurnIds).toEqual([]);
+  expect(await read<unknown[]>('/__test/requests')).toHaveLength(1);
+
+  for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+    const appearance = await read<{ revision: number; settings: Record<string, unknown> }>('/api/application/appearance');
+    await write('PUT', '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await span.click();
+      const inspection = page.locator('.summary-inspection');
+      await expect(inspection.getByRole('status')).toContainText('Retained for inspection.');
+      await expect(inspection.getByRole('region', { name: 'Summary text' })).toHaveText(correction);
+      await expect(span).toHaveClass(/\bmanual\b/);
+      await expect(span).toBeVisible();
+      await inspection.screenshot({ path: testInfo.outputPath(`retained-summary-${theme}-${width}.png`) });
+    }
+  }
 });
 
 test('keeps the Memory view in place when switching summaries and localizes authority', async ({ page, browserApp }, testInfo) => {

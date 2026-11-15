@@ -1,7 +1,6 @@
 import { message } from '../shared/localization.js';
 import type { EngineSnapshot } from '../shared/contracts.js';
 import { refKey } from '../shared/context.js';
-import { hasPromptMarker } from '../shared/library.js';
 import { AppError } from './errors.js';
 import { summaryDependencies } from './context-corrections.js';
 
@@ -27,13 +26,6 @@ export function regenerationView(snapshot: EngineSnapshot): EngineSnapshot {
     return valid;
   };
   const summaries = snapshot.context.summaries.filter(node => safe(refKey(node)));
-  if (hasPromptMarker(snapshot.sources.prompt, 'summary')) {
-    const latest = new Map<string, typeof snapshot.context.summaries[number]>();
-    for (const node of snapshot.context.summaries) if (node.approved && node.revision > (latest.get(node.id)?.revision ?? -1)) latest.set(node.id, node);
-    if ([...latest.values()].some(node => node.manual && node.turns.some(source => source.turnId === target.id))) {
-      throw new AppError(422, 'regeneration_correction_conflict', message("errors.a_manually_corrected_summary_includes_this_response_preserve"));
-    }
-  }
   // Use the safe whole-summary prefix for the initial request estimate.
   // Triggered preparation replays from the originals in this view.
   const selected = [];

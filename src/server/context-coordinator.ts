@@ -126,19 +126,13 @@ export class ContextCoordinator {
     if (!snapshot.connection || !hasPromptMarker(snapshot.sources.prompt, 'summary') || !snapshot.context.preset) return;
     // Physical overflow is validated by final request assembly. It never adds
     // a preparation trigger when the working target permits this input.
-    try {
-      const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context,
-        { validateLimits: false, lore: snapshot.loreResolution, continuationTurnId: snapshot.continuationTurnId });
-      if (fitsInputTarget(request.budget.inputTokens, snapshot.settings.targetInputTokens, behavior)) {
-        if (hasPromptMarker(snapshot.sources.prompt, 'messages') && belowMinimumTail(snapshot.turns, snapshot.context, snapshot.context.preset.minTail)) {
-          throw new AppError(422, 'context_blocked', minimumTailDiagnostic);
-        }
-        return;
+    const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context,
+      { validateLimits: false, lore: snapshot.loreResolution, continuationTurnId: snapshot.continuationTurnId });
+    if (fitsInputTarget(request.budget.inputTokens, snapshot.settings.targetInputTokens, behavior)) {
+      if (hasPromptMarker(snapshot.sources.prompt, 'messages') && belowMinimumTail(snapshot.turns, snapshot.context, snapshot.context.preset.minTail)) {
+        throw new AppError(422, 'context_blocked', minimumTailDiagnostic);
       }
-    } catch (error) {
-      if (!(error instanceof AppError) || error.code !== 'correction_reconciliation_required') throw error;
-      // The replay can include a fresh retained correction, or surface its
-      // existing repair/deletion path if no valid representation is possible.
+      return;
     }
     const retry = behavior.autoRetryMemory ? { maxRetries: behavior.memoryMaxRetries } : undefined;
     const { job, fresh } = this.store.contexts.begin(chatId, snapshot.revision, generationId, 'prepare', generationId, undefined, retry);

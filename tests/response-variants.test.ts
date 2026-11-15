@@ -10,7 +10,7 @@ import { Store } from '../src/persistence/store.js';
 import { GenerationCoordinator } from '../src/server/coordinator.js';
 import type { Provider } from '../src/provider/openai.js';
 import type { RequestPreview } from '../src/shared/contracts.js';
-import { defaultContextPreset, type SummaryNode } from '../src/shared/context.js';
+import { defaultContextPreset, refKey, type SummaryNode } from '../src/shared/context.js';
 import { sourceOf, staleSummaries } from '../src/core/context.js';
 import { compactPrompt } from './support/compact-prompt.js';
 import { continuationInstruction } from '../src/core/continuation.js';
@@ -322,7 +322,7 @@ describe('durable response variants', () => {
     f.regen(); await f.idle(); expect(f.state().turns[0].variants).toHaveLength(2);
   });
 
-  it('reconstructs an already archived latest turn without changing live selection; A → B → A restores memory', async () => {
+  it.each([false, true])('reconstructs an archived latest turn and restores memory on A → B → A (manual: %s)', async manual => {
     const f = fixture(12);
     const ending = required(f.state().turns.at(-1));
     f.store.editPart(f.state().revision, ending.id, 'user', 'Regenerate input');
@@ -332,6 +332,13 @@ describe('durable response variants', () => {
     f.store.updateChat(f.state().revision, 'main', { title: 'Archived variants', connectionId: 'main', promptId: 'default', characterId: null, personaId: null, targetInputTokens: 400, contextPresetId: preset });
     const jobId = f.coordinator.context.start('main', f.state().revision, randomUUID(), 'prepare').jobId;
     await expect.poll(() => f.store.contexts.job(jobId).status, { timeout: 5000 }).toBe('succeeded');
+    if (manual) {
+      const state = f.state();
+      const target = required(state.turns.at(-1));
+      const consumer = required(state.context.selected.map(ref => state.context.summaries.find(node => refKey(node) === refKey(ref)))
+        .find(node => node?.turns.some(source => source.turnId === target.id)));
+      f.store.contexts.editSummary('main', state.revision, consumer, 'Manual correction for the ending.');
+    }
     const before = f.state(), target = required(before.turns.at(-1)), steps = f.store.contexts.steps(jobId);
     expect(before.context.archivedTurnIds).toContain(target.id);
     f.regen(); await f.idle();
@@ -345,9 +352,10 @@ describe('durable response variants', () => {
     expect(staleSummaries(f.state().turns, f.state().context).size).toBe(0);
     // Browsing and switching do not rewrite historical preparation inputs.
     expect(f.store.contexts.steps(jobId)).toEqual(steps);
-    const consumer = required(before.context.summaries.find(node => node.turns.some(source => source.turnId === target.id)));
-    f.store.contexts.editSummary('main', f.state().revision, consumer, 'Manual correction for the ending.');
-    expect(() => f.regen()).toThrow('manually corrected');
+    if (manual) {
+      expect(f.state().context.summaries.find(node => node.manual)?.text).toBe('Manual correction for the ending.');
+      expect(JSON.stringify(f.calls.filter(call => call.body.model !== 'summary').at(-1)?.body)).not.toContain('Manual correction for the ending.');
+    }
   });
 });
 
