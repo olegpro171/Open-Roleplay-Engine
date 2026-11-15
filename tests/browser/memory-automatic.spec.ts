@@ -83,7 +83,7 @@ for (const device of ['desktop', 'phone'] as const) test.describe(`automatic mem
       await expect(page.locator('.memory-preparation-status')).toHaveCount(0);
       await page.request.post('/__test/finish');
       const progress = page.locator('.memory-preparation-status');
-      await expect(progress.getByRole('status')).toHaveText(/^Preparing memory…\s*Estimated input [\d,]+ \/ [\d,]+ tokens\s*Generating…$/);
+      await expect(progress.getByRole('status')).toHaveText(/^Preparing memory…\s*Generating…$/);
       const latestReply = page.locator('.part.assistant').last().getByText('The lantern flickers. 🕯', { exact: true });
       await expect(latestReply).toBeInViewport({ ratio: 1 });
       await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
@@ -108,7 +108,7 @@ for (const device of ['desktop', 'phone'] as const) test.describe(`automatic mem
       await page.request.post('/__test/mode', { data: { mode: 'hold-first-token' } });
       await send.click();
       await expect(page.locator('.part.assistant').last()).toContainText('Preparing memory…');
-      await expect(progress.getByRole('status')).toHaveText(/^Preparing memory…\s*Estimated input [\d,]+ \/ [\d,]+ tokens\s*Connecting…$/);
+      await expect(progress.getByRole('status')).toHaveText(/^Preparing memory…\s*Connecting…$/);
       await expect(page.locator('.composer')).not.toContainText('Preparing memory');
       await expect(page.locator('.composer').locator(':scope > *')).toHaveCount(2);
       await expect(composer).toBeEditable();

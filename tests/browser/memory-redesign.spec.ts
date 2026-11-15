@@ -140,7 +140,7 @@ test('Story tracks and stops regeneration outside the transcript window and revi
   });
   const progress = page.locator('.memory-preparation-status');
   const calls = () => read<unknown[]>('/__test/requests');
-  await expect(progress.getByRole('status')).toHaveText(/^Preparing memory…\s*Estimated input [\d,]+ \/ 200 tokens\s*Connecting…$/);
+  await expect(progress.getByRole('status')).toHaveText(/^Preparing memory…\s*Connecting…$/);
   const popupInset = async () => {
     const notice = await progress.boundingBox(), scrollArea = await transcript.boundingBox();
     if (!notice || !scrollArea) throw new Error('Missing preparation popup or transcript');
@@ -160,7 +160,7 @@ test('Story tracks and stops regeneration outside the transcript window and revi
   const second = (await read<StorySnapshot>(`${path}/story`)).preparation?.working;
   expect(second?.inputTokens).toBeLessThan(first?.inputTokens ?? 0);
   expect(second?.targetInputTokens).toBe(200);
-  await expect(progress).toContainText(`Estimated input ${second?.inputTokens.toLocaleString('en')} / 200 tokens`);
+  await expect(progress).not.toContainText('Estimated input');
   await expect(latestTurn).toHaveCount(0);
   await expect(progress.getByRole('button', { name: 'Stop', exact: true })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath('regeneration-preparation.png') });

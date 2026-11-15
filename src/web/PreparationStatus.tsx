@@ -1,6 +1,6 @@
 import { useEffect, useState, type RefObject } from 'react';
 import type { StoryPreparation } from '../shared/transcript';
-import { locale, t, useLocale } from './localization';
+import { t, useLocale } from './localization';
 
 export function PreparationStatus({ preparation, transcript, hasOlderTurns, disabled, stop, review }: {
   preparation: StoryPreparation;
@@ -24,16 +24,12 @@ export function PreparationStatus({ preparation, transcript, hasOlderTurns, disa
     return () => observer.disconnect();
   }, [hasOlderTurns, transcript]);
 
-  const { working, phase, retrying, deletionReviewToken } = preparation;
+  const { phase, retrying, deletionReviewToken } = preparation;
   const activity = retrying ? t('story_preparation.retry_wait')
     : phase ? t(`repair_review.phase_${phase}`) : '';
-  const formatted = (tokens: number) => tokens.toLocaleString(locale());
   return <div className="recovery memory-preparation-status" data-older-control-visible={hasOlderTurns && olderControlVisible ? '' : undefined}>
     <div role="status">
       <strong>{t('app.preparing_memory')}</strong>
-      <p>{working
-        ? t('story_preparation.working_input', { input: formatted(working.inputTokens), target: formatted(working.targetInputTokens) })
-        : t('app.counting_current_input')}</p>
       {deletionReviewToken && <p>{t('memory.preparation_deletion_waiting')}</p>}
       {activity && <small>{activity}</small>}
     </div>

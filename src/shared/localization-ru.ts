@@ -333,7 +333,6 @@ export const russianMessages = {
   "app.saving_changes": "Сохранение изменений…",
   "app.draft_could_not_be_saved_in_this": "Не удалось сохранить черновик в этом браузере. Не закрывайте страницу и скопируйте текст перед уходом.",
   "app.preparing_memory": "Подготовка памяти…",
-  "story_preparation.working_input": "Оценка входа: {{input}} / {{target}} токенов",
   "story_preparation.retry_wait": "Ожидание повторной попытки…",
   "story_preparation.stop": "Остановить",
   "story_preparation.open_memory": "Открыть управление подготовкой",

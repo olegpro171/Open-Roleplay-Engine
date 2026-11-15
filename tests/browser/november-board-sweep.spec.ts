@@ -116,7 +116,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
       expect(started.ok()).toBe(true);
       jobId = (await started.json()).jobId;
       const status = page.locator('.memory-preparation-status');
-      await expect(status.getByRole('status')).toHaveText(/^Preparing memory…\s*Estimated input [\d,]+ \/ 600 tokens\s*Generating…$/);
+      await expect(status.getByRole('status')).toHaveText(/^Preparing memory…\s*Generating…$/);
       const transcript = page.locator('.transcript');
       const latest = page.getByRole('button', { name: 'Latest turn', exact: true });
       for (const width of [1280, 801, 800, 390]) {

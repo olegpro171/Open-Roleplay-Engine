@@ -326,7 +326,6 @@ export const englishMessages = {
   "app.saving_changes": "Saving changes…",
   "app.draft_could_not_be_saved_in_this": "Draft could not be saved in this browser. Keep this page open and copy your text before leaving.",
   "app.preparing_memory": "Preparing memory…",
-  "story_preparation.working_input": "Estimated input {{input}} / {{target}} tokens",
   "story_preparation.retry_wait": "Waiting to retry this step…",
   "story_preparation.stop": "Stop",
   "story_preparation.open_memory": "Open preparation controls",
