@@ -111,15 +111,13 @@ export function resizedMemoryLayout(state: ContextState, turns: TurnMembership[]
 
 /** Find the longest prefix of whole selected spans and all of their surviving provenance. */
 export function shortenedMemoryLayout(state: ContextState, turns: TurnMembership[], minTail: number): MemoryLayoutCleanup {
-  const positions = new Map(turns.map((turn, index) => [turn.id, index]));
+  const deletedTurnId = turns.at(-1)?.id;
   const shortened = turns.slice(0, -1);
   const tailBoundary = shortened.filter(turn => turn.complete).length - minTail;
-  const endById = new Map<string, number>();
+  const removed = new Set<string>();
   const consumers = new Map<string, Set<string>>();
   for (const node of state.summaries) {
-    let end = endById.get(node.id) ?? -1;
-    for (const source of node.turns) end = Math.max(end, positions.get(source.turnId) ?? -1);
-    endById.set(node.id, end);
+    if (node.turns.some(source => source.turnId === deletedTurnId)) removed.add(node.id);
     for (const dependency of provenance(node)) {
       const uses = consumers.get(dependency.id) ?? new Set<string>();
       uses.add(node.id);
@@ -127,55 +125,30 @@ export function shortenedMemoryLayout(state: ContextState, turns: TurnMembership
     }
   }
 
-  // A summary requires every historical dependency to survive. Propagate each
-  // identity's furthest source first so a consumer's bound is assigned once.
-  const requiredEnd = new Map<string, number>();
-  for (const [id, end] of [...endById].sort((a, b) => b[1] - a[1])) {
-    if (requiredEnd.has(id)) continue;
-    const affected = new Set([id]);
-    for (const use of affected) {
-      requiredEnd.set(use, end);
-      for (const consumer of consumers.get(use) ?? []) if (!requiredEnd.has(consumer)) affected.add(consumer);
-    }
+  // A missing source removes the whole identity and consumers of any of its versions.
+  for (const id of removed) {
+    for (const consumer of consumers.get(id) ?? []) removed.add(consumer);
   }
 
+  // A retreating cutoff only changes active coverage. Saved dependencies can
+  // still be used by selected summaries even if their source turns are verbatim.
   const byRef = new Map(state.summaries.map(node => [refKey(node), node]));
-  let offset = 0;
-  let dependencyEnd = -1;
-  let previousLevel = Infinity;
-  let selectedCount = 0;
+  const selected: SummaryRef[] = [];
   let cutoff = 0;
-  for (const [i, ref] of state.selected.entries()) {
+  let previousLevel = Infinity;
+  for (const ref of state.selected) {
     const node = byRef.get(refKey(ref));
-    if (!node?.approved || !node.turns.length || node.level > previousLevel || offset + node.turns.length > tailBoundary) break;
+    if (!node?.approved || removed.has(ref.id) || !node.turns.length ||
+      node.level > previousLevel || cutoff + node.turns.length > tailBoundary) break;
     if (node.turns.some((source, j) => {
-      const turn = shortened[offset + j];
-      return !turn?.complete || turn.id !== source.turnId || state.archivedTurnIds[offset + j] !== turn.id;
+      const turn = shortened[cutoff + j];
+      return !turn?.complete || turn.id !== source.turnId || state.archivedTurnIds[cutoff + j] !== turn.id;
     })) break;
-    offset += node.turns.length;
+    selected.push(ref);
+    cutoff += node.turns.length;
     previousLevel = node.level;
-    dependencyEnd = Math.max(dependencyEnd, requiredEnd.get(ref.id) ?? -1);
-    if (dependencyEnd < offset) {
-      cutoff = offset;
-      selectedCount = i + 1;
-    }
   }
-  const removed = new Set<string>();
-  for (const [id, end] of requiredEnd) {
-    if (end >= shortened.length) removed.add(id);
-  }
-  if (selectedCount < state.selected.length) {
-    // The cutoff limits committed coverage. Saved alternatives outside it can
-    // still be reused if they don't depend on the deleted or displaced memory.
-    const displaced = new Set(state.selected.slice(selectedCount).map(ref => ref.id));
-    includeProvenance(displaced, versionsByIdentity(state.summaries));
-    for (const id of displaced) {
-      if ((requiredEnd.get(id) ?? -1) >= cutoff) removed.add(id);
-    }
-    for (const id of removed) {
-      for (const consumer of consumers.get(id) ?? []) removed.add(consumer);
-    }
-  }
-  const result = cleanup(state, removed, state.selected.slice(0, selectedCount), state.archivedTurnIds.slice(0, cutoff));
-  return { ...result, restoredTurnIds: result.restoredTurnIds.filter(id => (positions.get(id) ?? Infinity) < shortened.length) };
+  const result = cleanup(state, removed, selected, state.archivedTurnIds.slice(0, cutoff));
+  const survivingTurnIds = new Set(shortened.map(turn => turn.id));
+  return { ...result, restoredTurnIds: result.restoredTurnIds.filter(id => survivingTurnIds.has(id)) };
 }

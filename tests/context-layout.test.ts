@@ -586,13 +586,15 @@ it('preserves and reuses batches deactivated by a higher target after deleting a
   expect(f.calls).toHaveLength(calls);
 });
 
-it('removes affected versions and dependents but keeps independent inactive memory when the cutoff retreats', async () => {
+it('removes summaries that depend on the deleted turn and keeps summaries displaced by the cutoff', async () => {
   const f = fixture(12, 3);
   for (let index = 0; index < 3; index++) await f.step();
   const displaced = f.state().context.selected[2];
-  const independent = addLegacyAlternative(f, f.chatId, 9, 11);
-  const consumer = addLegacyAlternative(f, f.chatId, 9, 11, { prior: [displaced] });
+  addLegacyAlternative(f, f.chatId, 9, 11);
+  addLegacyAlternative(f, f.chatId, 9, 11, { prior: [displaced] });
   const crossing = addLegacyAlternative(f, f.chatId, 9, 12);
+  const consumer = addLegacyAlternative(f, f.chatId, 9, 11, { corrections: [crossing] });
+  const downstream = addLegacyAlternative(f, f.chatId, 10, 11, { prior: [consumer] });
   const correction = 'Ada locked the gate after the key went missing.';
   f.store.contexts.editSummary(f.chatId, f.state().revision, crossing, correction);
   const before = f.state();
@@ -606,16 +608,15 @@ it('removes affected versions and dependents but keeps independent inactive memo
   const after = f.state();
   expect(after.context.selected).toEqual(before.context.selected.slice(0, 2));
   expect(after.context.archivedTurnIds).toEqual(before.turns.slice(0, 6).map(turn => turn.id));
-  const removed = new Set([displaced.id, consumer.id, crossing.id]);
+  const removed = new Set([crossing.id, consumer.id, downstream.id]);
   expect(after.context.summaries).toEqual(before.context.summaries.filter(node => !removed.has(node.id)));
-  expect(after.context.summaries.map(refKey)).toContain(refKey(independent));
   expect(() => validateContent(f.store.sqlite)).not.toThrow();
   await f.reopen();
   expect(f.state()).toEqual(after);
   expect(f.calls).toHaveLength(3);
 });
 
-it('keeps a fitting committed cutoff after deleting a verbatim turn, then returns a whole span to protect the tail', async () => {
+it('returns a whole verbatim span after deleting at the minimum tail and reuses its saved summary', async () => {
   const f = fixture(16, 2, 10_000);
   // Historical roleplay requests belong to their turns. Keep one and delete the other.
   for (const text of ['Mira goes upstairs.', 'Leon remains at the bridge.']) {
@@ -623,7 +624,8 @@ it('keeps a fitting committed cutoff after deleting a verbatim turn, then return
     await expect.poll(() => f.store.generation(generationId)?.status).toBe('succeeded');
   }
   f.store.updateChat(f.state().revision, f.chatId, { ...f.settings, targetInputTokens: 110 });
-  for (let step = 0; step < 5; step++) await f.step();
+  for (let step = 0; step < 4; step++) await f.step();
+  const saved = await f.step();
   const before = f.state();
   const generations = f.store.snapshot(f.chatId).generations;
   const calls = f.calls.length;
@@ -636,14 +638,48 @@ it('keeps a fitting committed cutoff after deleting a verbatim turn, then return
 
   const next = firstDeletion.turns.at(-1)!;
   const impact = f.store.turnDeletionMemoryImpact(firstDeletion.revision, next.id, f.chatId);
-  expect(impact?.branches).toMatchObject([{ discardedSummaries: 1, restoredTurns: 3, corrections: [] }]);
+  expect(impact?.branches).toMatchObject([{ discardedSummaries: 0, restoredTurns: 3, corrections: [] }]);
   expect(() => f.store.deleteTurn(firstDeletion.revision, next.id, f.chatId)).toThrow(expect.objectContaining({ code: 'memory_impact_required' }));
   expect(f.state()).toEqual(firstDeletion);
   f.store.deleteTurn(firstDeletion.revision, next.id, f.chatId, impact?.token);
   expect(f.state().context.selected).toEqual(before.context.selected.slice(0, 4));
   expect(f.state().context.archivedTurnIds).toEqual(before.turns.slice(0, 12).map(turn => turn.id));
+  expect(f.state().context.summaries).toEqual(before.context.summaries);
+  expect(f.store.contexts.steps(saved.jobId)).toEqual([saved]);
   expect(f.store.snapshot(f.chatId).generations).toEqual([]);
   expect(f.calls).toHaveLength(calls);
+
+  f.store.saveLibrary(f.store.libraryRevision(), 'contexts', { ...f.preset, minTail: 1 }, f.contextPresetId);
+  const reused = await f.step();
+  expect(reused.result).toEqual(saved.result);
+  expect(f.state().context.selected).toEqual(before.context.selected);
+  expect(f.calls).toHaveLength(calls);
+});
+
+it('keeps an active summary when its editorial dependency moves outside the cutoff', async () => {
+  const f = fixture(12, 3);
+  for (let index = 0; index < 3; index++) await f.step();
+  const dependency = addLegacyAlternative(f, f.chatId, 6, 9);
+  const initial = f.state();
+  const first = initial.context.selected[0];
+  const memory = f.store.contexts.exportSummaries(f.chatId, initial.revision).file;
+  const file = { ...memory, summaries: memory.summaries.map(node => node.id === first.id
+    ? { ...node, corrections: [{ id: dependency.id, revision: dependency.revision }] }
+    : node) };
+  const review = f.store.contexts.importSummaries(f.chatId, initial.revision, file);
+  f.store.contexts.importSummaries(f.chatId, initial.revision, file, review.token);
+
+  const before = f.state();
+  const last = before.turns.at(-1)!;
+  const impact = f.store.turnDeletionMemoryImpact(before.revision, last.id, f.chatId);
+  expect(impact?.branches).toMatchObject([{ discardedSummaries: 0, restoredTurns: 3, corrections: [] }]);
+  f.store.deleteTurn(before.revision, last.id, f.chatId, impact?.token);
+  const after = f.state();
+  expect(after.context.selected).toEqual(before.context.selected.slice(0, 2));
+  expect(after.context.archivedTurnIds).toEqual(before.turns.slice(0, 6).map(turn => turn.id));
+  expect(after.context.summaries).toEqual(before.context.summaries);
+  expect(staleSummaries(after.turns, after.context)).toEqual(new Set());
+  expect(f.calls).toHaveLength(3);
 });
 
 it('returns surviving turns from an incomplete archived span and marks its deleted result without rewriting the request', async () => {

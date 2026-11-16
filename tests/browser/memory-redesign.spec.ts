@@ -260,7 +260,7 @@ test('keeps inactive summaries when Story deletes an unrelated latest turn', asy
   expect(await read<unknown[]>('/__test/requests')).toHaveLength(2);
 });
 
-test('latest-turn deletion previews restored turns and an approved correction', async ({ page, browserApp }, testInfo) => {
+test('latest-turn deletion restores older turns and keeps the edited summary', async ({ page, browserApp }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const { path, state, read, write } = await memoryStory(page, browserApp.url, 'Review turn deletion', 4);
   await write('POST', `${path}/context/prepare`, { revision: (await state()).revision, requestId: crypto.randomUUID(), mode: 'step' });
@@ -271,6 +271,7 @@ test('latest-turn deletion previews restored turns and an approved correction', 
   await write('PATCH', `${path}/context/summaries/${summary.id}`, {
     revision: before.revision, summaryRevision: summary.revision, text: correction,
   });
+  const edited = await state();
   const turn = page.getByRole('article', { name: 'Turn 4', exact: true });
   const menuButton = turn.getByRole('button', { name: 'More turn actions', exact: true });
   const review = page.getByRole('dialog', { name: 'Delete turn?', exact: true });
@@ -280,8 +281,8 @@ test('latest-turn deletion previews restored turns and an approved correction', 
     await expect(page.getByRole('menuitem', { name: 'Delete turn', exact: true })).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(review).toContainText('2 surviving turns will return to verbatim history.');
-    await expect(review).toContainText('1 summary will be discarded.');
-    await expect(review).toContainText(correction);
+    await expect(review).not.toContainText('will be discarded');
+    await expect(review).not.toContainText(correction);
   };
   await openReview();
   await review.getByRole('button', { name: 'Cancel', exact: true }).press('Enter');
@@ -292,10 +293,19 @@ test('latest-turn deletion previews restored turns and an approved correction', 
   await inspectReview(page, review, testInfo, browserApp.url);
   await review.getByRole('button', { name: 'Delete turn', exact: true }).click();
   await expect(turn).toHaveCount(0);
-  expect((await state()).turns).toHaveLength(3);
-  expect((await state()).context.archivedTurnIds).toEqual([]);
-  expect((await state()).context.summaries).toEqual([]);
+  const after = await state();
+  expect(after.turns).toEqual(edited.turns.slice(0, -1));
+  expect(after.context.selected).toEqual([]);
+  expect(after.context.archivedTurnIds).toEqual([]);
+  expect(after.context.summaries).toEqual(edited.context.summaries);
   expect(await read<unknown[]>('/__test/requests')).toHaveLength(1);
+
+  await page.setViewportSize({ width: 1280, height: 844 });
+  await openChatTool(page, 'Inspect memory');
+  const retained = page.locator(`[data-summary-id="${summary.id}"]`);
+  await expect(retained).toHaveAccessibleName(/retained, manually edited/i);
+  await retained.click();
+  await expect(page.getByRole('region', { name: 'Summary text' })).toHaveText(correction);
 });
 
 test('Send pauses for deletion review, survives reload, and resumes only after confirmation', async ({ page, browserApp }, testInfo) => {
