@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isLauncherVersion, launcherVersion } from './windows-launcher-version.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const read = name => readFileSync(resolve(root, 'scripts/release', name), 'utf8').replaceAll('\r\n', '\n');
@@ -24,12 +25,13 @@ const bootstrapMessages = new Set([
   'helperUnavailable', 'logFailed', 'logFile', 'assistance', 'invalidEnv',
   'installationLocked', 'legacyRestart', 'downloadFailed', 'checkingUpdates',
   'downloadingVersion', 'verificationFailed', 'preparingVersion', 'activationFailed',
-  'activatingVersion', 'cancelled', 'startupFailed',
+  'activatingVersion', 'cancelled', 'startupFailed', 'launcherUpdateRequired',
 ]);
-const bootstrap = 'param([switch]$InstallOnly)\n' + generated
+if (!isLauncherVersion(launcherVersion) || launcherVersion === 0) throw new Error('Invalid Windows launcher version.');
+const bootstrap = 'param([switch]$InstallOnly)\n' + generated + `$LauncherVersion = ${launcherVersion}\n`
   + messages(entries.filter(entry => bootstrapMessages.has(entry.id)))
   + shared + read('windows-bootstrap.ps1');
-const installed = 'param([switch]$Installed,[string]$Installation,[string]$Invoking,[string]$Language)\n# ORE capability: bounded-release-comparison\n'
+const installed = 'param([switch]$Installed,[string]$Installation,[string]$Invoking,[string]$Language,[int]$LauncherVersion = 0)\n# ORE capability: bounded-release-comparison\n# ORE capability: minimum-launcher-version\n'
   + generated + messages(entries) + shared + sources(['windows-package-update.ps1', 'windows-package-body.ps1']);
 // cmd.exe requires a CRLF batch envelope even when generation runs on POSIX.
 const external = (batch + bootstrap).replaceAll('\r\n', '\n').replaceAll('\n', '\r\n');

@@ -30,12 +30,13 @@ try {
     $updates = $env:ORE_SKIP_UPDATE -ne '1' -and ![IO.File]::Exists((Join-Path $Installation 'updates-paused'))
     if (!$selection) {
         if (!$updates) { throw 'First package activation requires updates to be enabled.' }
-        $selection = Install-OreInitialSelection $Installation
+        $selection = Install-OreInitialSelection $Installation $LauncherVersion
+        if (!$selection) { Wait-OreFailure 1; exit 1 }
         $tools = Join-Path $selection.Application 'scripts/release'
         $script:OreFailure = 'startupFailed'
     }
     $prepared = Join-Path $Installation 'cache/prepared-update'
-    $activation = if ($updates) { Use-OrePreparedUpdate $selection $prepared }
+    $activation = if ($updates) { Use-OrePreparedUpdate $selection $prepared $LauncherVersion }
     if ($activation) {
         $selection = $activation.Selection
         $tools = $activation.Tools
@@ -49,7 +50,7 @@ try {
         $whileRunning = {
             if (!$script:OreUpdateStarted -and [IO.File]::Exists($readyReceipt)) {
                 $script:OreUpdateStarted = $true
-                try { $script:OreUpdate = Start-OreUpdateCheck $Installation $info.commit }
+                try { $script:OreUpdate = Start-OreUpdateCheck $Installation $info.commit $LauncherVersion }
                 catch {
                     Write-OreDiagnostic ($_.Exception.ToString())
                     Show-OreMessage 'backgroundUpdateFailed'
@@ -64,10 +65,12 @@ try {
     Write-OreDiagnostic ('Starting selected '+$selection.Id+'; automatic fallback ends here.')
     $result = Invoke-OreProcess $selection.Node @((Join-Path $tools 'portable-launch.mjs'),$Installation,$selection.Application) $script:OreReport -Console -WhileRunning $whileRunning
 } catch {
-    if (Test-OreCancellation) { $script:OreFailure = 'cancelled' }
+    if (Test-OreCancellation) {
+        $script:OreFailure = 'cancelled'
+        $result = 130
+    }
     Show-OrePackageFailure $_
 } finally {
-    if (Test-OreCancellation) { $result = 130 }
     try {
         Stop-OreUpdateCheck $script:OreUpdate
         if ($readyReceipt) { [IO.File]::Delete($readyReceipt) }

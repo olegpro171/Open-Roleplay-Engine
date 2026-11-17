@@ -7,6 +7,7 @@ import { inventory } from './stage.mjs';
 import { parseSelection, runtimeExecutable } from './selection.mjs';
 import { verifyStartup } from './startup-smoke.mjs';
 import { readWindowsRelease, validateCommit } from './ci-release-files.mjs';
+import { minimumLauncherVersion } from './windows-launcher-version.mjs';
 
 const [homeArgument, outputArgument, commit] = process.argv.slice(2);
 validateCommit(commit);
@@ -47,7 +48,7 @@ try {
   await verifyStartup(extractedApp, extractedNode, join(payload, 'cache'));
   const archive = readFileSync(join(output, 'ORE-windows-x64.zip'));
   const sha256 = createHash('sha256').update(archive).digest('hex');
-  const descriptor = { formatVersion: 1, platform: 'win32', arch: 'x64', commit, archive: 'ORE-windows-x64.zip', sha256, bytes: archive.length, launcherProtocol: 2 };
+  const descriptor = { formatVersion: 2, platform: 'win32', arch: 'x64', commit, archive: 'ORE-windows-x64.zip', sha256, bytes: archive.length, launcherProtocol: 2, minimumLauncherVersion };
   writeFileSync(join(output, 'ORE-windows-x64.json'), JSON.stringify(descriptor, null, 2)+'\n');
   writeFileSync(join(output, 'ORE-windows-x64.zip.sha256'), `${sha256}  ORE-windows-x64.zip\n`);
   cpSync(resolve('ORE-launcher.bat'), join(output, 'ORE-launcher.bat'));

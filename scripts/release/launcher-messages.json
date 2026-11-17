@@ -11,6 +11,10 @@
     "en": "Checking for updates...",
     "ru": "Проверка обновлений..."
   },
+  "launcherUpdateRequired": {
+    "en": "This update requires ORE launcher version {required}. Download ORE-launcher.bat from {url} and replace the batch beside your ORE-internal folder.",
+    "ru": "Для этого обновления требуется лаунчер ORE версии {required}. Скачайте ORE-launcher.bat со страницы {url} и замените файл рядом с папкой ORE-internal."
+  },
   "downloadingVersion": {
     "en": "Downloading new version...",
     "ru": "Загрузка новой версии..."

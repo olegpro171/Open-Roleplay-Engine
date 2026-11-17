@@ -13,11 +13,11 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'ORE release files-история-')); roots.push(root);
   const archive = Buffer.from('Synthetic prepared archive. Packaging/extraction is tested on Windows.');
   const sha256 = createHash('sha256').update(archive).digest('hex');
-  const descriptor = { formatVersion: 1, platform: 'win32', arch: 'x64', commit, archive: 'ORE-windows-x64.zip', sha256, bytes: archive.length, launcherProtocol: 2 };
+  const descriptor = { formatVersion: 2, platform: 'win32', arch: 'x64', commit, archive: 'ORE-windows-x64.zip', sha256, bytes: archive.length, launcherProtocol: 2, minimumLauncherVersion: 1 };
   writeFileSync(join(root, 'ORE-windows-x64.zip'), archive);
   writeFileSync(join(root, 'ORE-windows-x64.zip.sha256'), `${sha256}  ORE-windows-x64.zip\n`);
   writeFileSync(join(root, 'ORE-windows-x64.json'), JSON.stringify(descriptor));
-  writeFileSync(join(root, 'ORE-launcher.bat'), '@echo off\r\n');
+  writeFileSync(join(root, 'ORE-launcher.bat'), '@echo off\r\n$LauncherVersion = 1\r\n');
   return { root, descriptor };
 }
 function publish(root: string, scenario = '') {
@@ -109,6 +109,13 @@ describe('Windows CI publication', () => {
     expect(result.error).toBeTruthy();
     expect(result.events).toEqual([]);
   });
+  it.each([undefined, 0, 1.5, '1', 2])('rejects a bad or unsatisfied launcher minimum before contacting GitHub: %s', minimumLauncherVersion => {
+    const f = fixture();
+    writeFileSync(join(f.root, 'ORE-windows-x64.json'), JSON.stringify({ ...f.descriptor, minimumLauncherVersion }));
+    const result = publish(f.root);
+    expect(result.error).toMatch(/minimum.*launcher/u);
+    expect(result.events).toEqual([]);
+  });
 });
 
 function qualification(scenario = '', action = 'select') {
@@ -171,7 +178,7 @@ describe('Staging qualification and exact artifact promotion', () => {
     expect(verify(expected).status).toBe(0);
     writeFileSync(expected, 'different launcher');
     expect(verify(expected).stderr).toContain('launcher differs');
-    expect(readFileSync(launcher, 'utf8')).toBe('@echo off\r\n');
+    expect(readFileSync(launcher, 'utf8')).toBe('@echo off\r\n$LauncherVersion = 1\r\n');
     writeFileSync(join(f.root, 'ORE-windows-x64.zip'), 'corrupted');
     expect(verify(launcher).stderr).toContain('archive differs');
   });

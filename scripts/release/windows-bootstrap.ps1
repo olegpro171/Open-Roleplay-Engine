@@ -22,7 +22,8 @@ try {
     $script:OreFailure = 'helperUnavailable'
     $helper = Get-OrePackageHelper $Installation
     if (!$InstallOnly) {
-        if (!$helper -or (!(Test-OreBoundedComparison $helper) -and (Get-OreSelection $Installation))) {
+        $versioned = $helper -and (Test-OreVersionedHelper $helper)
+        if (!$versioned) {
             # Contain the activation worker if the bootstrap is terminated.
             $script:OreFailure = 'setupFailed'
             Initialize-OreJob
@@ -32,8 +33,15 @@ try {
             $script:OreFailure = 'helperUnavailable'
             $helper = Get-OrePackageHelper $Installation
             if (!$helper) { throw 'No compatible helper after verified activation.' }
+            $versioned = Test-OreVersionedHelper $helper
         }
-        & $helper -Installed -Installation $Installation -Invoking $Invoking -Language $script:OreLanguage
+        if ($versioned) {
+            & $helper -Installed -Installation $Installation -Invoking $Invoking -Language $script:OreLanguage -LauncherVersion $LauncherVersion
+        } else {
+            # The bootstrap owns updates until a version-aware helper is installed.
+            $env:ORE_SKIP_UPDATE = '1'
+            & $helper -Installed -Installation $Installation -Invoking $Invoking -Language $script:OreLanguage
+        }
         exit $LASTEXITCODE
     }
 
@@ -47,7 +55,7 @@ try {
     $script:OreFailure = 'helperUnavailable'
     $helper = Get-OrePackageHelper $Installation
     $selection = Get-OreSelection $Installation
-    if ($helper -and (!$selection -or (Test-OreBoundedComparison $helper))) { exit 0 }
+    if ($helper -and $selection -and (Test-OreVersionedHelper $helper)) { exit 0 }
     $previous = $null
     if (!$helper -and $selection) {
         # Only the former Windows source-built standalone may cross into
@@ -62,10 +70,10 @@ try {
     Initialize-OrePackageEnvironment
     $script:OreFailure = 'helperUnavailable'
     if ($env:ORE_SKIP_UPDATE -eq '1' -or [IO.File]::Exists((Join-Path $Installation 'updates-paused'))) {
-        if ($helper) { exit 0 } # Let the installed helper handle paused startup.
+        if ($helper -and $selection) { exit 0 } # Let the installed helper handle paused startup.
         throw 'First package activation requires updates to be enabled.'
     }
-    if ($helper) {
+    if ($helper -and $selection) {
         $script:OreFailure = 'startupFailed'
         Test-OreInstalled $selection ([IO.Path]::GetDirectoryName($helper))
         $previous = Read-OreJson (Assert-OrePath $Installation (Join-Path $selection.Application 'build-info.json'))
@@ -74,20 +82,21 @@ try {
     $script:OreFailure = 'downloadFailed'
     Show-OreMessage 'checkingUpdates'
     try {
-        $release = Get-OreRelease $stage
-        Write-OreDiagnostic ('Resolved package release '+$release.Commit)
-        if (!$helper -or $previous.commit -cne $release.Commit) {
+        $installedCommit = if ($helper -and $selection) { $previous.commit }
+        $release = Get-OreRelease $stage $LauncherVersion $installedCommit
+        if ($release -and !$release.Blocked) {
+            Write-OreDiagnostic ('Resolved package release '+$release.Commit)
             if ($previous) { Assert-OreForwardRelease $previous.commit $release.Commit $stage }
             Install-OreRelease $release $stage $Installation
         }
+        if (!$release.Blocked -or $selection) { $result = 0 }
     } catch {
-        if (!$helper -or (Test-OreCancellation) -or $script:OreFailure -eq 'logFailed') { throw }
+        if (!$helper -or !$selection -or (Test-OreCancellation) -or $script:OreFailure -eq 'logFailed') { throw }
         Write-OreDiagnostic ($_.Exception.ToString())
         $committed = Get-OreSelection $Installation
         if (!$committed -or $committed.Id -cne $selection.Id -or $committed.Runtime -cne $selection.Runtime) { throw 'Activation changed selection before reporting failure; startup stopped.' }
-        # The installed controller still owns normal update/fallback and startup.
+        $result = 0 # Start the verified selection through the retained helper.
     }
-    $result = 0
 } catch {
     if (Test-OreCancellation) { $script:OreFailure = 'cancelled' }
     Show-OrePackageFailure $_

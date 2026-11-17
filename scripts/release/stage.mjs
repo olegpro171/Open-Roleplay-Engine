@@ -101,7 +101,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     });
     mkdirSync(join(staging, 'scripts/release'), { recursive: true });
     const applicationFiles = ['native-smoke.mjs', 'package-portable.mjs', 'stage.mjs', 'windows-package-files.mjs', 'build-timing.mjs', ...toolkitFiles];
-    if (windows) applicationFiles.push('windows-package-install.mjs');
+    if (windows) applicationFiles.push('windows-package-install.mjs', 'windows-launcher-version.mjs');
     for (const name of applicationFiles) cpSync(join(work, 'scripts/release', name), join(staging, 'scripts/release', name));
     cpSync(noticeDirectory, join(staging, 'notices'), { recursive: true, verbatimSymlinks: true });
     cpSync(join(work, 'docs/RELEASES.md'), join(staging, 'README.md'));

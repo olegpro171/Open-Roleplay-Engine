@@ -52,7 +52,7 @@ export async function publishWindowsRelease(directory, commit, client) {
   if (release && release.draft === false) {
     requireAssets(release);
     const published = await client.descriptor(tag);
-    if (published.commit !== commit || published.launcherProtocol !== descriptor.launcherProtocol || published.formatVersion !== descriptor.formatVersion) throw new Error('Published release identity is incompatible; it was preserved.');
+    if (published.commit !== commit || published.launcherProtocol !== descriptor.launcherProtocol || published.formatVersion !== descriptor.formatVersion || published.minimumLauncherVersion !== descriptor.minimumLauncherVersion) throw new Error('Published release identity is incompatible; it was preserved.');
     return { tag, published: true, reused: true };
   }
   if (!release) {
@@ -60,7 +60,7 @@ export async function publishWindowsRelease(directory, commit, client) {
       tag_name: tag, target_commitish: commit, name: `ORE · ${commit.slice(0, 12)}`, draft: true, prerelease: false,
       body: [
         'Download **ORE-launcher.bat**, place it in the folder where you want ORE installed, and double-click it. The launcher downloads the prepared Windows x64 package.',
-        '**Updating an existing installation**\n\nStop ORE, replace **ORE-launcher.bat** beside your existing **ORE-internal/** folder, and double-click it. The replacement can update installations whose older updater rejects large GitHub comparisons. Keep your existing **ORE-internal/** folder and use the replacement for future starts.',
+        `**Updating an existing installation**\n\nThis release requires Windows launcher version ${descriptor.minimumLauncherVersion} or newer. If your launcher is older or unversioned, stop ORE, download **ORE-launcher.bat** from this release, replace the batch beside your existing **ORE-internal/** folder, and double-click it. Keep the existing **ORE-internal/** folder with your saved data.`,
         'Users of the earlier Windows launcher that built from source also replace the batch once to move their existing installation to package delivery.',
         `Commit: ${commit}`,
         'Windows x64 is the supported download. See the repository release guide for Mac working-tree startup and legacy recovery.',

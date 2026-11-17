@@ -8,7 +8,12 @@ function Get-OreReleaseAsset([object]$Release, [string]$Name) {
     if ($assets.Count -ne 1 -or $assets[0].state -cne 'uploaded' -or $assets[0].browser_download_url -cne ('https://github.com/olegpro171/Open-Roleplay-Engine/releases/download/'+$Release.tag_name+'/'+$Name)) { throw 'Missing or invalid release asset.' }
     return $assets[0].browser_download_url
 }
-function Get-OreRelease([string]$StagePath, [string]$InstalledCommit) {
+function Test-OreLauncherAllowsUpdate([int]$LauncherVersion, [int]$MinimumVersion) {
+    if ($LauncherVersion -ge $MinimumVersion) { return $true }
+    Show-OreMessage 'launcherUpdateRequired' @{required=$MinimumVersion;url='https://github.com/olegpro171/Open-Roleplay-Engine/releases/latest'}
+    return $false
+}
+function Get-OreRelease([string]$StagePath, [int]$LauncherVersion, [string]$InstalledCommit) {
     $metadata = Join-Path $StagePath 'release.json'
     Get-OreHttps 'https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/releases/latest' $metadata 30
     $release = Read-OreJson $metadata
@@ -17,12 +22,25 @@ function Get-OreRelease([string]$StagePath, [string]$InstalledCommit) {
     $descriptorPath = Join-Path $StagePath 'package.json'
     Get-OreHttps (Get-OreReleaseAsset $release 'ORE-windows-x64.json') $descriptorPath 30
     $package = Read-OreJson $descriptorPath
-    if ($package.formatVersion -ne 1 -or $package.platform -cne 'win32' -or $package.arch -cne 'x64' -or $package.launcherProtocol -ne 2) { throw 'Unsupported Windows release package protocol/platform.' }
+    if (($package.formatVersion -isnot [int] -and $package.formatVersion -isnot [long]) -or
+        $package.formatVersion -notin @(1,2) -or $package.platform -cne 'win32' -or $package.arch -cne 'x64' -or $package.launcherProtocol -ne 2) {
+        throw 'Unsupported Windows release package protocol/platform.'
+    }
+    $minimum = 0
+    if ($package.formatVersion -eq 2) {
+        $minimum = $package.minimumLauncherVersion
+        if (($minimum -isnot [int] -and $minimum -isnot [long]) -or $minimum -lt 1 -or $minimum -gt [int]::MaxValue) {
+            throw 'Invalid minimum launcher version.'
+        }
+    } elseif ($package.PSObject.Properties['minimumLauncherVersion']) {
+        throw 'A minimum launcher version requires descriptor format 2.'
+    }
     if ($package.commit -isnot [string] -or $package.commit -cnotmatch '^[a-f0-9]{40}$' -or $release.tag_name -cne ('build-'+$package.commit)) { throw 'Package commit differs from release tag.' }
     if ($package.archive -cne 'ORE-windows-x64.zip' -or $package.sha256 -isnot [string] -or $package.sha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'Invalid package archive identity.' }
     $integerSize = $package.bytes -is [long] -or $package.bytes -is [int]
     if (!$integerSize -or $package.bytes -lt 1 -or $package.bytes -gt 512MB) { throw 'Package size is outside supported download bounds.' }
-    return @{Commit=$package.commit; Sha256=$package.sha256; Bytes=$package.bytes; Archive=(Get-OreReleaseAsset $release 'ORE-windows-x64.zip'); Checksum=(Get-OreReleaseAsset $release 'ORE-windows-x64.zip.sha256')}
+    if (!(Test-OreLauncherAllowsUpdate $LauncherVersion $minimum)) { return @{Blocked=$true} }
+    return @{Commit=$package.commit; Sha256=$package.sha256; Bytes=$package.bytes; MinimumLauncherVersion=$minimum; Archive=(Get-OreReleaseAsset $release 'ORE-windows-x64.zip'); Checksum=(Get-OreReleaseAsset $release 'ORE-windows-x64.zip.sha256')}
 }
 function Test-OrePackageFiles([string]$Directory) {
     $files = @(Get-OreLongFiles $Directory)
@@ -77,10 +95,10 @@ function Assert-OreForwardRelease([string]$Commit, [string]$Target, [string]$Sta
     $compare = Read-OreJson $comparePath
     if ($compare.status -cne 'ahead' -or $compare.base_commit.sha -cne $Commit -or $compare.merge_base_commit.sha -cne $Commit) { throw 'Release is not a proven forward continuation.' }
 }
-function Test-OreBoundedComparison([string]$Helper) {
+function Test-OreVersionedHelper([string]$Helper) {
     # Discovery has already validated the helper and bounded its size.
     $header = [IO.File]::ReadLines($Helper,[Text.Encoding]::UTF8) | Select-Object -First 3
-    return $header -ccontains '# ORE capability: bounded-release-comparison'
+    return $header -ccontains '# ORE capability: minimum-launcher-version'
 }
 function Install-OreRelease([hashtable]$Release, [string]$Stage, [string]$Installation, [switch]$Prepare) {
     Show-OreMessage 'downloadingVersion'
@@ -106,7 +124,7 @@ function Install-OreRelease([hashtable]$Release, [string]$Stage, [string]$Instal
     $script:OreFailure = 'activationFailed'
     $installer = Join-Path $candidateTools 'windows-package-install.mjs'
     $arguments = @($unpacked,$Installation,$release.Commit)
-    if ($Prepare) { $arguments = @('--prepare') + $arguments }
+    if ($Prepare) { $arguments = @('--prepare') + $arguments + @([string]$release.MinimumLauncherVersion) }
     else { Show-OreMessage 'activatingVersion' }
     if ((Invoke-OreProcess $candidate.Node (@($installer) + $arguments) $script:OreReport) -ne 0) { throw 'Package preparation or activation failed.' }
 }
