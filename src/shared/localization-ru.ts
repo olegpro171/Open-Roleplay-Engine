@@ -1165,6 +1165,8 @@ export const russianMessages = {
   "summary_inspection.source_turns_and_tokens_few": "Исходных ходов: {{count}} · Оценка токенов текста: {{tokens}} · {{selection}} · {{freshness}}{{correction}}",
   "summary_inspection.source_turns_and_tokens_many": "Исходных ходов: {{count}} · Оценка токенов текста: {{tokens}} · {{selection}} · {{freshness}}{{correction}}",
   "summary_inspection.summary_version": "Версия сводки",
+  "summary_inspection.counting_text_tokens": "Подсчёт токенов текста сводки…",
+  "summary_inspection.revision_not_found": "Эта версия сводки больше недоступна.",
   "summary_inspection.revision": "Ревизия {{revision}}{{value}}{{value2}}",
   "summary_inspection.summary_text": "Текст сводки",
   "summary_inspection.an_unchanged_save_does_nothing_changed_text": "При сохранении правки предыдущие версии остаются. Зависимые сводки могут потребовать исправления.",

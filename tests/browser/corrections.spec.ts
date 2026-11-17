@@ -57,7 +57,13 @@ test('inspects alternate identities and old versions without timeline collisions
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Alternate memories', exact: true }) }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
+  let countRequests = 0;
+  page.on('request', request => {
+    if (new URL(request.url()).pathname.endsWith('/token-count')) countRequests++;
+  });
   await openChatTool(page, 'Inspect memory');
+  await expect(page.getByRole('combobox', { name: 'Inspect saved summary' })).toBeVisible();
+  expect(countRequests).toBe(0);
   const oldBox = page.locator(`.summary-span[data-summary-id="${old.id}"]`);
   const newBox = page.locator(`.summary-span[data-summary-id="${alternative.id}"]`);
   for (const width of [1280, 390]) {
@@ -90,6 +96,8 @@ test('inspects alternate identities and old versions without timeline collisions
   await page.getByRole('button', { name: 'Save summary edit', exact: true }).click();
   const editedBox = page.locator(`.summary-span[data-summary-id="${old.id}"][aria-label$="revision 1"]`);
   await editedBox.click();
+  const inspector = page.locator('.summary-inspection');
+  await expect(inspector).toContainText(`${countText(correction.trim()).toLocaleString()} estimated text tokens`);
   await expect(page.getByTestId('summary-authority')).toContainText('Retained for inspection.');
   await expect(page.getByRole('button', { name: 'Repair summaries', exact: true })).toBeDisabled();
   for (const width of [1280, 390]) {
@@ -105,6 +113,7 @@ test('inspects alternate identities and old versions without timeline collisions
     await selector.press('ArrowDown');
     await selector.press('Enter');
     await expect(text).toHaveText(old.text);
+    await expect(inspector).toContainText(`${countText(old.text).toLocaleString()} estimated text tokens`);
     await expect(selector).toBeFocused();
     expect(Math.abs((await selector.boundingBox())!.y - top)).toBeLessThan(2);
     expect((await text.boundingBox())!.height).toBe(bounds!.height);
@@ -113,8 +122,18 @@ test('inspects alternate identities and old versions without timeline collisions
     await selector.press('ArrowUp');
     await selector.press('Enter');
     await expect(text).toHaveText(correction.trim());
+    await expect(inspector).toContainText(`${countText(correction.trim()).toLocaleString()} estimated text tokens`);
     expect((await text.boundingBox())!.height).toBe(bounds!.height);
     await text.screenshot({ path: `test-results/summary-text-${width}.png` });
   }
+  await page.route(`**/api/chats/${chat.id}/context/summaries/${old.id}/versions/${old.revision}/token-count`,
+    route => route.abort(), { times: 1 });
+  await inspector.getByRole('combobox', { name: 'Summary version', exact: true }).click();
+  await page.getByRole('option', { name: /historical/ }).click();
+  await expect(inspector.getByRole('region', { name: 'Summary text' })).toHaveText(old.text);
+  await expect(inspector.getByRole('alert')).toBeVisible();
+  await expect(inspector.getByText(/estimated text tokens/)).toHaveCount(0);
+  await inspector.getByRole('button', { name: 'Retry loading', exact: true }).click();
+  await expect(inspector).toContainText(`${countText(old.text).toLocaleString()} estimated text tokens`);
   expect((await state()).context.summaries.find(node => node.id === old.id && node.revision === 1)?.turns).toEqual(old.turns);
 });

@@ -405,6 +405,7 @@ test('Prepare restores verbatim turns and shows the saved manual edit as retaine
       const inspection = page.locator('.summary-inspection');
       await expect(inspection.getByRole('status')).toContainText('Retained for inspection.');
       await expect(inspection.getByRole('region', { name: 'Summary text' })).toHaveText(correction);
+      await expect(inspection).toContainText(/\d estimated text tokens/);
       await expect(span).toHaveClass(/\bmanual\b/);
       await expect(span).toBeVisible();
       await inspection.screenshot({ path: testInfo.outputPath(`retained-summary-${theme}-${width}.png`) });

@@ -1,13 +1,14 @@
-import { t, useLocale, locale } from './localization';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { errorText, formatMessage, t, useLocale, locale, type MessageText } from './localization';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChatToolsSnapshot } from '../shared/contracts';
-import { refKey, type SummaryNode } from '../shared/context';
+import { refKey, type SummaryNode, type SummaryTokenCount } from '../shared/context';
 import { selectionRepresents } from '../core/context-corrections';
 import { staleSummaries } from '../core/context';
 import { hasPromptMarker } from '../shared/library';
 import { Dropdown } from './Controls';
-import { api } from './api';
-import { countText } from '../core/tokens';
+import { api, datasetChanged } from './api';
+
+type TokenCountResult = { path: string } & ({ tokens: number } | { error: MessageText });
 
 export function SummaryInspection({ snapshot, node, historical, selected, locked, inspect, saved, run, previewDelete }: {
   snapshot: ChatToolsSnapshot; node: SummaryNode; historical: boolean; selected: Set<string>; locked: boolean;
@@ -20,7 +21,21 @@ export function SummaryInspection({ snapshot, node, historical, selected, locked
   if (edit && edit.summary !== summaryKey) setEdit(null);
   const summaryText = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => { summaryText.current?.scrollTo(0, 0); }, [summaryKey]);
-  const textTokens = useMemo(() => countText(node.text), [node.text]);
+  const countPath = `/chats/${snapshot.id}/context/summaries/${node.id}/versions/${node.revision}/token-count`;
+  const [countResult, setCountResult] = useState<TokenCountResult>();
+  const [countAttempt, setCountAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    api<SummaryTokenCount>(countPath, 'GET', undefined, controller.signal)
+      .then(({ tokens }) => {
+        if (!controller.signal.aborted && !datasetChanged()) setCountResult({ path: countPath, tokens });
+      })
+      .catch(error => {
+        if (!controller.signal.aborted && !datasetChanged()) setCountResult({ path: countPath, error: errorText(error) });
+      });
+    return () => controller.abort();
+  }, [countPath, countAttempt]);
+  const count = countResult?.path === countPath ? countResult : undefined;
   const versions = snapshot.context.summaries.filter(version => version.id === node.id && version.approved).sort((a, b) => b.revision - a.revision);
   const latest = versions[0]?.revision === node.revision;
   const stale = staleSummaries(snapshot.turns, snapshot.context).has(refKey(node));
@@ -39,7 +54,20 @@ export function SummaryInspection({ snapshot, node, historical, selected, locked
       const version = versions.find(version => refKey(version) === key);
       if (version) { setEdit(null); inspect(version); }
     }} options={versions.map(version => ({ value: refKey(version), label: t("summary_inspection.revision", { revision: version.revision, value: version.revision === versions[0]?.revision ? t("interface.current_approved") : t("interface.historical"), value2: version.manual ? t("interface.manually_corrected") : '' }) }))} /></label>
-    <p className="small muted">{t("summary_inspection.source_turns_and_tokens", { count: node.turns.length, tokens: textTokens.toLocaleString(locale()), selection: selected.has(refKey(node)) ? t("interface.selected_in_this_view") : t("interface.retained_in_this_view"), freshness: stale ? t("interface.stale") : t("interface.fresh"), correction: node.manual ? t("interface.manually_corrected_2") : '' })}</p>
+    {!count ? <p className="small muted">{t('summary_inspection.counting_text_tokens')}</p>
+      : 'error' in count ? <p className="small muted"><span role="alert">{formatMessage(count.error)}</span>{' '}
+        <button type="button" className="quiet" onClick={() => {
+          setCountResult(undefined);
+          setCountAttempt(attempt => attempt + 1);
+        }}>{t('app.retry_loading')}</button>
+      </p>
+      : <p className="small muted">{t("summary_inspection.source_turns_and_tokens", {
+        count: node.turns.length,
+        tokens: count.tokens.toLocaleString(locale()),
+        selection: selected.has(summaryKey) ? t("interface.selected_in_this_view") : t("interface.retained_in_this_view"),
+        freshness: stale ? t("interface.stale") : t("interface.fresh"),
+        correction: node.manual ? t("interface.manually_corrected_2") : '',
+      })}</p>}
     <p role="status" data-testid="summary-authority">{status}</p>
     {edit ? <form onSubmit={async event => {
       event.preventDefault();

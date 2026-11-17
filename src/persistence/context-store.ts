@@ -34,6 +34,14 @@ export class ContextStore {
     const summaries = (this.sqlite.prepare('SELECT data FROM summaries WHERE chat_id = ? ORDER BY rowid').all(chatId) as JsonRow[]).map(row => JSON.parse(row.data) as SummaryNode);
     return { ...emptyContextState(), ...(row ? JSON.parse(row.data) as ContextState : {}), revision: row?.revision ?? 0, summaries };
   }
+  approvedSummaryText(chatId: string, ref: SummaryRef): string {
+    const row = this.sqlite.prepare<[string, string, number], { text: string }>(`
+      SELECT json_extract(data, '$.text') AS text FROM summaries
+      WHERE chat_id = ? AND id = ? AND revision = ? AND json_extract(data, '$.approved') = 1
+    `).get(chatId, ref.id, ref.revision);
+    if (!row) throw new AppError(404, 'summary_revision_not_found', message('summary_inspection.revision_not_found'));
+    return row.text;
+  }
   selectionCheckpoint(chatId: string) {
     const row = this.sqlite.prepare("SELECT revision, json_array_length(data, '$.archivedTurnIds') AS archivedCount FROM context_states WHERE chat_id = ?")
       .get(chatId) as { revision: number; archivedCount: number | null } | undefined;

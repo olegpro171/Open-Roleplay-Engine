@@ -1150,6 +1150,8 @@ export const englishMessages = {
   "summary_inspection.source_turns_and_tokens_one": "{{count}} source turn · {{tokens}} estimated text tokens · {{selection}} · {{freshness}}{{correction}}",
   "summary_inspection.source_turns_and_tokens_other": "{{count}} source turns · {{tokens}} estimated text tokens · {{selection}} · {{freshness}}{{correction}}",
   "summary_inspection.summary_version": "Summary version",
+  "summary_inspection.counting_text_tokens": "Counting summary text tokens…",
+  "summary_inspection.revision_not_found": "This saved summary version is no longer available.",
   "summary_inspection.revision": "Revision {{revision}}{{value}}{{value2}}",
   "summary_inspection.summary_text": "Summary text",
   "summary_inspection.an_unchanged_save_does_nothing_changed_text": "Saving an edit keeps previous versions. Dependent summaries may need repair.",

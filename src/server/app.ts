@@ -37,6 +37,8 @@ import { readCardFile, readCharacterCardFile, readCharacterCardUpload } from './
 import { characterCardLimits } from '../shared/character-card-limits.js';
 import { AppError, BackupValidationError } from '../core/errors.js';
 import { assembleRequest } from '../core/prompt.js';
+import { countText } from '../core/tokens.js';
+import type { SummaryTokenCount } from '../shared/context.js';
 import { continuationTarget } from '../core/continuation.js';
 import { Store } from '../persistence/store.js';
 import { StoryReader } from '../persistence/story-reader.js';
@@ -817,6 +819,13 @@ export async function createApp(options: {
     const existing = store.contexts.commandJob(chatId(request.params), input.requestId, 'refresh');
     if (existing?.refresh) return { jobId: existing.id, report: existing.refresh };
     throw new AppError(410, 'refresh_retired', message('memory.refresh_retired'));
+  });
+  app.get('/api/chats/:chatId/context/summaries/:id/versions/:revision/token-count', async (request): Promise<SummaryTokenCount> => {
+    const ref = z.object({
+      id: z.string().uuid(),
+      revision: z.string().regex(/^\d+$/).transform(Number).pipe(revisionSchema),
+    }).parse(request.params);
+    return { tokens: countText(store.contexts.approvedSummaryText(chatId(request.params), ref)) };
   });
   app.delete('/api/chats/:chatId/context/summaries/:id', async request => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);

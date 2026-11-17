@@ -60,7 +60,8 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
   const [presetId, setPresetId] = useState(savedPresetId ?? ''), [target, setTarget] = useState(snapshot.settings.targetInputTokens);
   const [historyId, setHistoryId] = useState(''), [details, setDetails] = useState<JobDetails | null>(null), [frame, setFrame] = useState(0);
   const [repairSession, setRepairSession] = useState('');
-  const [zoom, setZoom] = useState(false), [inspected, setInspected] = useState<SummaryNode | null>(null);
+  const [zoom, setZoom] = useState(false), [inspectedKey, setInspected] = useState<string | null>(null);
+  const inspected = inspectedKey ? snapshot.context.summaries.find(node => refKey(node) === inspectedKey) : undefined;
   const [deletionTarget, setDeletionTarget] = useState<{ node: SummaryNode; revision: number } | null>(null);
   const reviewToken = preparation?.deletionReviewToken;
   const reviewJobId = reviewToken ? preparation?.id : undefined;
@@ -91,7 +92,7 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
   const deletion = reviewToken ? preparationDeletion : manualDeletion;
   const restoring = new Set(deletion?.restoredTurnIds ?? []);
   const inspectSummary = (node: SummaryNode | null) => {
-    setInspected(node);
+    setInspected(node ? refKey(node) : null);
     setDeletionTarget(null);
   };
   const summariesEnabled = hasPromptMarker(snapshot.sources.prompt, 'summary');

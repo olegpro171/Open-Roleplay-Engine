@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createApp } from '../src/server/app.js';
+import { countText } from '../src/core/tokens.js';
 import type { ChatSnapshot, RequestPreview } from '../src/shared/contracts.js';
 import type { ContextJob } from '../src/shared/context.js';
 import { compactPrompt } from './support/compact-prompt.js';
@@ -520,6 +521,55 @@ describe('persistent chat and generation', () => {
       status: 'failed', errorMessage: failed.generations[0].errorMessage,
     });
     expect(mock.requests).toHaveLength(2);
+  });
+
+  it('counts only the requested saved summary revision in its own branch', async () => {
+    instance.store.saveLibrary(instance.store.libraries().revision, 'prompts', compactPrompt, 'default');
+    seedTranscript(instance.store, (await state()).revision, 'main', Array.from({ length: 12 }, (_, i) => ({
+      user: `Turn ${i + 1}. ` + 'The brass key was hidden in the cellar. '.repeat(20),
+      assistant: 'I look under the stone. '.repeat(20),
+      complete: true,
+    })));
+    const preset = instance.store.libraries().contexts[0];
+    instance.store.updateChat((await state()).revision, 'main', {
+      title: 'Summary counts', targetInputTokens: 300, connectionId: 'main', promptId: 'default',
+      characterId: null, personaId: null, contextPresetId: preset.id,
+    });
+    const started = await command('/api/chats/main/context/prepare', {
+      revision: (await state()).revision, requestId: randomUUID(), mode: 'step',
+    });
+    expect(started.statusCode).toBe(202);
+    const { jobId } = started.json<{ jobId: string }>();
+    await expect.poll(() => instance.store.contexts.job(jobId).status).toBe('succeeded');
+    const prepared = await state();
+    const [original] = prepared.context.summaries;
+    const editedText = 'Мира нашла ключ. 🗝️ The cellar door is still locked.';
+    const edited = await command(`/api/chats/main/context/summaries/${original.id}`, {
+      revision: prepared.revision, summaryRevision: original.revision, text: editedText,
+    }, 'PATCH');
+    expect(edited.statusCode).toBe(200);
+    const { revision: current } = edited.json<{ revision: number }>();
+    const url = (revision: number | string, branch = 'main') =>
+      `/api/chats/${branch}/context/summaries/${original.id}/versions/${revision}/token-count`;
+    const read = (path: string, session?: string) =>
+      instance.app.inject({ method: 'GET', url: path, headers: { host: 'localhost', ...(session ? { cookie: session } : {}) } });
+    const before = await state();
+    const originalCount = countText(original.text);
+    const currentCount = countText(editedText);
+    expect(currentCount).not.toBe(originalCount);
+    const historical = await read(url(original.revision), cookie);
+    expect(historical.statusCode).toBe(200);
+    expect(historical.json()).toEqual({ tokens: originalCount });
+    expect((await read(url(current), cookie)).json()).toEqual({ tokens: currentCount });
+    expect((await read(url(current + 1), cookie)).statusCode).toBe(404);
+    const other = instance.store.createChat({
+      title: 'Other branch', targetInputTokens: 300, connectionId: 'main', promptId: 'default', characterId: null, personaId: null,
+    });
+    expect((await read(url(current, other), cookie)).statusCode).toBe(404);
+    expect((await read(url('-1'), cookie)).statusCode).toBe(400);
+    expect((await read(url(current))).statusCode).toBe(401);
+    expect((await state()).context).toEqual(before.context);
+    expect(mock.requests).toHaveLength(1);
   });
 
   it('retains a localized provider failure on the memory job and step without archiving sources', async () => {
