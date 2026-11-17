@@ -23,7 +23,7 @@ export async function verifyStartup(application, executable, cache, launcher = j
     await new Promise((resolve, reject) => reservation.close(error => error ? reject(error) : resolve()));
     const url = `http://127.0.0.1:${address.port}`;
     const env = { ...process.env, ORE_OPEN_BROWSER: '0', ORE_SKIP_UPDATE: '1', ORE_DATABASE_DEFAULT: 'installation', ROLEPLAY_DATABASE: join(home, 'data/roleplay.sqlite'), ROLEPLAY_HOST: '127.0.0.1', ROLEPLAY_PORT: String(address.port) };
-    for (const key of ['ROLEPLAY_TLS_CERT', 'ROLEPLAY_TLS_KEY', 'ORE_DATABASE_MUST_EXIST', 'NODE_OPTIONS', 'NODE_PATH', 'ORE_LAUNCH_REPORT', 'ORE_LAUNCH_LOCK_TOKEN', 'ORE_LAUNCH_EVENTS', 'ORE_WINDOWS_BUILD_EVENTS']) delete env[key];
+    for (const key of ['ROLEPLAY_TLS_CERT', 'ROLEPLAY_TLS_KEY', 'ORE_DATABASE_MUST_EXIST', 'NODE_OPTIONS', 'NODE_PATH', 'ORE_LAUNCH_REPORT', 'ORE_LAUNCH_LOCK_TOKEN', 'ORE_LAUNCH_EVENTS', 'ORE_LAUNCH_READY_RECEIPT', 'ORE_WINDOWS_BUILD_EVENTS']) delete env[key];
     child = fork(launcher, [home, application], { execPath: executable, execArgv: [], cwd: home, env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
     child.stdout.on('data', bytes => { output = (output+bytes).slice(-16000); });
     child.stderr.on('data', bytes => { output = (output+bytes).slice(-16000); });

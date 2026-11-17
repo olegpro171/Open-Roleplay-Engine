@@ -6,8 +6,10 @@ $OutputEncoding = [Console]::OutputEncoding
 $script:OreLanguage = if ($Language -eq 'ru') { 'ru' } else { 'en' }
 $script:OreReport = $null
 $script:OreEnvLine = 1
-$stage = $null
 $lockStream = $null
+$script:OreUpdate = $null
+$script:OreUpdateStarted = $false
+$readyReceipt = $null
 $result = 1
 try {
     Assert-OreWindows
@@ -21,58 +23,56 @@ try {
     $script:OreFailure = 'legacyRestart'
     Assert-OreLegacyQuiescent $Installation
     Initialize-OrePackageEnvironment
-    $stage = New-OrePackageStage
+    $startup = [Diagnostics.Stopwatch]::StartNew()
     $selection = Get-OreSelection $Installation
     $tools = $PSScriptRoot
     $script:OreFailure = 'startupFailed'
-    if ($selection) { Test-OreInstalled $selection $tools }
-    if ($env:ORE_SKIP_UPDATE -eq '1' -or [IO.File]::Exists((Join-Path $Installation 'updates-paused'))) {
-        if (!$selection) { throw 'Skip-update requires a verified installation.' }
-        Show-OreMessage 'updatesPaused'
-    } else {
-        $fallback = 'checkFallback'
-        try {
-            $script:OreFailure = 'downloadFailed'
-            Show-OreMessage 'checkingUpdates'
-            $release = Get-OreRelease $stage
-            Write-OreDiagnostic ('Resolved package release '+$release.Commit)
-            $same = $false
-            if ($selection) {
-                $info = Read-OreJson (Join-Path $selection.Application 'build-info.json')
-                $same = $info.commit -ceq $release.Commit
-                if (!$same) { Assert-OreForwardRelease $info.commit $release.Commit $stage }
+    $updates = $env:ORE_SKIP_UPDATE -ne '1' -and ![IO.File]::Exists((Join-Path $Installation 'updates-paused'))
+    if (!$selection) {
+        if (!$updates) { throw 'First package activation requires updates to be enabled.' }
+        $selection = Install-OreInitialSelection $Installation
+        $tools = Join-Path $selection.Application 'scripts/release'
+        $script:OreFailure = 'startupFailed'
+    }
+    $prepared = Join-Path $Installation 'cache/prepared-update'
+    $activation = if ($updates) { Use-OrePreparedUpdate $selection $prepared }
+    if ($activation) {
+        $selection = $activation.Selection
+        $tools = $activation.Tools
+    } else { Test-OreInstalled $selection $tools }
+    if (!$updates) { Show-OreMessage 'updatesPaused' }
+    $whileRunning = $null
+    if ($updates -and ![IO.Directory]::Exists($prepared) -and ![IO.File]::Exists($prepared)) {
+        $info = Read-OreJson (Join-Path $selection.Application 'build-info.json')
+        $readyReceipt = Join-Path $Installation ('cache/ready-'+[guid]::NewGuid()+'.tmp')
+        $env:ORE_LAUNCH_READY_RECEIPT = $readyReceipt
+        $whileRunning = {
+            if (!$script:OreUpdateStarted -and [IO.File]::Exists($readyReceipt)) {
+                $script:OreUpdateStarted = $true
+                try { $script:OreUpdate = Start-OreUpdateCheck $Installation $info.commit }
+                catch {
+                    Write-OreDiagnostic ($_.Exception.ToString())
+                    Show-OreMessage 'backgroundUpdateFailed'
+                }
             }
-            if ($same) { Show-OreMessage 'upToDate' } else {
-                $fallback = 'updateFallback'
-                Install-OreRelease $release $stage $Installation
-                $selection = Get-OreSelection $Installation
-                $tools = Join-Path $selection.Application 'scripts/release'
-            }
-        } catch {
-            if (Test-OreCancellation) { $script:OreFailure = 'cancelled' }
-            Write-OreDiagnostic ($_.Exception.ToString())
-            if (!$selection -or $script:OreFailure -in @('installationLocked','cancelled','logFailed')) { throw }
-            $committed = Get-OreSelection $Installation
-            if (!$committed -or $committed.Id -cne $selection.Id -or $committed.Runtime -cne $selection.Runtime) { throw 'Activation changed selection before reporting failure; startup stopped.' }
-            Test-OreInstalled $selection $tools
-            Show-OreMessage $fallback
         }
     }
     # Saved-data startup retains its own compatibility/recovery boundary.
-    $script:OreFailure = 'startupFailed'
-    $selection = Get-OreSelection $Installation
-    Test-OreInstalled $selection $tools
     $env:ORE_LAUNCH_REPORT = $script:OreReport
     $env:ORE_LAUNCH_LANGUAGE = $script:OreLanguage
+    Write-OreDiagnostic ('Installed startup preflight: '+$startup.ElapsedMilliseconds+' ms.')
     Write-OreDiagnostic ('Starting selected '+$selection.Id+'; automatic fallback ends here.')
-    $result = Invoke-OreProcess $selection.Node @((Join-Path $tools 'portable-launch.mjs'),$Installation,$selection.Application) $script:OreReport -Console
+    $result = Invoke-OreProcess $selection.Node @((Join-Path $tools 'portable-launch.mjs'),$Installation,$selection.Application) $script:OreReport -Console -WhileRunning $whileRunning
 } catch {
     if (Test-OreCancellation) { $script:OreFailure = 'cancelled' }
     Show-OrePackageFailure $_
 } finally {
     if (Test-OreCancellation) { $result = 130 }
-    try { Remove-OrePackageStage $stage } catch { $result = 74 }
-    if ($lockStream) { $lockStream.Dispose() }
+    try {
+        Stop-OreUpdateCheck $script:OreUpdate
+        if ($readyReceipt) { [IO.File]::Delete($readyReceipt) }
+    } catch { if ($script:OreReport) { Write-OreDiagnostic ($_.Exception.ToString()) } }
+    finally { if ($lockStream) { $lockStream.Dispose() } }
 }
 Wait-OreFailure $result
 exit $result

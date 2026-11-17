@@ -293,7 +293,9 @@ try {
  await stop();
  recover('--resume-updates');
  assert(!existsSync(pause));
- assert.match(await launch(), /Couldn't check for updates/u);
+ await launch();
+ assert(current);
+ await waitFor(current, () => current?.output().includes("Couldn't prepare an update.") ?? false, 'Offline check did not finish');
  assert.deepEqual(await content(), saved);
  await stop();
  rmSync(offline);
@@ -303,21 +305,48 @@ try {
  transportRoot = later;
  const checksumFile = join(later, 'ORE-windows-x64.zip.sha256'), checksum = readFileSync(checksumFile);
  writeFileSync(checksumFile, 'corrupted');
- assert.match(await launch(), /Couldn't finish the update/u);
+ await launch();
+ assert(current);
+ await waitFor(current, () => current?.output().includes("Couldn't prepare an update.") ?? false, 'Corrupt update did not fail');
  assert.equal(selection(), selected);
+ assert.deepEqual(await content(), saved);
  await stop();
  writeFileSync(checksumFile, checksum);
  writeFileSync(hold, '');
  const interrupted = current = start();
  await waitFor(interrupted, () => existsSync(entered), 'Update did not reach archive transfer');
+ assert(interrupted.output().indexOf('ORE is ready.') >= 0);
+ assert(interrupted.output().indexOf('ORE is ready.') < interrupted.output().indexOf('Checking for updates...'));
+ assert.deepEqual(await content(), saved);
+ await expectExit(start(), /installation is locked/u);
  await stop();
  rmSync(hold);
+ const prepared = join(home, 'cache/prepared-update');
+ assert(!existsSync(prepared));
  assert.equal(selection(), selected);
  assert.match(await launch(), /Acceptance helper: cutover/u);
- const updated = selection();
- assert.notEqual(updated, selected);
+ assert(current);
+ await waitFor(current, () => existsSync(join(prepared, 'current')), 'Update was not prepared');
+ const updated = readFileSync(join(prepared, 'current'), 'utf8');
+ assert.equal(selection(), selected);
+ assert.equal(readFileSync(join(home, 'recovery/current'), 'utf8'), selected);
+ assert.equal(readFileSync(join(home, 'working'), 'utf8'), selected);
  assert.deepEqual(await content(), saved);
  await stop();
+ writeFileSync(pause, 'retain prepared update');
+ assert.match(await launch(), /Updates are paused/u);
+ assert.equal(selection(), selected);
+ assert(existsSync(prepared));
+ await stop();
+ recover('--resume-updates');
+ writeFileSync(offline, '');
+ assert.match(await launch(), /Activating new version/u);
+ assert.equal(selection(), updated);
+ assert(!existsSync(prepared));
+ assert.equal(readFileSync(join(home, 'previous'), 'utf8'), selected);
+ assert.deepEqual(await content(), saved);
+ await stop();
+ rmSync(offline);
  assert.match(await launch(), /Acceptance helper: later/u);
  assert.equal(selection(), updated);
  await stop();
@@ -358,10 +387,13 @@ try {
  assert.equal(selection(), selected);
 
  const database = join(home, 'data/roleplay.sqlite'), retainedDatabase = database+'.retained';
+ recover('--resume-updates');
+ const requestsBeforeMissingDatabase = readFileSync(calls, 'utf8');
  renameSync(database, retainedDatabase);
  try {
   await expectExit(start(), /ORE couldn't start\./u);
   assert(!existsSync(database));
+  assert.equal(readFileSync(calls, 'utf8'), requestsBeforeMissingDatabase);
  } finally { renameSync(retainedDatabase, database); }
  assert.deepEqual(readFileSync(join(home, 'database-location.json')), location);
  assert.equal(readFileSync(join(home, '.env'), 'utf8'), 'ORE_OPEN_BROWSER=0\n');
@@ -379,6 +411,16 @@ try {
  assert.match(await launch(clean), /Acceptance helper: later/u);
  assert(readFileSync(join(clean, 'ORE-internal/current'), 'utf8').includes(nextCommit));
  assert.deepEqual(readFileSync(join(clean, 'ORE-launcher.bat')), freshBootstrap);
+ await stop();
+
+ // A first activation interrupted after publishing the recovery toolkit can
+ // leave the same layout with no committed current selection.
+ const cleanHome = join(clean, 'ORE-internal');
+ const cleanLocation = readFileSync(join(cleanHome, 'database-location.json'));
+ rmSync(join(cleanHome, 'current'));
+ assert.match(await launch(clean), /Activating new version/u);
+ assert(readFileSync(join(cleanHome, 'current'), 'utf8').includes(nextCommit));
+ assert.deepEqual(readFileSync(join(cleanHome, 'database-location.json')), cleanLocation);
  await stop();
 
  // The separate protocol-1 bridge uses the old selection only as provenance.
@@ -411,7 +453,12 @@ try {
 } catch (error) {
  console.error(current?.output());
  const logs = join(home, 'logs');
- if (process.env.RUNNER_TEMP && existsSync(logs)) cpSync(logs, join(process.env.RUNNER_TEMP, 'ORE-package-acceptance-logs'), { recursive: true });
+ if (existsSync(logs)) {
+  if (process.env.RUNNER_TEMP) cpSync(logs, join(process.env.RUNNER_TEMP, 'ORE-package-acceptance-logs'), { recursive: true });
+  else for (const report of readdirSync(logs).filter(name => name.endsWith('.txt')).sort().slice(-4)) {
+   console.error(report, readFileSync(join(logs, report), 'utf8'));
+  }
+ }
  throw error;
 } finally {
  await Promise.all([...running].map(run => stop(run)));

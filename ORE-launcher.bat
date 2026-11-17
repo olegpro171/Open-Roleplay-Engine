@@ -363,6 +363,12 @@ public static class OreLongPaths {
     public static string Hash(string root,string path) {
         using(var stream=Open(root,path,false)) using(var sha=SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-","").ToLowerInvariant();
     }
+    public static bool Matches(string root,string path,long bytes,string hash) {
+        using(var stream=Open(root,path,false)) {
+            if (stream.Length!=bytes) return false;
+            using(var sha=SHA256.Create()) return String.Equals(BitConverter.ToString(sha.ComputeHash(stream)).Replace("-",""),hash,StringComparison.OrdinalIgnoreCase);
+        }
+    }
     static List<FindData> Entries(string root,string directory) {
         directory=Assert(root,directory);
         FindData data;
@@ -382,7 +388,10 @@ public static class OreLongPaths {
     }
     static void Walk(string root,string directory,List<string> files) {
         foreach(var entry in Entries(root,directory)) {
-            string path=Assert(root,directory+"\\"+entry.Name);
+            // Entries checks the directory ancestry and every entry's reparse
+            // flag. Recheck a directory before opening it. File names returned
+            // by FindFirst/NextFile are single components and are never opened here.
+            string path=directory.TrimEnd('\\')+"\\"+entry.Name;
             if ((entry.Attributes&DirectoryFlag)!=0) Walk(root,path,files);
             else { files.Add(path);if(files.Count>100000)throw new IOException("Managed file count exceeded."); }
         }
@@ -421,6 +430,7 @@ public static class OreCancellation {
     [DllImport("kernel32.dll",SetLastError=true)] static extern bool SetConsoleCtrlHandler(Handler callback,bool add);
     public static CancellationToken Token { get { return source.Token; } }
     public static bool IsCancelled { get { return source.IsCancellationRequested; } }
+    public static void Cancel() { source.Cancel(); }
     static bool Handle(uint type) {
         if (type != 0 && type != 1) return false;
         source.Cancel();
@@ -551,7 +561,7 @@ function ConvertTo-OreArgument([string]$Value) {
     # CommandLineToArgvW quoting; paths are never evaluated as shell source.
     return '"'+[regex]::Replace([regex]::Replace($Value,'(\\*)"','$1$1\"'),'(\\+)$','$1$1')+'"'
 }
-function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$Report, [switch]$Console) {
+function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$Report, [switch]$Console, [scriptblock]$WhileRunning) {
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $Executable
     $start.Arguments = (($Arguments | ForEach-Object { ConvertTo-OreArgument $_ }) -join ' ')
@@ -576,6 +586,7 @@ function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$R
         do {
             if (Test-OreCancellation) { throw (New-Object OperationCanceledException 'Launcher cancelled.') }
             foreach ($task in $tasks) { if ($task.IsFaulted) { $task.GetAwaiter().GetResult() | Out-Null } }
+            if ($WhileRunning -and !$process.HasExited) { & $WhileRunning }
         } while (!$process.WaitForExit(100))
         foreach ($task in $tasks) { $task.GetAwaiter().GetResult() | Out-Null }
         return $process.ExitCode
@@ -742,11 +753,12 @@ function Get-OreReleaseAsset([object]$Release, [string]$Name) {
     if ($assets.Count -ne 1 -or $assets[0].state -cne 'uploaded' -or $assets[0].browser_download_url -cne ('https://github.com/olegpro171/Open-Roleplay-Engine/releases/download/'+$Release.tag_name+'/'+$Name)) { throw 'Missing or invalid release asset.' }
     return $assets[0].browser_download_url
 }
-function Get-OreRelease([string]$StagePath) {
+function Get-OreRelease([string]$StagePath, [string]$InstalledCommit) {
     $metadata = Join-Path $StagePath 'release.json'
     Get-OreHttps 'https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/releases/latest' $metadata 30
     $release = Read-OreJson $metadata
     if ($release.draft -ne $false -or $release.prerelease -ne $false -or $release.tag_name -cnotmatch '^build-[a-f0-9]{40}$') { throw 'Invalid published release identity.' }
+    if ($InstalledCommit -and $release.tag_name -ceq ('build-'+$InstalledCommit)) { return }
     $descriptorPath = Join-Path $StagePath 'package.json'
     Get-OreHttps (Get-OreReleaseAsset $release 'ORE-windows-x64.json') $descriptorPath 30
     $package = Read-OreJson $descriptorPath
@@ -758,7 +770,7 @@ function Get-OreRelease([string]$StagePath) {
     return @{Commit=$package.commit; Sha256=$package.sha256; Bytes=$package.bytes; Archive=(Get-OreReleaseAsset $release 'ORE-windows-x64.zip'); Checksum=(Get-OreReleaseAsset $release 'ORE-windows-x64.zip.sha256')}
 }
 function Test-OrePackageFiles([string]$Directory) {
-    Assert-OreLongTree $Directory
+    $files = @(Get-OreLongFiles $Directory)
     # Desktop ConvertFrom-Json emits a top-level array as one pipeline object.
     # Capture that array directly; @() would wrap it in a second array.
     $records = Read-OreJson (Join-Path $Directory 'checksums.json') 16MB
@@ -768,10 +780,9 @@ function Test-OrePackageFiles([string]$Directory) {
         if ($file -isnot [Management.Automation.PSCustomObject]) { throw 'Invalid package file record.' }
         $integerSize = $file.bytes -is [long] -or $file.bytes -is [int]
         if ($file.path -isnot [string] -or $file.path -match '(^/|\\|:|(^|/)\.\.?(/|$))' -or $file.path -ceq 'checksums.json' -or $file.sha256 -isnot [string] -or $file.sha256 -cnotmatch '^[a-f0-9]{64}$' -or !$seen.Add($file.path) -or $file.link -or !$integerSize -or $file.bytes -lt 0) { throw 'Invalid package file record.' }
-        $path = Assert-OreLongPath $Directory ($Directory.TrimEnd('\')+'\'+$file.path.Replace('/','\'))
-        if ((Get-OreLongLength $Directory $path) -ne $file.bytes -or (Get-OreLongHash $Directory $path) -cne $file.sha256) { throw 'Package file checksum mismatch.' }
+        $path = $Directory.TrimEnd('\')+'\'+$file.path.Replace('/','\')
+        if (![OreLongPaths]::Matches($Directory,$path,$file.bytes,$file.sha256)) { throw 'Package file checksum mismatch.' }
     }
-    $files = @(Get-OreLongFiles $Directory)
     if ($files.Count -ne $records.Count+1) { throw 'Unlisted package files.' }
 }
 function Get-OrePackageHelper([string]$HomePath, [string[]]$Pointers = @('current','recovery/current')) {
@@ -779,7 +790,7 @@ function Get-OrePackageHelper([string]$HomePath, [string[]]$Pointers = @('curren
     foreach ($pointer in $Pointers) {
         $selection = Get-OreSelection $HomePath $pointer
         if (!$selection) { continue }
-        $tools = if ($pointer -eq 'current') { Join-Path $selection.Application 'scripts/release' } else { Join-Path $HomePath ('recovery/'+$selection.Id) }
+        $tools = if ($pointer -eq 'recovery/current') { Join-Path $HomePath ('recovery/'+$selection.Id) } else { Join-Path $selection.Application 'scripts/release' }
         $protocol = Assert-OrePath $HomePath (Join-Path $tools 'windows-package-protocol')
         if (![IO.File]::Exists($protocol)) { continue }
         if ((New-Object IO.FileInfo $protocol).Length -gt 16 -or [IO.File]::ReadAllText($protocol).Trim() -cne '2') { throw 'Unsupported installed package protocol.' }
@@ -816,7 +827,7 @@ function Test-OreBoundedComparison([string]$Helper) {
     $header = [IO.File]::ReadLines($Helper,[Text.Encoding]::UTF8) | Select-Object -First 3
     return $header -ccontains '# ORE capability: bounded-release-comparison'
 }
-function Install-OreRelease([hashtable]$Release, [string]$Stage, [string]$Installation) {
+function Install-OreRelease([hashtable]$Release, [string]$Stage, [string]$Installation, [switch]$Prepare) {
     Show-OreMessage 'downloadingVersion'
     $checksum = Join-Path $stage 'package.sha256'
     Get-OreHttps $release.Checksum $checksum 30
@@ -838,8 +849,11 @@ function Install-OreRelease([hashtable]$Release, [string]$Stage, [string]$Instal
         if (!(Get-OrePackageHelper $unpacked $pointer)) { throw 'Package is missing a compatible startup or recovery helper.' }
     }
     $script:OreFailure = 'activationFailed'
-    Show-OreMessage 'activatingVersion'
-    if ((Invoke-OreProcess $candidate.Node @((Join-Path $candidateTools 'windows-package-install.mjs'),$unpacked,$Installation,$release.Commit) $script:OreReport) -ne 0) { throw 'Package activation failed.' }
+    $installer = Join-Path $candidateTools 'windows-package-install.mjs'
+    $arguments = @($unpacked,$Installation,$release.Commit)
+    if ($Prepare) { $arguments = @('--prepare') + $arguments }
+    else { Show-OreMessage 'activatingVersion' }
+    if ((Invoke-OreProcess $candidate.Node (@($installer) + $arguments) $script:OreReport) -ne 0) { throw 'Package preparation or activation failed.' }
 }
 
 function Show-OreMessage([string]$Id, [hashtable]$Parameters = @{}) {
@@ -864,13 +878,13 @@ function Write-OreDiagnostic([string]$Text) {
     try { [IO.File]::AppendAllText($script:OreReport,$Text+"`n",(New-Object Text.UTF8Encoding $false)) }
     catch { $script:OreFailure = 'logFailed'; throw }
 }
-function Open-OrePackageReport {
+function Open-OrePackageReport([switch]$Quiet, [string]$Prefix = 'launcher') {
     $script:OreFailure = 'logFailed'
-    $reportPath = Assert-OrePath $Installation (Join-Path $Installation ('logs/launcher-'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')+'-'+[guid]::NewGuid()+'.txt'))
+    $reportPath = Assert-OrePath $Installation (Join-Path $Installation ('logs/'+$Prefix+'-'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')+'-'+[guid]::NewGuid()+'.txt'))
     $reportStream = [IO.File]::Open($reportPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
     $reportStream.Dispose()
     $script:OreReport = $reportPath
-    Show-OreMessage 'logFile' @{absolutePath=$reportPath}
+    if (!$Quiet) { Show-OreMessage 'logFile' @{absolutePath=$reportPath} }
     Write-OreDiagnostic ('Windows package protocol 2; PowerShell '+$PSVersionTable.PSVersion+'; x64; language '+$script:OreLanguage)
 }
 function Initialize-OrePackageEnvironment {

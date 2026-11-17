@@ -51,7 +51,7 @@ The installation script is `ORE-launcher.bat`. Download it from [Releases](https
 
 Place this file in the folder where you want to install ORE and double-click it.
 
-The script downloads the latest published Windows package, verifies it, installs it into `ORE-internal/`, and starts ORE. Use the same launcher for future starts and updates. If an update fails to download, ORE can still start using the installed version.
+On first launch the script downloads and verifies the latest published Windows package, installs it into `ORE-internal/`, and starts ORE. Use the same launcher every time. Once ORE is ready, it checks and prepares updates in the background. When the console says an update is ready, restart ORE to use it.
 
 Windows x64 uses the built-in 64-bit Windows PowerShell 5.1 and .NET. See [recovery and legacy installations](docs/RELEASES.md#legacy-installations) for the retired launchers.
 

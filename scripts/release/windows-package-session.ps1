@@ -20,13 +20,13 @@ function Write-OreDiagnostic([string]$Text) {
     try { [IO.File]::AppendAllText($script:OreReport,$Text+"`n",(New-Object Text.UTF8Encoding $false)) }
     catch { $script:OreFailure = 'logFailed'; throw }
 }
-function Open-OrePackageReport {
+function Open-OrePackageReport([switch]$Quiet, [string]$Prefix = 'launcher') {
     $script:OreFailure = 'logFailed'
-    $reportPath = Assert-OrePath $Installation (Join-Path $Installation ('logs/launcher-'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')+'-'+[guid]::NewGuid()+'.txt'))
+    $reportPath = Assert-OrePath $Installation (Join-Path $Installation ('logs/'+$Prefix+'-'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')+'-'+[guid]::NewGuid()+'.txt'))
     $reportStream = [IO.File]::Open($reportPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
     $reportStream.Dispose()
     $script:OreReport = $reportPath
-    Show-OreMessage 'logFile' @{absolutePath=$reportPath}
+    if (!$Quiet) { Show-OreMessage 'logFile' @{absolutePath=$reportPath} }
     Write-OreDiagnostic ('Windows package protocol 2; PowerShell '+$PSVersionTable.PSVersion+'; x64; language '+$script:OreLanguage)
 }
 function Initialize-OrePackageEnvironment {

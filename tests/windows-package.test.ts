@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, cpSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, cpSync, realpathSync, symlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { inventory } from '../scripts/release/stage.mjs';
-import { installWindowsPackage, verifyWindowsPackage } from '../scripts/release/windows-package-install.mjs';
+import { inventory, omitDependencyDeclarations } from '../scripts/release/stage.mjs';
+import { activatePreparedWindowsPackage, installWindowsPackage, prepareWindowsPackage, verifyWindowsPackage } from '../scripts/release/windows-package-install.mjs';
 
 const roots: string[] = [];
 const commit = 'a'.repeat(40), nextCommit = 'b'.repeat(40);
@@ -33,6 +33,30 @@ function fixture() {
 }
 
 describe('Windows package verification and atomic code publication', () => {
+ it('omits dependency declarations while retaining JavaScript, maps and notices', () => {
+  const f = fixture(), modules = join(f.root, 'node_modules/package'), nested = join(modules,'lib');
+  mkdirSync(nested, { recursive: true });
+  for (const file of ['index.js', 'index.d.ts', 'LICENSE', 'lib/index.cjs', 'lib/index.cjs.map', 'lib/index.d.cts', 'lib/index.d.mts']) writeFileSync(join(modules, file), file);
+  omitDependencyDeclarations(modules);
+  expect(inventory(modules).map(file => file.path)).toEqual(['LICENSE', 'index.js', 'lib/index.cjs', 'lib/index.cjs.map']);
+ });
+ it.skipIf(process.platform !== 'win32')('walks long ordinary paths and rejects nested junctions without following them', () => {
+  const f = fixture(), directory = join(f.root, 'tree'), nested = join(directory, 'nested'), outside = join(f.root, 'outside');
+  const longPath = join(nested, 'a'.repeat(110), 'b'.repeat(110), 'story.txt');
+  mkdirSync(join(longPath, '..'), { recursive: true });
+  mkdirSync(outside); writeFileSync(longPath, 'Synthetic story');
+  const run = () => spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-Command', "$ErrorActionPreference='Stop'; . $env:ORE_ZIP_TOOLS; Get-OreLongFiles $env:ORE_PACKAGE_DIRECTORY"], {
+   encoding: 'utf8', timeout: 15000, env: { ...process.env, ORE_ZIP_TOOLS: resolve('scripts/release/windows-snapshot.ps1'), ORE_PACKAGE_DIRECTORY: directory },
+  });
+  const ordinary = run(); expect(ordinary.status, ordinary.stderr).toBe(0);
+  expect(ordinary.stdout.trim()).toBe(longPath);
+  const link = join(nested, 'junction');
+  symlinkSync(outside, link, 'junction');
+  try {
+   const escaped = run(); expect(escaped.status).not.toBe(0);
+   expect(escaped.stderr).toMatch(/Reparse point/u);
+  } finally { rmSync(link, { force: true }); }
+ });
  it.skipIf(process.platform !== 'win32').each([1, 2])('validates a native inventory with %i files and rejects corruption and malformed inventories', count => {
   const f = fixture(), directory = join(f.root, 'inventory'); mkdirSync(directory);
   for (let index = 0; index < count; index++) writeFileSync(join(directory, `story-${index}.txt`), 'Synthetic saved story');
@@ -96,6 +120,32 @@ describe('Windows package verification and atomic code publication', () => {
   expect(readFileSync(join(f.home, 'working'), 'utf8')).toBe(first.selection);
   expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(next.selection);
   expect(existsSync(join(f.home, 'app', first.id))).toBe(true);
+ });
+ it('prepares an update without changing any active pointers or root tools until activation', () => {
+  const f = fixture(), first = f.packageFor(); installWindowsPackage(first.payload, f.home, commit);
+  writeFileSync(join(f.home, 'working'), first.selection);
+  const next = f.packageFor(nextCommit), tool = 'start-app.bat';
+  writeFileSync(join(next.payload, tool), 'next tool'); next.seal();
+  const prepared = prepareWindowsPackage(next.payload, f.home, nextCommit);
+  for (const ptr of ['current', 'recovery/current', 'working']) expect(readFileSync(join(f.home, ptr), 'utf8')).toBe(first.selection);
+  expect(readFileSync(join(f.home, tool), 'utf8')).toBe('synthetic '+tool);
+  expect(existsSync(join(f.home, 'previous'))).toBe(false);
+  expect(existsSync(join(f.home, 'app', next.id))).toBe(true);
+  activatePreparedWindowsPackage(f.home, prepared);
+  for (const ptr of ['current', 'recovery/current']) expect(readFileSync(join(f.home, ptr), 'utf8')).toBe(next.selection);
+  for (const ptr of ['working', 'previous']) expect(readFileSync(join(f.home, ptr), 'utf8')).toBe(first.selection);
+  expect(readFileSync(join(f.home, tool), 'utf8')).toBe('next tool');
+ });
+ it.each(['receipt corruption', 'different base'])('leaves the selected version intact after %s', kind => {
+  const f = fixture(), first = f.packageFor(); installWindowsPackage(first.payload, f.home, commit);
+  const next = f.packageFor(nextCommit), prepared = prepareWindowsPackage(next.payload, f.home, nextCommit);
+  if (kind === 'receipt corruption') writeFileSync(join(f.home, 'cache/prepared-update/start-app.bat'), 'changed tool');
+  else writeFileSync(join(f.home, 'current'), 'release-other\n'+runtime+'\n');
+  const selected = readFileSync(join(f.home, 'current'), 'utf8');
+  expect(() => activatePreparedWindowsPackage(f.home, prepared)).toThrow(/inventory|no longer matches/u);
+  expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(selected);
+  expect(readFileSync(join(f.home, 'recovery/current'), 'utf8')).toBe(first.selection);
+  expect(readFileSync(join(f.home, 'start-app.bat'), 'utf8')).toBe('synthetic start-app.bat');
  });
  it('retries an interrupted publication with complete immutable orphan directories', () => {
   const f = fixture(), p = f.packageFor();

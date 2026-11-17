@@ -44,6 +44,15 @@ function packages(directory) {
   }
   return result;
 }
+// The Windows release runs compiled JavaScript. Retain runtime modules, source
+// maps and notices while omitting the compiler-only declarations in dependencies.
+export function omitDependencyDeclarations(directory) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) omitDependencyDeclarations(path);
+    else if (entry.isFile() && /\.d\.(?:ts|cts|mts)$/u.test(entry.name)) rmSync(path);
+  }
+}
 function notices(work, output) {
   mkdirSync(output, { recursive: true });
   cpSync(join(work, 'scripts/release/third-party'), join(output, 'native-sources'), { recursive: true });
@@ -88,6 +97,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
       for (const input of ['dist', 'migrations', 'package.json', 'package-lock.json']) cpSync(join(work, input), join(staging, input), { recursive: true, verbatimSymlinks: true });
       if (transfer !== 'copy') publishRename(join(work, 'node_modules'), join(staging, 'node_modules'));
       else cpSync(join(work, 'node_modules'), join(staging, 'node_modules'), { recursive: true, verbatimSymlinks: true });
+      if (release && windows) omitDependencyDeclarations(join(staging, 'node_modules'));
     });
     mkdirSync(join(staging, 'scripts/release'), { recursive: true });
     const applicationFiles = ['native-smoke.mjs', 'package-portable.mjs', 'stage.mjs', 'windows-package-files.mjs', 'build-timing.mjs', ...toolkitFiles];
