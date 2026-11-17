@@ -18,7 +18,7 @@ import { emptyContextState, refKey, type SummaryRetry, type ContextJob, type Con
 import type { EngineSnapshot, RequestPreview } from '../shared/contracts.js';
 import { hasPromptMarker } from '../shared/library.js';
 import type { LoreResolution } from '../shared/lorebook.js';
-import { exportSummaryFile, importSummaryState } from '../core/summary-file.js';
+import { exportSelectedSummaryText, exportSummaryFile, importSummaryState } from '../core/summary-file.js';
 import type { SummaryFile, SummaryImportPreview } from '../shared/summary-file.js';
 
 type JsonRow = { data: string };
@@ -538,6 +538,12 @@ export class ContextStore {
     this.store.checkRevision(revision, chatId);
     const branch = this.store.summaryFileBranch(chatId);
     return { file: exportSummaryFile(chatId, branch.createdAt, this.savedState(chatId)), branchName: branch.branchName };
+  }
+  exportSummaryText(chatId: string, revision: number) {
+    this.store.checkRevision(revision, chatId);
+    const { branchName } = this.store.summaryFileBranch(chatId);
+    const state = this.savedState(chatId);
+    return { text: exportSelectedSummaryText(state, this.store.readTurnSources(chatId)), branchName };
   }
   importSummaries(chatId: string, revision: number, file: SummaryFile, reviewedToken?: string): SummaryImportPreview {
     return this.sqlite.transaction(() => {

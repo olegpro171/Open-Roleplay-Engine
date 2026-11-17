@@ -4,10 +4,12 @@ import { defaultContextPreset } from '../../src/shared/context';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 import { newLorebook } from '../../src/shared/lorebook';
+import { openChatTool } from './chat-tools';
 import { test } from './isolated-app';
 
 for (const width of [1440, 390]) {
   test(`chat selections follow their saved Library sorting at ${width}px`, async ({ page, browserApp }, testInfo) => {
+    test.setTimeout(60_000);
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/');
     await page.getByLabel('Owner password').fill('browser-synthetic-password');
@@ -29,6 +31,11 @@ for (const width of [1440, 390]) {
         order: ['Echo Lorebook', 'Amber Lorebook'] },
     ];
     const selectedSettings: Record<string, string> = {};
+    const character = await page.request.post('/api/library', {
+      headers, data: { kind: 'characters', revision: (await readLibrary()).revision,
+        data: { name: 'Sorting witness', description: '', personality: '', scenario: '', first_mes: '', mes_example: '' } },
+    });
+    expect(character.ok(), await character.text()).toBe(true);
     for (const fixture of fixtures) {
       for (const prefix of ['Echo', 'Amber']) {
         const response = await page.request.post('/api/library', {
@@ -86,6 +93,41 @@ for (const width of [1440, 390]) {
         if (fixture.kind === 'contexts') await page.screenshot({ path: testInfo.outputPath(`${theme}-context-options.png`), animations: 'disabled' });
         await trigger.press('Escape');
       }
+      await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
+      await openChatTool(page, 'Inspect memory');
+      const closeMemory = page.getByRole('button', { name: 'Return to chat', exact: true });
+      const controls = page.locator('.chat-page-actions').filter({ has: closeMemory });
+      await expect(controls).toHaveCSS('box-shadow', 'none');
+      await expect(controls).toHaveCSS('padding', '0px');
+      if (width === 390) {
+        await expect(closeMemory).not.toHaveCSS('box-shadow', 'none');
+        await closeMemory.screenshot({ path: testInfo.outputPath(`${theme}-floating-close.png`) });
+      }
+      const checkOptions = async (label: string, expected: string[]) => {
+        const trigger = page.getByRole('combobox', { name: label, exact: true });
+        await trigger.click();
+        await expect(page.getByRole('listbox', { name: label, exact: true }).getByRole('option')).toHaveText(expected);
+        await trigger.press('Escape');
+      };
+      await checkOptions('Context preset', ['No context preset', ...fixtures[1].order]);
+      await libraries.click();
+      await categories.getByRole('button', { name: 'Context presets', exact: true }).click();
+      await page.getByRole('button', { name: 'Amber Context preset', exact: true }).click();
+      await checkOptions('Summarization Connection', ['Same as current chat connection', 'Amber Connection · mock', 'Echo Connection · mock']);
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await categories.getByRole('button', { name: 'Characters', exact: true }).click();
+      await page.getByRole('button', { name: 'Sorting witness', exact: true }).click();
+      await checkOptions('Default lorebook', ['None selected', ...fixtures[3].order]);
+      const reviewTags = page.getByRole('button', { name: 'Review embedded tags', exact: true });
+      await reviewTags.scrollIntoViewIfNeeded();
+      const manage = await page.getByRole('button', { name: 'Manage tags', exact: true }).boundingBox();
+      const review = await reviewTags.boundingBox();
+      if (!manage || !review) throw new Error('Missing Character tag controls');
+      expect(Math.max(review.x - manage.x - manage.width, review.y - manage.y - manage.height)).toBeGreaterThanOrEqual(7);
+      await page.screenshot({ path: testInfo.outputPath(`${theme}-character-tag-actions.png`), animations: 'disabled' });
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByRole('button', { name: 'Story', exact: true }).click();
+      await openChatTool(page, 'Chat settings');
     }
 
     for (const fixture of fixtures) {

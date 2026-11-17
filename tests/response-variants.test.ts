@@ -13,7 +13,7 @@ import type { RequestPreview } from '../src/shared/contracts.js';
 import { defaultContextPreset, refKey, type SummaryNode } from '../src/shared/context.js';
 import { sourceOf, staleSummaries } from '../src/core/context.js';
 import { compactPrompt } from './support/compact-prompt.js';
-import { continuationInstruction } from '../src/core/continuation.js';
+import { defaultContinuationInstruction as continuationInstruction } from '../src/shared/default-prompt.js';
 import { removeContinuationSchema } from './support/schema-18.js';
 import { validateContent } from '../src/persistence/backup-validation.js';
 import { appendContinuation } from '../src/shared/text.js';
@@ -29,12 +29,13 @@ function fixture(count = 1) {
   let store = new Store(filename);
   store.saveLibrary(store.libraryRevision(), 'prompts', compactPrompt, 'default');
   const calls: RequestPreview[] = [];
-  let output = 'Alternative B.', fail = false, hold = false, release: (() => void) | undefined;
-  const provider: Provider = { async stream(request, _key, _signal, onText) {
+  let output = 'Alternative B.', reasoning = '', fail = false, hold = false, release: (() => void) | undefined;
+  const provider: Provider = { async stream(request, _key, _signal, onText, onReasoning) {
     calls.push(request);
     if (fail) throw new Error('synthetic upstream failure with secret');
     const text = request.body.model === 'summary' ? 'Mira owns the key.' : output;
     onText(text);
+    if (reasoning) onReasoning?.(reasoning);
     if (hold) await new Promise<void>(resolve => { release = resolve; });
     return { finishReason: 'stop', usage: { inputTokens: 9, outputTokens: 3, totalTokens: 12 } };
   } };
@@ -48,7 +49,8 @@ function fixture(count = 1) {
   const select = (id: string, turnId = required(state().turns.at(-1)).id) => store.selectVariant(state().revision, turnId, id, 'main');
   cleanup.push(async () => { release?.(); await coordinator.shutdown(); store.close(); rmSync(directory, { recursive: true, force: true }); });
   return { get store() { return store; }, get coordinator() { return coordinator; }, filename, calls, state, regen, extend, idle, select,
-    output(value: string) { output = value; }, fail(value = true) { fail = value; }, hold() { hold = true; }, release() { hold = false; release?.(); },
+    output(value: string, thoughts = '') { output = value; reasoning = thoughts; },
+    fail(value = true) { fail = value; }, hold() { hold = true; }, release() { hold = false; release?.(); },
     async reopen() { release?.(); await coordinator.shutdown(); store.close(); store = new Store(filename); coordinator = new GenerationCoordinator(store, provider); },
   };
 }
@@ -110,14 +112,15 @@ describe('continuing a selected response', () => {
   it('preserves the selected reply on cancellation, restart, blank output and overflow', async () => {
     const f = fixture(), original = f.state().turns[0];
     f.hold();
-    f.output('Partial addition.');
+    f.output('Partial addition.', 'Unfinished reasoning.');
     const cancelled = f.extend();
     await expect.poll(() => f.state().generations[0].partialText).toBe('Partial addition.');
+    expect(f.coordinator.reasoningText(cancelled)).toBe('Unfinished reasoning.');
     expect(() => f.extend()).toThrow('current response');
     f.coordinator.cancel(cancelled);
     f.release();
     expect(f.state().turns[0]).toEqual(original);
-    expect(f.state().generations[0]).toMatchObject({ status: 'cancelled', partialText: 'Partial addition.' });
+    expect(f.state().generations[0]).toMatchObject({ status: 'cancelled', partialText: '', reasoningText: '', request: f.calls[0] });
 
     const revision = f.state().revision, requestId = randomUUID();
     const { id } = f.store.beginCompletedResponse(revision, requestId, original.id, 'main', 'continuation');
@@ -127,6 +130,9 @@ describe('continuing a selected response', () => {
     expect(f.coordinator.continueResponse(revision, requestId, original.id, 'main').generationId).toBe(id);
     expect(f.calls).toHaveLength(calls);
     expect(f.state().generations[0]).toMatchObject({ status: 'interrupted', partialText: 'Interrupted addition.', errorMessage: { key: 'continue.interrupted' } });
+    expect(f.state().generations.find(generation => generation.id === cancelled)).toMatchObject({
+      status: 'cancelled', partialText: '', reasoningText: '', request: f.calls[0],
+    });
 
     for (const [text, key] of [[' \n ', 'continue.empty_response'], ['x'.repeat(100_000), 'continue.reply_too_long']]) {
       f.output(text);

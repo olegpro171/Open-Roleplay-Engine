@@ -1,17 +1,19 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
 import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
 
-export function ActionMenu({ label, disabled, revision = null, focusMode = 'item', children }: {
+export function ActionMenu({ label, disabled, revision = null, focusMode = 'item', triggerRef, children }: {
   label: string;
   disabled: boolean;
   revision?: number | null;
   focusMode?: 'item' | 'panel';
+  triggerRef?: RefObject<HTMLButtonElement | null>;
   children: ReactNode;
 }) {
   const id = useId();
-  const trigger = useRef<HTMLButtonElement>(null);
+  const internalTrigger = useRef<HTMLButtonElement>(null);
+  const trigger = triggerRef ?? internalTrigger;
   const panel = useRef<HTMLDivElement>(null);
   const openedWith = useRef<PopupInput>('keyboard');
   const [openedAt, setOpenedAt] = useState<number | null>();
@@ -83,7 +85,7 @@ export function ActionMenu({ label, disabled, revision = null, focusMode = 'item
       viewport?.removeEventListener('resize', dismiss);
       viewport?.removeEventListener('scroll', dismiss);
     };
-  }, [open, label, focusMode]);
+  }, [open, label, focusMode, trigger]);
 
   // A modal makes content outside its own tree inert, including body portals.
   const menuHost = open ? trigger.current?.closest('dialog[open]') ?? document.body : null;

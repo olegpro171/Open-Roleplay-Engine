@@ -1,6 +1,8 @@
 import type { PromptPreset } from './library.js';
 
 // Factory model-bound content; preserve literal text independently of interface language.
+export const defaultContinuationInstruction = '[OOC: Continue the scene from the previous reply. The player has supplied no new action. Advance the scene through your characters or the environment. Leave the player character’s actions, dialogue, and decisions to the player.]';
+
 export const factoryPrompt: PromptPreset = {
   "name": "Default prompt",
   "blocks": [

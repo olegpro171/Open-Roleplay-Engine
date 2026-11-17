@@ -16,11 +16,15 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 .library-navigation{display:contents}
 .library-editor-target{flex-shrink:0}
 .floating-controls{padding:4px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:0 4px 16px var(--shadow)}
+.floating-controls:has(>button:only-child){padding:0;border:0;background:none;box-shadow:none}
+.action-menu.floating-controls:has(>button:only-child)>button{box-shadow:0 4px 16px var(--shadow)}
+.action-menu.floating-controls:has(>button:only-child){overflow:visible}
 .library-editor-actions{display:flex;flex-direction:column;gap:10px;margin-top:20px}
 .editor-actions>button{min-height:44px;justify-content:center}
 .editor-actions>button>.ui-icon{display:none}
 @media(min-width:801px){.editor-actions.floating-controls{padding:0;border:0;border-radius:0;background:none;box-shadow:none}}
 @media(max-width:800px){
+  .editor-actions.floating-controls:has(>button:only-child)>button{box-shadow:0 4px 16px var(--shadow)}
   .library-workspace .library-sidebar{display:contents}
   .library-workspace .library-navigation{display:block;padding:22px 18px 18px;border-bottom:1px solid var(--line)}
   .library-workspace .library-tabs{overflow:visible}
@@ -146,7 +150,9 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .memory-panel{padding:36px max(24px,calc((100% - 1100px)/2)) 70px}
 .memory-selection{margin-top:24px!important}.memory-selection fieldset{margin-bottom:18px}
 .memory-settings-actions{align-items:center;margin-top:16px;column-gap:16px}
-.memory-actions{margin:0 0 32px}.memory-actions button{font-size:13px}
+.memory-actions{align-items:start;margin:0 0 32px}.memory-actions button{font-size:13px}
+.memory-repair-actions{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.memory-repair-actions>p{grid-column:1/-1;margin:0}
 .memory-panel meter{width:100%;height:14px;accent-color:var(--success)}.memory-panel .budget p{margin:8px 0 0}
 .memory-failure{padding:14px 18px;border-left:3px solid var(--danger-border);background:var(--danger-surface-muted);font-size:13px}
 .memory-chart{border:1px solid var(--line);border-radius:12px;background:var(--surface-low);padding:24px;min-width:0;margin:24px 0}
@@ -276,9 +282,13 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
   /* Visually center the diagonal artwork within Send. */
   transform: translate(-0.8px, 0.8px);
 }
-.memory-preparation-status{position:absolute;z-index:2;top:14px;inset-inline:0;width:max-content;max-width:calc(100% - 36px);margin-inline:auto;padding:8px 12px;flex-wrap:nowrap;gap:12px;border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 8px var(--shadow-soft)}
+.transcript-notices{position:absolute;z-index:2;inset:14px 18px auto;display:grid;justify-items:center;gap:8px;pointer-events:none}
+.transcript-notices>*{max-width:100%;pointer-events:auto}
+.transcript-notices>.warning-details{margin:0}
+.transcript-notices>.warning-details>button{box-shadow:0 4px 16px var(--shadow)}
 /* Leave the older-history control clickable when the reader reaches the top. */
-.memory-preparation-status[data-older-control-visible]{top:calc(24px + var(--history-page-control-height))}
+.transcript-notices[data-older-control-visible]{top:calc(24px + var(--history-page-control-height))}
+.memory-preparation-status{width:max-content;padding:8px 12px;flex-wrap:nowrap;gap:12px;border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 8px var(--shadow-soft)}
 .memory-preparation-status button{min-height:44px;margin:0}
 .memory-preparation-status .actions{flex-direction:column;align-items:stretch;margin:0}
 .request-details[open]>summary{margin-bottom:22px}
@@ -462,6 +472,7 @@ button.turn-action, .turn-actions > .action-menu-trigger { display: inline-flex;
   .library-tabs button:where(:hover:enabled),
   .turn-action:hover:enabled:not([aria-disabled="true"]),
   .turn-actions > .action-menu-trigger:hover:enabled,
+  .memory-repair-actions > .action-menu-trigger:hover:enabled,
   .original-picture-viewer>button:hover:enabled,
   .tag-filter-panel button.quiet:hover:enabled,
   .model-picker button:is(.quiet, .secondary):hover:enabled,
@@ -737,7 +748,7 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .library-card-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 /* Reserve control width without adding a blank row below a single-line title. */
 .library-card-tools{display:flex;flex:none;position:relative;z-index:2;gap:4px;height:0;margin-top:-8px;margin-inline-end:-8px}
-.library-card-tools>button{width:44px;min-height:44px;justify-content:center}
+.library-card-tools>button,.memory-repair-actions>.action-menu-trigger{width:44px;min-height:44px;justify-content:center}
 .library-default{flex:none}
 .library-default[aria-pressed=true]{color:var(--accent)}
 .library-card-description{font-size:13px;min-height:0;max-height:8em;line-height:1.6;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}

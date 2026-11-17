@@ -194,7 +194,7 @@ test('reviews all 300 saved Connection users with bounded search, visible action
   await expect(confirm).toBeEnabled();
   await confirm.click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole('status').filter({ hasText: 'Item deleted.' })).toBeVisible();
+  await expect(card).toHaveCount(0);
   await page.reload();
   await enterLibrary(page, 'Connections');
   await expect(card).toHaveCount(0);

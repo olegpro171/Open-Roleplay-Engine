@@ -103,7 +103,9 @@ it('replaces all versions and accepts edited layered memory against the current 
   expect(selected[0].children.map(refKey)).toContain(refKey(currentChild!));
   expect(repairQueue(after.turns, after.context)).toEqual([]);
   const request = assembleRequest(after.connection!, after.settings, after.turns, after.sources, after.context, { validateLimits: false });
-  expect(request.body.messages.some(message => message.content.endsWith(edited))).toBe(true);
+  const memoryBlock = `[Memory L2 · turns 1–2]\n${edited}`;
+  expect(request.body.messages.some(message => message.content === memoryBlock)).toBe(true);
+  expect(f.store.contexts.exportSummaryText(f.chatId, after.revision).text).toBe(memoryBlock + '\n');
   for (const saved of [extraction, promotion]) {
     expect(f.store.contexts.details(saved.jobId).steps[0]).toEqual({ ...saved, resultDeleted: true });
   }
@@ -117,6 +119,26 @@ it('replaces all versions and accepts edited layered memory against the current 
   // The second leaf consumed the first as prior memory. Both precede the parent.
   expect(repairQueue(f.state().turns, f.state().context).map(operation => operation.level)).toEqual([1, 1, 2]);
   expect(f.calls).toBe(3);
+});
+
+it('exports only selected versions in coverage order, including literal edited text', async () => {
+  const f = fixture();
+  await f.step();
+  await f.step();
+  const state = f.state();
+  const first = state.context.selected[0];
+  const second = state.context.selected[1];
+  expect(state.context.selected).toHaveLength(2);
+  const edited = 'Мира передаёт ключ.\nОн должен вернуть его.';
+  f.store.contexts.editSummary(f.chatId, state.revision, first, edited);
+  const file = f.exportFile();
+  const secondSummary = file.summaries.find(summary => refKey(summary) === refKey(second));
+  if (!secondSummary) throw new Error('Missing second fixture summary');
+  expect(file.summaries).toHaveLength(3);
+  // Storage order can differ from the committed coverage order after an edit.
+  expect(f.store.contexts.exportSummaryText(f.chatId, f.state().revision).text)
+    .toBe(`[Memory L1 · turns 1–1]\n${edited}\n\n[Memory L1 · turns 2–2]\n${secondSummary.text}\n`);
+  expect(f.calls).toBe(2);
 });
 
 it('round-trips retained manual versions beside an empty selection', async () => {
@@ -135,6 +157,7 @@ it('round-trips retained manual versions beside an empty selection', async () =>
   const file = f.exportFile();
   expect(file).toMatchObject({ selected: [], archivedTurnIds: [] });
   const current = f.state();
+  expect(f.store.contexts.exportSummaryText(f.chatId, current.revision).text).toBe('');
   const review = f.store.contexts.importSummaries(f.chatId, current.revision, file);
   expect(review).toMatchObject({ importedVersions: 2, archivedTurns: 0 });
   f.store.contexts.importSummaries(f.chatId, current.revision, file, review.token);

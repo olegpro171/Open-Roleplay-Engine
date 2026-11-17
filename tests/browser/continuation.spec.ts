@@ -1,7 +1,7 @@
 import { expect, devices, type Page } from '@playwright/test';
 import { themeSchema, appearanceStatusSchema } from '../../src/shared/appearance';
 import { chatBehaviorStatusSchema } from '../../src/shared/chat-behavior';
-import { continuationInstruction } from '../../src/core/continuation';
+import { defaultContinuationInstruction as continuationInstruction } from '../../src/shared/default-prompt';
 import type { ChatSnapshot, RequestBody } from '../../src/shared/contracts';
 import { defaultContextPreset } from '../../src/shared/context';
 import { test } from './isolated-app';
@@ -101,14 +101,17 @@ for (const device of ['desktop', 'phone'] as const) test.describe(device, () => 
       await expect(prose.locator('p')).toHaveText([original, 'The lantern']);
     }
     await cancel.click();
-    await expect(turn.getByRole('status')).toHaveText('Continuation cancelled. The selected reply was kept.');
-    expect((await state()).turns[0].variants?.map(item => item.text)).toEqual([original]);
+    await expect(extend).toBeEnabled();
+    await expect(turn.getByRole('status')).toHaveCount(0);
+    const cancelled = await state();
+    expect(cancelled.turns[0].variants?.map(item => item.text)).toEqual([original]);
+    expect(cancelled.generations[0]).toMatchObject({ status: 'cancelled', partialText: '' });
+    await expect(turn.getByText('Inspect unfinished continuation', { exact: true })).toHaveCount(0);
     if (previewedBody) {
       await expect(prose.locator('p')).toHaveText([original]);
-      const details = turn.getByText('Inspect unfinished continuation', { exact: true });
-      await details.click();
-      await expect(turn.getByText('The lantern', { exact: true })).toBeVisible();
-      await details.click();
+      await page.reload();
+      await expect(prose.locator('p')).toHaveText([original]);
+      await expect(turn.getByText('Inspect unfinished continuation', { exact: true })).toHaveCount(0);
     }
     await advance();
 
@@ -118,11 +121,15 @@ for (const device of ['desktop', 'phone'] as const) test.describe(device, () => 
     await expect(preview).toContainText('Reasoning line 80');
     const saved = await prose.getByText(original, { exact: true }).boundingBox();
     const reason = await preview.boundingBox();
+    const tail = preview.locator('.reasoning-tail > span');
+    await expect.poll(() => tail.textContent()).toMatch(/quiet tower\.$/);
     expect(saved && reason && saved.y + saved.height <= reason.y).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(await page.evaluate(() => innerWidth));
     await page.screenshot({ path: testInfo.outputPath('continuation-reasoning.png') });
     await advance();
     await expect(preview).toContainText('The newest thought');
+    await expect.poll(() => tail.textContent()).toMatch(/grounded in the scene\.$/);
+    expect((await preview.boundingBox())?.height).toBe(reason?.height);
     await advance();
     await expect(prose.locator('p')).toHaveText([original, 'The lantern']);
     await expect(preview).toHaveCount(0);
@@ -136,6 +143,84 @@ for (const device of ['desktop', 'phone'] as const) test.describe(device, () => 
     expect(after.generations[0]).toMatchObject({ kind: 'continuation', status: 'succeeded' });
     await page.screenshot({ path: testInfo.outputPath('continuation-saved.png') });
   });
+});
+
+test('Escape discards both turn edit drafts without changing the saved turn', async ({ page }) => {
+  const { state } = await setup(page, 'dark');
+  const before = (await state()).turns[0];
+  const turn = page.getByRole('article', { name: 'Turn 1', exact: true });
+  await turn.getByRole('button', { name: 'Edit response', exact: true }).click();
+  const response = turn.getByLabel('Edit assistant text');
+  await response.fill('Unsaved replacement.');
+  await response.dispatchEvent('keydown', { key: 'Escape', bubbles: true, isComposing: true });
+  await expect(response).toHaveValue('Unsaved replacement.');
+  await response.press('Escape');
+  await expect(response).toHaveCount(0);
+  await expect(turn.getByText(original, { exact: true })).toBeVisible();
+  // A greeting has no visible input yet. First save an ordinary turn to exercise both controls.
+  await page.getByRole('textbox', { name: 'Your next turn' }).fill('I look at the window.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const next = page.getByRole('article', { name: 'Turn 2', exact: true });
+  await expect(next.getByText(reply, { exact: true })).toBeVisible();
+  await next.getByRole('button', { name: 'Edit input', exact: true }).click();
+  await next.getByLabel('Edit user text').fill('Unsaved input.');
+  await next.getByRole('button', { name: 'Save edit', exact: true }).focus();
+  await page.keyboard.press('Escape');
+  await expect(next.getByLabel('Edit user text')).toHaveCount(0);
+  await expect(next.getByText('I look at the window.', { exact: true })).toBeVisible();
+  const after = (await state()).turns;
+  expect(after[0]).toEqual(before);
+  expect(after[1].user.text).toBe('I look at the window.');
+});
+
+test('a saved prompt controls future continuation previews and requests', async ({ page }) => {
+  const { state, calls } = await setup(page, 'dark');
+  const openPrompt = async () => {
+    await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+    await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+    await page.getByRole('button', { name: 'Default prompt', exact: true }).click();
+  };
+  const setting = page.getByRole('textbox', { name: 'Continuation instruction' });
+  const custom = '  Move {{char}} to the doorway. Wait for {{user}}.  ';
+  const outgoing = { role: 'user', content: '  Move Character to the doorway. Wait for You.  ' };
+  await openPrompt();
+  await expect(setting).toHaveValue(continuationInstruction);
+  await setting.fill(custom);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(setting).toHaveCount(0);
+  await page.reload();
+  await openPrompt();
+  await expect(setting).toHaveValue(custom);
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await openChatTool(page, 'Request inspector');
+  await page.getByText('Endpoint and request body', { exact: true }).click();
+  const body = page.getByTestId('request-body');
+  await expect(body).toContainText('Move Character to the doorway. Wait for You.');
+  const preview: RequestBody = JSON.parse(await body.innerText());
+  expect(preview.messages).toContainEqual(outgoing);
+  expect(preview.messages).not.toContainEqual({ role: 'user', content: continuationInstruction });
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  const extend = page.getByRole('button', { name: 'Continue', exact: true });
+  await extend.click();
+  await expect.poll(async () => (await state()).generations[0]?.status).toBe('succeeded');
+  const first = (await state()).generations[0];
+  expect((await calls())[0].body).toEqual(preview);
+  expect(first.request?.body).toEqual(preview);
+  await page.getByRole('textbox', { name: 'Your next turn' }).fill('I open the door.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect.poll(calls).toHaveLength(2);
+  await expect(extend).toBeEnabled();
+  expect((await calls())[1].body.messages).not.toContainEqual(outgoing);
+
+  await openPrompt();
+  await setting.clear();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(setting).toHaveCount(0);
+  await page.getByRole('button', { name: 'Story', exact: true }).click();
+  await extend.click();
+  await expect.poll(calls).toHaveLength(3);
+  expect((await calls())[2].body.messages).toContainEqual({ role: 'user', content: continuationInstruction });
+  expect((await state()).generations.find(generation => generation.id === first.id)?.request?.body).toEqual(preview);
 });
 
 test('replays the same continuation after losing its acknowledgement and reloading', async ({ page }) => {
@@ -176,7 +261,8 @@ test('shows memory preparation beneath the reply and stops before the story requ
   expect(JSON.stringify((await calls())[0].body)).not.toContain(continuationInstruction);
   await page.screenshot({ path: testInfo.outputPath('continuation-preparing.png') });
   await turn.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(turn.getByRole('status')).toHaveText('Continuation cancelled. The selected reply was kept.');
+  await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeEnabled();
+  await expect(turn.getByRole('status')).toHaveCount(0);
   const savedState = await state();
   expect(savedState.turns[1].variants?.map(item => item.text)).toEqual([original]);
   expect(savedState.generations[0]).toMatchObject({ kind: 'continuation', status: 'cancelled', request: null });

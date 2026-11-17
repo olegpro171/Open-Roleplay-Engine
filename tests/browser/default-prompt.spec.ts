@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import { test } from './isolated-app';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
+import { defaultContinuationInstruction } from '../../src/shared/default-prompt';
 
 for (const theme of ['dark', 'light', 'midnight-black'] as const) for (const width of [1440, 390]) {
   test(`new prompts start with blank instructions in ${theme} at ${width}px`, async ({ page, browserApp }, testInfo) => {
@@ -21,6 +22,10 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) for (const wid
     await page.getByRole('button', { name: 'New prompt', exact: true }).click();
     const blocks = page.getByRole('region', { name: /^Prompt block \d+$/ });
     await expect(blocks).toHaveCount(9);
+    const continuation = page.getByRole('textbox', { name: 'Continuation instruction' });
+    await expect(continuation).toHaveValue(defaultContinuationInstruction);
+    expect(await continuation.evaluate(field => field.clientHeight >= field.scrollHeight)).toBe(true);
+    await continuation.screenshot({ path: testInfo.outputPath('continuation-instruction.png') });
     const checkInstructions = async () => {
       for (const [position, name] of [[1, 'Pre-history instructions'], [9, 'Post-history instructions']] as const) {
         const block = blocks.nth(position - 1);

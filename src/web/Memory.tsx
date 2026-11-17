@@ -1,4 +1,5 @@
-import { stateLabel } from './localization-labels';
+import { displayLibraryRecord, stateLabel } from './localization-labels';
+import { sortLibraryRecords } from './library-sorting';
 import type { MessageText } from './localization';
 import { formatMessage } from './localization';
 import { useTextState, errorText, t, useLocale, locale } from './localization';
@@ -170,7 +171,10 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
       <fieldset disabled={locked}>
         <legend>{t("memory.preparation_settings")}</legend>
         <div className="form-grid">
-          <label>{t("libraries.context_preset")}<Dropdown aria-label={t("libraries.context_preset")} value={presetId} onChange={setPresetId} options={[{ value: '', label: t("memory.no_context_preset") }, ...library.contexts.map(item => ({ value: item.id, label: item.name }))]} /></label>
+          <label>{t("libraries.context_preset")}<Dropdown aria-label={t("libraries.context_preset")} value={presetId} onChange={setPresetId} options={[
+            { value: '', label: t("memory.no_context_preset") },
+            ...sortLibraryRecords(library.contexts, 'contexts', library.dates).map(item => ({ value: item.id, label: displayLibraryRecord(item).name })),
+          ]} /></label>
           <label>{t("app.input_target")}<NumberInput required value={target} onChange={setTarget} /></label>
         </div>
         <div className="actions memory-settings-actions">
@@ -193,7 +197,13 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
     <div className="actions memory-actions">
       <button disabled={!summariesEnabled || locked || retrySettingsUnavailable || !planCurrent || !snapshot.context.preset || !plan || Boolean(plan.stale.length) || Boolean(awaiting) || unsavedSettings} onClick={() => void start('prepare')}>{t("memory.prepare_chat")}</button>
       <button className="secondary" disabled={!summariesEnabled || locked || retrySettingsUnavailable || !planCurrent || !plan?.next || Boolean(plan.blocked) || Boolean(awaiting) || unsavedSettings} onClick={() => void start('step')}>{t("memory.save_next_summary")}</button>
-      <button className="secondary" disabled={!summariesEnabled || locked || !planCurrent || !plan?.repairCount || Boolean(awaiting)} onClick={() => void start('repair')}>{t("memory.repair_summaries")}</button>
+      <div className="memory-repair-actions">
+        <button className="secondary" disabled={!summariesEnabled || locked || !planCurrent || !plan?.repairCount || Boolean(awaiting)} onClick={() => void start('repair')}>{t("memory.repair_summaries")}</button>
+        <SummaryFiles branchId={snapshot.id} revision={snapshot.revision} hasSelection={snapshot.context.selected.length > 0} disabled={busy}
+          importLocked={locked || Boolean(awaiting)} run={run} replaced={() => {
+            setHistoryId(''); setDetails(null); setInspected(null); setDeletionTarget(null); setRepairSession(''); setPlanError('');
+          }} />
+      </div>
       {active && !reviewToken && <button className="secondary" disabled={busy} onClick={() => void run(() => active.generationId ? api(`/generations/${active.generationId}/cancel`, 'POST', {}) : api(`/context/jobs/${active.id}/cancel`, 'POST', {}))}>{t("memory.stop_preparation")}</button>}
     </div>
     {summariesEnabled && <fieldset ref={retryControls} disabled={locked || !retrySettings.draft} className="summary-retry-controls"><legend className="sr-only">{t("memory.preparation_retries")}</legend>
@@ -243,10 +253,6 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
     {nodes.length > 0 && <label>{t("memory.inspect_saved_summary")}<Dropdown aria-label={t("memory.inspect_saved_summary")} value={inspected?.id ?? ''} onChange={id => inspectSummary(nodes.find(node => node.id === id) ?? null)} options={[{ value: '', label: t("memory.choose_an_identity_and_range") }, ...summaryOptions]} /></label>}
     {inspected && <SummaryInspection snapshot={snapshot} node={inspected} historical={Boolean(historyId)} selected={selected} locked={locked} inspect={inspectSummary} saved={() => setInspected(null)} run={run} previewDelete={node => setDeletionTarget({ node, revision: snapshot.revision })} />}
     {details && <details><summary>{t("memory.summary_requests_and_step_outcomes")}</summary>{details.job.error && <p className="small muted">{t("memory.saved_outcome", { error: formatMessage(details.job.errorMessage ?? details.job.error) })}</p>}{refreshFrame && <p className="small muted">{t("memory.saved_memory_selection_verbatim_turns_estimated_input", { verbatimBefore: refreshFrame.verbatimBefore, verbatimAfter: refreshFrame.verbatimAfter, value: refreshFrame.inputBefore.toLocaleString(locale()), value2: refreshFrame.inputAfter.toLocaleString(locale()) })}</p>}{finalRefresh && <p className="small muted">{t("memory.final_saved_memory_selection_verbatim_turns_estimated", { verbatimBefore: finalRefresh.verbatimBefore, verbatimAfter: finalRefresh.verbatimAfter, value: finalRefresh.inputBefore.toLocaleString(locale()), value2: finalRefresh.inputAfter.toLocaleString(locale()) })}</p>}{details.steps.map((step, i) => <details key={step.id}><summary>{t("memory.step_l", { value: i + 1, level: step.operation.level, value2: step.repairOutcome === 'model_unchanged' ? t("interface.model_checked_unchanged") : step.repairOutcome === 'inputs_unchanged' ? t("interface.unchanged_inputs_no_model_request") : step.reused ? t("interface.reused_saved_summary") : step.status })}</summary>{step.resultDeleted && <p>{t("memory.the_saved_result_summary_was_deleted_this")}</p>}{step.error && <p>{formatMessage(step.errorMessage ?? step.error)}</p>}{step.rejectedText !== undefined && <RejectedSummary text={step.rejectedText} />}<pre>{JSON.stringify(step.request ?? { note: step.repairOutcome === 'inputs_unchanged' ? t("memory.all_consumed_content_was_unchanged_updated_dependency") : step.reused ? t("memory.reused_a_saved_summary_no_model_request") : t("memory.no_model_request_all_covered_source_turns") }, null, 2)}</pre></details>)}</details>}
-    <SummaryFiles branchId={snapshot.id} revision={snapshot.revision} disabled={busy}
-      importLocked={locked || Boolean(awaiting)} run={run} replaced={() => {
-        setHistoryId(''); setDetails(null); setInspected(null); setDeletionTarget(null); setRepairSession(''); setPlanError('');
-      }} />
     {snapshot.context.summaries.length > 0 || snapshot.context.jobs.length > 0 ? <details className="restore-memory"><summary>{t("memory.clear_memory")}</summary><button className="danger" disabled={locked} onClick={() => { confirmAction({ title: t("memory.clear_memory_2"), message: t("memory.clear_all_memory_layers_and_preparation_records"), actionLabel: t("memory.clear_memory"), onConfirm: () => { void run(async () => { await api(`/chats/${snapshot.id}/context/clear`, 'POST', { revision: snapshot.revision }); setHistoryId(''); setDetails(null); setInspected(null); setPlanError(''); }); } }); }}>{t("memory.clear_memory")}</button></details> : null}
   </section>;
 }

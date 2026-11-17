@@ -1503,9 +1503,9 @@ export class Store {
     return this.sqlite.transaction(() => {
       const generation = this.generation(id);
       if (!generation || generation.status !== 'running') return false;
+      const continuation = generation.continuationVariantId !== null;
       if (status === 'succeeded') {
         const regeneration = generation.kind === 'regeneration';
-        const continuation = generation.continuationVariantId !== null;
         text = trimBoundaryNewlines(text);
         if (!text.trim()) throw new AppError(502, 'empty_response', message(continuation ? 'continue.empty_response' : regeneration
           ? "errors.the_model_returned_no_text_the_selected_response" : "errors.the_model_returned_no_text_the_turn_remains"));
@@ -1531,7 +1531,12 @@ export class Store {
         this.db.insert(schema.responseVariants).values({ id: variantId, turnId: turn.id, text: reply, sourceRevision: equivalent?.sourceRevision ?? turn.assistantRevision + 1, generationId: id, createdAt: generation.createdAt }).run();
         this.db.update(schema.turns).set({ messageAt: new Date().toISOString(), assistantText: reply, assistantRevision: turn.assistantRevision + 1, complete: true, selectedVariantId: variantId }).where(eq(schema.turns.id, turn.id)).run();
       }
-      this.db.update(schema.generations).set({ status, partialText: text, reasoningText: reasoningText ?? generation.reasoningText, error: outcome.error, errorMessage: outcome.errorMessage ?? null, usage, updatedAt: new Date().toISOString() }).where(eq(schema.generations.id, id)).run();
+      const discardOutput = status === 'cancelled' && continuation;
+      this.db.update(schema.generations).set({
+        status, partialText: discardOutput ? '' : text,
+        reasoningText: discardOutput ? '' : (reasoningText ?? generation.reasoningText),
+        error: outcome.error, errorMessage: outcome.errorMessage ?? null, usage, updatedAt: new Date().toISOString(),
+      }).where(eq(schema.generations.id, id)).run();
       this.bumpRevision(generation.chatId); return true;
     })();
   }

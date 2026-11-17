@@ -5,7 +5,7 @@ import type { LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
 import { createCompactPrompt } from './compact-prompt';
 
-test('switches response versions with arrows and a textbox, restores summarized variants and survives reload on desktop and phone', async ({ page, browser, request, setAppearance }) => {
+test('switches response versions with arrows and a textbox, restores summarized variants and survives reload on desktop and phone', async ({ page, browser, request, setAppearance }, testInfo) => {
   test.setTimeout(60000);
   const session = await request.get('/api/session').then(response => response.json());
   await request.post('/__test/mode', { data: { mode: 'normal' } });
@@ -207,7 +207,33 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await page.setViewportSize({ width: 390, height: 844 });
   await next.click();
   await expect(version).toHaveValue('2');
-  await expect(page.getByText('Memory needs review.', { exact: true })).toBeVisible();
+  const staleNotice = page.getByRole('button', { name: 'Memory needs review.', exact: true });
+  const transcript = page.locator('.transcript');
+  for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+    await setAppearance({ theme });
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(staleNotice).toBeInViewport({ ratio: 1 });
+      const button = await staleNotice.boundingBox(), scrollArea = await transcript.boundingBox();
+      if (!button || !scrollArea) throw new Error('Missing warning or scroll area');
+      expect(Math.abs(button.x + button.width / 2 - scrollArea.x - scrollArea.width / 2)).toBeLessThan(1);
+      expect(button.y).toBeGreaterThanOrEqual(scrollArea.y);
+      expect(await staleNotice.evaluate(node => {
+        const warning = node.closest('.warning-details');
+        const transcript = node.closest('.transcript-frame')?.querySelector('.transcript');
+        if (!(warning instanceof HTMLElement) || !transcript) throw new Error('Missing warning wrapper or scroll area');
+        const before = transcript.getBoundingClientRect().toJSON();
+        warning.hidden = true;
+        const after = transcript.getBoundingClientRect().toJSON();
+        warning.hidden = false;
+        return JSON.stringify(before) === JSON.stringify(after);
+      })).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-stale-memory.png`) });
+    }
+  }
+  await staleNotice.click();
+  await expect(page.getByRole('dialog', { name: 'Warning', exact: true })).toContainText('Archived history changed');
+  await page.keyboard.press('Escape');
   await turn.getByRole('group', { name: 'Turn controls', exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/phone-response-variants.png', fullPage: true });
   await previous.click();

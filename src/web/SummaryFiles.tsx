@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { summaryFileBytes, summaryImportPreviewSchema, type SummaryImportPreview } from '../shared/summary-file';
+import { ActionMenu } from './ActionMenu';
 import { api, ApiError, datasetChanged } from './api';
 import { openModal } from './dialog-focus';
 import { startDownload } from './downloads';
@@ -11,29 +12,37 @@ import { ModalDialog } from './ModalDialog';
 
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 
-export function SummaryFiles({ branchId, revision, disabled, importLocked, run, replaced }: {
-  branchId: string; revision: number; disabled: boolean; importLocked: boolean; run: Run; replaced: () => void;
+export function SummaryFiles({ branchId, revision, hasSelection, disabled, importLocked, run, replaced }: {
+  branchId: string; revision: number; hasSelection: boolean; disabled: boolean; importLocked: boolean; run: Run; replaced: () => void;
 }) {
   useLocale();
   const [selection, setSelection] = useState<{ file: File; revision: number } | null>(null);
   const [status, setStatus] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const path = `/chats/${encodeURIComponent(branchId)}/context/summaries`;
+  const exportSummaries = (format: 'json' | 'text') => run(async () => {
+    startDownload(await api(`${path}/export`, 'POST', { revision, format }));
+  });
   return <>
-    <div className="actions">
-      <button className="secondary" type="button" disabled={disabled} onClick={() => void run(async () => {
-        startDownload(await api(`${path}/export`, 'POST', { revision }));
-      })}><Icon name="Upload" />{t('summary_file.export')}</button>
-      <LibraryImport label={t('summary_file.import')} description={t('summary_file.file_help')} accept=".json"
-        inputLabel={t('summary_file.input')} disabled={disabled || importLocked} triggerRef={trigger} onChange={event => {
-          const file = event.target.files?.[0];
-          event.target.value = '';
-          if (file) {
-            setStatus(false);
-            setSelection({ file, revision });
-          }
-        }} />
-    </div>
+    <LibraryImport label={t('summary_file.import')} description={t('summary_file.file_help')} accept=".json"
+      inputLabel={t('summary_file.input')} disabled={disabled || importLocked} onChange={event => {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (file) {
+          setStatus(false);
+          setSelection({ file, revision });
+        }
+      }} renderTrigger={chooseFile => <ActionMenu label={t('summary_file.actions')} disabled={disabled} revision={revision} triggerRef={trigger}>
+        <button className="secondary" type="button" role="menuitem" tabIndex={-1} onClick={() => void exportSummaries('json')}>
+          <Icon name="Upload" />{t('summary_file.export')}
+        </button>
+        <button className="secondary" type="button" role="menuitem" tabIndex={-1} disabled={!hasSelection} onClick={() => void exportSummaries('text')}>
+          <Icon name="Upload" />{t('summary_file.export_text')}
+        </button>
+        <button className="secondary" type="button" role="menuitem" tabIndex={-1} disabled={importLocked} onClick={chooseFile}>
+          <Icon name="Import" />{t('summary_file.import')}
+        </button>
+      </ActionMenu>} />
     {status && <p role="status">{t('summary_file.replaced')}</p>}
     {selection && <SummaryImportReview file={selection.file} path={`${path}/import`} revision={selection.revision}
       current={selection.revision === revision} blocked={importLocked} close={() => setSelection(null)}

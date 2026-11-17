@@ -57,7 +57,9 @@ export const promptBlockSchema = z.discriminatedUnion('kind', [
     if (block.allowDepthPrompt !== undefined && block.marker !== 'messages') ctx.addIssue({ code: 'custom', path: ['allowDepthPrompt'], message: 'Only Messages permits character depth injection.' });
   }),
 ]);
-export const promptSchema = z.object({ name, blocks: z.array(promptBlockSchema).max(100) }).strict().superRefine((value, ctx) => {
+export const promptSchema = z.strictObject({
+  name, blocks: z.array(promptBlockSchema).max(100), continuationInstruction: text.optional(),
+}).superRefine((value, ctx) => {
   if (new Set(value.blocks.map(b => b.id)).size !== value.blocks.length) ctx.addIssue({ code: 'custom', message: 'Block identities must be unique.' });
   if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === 'messages').length > 1) ctx.addIssue({ code: 'custom', message: 'Use at most one enabled Messages marker.' });
   if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === 'summary').length > 1) ctx.addIssue({ code: 'custom', message: 'Use at most one enabled Summary marker.' });

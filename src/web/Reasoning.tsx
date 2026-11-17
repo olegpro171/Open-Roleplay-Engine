@@ -12,7 +12,7 @@ export function ReasoningPreview({ text }: { text: string }) {
   useLocale();
   return <div className="reasoning-preview" aria-label={t("reasoning.latest_model_reasoning")}>
     <span className="reasoning-heading">{t("reasoning.reasoning")}</span>
-    <span className="reasoning-tail"><span>{text}</span></span>
+    <span className="reasoning-tail"><span>{text.replace(/(?:\r\n|[\r\n]){1,2}$/, '')}</span></span>
   </div>;
 }
 

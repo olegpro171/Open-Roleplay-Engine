@@ -1,16 +1,12 @@
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useState, type ReactNode, type RefObject } from 'react';
 import type { StoryPreparation } from '../shared/transcript';
 import { t, useLocale } from './localization';
 
-export function PreparationStatus({ preparation, transcript, hasOlderTurns, disabled, stop, review }: {
-  preparation: StoryPreparation;
+export function TranscriptNotices({ transcript, hasOlderTurns, children }: {
   transcript: RefObject<HTMLDivElement | null>;
   hasOlderTurns: boolean;
-  disabled: boolean;
-  stop: () => void;
-  review: () => void;
+  children: ReactNode;
 }) {
-  useLocale();
   const [olderControlVisible, setOlderControlVisible] = useState(false);
   useEffect(() => {
     if (!hasOlderTurns) return;
@@ -23,11 +19,20 @@ export function PreparationStatus({ preparation, transcript, hasOlderTurns, disa
     observer.observe(control);
     return () => observer.disconnect();
   }, [hasOlderTurns, transcript]);
+  return <div className="transcript-notices" data-older-control-visible={hasOlderTurns && olderControlVisible ? '' : undefined}>{children}</div>;
+}
 
+export function PreparationStatus({ preparation, disabled, stop, review }: {
+  preparation: StoryPreparation;
+  disabled: boolean;
+  stop: () => void;
+  review: () => void;
+}) {
+  useLocale();
   const { phase, retrying, deletionReviewToken } = preparation;
   const activity = retrying ? t('story_preparation.retry_wait')
     : phase ? t(`repair_review.phase_${phase}`) : '';
-  return <div className="recovery memory-preparation-status" data-older-control-visible={hasOlderTurns && olderControlVisible ? '' : undefined}>
+  return <div className="recovery memory-preparation-status">
     <div role="status">
       <strong>{t('app.preparing_memory')}</strong>
       {deletionReviewToken && <p>{t('memory.preparation_deletion_waiting')}</p>}

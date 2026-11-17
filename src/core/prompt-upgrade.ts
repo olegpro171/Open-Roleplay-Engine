@@ -8,7 +8,7 @@ const retiredBlock = z.object({
   kind: z.literal('marker'), role: z.enum(['system', 'user', 'assistant']),
   marker: z.enum(['lore_before', 'lore_after', 'lore_history']),
 }).strict();
-const importSchema = z.object({ name: z.string().trim().min(1).max(100), blocks: z.array(z.record(z.string(), z.unknown())).max(100) }).strict();
+const importSchema = z.strictObject({ ...promptSchema.shape, blocks: z.array(z.record(z.string(), z.unknown())).max(100) });
 
 export function upgradePrompt(value: unknown): PromptPreset {
   const input = importSchema.parse(value);

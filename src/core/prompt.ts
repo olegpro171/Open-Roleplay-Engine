@@ -15,15 +15,19 @@ import { modelText } from './model-text.js';
 import { inlineSettingsPrompt } from './inline-prompt.js';
 import { fitsInputTarget, type InputOvershoot } from './input-target.js';
 import { pinnedBlock } from './pinned-turns.js';
-import { continuationInstruction } from './continuation.js';
+import { defaultContinuationInstruction } from '../shared/default-prompt.js';
 export { replaceNameMacros } from './names.js';
 
 export function estimateInputTokens(messages: Message[]): number {
   return countInput(messages).inputTokens;
 }
 
+export function summaryHeader(node: SummaryNode, positions: ReadonlyMap<string, number>): string {
+  return `[Memory L${node.level} · turns ${positions.get(node.turns[0]?.turnId) ?? '?'}–${positions.get(node.turns.at(-1)?.turnId ?? '') ?? '?'}]`;
+}
+
 export function summaryText(node: SummaryNode, positions: ReadonlyMap<string, number>): string {
-  return `[Memory L${node.level} · turns ${positions.get(node.turns[0]?.turnId) ?? '?'}–${positions.get(node.turns.at(-1)?.turnId ?? '') ?? '?'}]\n${modelText(node.text)}`;
+  return `${summaryHeader(node, positions)}\n${modelText(node.text)}`;
 }
 
 export const summarySeparator = '\n\n';
@@ -67,7 +71,9 @@ type AssemblyOptions = {
 
 export function assembleRequest(connection: Connection, settings: ChatSettings, turns: Turn[], sources?: PromptSources, context?: ContextState, options: AssemblyOptions = {}): RequestPreview {
   // Saved presets are authoritative; legacy inline settings retain their own layout.
-  const preset = sources?.prompt ? promptSchema.parse({ name: sources.prompt.name, blocks: sources.prompt.blocks }) : inlineSettingsPrompt(settings.instructions);
+  const preset = sources?.prompt ? promptSchema.parse({
+    name: sources.prompt.name, blocks: sources.prompt.blocks, continuationInstruction: sources.prompt.continuationInstruction,
+  }) : inlineSettingsPrompt(settings.instructions);
   const summariesEnabled = hasPromptMarker(preset, 'summary');
   const resolved = summariesEnabled && context ? selectedContext(turns, context, options.allowStale) : { summaries: [], verbatim: turns };
   const positions = new Map(turns.map((turn, index) => [turn.id, index + 1]));
@@ -79,8 +85,9 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   const card = sources?.character;
   const resolve = (text: string) => modelText(replaceNameMacros(text, sources?.persona?.name ?? 'You', card?.name ?? 'Character'));
   const messagesBlock = preset.blocks.find(block => block.enabled && block.kind === 'marker' && block.marker === 'messages');
+  const customContinuation = options.continuationTurnId ? resolve(preset.continuationInstruction ?? '') : '';
   const continuation: Entry | null = options.continuationTurnId ? {
-    message: { role: 'user', content: continuationInstruction },
+    message: { role: 'user', content: customContinuation.trim() ? customContinuation : defaultContinuationInstruction },
     kind: 'continuation', ...promptLabel(message('continue.instruction')),
   } : null;
   if (continuation && !messagesBlock) throw new AppError(422, 'continuation_unavailable', message('continue.messages_required'));

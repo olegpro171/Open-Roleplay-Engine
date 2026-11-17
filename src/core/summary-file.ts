@@ -5,6 +5,7 @@ import { hasChronologicalLevels, staleSummarySources } from './context.js';
 import { summaryDependencies } from './context-corrections.js';
 import { AppError } from './errors.js';
 import { checkSummaryRefusal } from './summary-refusals.js';
+import { summaryHeader, summarySeparator } from './prompt.js';
 
 type FileSummary = SummaryFile['summaries'][number];
 
@@ -18,6 +19,17 @@ export function exportSummaryFile(branchId: string, branchCreatedAt: string | nu
   }));
   return { format: 'ore-summaries', version: 1, branchId, branchCreatedAt,
     selected: state.selected.map(reference), archivedTurnIds: state.archivedTurnIds, summaries };
+}
+
+export function exportSelectedSummaryText(state: ContextState, sources: readonly TurnSource[]): string {
+  const positions = new Map(sources.map((turn, index) => [turn.turnId, index + 1]));
+  const approvedByRef = new Map(state.summaries.filter(summary => summary.approved).map(summary => [refKey(summary), summary]));
+  const blocks = state.selected.map(ref => {
+    const summary = approvedByRef.get(refKey(ref));
+    if (!summary) throw new AppError(422, 'invalid_context', message('errors.the_saved_context_selection_contains_a_missing_or'));
+    return `${summaryHeader(summary, positions)}\n${summary.text}`;
+  });
+  return blocks.length ? `${blocks.join(summarySeparator)}\n` : '';
 }
 
 function invalid(key: MessageKey = 'summary_file.invalid_graph'): never {

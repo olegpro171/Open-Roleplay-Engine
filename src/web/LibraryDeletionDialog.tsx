@@ -10,6 +10,8 @@ import { Dropdown } from './Controls';
 import { dismissModalFromAction, openModal } from './dialog-focus';
 import { LibrarySearchField } from './LibrarySearchField';
 import { displayLibraryRecord } from './localization-labels';
+import type { LibrarySnapshot } from '../shared/library';
+import { sortLibraryRecords } from './library-sorting';
 import { errorText, formatMessage, locale, message, t, useLocale, type MessageText } from './localization';
 import { ModalDialog } from './ModalDialog';
 import { newId } from './uuid';
@@ -131,8 +133,8 @@ function clearConsequences(kind: LibraryDeletionTarget['kind'], { chats, charact
 
 type Phase = 'loading' | 'ready' | 'failed' | 'submitting' | 'uncertain';
 
-export function LibraryDeletionDialog({ target, name, busy, run, cancel, complete }: {
-  target: LibraryDeletionTarget; name?: string; busy: boolean;
+export function LibraryDeletionDialog({ target, name, dates, busy, run, cancel, complete }: {
+  target: LibraryDeletionTarget; name?: string; dates: LibrarySnapshot['dates']; busy: boolean;
   run: (action: () => Promise<unknown>) => Promise<boolean>; cancel: () => void; complete: () => void;
 }) {
   useLocale();
@@ -313,7 +315,7 @@ export function LibraryDeletionDialog({ target, name, busy, run, cancel, complet
                   aria-label={t('library_delete.replacement_label')} disabled={locked}
                   options={[
                     { value: '', label: t('library_delete.select_replacement'), disabled: true },
-                    ...displayNames(review.replacements.map(displayLibraryRecord)).map(item => ({ value: item.id, label: item.name })),
+                    ...displayNames(sortLibraryRecords(review.replacements, kind, dates).map(displayLibraryRecord)).map(item => ({ value: item.id, label: item.name })),
                   ]} onChange={value => { setFeedback(''); setReplacement(value); }} />
               </div>
               <p className="small">{t('library_delete.replacement_explanation')}</p>

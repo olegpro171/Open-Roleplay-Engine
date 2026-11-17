@@ -7,7 +7,7 @@ import type { MessageText } from './localization';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
 import { chatBehaviorStatusSchema, type ChatBehaviorStatus } from '../shared/chat-behavior';
 import { isComposerSendKey, isMacKeyboard, isPhoneOrTablet } from './composer-shortcuts';
-import { appearanceStatusSchema, defaultAppearance, type AppearanceStatus, type ChatTextScale } from '../shared/appearance';
+import { appearanceStatusSchema, defaultAppearance, type AppearanceStatus } from '../shared/appearance';
 import { chatDefaultsStatusSchema, initialChatDefaults, type ChatDefaultsStatus } from '../shared/chat-defaults';
 import { newId } from './uuid';
 import { Icon } from './Icon';
@@ -27,7 +27,7 @@ import { useEditorLeaveGuard } from './EditorLeaveGuard';
 import { Dropdown } from './Controls';
 import { appendContinuation, trimBoundaryNewlines } from '../shared/text';
 import { Memory } from './Memory';
-import { PreparationStatus } from './PreparationStatus';
+import { PreparationStatus, TranscriptNotices } from './PreparationStatus';
 import { transcriptInitialSize, transcriptBatchSize, transcriptWindowLimit, type StorySnapshot } from '../shared/transcript';
 import { BudgetBreakdown, InputMeter, PromptPeek, LoreInspection, requestWarnings } from './PromptPeek';
 import { WarningDetails, WarningDialog, WarningMessages } from './WarningDialog';
@@ -38,7 +38,7 @@ import { TurnControls } from './TurnControls';
 import { ReasoningPreview } from './Reasoning';
 import { ChatMarkdown } from './ChatMarkdown';
 import { ChatTextarea } from './ChatTextarea';
-import { ChatDetailsTarget, ChatWorkspace, useReturnToChatOnEscape } from './ChatWorkspace';
+import { ChatDetailsTarget, ChatWorkspace, useEscapeAction } from './ChatWorkspace';
 import { ChatCharacterPortrait } from './Pictures';
 import { useComposerKeyboard } from './useComposerKeyboard';
 import { useTouchScrollGuard } from './useTouchScrollGuard';
@@ -66,15 +66,6 @@ function rememberChat(id: string | null) {
     if (id) localStorage.setItem('roleplay-chat', id);
     else localStorage.removeItem('roleplay-chat');
   } catch { /* Selection is optional; the composer separately reports draft storage failures. */ }
-}
-
-function UnfinishedContinuation({ text, textScale, speechColor }: { text: string; textScale: ChatTextScale; speechColor: string }) {
-  useLocale();
-  const [open, setOpen] = useState(false);
-  return <details onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary>{t('continue.partial_output')}</summary>
-    {open && <ChatMarkdown text={text} textScale={textScale} speechColor={speechColor} />}
-  </details>;
 }
 
 export function App() {
@@ -157,7 +148,11 @@ export function App() {
   const [generationId, setGenerationId] = useState('');
   const returnToChat = useCallback(() => { setTab('story'); setPeek(false); setGenerationId(''); }, []);
   const chatToolsLoading = snapshot && (tab === 'settings' || tab === 'memory') && toolSnapshot?.id !== snapshot.id;
-  useReturnToChatOnEscape(session?.authenticated && library && chatToolsLoading ? returnToChat : undefined);
+  useEscapeAction(session?.authenticated && library && chatToolsLoading ? returnToChat : undefined);
+  const cancelEdit = useCallback(() => {
+    if (!editSaveInFlight.current) setEdit(null);
+  }, []);
+  useEscapeAction(tab === 'story' && edit && !busy ? cancelEdit : undefined);
   const loadId = useRef(0);
   const { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest, jumpToTurn } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot, Boolean(edit));
   useLayoutEffect(() => {
@@ -714,10 +709,6 @@ export function App() {
         <button className="quiet chat-navigation-action" onClick={() => setTab('request')}><Icon name="Code" />{t("app.request_inspector")}</button>
       </>}>
       <section className="conversation" aria-label={t("app.conversation")}>
-        {snapshot.memory.refusalCount > 0 ? <WarningDetails label={t('refusals.review')} message={msg('refusals.notice', { count: snapshot.memory.refusalCount })}
-          actions={() => <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.review_memory')}</button>} />
-          : memoryStale && <WarningDetails label={t("app.memory_needs_review")} message={msg("app.archived_history_changed_repair_the_affected_summaries")}
-            actions={() => <button type="button" className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button>} />}
         {pageError && <div className="recovery" role="alert">{pageError}<button className="secondary" onClick={() => setPageError('')}>{t("app.dismiss")}</button></div>}
         <div className="transcript-frame"><div className="transcript" ref={transcript}>
           {snapshot.page.hasOlder && <div className="history-page-control" data-history-direction="older"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('older')}>{pageLoading ? t("app.loading_history") : t("app.load_older_turns")}</button></div>}
@@ -730,8 +721,9 @@ export function App() {
             const visibleResponse = trimBoundaryNewlines(responseText);
             const streamedAddition = continuing && visibleResponse.trim() ? visibleResponse : '';
             const speechColor = selectedCharacter?.speechColor ?? appearance.settings.characterSpeechColor ?? 'var(--speech-character)';
-            const continuationOutcome = latest?.turnId === turn.id && latest.kind === 'continuation'
-              && ['failed', 'interrupted', 'cancelled'].includes(latest.status) ? latest : null;
+            const continuationError = latest?.turnId === turn.id && latest.kind === 'continuation'
+              && (latest.status === 'failed' || latest.status === 'interrupted')
+              ? formatMessage(latestError ?? msg('continue.failed')) : '';
             const selectedGeneration = selectedGenerations.get(turn.id);
             const usage = selectedGeneration?.usage;
             const reasoningGeneration = generating ? active : !turn.complete && latest?.turnId === turn.id ? latest
@@ -761,7 +753,7 @@ export function App() {
                 <p className="small muted">{snapshot.settings.lorebookId ? t("app.saving_a_history_edit_starts_fresh_lore") : ""}</p>
                 <div className="actions">
                   <button disabled={!canSaveEdit} title={saveEditTitle}>{t("app.save_edit")}</button>
-                  <button type="button" className="quiet" onClick={() => setEdit(null)}>{t("app.cancel_edit")}</button>
+                  <button type="button" className="quiet" disabled={busy} onClick={cancelEdit}>{t("app.cancel_edit")}</button>
                 </div>
               </form> : <div className="prose">
                 {part === 'assistant' && continuing
@@ -774,11 +766,7 @@ export function App() {
                     ? <>{visibleResponse ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={visibleResponse} speechColor={speechColor} /> : <span className="muted">{generating ? t(waiting) : cancelled ? t("app.generation_cancelled") : t("app.awaiting_response")}</span>}{generating && <span className="cursor" aria-label={t("app.generating")} />}</>
                     : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor ?? 'var(--speech-persona)' : speechColor} /> : <span className="muted blank">{t("app.blank")}</span>}
               </div>}
-              {part === 'assistant' && continuationOutcome && !edit && <div className="continuation-progress">
-                <div className="muted small" role="status">{formatMessage(latestError ?? msg('continue.failed'))}</div>
-                {continuationOutcome.partialText.trim() && <UnfinishedContinuation key={continuationOutcome.id}
-                  text={continuationOutcome.partialText} textScale={appearance.settings.chatTextScale} speechColor={speechColor} />}
-              </div>}
+              {part === 'assistant' && !edit && continuationError && <div className="continuation-progress muted small" role="status">{continuationError}</div>}
             </div>)}
             <TurnControls turn={turn} revision={snapshot.revision} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}
               continuing={continuing}
@@ -811,9 +799,14 @@ export function App() {
           {snapshot.page.hasNewer && <div className="history-page-control" data-history-direction="newer"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('newer')}>{pageLoading ? t("app.loading_history") : t("app.load_newer_turns")}</button></div>}
           {edit && !snapshot.page.turns.some(turn => turn.id === edit.turnId) && <div className="recovery" role="alert"><div><p>{t("app.the_edited_turn_was_removed_or_replaced")}</p><ChatTextarea aria-label={t("app.unsaved_turn_edit")} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><button onClick={() => setEdit(null)}>{t("app.close_edit")}</button></div></div>}
         </div>
-          {preparing && <PreparationStatus preparation={preparing} transcript={transcript} hasOlderTurns={snapshot.page.hasOlder} disabled={busy || dataChanged}
-            review={() => setTab('memory')}
-            stop={() => void command(() => api(preparing.generationId ? `/generations/${preparing.generationId}/cancel` : `/context/jobs/${preparing.id}/cancel`, 'POST', {}))} />}
+          {(preparing || snapshot.memory.refusalCount > 0 || memoryStale) && <TranscriptNotices transcript={transcript} hasOlderTurns={snapshot.page.hasOlder}>
+            {snapshot.memory.refusalCount > 0 ? <WarningDetails label={t('refusals.review')} message={msg('refusals.notice', { count: snapshot.memory.refusalCount })}
+              actions={() => <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.review_memory')}</button>} />
+              : memoryStale && <WarningDetails label={t("app.memory_needs_review")} message={msg("app.archived_history_changed_repair_the_affected_summaries")}
+                actions={() => <button type="button" className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button>} />}
+            {preparing && <PreparationStatus preparation={preparing} disabled={busy || dataChanged} review={() => setTab('memory')}
+              stop={() => void command(() => api(preparing.generationId ? `/generations/${preparing.generationId}/cancel` : `/context/jobs/${preparing.id}/cancel`, 'POST', {}))} />}
+          </TranscriptNotices>}
           {(awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}
         </div>
         {!working && preparation?.generationId === null && preparation.error && ['failed', 'interrupted'].includes(preparation.status) && <div className="recovery" role="status">

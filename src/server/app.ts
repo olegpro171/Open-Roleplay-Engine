@@ -787,11 +787,12 @@ export async function createApp(options: {
     store.contexts.clearMemory(chatId(request.params), revision); coordinator.changed({ kind: 'chat', chatId: chatId(request.params), detail: 'state' }); return { ok: true };
   });
   app.post('/api/chats/:chatId/context/summaries/export', async request => {
-    const { revision } = z.strictObject({ revision: revisionSchema }).parse(request.body);
-    const { file, branchName } = store.contexts.exportSummaries(chatId(request.params), revision);
-    const bytes = Buffer.from(`${JSON.stringify(file, null, 2)}\n`);
+    const { revision, format } = z.strictObject({ revision: revisionSchema, format: z.enum(['json', 'text']).default('json') }).parse(request.body);
+    const id = chatId(request.params);
+    const exported = format === 'text' ? store.contexts.exportSummaryText(id, revision) : store.contexts.exportSummaries(id, revision);
+    const bytes = Buffer.from('text' in exported ? exported.text : `${JSON.stringify(exported.file, null, 2)}\n`);
     if (bytes.length > summaryFileBytes) throw new AppError(413, 'summary_file_too_large', message('summary_file.too_large'));
-    const filename = portableDownloadFilename(branchName ?? 'Main', '-summaries.json');
+    const filename = portableDownloadFilename(exported.branchName ?? 'Main', format === 'text' ? '-summaries.txt' : '-summaries.json');
     return downloads.add(owner(request.cookies.session), filename, { bytes });
   });
   app.post('/api/chats/:chatId/context/summaries/import', { bodyLimit: summaryUploadBytes }, async request => {

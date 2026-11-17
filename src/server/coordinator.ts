@@ -113,7 +113,7 @@ export class GenerationCoordinator {
     const operation = this.active.get(id);
     const generation = this.store.generation(id);
     if (!operation || generation?.status !== 'running') throw new AppError(409, 'inactive_generation', message("errors.this_response_is_no_longer_active"));
-    const diagnostic = message(generation.continuationVariantId !== null ? 'continue.cancelled' : generation.kind === 'regeneration'
+    const diagnostic = generation.continuationVariantId !== null ? null : message(generation.kind === 'regeneration'
       ? "diagnostics.regeneration_cancelled_the_selected_response_was_kept" : "app.response_cancelled_generate_response_before_next_turn");
     this.store.finish(id, 'cancelled', operation.text, diagnostic, null, operation.reasoning);
     operation.controller.abort();

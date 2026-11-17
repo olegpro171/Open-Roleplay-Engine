@@ -17,6 +17,7 @@ import type { TagPolicy, TagReview } from '../shared/tags';
 import { ApiError, api } from './api';
 import { Dropdown, NumberDraftContext, NumberInput, useNumberDraft } from './Controls';
 import { TagChooser, TagImportOptions, TagManager, type TagCommit } from './Tags';
+import { sortLibraryRecords } from './library-sorting';
 
 type Initial = { id?: string; revision: number; data: LibraryCharacter };
 function editableCharacter(data: LibraryCharacter): LibraryCharacter {
@@ -145,11 +146,15 @@ export function CharacterEditor({ initial, recovered, library, busy, run, close,
         {greetings.success ? <button type="button" className="secondary add-alternate-greeting" disabled={alternatives.length >= maxAlternateGreetings} onClick={() => setData({ ...data, alternate_greetings: [...alternatives, ''] })}>{t("character_editor.add_alternate_greeting")}</button>
           : <button type="button" className="secondary" onClick={() => setData({ ...data, alternate_greetings: [] })}>{t("character_editor.clear_invalid_alternate_greetings")}</button>}
       </div>
-      <label className="full">{t("character_editor.default_lorebook")}<Dropdown aria-label={t("character_editor.default_lorebook")} value={data.lorebookId ?? ''} options={[{ value: '', label: t("character_editor.none_selected") }, ...library.lorebooks.map(book => ({ value: book.id, label: book.name }))]} onChange={id => setData({ ...data, lorebookId: id || null })} /></label>
+      <label className="full">{t("character_editor.default_lorebook")}<Dropdown aria-label={t("character_editor.default_lorebook")} value={data.lorebookId ?? ''} options={[{ value: '', label: t("character_editor.none_selected") }, ...sortLibraryRecords(library.lorebooks, 'lorebooks', library.dates).map(book => ({ value: book.id, label: book.name }))]} onChange={id => setData({ ...data, lorebookId: id || null })} /></label>
       {data.lorebookId && <button type="button" className="secondary" onClick={event => { if (data.lorebookId) openBook(data.lorebookId, event.currentTarget); }}>{t("character_editor.open_book")}</button>}
       {initial.id && !data.lorebookId && embeddedBook && <div className="full"><button type="button" className="secondary" disabled={dirty} onClick={async () => { let bookId = ''; if (await run(async () => { bookId = (await api<{ bookId: string }>(`/library/characters/${initial.id}/extract`, 'POST', { revision, requestId: extractionId.current })).bookId; })) extracted(bookId); }}>{t("character_editor.extract_embedded_lorebook")}</button><p className="small muted">{t("character_editor.save_character_edits_first_extraction_creates_and")}</p></div>}
-      <div className="full"><TagChooser label={t("character_editor.assign_tags")} tags={library.tags} selected={tagIds} change={setTagIds} /><button type="button" className="secondary" onClick={() => setManager(true)}>{t("character_editor.manage_tags")}</button>
-        {initial.id && <button type="button" className="quiet" onClick={async () => { setPending(true); await run(async () => { const preview = await api<{ revision: number; tags: TagReview }>(`/library/characters/${initial.id}/tags/preview`); if (alive.current) { setEmbedded(preview); setPolicy('none'); } }); setPending(false); }}>{t("character_editor.review_embedded_tags")}</button>}
+      <div className="full">
+        <TagChooser label={t("character_editor.assign_tags")} tags={library.tags} selected={tagIds} change={setTagIds} />
+        <div className="actions">
+          <button type="button" className="secondary" onClick={() => setManager(true)}>{t("character_editor.manage_tags")}</button>
+          {initial.id && <button type="button" className="quiet" onClick={async () => { setPending(true); await run(async () => { const preview = await api<{ revision: number; tags: TagReview }>(`/library/characters/${initial.id}/tags/preview`); if (alive.current) { setEmbedded(preview); setPolicy('none'); } }); setPending(false); }}>{t("character_editor.review_embedded_tags")}</button>}
+        </div>
       </div>
     </div></fieldset>{error && <p role="alert">{error}</p>}{uncertain && <p role="status">{t("character_editor.acknowledgement_uncertain_the_save_may_have_reached")}</p>}{stale && !uncertain && <CharacterReconciliation library={library} characterId={initial.id} disabled={busy || pending} reconcile={reconcile} />}{stale && dirty && <CopyLibraryDraft editor={draft} />}{uncertain && <button type="button" disabled={busy || pending} onClick={() => void save(uncertain)}>{t("character_editor.retry_same_save")}</button>}<EditorActions formId={formId} disabled={busy || pending || processing || stale || Boolean(uncertain)} cancelDisabled={busy || pending} close={close} /></form>
     {manager && <TagManager library={library} busy={busy || pending} run={run} committed={committed} close={() => setManager(false)} />}

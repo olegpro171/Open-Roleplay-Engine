@@ -6,7 +6,8 @@ import type { MessageText } from './localization';
 import { displayLibraryRecord, libraryEditorTitle, newLibraryLabel, searchLibraryLabel, sortLibraryLabel } from './localization-labels';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale, currentPack } from './localization';
 import { libraryLabel, characterFieldLabel, markerLabel as localizedMarkerLabel, stateLabel } from './localization-labels';
-import { librarySortSchema, readLibrarySort, sortLibraryItems, sortOptions, type LibrarySort } from './library-sorting';
+import { librarySortSchema, readLibrarySort, sortLibraryItems, sortLibraryRecords, sortOptions, type LibrarySort } from './library-sorting';
+import { defaultContinuationInstruction } from '../shared/default-prompt';
 import { chatGroupId, preferredBranch } from './chat-selection';
 import { SpeechColorSelector } from './SpeechColorSelector';
 import { newId } from './uuid';
@@ -81,7 +82,7 @@ function selection(snapshot: ChatToolsSnapshot): Selection {
 }
 function libraryDropdownOptions(library: LibrarySnapshot, kind: Exclude<LibraryKind, 'characters' | 'personas'>) {
   const records: readonly { id: string; name: string }[] = library[kind];
-  const sorted = sortLibraryItems(records, readLibrarySort(kind), record => displayLibraryRecord(record).name, record => library.dates[record.id]);
+  const sorted = sortLibraryRecords(records, kind, library.dates);
   return [
     ...(kind === 'prompts' ? [] : [{ value: '', label: t('character_editor.none_selected') }]),
     ...sorted.map(record => ({ value: record.id, label: displayLibraryRecord(record).name })),
@@ -441,7 +442,8 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     if ('personality' in initial.data || 'entries' in initial.data) return null;
     const restored = recovered?.kind !== 'characters' && recovered?.kind !== 'lorebooks' ? recovered : undefined;
     return <LibraryEditor key={initial.id ?? initial.kind} initial={{ ...initial, data: initial.data }} recovered={restored}
-      connections={library.connections} currentRevision={library.revision} busy={busy} run={run}
+      connections={initial.kind === 'contexts' ? sortLibraryRecords(library.connections, 'connections', library.dates) : []}
+      currentRevision={library.revision} busy={busy} run={run}
       close={cancelEditor} committed={closeEditor} />;
   }
   async function duplicate(item: Saved<LibraryRecord>) {
@@ -618,16 +620,16 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
               </LibraryDescription>
             </div>
           </div>
-      </article>)}{library[section].length === 0 && <p className="muted">{t("libraries.create_or_import_your_first", { value: libraryLabel(section) })}</p>}{section !== 'characters' && query && visibleRecords.length === 0 && library[section].length > 0 && <p className="muted" role="status">{t("libraries.no_match_your_search", { value: libraryLabel(section).toLowerCase() })}</p>}</div>
+      </article>)}{library[section].length === 0 && <p className="muted">{t("libraries.empty_section")}</p>}{section !== 'characters' && query && visibleRecords.length === 0 && library[section].length > 0 && <p className="muted" role="status">{t("libraries.no_match_your_search", { value: libraryLabel(section).toLowerCase() })}</p>}</div>
       {section === 'characters' && library.characters.length > 0 && visibleRecords.length === 0 && <p role="status">{query ? filters.length ? t("libraries.no_characters_match_your_search_and_selected") : t("libraries.no_characters_match_your_search") : t("libraries.no_characters_match_all_selected_tags_clear")}</p>}
       </>}
     </>}
     </section>
   </main>{deletion && <LibraryDeletionDialog target={deletion}
     name={library[deletion.kind].find(item => item.id === deletion.id)?.name}
-    busy={busy} run={run} cancel={() => setDeletion(null)} complete={() => {
+    dates={library.dates} busy={busy} run={run} cancel={() => setDeletion(null)} complete={() => {
       setDeletion(null);
-      setNotice(msg('library_delete.success'));
+      setNotice('');
     }} />}{connectionFile && <ConnectionFileDialog action={connectionFile} cancel={() => setConnectionFile(null)} complete={kind => {
     setConnectionFile(null);
     setNotice(kind === 'import' ? msg('connection_files.imported') : '');
@@ -770,6 +772,7 @@ function ContextPresetFields({ value, change, connections }: { value: ContextPre
 }
 function PromptEditor({ value, change }: { value: PromptPreset; change: (value: PromptPreset) => void }) {
   useLocale();
+  const instructionHelp = useId();
   const [expandedBlocks, setExpandedBlocks] = useState<Set<string>>(() => new Set());
   function update(index: number, block: PromptBlock) { change({ ...value, blocks: value.blocks.map((old, i) => i === index ? block : old) }); }
   function move(from: number, to: number) {
@@ -777,7 +780,14 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
     change({ ...value, blocks: moveListItem(value.blocks, from, to) });
   }
   const reorder = useListReorder(move);
-  return <><WarningMessages messages={promptWarningMessages(value)} /><div className="prompt-blocks" {...reorder.list}>{value.blocks.map((block, index) => {
+  return <><WarningMessages messages={promptWarningMessages(value)} />
+  <label className="full">{t('continue.instruction')}
+    <EditorTextarea aria-label={t('continue.instruction')} aria-describedby={instructionHelp}
+      maxLength={100_000} value={value.continuationInstruction ?? defaultContinuationInstruction}
+      onChange={event => change({ ...value, continuationInstruction: event.target.value })} />
+    <small id={instructionHelp}>{t('continue.instruction_help')}</small>
+  </label>
+  <div className="prompt-blocks" {...reorder.list}>{value.blocks.map((block, index) => {
     const expanded = expandedBlocks.has(block.id);
     return <section className={`prompt-block${reorder.rowClass(index, value.blocks.length)}`} aria-label={t("libraries.prompt_block", { value: index + 1 })} key={block.id}>
       <div className="block-heading">

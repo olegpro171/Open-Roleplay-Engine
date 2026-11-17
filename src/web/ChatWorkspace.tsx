@@ -6,20 +6,20 @@ import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './pop
 
 export const ChatDetailsTarget = createContext<HTMLDivElement | null>(null);
 
-export function useReturnToChatOnEscape(returnToChat: (() => void) | undefined) {
+export function useEscapeAction(action: (() => void) | undefined) {
   useEffect(() => {
-    if (!returnToChat) return;
+    if (!action) return;
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229) return;
       // Controls and the Chat details disclosure handle Escape before it reaches window.
       // Native dialogs use the browser's cancel event after keydown.
       if (document.querySelector('dialog[open]')) return;
       event.preventDefault();
-      returnToChat();
+      action();
     };
     window.addEventListener('keydown', escape);
     return () => window.removeEventListener('keydown', escape);
-  }, [returnToChat]);
+  }, [action]);
 }
 
 type ChatWorkspaceProps = {
@@ -34,7 +34,7 @@ type ChatWorkspaceProps = {
 
 export function ChatWorkspace({ sidebar, actions, navigation = false, dismissDetails = false, returnToChat, children }: ChatWorkspaceProps) {
   useLocale();
-  useReturnToChatOnEscape(returnToChat);
+  useEscapeAction(returnToChat);
   const [expanded, setExpanded] = useState(false);
   const openedWith = useRef<PopupInput>('keyboard');
   const detailsId = useId();

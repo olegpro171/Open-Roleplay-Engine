@@ -5,8 +5,6 @@ import { appendContinuation } from '../shared/text.js';
 import { AppError } from './errors.js';
 import { modelText } from './model-text.js';
 
-export const continuationInstruction = '[OOC: Continue the scene from the previous reply. The player has supplied no new action. Advance the scene through your characters or the environment. Leave the player character’s actions, dialogue, and decisions to the player.]';
-
 export function continuationBlock(reply: string, messagesEnabled: boolean, archived: boolean) {
   if (!messagesEnabled) return message('continue.messages_required');
   if (archived) return message('continue.archived_reply');

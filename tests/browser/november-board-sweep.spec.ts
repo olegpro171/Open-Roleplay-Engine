@@ -130,7 +130,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
         expect(notice.y).toBeGreaterThan(scrollArea.y);
         expect(notice.y + notice.height).toBeLessThan(scrollArea.y + scrollArea.height / 2);
         expect(await status.evaluate(element => {
-          const transcript = element.parentElement?.querySelector('.transcript');
+          const transcript = element.closest('.transcript-frame')?.querySelector('.transcript');
           if (!transcript) throw new Error('Missing transcript beside preparation notice');
           element.style.display = 'none';
           const { x, y, width, height } = transcript.getBoundingClientRect();
