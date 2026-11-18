@@ -131,7 +131,7 @@ export function CharacterEditor({ initial, recovered, library, busy, run, close,
     : source.character_book != null;
   return <NumberDraftContext.Provider value={numberDraft}>
     <form id={formId} onSubmit={event => { event.preventDefault(); void save(); }}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy || pending || stale || Boolean(uncertain)}><legend>{t("character_editor.character", { value: initial.id ? t("libraries.edit_2") : t("libraries.create") })}</legend><div className="form-grid">
-      {initial.returnTo === 'story' && <p className="small muted full">{t('story_home.character_editor_help')}</p>}
+      {!initial.id && initial.returnTo === 'story' && <p className="small muted full">{t('story_home.character_editor_help')}</p>}
       <label>{t("character_editor.name")}<input required maxLength={100} value={data.name} onChange={event => setData({ ...data, name: event.target.value })} /></label>
       <label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={data.titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("character_editor.an_optional_label_useful_for_distinguishing_between")}</small></label>
       <SpeechColorSelector value={data.speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || pending || stale || Boolean(uncertain)} />

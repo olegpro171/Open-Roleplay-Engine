@@ -354,6 +354,7 @@ export const englishMessages = {
   "story_home.next_character": "Create or import a character to start your first story.",
   "story_home.next_chat": "Start a new story or open a saved chat.",
   "story_home.add_connection": "Add a Connection",
+  "story_home.no_connection_selected": "No Connection selected.",
   "story_home.manage_connections": "Manage Connections",
   "story_home.prompt": "Prompt",
   "story_home.manage_prompts": "Manage Prompts",

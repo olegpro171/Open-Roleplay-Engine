@@ -64,7 +64,10 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 :is(.chat-card-open,.library-card-open):focus-visible{outline:none}
 :is(.chat-card,.library-card):has(:is(.chat-card-open,.library-card-open):focus-visible){outline:2px solid var(--muted);outline-offset:3px}
 .chat-card-delete{position:relative;z-index:1;flex:none;margin-left:auto;min-height:44px;white-space:nowrap}
-@media(hover:hover){.library-list :is(.chat-card,.library-card):hover{background:var(--surface-hover)}}
+@media(hover:hover){
+  .library-list :is(.chat-card,.library-card):hover,
+  .story-home-participants .library-card:has(.library-card-open:enabled):hover{background:var(--surface-hover)}
+}
 
 /* Initial focus on a dialog or menu container does not highlight a control. */
 dialog:focus,dialog h2[tabindex="-1"]:focus,.action-menu[tabindex="-1"]:focus{outline:none}
@@ -742,8 +745,10 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .story-home h1:focus{outline:none}
 .story-home-panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:24px 0}
 .story-home-panel{padding:20px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.story-home-panel.blocks-chat{border-color:var(--danger-border)}
 .story-home-summary{display:flex;flex-direction:column;gap:12px}
 .story-home-summary>*{margin:0}
+.story-home-summary>.actions{margin-block-start:auto}
 .story-home-participants{grid-column:1/-1;min-width:0}
 .story-home-panel-heading{display:grid;grid-template-columns:auto minmax(0,360px);align-items:start;justify-content:space-between;gap:12px;min-block-size:44px;margin-bottom:12px}
 .story-home-panel-heading h2{margin:0}
@@ -752,9 +757,9 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .story-home-placeholder-title{height:10px;width:min(96px,100%);margin-block:4px;border-radius:5px;background:var(--control-border)}
 .story-home-placeholder-description{line-height:1.45}
 .story-home-placeholder-description p{margin:0}
-.story-home-placeholder-description .text-link{display:block;text-align:start}
+.story-home-placeholder-description .text-link{display:flex;align-items:flex-start;padding-block-start:4px;text-align:start}
 .story-home-panel .actions,.story-home-chat-actions{flex-wrap:wrap}
-.story-home-panel button,.story-home-chat-actions button{min-height:44px;max-width:100%;white-space:normal}
+.story-home-panel button:not(.library-card-open),.story-home-chat-actions button{min-height:44px;max-width:100%;white-space:normal}
 @media(max-width:800px){
   .story-home-panels{grid-template-columns:minmax(0,1fr)}
   .story-home-panel{padding:16px}

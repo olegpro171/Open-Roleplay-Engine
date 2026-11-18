@@ -11,6 +11,29 @@ const button = (page: Page, name: string) => page.getByRole('button', { name, ex
 const home = (page: Page) => page.getByRole('main', { name: 'Welcome to ORE' });
 const library = async (page: Page): Promise<LibrarySnapshot> => (await page.request.get('/api/library')).json();
 
+async function expectActionAtPanelBottom(panel: Locator, label: string) {
+  const extraSpace = await panel.getByRole('button', { name: label, exact: true }).evaluate(action => {
+    const section = action.closest('section');
+    if (!section) throw new Error('Missing panel');
+    const style = getComputedStyle(section);
+    return section.getBoundingClientRect().bottom - action.getBoundingClientRect().bottom
+      - parseFloat(style.paddingBottom) - parseFloat(style.borderBottomWidth);
+  });
+  expect(extraSpace, `extra space below ${label}`).toBeCloseTo(0);
+}
+
+async function expectPanelBorder(panel: Locator, role: '--line' | '--danger-border') {
+  const expected = await panel.evaluate((element, role) => {
+    const sample = document.createElement('span');
+    sample.style.color = `var(${role})`;
+    element.append(sample);
+    const color = getComputedStyle(sample).color;
+    sample.remove();
+    return color;
+  }, role);
+  await expect(panel).toHaveCSS('border-top-color', expected);
+}
+
 async function addCharacter(page: Page, origin: string, name: string, first_mes = '', pictured = false) {
   const response = await page.request.post('/api/library', { headers: { Origin: origin }, data: {
     kind: 'characters', revision: (await library(page)).revision,
@@ -47,11 +70,16 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
   expect((await library(page)).chats).toEqual([]);
   await expect(button(page, 'New chat')).toBeDisabled();
   await expect(page.getByLabel('Your next turn')).toHaveCount(0);
-  await button(page, 'Add a Connection').click();
+  const connectionPanel = home(page).getByRole('region', { name: 'Connection', exact: true });
+  const addLink = connectionPanel.getByRole('button', { name: 'Add a Connection', exact: true });
+  await expect(connectionPanel.getByText('No Connection selected.', { exact: true })).toBeVisible();
+  await expect(addLink).toHaveCSS('text-decoration-line', 'underline');
+  await addLink.click();
   await expect(page.getByLabel('API base URL')).toBeVisible();
   await button(page, 'Cancel').click();
   await expect(home(page)).toBeVisible();
   await addConnection(page);
+  await expect(addLink).toHaveCount(0);
   await expect(button(page, 'New chat')).toBeDisabled();
 
   await button(page, 'New persona').click();
@@ -213,15 +241,19 @@ test('imports a card before Connection setup and tracks bookmarks independently 
 
   const promptPanel = home(page).getByRole('region', { name: 'Prompt', exact: true });
   await expect(promptPanel.getByRole('status')).toContainText('Default prompt');
+  const promptName = 'Grove stories for travellers, wandering storytellers, and the keepers of the old forest';
   const addedPrompt = await page.request.post('/api/library', { headers, data: {
-    kind: 'prompts', revision: (await library(page)).revision, data: { ...defaultPrompt, name: 'Grove stories' },
+    kind: 'prompts', revision: (await library(page)).revision, data: { ...defaultPrompt, name: promptName },
   } });
   expect(addedPrompt.ok(), await addedPrompt.text()).toBe(true);
   await button(page, 'Manage Prompts').click();
-  await button(page, 'Set Grove stories as default').click();
-  await expect(button(page, 'Clear Grove stories as default')).toBeVisible();
+  await button(page, `Set ${promptName} as default`).click();
+  await expect(button(page, `Clear ${promptName} as default`)).toBeVisible();
   await button(page, 'Home').click();
-  await expect(promptPanel.getByRole('status')).toContainText('Grove stories');
+  await expect(promptPanel.getByRole('status')).toContainText(promptName);
+  await page.setViewportSize({ width: 801, height: 844 });
+  await expectActionAtPanelBottom(panel, 'Manage Connections');
+  await page.setViewportSize({ width: 390, height: 844 });
 
   await expect(home(page).getByRole('heading', { name: 'Imported guide', exact: true })).toBeVisible();
   await button(page, 'New chat').click();
@@ -234,10 +266,63 @@ test('imports a card before Connection setup and tracks bookmarks independently 
   await button(page, 'Close chat').click();
   await expect(home(page)).toBeVisible();
   await button(page, 'Manage Prompts').click();
-  await button(page, 'Clear Grove stories as default').click();
-  await expect(button(page, 'Set Grove stories as default')).toBeVisible();
+  await button(page, `Clear ${promptName} as default`).click();
+  await expect(button(page, `Set ${promptName} as default`)).toBeVisible();
   await button(page, 'Home').click();
   await expect(promptPanel.getByRole('status')).toContainText('Default prompt');
+});
+
+test('edits selected cards from Home and returns there after saving and recovering a draft', async ({ page, browserApp }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+  await addCharacter(page, browserApp.url, 'Unselected guide');
+  await addCharacter(page, browserApp.url, 'Forest guide');
+  const character = home(page).getByRole('region', { name: 'Character', exact: true });
+  await character.getByRole('combobox').click();
+  await page.getByRole('option', { name: 'Forest guide', exact: true }).click();
+  await button(page, 'New persona').click();
+  const name = page.getByRole('textbox', { name: 'Name', exact: true });
+  await name.fill('Traveller');
+  await button(page, 'Save').click();
+  await expect(home(page)).toBeVisible();
+  const persona = home(page).getByRole('region', { name: 'Persona', exact: true });
+  await expect(persona.getByRole('article')).toContainText('Traveller');
+  const before = await library(page);
+  const priorCharacter = before.characters.find(item => item.name === 'Forest guide');
+  const [priorPersona] = before.personas;
+  if (!priorCharacter || !priorPersona) throw new Error('Missing selected records');
+
+  await character.getByRole('article').click({ position: { x: 30, y: 80 } });
+  await expect(name).toHaveValue('Forest guide');
+  await name.fill('Grove guide');
+  await page.getByLabel('Character description').fill('Knows the paths through the grove.');
+  await page.route(`**/api/library/${priorCharacter.id}`, route => route.fulfill({
+    status: 422, json: { message: 'Synthetic character save rejection.' },
+  }), { times: 1 });
+  await button(page, 'Save').click();
+  await expect(page.getByText('Synthetic character save rejection.').first()).toBeVisible();
+  await expect(name).toHaveValue('Grove guide');
+  expect((await library(page)).characters).toEqual(before.characters);
+  await button(page, 'Save').click();
+  await expect(character.getByRole('article')).toContainText('Knows the paths through the grove.');
+  await expect(character.getByRole('combobox')).toContainText('Grove guide');
+  await expect(persona.getByRole('article')).toContainText('Traveller');
+
+  await persona.getByRole('button', { name: 'Traveller', exact: true }).press('Enter');
+  await expect(name).toHaveValue('Traveller');
+  await name.fill('Wanderer');
+  await page.getByLabel('Persona description').fill('A wanderer with a worn map.');
+  page.once('dialog', dialog => void dialog.accept());
+  await page.reload();
+  await expect(page.getByText('Draft restored from this tab.', { exact: false })).toBeVisible();
+  await expect(name).toHaveValue('Wanderer');
+  await button(page, 'Save').click();
+  await expect(persona.getByRole('combobox')).toHaveText('Wanderer');
+  await expect(persona.getByRole('article')).toContainText('A wanderer with a worn map.');
+  const saved = await library(page);
+  expect(saved.characters.map(item => item.id).sort()).toEqual(before.characters.map(item => item.id).sort());
+  expect(saved.characters.find(item => item.id === priorCharacter.id)?.name).toBe('Grove guide');
+  expect(saved.personas).toEqual([expect.objectContaining({ id: priorPersona.id, name: 'Wanderer' })]);
 });
 
 const participantLayout = (panel: Locator) => panel.evaluate(element => {
@@ -273,6 +358,10 @@ test('Story home fits desktop and phone in each approved theme and updates when 
   };
   for (const theme of themes) {
     await setTheme(theme);
+    await expectPanelBorder(connectionPanel, '--danger-border');
+    await expectPanelBorder(characterPanel, '--danger-border');
+    await expectPanelBorder(promptPanel, '--line');
+    await expectPanelBorder(personaPanel, '--line');
     for (const width of [1440, 801, 800, 390, 320]) {
       await page.setViewportSize({ width, height: 844 });
       for (const label of ['Add a Connection', 'Manage Connections', 'Manage Prompts', 'New character', 'Manage Characters', 'New persona', 'Manage Personas']) {
@@ -296,6 +385,8 @@ test('Story home fits desktop and phone in each approved theme and updates when 
       expect(character.y).toBeGreaterThan(prompt.y + prompt.height);
       expect(persona.y).toBeGreaterThan(character.y + character.height);
       expect(persona.width).toBe(character.width);
+      await expectActionAtPanelBottom(connectionPanel, 'Manage Connections');
+      await expectActionAtPanelBottom(promptPanel, 'Manage Prompts');
       emptyLayout.set(width, await previews());
       if (width === 1440 || width === 390) {
         await page.screenshot({ path: testInfo.outputPath(`home-${theme}-${width}.png`), animations: 'disabled' });
@@ -342,8 +433,13 @@ test('Story home fits desktop and phone in each approved theme and updates when 
         await button(page, 'Manage Personas').evaluate(element => getComputedStyle(element).fontSize));
       await expect(characterPanel.getByRole('article')).toHaveCount(0);
       await expect(personaPanel.getByRole('article')).toHaveCount(0);
+      await expectPanelBorder(connectionPanel, '--line');
+      await expectPanelBorder(characterPanel, '--danger-border');
+      await expectPanelBorder(personaPanel, '--line');
       expect(await previews()).toEqual(emptyLayout.get(width));
       await chooseForestGuide();
+      await expect(button(page, 'New chat')).toBeEnabled();
+      await expectPanelBorder(characterPanel, '--line');
       await personaPanel.getByRole('combobox', { name: 'Persona', exact: true }).click();
       await page.getByRole('option', { name: 'Woodland traveller', exact: true }).click();
       await expect(characterPanel.getByRole('article').locator('img')).toBeVisible();
@@ -361,6 +457,7 @@ test('Story home fits desktop and phone in each approved theme and updates when 
       }
       expect(await previews()).toEqual(emptyLayout.get(width));
       await expect(button(page, 'New chat')).toBeDisabled();
+      await expectPanelBorder(characterPanel, '--danger-border');
       await button(page, 'Open Chats').click();
       await button(page, 'Forest guide').click();
       await expect(page.getByRole('region', { name: 'Conversation' })).toContainText('Welcome to the forest.');

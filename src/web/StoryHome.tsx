@@ -54,11 +54,13 @@ export function StoryHome({ library, defaults, busy, run, openLibrary, openChat,
     <h1 ref={heading} id="story-home-heading" tabIndex={-1}>{t('story_home.welcome')}</h1>
     <p className="muted">{t(!connection ? 'story_home.next_connection' : !hasCharacter ? 'story_home.next_character' : 'story_home.next_chat')}</p>
     <div className="story-home-panels">
-      <section className="story-home-panel story-home-summary" aria-labelledby="story-home-connection">
+      <section className={`story-home-panel story-home-summary${connection ? '' : ' blocks-chat'}`} aria-labelledby="story-home-connection">
         <h2 id="story-home-connection">{t('libraries.connection')}</h2>
-        {connection && <p role="status"><strong>{connection.name}</strong><br /><span className="muted">{connection.model}</span></p>}
+        {connection
+          ? <p role="status"><strong>{connection.name}</strong><br /><span className="muted">{connection.model}</span></p>
+          : <HomeCardPlaceholder label={t('story_home.no_connection_selected')}
+            actionLabel={t('story_home.add_connection')} create={() => create('connections')} disabled={busy} />}
         <div className="actions">
-          {!connection && <button type="button" disabled={busy} onClick={() => create('connections')}>{t('story_home.add_connection')}</button>}
           <button type="button" className="secondary" disabled={busy} onClick={() => browse('connections')}>{t('story_home.manage_connections')}</button>
         </div>
       </section>
@@ -70,7 +72,7 @@ export function StoryHome({ library, defaults, busy, run, openLibrary, openChat,
           <button type="button" className="secondary" disabled={busy} onClick={() => browse('prompts')}>{t('story_home.manage_prompts')}</button>
         </div>
       </section>
-      <section className="story-home-panel story-home-participants" aria-labelledby="story-home-character">
+      <section className={`story-home-panel story-home-participants${character ? '' : ' blocks-chat'}`} aria-labelledby="story-home-character">
         <header className="story-home-panel-heading">
           <h2 id="story-home-character">{t('app.character')}</h2>
           {library.characters.length > 1 && <Dropdown aria-label={t('app.character')} disabled={busy}
@@ -78,8 +80,9 @@ export function StoryHome({ library, defaults, busy, run, openLibrary, openChat,
             onChange={id => selectParticipant('characterId', id)} />}
         </header>
         {character
-          ? <LibraryCard title={character} description={character.description} picture={<PictureSquare url={picture?.thumbnailUrl} />} heading="h3" />
-          : <ParticipantCardPlaceholder picture label={t('story_home.no_character_selected')}
+          ? <LibraryCard title={character} description={character.description} picture={<PictureSquare url={picture?.thumbnailUrl} />} heading="h3"
+            disabled={busy} open={() => openLibrary({ kind: 'characters', id: character.id, action: 'edit', returnTo: 'story' })} />
+          : <HomeCardPlaceholder picture label={t('story_home.no_character_selected')}
             actionLabel={newLibraryLabel('characters')} create={() => create('characters')} disabled={busy} />}
         <div className="actions">
           <button type="button" className="secondary" disabled={busy} onClick={() => browse('characters')}>{t('story_home.manage_characters')}</button>
@@ -93,8 +96,9 @@ export function StoryHome({ library, defaults, busy, run, openLibrary, openChat,
             onChange={id => selectParticipant('personaId', id)} />}
         </header>
         {persona
-          ? <LibraryCard title={persona} description={persona.description} heading="h3" />
-          : <ParticipantCardPlaceholder label={t('story_home.persona_help')}
+          ? <LibraryCard title={persona} description={persona.description} heading="h3"
+            disabled={busy} open={() => openLibrary({ kind: 'personas', id: persona.id, action: 'edit', returnTo: 'story' })} />
+          : <HomeCardPlaceholder label={t('story_home.persona_help')}
             actionLabel={newLibraryLabel('personas')} create={() => create('personas')} disabled={busy} />}
         <div className="actions">
           <button type="button" className="secondary" disabled={busy} onClick={() => browse('personas')}>{t('story_home.manage_personas')}</button>
@@ -110,7 +114,7 @@ export function StoryHome({ library, defaults, busy, run, openLibrary, openChat,
   </main>;
 }
 
-function ParticipantCardPlaceholder({ picture, label, actionLabel, create, disabled }: {
+function HomeCardPlaceholder({ picture, label, actionLabel, create, disabled }: {
   picture?: boolean; label: string; actionLabel: string; create: () => void; disabled: boolean;
 }) {
   return <div className="library-card">

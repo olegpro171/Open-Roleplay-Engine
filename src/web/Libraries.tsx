@@ -255,14 +255,15 @@ export type SetupLibrary = 'connections' | 'characters' | 'personas';
 type SetupParticipant = { kind: 'characters' | 'personas'; id: string };
 export type LibraryDestination = LibraryTarget
   | { kind: LibraryKind | 'chats'; action: 'browse' }
-  | { kind: SetupLibrary; action: 'create'; returnTo: SetupReturn };
+  | { kind: SetupLibrary; action: 'create'; returnTo: SetupReturn }
+  | (SetupParticipant & { action: 'edit'; returnTo: 'story' });
 type LibraryEditing = { kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean; returnTo?: SetupReturn };
 
-function savedEditor(library: LibrarySnapshot, kind: LibraryKind, id: string): LibraryEditing | null {
+function savedEditor(library: LibrarySnapshot, kind: LibraryKind, id: string, returnTo?: SetupReturn): LibraryEditing | null {
   const record = library[kind].find(record => record.id === id);
   if (!record) return null;
   const { id: _id, revision: _revision, hasApiKey, ...data } = { ...record, hasApiKey: 'hasApiKey' in record && record.hasApiKey };
-  return { kind, id, revision: library.revision, data, hasApiKey };
+  return { kind, id, revision: library.revision, data, hasApiKey, returnTo };
 }
 
 function newEditor(kind: LibraryKind, revision: number): LibraryEditing {
@@ -295,11 +296,15 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     if (recovery) {
       const { kind, id, revision } = recovery.editor;
       if (recovery.epoch !== datasetEpoch() || revision !== library.revision) return null;
-      if (id) return savedEditor(library, kind, id);
-      return { ...newEditor(kind, revision), returnTo: 'returnTo' in recovery.editor ? recovery.editor.returnTo : undefined };
+      const returnTo = 'returnTo' in recovery.editor ? recovery.editor.returnTo : undefined;
+      if (id) return savedEditor(library, kind, id, returnTo);
+      return { ...newEditor(kind, revision), returnTo };
     }
     if (!initialTarget) return null;
-    if ('id' in initialTarget) return savedEditor(library, initialTarget.kind, initialTarget.id);
+    if ('id' in initialTarget) {
+      const returnTo = 'returnTo' in initialTarget ? initialTarget.returnTo : undefined;
+      return savedEditor(library, initialTarget.kind, initialTarget.id, returnTo);
+    }
     if (initialTarget.action === 'create') return { ...newEditor(initialTarget.kind, library.revision), returnTo: initialTarget.returnTo };
     return null;
   });

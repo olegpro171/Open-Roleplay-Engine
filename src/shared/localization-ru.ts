@@ -361,6 +361,7 @@ export const russianMessages = {
   "story_home.next_character": "Создайте или импортируйте персонажа, чтобы начать первую историю.",
   "story_home.next_chat": "Начните новую историю или откройте сохранённый чат.",
   "story_home.add_connection": "Добавить подключение",
+  "story_home.no_connection_selected": "Подключение не выбрано.",
   "story_home.manage_connections": "Управление подключениями",
   "story_home.prompt": "Промпт",
   "story_home.manage_prompts": "Управление промптами",
