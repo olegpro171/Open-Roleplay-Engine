@@ -6,17 +6,16 @@ import { join, resolve } from 'node:path';
 
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) { chmodSync(directory, 0o700); rmSync(directory, { recursive: true, force: true }); } });
-function fixture(developmentLauncher = false) {
+function fixture(developmentLauncher = false, runtime = `node-v24.19.0-${process.platform}-${process.arch}`) {
   const root = mkdtempSync(join(tmpdir(), 'ORE bootstrap-история-')); directories.push(root);
   const source = join(root, 'source'), home = developmentLauncher ? join(source, 'ore-development') : join(root, 'installed'), bin = join(root, 'tools');
   mkdirSync(source); mkdirSync(home); mkdirSync(bin);
-  cpSync(resolve('start-dev.command'), join(source, 'start-dev.command'));
+  cpSync(resolve('start-dev.sh'), join(source, 'start-dev.sh'));
   cpSync(resolve('scripts/release'), join(source, 'scripts/release'), { recursive: true });
   for (const directory of ['src', 'public', 'migrations', 'docs']) mkdirSync(join(source, directory));
   for (const file of ['package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.server.json', 'vite.config.ts', 'vitest.config.ts', 'playwright.config.ts', 'index.html', 'LICENSE', 'docs/RELEASES.md']) writeFileSync(join(source, file), '{}');
   const git = (args: string[]) => execFileSync('git', ['-C', source, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   git(['init', '-b', 'main']); git(['add', '.']); git(['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '-m', 'Synthetic release fixture']);
-  const runtime = `node-v24.19.0-${process.platform}-${process.arch}`;
   writeFileSync(join(home, 'current'), 'previous-app\nprevious-runtime\n');
   mkdirSync(join(home, 'data')); writeFileSync(join(home, 'data/sentinel'), 'saved user data');
   mkdirSync(join(home, 'languages')); writeFileSync(join(home, 'languages/sentinel'), 'saved language pack');
@@ -66,11 +65,32 @@ exit 1
 }
 
 describe.skipIf(process.platform === 'win32')('Bash staging failure recovery', () => {
+  it.each([['x86_64', 'x64'], ['aarch64', 'arm64']])('starts with the Linux private runtime on %s', (machine, cpu) => {
+    const f = fixture(true, `node-v24.19.0-linux-${cpu}`);
+    controlledBuild(f);
+    writeFileSync(join(f.bin, 'uname'), `#!/bin/bash
+case "$1" in
+  -s) echo Linux ;;
+  -m) echo ${machine} ;;
+  -r) echo 4.18.0 ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o755 });
+    writeFileSync(join(f.bin, 'getconf'), '#!/bin/bash\necho "glibc 2.28"\n', { mode: 0o755 });
+    writeFileSync(join(f.bin, 'curl'), '#!/bin/bash\necho "Unexpected runtime download" >&2\nexit 1\n', { mode: 0o755 });
+    const result = spawnSync(join(f.source, 'start-dev.sh'), {
+      encoding: 'utf8', timeout: 15000,
+      env: { ...process.env, PATH: `${f.bin}:/usr/bin:/bin:/usr/sbin:/sbin` },
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(readFileSync(join(f.home, 'started'), 'utf8')).toBe('started');
+  }, 20_000);
+
   it('starts the activated development app despite persistent temporary cleanup failure and permits another launch', () => {
     const f = fixture(true);
     controlledBuild(f);
     failTemporaryCleanup(f, 'always');
-    const launch = () => spawnSync('/bin/bash', [join(f.source, 'start-dev.command')], {
+    const launch = () => spawnSync('/bin/bash', [join(f.source, 'start-dev.sh')], {
       encoding: 'utf8', timeout: 15000,
       env: { ...process.env, PATH: `${f.bin}:/usr/bin:/bin:/usr/sbin:/sbin` },
     });
@@ -107,7 +127,7 @@ describe.skipIf(process.platform === 'win32')('Bash staging failure recovery', (
     const f = fixture(true);
     controlledBuild(f);
     writeFileSync(join(f.bin, 'rmdir'), '#!/bin/bash\necho "rmdir: Permission denied" >&2\nexit 1\n', { mode: 0o755 });
-    const result = spawnSync('/bin/bash', [join(f.source, 'start-dev.command')], {
+    const result = spawnSync('/bin/bash', [join(f.source, 'start-dev.sh')], {
       encoding: 'utf8', timeout: 15000,
       env: { ...process.env, PATH: `${f.bin}:/usr/bin:/bin:/usr/sbin:/sbin` },
     });

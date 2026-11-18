@@ -9,7 +9,7 @@ Direct npm commands require Node 24 or Node 22.14+ within major 22 (see `package
 | Command | Purpose |
 | --- | --- |
 | `ORE-launcher.bat` | Windows x64 package installer/updater; built-in PowerShell 5.1, downloads a published application/runtime into adjacent `ORE-internal/` |
-| `scripts/release/start-dev.bat` / `./start-dev.command` | Windows / Mac/Bash working-tree rebuild into `ore-development/`, no update check |
+| `scripts/release/start-dev.bat` / `./start-dev.sh` | Windows / macOS and glibc Linux working-tree rebuild into `ore-development/`, no update check |
 | `npm run dev` and `npm run dev:ui` | Two-terminal server/UI watch mode (ports 3000/5173) |
 | `npm run typecheck` | Strict client/server TypeScript checks |
 | `npm run build` | Typecheck and build client/server |
@@ -124,7 +124,7 @@ Keep each accepted rule in its owning contract and link to it. Update only chang
 
 ## Contained delivery boundaries
 
-The repository root exposes `ORE-launcher.bat` for Windows package delivery and `start-dev.command` for Mac working-tree startup. `scripts/release/` owns the contained builders, installed start/recovery entries and Windows development startup. Working-tree builds use allowlisted local files and exact Release builds export the same input set from Git. Installed source builds start directly from their selected private runtime and app. [Legacy recovery](docs/RELEASES.md#legacy-installations) covers retired delivery paths.
+The repository root exposes `ORE-launcher.bat` for Windows package delivery and `start-dev.sh` for working-tree startup on macOS and glibc Linux. See [working-tree development](docs/RELEASES.md#working-tree-development) for platform requirements and qualification. `scripts/release/` owns the contained builders, installed start/recovery entries and Windows development startup. Working-tree builds use allowlisted local files and exact Release builds export the same input set from Git. Installed source builds start directly from their selected private runtime and app. [Legacy recovery](docs/RELEASES.md#legacy-installations) covers retired delivery paths.
 
 `portable-launch.mjs` verifies assets/runtime, owns the foreground application process, presents approved messages and catches browser spawn/exit failures. `application-start.mjs` is the installed application's startup boundary: it resolves established database identity, checks compatibility, invokes the server and records database readiness. Store retains SQLite ownership, missing-file enforcement, snapshots and migrations. Retained older applications without that boundary keep explicit compatible recovery guards. Server readiness and ownership/port failures use structured IPC; console matching cannot establish readiness. Saved-data startup never participates in update fallback.
 

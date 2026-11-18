@@ -8,7 +8,7 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'ORE dev-история-')); roots.push(root);
-  cpSync(resolve('start-dev.command'), join(root, 'start-dev.command'));
+  cpSync(resolve('start-dev.sh'), join(root, 'start-dev.sh'));
   mkdirSync(join(root, 'scripts/release'), { recursive: true });
   cpSync(resolve('scripts/release/load-env.sh'), join(root, 'scripts/release/load-env.sh'));
   writeFileSync(join(root, 'local-edit'), 'Uncommitted working tree');
@@ -30,7 +30,7 @@ LAUNCH
 `);
   const run = (args: string[] = [], overrides: NodeJS.ProcessEnv = {}) => {
     const env: NodeJS.ProcessEnv = { ...process.env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', ...overrides }; delete env.ROLEPLAY_DATABASE;
-    return spawnSync('/bin/bash', [join(root, 'start-dev.command'), ...args], { cwd: '/', env: { ...env, ...overrides }, encoding: 'utf8' });
+    return spawnSync(join(root, 'start-dev.sh'), args, { cwd: '/', env: { ...env, ...overrides }, encoding: 'utf8' });
   };
   return { root, home: join(root, 'ore-development'), run };
 }

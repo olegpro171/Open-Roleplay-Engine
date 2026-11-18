@@ -55,9 +55,9 @@ The script downloads the latest published Windows package, verifies it, installs
 
 Windows x64 uses the built-in 64-bit Windows PowerShell 5.1 and .NET. See [recovery and legacy installations](docs/RELEASES.md#legacy-installations) for the retired launchers.
 
-### Running from source on macOS
+### Running from source on macOS and Linux
 
-Run `./start-dev.command` from the repository folder. It builds the current working tree into `ore-development/`. See [working-tree development](docs/RELEASES.md#working-tree-development).
+Run `./start-dev.sh` from the repository folder. It builds the current working tree into `ore-development/` using its own Node.js runtime. The launcher targets glibc Linux, with end-to-end Linux verification pending. See [working-tree development](docs/RELEASES.md#working-tree-development).
 
 ## First chat
 
@@ -93,7 +93,7 @@ You can move ORE to another folder. Your chats, settings, and other data move wi
 
 1. To keep your chats, memory, libraries, and Connections, create a backup in **Settings → Data backup**. Save it outside the folder you plan to delete (`ORE-internal/` on Windows). Copy any custom language packs you want to keep separately. See [what a backup contains](docs/DATA.md#content-backups).
 2. Press **Ctrl+C** in the terminal or launcher window running ORE and wait for it to stop. Closing the browser tab leaves the server running.
-3. On **Windows**, delete `ORE-launcher.bat` and the `ORE-internal/` folder. This deletes the app and its saved data. On **macOS**, if you ran ORE from source, delete the repository folder. To remove only the build created by `./start-dev.command`, delete `ore-development/`.
+3. On **Windows**, delete `ORE-launcher.bat` and the `ORE-internal/` folder. This deletes the app and its saved data. If you ran ORE from source, delete the repository folder. To remove only the build created by `./start-dev.sh`, delete `ore-development/`.
 
 **Temporary files.** If the Windows launcher is interrupted, it can leave `ore-types-*` folders in `%TEMP%`. You can delete these folders manually once ORE has stopped.
 

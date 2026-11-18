@@ -2,7 +2,7 @@
 # Build the current working tree with the contained runtime; never fetch main.
 set -euo pipefail
 umask 077
-[ "$#" -eq 0 ] || { echo 'Usage: start-dev.command (no arguments)' >&2; exit 1; }
+[ "$#" -eq 0 ] || { echo 'Usage: start-dev.sh (no arguments)' >&2; exit 1; }
 unset NODE_OPTIONS NODE_PATH || true
 ore_source=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
 . "$ore_source/scripts/release/load-env.sh"
