@@ -15,6 +15,7 @@ const authorVerbs = [
   /^(?:ахнул|охнул|хмыкнул|фыркнул|всхлипнул|хихикнул|хохотнул)[аои]?$/iu,
   /^(?:переспросил|попросил|потребовал|подтвердил|протестовал|запротестовал|пообещал|съязвил|парировал|заверил)[аои]?$/iu,
   /^(?:рассмеял|засмеял|поинтересовал|осведомил|согласил|признал|взмолил|отозвал|донесл|отмахнул)(?:ся|ась|ось|ись)$/iu,
+  /^(?:поздоровал|попрощал)(?:ся|ась|ось|ись)$/iu,
   // First/third-person present forms avoid treating spoken imperatives such as «говорите» as narration.
   /^(?:отвеча|спрашива|переспрашива|добавля|продолжа|восклица|вскрикива|требу|возража|протесту|всхлипыва|хихика)(?:ю|ем|ет|ют)$/iu,
   /^говор(?:ю|им|ит|ят)$/iu,
@@ -34,17 +35,22 @@ const participantPossessive = /^(?:мо[йяеёи]|мое(?:го|му|й|м)|м
 const pastPredicate = /^[а-яё]{2,}(?:л[аои]?|л(?:ся|ась|ось|ись))$/iu;
 const speechBoundary = /[,.!?…:]/u;
 const sentenceEnd = /[.!?…]/u;
+const closingQuoteMark = /["»”“]/u;
 const stageFragment = /^\s*(?:пауза|молчание|тишина),\s*(?:[а-яё]+\s+)?(?:вздох|кивок|улыбка|жест|взгляд|шорох)(?!\p{L})/iu;
+const standaloneStageFragment = /^\s*(?:пауза|молчание|тишина|кивок|вздох|и\s+вс[её])\.\s*$/iu;
 const deliveryFragment = /^\s*(?:спокойно|ровно|тихо|негромко|глухо|сухо|мягко|резко),\s*(?:(?:почти\s+)?ш[её]потом|едва слышно|без\s+(?:[а-яё]+\s+)?(?:нам[её]ка|тени|дрожи|выражения|интонации))(?!\p{L})/iu;
+const utteranceAction = /^\s*(?:(?:я|мы|он|она|они)\s+)?(?:так\s+и\s+)?(?:не\s+)?(?:закончил|договорил|оборвал|прервал)[аои]?\s+(?:свою\s+)?(?:фразу|реплику)(?!\p{L})/iu;
+const utteranceBreak = /^\s*(?:фраза|реплика|слова)\s+(?:вдруг\s+)?(?:(?:оборвал|рассыпал)(?:ась|ись)|застрял[аи])(?!\p{L})/iu;
+const correlativeContinuation = /^\s*(?:это|то|тогда|так|там|тут)(?!\p{L})/iu;
 const explainingVerb = /^(?:объясня|поясня)(?:ю|ем|ет|ют)$/u;
 const actionVerbs = [
-  /^(?:встал|сел|поднял|прижал|положил|взял|достал|снял|шагнул|отступил|соскользнул|подхватил)[аои]?$/u,
+  /^(?:встал|сел|поднял|прижал|положил|взял|достал|снял|шагнул|отступил|соскользнул|подхватил|глянул|покивал)[аои]?$/u,
   /^(?:обернул|повернул|отвернул|перегнул|потянул|пошевелил|попытал|отшатнул|поднял)(?:ся|ась|ось|ись)$/u,
   /^(?:разворачива|поворачива|отворачива|наклоня|поднима)(?:юсь|емся|ется|ются)$/u,
   /^(?:вста(?:ю|ём|ем|ёт|ет|ют)|бер(?:у|ём|ем|ёт|ет|ут)|тян(?:усь|емся|ется|утся))$/u,
 ];
 const nonNameStarter = /^(?:это|вот|кто|что|где|куда|откуда|зачем|почему|как|когда|если|лишь|только|не)$/u;
-const actorAndPredicate = /^\s*([а-яё]+)(?:\s+(?:тут же|сразу|резко|медленно|быстро|осторожно|невольно|вдруг)){0,2}\s+([а-яё]+)(?![\p{L}-])/iu;
+const actorAndPredicate = /^\s*([а-яё]+)(?:\s+(?:тут же|сразу|резко|медленно|быстро|осторожно|невольно|вдруг|крепко|плотно|слегка)){0,2}\s+([а-яё]+)(?![\p{L}-])(?:\s+([а-яё]+)(?![\p{L}-]))?/iu;
 
 function leadingClauseWords(text: string): string[] {
   const words: string[] = [];
@@ -78,7 +84,10 @@ function isActorPredicate(text: string, followsSentence: boolean): boolean {
   const predicate = match[2].toLowerCase();
   const firstPerson = subject === 'я' || subject === 'мы';
   const explains = explainingVerb.test(predicate);
-  if (!explains && !actionVerbs.some(pattern => pattern.test(predicate))) return false;
+  const object = match[3]?.toLowerCase() ?? '';
+  const closesEyes = /^закрыл[аои]?$/u.test(predicate) && /^(?:глаза|веки)$/u.test(object);
+  const grips = /^сжал[аои]?$/u.test(predicate) && /^(?:его|е[её]|их|меня|руку|руки|ладонь|кулак|кулаки|зубы|пальцы|плечо|плечи)$/u.test(object);
+  if (!explains && !closesEyes && !grips && !actionVerbs.some(pattern => pattern.test(predicate))) return false;
   // An action in the speaker's own voice is ambiguous after a comma and a single dash.
   if (firstPerson) return followsSentence || explains;
   if (thirdPersonSubjects.has(subject)) return true;
@@ -86,24 +95,36 @@ function isActorPredicate(text: string, followsSentence: boolean): boolean {
   return /^\s*[А-ЯЁ]/u.test(text) && !speechParticipants.has(subject) && !nonNameStarter.test(subject);
 }
 
-function isAuthorClause(text: string, speechPunctuation: string, resumesSpeech: boolean): boolean {
+function isPunctuatedInterruption(text: string, speechPunctuation: string): boolean {
+  if (sentenceEnd.test(speechPunctuation)) return /[,.:]\s*$/u.test(text);
+  // After a comma, a full sentence can be the completion of a spoken clause.
+  // A punctuation-only inference needs a matched comma or a colon introducing speech.
+  return speechPunctuation === ',' && /[,:]\s*$/u.test(text) && !correlativeContinuation.test(text);
+}
+
+function isAuthorClause(text: string, speechPunctuation: string, quoteEnding: 'sentence' | 'phrase' | undefined, resumesSpeech: boolean): boolean {
   if (/^\s*["'«“„‘]/u.test(text)) return false;
   const punctuated = speechBoundary.test(speechPunctuation);
   // A verb after an ordinary pause («потом — я говорю…») is part of the speech.
   // Closing quotation marks can also end a spoken segment before an attribution.
-  if (!punctuated && !/["»”]/u.test(speechPunctuation)) return false;
+  if (!punctuated && !quoteEnding && !/["»”]/u.test(speechPunctuation)) return false;
   const words = leadingClauseWords(text);
-  // A complete «speech, — narration, — speech» pair does not need a known verb.
-  // Sentence endings and a colon before resumed speech also support this structure.
-  // Require actual text on both sides; streaming fragments must not complete the pair.
-  if (resumesSpeech && words.length > 0 && /[,.!?…]/u.test(speechPunctuation) && /[,.:]\s*$/u.test(text)) return true;
+  if (!words.length) return false;
+  if (resumesSpeech && isPunctuatedInterruption(text, speechPunctuation)) return true;
   if (words.some(word => authorVerbs.some(pattern => pattern.test(word)))) return true;
   // «Объясняет она» is an attribution, whereas «всё объясняет» can continue the speech.
-  if (explainingVerb.test(words[0] ?? '')) return true;
-  if (!punctuated) return false;
-  const followsSentence = sentenceEnd.test(speechPunctuation);
+  if (explainingVerb.test(words[0])) return true;
+  const followsSentence = sentenceEnd.test(speechPunctuation) || quoteEnding === 'sentence';
+  if (!punctuated && !followsSentence) return false;
   if (isThirdPersonAction(words) || isActorPredicate(text, followsSentence)) return true;
-  return followsSentence && (stageFragment.test(text) || deliveryFragment.test(text));
+  return followsSentence && (stageFragment.test(text) || standaloneStageFragment.test(text)
+    || deliveryFragment.test(text) || utteranceAction.test(text) || utteranceBreak.test(text));
+}
+
+function endsWithQuotedSentence(text: string, quote: SpeechRange): boolean {
+  let index = quote.end - 1;
+  while (index > quote.start && closingQuoteMark.test(text[index])) index--;
+  return sentenceEnd.test(text[index]);
 }
 
 /** Optional line-oriented heuristic. Quoted spans protect internal dashes from splitting. */
@@ -118,7 +139,7 @@ export function russianDialogueRanges(text: string, quotations: readonly SpeechR
     const opening = /^[\t \u00a0\u202f]*—[\t \u00a0\u202f]+/u.exec(line);
     // Code/HTML/image barriers make the line ambiguous; leave it to basic quotation detection.
     if (opening && !line.includes('\0')) {
-      const dashes: { index: number; precedingEnd: number }[] = [];
+      const dashes: { index: number; precedingEnd: number; precedingQuote?: SpeechRange }[] = [];
       let precedingEnd = lineStart + opening[0].length;
       for (let index = lineStart + opening[0].length; index < lineEnd; index++) {
         if (/\s/u.test(text[index])) continue;
@@ -127,19 +148,23 @@ export function russianDialogueRanges(text: string, quotations: readonly SpeechR
         const separator = text[index] === '—' || (/[–-]/u.test(text[index]) && speechBoundary.test(text[precedingEnd - 1]));
         if (separator && /\s/u.test(text[index - 1]) && /\s/u.test(text[index + 1] ?? '')) {
           while (quotations[quotationIndex] && quotations[quotationIndex].end <= index) quotationIndex++;
-          if (!quotations[quotationIndex] || quotations[quotationIndex].start > index) dashes.push({ index, precedingEnd });
+          if (!quotations[quotationIndex] || quotations[quotationIndex].start > index) {
+            const quote = quotations[quotationIndex - 1];
+            dashes.push({ index, precedingEnd, precedingQuote: quote?.end === precedingEnd ? quote : undefined });
+          }
         }
         precedingEnd = index + 1;
       }
       let speechStart: number | null = lineStart + line.indexOf('—');
       for (let index = 0; index < dashes.length; index++) {
-        const { index: dash, precedingEnd } = dashes[index];
+        const { index: dash, precedingEnd, precedingQuote } = dashes[index];
         const next = dashes[index + 1]?.index ?? lineEnd;
         const punctuation = text[precedingEnd - 1] ?? '';
         if (speechStart !== null) {
           const resumesSpeech = text[dash] === '—' && next < lineEnd && text[next] === '—'
             && /\S/u.test(text.slice(next + 1, dashes[index + 2]?.index ?? lineEnd));
-          if (isAuthorClause(text.slice(dash + 1, next), punctuation, resumesSpeech)) {
+          const quoteEnding = precedingQuote && (endsWithQuotedSentence(text, precedingQuote) ? 'sentence' : 'phrase');
+          if (isAuthorClause(text.slice(dash + 1, next), punctuation, quoteEnding, resumesSpeech)) {
             ranges.push({ start: speechStart, end: precedingEnd });
             speechStart = null;
           }
