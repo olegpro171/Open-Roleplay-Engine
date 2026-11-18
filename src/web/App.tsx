@@ -777,7 +777,12 @@ export function App() {
         {pageError && <div className="recovery" role="alert">{pageError}<button className="secondary" onClick={() => setPageError('')}>{t("app.dismiss")}</button></div>}
         <div className="transcript-frame"><div className="transcript" ref={transcript}>
           {snapshot.page.hasOlder && <div className="history-page-control" data-history-direction="older"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('older')}>{pageLoading ? t("app.loading_history") : t("app.load_older_turns")}</button></div>}
-          {snapshot.totalTurns === 0 && <div className="empty-state"><h2>{t("app.set_up_your_story")}</h2><button className="secondary" onClick={() => setTab('settings')}>{t("app.open_chat_settings")}</button></div>}
+          {snapshot.totalTurns === 0 && <div className="empty-transcript">
+            <p className="muted">{t(snapshot.connection ? 'app.empty_conversation' : 'app.empty_conversation_needs_connection')}</p>
+            {!snapshot.connection && <button type="button" className="text-link" onClick={() => setTab('settings')}>
+              {t('app.open_chat_settings')}
+            </button>}
+          </div>}
           {snapshot.page.turns.map((turn) => {
             const generating = active?.turnId === turn.id;
             const continuing = generating && active.kind === 'continuation';

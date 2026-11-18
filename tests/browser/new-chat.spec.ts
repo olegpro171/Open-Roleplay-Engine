@@ -1,9 +1,10 @@
-import { addChatModel, chooseNewChatCharacter, openChatTool, openNewChatSettings, openChatCreation } from './chat-tools';
+import { addChatCharacter, addChatModel, chooseNewChatCharacter, openChatTool, openNewChatSettings, openChatCreation } from './chat-tools';
 import { expect, type Page } from '@playwright/test';
 import { test } from './isolated-app';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { newLorebook } from '../../src/shared/lorebook';
+import { appearanceStatusSchema } from '../../src/shared/appearance';
 
 async function library(page: Page): Promise<LibrarySnapshot> {
   return page.request.get('/api/library').then(response => response.json());
@@ -85,6 +86,7 @@ for (const width of [1440, 390]) {
     await start.click();
     const conversation = page.getByRole('region', { name: 'Conversation', exact: true });
     await expect(conversation).toContainText(`Welcome, Starter visitor ${width}.`);
+    await expect(conversation.getByText('No messages yet. Send the first one to begin.')).toHaveCount(0);
     await openNewChatSettings(page);
     await expect(page.getByRole('region', { name: 'Chat settings', exact: true })).toBeVisible();
     await expect(page.getByLabel('Chat title')).toHaveValue(title);
@@ -123,3 +125,85 @@ for (const width of [1440, 390]) {
     await expect(composer).toHaveValue('Keep the draft from the previous chat.');
   });
 }
+
+test('an empty Story guides the first send or offers help choosing a Connection', async ({ page, browserApp }, testInfo) => {
+  await page.goto('/');
+  await page.getByLabel('Owner password').fill('browser-synthetic-password');
+  await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
+  const conversation = page.getByRole('region', { name: 'Conversation', exact: true });
+  const composer = conversation.getByLabel('Your next turn');
+  const send = conversation.getByRole('button', { name: 'Send', exact: true });
+  const settingsShortcut = conversation.getByRole('button', { name: 'Open chat settings', exact: true });
+  const firstMessage = conversation.getByText('No messages yet. Send the first one to begin.', { exact: true });
+  const missingConnection = conversation.getByText('Choose a Connection to send messages.', { exact: true });
+  await expect(composer).toBeVisible();
+  const [legacyChat] = (await library(page)).chats;
+  if (!legacyChat) throw new Error('Missing starter chat fixture.');
+  const headers = { Origin: browserApp.url };
+
+  await addChatModel(page);
+  await addChatCharacter(page, 'Silent keeper');
+  const libraries = page.getByRole('button', { name: 'Libraries', exact: true });
+  const chatsCategory = page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Chats', exact: true });
+  await libraries.click();
+  await chatsCategory.click();
+  await openChatCreation(page);
+  await page.getByRole('button', { name: 'Start chat', exact: true }).click();
+  await expect(firstMessage).toBeVisible();
+  await expect(settingsShortcut).toHaveCount(0);
+  await expect(composer).not.toBeFocused();
+  await expect(send).toBeDisabled();
+
+  async function inspectThemes(hint: typeof firstMessage, state: string) {
+    for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+      const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+      const response = await page.request.put('/api/application/appearance', {
+        headers, data: { revision: appearance.revision, settings: { ...appearance.settings, theme } },
+      });
+      expect(response.ok(), await response.text()).toBe(true);
+      await page.reload();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      for (const width of [1440, 801, 800, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        await expect(hint).toBeInViewport();
+        await expect(composer).toBeInViewport();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        if (width === 1440 || width === 390) {
+          await page.screenshot({ path: testInfo.outputPath(`${state}-${theme}-${width}.png`) });
+        }
+      }
+    }
+  }
+
+  await inspectThemes(firstMessage, 'ready');
+  await composer.fill('I knock on the door.');
+  await page.request.post('/__test/mode', { data: { mode: 'hold' } });
+  await send.click();
+  const turn = conversation.getByRole('article', { name: 'Turn 1', exact: true });
+  await expect(turn).toContainText('I knock on the door.');
+  await expect(turn.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await expect(firstMessage).toHaveCount(0);
+  await expect(turn).toContainText('The lantern');
+  await page.request.post('/__test/finish', { data: {} });
+  await expect(turn).toContainText('The lantern flickers.');
+  await turn.getByRole('button', { name: 'More turn actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Delete turn', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete turn', exact: true }).click();
+  await expect(firstMessage).toBeVisible();
+  await expect(turn).toHaveCount(0);
+
+  await libraries.click();
+  await chatsCategory.click();
+  await page.getByRole('region', { name: 'Chats', exact: true }).getByRole('button', { name: legacyChat.title, exact: true }).click();
+  await expect(missingConnection).toBeVisible();
+  await expect(firstMessage).toHaveCount(0);
+  await inspectThemes(missingConnection, 'missing-connection');
+  await composer.fill('Keep this first draft.');
+  await expect(send).toBeDisabled();
+  await settingsShortcut.click();
+  await choose(page, 'Connection', 'Chat fixture model');
+  await page.getByRole('button', { name: 'Save and return', exact: true }).click();
+  await expect(firstMessage).toBeVisible();
+  await expect(composer).toHaveValue('Keep this first draft.');
+  await expect(send).toBeEnabled();
+});

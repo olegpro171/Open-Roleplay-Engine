@@ -195,7 +195,7 @@ test('rejects delayed stale pages, reconciles generation outside the window and 
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Other paging story', exact: true }) }).click();
   await expect(page.getByRole('heading', { name: 'Other paging story', exact: true })).toBeVisible();
   release();
-  await expect(page.getByRole('heading', { name: 'Set up your story', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Conversation', exact: true }).getByRole('button', { name: 'Open chat settings', exact: true })).toBeVisible();
   await expect(transcript.locator('.turn')).toHaveCount(0);
   await expect(page.getByLabel('Your next turn')).toBeEnabled();
 });

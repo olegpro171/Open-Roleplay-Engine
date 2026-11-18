@@ -24,7 +24,7 @@ async function createOwner(page: Page) {
   await page.goto('/');
   await page.getByLabel('Owner password').fill(password);
   await page.getByRole('button', { name: 'Create owner account' }).click();
-  await expect(page.getByRole('heading', { name: 'Set up your story' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Conversation', exact: true }).getByRole('button', { name: 'Open chat settings', exact: true })).toBeVisible();
 }
 
 async function createTowerConnection(page: Page) {
@@ -398,7 +398,7 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   const connection = page.getByRole('combobox', { name: 'Connection', exact: true });
   await connection.focus(); await connection.press('ArrowDown'); await connection.press('Home'); await connection.press('Enter');
   await page.getByRole('button', { name: 'Save and return', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Set up your story' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Conversation', exact: true }).getByRole('button', { name: 'Open chat settings', exact: true })).toBeVisible();
   const header = await page.locator('.topbar').boundingBox();
   const tabs = await page.getByRole('navigation', { name: 'Workspace' }).boundingBox();
   expect(tabs!.y).toBe(header!.y);

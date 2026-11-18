@@ -84,7 +84,7 @@ for (const width of [1440, 390]) {
       expect(response.ok(), await response.text()).toBe(true);
       await page.reload();
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-      await page.getByRole('button', { name: 'Open chat settings', exact: true }).click();
+      await openChatTool(page, 'Chat settings');
       for (const fixture of fixtures) {
         const trigger = page.getByRole('combobox', { name: fixture.label, exact: true });
         await trigger.click();
