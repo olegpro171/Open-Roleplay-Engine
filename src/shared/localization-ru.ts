@@ -368,6 +368,7 @@ export const russianMessages = {
   "story_home.no_character_selected": "Не выбрано.",
   "story_home.character_editor_help": "Начните с имени и краткого описания. Добавьте приветствие, если хотите, чтобы персонаж начал разговор.",
   "story_home.persona_help": "По желанию. Персона описывает, кого играете вы.",
+  "story_home.persona_optional": "По желанию",
   "story_home.manage_personas": "Управление персонами",
   "story_home.open_chats": "Открыть чаты",
   "story_home.close_chat": "Закрыть чат",

@@ -11,6 +11,7 @@ test.use({ starterChat: false });
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
 const home = (page: Page) => page.getByRole('main', { name: 'New chat' });
 const library = async (page: Page): Promise<LibrarySnapshot> => (await page.request.get('/api/library')).json();
+const intro = 'Welcome to ORE. Choose a Character and an optional Persona to start a chat.';
 
 async function expectActionAtPanelBottom(panel: Locator, label: string) {
   const extraSpace = await panel.getByRole('button', { name: label, exact: true }).evaluate(action => {
@@ -68,7 +69,6 @@ async function addConnection(page: Page) {
 
 test('first run guides setup, preserves a closed chat and lets an in-flight reply finish', async ({ page, browserApp }) => {
   await signIn(page);
-  const intro = 'Welcome to ORE. Choose a Character and an optional Persona to start a chat.';
   await expect(home(page).getByText(intro, { exact: true })).toBeVisible();
   expect((await library(page)).chats).toEqual([]);
   await expect(button(page, 'Start chat')).toBeDisabled();
@@ -292,7 +292,7 @@ test('edits selected cards from New chat and returns there after saving and reco
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page);
   await addCharacter(page, browserApp.url, 'Unselected guide');
-  await addCharacter(page, browserApp.url, 'Forest guide');
+  await addCharacter(page, browserApp.url, 'Forest guide', '', true);
   const character = home(page).getByRole('region', { name: 'Character', exact: true });
   await character.getByRole('combobox').click();
   await page.getByRole('option', { name: 'Forest guide', exact: true }).click();
@@ -307,6 +307,39 @@ test('edits selected cards from New chat and returns there after saving and reco
   const priorCharacter = before.characters.find(item => item.name === 'Forest guide');
   const [priorPersona] = before.personas;
   if (!priorCharacter || !priorPersona) throw new Error('Missing selected records');
+
+  const renderedStyle = (card: Locator) => card.evaluate(element => {
+    const body = element.querySelector('.library-card-body');
+    const title = element.querySelector('.library-card-title');
+    const description = element.querySelector('.library-card-description>p');
+    const picture = element.querySelector('.picture-square');
+    if (!body || !title || !description) throw new Error('Missing Library card content');
+    return {
+      background: getComputedStyle(element).backgroundColor,
+      cornerRadius: getComputedStyle(element).borderRadius,
+      padding: getComputedStyle(body).padding,
+      gap: getComputedStyle(body).gap,
+      titleSize: getComputedStyle(title).fontSize,
+      titleLines: getComputedStyle(title).getPropertyValue('-webkit-line-clamp'),
+      descriptionSize: getComputedStyle(description).fontSize,
+      descriptionLineHeight: getComputedStyle(description).lineHeight,
+      descriptionWrapping: getComputedStyle(description).whiteSpace,
+      pictureSize: picture?.getBoundingClientRect().width ?? null,
+    };
+  });
+  for (const [panel, category, title] of [
+    [character, 'Characters', 'Forest guide'], [persona, 'Personas', 'Traveller'],
+  ] as const) {
+    const preview = panel.getByRole('article');
+    await button(page, `Manage ${category}`).click();
+    const card = page.getByRole('region', { name: category, exact: true }).getByRole('article')
+      .filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+    await page.mouse.move(0, 0);
+    const libraryStyle = await renderedStyle(card);
+    await button(page, 'New chat').click();
+    await page.mouse.move(0, 0);
+    await expect.poll(() => renderedStyle(preview), { message: `${category} preview uses Library card styling` }).toEqual(libraryStyle);
+  }
 
   await character.getByRole('article').click({ position: { x: 30, y: 80 } });
   await expect(name).toHaveValue('Forest guide');
@@ -339,6 +372,16 @@ test('edits selected cards from New chat and returns there after saving and reco
   expect(saved.characters.map(item => item.id).sort()).toEqual(before.characters.map(item => item.id).sort());
   expect(saved.characters.find(item => item.id === priorCharacter.id)?.name).toBe('Grove guide');
   expect(saved.personas).toEqual([expect.objectContaining({ id: priorPersona.id, name: 'Wanderer' })]);
+
+  await character.getByRole('combobox').click();
+  await page.getByRole('option', { name: 'Grove guide', exact: true }).click();
+  await expect(character.getByRole('article')).toContainText('Grove guide');
+  await persona.getByRole('button', { name: 'New persona', exact: true }).click();
+  await expect(name).toHaveValue('');
+  await button(page, 'Cancel').click();
+  await expect(persona.getByRole('article')).toContainText('Wanderer');
+  await expect(character.getByRole('article')).toContainText('Grove guide');
+  expect((await library(page)).personas).toEqual(saved.personas);
 });
 
 const participantLayout = (panel: Locator) => panel.evaluate(element => {
@@ -346,11 +389,24 @@ const participantLayout = (panel: Locator) => panel.evaluate(element => {
   const card = element.querySelector('.library-card');
   if (!heading || !card) throw new Error('Missing participant heading or preview');
   const bounds = element.getBoundingClientRect();
+  const cardBounds = card.getBoundingClientRect();
+  const picture = card.querySelector('.picture-square')?.getBoundingClientRect();
+  const body = card.querySelector('.library-card-body');
+  if (!body) throw new Error('Missing participant card body');
+  const bodyStyle = getComputedStyle(body);
+  const pictureSpace = body.getBoundingClientRect().height - parseFloat(bodyStyle.paddingTop) - parseFloat(bodyStyle.paddingBottom);
   return {
     panelHeight: bounds.height,
     titleOffset: heading.getBoundingClientRect().top - bounds.top,
-    cardOffset: card.getBoundingClientRect().top - bounds.top,
-    cardHeight: card.getBoundingClientRect().height,
+    cardOffset: cardBounds.top - bounds.top,
+    cardHeight: cardBounds.height,
+    picture: picture ? {
+      width: picture.width,
+      height: picture.height,
+      availableHeight: pictureSpace,
+      topInset: picture.top - cardBounds.top,
+      bottomInset: cardBounds.bottom - picture.bottom,
+    } : null,
   };
 });
 
@@ -380,39 +436,72 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
     await expectPanelBorder(personaPanel, '--line');
     for (const width of [1440, 801, 800, 390, 320]) {
       await page.setViewportSize({ width, height: 844 });
+      const compact = width <= 800;
+      await expect(home(page).getByText(intro, { exact: true })).toHaveCount(compact ? 0 : 1);
+      await expect(personaPanel.getByText('Optional', { exact: true })).toHaveCount(compact ? 1 : 0);
       for (const label of ['Add a Connection', 'Manage Connections', 'Manage Prompts', 'New character', 'Manage Characters', 'New persona', 'Manage Personas']) {
         const bounds = await button(page, label).boundingBox();
-        expect(bounds).not.toBeNull();
-        if (bounds) { expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(width); }
+        if (!bounds) throw new Error(`Missing ${label}`);
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+        expect(bounds.height).toBeGreaterThanOrEqual(44);
       }
       expect(await home(page).evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
       const [connection, prompt, character, persona] = await Promise.all([
         connectionPanel.boundingBox(), promptPanel.boundingBox(), characterPanel.boundingBox(), personaPanel.boundingBox(),
       ]);
       if (!connection || !prompt || !character || !persona) throw new Error('Expected all New chat panels');
-      if (width > 800) {
+      const layouts = await previews();
+      if (!compact) {
         expect(connection.y).toBe(prompt.y);
         expect(prompt.x).toBeGreaterThan(connection.x + connection.width);
         expect(character.width).toBe(prompt.x + prompt.width - connection.x);
+        expect(character.y).toBeGreaterThan(prompt.y + prompt.height);
+        await expectActionAtPanelBottom(connectionPanel, 'Manage Connections');
+        await expectActionAtPanelBottom(promptPanel, 'Manage Prompts');
       } else {
-        expect(prompt.y).toBeGreaterThan(connection.y + connection.height);
-        expect(character.width).toBe(connection.width);
+        expect(connection.y).toBeGreaterThan(persona.y + persona.height);
+        expect(prompt.y).toBeCloseTo(connection.y + connection.height);
+        expect(connection.width).toBe(character.width);
+        expect(prompt.width).toBe(connection.width);
+        for (const panel of [connectionPanel, promptPanel]) {
+          const heading = await panel.getByRole('heading').boundingBox();
+          const manage = await panel.getByRole('button', { name: /^Manage/ }).boundingBox();
+          if (!heading || !manage) throw new Error('Missing summary heading or action');
+          expect(manage.x).toBeGreaterThan(heading.x + heading.width);
+        }
+        const [characterPreview, personaPreview] = layouts;
+        expect(characterPreview.cardHeight).toBe(personaPreview.cardHeight);
+        const picture = characterPreview.picture;
+        if (!picture) throw new Error('Missing Character picture placeholder');
+        expect(picture.width).toBe(picture.height);
+        expect(picture.height).toBeCloseTo(picture.availableHeight);
+        expect(picture.topInset).toBeCloseTo(picture.bottomInset);
+        expect(personaPreview.picture).toBeNull();
       }
-      expect(character.y).toBeGreaterThan(prompt.y + prompt.height);
       expect(persona.y).toBeGreaterThan(character.y + character.height);
       expect(persona.width).toBe(character.width);
-      await expectActionAtPanelBottom(connectionPanel, 'Manage Connections');
-      await expectActionAtPanelBottom(promptPanel, 'Manage Prompts');
-      emptyLayout.set(width, await previews());
+      emptyLayout.set(width, layouts);
       if (width === 1440 || width === 390) {
         await page.screenshot({ path: testInfo.outputPath(`home-${theme}-${width}.png`), animations: 'disabled' });
         await button(page, 'Manage Personas').scrollIntoViewIfNeeded();
         await page.screenshot({ path: testInfo.outputPath(`home-${theme}-${width}-bottom.png`), animations: 'disabled' });
         await home(page).evaluate(element => { element.scrollTop = 0; });
       }
+      if (theme === 'dark' && width === 390) {
+        await welcome.focus();
+        for (const label of ['New character', 'Manage Characters', 'New persona', 'Manage Personas',
+          'Add a Connection', 'Manage Connections', 'Manage Prompts']) {
+          await page.keyboard.press('Tab');
+          await expect(button(page, label)).toBeFocused();
+        }
+        await welcome.focus();
+      }
     }
   }
   await addConnection(page);
+  await page.setViewportSize({ width: 1440, height: 844 });
+  await expect(home(page).getByText(intro, { exact: true })).toBeVisible();
   for (const panel of [connectionPanel, promptPanel]) {
     const [title, selection, action] = await Promise.all([
       panel.getByRole('heading').boundingBox(), panel.getByRole('status').boundingBox(), panel.getByRole('button').boundingBox(),
@@ -461,8 +550,20 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
       await expect(characterPanel.getByRole('article').locator('img')).toBeVisible();
       await expect(personaPanel.getByRole('article')).toContainText('An explorer with a well-worn map.');
       expect(await previews()).toEqual(emptyLayout.get(width));
+      if (width <= 800) {
+        await expect(characterPanel.getByRole('button', { name: 'New character' })).toBeVisible();
+        await expect(personaPanel.getByRole('button', { name: 'New persona' })).toBeVisible();
+      }
       expect(await home(page).evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
       await home(page).evaluate(element => { element.scrollTop = 0; });
+      if (width <= 800) {
+        await expect(button(page, 'Start chat')).toBeInViewport({ ratio: 1 });
+        const start = await button(page, 'Start chat').boundingBox();
+        const panel = await characterPanel.boundingBox();
+        if (!start || !panel) throw new Error('Missing Start chat or Character panel');
+        expect(start.x).toBe(panel.x);
+        expect(start.width).toBe(panel.width);
+      }
       await page.screenshot({ path: testInfo.outputPath(`ready-${theme}-${width}-top.png`), animations: 'disabled' });
       await button(page, 'Open Chats').scrollIntoViewIfNeeded();
       await page.screenshot({ path: testInfo.outputPath(`ready-${theme}-${width}-bottom.png`), animations: 'disabled' });
@@ -494,6 +595,9 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
   await expect(button(page, 'Управление персонажами')).toBeVisible();
   await expect(button(page, 'Новый персонаж')).toBeVisible();
   await expect(button(page, 'Новая персона')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Персона', exact: true }).getByText('По желанию', { exact: true })).toBeVisible();
+  expect(await page.getByRole('main', { name: 'Новый чат' }).evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('home-russian-320.png'), animations: 'disabled' });
   await button(page, 'Открыть чаты').click();
   await button(page, 'Forest guide').click();
   await expect(button(page, 'История')).toHaveAttribute('aria-current', 'page');

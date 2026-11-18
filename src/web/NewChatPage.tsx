@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { resolveChatDefaults, type ChatDefaultsStatus } from '../shared/chat-defaults';
 import type { LibrarySnapshot } from '../shared/library';
 import { characterDropdownOptions, personaDropdownOptions, type ChatParticipantsValue } from './ChatParticipants';
@@ -10,6 +10,8 @@ import { message as msg, t, useLocale } from './localization';
 import { useConfirmation } from './Confirmation';
 import { displayLibraryRecord, newLibraryLabel } from './localization-labels';
 import { useCreateChat } from './useCreateChat';
+
+const compactLayoutQuery = '(max-width: 800px)';
 
 export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, openLibrary, openChat, preferredParticipants, chooseParticipant }: {
   library: LibrarySnapshot;
@@ -26,9 +28,17 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
   const heading = useRef<HTMLHeadingElement>(null);
   const scroller = useRef<HTMLElement>(null);
   const scrollBeforeSelection = useRef<number | null>(null);
+  const [compact, setCompact] = useState(() => window.matchMedia(compactLayoutQuery).matches);
   const createChat = useCreateChat(run, openChat);
   const confirmStart = useConfirmation();
   useEffect(() => { heading.current?.focus({ preventScroll: true }); }, []);
+  useEffect(() => {
+    const query = window.matchMedia(compactLayoutQuery);
+    const update = () => setCompact(query.matches);
+    query.addEventListener('change', update);
+    update();
+    return () => query.removeEventListener('change', update);
+  }, []);
   useLayoutEffect(() => {
     const position = scrollBeforeSelection.current;
     scrollBeforeSelection.current = null;
@@ -48,7 +58,6 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
     ?? (library.characters.length === 1 ? library.characters[0] : undefined);
   const persona = library.personas.find(item => item.id === preferredParticipants.personaId);
   const picture = library.characterPictures.find(item => item.characterId === character?.id);
-  const hasPersona = library.personas.length > 0;
   const create = (kind: SetupLibrary) => openLibrary({ kind, action: 'create', returnTo: 'story' });
   const browse = (kind: LibraryDestination['kind']) => openLibrary({ kind, action: 'browse' });
 
@@ -65,60 +74,85 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
     });
   }
 
-  return <main ref={scroller} className="document-panel story-home" aria-labelledby="story-home-heading">
-    <h1 ref={heading} id="story-home-heading" tabIndex={-1}>{t('libraries.new_chat')}</h1>
-    <p className="muted">{t('story_home.welcome')}</p>
-    <div className="story-home-panels">
-      <section className={`story-home-panel story-home-summary${connection ? '' : ' blocks-chat'}`} aria-labelledby="story-home-connection">
+  function renderParticipantPanel(kind: 'characters' | 'personas') {
+    const isCharacter = kind === 'characters';
+    const title = t(isCharacter ? 'app.character' : 'libraries.persona');
+    const headingId = isCharacter ? 'story-home-character' : 'story-home-persona';
+    const participant = isCharacter ? character : persona;
+    const canChoose = isCharacter ? library.characters.length > 1 : library.personas.length > 0;
+    const blocksChat = isCharacter && !participant;
+    const createAction = {
+      label: newLibraryLabel(kind),
+      onClick: () => create(kind),
+      disabled: busy,
+    };
+    return <section key={kind} className={`story-home-panel story-home-participants${blocksChat ? ' blocks-chat' : ''}`} aria-labelledby={headingId}>
+      <header className="story-home-panel-heading">
+        <div>
+          <h2 id={headingId}>{title}</h2>
+          {compact && !isCharacter && <small className="muted">{t('story_home.persona_optional')}</small>}
+        </div>
+        {canChoose && <Dropdown aria-label={title} disabled={busy} value={participant?.id ?? ''}
+          options={isCharacter ? characterDropdownOptions(library) : personaDropdownOptions(library)}
+          onChange={id => selectParticipant(isCharacter ? 'characterId' : 'personaId', id)} />}
+        {compact && !canChoose && !participant && <small className="muted story-home-participant-status">{t('character_editor.none_selected')}</small>}
+      </header>
+      {participant
+        ? <LibraryCard title={participant} description={participant.description} heading="h3"
+          picture={isCharacter ? <PictureSquare url={picture?.thumbnailUrl} /> : undefined}
+          disabled={busy} open={() => openLibrary({ kind, id: participant.id, action: 'edit', returnTo: 'story' })} />
+        : <HomeCardPlaceholder picture={isCharacter} details={compact ? undefined : {
+          label: t(isCharacter ? 'story_home.no_character_selected' : 'story_home.persona_help'),
+          action: createAction,
+        }} />}
+      <div className="actions">
+        {compact && <HomeAction {...createAction} />}
+        <HomeAction label={t(isCharacter ? 'story_home.manage_characters' : 'story_home.manage_personas')}
+          onClick={() => browse(kind)} disabled={busy} />
+      </div>
+    </section>;
+  }
+
+  const addConnection = { label: t('story_home.add_connection'), onClick: () => create('connections'), disabled: busy };
+  const noConnection = t('story_home.no_connection_selected');
+  const connectionSummary = connection
+    ? <p role="status">
+      <strong>{connection.name}</strong>{compact ? ' · ' : <br />}<span className="muted">{connection.model}</span>
+    </p>
+    : compact
+      ? <p className="muted">{noConnection}</p>
+      : <HomeCardPlaceholder details={{ label: noConnection, action: addConnection }} />;
+  const defaultPanels = <div key="defaults" className="story-home-defaults">
+    <section className={`story-home-panel story-home-summary${connection ? '' : ' blocks-chat'}`} aria-labelledby="story-home-connection">
+      <div className="story-home-summary-content">
         <h2 id="story-home-connection">{t('libraries.connection')}</h2>
-        {connection
-          ? <p role="status"><strong>{connection.name}</strong><br /><span className="muted">{connection.model}</span></p>
-          : <HomeCardPlaceholder label={t('story_home.no_connection_selected')}
-            actionLabel={t('story_home.add_connection')} create={() => create('connections')} disabled={busy} />}
-        <div className="actions">
-          <button type="button" className="text-link" disabled={busy} onClick={() => browse('connections')}>{t('story_home.manage_connections')}</button>
-        </div>
-      </section>
-      <section className="story-home-panel story-home-summary" aria-labelledby="story-home-prompt">
+        {connectionSummary}
+      </div>
+      <div className="actions">
+        {compact && !connection && <HomeAction {...addConnection} />}
+        <HomeAction label={t('story_home.manage_connections')} onClick={() => browse('connections')} disabled={busy} />
+      </div>
+    </section>
+    <section className="story-home-panel story-home-summary" aria-labelledby="story-home-prompt">
+      <div className="story-home-summary-content">
         <h2 id="story-home-prompt">{t('story_home.prompt')}</h2>
-        {prompt && <p role="status"><strong>{displayLibraryRecord(prompt).name}</strong><br />
-          <span className="muted">{t('libraries.block_count', { count: prompt.blocks.length })}</span></p>}
-        <div className="actions">
-          <button type="button" className="text-link" disabled={busy} onClick={() => browse('prompts')}>{t('story_home.manage_prompts')}</button>
-        </div>
-      </section>
-      <section className={`story-home-panel story-home-participants${character ? '' : ' blocks-chat'}`} aria-labelledby="story-home-character">
-        <header className="story-home-panel-heading">
-          <h2 id="story-home-character">{t('app.character')}</h2>
-          {library.characters.length > 1 && <Dropdown aria-label={t('app.character')} disabled={busy}
-            value={character?.id ?? ''} options={characterDropdownOptions(library)}
-            onChange={id => selectParticipant('characterId', id)} />}
-        </header>
-        {character
-          ? <LibraryCard title={character} description={character.description} picture={<PictureSquare url={picture?.thumbnailUrl} />} heading="h3"
-            disabled={busy} open={() => openLibrary({ kind: 'characters', id: character.id, action: 'edit', returnTo: 'story' })} />
-          : <HomeCardPlaceholder picture label={t('story_home.no_character_selected')}
-            actionLabel={newLibraryLabel('characters')} create={() => create('characters')} disabled={busy} />}
-        <div className="actions">
-          <button type="button" className="text-link" disabled={busy} onClick={() => browse('characters')}>{t('story_home.manage_characters')}</button>
-        </div>
-      </section>
-      <section className="story-home-panel story-home-participants" aria-labelledby="story-home-persona">
-        <header className="story-home-panel-heading">
-          <h2 id="story-home-persona">{t('libraries.persona')}</h2>
-          {hasPersona && <Dropdown aria-label={t('libraries.persona')} disabled={busy}
-            value={persona?.id ?? ''} options={personaDropdownOptions(library)}
-            onChange={id => selectParticipant('personaId', id)} />}
-        </header>
-        {persona
-          ? <LibraryCard title={persona} description={persona.description} heading="h3"
-            disabled={busy} open={() => openLibrary({ kind: 'personas', id: persona.id, action: 'edit', returnTo: 'story' })} />
-          : <HomeCardPlaceholder label={t('story_home.persona_help')}
-            actionLabel={newLibraryLabel('personas')} create={() => create('personas')} disabled={busy} />}
-        <div className="actions">
-          <button type="button" className="text-link" disabled={busy} onClick={() => browse('personas')}>{t('story_home.manage_personas')}</button>
-        </div>
-      </section>
+        {prompt && <p role="status">
+          <strong>{displayLibraryRecord(prompt).name}</strong>{compact ? ' · ' : <br />}
+          <span className="muted">{t('libraries.block_count', { count: prompt.blocks.length })}</span>
+        </p>}
+      </div>
+      <div className="actions">
+        <HomeAction label={t('story_home.manage_prompts')} onClick={() => browse('prompts')} disabled={busy} />
+      </div>
+    </section>
+  </div>;
+  const participantPanels = [renderParticipantPanel('characters'), renderParticipantPanel('personas')];
+
+  return <main ref={scroller} className={`document-panel story-home${compact ? ' story-home-compact' : ''}`} aria-labelledby="story-home-heading">
+    <h1 ref={heading} id="story-home-heading" tabIndex={-1}>{t('libraries.new_chat')}</h1>
+    {!compact && <p className="muted">{t('story_home.welcome')}</p>}
+    <div className="story-home-panels">
+      {compact ? [...participantPanels, defaultPanels] : [defaultPanels, ...participantPanels]}
     </div>
     <div className="actions story-home-chat-actions">
       <button type="button" disabled={busy || !connection || !character} onClick={event => startChat(event.currentTarget)}>{t('new_chat.start')}</button>
@@ -127,18 +161,24 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
   </main>;
 }
 
-function HomeCardPlaceholder({ picture, label, actionLabel, create, disabled }: {
-  picture?: boolean; label: string; actionLabel: string; create: () => void; disabled: boolean;
+type HomeActionProps = { label: string; onClick: () => void; disabled: boolean };
+
+function HomeAction({ label, onClick, disabled }: HomeActionProps) {
+  return <button type="button" className="text-link" disabled={disabled} onClick={onClick}>{label}</button>;
+}
+
+function HomeCardPlaceholder({ picture, details }: {
+  picture?: boolean; details?: { label: string; action: HomeActionProps };
 }) {
-  return <div className="library-card">
+  return <div className="library-card" aria-hidden={details ? undefined : true}>
     <div className="library-card-body">
       {picture && <div className="picture-square" aria-hidden="true" />}
       <div className="library-card-content">
         <span className="story-home-placeholder-title" aria-hidden="true" />
-        <div className="story-home-placeholder-description small muted">
-          <p>{label}</p>
-          <button type="button" className="text-link" disabled={disabled} onClick={create}>{actionLabel}</button>
-        </div>
+        {details ? <div className="story-home-placeholder-description small muted">
+          <p>{details.label}</p>
+          <HomeAction {...details.action} />
+        </div> : <span className="story-home-placeholder-line" />}
       </div>
     </div>
   </div>;

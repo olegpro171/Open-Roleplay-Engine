@@ -361,6 +361,7 @@ export const englishMessages = {
   "story_home.no_character_selected": "None selected.",
   "story_home.character_editor_help": "Start with a name and a short description. Add a greeting if you want the character to open the conversation.",
   "story_home.persona_help": "Optional. A Persona describes who you play.",
+  "story_home.persona_optional": "Optional",
   "story_home.manage_personas": "Manage Personas",
   "story_home.open_chats": "Open Chats",
   "story_home.close_chat": "Close chat",
