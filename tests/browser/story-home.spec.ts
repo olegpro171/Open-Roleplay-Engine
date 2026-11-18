@@ -546,8 +546,28 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
       await expect(button(page, 'Close chat')).toBeInViewport();
       expect(await page.getByRole('heading', { name: 'Forest guide', level: 1 }).evaluate(element => getComputedStyle(element).fontFamily)).toBe(welcomeFont);
       await button(page, 'Close chat').click();
-      await expect(button(page, 'Start chat')).toBeVisible();
-      await expect(button(page, 'Open Chats')).toBeVisible();
+      await expect(button(page, 'Start chat')).toBeDisabled();
+      for (const actionWidth of width === 1440 ? [801, 800, 1440] : [width]) {
+        await page.setViewportSize({ width: actionWidth, height: 844 });
+        const compact = actionWidth <= 800;
+        await expect(home(page).getByText(intro, { exact: true })).toHaveCount(compact ? 0 : 1);
+        const start = await button(page, 'Start chat').boundingBox();
+        const openChats = await button(page, 'Open Chats').boundingBox();
+        if (!start || !openChats) throw new Error('Missing New chat actions');
+        if (compact) {
+          const panel = await characterPanel.boundingBox();
+          if (!panel) throw new Error('Missing Character panel');
+          expect(start.x).toBe(panel.x);
+          expect(start.width).toBe(panel.width);
+          expect(openChats.x).toBe(start.x);
+          expect(openChats.width).toBe(start.width);
+          expect(openChats.height).toBe(start.height);
+          expect(openChats.y).toBeGreaterThan(start.y + start.height);
+        } else {
+          expect(openChats.x).toBeGreaterThan(start.x + start.width);
+          expect(openChats.y).toBe(start.y);
+        }
+      }
       await expect(characterPanel.getByRole('button')).toHaveText(['New character', 'Manage Characters']);
       await expect(button(page, 'Manage Characters')).toHaveCSS('font-size',
         await button(page, 'Manage Personas').evaluate(element => getComputedStyle(element).fontSize));
@@ -586,11 +606,6 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
       await home(page).evaluate(element => { element.scrollTop = 0; });
       if (width <= 800) {
         await expect(button(page, 'Start chat')).toBeInViewport({ ratio: 1 });
-        const start = await button(page, 'Start chat').boundingBox();
-        const panel = await characterPanel.boundingBox();
-        if (!start || !panel) throw new Error('Missing Start chat or Character panel');
-        expect(start.x).toBe(panel.x);
-        expect(start.width).toBe(panel.width);
       }
       await page.screenshot({ path: testInfo.outputPath(`ready-${theme}-${width}-top.png`), animations: 'disabled' });
       await button(page, 'Open Chats').scrollIntoViewIfNeeded();

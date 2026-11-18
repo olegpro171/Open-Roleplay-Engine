@@ -858,8 +858,7 @@ button.text-link>.ui-icon{width:14px;height:14px}
   margin:0;
 }
 .story-home-compact .story-home-summary>.actions>.text-link{text-align:end}
-.story-home-compact .story-home-chat-actions{display:grid;margin:0}
-.story-home-compact .story-home-chat-actions>.secondary{justify-self:center}
+.story-home-compact .story-home-chat-actions{display:grid;grid-auto-rows:1fr;margin:0}
 @media(max-width:800px){
   .library-list-header{top:0;padding-top:12px}
   .library-workspace .library-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
