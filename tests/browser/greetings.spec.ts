@@ -1,3 +1,4 @@
+import { openNewChatSettings } from './chat-tools';
 import { test, expect, type Page } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -53,6 +54,7 @@ for (const width of [1440, 390]) {
     await page.getByRole('combobox', { name: 'Character', exact: true }).click();
     await page.getByRole('option', { name, exact: true }).click();
     await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+    await openNewChatSettings(page);
     await expect(page.getByLabel('Chat title')).toHaveValue(name);
     const chat = (await library(page)).chats.find(chat => chat.title === name);
     if (!chat) throw new Error('Missing created chat');

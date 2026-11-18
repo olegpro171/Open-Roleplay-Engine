@@ -1,3 +1,4 @@
+import { openStoryStore, createStoryApp } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -11,7 +12,6 @@ import { promptDiagnostics } from '../src/core/prompt-diagnostics.js';
 import { countInput } from '../src/core/tokens.js';
 import { resolveLore } from '../src/core/lorebook.js';
 import { Store } from '../src/persistence/store.js';
-import { createApp } from '../src/server/app.js';
 import { authorNoteSchema, defaultAuthorNote, type AuthorNote, type AuthorNoteStatus } from '../src/shared/author-note.js';
 import { emptyContextState, defaultContextPreset } from '../src/shared/context.js';
 import type { PromptBlock, PromptSources } from '../src/shared/library.js';
@@ -88,7 +88,7 @@ describe('Author’s note request composition', () => {
   });
 
   it('keeps managed coverage unchanged and excludes the note from summary-model requests', () => {
-    const store = new Store(':memory:'); disposers.push(() => store.close());
+    const store = openStoryStore(':memory:'); disposers.push(() => store.close());
     store.saveSettings(0, connection, settings);
     const contextId = store.saveLibrary(store.libraryRevision(), 'contexts', { ...defaultContextPreset, minTail: 1, batchSize: 1 });
     const chatId = store.createChat({ title: 'Managed', targetInputTokens: 5000, connectionId: 'main', promptId: 'default', characterId: null, personaId: null, contextPresetId: contextId });
@@ -125,7 +125,7 @@ it('preserves populated chats and immutable requests through note writes, rollba
   const directory = mkdtempSync(join(tmpdir(), 'ore-author-note-'));
   disposers.push(() => rmSync(directory, { recursive: true, force: true }));
   const path = join(directory, 'test.sqlite');
-  const store = new Store(path);
+  const store = openStoryStore(path);
   store.saveSettings(0, connection, settings);
   const before = store.snapshot();
   expect(store.authorNote('main')).toEqual({ revision: before.revision, settings: { prompt: '', depth: 0, role: 'system' } });
@@ -154,7 +154,7 @@ it('preserves populated chats and immutable requests through note writes, rollba
 
 it('validates HTTP writes, enforces authentication/operation ownership, and sends the saved note only to roleplay', async () => {
   const calls: RequestPreview[] = [];
-  const { app, store, coordinator } = await createApp({ database: ':memory:', provider: { async stream(request, _key, _signal, onText) { calls.push(request); onText('Reply'); return { finishReason: 'stop' }; } } });
+  const { app, store, coordinator } = await createStoryApp({ database: ':memory:', provider: { async stream(request, _key, _signal, onText) { calls.push(request); onText('Reply'); return { finishReason: 'stop' }; } } });
   disposers.push(() => app.close());
   const auth = await app.inject({ method: 'POST', url: '/api/setup', headers: { host: 'localhost', origin: 'http://localhost' }, payload: { password: 'author-note-test-password' } });
   const headers = { host: 'localhost', origin: 'http://localhost', cookie: String(auth.headers['set-cookie']).split(';')[0] };

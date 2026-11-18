@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { createApp } from '../src/server/app.js';
+import { createStoryApp } from './support/story-fixture.js';
 import { BackupService } from '../src/server/backups.js';
 import { protectFile, unprotectBytes } from '../src/server/protected-files.js';
 import { type BackupReview } from '../src/shared/backups.js';
@@ -17,8 +18,9 @@ afterEach(async () => {
   for (const application of applications.splice(0)) await application.app.close();
   rmSync(directory, { recursive: true, force: true });
 });
-async function open(name: string) {
-  const application = await createApp({ database: join(directory, `${name}.sqlite`) });
+async function open(name: string, seed = true) {
+  const options = { database: join(directory, `${name}.sqlite`) };
+  const application = await (seed ? createStoryApp(options) : createApp(options));
   applications.push(application);
   const headers = { host: 'localhost', origin: 'http://localhost', 'content-type': 'application/json' };
   const session = await application.app.inject({ url: '/api/session', headers });
@@ -74,7 +76,7 @@ it.each(['', '\uFEFF  Личный пароль 🔑  '])('imports protected cre
   expect(destination.store.snapshot().turns).toEqual(turns);
   expect((await destination.command(`/api/data/stages/${review.stageId}/import`, command)).json()).toEqual(result.json());
   await destination.app.close();
-  const restarted = await open('destination');
+  const restarted = await open('destination', false);
   expect(restarted.store.connectionApiKey(connectionId)).toBe('sk-synthetic-private-key-for-export');
   expect(restarted.store.snapshot().turns).toEqual(turns);
   expect((await restarted.command(`/api/data/stages/${review.stageId}/import`, command)).json()).toEqual(result.json());

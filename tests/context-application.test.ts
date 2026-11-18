@@ -1,3 +1,4 @@
+import { openStoryStore } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { compactPrompt } from './support/compact-prompt.js';
 import { validateContent } from '../src/persistence/backup-validation.js';
@@ -29,7 +30,7 @@ afterEach(async () => { for (const dispose of cleanup.splice(0)) await dispose()
 function fixture(count = 48, target = 500, builtInContext = false) {
   const directory = mkdtempSync(join(tmpdir(), 'roleplay-context-'));
   const filename = join(directory, 'chat.sqlite');
-  let store = new Store(filename);
+  let store = openStoryStore(filename);
   store.saveLibrary(store.libraryRevision(), 'prompts', compactPrompt, 'default');
   const calls: { request: RequestPreview; apiKey: string }[] = [];
   type OutputMode = 'normal' | 'uniform' | 'unchanged' | 'near' | 'placeholder' | 'refusal' | 'length' | 'huge' | 'transport';

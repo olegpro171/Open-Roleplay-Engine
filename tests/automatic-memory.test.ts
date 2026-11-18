@@ -1,3 +1,4 @@
+import { openStoryStore } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { afterEach, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -20,7 +21,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(
 function fixture(behavior: Partial<ChatBehavior> = {}, completedTurns = 8) {
   const folder = mkdtempSync(join(tmpdir(), 'ore-auto-memory-'));
   const filename = join(folder, 'chat.sqlite');
-  let store = new Store(filename);
+  let store = openStoryStore(filename);
   store.saveLibrary(store.libraryRevision(), 'prompts', compactPrompt, 'default');
   const settings: ChatBehavior = { ...defaultChatBehavior, autoRetryMemory: false, ...behavior };
   const calls: string[] = [];

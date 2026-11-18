@@ -1,3 +1,4 @@
+import { openStoryStore } from './support/story-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,7 +21,7 @@ afterEach(async () => { for (const dispose of cleanup.splice(0)) await dispose()
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), 'ore-summary-file-'));
   const database = join(directory, 'test.sqlite');
-  let store = new Store(database);
+  let store = openStoryStore(database);
   const connection = { name: 'Test', endpoint: 'http://localhost:1234/v1', model: 'test',
     contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} };
   store.saveLibrary(store.libraryRevision(), 'prompts', compactPrompt, 'default');

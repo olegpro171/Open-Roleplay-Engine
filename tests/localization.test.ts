@@ -1,3 +1,4 @@
+import { openStoryStore, createStoryApp } from './support/story-fixture.js';
 import { removeBranchSchema } from './support/schema-15.js';
 import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { expectPrivateFile } from './support/private-file.js';
@@ -7,7 +8,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Languages } from '../src/server/languages.js';
 import { englishPack, russianPack, extendTranslation, languagePackSchema, localeSchema, message, translationTemplate, validateTranslations, languageFileProblem, languageStatusSchema } from '../src/shared/localization.js';
-import { createApp } from '../src/server/app.js';
 import { Store } from '../src/persistence/store.js';
 import { assembleRequest } from '../src/core/prompt.js';
 import Database from 'better-sqlite3';
@@ -272,7 +272,7 @@ it('activates only compatible messages while retaining the raw current pack for 
 });
 
 it('allows safe pre-login language reads, requires authenticated same-origin imports and leaves content untouched', async () => {
-  const path = directory(), instance = await createApp({ database: join(path, 'test.sqlite'), languagesDirectory: join(path, 'languages') });
+  const path = directory(), instance = await createStoryApp({ database: join(path, 'test.sqlite'), languagesDirectory: join(path, 'languages') });
   const headers = { host: 'localhost', origin: 'http://localhost' };
   try {
     expect((await instance.app.inject({ url: '/api/localization', headers })).statusCode).toBe(200);
@@ -298,7 +298,7 @@ it('allows safe pre-login language reads, requires authenticated same-origin imp
 
 it('upgrades populated schema 14 without rewriting legacy errors or historical request bodies', () => {
   const path = join(directory(), 'upgrade.sqlite');
-  let store = new Store(path);
+  let store = openStoryStore(path);
   store.saveSettings(0, { name: 'Synthetic', endpoint: 'http://127.0.0.1:9999', model: 'synthetic', contextWindow: 10_000, maxOutputTokens: 500, customParameters: {} }, store.snapshot().settings, 'synthetic-private-key');
   const operation = store.begin(store.snapshot().revision, crypto.randomUUID(), 'Preserve this input');
   const snapshot = store.snapshot();
@@ -322,7 +322,7 @@ it('upgrades populated schema 14 without rewriting legacy errors or historical r
 
 it('retains structured generation outcomes across restart and rejects duplicate terminal writes', () => {
   const path = join(directory(), 'outcomes.sqlite');
-  let store = new Store(path);
+  let store = openStoryStore(path);
   store.saveSettings(0, { name: 'Synthetic', endpoint: 'http://127.0.0.1:9999', model: 'synthetic', contextWindow: 10_000, maxOutputTokens: 500, customParameters: {} }, store.snapshot().settings);
   const operation = store.begin(store.snapshot().revision, crypto.randomUUID(), 'Keep this pending turn.');
   const diagnostic = message('language.unavailable');

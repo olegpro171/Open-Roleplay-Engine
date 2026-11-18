@@ -63,11 +63,11 @@ Run `./start-dev.sh` from the repository folder. It builds the current working t
 
 1. After the server starts, open the displayed address.
 2. Create the owner password.
-3. To change the language, open **Settings → Interface language**.
-4. Under **Libraries → Connections**, import or create a Connection.
-5. Create or import a Character and Persona.
-6. Under **Libraries → Chats**, choose **New chat** or import an existing solo chat in SillyTavern JSONL format.
-7. Review the selected settings, then save.
+3. On **Home**, choose **Add a Connection**. Enter your provider’s API base URL, API key if required, and model, then save.
+4. Choose **New character** in the empty Character card, or **Manage Characters → Import character** to use an existing card. Add a greeting if you want the character to open the conversation.
+5. On **Home**, select a character and an optional persona, then choose **New chat**. Read the greeting if the character has one, or write the opening message.
+
+To return to the home screen, choose **Close chat** in **Chat details**. To bring over an existing solo chat, use the SillyTavern JSONL import in **Libraries → Chats**. You can change the language under **Settings → Language → Interface language**.
 
 ## Phone access
 

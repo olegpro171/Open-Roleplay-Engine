@@ -1,7 +1,7 @@
+import { createStoryApp } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { createApp } from '../src/server/app.js';
 import { StoryReader } from '../src/persistence/story-reader.js';
 import { transcriptQuerySchema, type StorySnapshot } from '../src/shared/transcript.js';
 import { sourceOf } from '../src/core/context.js';
@@ -12,7 +12,7 @@ const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const dispose of cleanup.splice(0)) await dispose(); });
 async function fixture(length = 438) {
   const calls: RequestPreview[] = [];
-  const f = await createApp({ database: ':memory:', provider: { async stream(request, _key, _signal, text) {
+  const f = await createStoryApp({ database: ':memory:', provider: { async stream(request, _key, _signal, text) {
     calls.push(structuredClone(request)); text('A synthetic continuation.'); return { finishReason: 'stop' };
   } } });
   cleanup.push(() => f.app.close());

@@ -1,3 +1,4 @@
+import { openStoryStore, createStoryApp } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
@@ -30,7 +31,7 @@ const card: Character = { name: 'Keeper', description: '{{char}} greets {{user}}
 const connection = { name: 'Synthetic', endpoint: 'http://localhost:1234/v1', model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 100, customParameters: {} };
 
 it('protects the built-in context and resets it atomically through the API', async () => {
-  const { app, store } = await createApp({ database: join(folder(), 'reset-context.sqlite') });
+  const { app, store } = await createStoryApp({ database: join(folder(), 'reset-context.sqlite') });
   let cookie = '';
   const command = (method: 'POST' | 'DELETE', url: string, payload: object) => app.inject({ method, url: '/api' + url,
     headers: { host: 'localhost', origin: 'http://localhost', cookie }, payload });
@@ -68,7 +69,7 @@ it('protects the built-in context and resets it atomically through the API', asy
 });
 
 it('duplicates Connection settings and credentials on the server without exposing the key', async () => {
-  const { app, store } = await createApp({ database: join(folder(), 'duplicate-connection.sqlite') });
+  const { app, store } = await createStoryApp({ database: join(folder(), 'duplicate-connection.sqlite') });
   let cookie = '';
   const cmd = (url: string, data: unknown) => app.inject({ method: 'POST', url: '/api' + url,
     headers: { host: 'localhost', origin: 'http://localhost', cookie, 'content-type': 'application/json' }, payload: JSON.stringify(data) });
@@ -342,7 +343,7 @@ describe('alternate character greetings', () => {
 describe('prompt template upgrade', () => {
   it.each([false, true])('upgrades only an untouched old default (customized: %s), retaining saved records', customized => {
     const path = join(folder(), 'template.sqlite');
-    let store = new Store(path);
+    let store = openStoryStore(path);
     const legacy = { ...legacyLorePrompt, blocks: legacyLorePrompt.blocks.filter(block => block.id !== 'summary' && !block.marker?.startsWith('lore_')) };
     const data = customized ? { ...legacy, name: 'My default' } : legacy;
     store.sqlite.prepare('UPDATE library SET data = ? WHERE id = ?').run(JSON.stringify(data), 'default');
@@ -370,7 +371,7 @@ describe('prompt template upgrade', () => {
 describe('continuity prompt upgrade', () => {
   it.each(['neither', 'extraction', 'promotion', 'both'] as const)('preserves customized fields (%s) and upgrades old factory fields once', customized => {
     const path = join(folder(), 'context-upgrade.sqlite');
-    let store = new Store(path);
+    let store = openStoryStore(path);
     const extractionPrompt = customized === 'extraction' || customized === 'both' ? 'My extraction rules.' : legacyContextPrompts.extractionPrompt;
     const promotionPrompt = customized === 'promotion' || customized === 'both' ? 'My promotion rules.' : legacyContextPrompts.promotionPrompt;
     const preset = { ...defaultContextPreset, name: 'My settings', minTail: 13, summaryTokens: 321, extractionPrompt, promotionPrompt, repairPrompt: 'My repair rules.' };
@@ -428,8 +429,20 @@ describe('continuity prompt upgrade', () => {
 });
 
 describe('chat lifecycle and transcript parsing', () => {
+  it('starts an empty installation with built-in presets and retains zero chats on reopen', () => {
+    const path = join(folder(), 'fresh.sqlite');
+    for (let i = 0; i < 2; i++) {
+      const store = new Store(path);
+      try {
+        expect(store.libraries().chats).toEqual([]);
+        expect(store.libraries().prompts.map(prompt => prompt.id)).toContain('default');
+        expect(store.libraries().contexts.map(preset => preset.id)).toContain('default-context');
+        expect(store.sqlite.prepare('SELECT count(*) AS total FROM chat_groups').get()).toEqual({ total: 0 });
+      } finally { store.close(); }
+    }
+  });
   it('allows deletion of the original and final chat without recreating it on restart', () => {
-    const path = join(folder(), 'deleted.sqlite'); let store = new Store(path);
+    const path = join(folder(), 'deleted.sqlite'); let store = openStoryStore(path);
     try {
       seedTranscript(store, 0, 'main', [{ user: 'Synthetic', assistant: 'History', complete: true }]);
       expect(() => store.deleteChat(0, 'main')).toThrow('changed on another device');

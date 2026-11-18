@@ -2,7 +2,7 @@ import { expect, test, type Locator } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { quadrantPicture } from '../support/pictures';
-import { openChatTool } from './chat-tools';
+import { openChatTool, openNewChatSettings } from './chat-tools';
 
 async function expectInlinePortrait(option: Locator) {
   const avatar = await option.locator('.character-avatar').boundingBox();
@@ -91,6 +91,7 @@ test('character selectors show saved portraits and fallbacks while preserving se
     await expect(selector.locator('.select-option-text')).toHaveCSS('color', await selector.evaluate(node => getComputedStyle(node).color));
     await page.screenshot({ path: testInfo.outputPath(`new-chat-selection-${width}.png`), fullPage: true });
     await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+    await openNewChatSettings(page);
 
     await expect(page.getByLabel('Chat title')).toBeVisible();
     const chatId = await page.evaluate(() => localStorage.getItem('roleplay-chat'));

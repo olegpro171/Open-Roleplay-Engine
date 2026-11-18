@@ -649,9 +649,10 @@ export async function createApp(options: {
     };
   }
   app.post('/api/chats', async request => {
-    const id = store.createChat(newChatSettings(createChatSchema.parse(request.body)));
+    const settings = newChatSettings(createChatSchema.parse(request.body));
+    const id = store.createChat(settings);
     coordinator.changed({ kind: 'chat', chatId: id, detail: 'state' });
-    return { id };
+    return { id, connectionId: settings.connectionId };
   });
   app.post('/api/chats/import', { bodyLimit: transcriptRequestLimit }, async request => {
     const input = importChatSchema.parse(request.body);

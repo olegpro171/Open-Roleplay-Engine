@@ -1,3 +1,4 @@
+import { openStoryStore, createStoryApp } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { removePinSchema } from './support/schema-16.js';
 import { restoreLegacyPictureSchema } from './support/schema-17.js';
@@ -12,7 +13,6 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
-import { createApp } from '../src/server/app.js';
 import { Store } from '../src/persistence/store.js';
 import { execFileSync } from 'node:child_process';
 import { BackupService } from '../src/server/backups.js';
@@ -28,7 +28,7 @@ import type { SummaryNode } from '../src/shared/context.js';
 let directory: string;
 const stores: Store[] = [], services: BackupService[] = [];
 const owner = 'synthetic-session';
-function store(name: string, migrationsDirectory?: string) { const result = new Store(join(directory,`${name}.sqlite`),migrationsDirectory); stores.push(result); return result; }
+function store(name: string, migrationsDirectory?: string, seed = true) { const path = join(directory,`${name}.sqlite`); const result = seed ? openStoryStore(path, migrationsDirectory) : new Store(path, migrationsDirectory); stores.push(result); return result; }
 function service(db: Store,name: string, migrationsDirectory?: string) { const result = new BackupService(db,join(directory,`${name}.sqlite`),migrationsDirectory); services.push(result); return result; }
 function receipt(review: BackupReview,overwrite = true) { return { requestId: randomUUID(),digest: review.digest,token: review.token,overwrite }; }
 // Schema-corruption and crash fixtures need the inner SQLite snapshot.
@@ -246,7 +246,7 @@ describe('portable backup persistence',() => {
     expect(destination.connectionApiKey(connection)).toBe('SYNTHETIC_SECRET_ABC');
     expect(target.commit(review.stageId,owner,command)).toEqual(outcome);
     target.close(); destination.close();
-    const restarted = store('destination'), restartedBackups = service(restarted,'destination');
+    const restarted = store('destination', undefined, false), restartedBackups = service(restarted,'destination');
     expect(restartedBackups.commit(review.stageId,owner,command)).toEqual(outcome);
     expect(restarted.snapshot(chatId).turns[0].variants).toHaveLength(1);
   });
@@ -349,7 +349,7 @@ describe('portable backup persistence',() => {
 });
 
 it('protects authenticated routes and rejects old-tab commands even when restored numeric revisions match',async () => {
-  const app = await createApp({ database: join(directory,'http.sqlite') });
+  const app = await createStoryApp({ database: join(directory,'http.sqlite') });
   let cookie = '';
   const command = async (url: string,payload: unknown,epoch = 'initial',method: 'POST'|'PUT' = 'POST') => app.app.inject({ method,url,headers: { host: 'localhost',origin: 'http://localhost','content-type': 'application/json',cookie,'x-ore-epoch': epoch },payload: JSON.stringify(payload) });
   try {

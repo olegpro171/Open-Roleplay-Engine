@@ -10,6 +10,7 @@ import Database from 'better-sqlite3';
 import sharp from 'sharp';
 import { deflateSync } from 'node:zlib';
 import { defaultMigrationsDirectory, Store } from '../src/persistence/store.js';
+import { seedStory } from './support/story-fixture.js';
 import { PictureProcessor, pictureDigest, type PreparedPicture } from '../src/server/pictures.js';
 import { createApp } from '../src/server/app.js';
 import { cropFromControls } from '../src/shared/pictures.js';
@@ -252,6 +253,7 @@ describe('picture storage and atomic character commands', () => {
     const other = store.saveLibrary(store.libraryRevision(), 'characters', { ...fields, name: 'Other' });
     expect(() => store.saveCharacter({ ...command(store, fields, other), picture: { mode: 'keep', key: picture.key, crop: picture.crop } }, other, prepared)).toThrow('saved picture changed');
     expect(() => store.saveCharacter(submitted, id)).toThrow('library changed');
+    seedStory(store);
     store.saveSettings(store.snapshot().revision, { name: 'Mock', endpoint: 'http://localhost:9999/v1', model: 'mock', contextWindow: 50000, maxOutputTokens: 100, customParameters: {} }, store.snapshot().settings);
     const running = store.begin(store.snapshot().revision, randomUUID(), 'Pending');
     expect(() => store.saveCharacter({ ...command(store, fields, id), picture: { mode: 'remove' } }, id)).toThrow('current response'); store.finish(running.id, 'cancelled', '', null);

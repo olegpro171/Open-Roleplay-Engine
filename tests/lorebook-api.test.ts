@@ -1,7 +1,7 @@
+import { createStoryApp } from './support/story-fixture.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { createApp } from '../src/server/app.js';
 import type { Provider } from '../src/provider/openai.js';
 import type { RequestPreview } from '../src/shared/contracts.js';
 import { newLorebook, newLoreEntry } from '../src/shared/lorebook.js';
@@ -27,7 +27,7 @@ async function fixture() {
     onText('The synthetic keeper responds.');
     return { finishReason: 'stop' };
   } };
-  const instance = await createApp({ database: ':memory:', provider });
+  const instance = await createStoryApp({ database: ':memory:', provider });
   disposers.push(() => instance.app.close());
   const setup = await instance.app.inject({ method: 'POST', url: '/api/setup', headers: { host: 'localhost', origin: 'http://localhost' }, payload: { password: 'synthetic-lore-api-password' } });
   expect(setup.statusCode).toBe(200);

@@ -1,3 +1,4 @@
+import { openNewChatSettings } from './chat-tools';
 import { expect, type Page } from '@playwright/test';
 import { test } from './isolated-app';
 import { readFile } from 'node:fs/promises';
@@ -140,6 +141,7 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
   await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await openNewChatSettings(page);
   await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
   await page.getByLabel('Your next turn').fill('Keep this composer draft exactly.');
   const chatId = await page.evaluate(() => localStorage.getItem('roleplay-chat'));

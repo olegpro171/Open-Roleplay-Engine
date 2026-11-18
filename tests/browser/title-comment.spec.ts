@@ -1,3 +1,4 @@
+import { openNewChatSettings } from './chat-tools';
 import { expect, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { test } from './isolated-app';
@@ -91,6 +92,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('option', { name: medieval, exact: true })).toBeVisible();
     await page.getByRole('option', { name: university, exact: true }).click();
     await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+    await openNewChatSettings(page);
     await expect(page.getByLabel('Chat title')).toHaveValue(name);
     await expect(page.getByRole('combobox', { name: 'Character', exact: true })).toContainText(university);
     await choose(page, medieval);

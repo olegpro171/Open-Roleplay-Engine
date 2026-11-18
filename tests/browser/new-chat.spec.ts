@@ -1,4 +1,4 @@
-import { openChatTool } from './chat-tools';
+import { openChatTool, openNewChatSettings } from './chat-tools';
 import { test, expect, type Page } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -62,6 +62,7 @@ for (const width of [1440, 390]) {
     expect((await library(page)).chats).toHaveLength(before.chats.length);
 
     await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+    await openNewChatSettings(page);
     await expect(page.getByRole('region', { name: 'Chat settings', exact: true })).toBeVisible();
     await expect(page.getByLabel('Chat title')).toHaveValue(title);
     await expect(page.getByRole('combobox', { name: 'Lorebook', exact: true })).toContainText(book.name);

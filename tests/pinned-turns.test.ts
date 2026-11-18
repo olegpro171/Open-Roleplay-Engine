@@ -1,3 +1,4 @@
+import { openStoryStore } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -189,7 +190,7 @@ test('keeps branch membership durable across stale commands, copies, Clear memor
 
 test('upgrades populated schema 16 with no pins and keeps later pins after reopen', () => {
   const path = filename('upgrade');
-  const store = new Store(path);
+  const store = openStoryStore(path);
   const prompt = store.saveLibrary(store.libraryRevision(), 'prompts', { name: 'Saved layout', blocks: promptBlocks.filter(block => block.id !== 'pinned-messages') });
   const branch = store.createChat({ title: 'Older story', targetInputTokens: 500, connectionId: null, promptId: prompt, characterId: null, personaId: null });
   seedTranscript(store, store.engineSnapshot(branch).revision, branch, fixtures);

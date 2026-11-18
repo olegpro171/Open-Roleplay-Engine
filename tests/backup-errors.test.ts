@@ -1,3 +1,4 @@
+import { openStoryStore } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { Readable } from 'node:stream';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -37,7 +38,7 @@ it('rejects disk-space and write failures, cleans staging, and retains usable cu
 
 it('rejects unexpected executable schema names, binary text, wrong selected variants and cyclic summary dependencies',async () => {
   const directory = fs.mkdtempSync(join(tmpdir(),'ore-backup-untrusted-')), filename = join(directory,'live.sqlite');
-  const store = new Store(filename), service = new BackupService(store,filename);
+  const store = openStoryStore(filename), service = new BackupService(store,filename);
   try {
     seedTranscript(store, store.snapshot().revision,'main',[{ user: 'Input',assistant: 'Saved response',complete: true }]);
     const file = await service.export(), bytes = await unprotectBytes(fs.readFileSync(file.path), 'backup', '', Number.MAX_SAFE_INTEGER); file.cleanup(); const token = new BackupStore(store).token;
@@ -55,7 +56,7 @@ it('rejects unexpected executable schema names, binary text, wrong selected vari
 
 it('explains schema, content and reconstruction failures without exposing uploaded values',async () => {
   const directory = fs.mkdtempSync(join(tmpdir(),'ore-backup-diagnostics-')), filename = join(directory,'live.sqlite');
-  const store = new Store(filename), service = new BackupService(store,filename);
+  const store = openStoryStore(filename), service = new BackupService(store,filename);
   try {
     seedTranscript(store, store.snapshot().revision,'main',[{ user: 'Private synthetic prose',assistant: 'Saved response',complete: true }]);
     const file = await service.export(), bytes = await unprotectBytes(fs.readFileSync(file.path), 'backup', '', Number.MAX_SAFE_INTEGER); file.cleanup();

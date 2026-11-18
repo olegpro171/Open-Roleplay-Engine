@@ -1,10 +1,10 @@
+import { openStoryStore } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store } from '../src/persistence/store.js';
 import { defaultContextPreset, emptyContextState, type SummaryNode } from '../src/shared/context.js';
 import { compactPrompt as defaultPrompt } from './support/compact-prompt.js';
 import type { Character, ImportedTurn, PromptPreset } from '../src/shared/library.js';
@@ -31,7 +31,7 @@ const initialTurns: ImportedTurn[] = Array.from({ length: 6 }, (_, index) => ({ 
 
 function fixture(entries: LoreEntry[] = [loreEntry('key')], prompt: PromptPreset = defaultPrompt, turns: ImportedTurn[] = initialTurns) {
   const directory = mkdtempSync(join(tmpdir(), 'roleplay-lore-integration-'));
-  const store = new Store(join(directory, 'chat.sqlite'));
+  const store = openStoryStore(join(directory, 'chat.sqlite'));
   const pool = new LoreRegexPool();
   cleanup.push(async () => { await pool.close(); store.close(); rmSync(directory, { recursive: true, force: true }); });
   const connectionId = store.saveLibrary(store.libraries().revision, 'connections', connection);

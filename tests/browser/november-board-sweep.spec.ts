@@ -4,7 +4,7 @@ import { appearanceStatusSchema } from '../../src/shared/appearance';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultContextPreset } from '../../src/shared/context';
 import type { LibrarySnapshot } from '../../src/shared/library';
-import { openChatTool } from './chat-tools';
+import { openChatTool, openNewChatSettings } from './chat-tools';
 
 const password = 'synthetic-password-ноябрь';
 async function register(page: Page) {
@@ -208,6 +208,7 @@ test('Character and Persona choices follow each Library sort in new and existing
   };
   await check();
   await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await openNewChatSettings(page);
   await expect(page.getByRole('region', { name: 'Chat settings', exact: true })).toBeVisible();
   await check();
 });

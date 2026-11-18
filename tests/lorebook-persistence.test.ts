@@ -1,3 +1,4 @@
+import { openStoryStore } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { removeBranchSchema } from './support/schema-15.js';
 import { databaseSchemaVersion } from '../src/shared/build-info.js';
@@ -31,7 +32,7 @@ function path() {
   return join(folder, 'test.sqlite');
 }
 function open(filename = path()) {
-  const store = new Store(filename);
+  const store = openStoryStore(filename);
   stores.push(store);
   return store;
 }

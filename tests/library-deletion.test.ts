@@ -1,3 +1,4 @@
+import { createStoryApp } from './support/story-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -35,7 +36,7 @@ async function fixture() {
     finally { await mock.close(); }
   });
   const database = join(folder, 'story.sqlite');
-  let instance = await createApp({ database });
+  let instance = await createStoryApp({ database });
   let closed = false;
   cleanups.push(async () => { if (!closed) await instance.app.close(); });
   const host = { host: 'localhost', origin: 'http://localhost' };

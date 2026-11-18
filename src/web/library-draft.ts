@@ -10,6 +10,9 @@ import { tagIdsSchema } from '../shared/tags';
 const text = z.string();
 const number = z.number();
 const target = { id: z.string().min(1).max(100).optional(), revision: revisionSchema, numbers: z.record(z.string(), text).optional() };
+const setupReturn = z.enum(['story', 'settings']);
+export type SetupReturn = z.infer<typeof setupReturn>;
+const setupTarget = { ...target, returnTo: setupReturn.optional() };
 const [textBlock, markerBlock] = promptBlockSchema.options;
 const draftBlock = z.discriminatedUnion('kind', [
   z.strictObject({ ...textBlock.shape, name: text, text }),
@@ -17,15 +20,15 @@ const draftBlock = z.discriminatedUnion('kind', [
 ]);
 const draftEntry = z.strictObject({ ...loreEntrySchema.shape, keys: z.array(text), secondaryKeys: z.array(text), depth: number, scanDepth: number.nullable() });
 const editorDraft = z.discriminatedUnion('kind', [
-  z.strictObject({ ...target, kind: z.literal('characters'), data: libraryCharacterSchema.safeExtend({ name: text, titleComment: text.optional() }), tagIds: tagIdsSchema, pictureOmitted: z.boolean() }),
-  z.strictObject({ ...target, kind: z.literal('personas'), data: libraryPersonaSchema.safeExtend({ name: text, titleComment: text.optional() }) }),
+  z.strictObject({ ...setupTarget, kind: z.literal('characters'), data: libraryCharacterSchema.safeExtend({ name: text, titleComment: text.optional() }), tagIds: tagIdsSchema, pictureOmitted: z.boolean() }),
+  z.strictObject({ ...setupTarget, kind: z.literal('personas'), data: libraryPersonaSchema.safeExtend({ name: text, titleComment: text.optional() }) }),
   z.strictObject({ ...target, kind: z.literal('prompts'), data: z.strictObject({ ...promptSchema.shape, name: text, blocks: z.array(draftBlock).max(100) }) }),
   z.strictObject({ ...target, kind: z.literal('contexts'), data: contextPresetSchema.safeExtend({
     name: text, extractionPrompt: text, promotionPrompt: text, repairPrompt: text,
     minTail: number, batchSize: number, summaryTokens: number, promotionGroup: number, retainedPerLevel: number,
   }) }),
   z.strictObject({ ...target, kind: z.literal('lorebooks'), data: z.strictObject({ ...lorebookSchema.shape, name: text, scanDepth: number, tokenBudget: number, entries: z.array(draftEntry) }), selectedId: text }),
-  z.strictObject({ ...target, kind: z.literal('connections'), data: z.strictObject({
+  z.strictObject({ ...setupTarget, kind: z.literal('connections'), data: z.strictObject({
     ...connectionSchema.shape, name: text, endpoint: text, model: text, contextWindow: number, maxOutputTokens: number,
   }), parameters: text, removeKey: z.boolean(), keyOmitted: z.boolean() }),
 ]);

@@ -1,10 +1,10 @@
+import { openStoryStore } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { afterEach, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store } from '../src/persistence/store.js';
 import { GenerationCoordinator } from '../src/server/coordinator.js';
 import { defaultContextPreset, type SummaryNode } from '../src/shared/context.js';
 import { newLorebook, newLoreEntry } from '../src/shared/lorebook.js';
@@ -17,7 +17,7 @@ afterEach(async () => { for (const dispose of cleanup.splice(0)) await dispose()
 
 async function fixture() {
   const directory = mkdtempSync(join(tmpdir(), 'ore-lore-repair-'));
-  const store = new Store(join(directory, 'state.sqlite'));
+  const store = openStoryStore(join(directory, 'state.sqlite'));
   const calls: RequestPreview[] = [];
   const provider: Provider = { async stream(request, _key, _signal, onText) {
     calls.push(structuredClone(request));

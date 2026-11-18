@@ -1,3 +1,4 @@
+import { openNewChatSettings } from './chat-tools';
 import { expect } from '@playwright/test';
 import { test } from './isolated-app';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
@@ -38,6 +39,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
         await page.getByRole('combobox', { name: locale === 'en' ? 'Character' : 'Персонаж', exact: true }).click();
         await page.getByRole('option', { name: `${name} · Local display comment`, exact: true }).click();
         await page.getByRole('button', { name: locale === 'en' ? 'Create chat' : 'Создать чат', exact: true }).click();
+        await openNewChatSettings(page, locale);
         const title = page.getByLabel(locale === 'en' ? 'Chat title' : 'Название чата', { exact: true });
         await expect(title).toHaveValue(name);
         const id = await page.evaluate(() => localStorage.getItem('roleplay-chat'));

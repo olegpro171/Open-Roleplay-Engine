@@ -1,3 +1,4 @@
+import { createStoryApp } from './support/story-fixture.js';
 import { expectPrivateFile } from './support/private-file.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
@@ -24,7 +25,7 @@ function directory() {
 
 it.each(themeSchema.options)('saves %s app-wide defaults without changing library/chat state and reloads them after restart', async theme => {
   const database = join(directory(), 'test.sqlite');
-  let instance = await createApp({ database });
+  let instance = await createStoryApp({ database });
   const headers = { host: 'localhost', origin: 'http://localhost' };
   try {
     expect((await instance.app.inject({ method: 'GET', url: '/api/application/appearance', headers })).statusCode).toBe(401);

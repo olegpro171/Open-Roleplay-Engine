@@ -1,3 +1,4 @@
+import { openNewChatSettings } from './chat-tools';
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
@@ -115,7 +116,8 @@ for (const width of [1440, 390]) {
       await categories.getByRole('button', { name: 'Chats', exact: true }).click();
       await page.getByRole('button', { name: 'New chat', exact: true }).click();
       await page.getByRole('button', { name: 'Create chat', exact: true }).click();
-      await expect(page.getByRole('region', { name: 'Chat settings', exact: true })).toBeVisible();
+      await expect(page.getByRole('region', { name: 'Conversation', exact: true })).toBeVisible();
+      await openNewChatSettings(page);
       for (const fixture of fixtures) await expect(page.getByRole('combobox', { name: fixture.label, exact: true })).toContainText(fixture.name);
       const after = await readLibrary(page);
       const created = after.chats.find(chat => !before.chats.some(old => old.id === chat.id));

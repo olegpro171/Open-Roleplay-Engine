@@ -1,3 +1,4 @@
+import { createStoryApp } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { expect, test, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -13,7 +14,7 @@ import { createApp } from '../src/server/app.js';
 import { preparedDownloadSchema } from '../src/shared/downloads.js';
 
 test('exports a consistent saved transcript for the requested story only', async () => {
-  const { app, store } = await createApp({ database: ':memory:' });
+  const { app, store } = await createStoryApp({ database: ':memory:' });
   try {
     const host = { host: 'localhost', origin: 'http://localhost' };
     const setup = await app.inject({ method: 'POST', url: '/api/setup', headers: host, payload: { password: 'synthetic-export-password' } });
@@ -63,7 +64,7 @@ test.each([
   ['NUL.notes', '_NUL.notes.jsonl'],
   ['界'.repeat(100), '界'.repeat(83) + '.jsonl'],
 ])('downloads the branch %j with a portable UTF-8 filename', async (name, filename) => {
-  const { app, store } = await createApp({ database: ':memory:' });
+  const { app, store } = await createStoryApp({ database: ':memory:' });
   try {
     const { headers } = await ownerSession(app);
     store.renameBranch('main', store.chatHeader().revision, name);
@@ -84,7 +85,7 @@ test.each([
 });
 
 test('exported final user-only completion is interpreted as pending on import', async () => {
-  const { app, store } = await createApp({ database: ':memory:' });
+  const { app, store } = await createStoryApp({ database: ':memory:' });
   try {
     const { headers } = await ownerSession(app);
     const story = [
@@ -123,7 +124,7 @@ test('atomic standalone import uses normal defaults, skips greeting validation a
   const directory = mkdtempSync(join(tmpdir(), 'ore-transcript-import-'));
   const database = join(directory, 'story.sqlite');
   const stream = vi.fn(async () => { throw new Error('Unexpected provider call'); });
-  let instance = await createApp({ database, provider: { stream } });
+  let instance = await createStoryApp({ database, provider: { stream } });
   try {
     const { host, headers } = await ownerSession(instance.app);
     const post = (url: string, payload: object) => instance.app.inject({ method: 'POST', url, headers, payload });
@@ -196,7 +197,7 @@ test('atomic standalone import uses normal defaults, skips greeting validation a
 });
 
 test('validates the destination, normalized turn shape and dataset epoch before writing', async () => {
-  const { app, store } = await createApp({ database: ':memory:' });
+  const { app, store } = await createStoryApp({ database: ':memory:' });
   try {
     const { headers } = await ownerSession(app);
     const payload = { name: 'Incoming', requestId: randomUUID(), turns: transcript };
@@ -222,7 +223,7 @@ test('validates the destination, normalized turn shape and dataset epoch before 
 });
 
 test('matches the preview byte boundary for multibyte and escaped text and rejects oversized API bodies', async () => {
-  const { app, store } = await createApp({ database: ':memory:' });
+  const { app, store } = await createStoryApp({ database: ':memory:' });
   try {
     const { headers } = await ownerSession(app);
     const empty = { user: '', assistant: '', complete: true };
@@ -255,7 +256,7 @@ test('matches the preview byte boundary for multibyte and escaped text and rejec
 }, 30_000);
 
 test('does not commit a disconnected partial import upload', async () => {
-  const { app, store } = await createApp({ database: ':memory:' });
+  const { app, store } = await createStoryApp({ database: ':memory:' });
   try {
     const payload = JSON.stringify({ title: 'Partial upload', requestId: randomUUID(), turns: transcript });
     let markEntered: () => void = () => {};

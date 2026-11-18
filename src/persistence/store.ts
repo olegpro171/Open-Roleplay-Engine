@@ -316,7 +316,6 @@ export class Store {
       this.contexts = new ContextStore(this);
       this.tags = new TagStore(this.sqlite, expected => this.checkLibrary(expected), () => this.bumpLibrary());
       if (newDatabase) this.db.update(schema.library).set({ createdAt: new Date().toISOString() }).run();
-      if (newDatabase) this.sqlite.transaction(() => this.insertChat('main', initialSettings))();
     } catch (error) {
       this.sqlite.prepare('DELETE FROM runtime_owner WHERE token = ?').run(this.ownerToken);
       this.sqlite.close(); throw error;
@@ -642,7 +641,7 @@ export class Store {
       contexts: list<ContextPreset>('contexts').map(preset => ({ ...preset, repairPrompt: preset.repairPrompt ?? defaultContextPreset.repairPrompt })),
       lorebooks: list<Lorebook>('lorebooks'),
       ...(includeLorebookUses ? { lorebookUses: this.legacyLorebookUses(list<Lorebook>('lorebooks'), list<LibraryCharacter>('characters')) } : {}),
-      connections: this.db.select().from(schema.connections).all().map(r => ({ ...r.settings, id: r.id, revision: r.revision, hasApiKey: Boolean(this.db.select().from(schema.credentials).where(eq(schema.credentials.id, r.id)).get()?.apiKey) })),
+      connections: this.db.select().from(schema.connections).orderBy(sql`rowid`).all().map(r => ({ ...r.settings, id: r.id, revision: r.revision, hasApiKey: Boolean(this.db.select().from(schema.credentials).where(eq(schema.credentials.id, r.id)).get()?.apiKey) })),
       chats: this.chatSummaries(),
     };
   }

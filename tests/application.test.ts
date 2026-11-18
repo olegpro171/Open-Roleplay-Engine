@@ -1,3 +1,4 @@
+import { createStoryApp } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -62,7 +63,7 @@ beforeEach(async () => {
   cookie = '';
   directory = mkdtempSync(join(tmpdir(), 'roleplay-test-'));
   mock = await startMockProvider();
-  instance = await createApp({ database: join(directory, 'chat.sqlite') });
+  instance = await createStoryApp({ database: join(directory, 'chat.sqlite') });
   const setup = await command('/api/setup', { password });
   expect(setup.statusCode).toBe(200);
   cookie = setup.headers['set-cookie']!.toString().split(';')[0];

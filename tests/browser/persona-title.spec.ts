@@ -1,3 +1,4 @@
+import { openNewChatSettings } from './chat-tools';
 import { expect, test, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
 
@@ -65,6 +66,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('option', { name: medieval, exact: true })).toBeVisible();
     await page.getByRole('option', { name: university, exact: true }).click();
     await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+    await openNewChatSettings(page);
     await expect(page.getByRole('combobox', { name: 'Persona', exact: true })).toContainText(university);
     await page.getByRole('combobox', { name: 'Connection', exact: true }).click();
     await page.getByRole('option', { name: `Persona mock ${width}`, exact: true }).click();

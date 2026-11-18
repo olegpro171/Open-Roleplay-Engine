@@ -1,3 +1,4 @@
+import { openStoryStore } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -26,7 +27,7 @@ function required<T>(value: T | null | undefined): T {
 }
 function fixture(count = 1) {
   const directory = mkdtempSync(join(tmpdir(), 'ore-variants-')), filename = join(directory, 'chat.sqlite');
-  let store = new Store(filename);
+  let store = openStoryStore(filename);
   store.saveLibrary(store.libraryRevision(), 'prompts', compactPrompt, 'default');
   const calls: RequestPreview[] = [];
   let output = 'Alternative B.', reasoning = '', fail = false, hold = false, release: (() => void) | undefined;

@@ -1,3 +1,4 @@
+import { openStoryStore, createStoryApp } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { createReadStream, mkdtempSync, rmSync } from 'node:fs';
@@ -7,7 +8,6 @@ import Database from 'better-sqlite3';
 import { expect, test } from 'vitest';
 import { sourceOf } from '../src/core/context.js';
 import { Store } from '../src/persistence/store.js';
-import { createApp } from '../src/server/app.js';
 import { BackupService } from '../src/server/backups.js';
 import { defaultAuthorNote } from '../src/shared/author-note.js';
 import { defaultContextPreset, type ContextJob, type ContextStep, type SummaryNode } from '../src/shared/context.js';
@@ -20,7 +20,7 @@ const connection: Connection = { name: 'Synthetic', endpoint: 'http://localhost:
   contextWindow: 4096, maxOutputTokens: 256, customParameters: {} };
 
 test('forks safely through a turn, reuses fitting saved memory and isolates future edits', async () => {
-  const { app, store } = await createApp({ database: ':memory:', provider: {
+  const { app, store } = await createStoryApp({ database: ':memory:', provider: {
     async stream() { throw new Error('Branch operations must not call a provider'); },
   } });
   try {
@@ -176,7 +176,7 @@ test('a populated schema 15 chat becomes Main with stable record identities and 
   const directory = mkdtempSync(join(tmpdir(), 'ore-branch-upgrade-'));
   const path = join(directory, 'app.sqlite');
   try {
-    const store = new Store(path);
+    const store = openStoryStore(path);
     const revision = seedTranscript(store, 0, 'main', [{ user: 'Original', assistant: 'Original reply', complete: true }]);
     store.saveAuthorNote('main', { revision, settings: { ...defaultAuthorNote, prompt: 'Old note' } });
     const before = store.snapshot();

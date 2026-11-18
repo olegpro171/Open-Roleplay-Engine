@@ -1,3 +1,4 @@
+import { openStoryStore, createStoryApp } from './support/story-fixture.js';
 import { afterEach, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -5,7 +6,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../src/persistence/store.js';
 import { defaultPrompt, promptSchema } from '../src/shared/library.js';
-import { createApp } from '../src/server/app.js';
 import { compactPrompt } from './support/compact-prompt.js';
 import { assembleRequest } from '../src/core/prompt.js';
 
@@ -25,7 +25,7 @@ it('seeds the supplied preset exactly, apart from its name, on a fresh installat
   expect(defaultPrompt.blocks.slice(6, 9).map(block => block.id)).toEqual(['summary', 'pinned-messages', 'messages']);
   expect(defaultPrompt.blocks[7]).toMatchObject({ marker: 'pinned_messages', enabled: true, role: 'system' });
   expect(promptSchema.parse(defaultPrompt)).toEqual(defaultPrompt);
-  const store = new Store(database());
+  const store = openStoryStore(database());
   try {
     expect(store.libraries().prompts).toEqual([{ ...defaultPrompt, id: 'default', revision: 0 }]);
     const chatId = store.createChat({ title: 'New story', targetInputTokens: 32000, connectionId: null, promptId: 'default', characterId: null, personaId: null });
@@ -38,7 +38,7 @@ it('seeds the supplied preset exactly, apart from its name, on a fresh installat
 
 it.each([compactPrompt, { name: 'Owner edited prompt', blocks: [{ id: 'owner', name: 'Owner instructions', kind: 'text' as const, enabled: true, role: 'system' as const, text: 'Keep this saved text.' }] }])('preserves saved $name across restart', saved => {
   const path = database();
-  let store = new Store(path);
+  let store = openStoryStore(path);
   try {
     store.saveLibrary(store.libraryRevision(), 'prompts', saved, 'default');
     const before = store.libraries();
@@ -49,7 +49,7 @@ it.each([compactPrompt, { name: 'Owner edited prompt', blocks: [{ id: 'owner', n
 });
 
 it('restores the current factory preset only through an explicit revision-checked command', async () => {
-  const { app, store } = await createApp({ database: database() });
+  const { app, store } = await createStoryApp({ database: database() });
   try {
     const setup = await app.inject({ method: 'POST', url: '/api/setup', headers: { host: 'localhost', origin: 'http://localhost' }, payload: { password: 'synthetic-default-password' } });
     expect(setup.statusCode).toBe(200);

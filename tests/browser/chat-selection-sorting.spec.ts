@@ -4,7 +4,7 @@ import { defaultContextPreset } from '../../src/shared/context';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 import { newLorebook } from '../../src/shared/lorebook';
-import { openChatTool } from './chat-tools';
+import { openChatTool, openNewChatSettings } from './chat-tools';
 import { test } from './isolated-app';
 
 for (const width of [1440, 390]) {
@@ -74,7 +74,7 @@ for (const width of [1440, 390]) {
     ]);
     expect(created.ok()).toBe(true);
     const { id }: { id: string } = await created.json();
-    await expect(page.getByRole('region', { name: 'Chat settings', exact: true })).toBeVisible();
+    await openNewChatSettings(page);
 
     for (const theme of ['dark', 'light', 'midnight-black'] as const) {
       const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));

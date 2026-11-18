@@ -1,3 +1,4 @@
+import { openStoryStore } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { removeSortingSchema } from './support/legacy-sorting.js';
@@ -85,7 +86,7 @@ it('rejects a future schema without modifying its contents, ownership or journal
 });
 
 function oldDatabase(path: string) {
-  const seed = new Store(path);
+  const seed = openStoryStore(path);
   seedTranscript(seed, seed.snapshot().revision, 'main', [{ user: 'Synthetic original input', assistant: 'Saved response', complete: true }]);
   const snapshot = seed.snapshot();
   seed.close();

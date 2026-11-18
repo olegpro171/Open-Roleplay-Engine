@@ -21,7 +21,10 @@ import { RefreshQueue, fullRefresh, scopeForChange, type RefreshScope } from './
 import { useRequestPreview } from './useRequestPreview';
 import { useGenerationHistory } from './useGenerationHistory';
 import { hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
-import { ChatSetup, Libraries, type LibraryTarget } from './Libraries';
+import { ChatSetup, Libraries, type LibraryDestination } from './Libraries';
+import type { ChatParticipantsValue } from './ChatParticipants';
+import { StoryHome } from './StoryHome';
+import { useConfirmation } from './Confirmation';
 import { LibraryDraftContext, useLibraryLeaveGuard } from './LibraryDraft';
 import { useEditorLeaveGuard } from './EditorLeaveGuard';
 import { Dropdown } from './Controls';
@@ -58,13 +61,13 @@ const serverUnavailable = msg("app.cannot_reach_the_server_check_that_it");
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function lastChat() {
-  try { return localStorage.getItem('roleplay-chat') ?? 'main'; }
+  try { return (localStorage.getItem('roleplay-chat') ?? 'main') || null; }
   catch { return 'main'; }
 }
 function rememberChat(id: string | null) {
   try {
-    if (id) localStorage.setItem('roleplay-chat', id);
-    else localStorage.removeItem('roleplay-chat');
+    // An explicit close must survive reloads, even with saved chats available.
+    localStorage.setItem('roleplay-chat', id ?? '');
   } catch { /* Selection is optional; the composer separately reports draft storage failures. */ }
 }
 
@@ -75,6 +78,7 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const libraryLeave = useLibraryLeaveGuard(session?.authenticated === true);
   const [chatId, setChatId] = useState<string | null>(lastChat);
+  const confirmCloseChat = useConfirmation(chatId);
   const [branchSelections, setBranchSelections] = useState(readBranchSelections);
   const [appearance, setAppearance] = useState<AppearanceStatus>({ revision: 0, settings: defaultAppearance });
   const [appearanceLoaded, setAppearanceLoaded] = useState(false);
@@ -129,7 +133,8 @@ export function App() {
   visibleTab.current = tab;
   const composerKeyboard = useComposerKeyboard(isIOS && tab === 'story');
   useTouchScrollGuard(isIOS && session?.authenticated === true && tab === 'story');
-  const [libraryTarget, setLibraryTarget] = useState<LibraryTarget | null>(null);
+  const [libraryTarget, setLibraryTarget] = useState<LibraryDestination | null>(null);
+  const [homeParticipants, setHomeParticipants] = useState<ChatParticipantsValue>({ characterId: null, personaId: null });
   const reviewMemoryCleanup = useMemoryCleanup(command, `${chatId}:${tab}:${session?.authenticated}`);
   const drafts = useChatDraft(chatId);
   const draft = drafts.text;
@@ -218,7 +223,7 @@ export function App() {
       } else items = update;
       const previousGroup = snapshotRef.current?.groupId;
       let selected = items.chats.find(branch => branch.id === requestedChat)?.id ?? null;
-      if (!selected) {
+      if (!selected && requestedChat !== null) {
         const groupId = previousGroup && items.chats.some(branch => chatGroupId(branch) === previousGroup)
           ? previousGroup : items.chats[0] && chatGroupId(items.chats[0]);
         if (groupId) {
@@ -282,12 +287,23 @@ export function App() {
           setChatId(selected); setEdit(null); setPeek(false); setGenerationId('');
           if (!selected) rememberChat(null);
         }
-        if (!selected) setTab(current => current === 'data' ? current : 'library');
+        if (!selected) setTab(current => current === 'library' || current === 'data' ? current : 'story');
       }
     } catch (error) {
       if (id !== loadId.current) return;
       if (error instanceof ApiError && error.status === 401) void refreshSession();
-      else if (error instanceof ApiError && error.status === 404) { setChatId(null); }
+      else if (error instanceof ApiError && error.status === 404 && requestedChat !== null) {
+        // The branch can be removed after the library read. Resolve again from fresh membership.
+        if (!requested.library) void refresh({ library: true, story: true });
+        else {
+          rememberChat(null);
+          setChatId(null);
+          setSnapshot(null);
+          setToolSnapshot(null);
+          setEdit(null);
+          setTab(current => current === 'library' || current === 'data' ? current : 'story');
+        }
+      }
       else if (error instanceof ApiError) reportLoadFailure(errorText(error));
       else reportServerError();
     } finally {
@@ -621,24 +637,48 @@ export function App() {
   const datasetChangeNotice = dataChanged && <div className="error-banner" role="alert"><span>{t("app.application_data_was_imported_or_wiped_in")}</span><button onClick={() => window.location.reload()}>{t("app.reload_current_data")}</button></div>;
   if (!session) return <main className="login"><p>{t("app.opening_ore")}</p>{error && <p role="alert">{error}</p>}{connectionDialog}</main>;
   if (!session.authenticated) return <Login session={session} onLogin={async () => { setFailure(null); await refreshSession(); }} />;
-  function openChat(id: string, destination: 'story' | 'settings' = 'story') {
+  function selectChat(id: string | null, destination: 'story' | 'settings') {
     loadId.current++;
     pageRequest.current?.abort();
     pageBusy.current = false;
     setPageLoading(false);
     setPageError('');
+    selectedChat.current = id;
+    rememberChat(id);
     setChatId(id);
     setTab(destination);
     setEdit(null);
     setPeek(false);
     setBranchDialog(null);
     setPinnedChat(null);
+    setJumpTarget(null);
     setGenerationId('');
     if (snapshotRef.current?.id !== id) {
       snapshotRef.current = null;
       setSnapshot(null);
       setToolSnapshot(null);
     }
+  }
+  function openChat(id: string, destination: 'story' | 'settings' = 'story') {
+    selectChat(id, destination);
+  }
+  function closeChat(returnFocus: HTMLElement) {
+    if (busy) return;
+    if (!edit) { selectChat(null, 'story'); return; }
+    confirmCloseChat({
+      title: msg('story_home.close_chat'),
+      message: msg('story_home.discard_turn_edit'),
+      actionLabel: msg('story_home.close_chat'),
+      returnFocus,
+      onConfirm: () => selectChat(null, 'story'),
+    });
+  }
+  function openLibrary(destination: LibraryDestination) {
+    setLibraryTarget(destination);
+    setTab('library');
+  }
+  function chooseHomeParticipant(key: keyof ChatParticipantsValue, id: string | null) {
+    setHomeParticipants(current => ({ ...current, [key]: id }));
   }
   if (!library) return <main className="login">{dataChanged ? datasetChangeNotice : <p>{t("app.loading_your_story")}</p>}{error && <p role="alert">{error}</p>}{connectionDialog}</main>;
   const selectedCharacter = library.characters.find(character => character.id === snapshot?.settings.characterId);
@@ -677,7 +717,7 @@ export function App() {
     <header className="topbar">
       <div className="brand"><span className="brand-mark" aria-hidden="true">{t("app.o")}</span><div><strong>{t("app.ore")}</strong><small>{t("app.your_stories_room_to_continue")}</small></div></div>
       <nav className="tabs" aria-label={t("app.workspace")}>
-        <button disabled={!snapshot || (busy && (tab === 'library' || tab === 'settings'))} aria-current={tab !== 'library' && tab !== 'data' ? 'page' : undefined} onClick={event => leaveEditor(() => setTab('story'), { returnFocus: event.currentTarget })}>{t("app.story")}</button>
+        <button disabled={busy && (tab === 'library' || tab === 'settings')} aria-current={tab !== 'library' && tab !== 'data' ? 'page' : undefined} onClick={event => leaveEditor(() => setTab('story'), { returnFocus: event.currentTarget })}>{t(chatId === null ? 'app.home' : 'app.story')}</button>
         <button disabled={busy && tab === 'settings'} aria-current={tab === 'library' ? 'page' : undefined} onClick={event => {
           if (tab === 'library') return;
           leaveEditor(() => { setLibraryTarget(null); setTab('library'); }, { returnFocus: event.currentTarget });
@@ -700,7 +740,14 @@ export function App() {
     {tab === 'data' && <ApplicationSettings chatBehavior={behaviorEditor} appearance={appearanceEditor} lan={lanEditor} openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
     {snapshot && ['settings', 'memory', 'request'].includes(tab) && toolError && <div className="error-banner" role="alert">{toolError}<button onClick={() => setToolRetry(value => value + 1)}>{t("app.retry_loading")}</button></div>}
     {chatToolsLoading && <main className="document-panel"><p role="status">{t("app.loading_chat_tools")}</p></main>}
+    {tab === 'story' && chatId !== null && !snapshot && !failure && <main className="document-panel"><p role="status">{t('app.loading_your_story')}</p></main>}
+    {tab === 'story' && chatId === null && <StoryHome library={library} defaults={chatDefaults} busy={busy || dataChanged}
+      run={command} openLibrary={openLibrary} openChat={(id, destination) => {
+        setHomeParticipants({ characterId: null, personaId: null });
+        openChat(id, destination);
+      }} preferredParticipants={homeParticipants} chooseParticipant={chooseHomeParticipant} />}
     {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} navigation dismissDetails={jumpTarget?.chatId === snapshot.id} actions={<>
+        <button className="quiet chat-navigation-action" disabled={busy} onClick={event => closeChat(event.currentTarget)}><Icon name="Close" />{t('story_home.close_chat')}</button>
         <button className="quiet chat-navigation-action" aria-label={t("app.chat_settings")} onClick={() => setTab('settings')}><Icon name="Settings" />{t("app.chat_settings_2", { value: snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : '' })}</button>
         <button className="quiet chat-navigation-action" onClick={() => setTab('memory')}><Icon name="List" />{t("app.inspect_memory")}</button>
         <button className="quiet chat-navigation-action" aria-haspopup="dialog" onClick={() => setBranchDialog({})}><Icon name="GitBranch" />{t("branches.title")}</button>
@@ -835,11 +882,16 @@ export function App() {
     {tab === 'library' && <LibraryDraftContext.Provider value={libraryLeave.drafts}>
       <Libraries library={library} defaults={chatDefaults} currentBranchId={snapshot?.id ?? null} branchSelections={branchSelections}
         busy={busy} run={command} openChat={openChat} initialTarget={libraryTarget} recoveredDraft={libraryLeave.drafts.recovered()}
-        leaveEditor={libraryLeave.leave} clearDraft={libraryLeave.drafts.clear} />
+        leaveEditor={libraryLeave.leave} clearDraft={libraryLeave.drafts.clear} setupFinished={(destination, participant) => {
+          if (participant) chooseHomeParticipant(participant.kind === 'characters' ? 'characterId' : 'personaId', participant.id);
+          setLibraryTarget(null);
+          setTab(destination === 'settings' && !selectedChat.current ? 'story' : destination);
+        }} />
     </LibraryDraftContext.Provider>}
     {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library}
       busy={busy} working={working} run={command} sidebar={sidebar} returnToChat={returnToChat} leaveGuard={chatSettingsLeave}
-      openLibraryItem={target => { setLibraryTarget(target); setTab('library'); }} />}
+      addConnection={() => openLibrary({ kind: 'connections', action: 'create', returnTo: 'settings' })}
+      openLibraryItem={openLibrary} />}
     {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} returnToChat={returnToChat} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><Memory behavior={behaviorEditor} key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} openPins={openPins} preparation={preparing} editPreset={id => { setLibraryTarget({ kind: 'contexts', id }); setTab('library'); }} /></ChatWorkspace>}
     {tab === 'request' && snapshot && <ChatWorkspace sidebar={sidebar} returnToChat={returnToChat} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><section className="document-panel chat-panel" aria-label={t("app.request_inspector")}><p className="eyebrow">{t("app.request_inspector_2")}</p><h1>{t("app.see_what_the_model_receives")}</h1><p className="muted">{t("app.current_input_follows_your_saved_setup_and")}</p><div className="inspector-controls"><label>{t("app.inspect_request")}<Dropdown aria-label={t("app.inspect_request")} value={generationId} disabled={history.loading} onChange={setGenerationId} options={[{ value: '', label: t("app.current_request") }, ...savedRequestOptions]} /></label><button className="secondary" disabled={!currentRequest || !inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></div>
       <div className="actions">{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('latest').then(moved => { if (moved) setGenerationId(''); })}>{t('app.latest_requests')}</button>}{history.newer && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('newer').then(moved => { if (moved) setGenerationId(''); })}>{t('app.newer_requests')}</button>}{history.older && <button type="button" className="secondary" disabled={history.loading} onClick={() => void history.move('older').then(moved => { if (moved) setGenerationId(''); })}>{t('app.older_requests')}</button>}</div>

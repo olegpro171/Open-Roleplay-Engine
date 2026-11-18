@@ -1,3 +1,4 @@
+import { openStoryStore } from './support/story-fixture.js';
 import { removeBranchSchema } from './support/schema-15.js';
 import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
@@ -22,7 +23,7 @@ function rows(db: Database.Database) { return Object.fromEntries(preservedTables
 async function seed() {
   const folder = mkdtempSync(join(tmpdir(), 'ore-prompt-migration-'));
   folders.push(folder);
-  const path = join(folder, 'chat.sqlite'), store = new Store(path);
+  const path = join(folder, 'chat.sqlite'), store = openStoryStore(path);
   const connection = { name: 'Synthetic', endpoint: 'http://localhost/v1', model: 'synthetic', contextWindow: 10000, maxOutputTokens: 100, customParameters: {} };
   const connectionId = store.saveLibrary(store.libraries().revision, 'connections', connection, undefined, 'synthetic-secret');
   const characterId = store.saveLibrary(store.libraries().revision, 'characters', { name: 'Mira', description: 'Keeper', personality: 'Patient', scenario: 'Tower', mes_example: '', first_mes: '' });

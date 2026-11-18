@@ -1,3 +1,4 @@
+import { openStoryStore } from './support/story-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,7 +32,7 @@ function transcript(count: number) {
 function fixture(count: number, minTail: number, targetInputTokens = 110, turns = transcript(count), output = 'Mira brought the key across the bridge.') {
   const directory = mkdtempSync(join(tmpdir(), 'ore-context-layout-'));
   const filename = join(directory, 'layout.sqlite');
-  let store = new Store(filename);
+  let store = openStoryStore(filename);
   store.saveLibrary(store.libraryRevision(), 'prompts', compactPrompt, 'default');
   const connectionId = store.saveLibrary(store.libraryRevision(), 'connections', { name: 'Mock', endpoint: 'http://127.0.0.1/v1', model: 'mock', contextWindow: 100_000, maxOutputTokens: 1000, customParameters: {} });
   const preset = { ...defaultContextPreset, batchSize: 3, promotionGroup: 3, retainedPerLevel: 0, minTail };

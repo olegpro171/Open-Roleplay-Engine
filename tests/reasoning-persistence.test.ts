@@ -1,3 +1,4 @@
+import { openStoryStore } from './support/story-fixture.js';
 import { databaseSchemaVersion } from '../src/shared/build-info.js';
 import { removeSortingSchema } from './support/legacy-sorting.js';
 import Database from 'better-sqlite3';
@@ -16,7 +17,7 @@ const connection = { name: 'Synthetic', endpoint: 'http://localhost/v1', model: 
 it.each([false, true])('upgrades a populated schema 11 without rewriting existing data (rollback: %s)', failMigration => {
   const directory = mkdtempSync(join(tmpdir(), 'ore-reasoning-migration-'));
   const filename = join(directory, 'chat.sqlite');
-  let store = new Store(filename);
+  let store = openStoryStore(filename);
   try {
     store.saveSettings(store.snapshot().revision, connection, store.snapshot().settings, 'synthetic-secret');
     const completed = store.begin(store.snapshot().revision, randomUUID(), 'First turn.');
@@ -57,7 +58,7 @@ it.each([false, true])('upgrades a populated schema 11 without rewriting existin
 
 it('rejects late reasoning after cancellation and keeps it isolated to its saved attempt', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'ore-reasoning-cancel-'));
-  const store = new Store(join(directory, 'chat.sqlite'));
+  const store = openStoryStore(join(directory, 'chat.sqlite'));
   let release = () => {};
   let reasoning: ((text: string) => void) | undefined;
   const provider: Provider = { async stream(_request, _key, _signal, onText, onReasoning) {

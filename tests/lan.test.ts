@@ -1,3 +1,4 @@
+import { createStoryApp } from './support/story-fixture.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createServer, request } from 'node:http';
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -28,7 +29,7 @@ async function unusedPort() {
   return address.port;
 }
 async function start() {
-  instance = await createApp({ database: join(directory, 'chat.sqlite'), lan: { interfaces: () => available, hostname: () => hostname() } });
+  instance = await createStoryApp({ database: join(directory, 'chat.sqlite'), lan: { interfaces: () => available, hostname: () => hostname() } });
   await instance.app.listen({ host: '127.0.0.1', port: 0 });
 }
 function command(url: string, payload: unknown, method: 'PUT' | 'POST' = 'PUT') {

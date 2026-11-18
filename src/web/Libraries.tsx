@@ -13,19 +13,21 @@ import { SpeechColorSelector } from './SpeechColorSelector';
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { PersonaIcon } from './PersonaIcon';
-import { defaultChatInputTarget, type ChatDefaultsStatus, type ChatDefaultKind } from '../shared/chat-defaults';
+import type { ChatDefaultsStatus, ChatDefaultKind } from '../shared/chat-defaults';
+import { NewChat } from './NewChat';
 import type { PromptDiagnostic } from '../shared/prompt-diagnostics';
 import { useConfirmation } from './Confirmation';
 import { LibraryDeletionDialog, readDeletionRetry, type LibraryDeletionTarget } from './LibraryDeletionDialog';
 import { WarningDetails, WarningDialog, WarningMessages } from './WarningDialog';
 import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { CharacterAvatar, PictureSquare } from './Pictures';
+import { LibraryCard } from './LibraryCard';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
 import { ChatWorkspace } from './ChatWorkspace';
 import type { ChatToolsSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
 import { characterLabel, personaLabel, characterFields, defaultPrompt, markers, markerLabel, promptWarningMessages, type ChatSummary, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { upgradePrompt } from '../core/prompt-upgrade';
-import { ChatParticipants, characterDropdownOptions, personaDropdownOptions, type ChatParticipantsValue } from './ChatParticipants';
+import { characterDropdownOptions, personaDropdownOptions } from './ChatParticipants';
 import { TranscriptImport } from './TranscriptImport';
 import { CharacterImport } from './CharacterImport';
 import { ConnectionFileDialog, type ConnectionFileAction } from './ConnectionFileDialog';
@@ -42,7 +44,7 @@ import { defaultContextPreset, type ContextPreset } from '../shared/context';
 import { newLorebook, type Lorebook, type LoreDiagnostic } from '../shared/lorebook';
 import { LorebookEditor, LorebookImport, LoreDiagnostics } from './LorebookEditor';
 import { CopyLibraryDraft, LibraryDraftNotice, StaleLibraryDraft, useLibraryEditorDraft } from './LibraryDraft';
-import { sameDraftValue, type LibraryDraft, type LibraryEditorDraft } from './library-draft';
+import { sameDraftValue, type LibraryDraft, type LibraryEditorDraft, type SetupReturn } from './library-draft';
 
 export const defaultConnection: Connection = { name: 'My Connection', endpoint: 'https://api.openai.com/v1', model: '', contextWindow: 128_000, maxOutputTokens: 8196, customParameters: {} };
 
@@ -106,32 +108,9 @@ function SelectionFields({ value, change, library }: { value: Selection; change:
     </label>)}
   </div>;
 }
-function NewChat({ library, busy, run, created, cancel }: { library: LibrarySnapshot; busy: boolean; run: Run; created: (id: string) => void; cancel: () => void }) {
-  useLocale();
-  const [participants, setParticipants] = useState<ChatParticipantsValue>({ characterId: null, personaId: null });
-  const submitting = useRef(false);
-  async function create(event: FormEvent) {
-    event.preventDefault();
-    if (busy || submitting.current) return;
-    submitting.current = true;
-    try {
-      const character = library.characters.find(item => item.id === participants.characterId);
-      const title = character ? character.name.slice(0, 100) : t("libraries.a_new_story");
-      const settings = { title, targetInputTokens: defaultChatInputTarget, ...participants };
-      let id = '';
-      if (await run(async () => { id = (await api<{ id: string }>('/chats', 'POST', settings)).id; })) created(id);
-    } finally {
-      submitting.current = false;
-    }
-  }
-  return <form onSubmit={create}><fieldset disabled={busy}><legend>{t("libraries.new_chat")}</legend>
-    <ChatParticipants library={library} value={participants} change={setParticipants} disabled={busy} />
-    <div className="actions"><button>{t("libraries.create_chat")}</button><button type="button" className="quiet" onClick={cancel}>{t("character_import.cancel")}</button></div>
-  </fieldset></form>;
-}
-export function ChatSetup({ snapshot, library, busy, working, run, sidebar, returnToChat, openLibraryItem, leaveGuard }: {
+export function ChatSetup({ snapshot, library, busy, working, run, sidebar, returnToChat, openLibraryItem, addConnection, leaveGuard }: {
   snapshot: ChatToolsSnapshot; library: LibrarySnapshot; busy: boolean; working: boolean; run: Run; sidebar: ReactNode;
-  returnToChat: () => void; openLibraryItem: (target: LibraryTarget) => void; leaveGuard: ReturnType<typeof useEditorLeaveGuard>;
+  addConnection: () => void; returnToChat: () => void; openLibraryItem: (target: LibraryTarget) => void; leaveGuard: ReturnType<typeof useEditorLeaveGuard>;
 }) {
   useLocale();
   const [baseline] = useState(() => selection(snapshot));
@@ -181,6 +160,9 @@ export function ChatSetup({ snapshot, library, busy, working, run, sidebar, retu
       } finally { submitting.current = false; if (mounted.current) setSaving(false); }
     }}><fieldset disabled={leavingDisabled || working}><legend>{t("libraries.selections")}</legend>
       <NumberDraftContext.Provider value={numberDraft}><SelectionFields value={value} change={setValue} library={library} /></NumberDraftContext.Provider>
+      {library.connections.length === 0 && <div className="actions">
+        <button type="button" className="secondary" onClick={event => leaveGuard.leave(addConnection, { returnFocus: event.currentTarget })}>{t('story_home.add_connection')}</button>
+      </div>}
     </fieldset>
       {revision !== snapshot.revision && <p role="status">{t("libraries.this_chat_changed_reopen_chat_settings_to")}</p>}
     </form>
@@ -269,7 +251,12 @@ function LibraryHeader({ editing, children }: { editing: boolean; children: Reac
 }
 
 export type LibraryTarget = { kind: 'prompts' | 'characters' | 'lorebooks' | 'contexts'; id: string };
-type LibraryEditing = { kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean };
+export type SetupLibrary = 'connections' | 'characters' | 'personas';
+type SetupParticipant = { kind: 'characters' | 'personas'; id: string };
+export type LibraryDestination = LibraryTarget
+  | { kind: LibraryKind | 'chats'; action: 'browse' }
+  | { kind: SetupLibrary; action: 'create'; returnTo: SetupReturn };
+type LibraryEditing = { kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean; returnTo?: SetupReturn };
 
 function savedEditor(library: LibrarySnapshot, kind: LibraryKind, id: string): LibraryEditing | null {
   const record = library[kind].find(record => record.id === id);
@@ -283,7 +270,7 @@ function newEditor(kind: LibraryKind, revision: number): LibraryEditing {
   return { kind, revision, data };
 }
 
-export function Libraries({ library, defaults, currentBranchId, branchSelections, busy, run, openChat, initialTarget, recoveredDraft, leaveEditor, clearDraft }: { library: LibrarySnapshot; defaults: ChatDefaultsStatus; currentBranchId: string | null; branchSelections: ReadonlyMap<string, string>; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void; initialTarget?: LibraryTarget | null; recoveredDraft: LibraryDraft | null; leaveEditor: LeaveEditor; clearDraft: () => void }) {
+export function Libraries({ library, defaults, currentBranchId, branchSelections, busy, run, openChat, initialTarget, recoveredDraft, leaveEditor, clearDraft, setupFinished }: { library: LibrarySnapshot; defaults: ChatDefaultsStatus; currentBranchId: string | null; branchSelections: ReadonlyMap<string, string>; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void; initialTarget?: LibraryDestination | null; recoveredDraft: LibraryDraft | null; leaveEditor: LeaveEditor; clearDraft: () => void; setupFinished: (destination: SetupReturn, participant?: SetupParticipant) => void }) {
   useLocale();
   const [recovery, setRecovery] = useState(recoveredDraft);
   const [section, setSection] = useState<LibraryKind | 'chats'>(recovery?.editor.kind ?? initialTarget?.kind ?? lastLibrarySection);
@@ -308,9 +295,13 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     if (recovery) {
       const { kind, id, revision } = recovery.editor;
       if (recovery.epoch !== datasetEpoch() || revision !== library.revision) return null;
-      return id ? savedEditor(library, kind, id) : newEditor(kind, revision);
+      if (id) return savedEditor(library, kind, id);
+      return { ...newEditor(kind, revision), returnTo: 'returnTo' in recovery.editor ? recovery.editor.returnTo : undefined };
     }
-    return initialTarget ? savedEditor(library, initialTarget.kind, initialTarget.id) : null;
+    if (!initialTarget) return null;
+    if ('id' in initialTarget) return savedEditor(library, initialTarget.kind, initialTarget.id);
+    if (initialTarget.action === 'create') return { ...newEditor(initialTarget.kind, library.revision), returnTo: initialTarget.returnTo };
+    return null;
   });
   const staleRecovery = !editing && recovery;
   const editorOpen = Boolean(editing || staleRecovery);
@@ -325,7 +316,13 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     setRecovery(null);
     setEditing(null);
   }
-  const cancelEditor: MouseEventHandler<HTMLButtonElement> = event => leaveEditor(closeEditor, { returnFocus: event.currentTarget });
+  function finishEditor(participant?: SetupParticipant) {
+    if (!mounted.current) return;
+    closeEditor();
+    const destination = editing?.returnTo ?? (recovery && 'returnTo' in recovery.editor ? recovery.editor.returnTo : undefined);
+    if (destination) setupFinished(destination, participant);
+  }
+  const cancelEditor: MouseEventHandler<HTMLButtonElement> = event => leaveEditor(() => finishEditor(), { returnFocus: event.currentTarget });
   const reviewMemoryCleanup = useMemoryCleanup(run, `${section}:${editing?.id ?? editing?.kind ?? ''}`);
   const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
   const panel = useRef<HTMLElement>(null);
@@ -424,8 +421,11 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     if (initial.kind === 'characters' && 'personality' in initial.data) {
       return <CharacterEditor key={initial.id ?? 'new-character'} initial={{ ...initial, data: initial.data }}
         recovered={recovered?.kind === 'characters' ? recovered : undefined} library={library} busy={busy} run={run}
-        close={cancelEditor} closeAfterSave={closeEditor} openBook={openBook}
-        saved={() => setNotice(msg("libraries.character_saved", { value: filters.length ? t("interface.it_may_be_hidden_by_your_tag_filters") : '' }))}
+        close={cancelEditor} openBook={openBook}
+        saved={id => {
+          setNotice(msg("libraries.character_saved", { value: filters.length ? t("interface.it_may_be_hidden_by_your_tag_filters") : '' }));
+          finishEditor(id ? { kind: 'characters', id } : undefined);
+        }}
         extracted={id => {
           closeEditor();
           setFilters([]);
@@ -444,7 +444,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     return <LibraryEditor key={initial.id ?? initial.kind} initial={{ ...initial, data: initial.data }} recovered={restored}
       connections={initial.kind === 'contexts' ? sortLibraryRecords(library.connections, 'connections', library.dates) : []}
       currentRevision={library.revision} busy={busy} run={run}
-      close={cancelEditor} committed={closeEditor} />;
+      close={cancelEditor} committed={id => finishEditor(id && initial.kind === 'personas' ? { kind: 'personas', id } : undefined)} />;
   }
   async function duplicate(item: Saved<LibraryRecord>) {
     if (section === 'chats') return;
@@ -545,7 +545,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     {notice && <p className="library-notice" role="status">{notice}</p>}<LoreDiagnostics diagnostics={diagnostics} />
     {warning && <WarningDialog {...warning} close={() => setWarning(null)} />}
     {section === 'chats' ? <>
-      {creatingChat && <NewChat library={library} busy={busy} run={run} created={id => { setCreatingChat(false); openChat(id, 'settings'); }} cancel={() => setCreatingChat(false)} />}
+      {creatingChat && <NewChat library={library} busy={busy} run={run} created={(id, destination) => { setCreatingChat(false); openChat(id, destination); }} cancel={() => setCreatingChat(false)} />}
       <div className="library-list chat-list">
         {visibleChats.map(({ id, branch, branches, running }) => <article key={id} className="chat-card">
           <div className="chat-card-details">
@@ -575,52 +575,39 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
         <span className="small muted" role="status">{t("libraries.of_characters", { length: visibleRecords.length, length2: library.characters.length })}</span>
       </div>}
       <div className={`library-list${section === 'characters' ? ' character-list' : ''}`}>
-        {visibleRecords.map(item => <article className="library-card" key={item.id}>
-          <div className="library-card-body">
-            {section === 'characters' && <PictureSquare url={pictureIndex.get(item.id)?.thumbnailUrl} />}
-            <div className="library-card-content">
-              <div className="library-card-heading">
-                <h2 title={characterLabel(displayLibraryRecord(item))}>
-                  <button type="button" className="library-card-open" disabled={busy} onClick={() => {
-                    setEditing(savedEditor(library, section, item.id));
-                  }}><span className="library-card-title">{displayLibraryRecord(item).name}
-                  {(section === 'characters' || section === 'personas') && 'titleComment' in item && item.titleComment && <span className="character-comment"> · {item.titleComment}</span>}</span></button>
-                </h2>
-                <div className="library-card-tools">
-                  {(section === 'prompts' || section === 'connections' || section === 'contexts') && <DefaultBookmark kind={section} item={item} defaults={defaults} libraryRevision={library.revision} busy={busy} run={run} />}
-                  <ActionMenu label={t('libraries.actions_for', { name: characterLabel(item) })} disabled={busy} revision={library.revision}>
-                    <button className="secondary" role="menuitem" tabIndex={-1} aria-label={section === 'characters' ? t("libraries.duplicate", { value: characterLabel(item) }) : undefined} disabled={busy} onClick={() => void run(() => duplicate(item))}><Icon name="CopyOutline" />{t("libraries.duplicate_2")}</button>
-                    {section === 'connections' ? <button type="button" className="secondary" role="menuitem" tabIndex={-1} disabled={busy} aria-haspopup="dialog" onClick={() => {
-                      setConnectionFile({ kind: 'export', id: item.id, name: item.name });
-                    }}><Icon name="Upload" />{t('connection_files.export_button')}</button> : <button className="secondary" role="menuitem" tabIndex={-1} aria-label={section === 'characters' ? t("libraries.export_json", { value: characterLabel(item) }) : undefined} onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}><Icon name="Upload" />{section === 'characters' ? t("libraries.export_json_2") : t("libraries.export")}</button>}
-                    {section === 'prompts' && item.id === 'default' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => { confirmAction({ title: t("libraries.restore_original_prompt"), message: t("libraries.restore_the_built_in_default_prompt_chats"), actionLabel: t("libraries.restore_original"), onConfirm: () => { void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.restore_original")}</button>}
-                    {section === 'contexts' && item.id === 'default-context' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => {
-                      const revision = library.revision;
-                      void reviewMemoryCleanup({
-                        path: '/library/contexts/default-context/impact', body: { revision, data: defaultContextPreset }, alwaysConfirm: true,
-                        copy: { title: msg('libraries.reset_context'), message: msg('libraries.reset_context_confirmation'), actionLabel: msg('libraries.reset') },
-                        commit: memoryImpactToken => api('/library/default-context/reset', 'POST', { revision, memoryImpactToken }),
-                      });
-                    }}><Icon name="TrashOutline" />{t("libraries.reset")}</button>}
-                    {!(section === 'prompts' && item.id === 'default') && !(section === 'contexts' && item.id === 'default-context') &&
-                      <button type="button" className="secondary" role="menuitem" tabIndex={-1}
-                        aria-label={section === 'characters' ? t('libraries.delete', { value: characterLabel(item) }) : undefined}
-                        aria-haspopup="dialog" disabled={busy} onClick={() => setDeletion({ kind: section, id: item.id })}>
-                        <Icon name="TrashOutline" />{t('libraries.delete_2')}
-                      </button>}
-                  </ActionMenu>
-                </div>
-              </div>
-              <LibraryDescription text={section === 'connections' && 'model' in item ? item.model
-                  : section === 'prompts' && 'blocks' in item ? t("libraries.block_count", { count: item.blocks.length })
-                  : section === 'contexts' && 'minTail' in item ? t("libraries.minimum_tail_batch", { minTail: item.minTail, batchSize: item.batchSize })
-                  : 'description' in item ? item.description : ''}>
-                {section === 'lorebooks' && 'entries' in item &&
-                  <p>{t("libraries.entries_enabled", { length: item.entries.length, length2: item.entries.filter(entry => entry.enabled).length })}</p>}
-              </LibraryDescription>
-            </div>
-          </div>
-      </article>)}{library[section].length === 0 && <p className="muted">{t("libraries.empty_section")}</p>}{section !== 'characters' && query && visibleRecords.length === 0 && library[section].length > 0 && <p className="muted" role="status">{t("libraries.no_match_your_search", { value: libraryLabel(section).toLowerCase() })}</p>}</div>
+        {visibleRecords.map(item => <LibraryCard key={item.id} title={displayLibraryRecord(item)}
+          picture={section === 'characters' ? <PictureSquare url={pictureIndex.get(item.id)?.thumbnailUrl} /> : undefined}
+          disabled={busy} open={() => setEditing(savedEditor(library, section, item.id))}
+          description={section === 'connections' && 'model' in item ? item.model
+            : section === 'prompts' && 'blocks' in item ? t('libraries.block_count', { count: item.blocks.length })
+            : section === 'contexts' && 'minTail' in item ? t('libraries.minimum_tail_batch', { minTail: item.minTail, batchSize: item.batchSize })
+            : 'description' in item ? item.description : ''}
+          details={section === 'lorebooks' && 'entries' in item &&
+            <p>{t('libraries.entries_enabled', { length: item.entries.length, length2: item.entries.filter(entry => entry.enabled).length })}</p>}
+          tools={<>
+            {(section === 'prompts' || section === 'connections' || section === 'contexts') && <DefaultBookmark kind={section} item={item} defaults={defaults} libraryRevision={library.revision} busy={busy} run={run} />}
+            <ActionMenu label={t('libraries.actions_for', { name: characterLabel(item) })} disabled={busy} revision={library.revision}>
+              <button className="secondary" role="menuitem" tabIndex={-1} aria-label={section === 'characters' ? t("libraries.duplicate", { value: characterLabel(item) }) : undefined} disabled={busy} onClick={() => void run(() => duplicate(item))}><Icon name="CopyOutline" />{t("libraries.duplicate_2")}</button>
+              {section === 'connections' ? <button type="button" className="secondary" role="menuitem" tabIndex={-1} disabled={busy} aria-haspopup="dialog" onClick={() => {
+                setConnectionFile({ kind: 'export', id: item.id, name: item.name });
+              }}><Icon name="Upload" />{t('connection_files.export_button')}</button> : <button className="secondary" role="menuitem" tabIndex={-1} aria-label={section === 'characters' ? t("libraries.export_json", { value: characterLabel(item) }) : undefined} onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}><Icon name="Upload" />{section === 'characters' ? t("libraries.export_json_2") : t("libraries.export")}</button>}
+              {section === 'prompts' && item.id === 'default' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => { confirmAction({ title: t("libraries.restore_original_prompt"), message: t("libraries.restore_the_built_in_default_prompt_chats"), actionLabel: t("libraries.restore_original"), onConfirm: () => { void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.restore_original")}</button>}
+              {section === 'contexts' && item.id === 'default-context' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => {
+                const revision = library.revision;
+                void reviewMemoryCleanup({
+                  path: '/library/contexts/default-context/impact', body: { revision, data: defaultContextPreset }, alwaysConfirm: true,
+                  copy: { title: msg('libraries.reset_context'), message: msg('libraries.reset_context_confirmation'), actionLabel: msg('libraries.reset') },
+                  commit: memoryImpactToken => api('/library/default-context/reset', 'POST', { revision, memoryImpactToken }),
+                });
+              }}><Icon name="TrashOutline" />{t("libraries.reset")}</button>}
+              {!(section === 'prompts' && item.id === 'default') && !(section === 'contexts' && item.id === 'default-context') &&
+                <button type="button" className="secondary" role="menuitem" tabIndex={-1}
+                  aria-label={section === 'characters' ? t('libraries.delete', { value: characterLabel(item) }) : undefined}
+                  aria-haspopup="dialog" disabled={busy} onClick={() => setDeletion({ kind: section, id: item.id })}>
+                  <Icon name="TrashOutline" />{t('libraries.delete_2')}
+                </button>}
+            </ActionMenu>
+          </>} />)}{library[section].length === 0 && <p className="muted">{t("libraries.empty_section")}</p>}{section !== 'characters' && query && visibleRecords.length === 0 && library[section].length > 0 && <p className="muted" role="status">{t("libraries.no_match_your_search", { value: libraryLabel(section).toLowerCase() })}</p>}</div>
       {section === 'characters' && library.characters.length > 0 && visibleRecords.length === 0 && <p role="status">{query ? filters.length ? t("libraries.no_characters_match_your_search_and_selected") : t("libraries.no_characters_match_your_search") : t("libraries.no_characters_match_all_selected_tags_clear")}</p>}
       </>}
     </>}
@@ -635,17 +622,6 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     setNotice(kind === 'import' ? msg('connection_files.imported') : '');
     if (kind === 'import') void run(async () => {});
   }} />}</div></EditorActionsTarget.Provider>;
-}
-function LibraryDescription({ text, children }: { text: string; children?: ReactNode }) {
-  useLocale();
-  const node = useRef<HTMLDivElement>(null), [overflow, setOverflow] = useState(false);
-  useEffect(() => {
-    const element = node.current; if (!element) return;
-    const measure = () => setOverflow(element.scrollHeight > element.clientHeight + 1);
-    measure(); const observer = new ResizeObserver(measure); observer.observe(element);
-    return () => observer.disconnect();
-  }, [text, children]);
-  return <div ref={node} className={`library-card-description${overflow ? ' overflows' : ''}`}><p>{text}</p>{children}</div>;
 }
 function DefaultBookmark({ kind, item, defaults, libraryRevision, busy, run }: {
   kind: ChatDefaultKind; item: { id: string; name: string }; defaults: ChatDefaultsStatus;
@@ -668,7 +644,7 @@ function comparableLibraryFields(data: StandardDraft['data']) {
   return data;
 }
 
-function LibraryEditor({ initial, recovered, connections, currentRevision, busy, run, close, committed }: { initial: LibraryEditing & { data: StandardDraft['data'] }; recovered?: StandardDraft; connections: Saved<Connection>[]; currentRevision: number; busy: boolean; run: Run; close: MouseEventHandler<HTMLButtonElement>; committed: () => void }) {
+function LibraryEditor({ initial, recovered, connections, currentRevision, busy, run, close, committed }: { initial: LibraryEditing & { data: StandardDraft['data'] }; recovered?: StandardDraft; connections: Saved<Connection>[]; currentRevision: number; busy: boolean; run: Run; close: MouseEventHandler<HTMLButtonElement>; committed: (id?: string) => void }) {
   useLocale();
   const formId = useId();
   const [data, setData] = useState(recovered?.data ?? initial.data);
@@ -680,11 +656,11 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, busy,
   const keyOmitted = !removeKey && key !== '';
   const draft = useMemo<StandardDraft>(() => {
     const target = { id: initial.id, revision: initial.revision, numbers: numberDraft.values };
-    if ('endpoint' in data) return { ...target, kind: 'connections', data, parameters, removeKey, keyOmitted };
+    if ('endpoint' in data) return { ...target, kind: 'connections', returnTo: initial.returnTo, data, parameters, removeKey, keyOmitted };
     if ('blocks' in data) return { ...target, kind: 'prompts', data };
     if ('batchSize' in data) return { ...target, kind: 'contexts', data };
-    return { ...target, kind: 'personas', data };
-  }, [initial.id, initial.revision, data, parameters, removeKey, keyOmitted, numberDraft.values]);
+    return { ...target, kind: 'personas', returnTo: initial.returnTo, data };
+  }, [initial.id, initial.revision, initial.returnTo, data, parameters, removeKey, keyOmitted, numberDraft.values]);
   const dataChanged = useMemo(() => data !== initial.data && !sameDraftValue(comparableLibraryFields(data), comparableLibraryFields(initial.data)), [data, initial.data]);
   const dirty = dataChanged || parameters !== baselineParameters || removeKey || key !== '' || numberDraft.dirty;
   const storageError = useLibraryEditorDraft(draft, dirty);
@@ -711,7 +687,13 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, busy,
       });
       return;
     }
-    if (await run(() => api(initial.id ? `/library/${initial.id}` : '/library', initial.id ? 'PUT' : 'POST', { revision: initial.revision, kind: initial.kind, data: value, ...(initial.kind === 'connections' && (key || removeKey) ? { apiKey: removeKey ? '' : key } : {}) }))) committed();
+    const request: { result?: { id: string } } = {};
+    if (await run(async () => {
+      request.result = await api<{ id: string }>(initial.id ? `/library/${initial.id}` : '/library', initial.id ? 'PUT' : 'POST', {
+        revision: initial.revision, kind: initial.kind, data: value,
+        ...(initial.kind === 'connections' && (key || removeKey) ? { apiKey: removeKey ? '' : key } : {}),
+      });
+    })) committed(request.result?.id);
   }
   function textField(field: string, label: string, multiline = true, full = true) {
     const value = (data as unknown as Record<string, string>)[field];

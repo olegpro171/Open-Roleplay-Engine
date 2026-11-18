@@ -9,6 +9,7 @@ import type { ChatSnapshot } from '../src/shared/contracts.js';
 import { defaultContextPreset } from '../src/shared/context.js';
 import { compactPrompt } from './support/compact-prompt.js';
 import type { StorySnapshot } from '../src/shared/transcript.js';
+import { openStoryStore } from './support/story-fixture.js';
 
 it.each(['hold', 'reasoning'] as const)('recovers a real server crash during %s with checkpointed output and no automatic provider retry', async mode => {
   const directory = mkdtempSync(join(tmpdir(), 'roleplay-crash-'));
@@ -37,6 +38,7 @@ it.each(['hold', 'reasoning'] as const)('recovers a real server crash during %s 
   const getState = async () => fetch(`${address}/api/chat`, { headers: { cookie } }).then((response) => response.json() as Promise<ChatSnapshot>);
   const post = (path: string, body: unknown, method = 'POST') => fetch(`${address}${path}`, { method, headers: { cookie, Origin: address, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   try {
+    openStoryStore(join(directory, 'chat.sqlite')).close();
     await start();
     const setup = await post('/api/setup', { password: 'crash-synthetic-password' });
     cookie = setup.headers.get('set-cookie')!.split(';')[0];

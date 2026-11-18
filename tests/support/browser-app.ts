@@ -10,8 +10,9 @@ import { importedTurnsSchema, transcriptRequestLimit } from '../../src/shared/li
 import { z } from 'zod';
 import { startMockProvider } from './mock-provider.js';
 import { seedTranscript } from './transcript-fixture.js';
+import { seedStory } from './story-fixture.js';
 
-export async function startBrowserApp(port = 0) {
+export async function startBrowserApp(port = 0, { starterChat = true } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'roleplay-browser-'));
   let application: Awaited<ReturnType<typeof createApp>> | undefined;
   let provider: Awaited<ReturnType<typeof startMockProvider>> | undefined;
@@ -34,6 +35,7 @@ export async function startBrowserApp(port = 0) {
       }, interfaces: () => [{ id: 'browser-fixture:127.0.0.1', name: 'browser-fixture', address: '127.0.0.1', netmask: '255.0.0.0', prefix: 8 }] },
     });
     const { app, coordinator, store } = application;
+    if (starterChat) seedStory(store);
     // These fixture controls exist only in test processes, never in the application.
     app.get('/__test/endpoint', async () => ({ endpoint: mock.url }));
     app.post('/__test/mode', async request => { mock.setMode((request.body as { mode: Parameters<typeof mock.setMode>[0] }).mode); return {}; });

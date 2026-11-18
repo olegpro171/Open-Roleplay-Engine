@@ -1,6 +1,6 @@
 import { enterModel } from './model-picker-helpers';
 import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
-import { openChatTool } from './chat-tools';
+import { openChatTool, openNewChatSettings } from './chat-tools';
 import { expect, devices, type Page } from '@playwright/test';
 import { test as isolatedTest } from './isolated-app';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
@@ -219,6 +219,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed J
   await choose(page, 'Character', 'Moon');
   await choose(page, 'Persona', 'Visitor');
   await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await openNewChatSettings(page);
   await expect(page.getByLabel('Chat title')).toHaveValue('Moon');
   await page.getByLabel('Chat title').fill('The Observatory');
   await choose(page, 'Connection', 'Tower model');
@@ -390,6 +391,7 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
   await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await openNewChatSettings(page);
   await page.getByLabel('Chat title').fill('Temporary sweep chat');
   await page.getByLabel('Target input tokens').fill('');
   await expect(page.getByLabel('Target input tokens')).toHaveValue('');
@@ -418,9 +420,12 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
     await expect(page.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
   }
   await page.reload();
+  await expect(page.getByRole('heading', { name: 'Welcome to ORE' })).toBeVisible();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await expect(page.getByText('Create a chat to start your next story.')).toBeVisible();
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
   await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await openNewChatSettings(page);
   await expect(page.getByLabel('Chat title')).toHaveValue('A new story');
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Set up your story' })).toBeVisible();

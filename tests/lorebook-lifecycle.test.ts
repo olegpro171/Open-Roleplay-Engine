@@ -1,3 +1,4 @@
+import { openStoryStore } from './support/story-fixture.js';
 import { afterEach, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,7 +18,7 @@ afterEach(async () => { for (const dispose of disposers.splice(0)) await dispose
 function fixture(content = '@@dont_activate_after_match\nThe key opens the observatory.') {
   const directory = mkdtempSync(join(tmpdir(), 'ore-lore-life-'));
   const filename = join(directory, 'state.sqlite');
-  let store = new Store(filename);
+  let store = openStoryStore(filename);
   const calls: RequestPreview[] = [];
   let mode: 'normal' | 'fail' | 'hold' = 'normal';
   let release: (() => void) | undefined;

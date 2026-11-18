@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
-import { openChatTool } from './chat-tools';
+import { openChatTool, openNewChatSettings } from './chat-tools';
 
 for (const width of [320, 390, 800]) {
   test(`mobile header details overlay preserves chat space and keyboard access at ${width}px`, async ({ page }, testInfo) => {
@@ -12,6 +12,7 @@ for (const width of [320, 390, 800]) {
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
     await page.getByRole('button', { name: 'New chat', exact: true }).click();
     await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+    await openNewChatSettings(page);
     await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
     const toggle = page.locator('header').getByRole('button', { name: 'Chat details', exact: true, includeHidden: true });
     const sidebar = page.getByRole('complementary', { name: 'Current chat' });
@@ -78,6 +79,7 @@ for (const width of [1280, 820, 801, 800, 390, 320]) {
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
     await page.getByRole('button', { name: 'New chat', exact: true }).click();
     await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+    await openNewChatSettings(page);
     await expect(page.getByLabel('Chat title')).toHaveValue('A new story');
     const chatId = await page.evaluate(() => localStorage.getItem('roleplay-chat'));
     const state = () => page.request.get(`/api/chats/${chatId}`).then(response => response.json() as Promise<ChatSnapshot>);
@@ -180,6 +182,7 @@ for (const width of [1280, 390]) {
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
     await page.getByRole('button', { name: 'New chat', exact: true }).click();
     await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+    await openNewChatSettings(page);
     await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
     const sidebar = page.getByRole('complementary', { name: 'Current chat' });
     const context = sidebar.locator('.context-dropdown');

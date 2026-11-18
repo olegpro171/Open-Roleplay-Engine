@@ -1,3 +1,4 @@
+import { openStoryStore, createStoryApp } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { Readable } from 'node:stream';
 import { semanticFingerprint } from '../src/core/lorebook.js';
@@ -28,7 +29,7 @@ let directory: string;
 const stores: Store[] = [], services: BackupService[] = [], coordinators: GenerationCoordinator[] = [], processors: PictureProcessor[] = [];
 beforeEach(() => { directory = mkdtempSync(join(tmpdir(),'ore-backup-recovery-')); });
 afterEach(async () => { vi.useRealTimers(); await Promise.all(coordinators.splice(0).map(value => value.shutdown())); await Promise.all(processors.splice(0).map(value => value.close())); services.splice(0).forEach(value => value.close()); stores.splice(0).forEach(value => { if (value.sqlite.open) value.close(); }); rmSync(directory,{ recursive: true,force: true }); });
-function open(name: string) { const value = new Store(join(directory,`${name}.sqlite`)); stores.push(value); return value; }
+function open(name: string, seed = true) { const path = join(directory,`${name}.sqlite`); const value = seed ? openStoryStore(path) : new Store(path); stores.push(value); return value; }
 function backup(db: Store,name: string) { const value = new BackupService(db,join(directory,`${name}.sqlite`)); services.push(value); return value; }
 // Schema-corruption and crash fixtures need the inner SQLite snapshot.
 async function exported(value: BackupService) { const file = await value.export(); try { return await unprotectBytes(readFileSync(file.path), 'backup', '', Number.MAX_SAFE_INTEGER); } finally { file.cleanup(); } }
@@ -66,7 +67,7 @@ it('round trips variants, corrected selected memory, picture links, exact reques
   const persistence = new BackupStore(db); persistence.commit({ requestId: randomUUID(),digest: '0'.repeat(64),token: persistence.token,overwrite: true });
   const review = await backups.inspect(Readable.from([bytes]), 'owner'); expect(review.blockers).toEqual([]); backups.commit(review.stageId,'owner',command(review));
   await coordinator.shutdown(); coordinators.splice(coordinators.indexOf(coordinator),1); backups.close(); db.close();
-  db = open('roundtrip'); backups = backup(db,'roundtrip'); coordinator = new GenerationCoordinator(db,provider); coordinators.push(coordinator);
+  db = open('roundtrip', false); backups = backup(db,'roundtrip'); coordinator = new GenerationCoordinator(db,provider); coordinators.push(coordinator);
   expect(calls).toHaveLength(totalCalls);
   const after = db.snapshot(chatId);
   expect(after.turns).toEqual(before.turns); expect(after.context.selected).toEqual(before.context.selected); expect(after.context.summaries).toEqual(before.context.summaries);
@@ -200,7 +201,7 @@ it('keeps the last committed story when the server process dies inside the impor
   // Windows reports TerminateProcess as a nonzero exit code, without a signal.
   if (process.platform === 'win32') expect(termination.code).not.toBe(0);
   else expect(termination.signal).toBe('SIGKILL');
-  const restarted = open('crash'); expect(restarted.snapshot()).toEqual(before); expect(new BackupStore(restarted).token).toBe(token); expect(restarted.sqlite.prepare('SELECT * FROM data_commands').all()).toEqual([]);
+  const restarted = open('crash', false); expect(restarted.snapshot()).toEqual(before); expect(new BackupStore(restarted).token).toBe(token); expect(restarted.sqlite.prepare('SELECT * FROM data_commands').all()).toEqual([]);
   restarted.sqlite.exec('DROP TRIGGER synthetic_crash');
   const resumed = backup(restarted,'crash'), review = await resumed.inspect(Readable.from([readFileSync(input)]), 'owner'); expect(review.blockers).toEqual([]); resumed.commit(review.stageId,'owner',command(review)); expect(restarted.snapshot().turns[0].assistant.text).toBe('Older backup response');
 },15000);
@@ -209,7 +210,7 @@ it('blocks import/wipe until paid work and its cancelled asynchronous completion
   let release = () => {}, entered = () => {};
   const started = new Promise<void>(resolve => { entered = resolve; });
   const provider: Provider = { async stream(_request,_key,_signal,onText) { entered(); await new Promise<void>(resolve => { release = resolve; }); onText('Late response'); return { finishReason: 'stop' }; } };
-  const application = await createApp({ database: join(directory,'active.sqlite'),provider });
+  const application = await createStoryApp({ database: join(directory,'active.sqlite'),provider });
   const base = { host: 'localhost',origin: 'http://localhost','content-type': 'application/json' };
   try {
     const setup = await application.app.inject({ method: 'POST',url: '/api/setup',headers: base,payload: { password: 'synthetic-owner-password' } });

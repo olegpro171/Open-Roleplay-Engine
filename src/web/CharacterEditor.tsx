@@ -10,7 +10,7 @@ import { PictureEditor, PictureSquare, pictureMutation, savedPictureDraft } from
 import { useContext, useEffect, useId, useMemo, useRef, useState, type MouseEventHandler } from 'react';
 import { EditorActions } from './EditorActions';
 import { CopyLibraryDraft, LibraryDraftNotice, useLibraryEditorDraft } from './LibraryDraft';
-import type { DraftOf } from './library-draft';
+import type { DraftOf, SetupReturn } from './library-draft';
 import { EditorTextarea } from './EditorTextarea';
 import { readCharacterAlternateGreetings, characterLabel, maxAlternateGreetings, type LibraryCharacter, type LibrarySnapshot } from '../shared/library';
 import type { TagPolicy, TagReview } from '../shared/tags';
@@ -19,7 +19,7 @@ import { Dropdown, NumberDraftContext, NumberInput, useNumberDraft } from './Con
 import { TagChooser, TagImportOptions, TagManager, type TagCommit } from './Tags';
 import { sortLibraryRecords } from './library-sorting';
 
-type Initial = { id?: string; revision: number; data: LibraryCharacter };
+type Initial = { id?: string; revision: number; data: LibraryCharacter; returnTo?: SetupReturn };
 function editableCharacter(data: LibraryCharacter): LibraryCharacter {
   const greetings = readCharacterAlternateGreetings(data);
   const editable = greetings.success ? { ...data, alternate_greetings: greetings.data } : { ...data };
@@ -31,7 +31,7 @@ function editableCharacter(data: LibraryCharacter): LibraryCharacter {
   if (note.success) editable.depth_prompt = note.data;
   return editable;
 }
-export function CharacterEditor({ initial, recovered, library, busy, run, close, closeAfterSave, openBook, extracted, saved }: { initial: Initial; recovered?: DraftOf<'characters'>; library: LibrarySnapshot; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; close: MouseEventHandler<HTMLButtonElement>; closeAfterSave: () => void; openBook: (id: string, returnFocus: HTMLElement) => void; extracted: (id: string) => void; saved: () => void }) {
+export function CharacterEditor({ initial, recovered, library, busy, run, close, openBook, extracted, saved }: { initial: Initial; recovered?: DraftOf<'characters'>; library: LibrarySnapshot; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; close: MouseEventHandler<HTMLButtonElement>; openBook: (id: string, returnFocus: HTMLElement) => void; extracted: (id: string) => void; saved: (id: string) => void }) {
   useLocale();
   const formId = useId();
   const [baselineData, setBaselineData] = useState(() => editableCharacter(initial.data));
@@ -60,8 +60,8 @@ export function CharacterEditor({ initial, recovered, library, busy, run, close,
   const tagsChanged = tagIds.length !== baseline.length || tagIds.some(id => !baseline.includes(id));
   const numberDraft = useNumberDraft(recovered?.numbers);
   const dirty = characterChanged || pictureChanged || tagsChanged || processing || numberDraft.dirty;
-  const draft = useMemo<DraftOf<'characters'>>(() => ({ kind: 'characters', id: initial.id, revision, data, tagIds, pictureOmitted: pictureChanged || processing, numbers: numberDraft.values }),
-    [initial.id, revision, data, tagIds, pictureChanged, processing, numberDraft.values]);
+  const draft = useMemo<DraftOf<'characters'>>(() => ({ kind: 'characters', id: initial.id, returnTo: initial.returnTo, revision, data, tagIds, pictureOmitted: pictureChanged || processing, numbers: numberDraft.values }),
+    [initial.id, initial.returnTo, revision, data, tagIds, pictureChanged, processing, numberDraft.values]);
   const storageError = useLibraryEditorDraft(draft, dirty);
   const committed: TagCommit = (before, after, snapshot, deletedId) => {
     if (!alive.current || before !== revision || snapshot.revision !== after) return;
@@ -94,8 +94,9 @@ export function CharacterEditor({ initial, recovered, library, busy, run, close,
     submitting.current = true; setPending(true); setError('');
     const command: CharacterSaveCommand = frozen ?? { kind: 'characters', requestId: newId(), revision, data: structuredClone(data), tagIds: [...tagIds], expectedPicture: baselinePicture?.key ?? null, picture: pictureMutation(picture, baselinePicture) };
     setUncertain(command);
+    let id: string | undefined;
     const ok = await run(async () => {
-      try { await api(initial.id ? `/library/${initial.id}` : '/library', initial.id ? 'PUT' : 'POST', command); }
+      try { id = (await api<{ id: string }>(initial.id ? `/library/${initial.id}` : '/library', initial.id ? 'PUT' : 'POST', command)).id; }
       catch (error) {
         if (alive.current) {
           if (error instanceof ApiError && error.status >= 400 && error.status < 500) { setUncertain(null); setError(errorText(error)); }
@@ -107,7 +108,7 @@ export function CharacterEditor({ initial, recovered, library, busy, run, close,
     submitting.current = false;
     if (!alive.current) return;
     setPending(false);
-    if (ok) { setUncertain(null); saved(); closeAfterSave(); }
+    if (ok && id) { setUncertain(null); saved(id); }
   }
   function reconcile() {
     const current = library.characters.find(card => card.id === initial.id);
@@ -130,6 +131,7 @@ export function CharacterEditor({ initial, recovered, library, busy, run, close,
     : source.character_book != null;
   return <NumberDraftContext.Provider value={numberDraft}>
     <form id={formId} onSubmit={event => { event.preventDefault(); void save(); }}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy || pending || stale || Boolean(uncertain)}><legend>{t("character_editor.character", { value: initial.id ? t("libraries.edit_2") : t("libraries.create") })}</legend><div className="form-grid">
+      {initial.returnTo === 'story' && <p className="small muted full">{t('story_home.character_editor_help')}</p>}
       <label>{t("character_editor.name")}<input required maxLength={100} value={data.name} onChange={event => setData({ ...data, name: event.target.value })} /></label>
       <label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={data.titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("character_editor.an_optional_label_useful_for_distinguishing_between")}</small></label>
       <SpeechColorSelector value={data.speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || pending || stale || Boolean(uncertain)} />

@@ -1,3 +1,4 @@
+import { openNewChatSettings } from './chat-tools';
 import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import { defaultPrompt, type LibraryKind, type LibrarySnapshot } from '../../src/shared/library';
@@ -61,6 +62,7 @@ test('Libraries reopens the last category and new Connections reserve 8,196 outp
   await login(page);
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
   await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await openNewChatSettings(page);
   await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Connections', exact: true }).click();
