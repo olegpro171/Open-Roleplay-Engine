@@ -1,4 +1,4 @@
-import { openNewChatSettings } from './chat-tools';
+import { openNewChatSettings, addChatModel, openChatCreation, chooseNewChatCharacter } from './chat-tools';
 import { expect } from '@playwright/test';
 import { test } from './isolated-app';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
@@ -20,6 +20,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
       } });
       expect(updated.ok()).toBe(true);
 
+      await addChatModel(page);
       for (const locale of ['en', 'ru'] as const) {
         const name = locale === 'en' ? 'Moon' : 'Луна'.repeat(25);
         const library: LibrarySnapshot = await page.request.get('/api/library').then(response => response.json());
@@ -35,10 +36,9 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
         await page.getByRole('button', { name: locale === 'en' ? 'Libraries' : 'Библиотека', exact: true }).click();
         await page.getByRole('button', { name: locale === 'en' ? 'Chats' : 'Чаты', exact: true }).click();
-        await page.getByRole('button', { name: locale === 'en' ? 'New chat' : 'Новый чат', exact: true }).click();
-        await page.getByRole('combobox', { name: locale === 'en' ? 'Character' : 'Персонаж', exact: true }).click();
-        await page.getByRole('option', { name: `${name} · Local display comment`, exact: true }).click();
-        await page.getByRole('button', { name: locale === 'en' ? 'Create chat' : 'Создать чат', exact: true }).click();
+        await openChatCreation(page, locale);
+        await chooseNewChatCharacter(page, `${name} · Local display comment`, locale);
+        await page.getByRole('button', { name: locale === 'en' ? 'Start chat' : 'Начать чат', exact: true }).click();
         await openNewChatSettings(page, locale);
         const title = page.getByLabel(locale === 'en' ? 'Chat title' : 'Название чата', { exact: true });
         await expect(title).toHaveValue(name);

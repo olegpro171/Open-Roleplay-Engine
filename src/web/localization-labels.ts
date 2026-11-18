@@ -107,7 +107,7 @@ export function loreReasonLabel(reason: string) {
 }
 
 const newKeys = {
-  "chats": "libraryActions.new.chats",
+  "chats": "libraries.new_chat",
   "personas": "libraryActions.new.personas",
   "characters": "libraryActions.new.characters",
   "lorebooks": "libraryActions.new.lorebooks",

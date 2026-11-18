@@ -4,11 +4,12 @@ import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
 import { quadrantPicture } from '../support/pictures';
+import { openChatCreation } from './chat-tools';
 
 test.use({ starterChat: false });
 
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
-const home = (page: Page) => page.getByRole('main', { name: 'Welcome to ORE' });
+const home = (page: Page) => page.getByRole('main', { name: 'New chat' });
 const library = async (page: Page): Promise<LibrarySnapshot> => (await page.request.get('/api/library')).json();
 
 async function expectActionAtPanelBottom(panel: Locator, label: string) {
@@ -50,7 +51,7 @@ async function signIn(page: Page) {
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await button(page, 'Create owner account').click();
   await expect(home(page)).toBeVisible();
-  await expect(button(page, 'Home')).toHaveAttribute('aria-current', 'page');
+  await expect(button(page, 'New chat')).toHaveAttribute('aria-current', 'page');
 }
 
 async function addConnection(page: Page) {
@@ -67,8 +68,10 @@ async function addConnection(page: Page) {
 
 test('first run guides setup, preserves a closed chat and lets an in-flight reply finish', async ({ page, browserApp }) => {
   await signIn(page);
+  const intro = 'Welcome to ORE. Choose a Character and an optional Persona to start a chat.';
+  await expect(home(page).getByText(intro, { exact: true })).toBeVisible();
   expect((await library(page)).chats).toEqual([]);
-  await expect(button(page, 'New chat')).toBeDisabled();
+  await expect(button(page, 'Start chat')).toBeDisabled();
   await expect(page.getByLabel('Your next turn')).toHaveCount(0);
   const connectionPanel = home(page).getByRole('region', { name: 'Connection', exact: true });
   const addLink = connectionPanel.getByRole('button', { name: 'Add a Connection', exact: true });
@@ -79,8 +82,9 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
   await button(page, 'Cancel').click();
   await expect(home(page)).toBeVisible();
   await addConnection(page);
+  await expect(home(page).getByText(intro, { exact: true })).toBeVisible();
   await expect(addLink).toHaveCount(0);
-  await expect(button(page, 'New chat')).toBeDisabled();
+  await expect(button(page, 'Start chat')).toBeDisabled();
 
   await button(page, 'New persona').click();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Visitor');
@@ -124,11 +128,11 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
   await expect(characterCard.locator('img')).toHaveAttribute('src', picture.thumbnailUrl);
   await homeCharacter.click();
   await page.getByRole('option', { name: 'Keeper', exact: true }).click();
-  await expect(button(page, 'New chat')).toBeEnabled();
+  await expect(button(page, 'Start chat')).toBeEnabled();
   await homeCharacter.click();
   await page.getByRole('option', { name: 'None selected', exact: true }).click();
   await expect(characterCard).toHaveCount(0);
-  await expect(button(page, 'New chat')).toBeDisabled();
+  await expect(button(page, 'Start chat')).toBeDisabled();
   await homeCharacter.click();
   await page.getByRole('option', { name: 'Keeper', exact: true }).click();
 
@@ -143,17 +147,17 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
     await route.fulfill({ status: 422, json: { message: 'Synthetic chat creation failure.' } });
   }, { times: 1 });
   try {
-    await button(page, 'New chat').click();
-    await expect(button(page, 'New chat')).toBeDisabled();
+    await button(page, 'Start chat').click();
+    await expect(button(page, 'Start chat')).toBeDisabled();
   } finally {
     rejectCreation();
   }
   await expect(page.getByRole('alert')).toContainText('Synthetic chat creation failure.');
-  await expect(button(page, 'New chat')).toBeEnabled();
+  await expect(button(page, 'Start chat')).toBeEnabled();
   await expect(characterCard.getByRole('heading')).toHaveText('Keeper');
   await expect(personaCard.getByRole('heading')).toHaveText('Visitor · Tower traveller');
   expect((await library(page)).chats).toHaveLength(0);
-  await button(page, 'New chat').dblclick();
+  await button(page, 'Start chat').dblclick();
   const conversation = page.getByRole('region', { name: 'Conversation' });
   await expect(conversation).toContainText('Welcome, Visitor. The tower is open.');
   await expect(button(page, 'Story')).toHaveAttribute('aria-current', 'page');
@@ -178,7 +182,7 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
   await expect(home(page)).toBeVisible();
   await page.reload();
   await expect(home(page)).toBeVisible();
-  await expect(button(page, 'Home')).toHaveAttribute('aria-current', 'page');
+  await expect(button(page, 'New chat')).toHaveAttribute('aria-current', 'page');
   await button(page, 'Open Chats').click();
   await button(page, 'Keeper').click();
   await expect(conversation).toContainText('The lantern flickers.');
@@ -188,6 +192,18 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
   await button(page, 'Edit response').first().click();
   const turnEdit = page.getByLabel('Edit assistant text', { exact: true });
   await turnEdit.fill('Unsaved greeting edit.');
+  await button(page, 'Libraries').click();
+  await openChatCreation(page);
+  await expect(home(page).getByText(intro, { exact: true })).toBeVisible();
+  await homeCharacter.click();
+  await page.getByRole('option', { name: 'Keeper', exact: true }).click();
+  await button(page, 'Start chat').click();
+  const startConfirm = page.getByRole('dialog', { name: 'Start chat', exact: true });
+  await startConfirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect((await library(page)).chats.map(item => item.id)).toEqual([chat.id]);
+  await button(page, 'Open Chats').click();
+  await button(page, 'Keeper').click();
+  await expect(turnEdit).toHaveValue('Unsaved greeting edit.');
   await button(page, 'Close chat').click();
   const confirm = page.getByRole('dialog', { name: 'Close chat', exact: true });
   await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -210,10 +226,10 @@ test('imports a card before Connection setup and tracks bookmarks independently 
   expect((await library(page)).characters).toEqual([]);
   await button(page, 'Import').click();
   await expect(characters.getByRole('button', { name: 'Imported guide', exact: true })).toBeVisible();
-  await button(page, 'Home').click();
+  await button(page, 'New chat').click();
   await expect(home(page)).toContainText('Imported guide');
   await expect(button(page, 'Add a Connection')).toBeVisible();
-  await expect(button(page, 'New chat')).toBeDisabled();
+  await expect(button(page, 'Start chat')).toBeDisabled();
   await addConnection(page);
 
   const saved = await library(page);
@@ -231,12 +247,12 @@ test('imports a card before Connection setup and tracks bookmarks independently 
   await page.getByRole('combobox', { name: 'Sort connections', exact: true }).click();
   await page.getByRole('option', { name: 'Name A–Z', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Connections', exact: true }).getByRole('heading', { level: 2 }).first()).toHaveText('A second model');
-  await button(page, 'Home').click();
+  await button(page, 'New chat').click();
   await expect(panel).toContainText('First model');
   await button(page, 'Manage Connections').click();
   await button(page, 'Set A second model as default').click();
   await expect(button(page, 'Clear A second model as default')).toBeVisible();
-  await button(page, 'Home').click();
+  await button(page, 'New chat').click();
   await expect(panel).toContainText('A second model');
 
   const promptPanel = home(page).getByRole('region', { name: 'Prompt', exact: true });
@@ -249,14 +265,14 @@ test('imports a card before Connection setup and tracks bookmarks independently 
   await button(page, 'Manage Prompts').click();
   await button(page, `Set ${promptName} as default`).click();
   await expect(button(page, `Clear ${promptName} as default`)).toBeVisible();
-  await button(page, 'Home').click();
+  await button(page, 'New chat').click();
   await expect(promptPanel.getByRole('status')).toContainText(promptName);
   await page.setViewportSize({ width: 801, height: 844 });
   await expectActionAtPanelBottom(panel, 'Manage Connections');
   await page.setViewportSize({ width: 390, height: 844 });
 
   await expect(home(page).getByRole('heading', { name: 'Imported guide', exact: true })).toBeVisible();
-  await button(page, 'New chat').click();
+  await button(page, 'Start chat').click();
   await expect(page.getByRole('region', { name: 'Conversation' })).toContainText('Welcome to the grove.');
   const [chat] = (await library(page)).chats;
   const snapshot: ChatSnapshot = await (await page.request.get(`/api/chats/${chat.id}`)).json();
@@ -268,11 +284,11 @@ test('imports a card before Connection setup and tracks bookmarks independently 
   await button(page, 'Manage Prompts').click();
   await button(page, `Clear ${promptName} as default`).click();
   await expect(button(page, `Set ${promptName} as default`)).toBeVisible();
-  await button(page, 'Home').click();
+  await button(page, 'New chat').click();
   await expect(promptPanel.getByRole('status')).toContainText('Default prompt');
 });
 
-test('edits selected cards from Home and returns there after saving and recovering a draft', async ({ page, browserApp }) => {
+test('edits selected cards from New chat and returns there after saving and recovering a draft', async ({ page, browserApp }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page);
   await addCharacter(page, browserApp.url, 'Unselected guide');
@@ -338,7 +354,7 @@ const participantLayout = (panel: Locator) => panel.evaluate(element => {
   };
 });
 
-test('Story home fits desktop and phone in each approved theme and updates when switched to Russian', async ({ page, browserApp }, testInfo) => {
+test('New chat fits desktop and phone in each approved theme and updates when switched to Russian', async ({ page, browserApp }, testInfo) => {
   await signIn(page);
   const welcome = home(page).getByRole('heading', { level: 1 });
   const welcomeFont = await welcome.evaluate(element => getComputedStyle(element).fontFamily);
@@ -373,7 +389,7 @@ test('Story home fits desktop and phone in each approved theme and updates when 
       const [connection, prompt, character, persona] = await Promise.all([
         connectionPanel.boundingBox(), promptPanel.boundingBox(), characterPanel.boundingBox(), personaPanel.boundingBox(),
       ]);
-      if (!connection || !prompt || !character || !persona) throw new Error('Expected all Story home panels');
+      if (!connection || !prompt || !character || !persona) throw new Error('Expected all New chat panels');
       if (width > 800) {
         expect(connection.y).toBe(prompt.y);
         expect(prompt.x).toBeGreaterThan(connection.x + connection.width);
@@ -416,7 +432,7 @@ test('Story home fits desktop and phone in each approved theme and updates when 
     await page.getByRole('option', { name: 'Forest guide', exact: true }).click();
   };
   await chooseForestGuide();
-  await button(page, 'New chat').click();
+  await button(page, 'Start chat').click();
   await expect(page.getByRole('region', { name: 'Conversation' })).toContainText('Welcome to the forest.');
   for (const theme of themes) {
     await setTheme(theme);
@@ -426,7 +442,7 @@ test('Story home fits desktop and phone in each approved theme and updates when 
       await expect(button(page, 'Close chat')).toBeInViewport();
       expect(await page.getByRole('heading', { name: 'Forest guide', level: 1 }).evaluate(element => getComputedStyle(element).fontFamily)).toBe(welcomeFont);
       await button(page, 'Close chat').click();
-      await expect(button(page, 'New chat')).toBeVisible();
+      await expect(button(page, 'Start chat')).toBeVisible();
       await expect(button(page, 'Open Chats')).toBeVisible();
       await expect(characterPanel.getByRole('button')).toHaveText(['New character', 'Manage Characters']);
       await expect(button(page, 'Manage Characters')).toHaveCSS('font-size',
@@ -438,7 +454,7 @@ test('Story home fits desktop and phone in each approved theme and updates when 
       await expectPanelBorder(personaPanel, '--line');
       expect(await previews()).toEqual(emptyLayout.get(width));
       await chooseForestGuide();
-      await expect(button(page, 'New chat')).toBeEnabled();
+      await expect(button(page, 'Start chat')).toBeEnabled();
       await expectPanelBorder(characterPanel, '--line');
       await personaPanel.getByRole('combobox', { name: 'Persona', exact: true }).click();
       await page.getByRole('option', { name: 'Woodland traveller', exact: true }).click();
@@ -456,7 +472,7 @@ test('Story home fits desktop and phone in each approved theme and updates when 
         await expect(panel.getByRole('article')).toHaveCount(0);
       }
       expect(await previews()).toEqual(emptyLayout.get(width));
-      await expect(button(page, 'New chat')).toBeDisabled();
+      await expect(button(page, 'Start chat')).toBeDisabled();
       await expectPanelBorder(characterPanel, '--danger-border');
       await button(page, 'Open Chats').click();
       await button(page, 'Forest guide').click();
@@ -469,9 +485,10 @@ test('Story home fits desktop and phone in each approved theme and updates when 
   await button(page, 'Language').click();
   await page.getByRole('combobox', { name: 'Interface language' }).click();
   await page.getByRole('option', { name: 'Русский', exact: true }).click();
-  await button(page, 'Главная').click();
-  await expect(button(page, 'Главная')).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByRole('heading', { name: 'Добро пожаловать в ORE' })).toBeVisible();
+  await button(page, 'Новый чат').click();
+  await expect(button(page, 'Новый чат')).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'Новый чат' })).toBeVisible();
+  await expect(button(page, 'Начать чат')).toBeDisabled();
   await expect(page.getByRole('region', { name: 'Промпт', exact: true })).toContainText('Промпт по умолчанию');
   await expect(button(page, 'Управление промптами')).toBeVisible();
   await expect(button(page, 'Управление персонажами')).toBeVisible();

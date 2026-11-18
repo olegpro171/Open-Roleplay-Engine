@@ -4,12 +4,12 @@ import type { LibrarySnapshot } from '../../src/shared/library';
 
 test.use({ starterChat: false, browserName: 'webkit' });
 
-test('keeps the Home scroll position when participant cards replace their placeholders', async ({ page, browserApp }) => {
+test('keeps the New chat scroll position when participant cards replace their placeholders', async ({ page, browserApp }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
-  const home = page.getByRole('main', { name: 'Welcome to ORE' });
+  const home = page.getByRole('main', { name: 'New chat' });
   await expect(home).toBeVisible();
 
   const { endpoint } = await (await page.request.get('/__test/endpoint')).json();

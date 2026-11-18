@@ -4,7 +4,7 @@ import { defaultContextPreset } from '../../src/shared/context';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 import { newLorebook } from '../../src/shared/lorebook';
-import { openChatTool, openNewChatSettings } from './chat-tools';
+import { openChatTool, openNewChatSettings, openChatCreation } from './chat-tools';
 import { test } from './isolated-app';
 
 for (const width of [1440, 390]) {
@@ -67,10 +67,10 @@ for (const width of [1440, 390]) {
       await expect(page.getByRole('region', { name: fixture.category, exact: true }).getByRole('heading', { level: 2 })).toHaveText(fixture.order);
     }
     await categories.getByRole('button', { name: 'Chats', exact: true }).click();
-    await page.getByRole('button', { name: 'New chat', exact: true }).click();
+    await openChatCreation(page);
     const [created] = await Promise.all([
       page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/chats'),
-      page.getByRole('button', { name: 'Create chat', exact: true }).click(),
+      page.getByRole('button', { name: 'Start chat', exact: true }).click(),
     ]);
     expect(created.ok()).toBe(true);
     const { id }: { id: string } = await created.json();

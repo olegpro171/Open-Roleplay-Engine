@@ -181,7 +181,7 @@ test('rapid settings edits survive delayed saves and leaving or reopening Settin
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible();
   await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Libraries', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Chats', exact: true }).getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
   const path = '/api/application/appearance';
   const initial = appearanceStatusSchema.parse(await page.request.get(path).then(response => response.json()));
   const navigation = page.getByRole('navigation', { name: 'Workspace' });
@@ -238,7 +238,7 @@ for (const width of [1440, 390]) test(`app color choices save while the picker i
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible();
   await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Libraries', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Chats', exact: true }).getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
   const path = '/api/application/appearance';
   const appearance = async () => appearanceStatusSchema.parse(await page.request.get(path).then(response => response.json()));
   const initial = await appearance();

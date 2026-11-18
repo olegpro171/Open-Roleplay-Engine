@@ -1,6 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 import { test } from './appearance-test';
-import { openChatTool, openNewChatSettings } from './chat-tools';
+import { openChatTool, openNewChatSettings, openBlankChatFixture } from './chat-tools';
 
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Leave editor?', exact: true });
 const goBack = (page: Page) => dialog(page).getByRole('button', { name: 'Go back', exact: true });
@@ -20,8 +20,7 @@ test('protects changed Chat settings across header navigation and sign-out', asy
   await signIn(page);
   await header(page, 'Libraries').click();
   await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Chats', exact: true }).click();
-  await page.getByRole('button', { name: 'New chat', exact: true }).click();
-  await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await openBlankChatFixture(page);
   await openNewChatSettings(page);
   await expect(title(page)).toHaveValue('A new story');
 

@@ -1,18 +1,17 @@
-import { openNewChatSettings } from './chat-tools';
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { addChatCharacter, addChatModel, chooseNewChatCharacter, openNewChatSettings, openChatCreation } from './chat-tools';
+import { expect, type Page, type Route } from '@playwright/test';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
 import type { ChatDefaultsStatus, ChatDefaultKind } from '../../src/shared/chat-defaults';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
-import { test as isolatedTest } from './isolated-app';
+import { test } from './isolated-app';
 
-const headers = { Origin: 'http://127.0.0.1:4173' };
 const readLibrary = (page: Page): Promise<LibrarySnapshot> => page.request.get('/api/library').then(response => response.json());
 const readDefaults = (page: Page): Promise<ChatDefaultsStatus> => page.request.get('/api/application/chat-defaults').then(response => response.json());
 
 for (const width of [1440, 390]) {
-  isolatedTest(`fresh installations bookmark both factory presets at ${width}px`, async ({ page, browserApp }, testInfo) => {
+  test(`fresh installations bookmark both factory presets at ${width}px`, async ({ page, browserApp }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/');
     await page.getByLabel('Owner password').fill('browser-synthetic-password');
@@ -39,10 +38,13 @@ for (const width of [1440, 390]) {
         await page.screenshot({ path: testInfo.outputPath(`${theme}-${preset.id}-${width}.png`), animations: 'disabled' });
       }
     }
+    await addChatModel(page);
+    await addChatCharacter(page, 'Factory defaults character');
     await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Chats', exact: true }).click();
-    await page.getByRole('button', { name: 'New chat', exact: true }).click();
-    await page.getByRole('button', { name: 'Create chat', exact: true }).click();
-    await expect(page.getByRole('region', { name: 'Chat settings', exact: true })).toBeVisible();
+    await openChatCreation(page);
+    await chooseNewChatCharacter(page, 'Factory defaults character');
+    await page.getByRole('button', { name: 'Start chat', exact: true }).click();
+    await openNewChatSettings(page);
     for (const { category, preset } of builtIns) {
       if (!preset) throw new Error('Missing factory preset');
       await expect(page.getByRole('combobox', { name: category === 'Prompts' ? 'Prompt preset' : 'Context preset', exact: true })).toContainText(preset.name);
@@ -55,13 +57,13 @@ for (const width of [1440, 390]) {
 }
 
 for (const width of [1440, 390]) {
-  test(`bookmarks persist defaults for all new-chat selections at ${width}px`, async ({ page }, testInfo) => {
+  test(`bookmarks persist defaults for all new-chat selections at ${width}px`, async ({ page, browserApp }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
-    const session = await page.request.get('/api/session').then(response => response.json());
     await page.goto('/');
     await page.getByLabel('Owner password').fill('browser-synthetic-password');
-    await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+    await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
+    const headers = { Origin: browserApp.url };
     const previous = await readDefaults(page);
     const before = await readLibrary(page);
     const oldChat = before.chats[0];
@@ -73,6 +75,8 @@ for (const width of [1440, 390]) {
       { kind: 'contexts', category: 'Context presets', label: 'Context preset', name: `Bookmarked context ${width}`, data: defaultContextPreset },
     ];
     try {
+      const character = `Bookmarked defaults character ${width}`;
+      await addChatCharacter(page, character);
       for (const fixture of fixtures) {
         const response = await page.request.post('/api/library', { headers, data: { kind: fixture.kind, revision: (await readLibrary(page)).revision, data: { ...fixture.data, name: fixture.name } } });
         expect(response.ok(), await response.text()).toBe(true);
@@ -114,8 +118,9 @@ for (const width of [1440, 390]) {
       await page.getByRole('button', { name: 'Libraries', exact: true }).click();
       await expect(page.getByRole('button', { name: `Clear ${prompt.name} as default`, exact: true })).toHaveAttribute('aria-pressed', 'true');
       await categories.getByRole('button', { name: 'Chats', exact: true }).click();
-      await page.getByRole('button', { name: 'New chat', exact: true }).click();
-      await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+      await openChatCreation(page);
+      await chooseNewChatCharacter(page, character);
+      await page.getByRole('button', { name: 'Start chat', exact: true }).click();
       await expect(page.getByRole('region', { name: 'Conversation', exact: true })).toBeVisible();
       await openNewChatSettings(page);
       for (const fixture of fixtures) await expect(page.getByRole('combobox', { name: fixture.label, exact: true })).toContainText(fixture.name);

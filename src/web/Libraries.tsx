@@ -14,7 +14,6 @@ import { newId } from './uuid';
 import { Icon } from './Icon';
 import { PersonaIcon } from './PersonaIcon';
 import type { ChatDefaultsStatus, ChatDefaultKind } from '../shared/chat-defaults';
-import { NewChat } from './NewChat';
 import type { PromptDiagnostic } from '../shared/prompt-diagnostics';
 import { useConfirmation } from './Confirmation';
 import { LibraryDeletionDialog, readDeletionRetry, type LibraryDeletionTarget } from './LibraryDeletionDialog';
@@ -271,7 +270,21 @@ function newEditor(kind: LibraryKind, revision: number): LibraryEditing {
   return { kind, revision, data };
 }
 
-export function Libraries({ library, defaults, currentBranchId, branchSelections, busy, run, openChat, initialTarget, recoveredDraft, leaveEditor, clearDraft, setupFinished }: { library: LibrarySnapshot; defaults: ChatDefaultsStatus; currentBranchId: string | null; branchSelections: ReadonlyMap<string, string>; busy: boolean; run: Run; openChat: (id: string, destination?: 'story' | 'settings') => void; initialTarget?: LibraryDestination | null; recoveredDraft: LibraryDraft | null; leaveEditor: LeaveEditor; clearDraft: () => void; setupFinished: (destination: SetupReturn, participant?: SetupParticipant) => void }) {
+export function Libraries({ library, defaults, currentBranchId, branchSelections, busy, run, openChat, openNewChat, initialTarget, recoveredDraft, leaveEditor, clearDraft, setupFinished }: {
+  library: LibrarySnapshot;
+  defaults: ChatDefaultsStatus;
+  currentBranchId: string | null;
+  branchSelections: ReadonlyMap<string, string>;
+  busy: boolean;
+  run: Run;
+  openChat: (id: string, destination?: 'story' | 'settings') => void;
+  openNewChat: () => void;
+  initialTarget?: LibraryDestination | null;
+  recoveredDraft: LibraryDraft | null;
+  leaveEditor: LeaveEditor;
+  clearDraft: () => void;
+  setupFinished: (destination: SetupReturn, participant?: SetupParticipant) => void;
+}) {
   useLocale();
   const [recovery, setRecovery] = useState(recoveredDraft);
   const [section, setSection] = useState<LibraryKind | 'chats'>(recovery?.editor.kind ?? initialTarget?.kind ?? lastLibrarySection);
@@ -361,7 +374,6 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
       restoreOverflow?.();
     };
   }, [editing]);
-  const [creatingChat, setCreatingChat] = useState(false);
   const [deletion, setDeletion] = useState<LibraryDeletionTarget | null>(() => readDeletionRetry()?.target ?? null);
   const [connectionFile, setConnectionFile] = useState<ConnectionFileAction | null>(null);
   const [notice, setNotice] = useTextState(''), [diagnostics, setDiagnostics] = useState<LoreDiagnostic[]>([]), [search, setSearch] = useState('');
@@ -484,7 +496,6 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
             if (kind !== 'characters') setFilters([]);
             setSection(kind);
             closeEditor();
-            setCreatingChat(false);
             setNotice('');
             setDiagnostics([]);
             setSearch('');
@@ -495,10 +506,10 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
       <div className="library-editor-target" ref={setActionsTarget} />
     </aside>
     <section ref={panel} key={section} className="document-panel library-panel" aria-labelledby="library-heading">
-    <LibraryHeader editing={editorOpen || creatingChat}>
+    <LibraryHeader editing={editorOpen}>
       <h1 id="library-heading">{libraryLabel(section)}</h1>
-      {section === 'chats' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy || creatingChat} onClick={() => setCreatingChat(true)}><Icon name="AddToList" />{t("libraries.new_chat")}</button>
-        <TranscriptImport destination={{ kind: 'chat', library }} disabled={busy || creatingChat} created={id => openChat(id, 'settings')} />
+      {section === 'chats' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy} onClick={openNewChat}><Icon name="AddToList" />{t("libraries.new_chat")}</button>
+        <TranscriptImport destination={{ kind: 'chat', library }} disabled={busy} created={id => openChat(id, 'settings')} />
       </div>}
       {!editorOpen && section !== 'chats' && section !== 'characters' && section !== 'lorebooks' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy} onClick={create}><Icon name="AddToList" />{newLibraryLabel(section)}</button>
         {section === 'connections' && <LibraryImport label={t('connection_files.import_button')} description={t('library_import.connection_description')} accept=".oreconnection,application/octet-stream" disabled={busy} onChange={event => {
@@ -543,14 +554,13 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
         if (missing) setWarning({ message: msg("libraries.the_original_import_was_saved_but_its") });
         setDiagnostics(result.diagnostics);
       }} />}
-      {!editorOpen && !creatingChat && <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort}>
+      {!editorOpen && <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort}>
         {section === 'characters' && <TagFilterMenu library={library} busy={busy} run={run} selected={filters} change={setFilters} />}
       </LibrarySearch>}
     </LibraryHeader>
     {notice && <p className="library-notice" role="status">{notice}</p>}<LoreDiagnostics diagnostics={diagnostics} />
     {warning && <WarningDialog {...warning} close={() => setWarning(null)} />}
     {section === 'chats' ? <>
-      {creatingChat && <NewChat library={library} busy={busy} run={run} created={(id, destination) => { setCreatingChat(false); openChat(id, destination); }} cancel={() => setCreatingChat(false)} />}
       <div className="library-list chat-list">
         {visibleChats.map(({ id, branch, branches, running }) => <article key={id} className="chat-card">
           <div className="chat-card-details">

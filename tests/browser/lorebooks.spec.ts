@@ -1,5 +1,5 @@
 import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
-import { openChatTool, openNewChatSettings } from './chat-tools';
+import { openChatTool, openNewChatSettings, openChatCreation, chooseNewChatCharacter } from './chat-tools';
 import { test, expect, type Page } from '@playwright/test';
 import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -140,9 +140,9 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await choose(page, 'Default lorebook', 'Moon Gate atlas');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
-  await page.getByRole('button', { name: 'New chat', exact: true }).click();
-  await choose(page, 'Character', 'Moon keeper');
-  await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await openChatCreation(page);
+  await chooseNewChatCharacter(page, 'Moon keeper');
+  await page.getByRole('button', { name: 'Start chat', exact: true }).click();
   await openNewChatSettings(page);
   await expect(page.getByLabel('Chat title')).toHaveValue('Moon keeper');
   await expect(page.getByRole('combobox', { name: 'Lorebook', exact: true })).toContainText('Moon Gate atlas');

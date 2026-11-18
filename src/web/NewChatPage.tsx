@@ -6,14 +6,16 @@ import { Dropdown } from './Controls';
 import type { LibraryDestination, SetupLibrary } from './Libraries';
 import { LibraryCard } from './LibraryCard';
 import { PictureSquare } from './Pictures';
-import { t, useLocale } from './localization';
+import { message as msg, t, useLocale } from './localization';
+import { useConfirmation } from './Confirmation';
 import { displayLibraryRecord, newLibraryLabel } from './localization-labels';
 import { useCreateChat } from './useCreateChat';
 
-export function StoryHome({ library, defaults, busy, run, openLibrary, openChat, preferredParticipants, chooseParticipant }: {
+export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, openLibrary, openChat, preferredParticipants, chooseParticipant }: {
   library: LibrarySnapshot;
   defaults: ChatDefaultsStatus;
   busy: boolean;
+  pendingTurnEdit: boolean;
   run: (action: () => Promise<unknown>) => Promise<boolean>;
   openLibrary: (destination: LibraryDestination) => void;
   openChat: (id: string, destination: 'story' | 'settings') => void;
@@ -25,6 +27,7 @@ export function StoryHome({ library, defaults, busy, run, openLibrary, openChat,
   const scroller = useRef<HTMLElement>(null);
   const scrollBeforeSelection = useRef<number | null>(null);
   const createChat = useCreateChat(run, openChat);
+  const confirmStart = useConfirmation();
   useEffect(() => { heading.current?.focus({ preventScroll: true }); }, []);
   useLayoutEffect(() => {
     const position = scrollBeforeSelection.current;
@@ -33,7 +36,7 @@ export function StoryHome({ library, defaults, busy, run, openLibrary, openChat,
   }, [preferredParticipants]);
 
   function selectParticipant(key: keyof ChatParticipantsValue, id: string) {
-    // WebKit can scroll Home when a preview is replaced even if its size stays the same.
+    // WebKit can scroll the page when a preview is replaced even if its size stays the same.
     scrollBeforeSelection.current = scroller.current?.scrollTop ?? null;
     chooseParticipant(key, id || null);
   }
@@ -45,14 +48,26 @@ export function StoryHome({ library, defaults, busy, run, openLibrary, openChat,
     ?? (library.characters.length === 1 ? library.characters[0] : undefined);
   const persona = library.personas.find(item => item.id === preferredParticipants.personaId);
   const picture = library.characterPictures.find(item => item.characterId === character?.id);
-  const hasCharacter = library.characters.length > 0;
   const hasPersona = library.personas.length > 0;
   const create = (kind: SetupLibrary) => openLibrary({ kind, action: 'create', returnTo: 'story' });
   const browse = (kind: LibraryDestination['kind']) => openLibrary({ kind, action: 'browse' });
 
+  function startChat(returnFocus: HTMLElement) {
+    if (busy || !connection || !character) return;
+    const start = () => void createChat(character, persona?.id ?? null);
+    if (!pendingTurnEdit) { start(); return; }
+    confirmStart({
+      title: msg('new_chat.start'),
+      message: msg('new_chat.discard_turn_edit'),
+      actionLabel: msg('new_chat.start'),
+      returnFocus,
+      onConfirm: start,
+    });
+  }
+
   return <main ref={scroller} className="document-panel story-home" aria-labelledby="story-home-heading">
-    <h1 ref={heading} id="story-home-heading" tabIndex={-1}>{t('story_home.welcome')}</h1>
-    <p className="muted">{t(!connection ? 'story_home.next_connection' : !hasCharacter ? 'story_home.next_character' : 'story_home.next_chat')}</p>
+    <h1 ref={heading} id="story-home-heading" tabIndex={-1}>{t('libraries.new_chat')}</h1>
+    <p className="muted">{t('story_home.welcome')}</p>
     <div className="story-home-panels">
       <section className={`story-home-panel story-home-summary${connection ? '' : ' blocks-chat'}`} aria-labelledby="story-home-connection">
         <h2 id="story-home-connection">{t('libraries.connection')}</h2>
@@ -106,9 +121,7 @@ export function StoryHome({ library, defaults, busy, run, openLibrary, openChat,
       </section>
     </div>
     <div className="actions story-home-chat-actions">
-      <button type="button" disabled={busy || !connection || !character} onClick={() => {
-        if (!busy && connection && character) void createChat(character, persona?.id ?? null);
-      }}>{t('libraries.new_chat')}</button>
+      <button type="button" disabled={busy || !connection || !character} onClick={event => startChat(event.currentTarget)}>{t('new_chat.start')}</button>
       {library.chats.length > 0 && <button type="button" className="secondary" disabled={busy} onClick={() => browse('chats')}>{t('story_home.open_chats')}</button>}
     </div>
   </main>;

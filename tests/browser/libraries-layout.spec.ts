@@ -1,4 +1,4 @@
-import { openNewChatSettings } from './chat-tools';
+import { openNewChatSettings, openBlankChatFixture } from './chat-tools';
 import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import { defaultPrompt, type LibraryKind, type LibrarySnapshot } from '../../src/shared/library';
@@ -60,8 +60,7 @@ test.describe('phone editor scroll recovery', () => {
 
 test('Libraries reopens the last category and new Connections reserve 8,196 output tokens', async ({ page }) => {
   await login(page);
-  await page.getByRole('button', { name: 'New chat', exact: true }).click();
-  await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await openBlankChatFixture(page);
   await openNewChatSettings(page);
   await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();

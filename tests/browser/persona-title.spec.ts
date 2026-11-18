@@ -1,5 +1,6 @@
-import { openNewChatSettings } from './chat-tools';
-import { expect, test, type Page } from '@playwright/test';
+import { addChatCharacter, chooseNewChatCharacter, openNewChatSettings, openChatCreation } from './chat-tools';
+import { expect, type Page } from '@playwright/test';
+import { test } from './isolated-app';
 import type { LibrarySnapshot } from '../../src/shared/library';
 
 async function library(page: Page): Promise<LibrarySnapshot> {
@@ -7,24 +8,23 @@ async function library(page: Page): Promise<LibrarySnapshot> {
 }
 
 for (const width of [1440, 390]) {
-  test(`distinguishes same-name personas with local titles at ${width}px`, async ({ page }) => {
+  test(`distinguishes same-name personas with local titles at ${width}px`, async ({ page, browserApp }) => {
     await page.setViewportSize({ width, height: 900 });
-    const session = await page.request.get('/api/session').then(response => response.json());
     const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
     await page.goto('/');
     await page.getByLabel('Owner password').fill('browser-synthetic-password');
-    await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+    await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
     const name = `Persona Alex ${width}`;
     const university = `${name} · University version`;
     const medieval = `${name} · Medieval version`;
     const created = await page.request.post('/api/library', {
-      headers: { Origin: 'http://127.0.0.1:4173' },
+      headers: { Origin: browserApp.url },
       data: { kind: 'personas', revision: (await library(page)).revision, data: { name, description: 'Another timeline.', titleComment: 'Medieval version' } },
     });
     expect(created.ok(), await created.text()).toBe(true);
     const connection = await page.request.post('/api/library', {
-      headers: { Origin: 'http://127.0.0.1:4173' },
+      headers: { Origin: browserApp.url },
       data: { kind: 'connections', revision: (await library(page)).revision, data: { name: `Persona mock ${width}`, endpoint, model: 'mock', contextWindow: 100_000, maxOutputTokens: 100, customParameters: {} } },
     });
     expect(connection.ok(), await connection.text()).toBe(true);
@@ -59,13 +59,15 @@ for (const width of [1440, 390]) {
     await confirmLeaveEditor(page);
     await expect(page.getByRole('heading', { name: university, exact: true })).toBeVisible();
 
+    await addChatCharacter(page, `Persona companion ${width}`);
     await page.getByRole('button', { name: 'Chats', exact: true }).click();
-    await page.getByRole('button', { name: 'New chat', exact: true }).click();
+    await openChatCreation(page);
+    await chooseNewChatCharacter(page, `Persona companion ${width}`);
     await page.getByRole('combobox', { name: 'Persona', exact: true }).click();
     await expect(page.getByRole('option', { name: university, exact: true })).toBeVisible();
     await expect(page.getByRole('option', { name: medieval, exact: true })).toBeVisible();
     await page.getByRole('option', { name: university, exact: true }).click();
-    await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+    await page.getByRole('button', { name: 'Start chat', exact: true }).click();
     await openNewChatSettings(page);
     await expect(page.getByRole('combobox', { name: 'Persona', exact: true })).toContainText(university);
     await page.getByRole('combobox', { name: 'Connection', exact: true }).click();

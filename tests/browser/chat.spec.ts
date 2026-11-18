@@ -1,6 +1,6 @@
 import { enterModel } from './model-picker-helpers';
 import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
-import { openChatTool, openNewChatSettings } from './chat-tools';
+import { openChatTool, openNewChatSettings, openChatCreation, chooseNewChatCharacter, openBlankChatFixture } from './chat-tools';
 import { expect, devices, type Page } from '@playwright/test';
 import { test as isolatedTest } from './isolated-app';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
@@ -215,10 +215,10 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed J
   await page.getByRole('button', { name: `Move block ${markerPosition} up`, exact: true }).click();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
-  await page.getByRole('button', { name: 'New chat', exact: true }).click();
-  await choose(page, 'Character', 'Moon');
+  await openChatCreation(page);
+  await chooseNewChatCharacter(page, 'Moon');
   await choose(page, 'Persona', 'Visitor');
-  await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Start chat', exact: true }).click();
   await openNewChatSettings(page);
   await expect(page.getByLabel('Chat title')).toHaveValue('Moon');
   await page.getByLabel('Chat title').fill('The Observatory');
@@ -389,8 +389,7 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await confirmLeaveEditor(page);
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
-  await page.getByRole('button', { name: 'New chat', exact: true }).click();
-  await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await openBlankChatFixture(page);
   await openNewChatSettings(page);
   await page.getByLabel('Chat title').fill('Temporary sweep chat');
   await page.getByLabel('Target input tokens').fill('');
@@ -410,25 +409,22 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await temporary.getByRole('button', { name: 'Delete chat', exact: true }).click();
   await page.locator('.confirmation-dialog').getByRole('button', { name: 'Delete chat', exact: true }).click();
   await expect(temporary).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
+  const chats = page.getByRole('region', { name: 'Chats', exact: true });
+  await expect(chats.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
   // All fixture chats, including the original and final chat, can be removed without leaving the library.
   while (await page.getByRole('button', { name: 'Delete chat', exact: true }).count()) {
     const before = await page.getByRole('article').count();
     await page.getByRole('button', { name: 'Delete chat', exact: true }).first().click();
     await page.locator('.confirmation-dialog').getByRole('button', { name: 'Delete chat', exact: true }).click();
     await expect(page.getByRole('article')).toHaveCount(before - 1);
-    await expect(page.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
+    await expect(chats.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
   }
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Welcome to ORE' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'New chat', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await expect(page.getByText('Create a chat to start your next story.')).toBeVisible();
-  await page.getByRole('button', { name: 'New chat', exact: true }).click();
-  await page.getByRole('button', { name: 'Create chat', exact: true }).click();
-  await openNewChatSettings(page);
-  await expect(page.getByLabel('Chat title')).toHaveValue('A new story');
-  await page.getByRole('button', { name: 'Story', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Set up your story' })).toBeVisible();
+  await openChatCreation(page);
+  await expect(page.getByRole('button', { name: 'Start chat', exact: true })).toBeDisabled();
   await page.setViewportSize({ width: 320, height: 740 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

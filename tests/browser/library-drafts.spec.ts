@@ -1,4 +1,4 @@
-import { openNewChatSettings } from './chat-tools';
+import { openNewChatSettings, openBlankChatFixture } from './chat-tools';
 import { expect, type Dialog, type Page } from '@playwright/test';
 import { test } from './appearance-test';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -41,8 +41,7 @@ test('guards category and header navigation and editor cancel across themes and 
   await page.goto('/');
   await authenticate(page);
   await openCategory(page, 'Chats');
-  await page.getByRole('button', { name: 'New chat', exact: true }).click();
-  await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await openBlankChatFixture(page);
   await openNewChatSettings(page);
   await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
   await openCategory(page, 'Personas');

@@ -1,5 +1,6 @@
-import { openNewChatSettings } from './chat-tools';
-import { test, expect, type Page } from '@playwright/test';
+import { openNewChatSettings, openChatCreation, addChatModel, chooseNewChatCharacter } from './chat-tools';
+import { expect, type Page } from '@playwright/test';
+import { test } from './isolated-app';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { confirmLeaveEditor } from './library-card-helpers';
@@ -11,10 +12,9 @@ async function library(page: Page): Promise<LibrarySnapshot> {
 for (const width of [1440, 390]) {
   test(`edits card alternatives and selects durable opening response versions at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
-    const session = await page.request.get('/api/session').then(response => response.json());
     await page.goto('/');
     await page.getByLabel('Owner password').fill('browser-synthetic-password');
-    await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
+    await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
     await page.getByRole('button', { name: 'Characters', exact: true }).click();
     const name = `Greeting keeper ${width}`;
@@ -49,11 +49,11 @@ for (const width of [1440, 390]) {
     await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue('Edited greeting for {{user}} from {{char}}.');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
+    await addChatModel(page);
     await page.getByRole('button', { name: 'Chats', exact: true }).click();
-    await page.getByRole('button', { name: 'New chat', exact: true }).click();
-    await page.getByRole('combobox', { name: 'Character', exact: true }).click();
-    await page.getByRole('option', { name, exact: true }).click();
-    await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+    await openChatCreation(page);
+    await chooseNewChatCharacter(page, name);
+    await page.getByRole('button', { name: 'Start chat', exact: true }).click();
     await openNewChatSettings(page);
     await expect(page.getByLabel('Chat title')).toHaveValue(name);
     const chat = (await library(page)).chats.find(chat => chat.title === name);

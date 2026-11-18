@@ -23,7 +23,7 @@ import { useGenerationHistory } from './useGenerationHistory';
 import { hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
 import { ChatSetup, Libraries, type LibraryDestination } from './Libraries';
 import type { ChatParticipantsValue } from './ChatParticipants';
-import { StoryHome } from './StoryHome';
+import { NewChatPage } from './NewChatPage';
 import { useConfirmation } from './Confirmation';
 import { LibraryDraftContext, useLibraryLeaveGuard } from './LibraryDraft';
 import { useEditorLeaveGuard } from './EditorLeaveGuard';
@@ -127,12 +127,19 @@ export function App() {
   const [online, setOnline] = useState(false);
   const connected = online && !connectionWarning;
   const [tab, setTab] = useState<'story' | 'settings' | 'request' | 'library' | 'memory' | 'data'>(() => libraryLeave.drafts.recovered() ? 'library' : 'story');
+  // Setup can take over the workspace tab while a saved chat stays selected.
+  const [newChatRequested, setNewChatRequested] = useState(() => {
+    const editor = libraryLeave.drafts.recovered()?.editor;
+    return editor !== undefined && 'returnTo' in editor && editor.returnTo === 'story';
+  });
+  const workspaceView = chatId === null || newChatRequested ? 'new-chat' : 'story';
+  const view = tab === 'story' ? workspaceView : tab;
   const chatSettingsLeave = useEditorLeaveGuard(session?.authenticated && tab === 'settings' ? snapshot?.id ?? null : null);
   const leaveEditor = tab === 'settings' ? chatSettingsLeave.leave : libraryLeave.leave;
-  const visibleTab = useRef(tab);
-  visibleTab.current = tab;
-  const composerKeyboard = useComposerKeyboard(isIOS && tab === 'story');
-  useTouchScrollGuard(isIOS && session?.authenticated === true && tab === 'story');
+  const visibleView = useRef(view);
+  visibleView.current = view;
+  const composerKeyboard = useComposerKeyboard(isIOS && view === 'story');
+  useTouchScrollGuard(isIOS && session?.authenticated === true && view === 'story');
   const [libraryTarget, setLibraryTarget] = useState<LibraryDestination | null>(null);
   const [homeParticipants, setHomeParticipants] = useState<ChatParticipantsValue>({ characterId: null, personaId: null });
   const reviewMemoryCleanup = useMemoryCleanup(command, `${chatId}:${tab}:${session?.authenticated}`);
@@ -157,9 +164,9 @@ export function App() {
   const cancelEdit = useCallback(() => {
     if (!editSaveInFlight.current) setEdit(null);
   }, []);
-  useEscapeAction(tab === 'story' && edit && !busy ? cancelEdit : undefined);
+  useEscapeAction(view === 'story' && edit && !busy ? cancelEdit : undefined);
   const loadId = useRef(0);
-  const { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest, jumpToTurn } = useTranscriptScroll(tab === 'story' ? snapshot?.id ?? null : null, snapshot, Boolean(edit));
+  const { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest, jumpToTurn } = useTranscriptScroll(view === 'story' ? snapshot?.id ?? null : null, snapshot, Boolean(edit));
   useLayoutEffect(() => {
     const scroller = transcript.current;
     const form = editForm.current;
@@ -339,7 +346,7 @@ export function App() {
       let scope: RefreshScope | null = fullRefresh;
       try {
         const parsed = changeSchema.safeParse(JSON.parse(event.data));
-        if (parsed.success) scope = scopeForChange(parsed.data, selectedChat.current, visibleTab.current === 'story');
+        if (parsed.success) scope = scopeForChange(parsed.data, selectedChat.current, visibleView.current === 'story');
       } catch { /* Unknown/older notifications reconcile from authoritative state. */ }
       if (scope) void refresh(scope);
     };
@@ -363,8 +370,8 @@ export function App() {
     if (session?.authenticated && libraryCache.current) void refresh({ library: true, story: true, tools: true });
   }, [chatId, session?.authenticated, refresh]);
   useEffect(() => {
-    if (tab === 'story' && session?.authenticated && libraryCache.current) void refresh({ story: true });
-  }, [tab, session?.authenticated, refresh]);
+    if (view === 'story' && session?.authenticated && libraryCache.current) void refresh({ story: true });
+  }, [view, session?.authenticated, refresh]);
 
   useEffect(() => { setPeek(false); setGenerationId(''); }, [snapshot?.id]);
   useEffect(() => {
@@ -383,14 +390,14 @@ export function App() {
 
   useEffect(() => {
     return () => { pageRequest.current?.abort(); };
-  }, [chatId, tab, session?.authenticated]);
+  }, [chatId, view, session?.authenticated]);
   useEffect(() => { if (dataChanged) pageRequest.current?.abort(); }, [dataChanged]);
 
   useLayoutEffect(() => {
     if (!jumpTarget) return;
-    if (snapshot?.id === jumpTarget.chatId && tab === 'story') jumpToTurn(jumpTarget.turnId);
+    if (snapshot?.id === jumpTarget.chatId && view === 'story') jumpToTurn(jumpTarget.turnId);
     setJumpTarget(null);
-  }, [jumpTarget, snapshot?.id, tab, jumpToTurn]);
+  }, [jumpTarget, snapshot?.id, view, jumpToTurn]);
 
   async function moveTranscript(direction: 'older' | 'newer' | 'latest' | TranscriptJump, automatic = false) {
     const jump = typeof direction === 'object' ? direction : null;
@@ -468,7 +475,7 @@ export function App() {
   moveRef.current = moveTranscript;
   useEffect(() => {
     const root = transcript.current;
-    if (!root || tab !== 'story' || !snapshot || edit || pageError) return;
+    if (!root || view !== 'story' || !snapshot || edit || pageError) return;
     const observer = new IntersectionObserver(entries => {
       for (const entry of entries) if (entry.isIntersecting) {
         const direction = entry.target.getAttribute('data-history-direction');
@@ -477,7 +484,7 @@ export function App() {
     }, { root, rootMargin: '160px 0px' });
     for (const sentinel of root.querySelectorAll('[data-history-direction]')) observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [tab, snapshot?.id, snapshot?.page, edit, pageError]);
+  }, [view, snapshot?.id, snapshot?.page, edit, pageError]);
 
   const active = snapshot?.latestGeneration?.status === 'running' ? snapshot.latestGeneration : undefined;
   const preparation = snapshot?.preparation;
@@ -525,7 +532,7 @@ export function App() {
     return { value: generation.id, label: generation.kind === 'continuation' ? t('continue.attempt_label', { date, status }) : `${date} · ${status}` };
   });
   const preview = useRequestPreview(snapshot, preparing?.mode === 'prepare' || regenerationPreparation ? '' : draft,
-    tab !== 'library' && tab !== 'data', tab === 'request' && !generationId || peek,
+    view !== 'library' && view !== 'data' && view !== 'new-chat', tab === 'request' && !generationId || peek,
     tab === 'memory' || tab === 'settings' ? undefined : continuationPreview);
   const currentRequest = snapshot?.connection ? preview.estimate : null;
   const inspectionCurrent = preview.current;
@@ -646,6 +653,7 @@ export function App() {
     selectedChat.current = id;
     rememberChat(id);
     setChatId(id);
+    setNewChatRequested(false);
     setTab(destination);
     setEdit(null);
     setPeek(false);
@@ -660,7 +668,16 @@ export function App() {
     }
   }
   function openChat(id: string, destination: 'story' | 'settings' = 'story') {
+    if (newChatRequested && id === chatId && destination === 'story') {
+      setNewChatRequested(false);
+      setTab('story');
+      return;
+    }
     selectChat(id, destination);
+  }
+  function openNewChat() {
+    setNewChatRequested(true);
+    setTab('story');
   }
   function closeChat(returnFocus: HTMLElement) {
     if (busy) return;
@@ -707,6 +724,7 @@ export function App() {
       await api('/logout', 'POST', {});
       libraryLeave.drafts.clear();
       setLibraryTarget(null);
+      setNewChatRequested(false);
       setTab(current => current === 'library' || current === 'settings' ? 'story' : current);
       setSnapshot(null);
       await refreshSession();
@@ -717,7 +735,7 @@ export function App() {
     <header className="topbar">
       <div className="brand"><span className="brand-mark" aria-hidden="true">{t("app.o")}</span><div><strong>{t("app.ore")}</strong><small>{t("app.your_stories_room_to_continue")}</small></div></div>
       <nav className="tabs" aria-label={t("app.workspace")}>
-        <button disabled={busy && (tab === 'library' || tab === 'settings')} aria-current={tab !== 'library' && tab !== 'data' ? 'page' : undefined} onClick={event => leaveEditor(() => setTab('story'), { returnFocus: event.currentTarget })}>{t(chatId === null ? 'app.home' : 'app.story')}</button>
+        <button disabled={busy && (tab === 'library' || tab === 'settings')} aria-current={tab !== 'library' && tab !== 'data' ? 'page' : undefined} onClick={event => leaveEditor(() => setTab('story'), { returnFocus: event.currentTarget })}>{t(workspaceView === 'new-chat' ? 'libraries.new_chat' : 'app.story')}</button>
         <button disabled={busy && tab === 'settings'} aria-current={tab === 'library' ? 'page' : undefined} onClick={event => {
           if (tab === 'library') return;
           leaveEditor(() => { setLibraryTarget(null); setTab('library'); }, { returnFocus: event.currentTarget });
@@ -740,13 +758,13 @@ export function App() {
     {tab === 'data' && <ApplicationSettings chatBehavior={behaviorEditor} appearance={appearanceEditor} lan={lanEditor} openLibraries={() => { setLibraryTarget(null); setTab('library'); }} />}
     {snapshot && ['settings', 'memory', 'request'].includes(tab) && toolError && <div className="error-banner" role="alert">{toolError}<button onClick={() => setToolRetry(value => value + 1)}>{t("app.retry_loading")}</button></div>}
     {chatToolsLoading && <main className="document-panel"><p role="status">{t("app.loading_chat_tools")}</p></main>}
-    {tab === 'story' && chatId !== null && !snapshot && !failure && <main className="document-panel"><p role="status">{t('app.loading_your_story')}</p></main>}
-    {tab === 'story' && chatId === null && <StoryHome library={library} defaults={chatDefaults} busy={busy || dataChanged}
+    {view === 'story' && !snapshot && !failure && <main className="document-panel"><p role="status">{t('app.loading_your_story')}</p></main>}
+    {view === 'new-chat' && <NewChatPage library={library} defaults={chatDefaults} busy={busy || dataChanged} pendingTurnEdit={Boolean(edit)}
       run={command} openLibrary={openLibrary} openChat={(id, destination) => {
         setHomeParticipants({ characterId: null, personaId: null });
         openChat(id, destination);
       }} preferredParticipants={homeParticipants} chooseParticipant={chooseHomeParticipant} />}
-    {tab === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} navigation dismissDetails={jumpTarget?.chatId === snapshot.id} actions={<>
+    {view === 'story' && snapshot && <ChatWorkspace sidebar={sidebar} navigation dismissDetails={jumpTarget?.chatId === snapshot.id} actions={<>
         <button className="quiet chat-navigation-action" disabled={busy} onClick={event => closeChat(event.currentTarget)}><Icon name="Close" />{t('story_home.close_chat')}</button>
         <button className="quiet chat-navigation-action" aria-label={t("app.chat_settings")} onClick={() => setTab('settings')}><Icon name="Settings" />{t("app.chat_settings_2", { value: snapshot.promptDiagnostics?.length ? ` (${snapshot.promptDiagnostics.length})` : '' })}</button>
         <button className="quiet chat-navigation-action" onClick={() => setTab('memory')}><Icon name="List" />{t("app.inspect_memory")}</button>
@@ -881,11 +899,13 @@ export function App() {
     </ChatWorkspace>}
     {tab === 'library' && <LibraryDraftContext.Provider value={libraryLeave.drafts}>
       <Libraries library={library} defaults={chatDefaults} currentBranchId={snapshot?.id ?? null} branchSelections={branchSelections}
-        busy={busy} run={command} openChat={openChat} initialTarget={libraryTarget} recoveredDraft={libraryLeave.drafts.recovered()}
+        busy={busy} run={command} openChat={openChat} openNewChat={openNewChat} initialTarget={libraryTarget} recoveredDraft={libraryLeave.drafts.recovered()}
         leaveEditor={libraryLeave.leave} clearDraft={libraryLeave.drafts.clear} setupFinished={(destination, participant) => {
           if (participant) chooseHomeParticipant(participant.kind === 'characters' ? 'characterId' : 'personaId', participant.id);
           setLibraryTarget(null);
-          setTab(destination === 'settings' && !selectedChat.current ? 'story' : destination);
+          // Existing editor drafts use 'story' as the persisted return to new-chat setup.
+          if (destination === 'story' || !selectedChat.current) openNewChat();
+          else setTab(destination);
         }} />
     </LibraryDraftContext.Provider>}
     {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library}

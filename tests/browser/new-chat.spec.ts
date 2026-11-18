@@ -1,5 +1,6 @@
-import { openChatTool, openNewChatSettings } from './chat-tools';
-import { test, expect, type Page } from '@playwright/test';
+import { addChatModel, chooseNewChatCharacter, openChatTool, openNewChatSettings, openChatCreation } from './chat-tools';
+import { expect, type Page } from '@playwright/test';
+import { test } from './isolated-app';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { newLorebook } from '../../src/shared/lorebook';
@@ -14,17 +15,29 @@ async function choose(page: Page, label: string, name: string) {
 }
 
 for (const width of [1440, 390]) {
-  test(`new chat saves its title and defaults before opening Chat settings at ${width}px`, async ({ page }) => {
+  test(`starts a chat from the library while preserving the previous chat at ${width}px`, async ({ page, browserApp }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     const session = await page.request.get('/api/session').then(response => response.json());
     await page.goto('/');
     await page.getByLabel('Owner password').fill('browser-synthetic-password');
     await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
+    const composer = page.getByLabel('Your next turn');
+    await composer.fill('Keep the draft from the previous chat.');
+    const currentChat = () => page.evaluate(() => localStorage.getItem('roleplay-chat'));
+    const previousChat = await currentChat();
+    const previous: ChatSnapshot = await page.request.get(`/api/chats/${previousChat}`).then(response => response.json());
+    await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+    await openChatCreation(page);
+    await expect(page.getByRole('button', { name: 'Start chat', exact: true })).toBeDisabled();
+    await page.reload();
+    await expect(composer).toHaveValue('Keep the draft from the previous chat.');
+    expect(await currentChat()).toBe(previousChat);
+    await addChatModel(page);
 
     async function add(kind: 'characters' | 'personas' | 'lorebooks', data: unknown): Promise<string> {
       const response = await page.request.post('/api/library', {
-        headers: { Origin: 'http://127.0.0.1:4173' },
+        headers: { Origin: browserApp.url },
         data: { kind, revision: (await library(page)).revision, data },
       });
       expect(response.ok(), await response.text()).toBe(true);
@@ -42,31 +55,40 @@ for (const width of [1440, 390]) {
     const personaId = await add('personas', { name: `Starter visitor ${width}`, description: 'A synthetic visitor.' });
     const before = await library(page);
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'New chat', exact: true }).click();
-    const form = page.getByRole('group', { name: 'New chat', exact: true });
-    await expect(form.getByRole('combobox')).toHaveCount(2);
-    await expect(form.getByRole('textbox')).toHaveCount(0);
-    await choose(page, 'Character', characterName);
+    await openChatCreation(page);
+    const setup = page.getByRole('main', { name: 'New chat', exact: true });
+    const start = setup.getByRole('button', { name: 'Start chat', exact: true });
+    expect(await currentChat()).toBe(previousChat);
+    expect((await library(page)).chats).toEqual(before.chats);
+    await expect(composer).toHaveCount(0);
+    await expect(setup.getByRole('heading', { level: 1 })).toBeFocused();
+    await setup.getByRole('button', { name: 'Manage Characters', exact: true }).click();
+    const primaryTab = page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'New chat', exact: true });
+    await primaryTab.click();
+    await expect(primaryTab).toHaveAttribute('aria-current', 'page');
+    await chooseNewChatCharacter(page, characterName);
     await choose(page, 'Persona', `Starter visitor ${width}`);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({ path: `test-results/new-chat-${width}.png`, fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath('new-chat.png'), fullPage: true });
 
     // A rejected create keeps the form and its selections, and does not navigate or save a chat.
     await page.route('**/api/chats', route => route.fulfill({
       status: 422, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic creation failure.' }),
     }), { times: 1 });
-    await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+    await start.click();
     await expect(page.getByRole('alert')).toContainText('Synthetic creation failure.');
-    await expect(form.getByRole('combobox', { name: 'Character', exact: true })).toContainText(characterName);
-    await expect(form.getByRole('combobox', { name: 'Persona', exact: true })).toContainText(`Starter visitor ${width}`);
-    expect((await library(page)).chats).toHaveLength(before.chats.length);
+    await expect(setup.getByRole('heading', { name: characterName, exact: true })).toBeVisible();
+    await expect(setup.getByRole('combobox', { name: 'Persona', exact: true })).toContainText(`Starter visitor ${width}`);
+    expect((await library(page)).chats).toEqual(before.chats);
+    expect(await currentChat()).toBe(previousChat);
 
-    await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+    await start.click();
+    const conversation = page.getByRole('region', { name: 'Conversation', exact: true });
+    await expect(conversation).toContainText(`Welcome, Starter visitor ${width}.`);
     await openNewChatSettings(page);
     await expect(page.getByRole('region', { name: 'Chat settings', exact: true })).toBeVisible();
     await expect(page.getByLabel('Chat title')).toHaveValue(title);
     await expect(page.getByRole('combobox', { name: 'Lorebook', exact: true })).toContainText(book.name);
-    await page.screenshot({ path: `test-results/new-chat-setup-${width}.png`, fullPage: true });
     const after = await library(page);
     const created = after.chats.filter(chat => !before.chats.some(old => old.id === chat.id));
     expect(created).toHaveLength(1);
@@ -81,6 +103,7 @@ for (const width of [1440, 390]) {
     expect(saved.turns[0]?.assistant.text).toBe(`Welcome, Starter visitor ${width}.`);
     expect(saved.turns[0]?.complete).toBe(true);
     expect(saved.generations).toHaveLength(0);
+    expect(await page.request.get(`/api/chats/${previousChat}`).then(response => response.json())).toEqual(previous);
 
     // Leave Chat settings without saving, then reload and reopen it: the initial values are already durable.
     await page.getByRole('button', { name: 'Story', exact: true }).click();
@@ -93,5 +116,10 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('combobox', { name: 'Character', exact: true })).toContainText(characterName);
     await expect(page.getByRole('combobox', { name: 'Persona', exact: true })).toContainText(`Starter visitor ${width}`);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
+    await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Chats', exact: true }).click();
+    await page.getByRole('button', { name: previous.settings.title, exact: true }).click();
+    await expect(composer).toHaveValue('Keep the draft from the previous chat.');
   });
 }

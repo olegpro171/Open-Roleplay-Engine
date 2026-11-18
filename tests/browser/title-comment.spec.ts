@@ -1,4 +1,4 @@
-import { openNewChatSettings } from './chat-tools';
+import { openNewChatSettings, openChatCreation, addChatModel } from './chat-tools';
 import { expect, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { test } from './isolated-app';
@@ -85,13 +85,14 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('heading', { name: university, exact: true })).toBeVisible();
 
+    await addChatModel(page);
     await page.getByRole('button', { name: 'Chats', exact: true }).click();
-    await page.getByRole('button', { name: 'New chat', exact: true }).click();
+    await openChatCreation(page);
     await page.getByRole('combobox', { name: 'Character', exact: true }).click();
     await expect(page.getByRole('option', { name: university, exact: true })).toBeVisible();
     await expect(page.getByRole('option', { name: medieval, exact: true })).toBeVisible();
     await page.getByRole('option', { name: university, exact: true }).click();
-    await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+    await page.getByRole('button', { name: 'Start chat', exact: true }).click();
     await openNewChatSettings(page);
     await expect(page.getByLabel('Chat title')).toHaveValue(name);
     await expect(page.getByRole('combobox', { name: 'Character', exact: true })).toContainText(university);

@@ -4,7 +4,7 @@ import { appearanceStatusSchema } from '../../src/shared/appearance';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultContextPreset } from '../../src/shared/context';
 import type { LibrarySnapshot } from '../../src/shared/library';
-import { openChatTool, openNewChatSettings } from './chat-tools';
+import { openChatTool, openNewChatSettings, openChatCreation, addChatModel } from './chat-tools';
 
 const password = 'synthetic-password-ноябрь';
 async function register(page: Page) {
@@ -181,6 +181,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
 
 test('Character and Persona choices follow each Library sort in new and existing chats', async ({ page, browserApp }) => {
   await register(page);
+  await addChatModel(page);
   const headers = { Origin: browserApp.url };
   for (const kind of ['characters', 'personas']) {
     for (const name of ['Zulu', 'Alpha']) {
@@ -196,7 +197,7 @@ test('Character and Persona choices follow each Library sort in new and existing
     await page.getByRole('option', { name: category === 'Characters' ? 'Name Z–A' : 'Name A–Z', exact: true }).click();
   }
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
-  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await openChatCreation(page);
   const check = async () => {
     for (const [label, names] of [['Character', ['None selected', 'Zulu', 'Alpha']], ['Persona', ['None selected', 'Alpha', 'Zulu']]] as const) {
       await page.getByRole('combobox', { name: label, exact: true }).click();
@@ -207,7 +208,7 @@ test('Character and Persona choices follow each Library sort in new and existing
     }
   };
   await check();
-  await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Start chat', exact: true }).click();
   await openNewChatSettings(page);
   await expect(page.getByRole('region', { name: 'Chat settings', exact: true })).toBeVisible();
   await check();
