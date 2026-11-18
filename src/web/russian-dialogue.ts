@@ -5,7 +5,7 @@ const authorVerbs = [
   /^(?:показал|указал)[аои]?$/iu,
   /^(?:сказал|говорил|ответил|спросил|проговорил|промолвил|воскликнул|прошептал|шепнул|крикнул|выкрикнул)[аои]?$/iu,
   /^произн[её]с(?:л[аои])?$/iu,
-  /^(?:добавил|продолжил|заметил|уточнил|повторил|перебил|соврал|солгал|подумал)[аои]?$/iu,
+  /^(?:добавил|продолжил|заметил|уточнил|повторил|перебил|соврал|солгал|подумал|сообщил)[аои]?$/iu,
   /^(?:возмутил|усмехнул|улыбнул|нахмурил)(?:ся|ась|ось|ись)$/iu,
   /^(?:вздохнул|замолчал|помолчал|кивнул|пожал|покачал|посмотрел|взглянул)[аои]?$/iu,
   /^(?:передразнил|вскрикнул|буркнул|бурчал|пробурчал|ворчал|проворчал|бормотал|пробормотал|твердил)[аои]?$/iu,
@@ -17,7 +17,7 @@ const authorVerbs = [
   /^(?:рассмеял|засмеял|поинтересовал|осведомил|согласил|признал|взмолил|отозвал|донесл|отмахнул)(?:ся|ась|ось|ись)$/iu,
   /^(?:поздоровал|попрощал)(?:ся|ась|ось|ись)$/iu,
   // First/third-person present forms avoid treating spoken imperatives such as «говорите» as narration.
-  /^(?:отвеча|спрашива|переспрашива|добавля|продолжа|восклица|вскрикива|требу|возража|протесту|всхлипыва|хихика)(?:ю|ем|ет|ют)$/iu,
+  /^(?:отвеча|спрашива|переспрашива|добавля|продолжа|восклица|вскрикива|требу|возража|протесту|всхлипыва|хихика|сообща)(?:ю|ем|ет|ют)$/iu,
   /^говор(?:ю|им|ит|ят)$/iu,
   /^(?:твержу|тверд(?:им|ит|ят))$/iu,
   /^шеп(?:чу|чем|чет|чут)$/iu,
@@ -49,8 +49,13 @@ const actionVerbs = [
   /^(?:разворачива|поворачива|отворачива|наклоня|поднима)(?:юсь|емся|ется|ются)$/u,
   /^(?:вста(?:ю|ём|ем|ёт|ет|ют)|бер(?:у|ём|ем|ёт|ет|ут)|тян(?:усь|емся|ется|утся))$/u,
 ];
-const nonNameStarter = /^(?:это|вот|кто|что|где|куда|откуда|зачем|почему|как|когда|если|лишь|только|не)$/u;
-const actorAndPredicate = /^\s*([а-яё]+)(?:\s+(?:тут же|сразу|резко|медленно|быстро|осторожно|невольно|вдруг|крепко|плотно|слегка)){0,2}\s+([а-яё]+)(?![\p{L}-])(?:\s+([а-яё]+)(?![\p{L}-]))?/iu;
+const nonNameStarter = /^(?:это|вот|кто|что|где|куда|откуда|зачем|почему|как|когда|если|лишь|только|не|вчера|сегодня|завтра|потом|теперь|уже|ещ[её]|снова)$/u;
+const actorAndPredicate = /^\s*(\p{L}+(?:-\p{L}+)*)(?:\s+(?:тут же|сразу|резко|медленно|быстро|осторожно|невольно|вдруг|крепко|плотно|слегка|уже|ещ[её]|снова)){0,2}\s+([а-яё]+)(?![\p{L}-])(?:\s+([а-яё]+)(?![\p{L}-]))?/iu;
+
+function isPossibleName(word: string): boolean {
+  const lower = word.toLowerCase();
+  return /^\p{Lu}/u.test(word) && !speechParticipants.has(lower) && !nonNameStarter.test(lower);
+}
 
 function leadingClauseWords(text: string): string[] {
   const words: string[] = [];
@@ -92,14 +97,18 @@ function isActorPredicate(text: string, followsSentence: boolean): boolean {
   if (firstPerson) return followsSentence || explains;
   if (thirdPersonSubjects.has(subject)) return true;
   // A capital can be a name. Require a recognizable predicate in the opening phrase.
-  return /^\s*[А-ЯЁ]/u.test(text) && !speechParticipants.has(subject) && !nonNameStarter.test(subject);
+  return isPossibleName(match[1]);
 }
 
 function isPunctuatedInterruption(text: string, speechPunctuation: string): boolean {
   if (sentenceEnd.test(speechPunctuation)) return /[,.:]\s*$/u.test(text);
-  // After a comma, a full sentence can be the completion of a spoken clause.
-  // A punctuation-only inference needs a matched comma or a colon introducing speech.
-  return speechPunctuation === ',' && /[,:]\s*$/u.test(text) && !correlativeContinuation.test(text);
+  if (speechPunctuation !== ',' || correlativeContinuation.test(text)) return false;
+  if (/[,:]\s*$/u.test(text)) return true;
+  if (!/\.\s*$/u.test(text)) return false;
+  // A period can end an ordinary spoken continuation. A likely name followed
+  // by a past-tense action supplies evidence for an author sentence in this pair.
+  const match = actorAndPredicate.exec(text);
+  return match !== null && isPossibleName(match[1]) && pastPredicate.test(match[2]);
 }
 
 function isAuthorClause(text: string, speechPunctuation: string, quoteEnding: 'sentence' | 'phrase' | undefined, resumesSpeech: boolean): boolean {

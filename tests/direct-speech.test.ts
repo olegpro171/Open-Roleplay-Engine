@@ -264,4 +264,30 @@ describe('optional Russian dialogue heuristic', () => {
     expect(speech(prefix + ' — ')).toEqual([prefix + ' —']);
     expect(speech(prefix + ' — идём.')).toEqual(['— Пора,', '— идём.']);
   });
+
+  it.each([
+    ['— Нам хватит, — невозмутимо сообщила Мира, глядя на часы. — Иди за мной.', ['— Нам хватит,', '— Иди за мной.']],
+    ['— Нам хватит, — сообщила Мира.', ['— Нам хватит,']],
+    ['— Для тебя есть, — Мира уже тянулась к полке. — Бери чашку.', ['— Для тебя есть,', '— Бери чашку.']],
+    ['— Ни слова, — Мира вскинула подбородок. — Я сама разберусь.', ['— Ни слова,', '— Я сама разберусь.']],
+    ['— К вечеру, — Мэри-Джейн медленно набросала план. — Проверь ещё раз.', ['— К вечеру,', '— Проверь ещё раз.']],
+    ['— На сегодня всё, — Dana снова сложила записку. — Возьми её.', ['— На сегодня всё,', '— Возьми её.']],
+  ])('separates a full author sentence after a comma in %s', (text, expected) => {
+    expect(speech(text)).toEqual(expected);
+  });
+
+  it('uses a named action with an unfamiliar verb once resumed speech arrives', () => {
+    const prefix = '— Готово, — Марта сложила письмо.';
+    expect(speech(prefix)).toEqual([prefix]);
+    expect(speech(prefix + ' — ')).toEqual([prefix + ' —']);
+    expect(speech(prefix + ' — Теперь твоя очередь.')).toEqual(['— Готово,', '— Теперь твоя очередь.']);
+  });
+
+  it.each([
+    '— Вот и всё, — я закончил работу. — Завтра отдыхаю.',
+    '— Если всё получится, — Аня принесёт ключи. — Тогда и начнём.',
+    '— Там, где тихо, — там Марина жила три года. — Вот и весь рассказ.',
+  ])('preserves a spoken continuation between dashes in %s', text => {
+    expect(speech(text)).toEqual([text]);
+  });
 });
