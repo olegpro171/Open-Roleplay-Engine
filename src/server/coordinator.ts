@@ -35,6 +35,10 @@ export class GenerationCoordinator {
     if (this.stopping) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
     return this.dispatch(this.store.beginRegeneration(revision, requestId, turnId, chatId), chatId);
   }
+  generateOpening(revision: number, requestId: string, chatId: string) {
+    if (this.stopping) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
+    return this.dispatch(this.store.beginOpening(revision, requestId, chatId), chatId);
+  }
   continueResponse(revision: number, requestId: string, turnId: string, chatId: string) {
     if (this.stopping) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
     return this.dispatch(this.store.beginCompletedResponse(revision, requestId, turnId, chatId, 'continuation'), chatId);
@@ -63,7 +67,7 @@ export class GenerationCoordinator {
       const snapshot = this.store.generationSnapshot(id);
       if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.save_a_connection_first"));
       const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context,
-        { lore: loreResolution, overshoot: behavior, continuationTurnId: snapshot.continuationTurnId });
+        { lore: loreResolution, overshoot: behavior, turnInstruction: snapshot.turnInstruction });
       this.store.saveRequest(id, request);
       this.changed({ kind: 'chat', chatId, detail: 'state' });
       let lastCheckpoint = 0;

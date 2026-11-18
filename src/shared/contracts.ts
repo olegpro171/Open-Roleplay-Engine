@@ -58,7 +58,7 @@ export type RequestBody = {
 } & z.infer<typeof customParametersSchema>;
 export const pinnedSourceSchema = z.object({ turnId: z.string().min(1).max(100), ordinal: z.number().int().positive().safe() }).strict();
 export type PinnedSource = z.infer<typeof pinnedSourceSchema>;
-export const promptEntryKinds = ['prompt', 'character', 'persona', 'memory', 'history', 'draft', 'lore', 'pinned', 'continuation'] as const;
+export const promptEntryKinds = ['prompt', 'character', 'persona', 'memory', 'history', 'draft', 'lore', 'pinned', 'continuation', 'opening'] as const;
 export type PromptEntry = { messageIndex: number; kind: (typeof promptEntryKinds)[number]; pinnedSources?: PinnedSource[]; label: string; labelMessage?: import('./localization.js').LocalizedMessage; tokens: number; group?: { id: string; label: string } };
 export type TokenUsage = { inputTokens: number; outputTokens: number; totalTokens: number };
 export type ConnectionDiagnostic = { message: string; localized?: import('./localization.js').LocalizedMessage; request?: RequestPreview; usage?: TokenUsage | null; response?: string };
@@ -116,7 +116,8 @@ export type ChatSnapshot = {
   loreState?: import('./lorebook.js').LoreState;
   loreResolution?: import('./lorebook.js').LoreResolution | null;
 };
-export type EngineSnapshot = Omit<ChatSnapshot, 'generations'> & { continuationTurnId?: string };
+export type TurnInstruction = { kind: 'opening' } | { kind: 'continuation'; turnId: string };
+export type EngineSnapshot = Omit<ChatSnapshot, 'generations'> & { turnInstruction?: TurnInstruction };
 export type ChatToolsSnapshot = EngineSnapshot & { generating: boolean };
 export type GenerationDescriptor = Omit<Generation, 'request' | 'partialText' | 'reasoningText' | 'reasoningLength'> & { requestAvailable: boolean };
 export type GenerationPage = { items: GenerationDescriptor[]; nextBefore: string | null; selected?: GenerationDescriptor | null };

@@ -3,6 +3,31 @@ import type { PromptPreset } from './library.js';
 // Factory model-bound content; preserve literal text independently of interface language.
 export const defaultContinuationInstruction = '[OOC: Continue the scene from the previous reply. The player has supplied no new action. Advance the scene through your characters or the environment. Leave the player character’s actions, dialogue, and decisions to the player.]';
 
+export const defaultOpeningInstruction = `OOC Instruction:
+Write the opening scene for this roleplay. This is the first turn the user will read and respond to. Put them into a concrete situation, bring the roleplay character to life, and end at a moment where the user can meaningfully act or speak.
+
+Use the supplied materials
+
+- Treat the character card as the source for the character’s voice, behavior, motivations, relationships, and relevant history. Use example dialogue to learn how the character speaks. Treat past events as established only when the materials identify them as such.
+- Use the user persona to ground established facts about the user’s character. Distinguish what you know from what the roleplay character could plausibly know. Reveal private details only when the viewpoint and scenario support it.
+
+Build a scene the user can enter
+
+- Honor any supplied premise, starting location, relationship, or opening event. If the starting situation is unspecified, choose one that gives the roleplay character a plausible reason to engage with the user. Fill gaps with small, compatible details. Leave major facts about the user’s past, relationships, and motives open.
+- Establish enough context early for the user to understand where they are and what is happening. Ground the moment in a few specific details that carry atmosphere, reveal character, or matter to the interaction.
+- Bring the roleplay character into the scene through an action, a choice, or a line of dialogue that fits their personality and immediate objective. Let their voice show through word choice, rhythm, and what they choose to say or leave unsaid.
+- Match the tone and pace of the supplied material. A quiet opening can turn on an awkward recognition or a small request. A tense opening can turn on an urgent development. In either case, give the user something specific to respond to.
+- Introduce backstory and world details as they become relevant to the immediate moment. Preserve secrets, uncertainties, and unresolved tensions that can develop through play.
+
+Preserve the user’s agency
+
+- Write for the roleplay character, permitted supporting characters, and the environment. Carry forward any facts or starting conditions already established for the user’s character.
+- Leave the user’s new dialogue, voluntary actions, decisions, thoughts, emotions, and reactions for the user to supply. The roleplay character may address, challenge, invite, or pressure them in ways that fit the scene. Leave their response unwritten.
+- Use the requested point of view and tense consistently. If neither is specified, use third-person past tense anchored to the roleplay character. Direct address in dialogue is fine where natural.
+- End just before the user’s next meaningful move. A question, an offer, a revealing action, or a change in the situation can create that opening. Stop before resolving it or advancing through the user’s turn.
+
+Return only the opening scene in the required format and language. Begin directly with the scene.`;
+
 export const factoryPrompt: PromptPreset = {
   "name": "Default prompt",
   "blocks": [

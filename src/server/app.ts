@@ -40,11 +40,12 @@ import { assembleRequest } from '../core/prompt.js';
 import { countText } from '../core/tokens.js';
 import type { SummaryTokenCount } from '../shared/context.js';
 import { continuationTarget } from '../core/continuation.js';
+import { isOpeningTurn } from '../core/opening.js';
 import { Store } from '../persistence/store.js';
 import { StoryReader } from '../persistence/story-reader.js';
 import { turnPinSchema, transcriptQuerySchema } from '../shared/transcript.js';
 import { fetchModels, OpenAICompatibleProvider, type Provider } from '../provider/openai.js';
-import { connectionSchema, editSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema, generationIdentitySchema, generationPageSchema, requestEstimate, type ChatSnapshot, type ChatToolsSnapshot } from '../shared/contracts.js';
+import { connectionSchema, editSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema, generationIdentitySchema, generationPageSchema, requestEstimate, type ChatSnapshot, type ChatToolsSnapshot, type TurnInstruction } from '../shared/contracts.js';
 import type { Change } from '../shared/changes.js';
 import { trimBoundaryNewlines } from '../shared/text.js';
 import { Auth, sessionSeconds } from './auth.js';
@@ -881,29 +882,40 @@ export async function createApp(options: {
       coordinator.changed({ kind: 'library' }); return mutationSnapshot(request);
     });
     app.post(prefix + '/preview', async (request, reply) => {
-      const input = z.object({ revision: revisionSchema, text: z.string().max(100_000).optional(), continuationTurnId: identity.optional(),
+      const input = z.object({ revision: revisionSchema, text: z.string().max(100_000).optional(), continuationTurnId: identity.optional(), opening: z.literal(true).optional(),
         inspection: z.boolean().optional(), detail: z.enum(['estimate', 'full']).default('full') }).strict().parse(request.body);
       if (input.text !== undefined) input.text = trimBoundaryNewlines(input.text);
       const snapshot = store.engineSnapshot(chatId(request.params));
       if (snapshot.revision !== input.revision) throw new AppError(409, 'revision_conflict', message("errors.the_chat_changed_refresh_the_preview"));
       if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.save_a_connection_first"));
+      let turnInstruction: TurnInstruction | undefined;
+      if (input.opening) {
+        if (snapshot.turns.length || input.text?.trim() || input.continuationTurnId) {
+          throw new AppError(409, 'chat_not_empty', message('opening.empty_chat_required'));
+        }
+        turnInstruction = { kind: 'opening' };
+      }
       if (input.continuationTurnId) {
         if (input.text?.trim()) throw new AppError(400, 'continuation_with_draft', message('continue.empty_composer_required'));
         continuationTarget(snapshot, input.continuationTurnId);
+        turnInstruction = { kind: 'continuation', turnId: input.continuationTurnId };
       }
       const turns = [...snapshot.turns];
-      if (!input.continuationTurnId && input.text !== undefined && input.text !== '') {
+      if (!turnInstruction && input.text) {
         if (turns.at(-1)?.complete === false) throw new AppError(409, 'pending_turn', message("errors.resolve_the_pending_turn_before_previewing_a_new"));
         turns.push({ id: 'draft', position: (turns.at(-1)?.position ?? 0) + 1, complete: false, user: { id: 'draft-user', revision: 0, text: input.text }, assistant: { id: 'draft-assistant', revision: 0, text: '' } });
+      }
+      if (!turnInstruction && snapshot.turns.at(-1)?.complete === false && isOpeningTurn(snapshot.turns)) {
+        turnInstruction = { kind: 'opening' };
       }
       const controller = new AbortController();
       const disconnect = () => controller.abort();
       request.raw.once('aborted', disconnect); reply.raw.once('close', disconnect);
       try {
-        const lore = await resolveRequestLore({ ...snapshot, turns, continuationTurnId: input.continuationTurnId }, coordinator.loreRegex, controller.signal);
+        const lore = await resolveRequestLore({ ...snapshot, turns, turnInstruction }, coordinator.loreRegex, controller.signal);
         store.checkRevision(input.revision, snapshot.id);
         const assembled = assembleRequest(snapshot.connection, snapshot.settings, turns, snapshot.sources, snapshot.context,
-          { ...(input.inspection ? { validateLimits: false, allowStale: true } : {}), lore, continuationTurnId: input.continuationTurnId });
+          { ...(input.inspection ? { validateLimits: false, allowStale: true } : {}), lore, turnInstruction });
         if (input.detail === 'full') return assembled;
         return requestEstimate(assembled);
       } finally { request.raw.removeListener('aborted', disconnect); reply.raw.removeListener('close', disconnect); }
@@ -911,6 +923,10 @@ export async function createApp(options: {
     app.post(prefix + '/turns', async (request, reply) => {
       const input = submissionSchema.parse(request.body);
       return reply.code(202).send(coordinator.start(input.revision, input.requestId, input.text, chatId(request.params)));
+    });
+    app.post(prefix + '/opening', async (request, reply) => {
+      const input = retrySchema.parse(request.body);
+      return reply.code(202).send(coordinator.generateOpening(input.revision, input.requestId, chatId(request.params)));
     });
     app.post(prefix + '/retry', async (request, reply) => {
       const input = retrySchema.parse(request.body);

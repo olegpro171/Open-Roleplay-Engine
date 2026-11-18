@@ -127,7 +127,7 @@ export class ContextCoordinator {
     // Physical overflow is validated by final request assembly. It never adds
     // a preparation trigger when the working target permits this input.
     const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context,
-      { validateLimits: false, lore: snapshot.loreResolution, continuationTurnId: snapshot.continuationTurnId });
+      { validateLimits: false, lore: snapshot.loreResolution, turnInstruction: snapshot.turnInstruction });
     if (fitsInputTarget(request.budget.inputTokens, snapshot.settings.targetInputTokens, behavior)) {
       if (hasPromptMarker(snapshot.sources.prompt, 'messages') && belowMinimumTail(snapshot.turns, snapshot.context, snapshot.context.preset.minTail)) {
         throw new AppError(422, 'context_blocked', minimumTailDiagnostic);

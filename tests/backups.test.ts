@@ -47,7 +47,7 @@ describe('portable backup persistence',() => {
     const before = source.snapshot(), targetTurn = before.turns[0];
     const { id } = source.beginCompletedResponse(before.revision, randomUUID(), targetTurn.id, 'main', 'continuation');
     const current = source.generationSnapshot(id);
-    const request = assembleRequest(connection, current.settings, current.turns, current.sources, current.context, { continuationTurnId: targetTurn.id });
+    const request = assembleRequest(connection, current.settings, current.turns, current.sources, current.context, { turnInstruction: { kind: 'continuation', turnId: targetTurn.id } });
     source.saveRequest(id, request);
     source.finish(id, 'succeeded', 'The door opens.');
     const destination = store('continue-destination'), target = service(destination, 'continue-destination');

@@ -22,6 +22,7 @@ import { MessageError, outcomeMessage, type LocalizedMessage } from '../shared/l
 import { replaceNameMacros } from '../core/prompt.js';
 import type { ChatSettings, ChatSnapshot, EngineSnapshot, GenerationPage, Connection, Generation, GenerationStatus, RequestPreview, ResponseVariant, TokenUsage, Turn } from '../shared/contracts.js';
 import { regenerationView } from '../core/regeneration.js';
+import { isOpeningTurn, requireOpeningMessages } from '../core/opening.js';
 import { assertRefusalSelection } from '../core/summary-refusals.js';
 import { hasPromptMarker } from '../shared/library.js';
 import { readCharacterAlternateGreetings, characterLabel, characterSchema, libraryCharacterSchema, libraryPersonaSchema, personaSchema, defaultPrompt, defaultInstructions, selectionsSchema, type Character, type LibraryCharacter, type LibraryPersona, type ChatSummary, type ImportedTurn, type LibraryKind, type LibrarySnapshot, type Persona, type PromptPreset, type Saved, type UnchangedLibrary, type PromptSources } from '../shared/library.js';
@@ -1308,6 +1309,7 @@ export class Store {
         this.db.insert(schema.responseVariants).values({ id: index === 0 ? variantId : randomUUID(), turnId: id, text, sourceRevision, generationId: null, createdAt: '' }).run();
       }
     }
+    return id;
   }
   importChat(input: ImportChat, resolveSettings: () => ReturnType<typeof selectionsSchema.parse>) {
     return this.commitTranscriptImport(input, ['chat', input.title, input.characterId, input.personaId],
@@ -1360,12 +1362,17 @@ export class Store {
     })();
   }
   begin(expected: number, requestId: string, text?: string, chatId = 'main'): { id: string; fresh: boolean } {
-    if (text !== undefined) {
-      text = trimBoundaryNewlines(text);
-      if (!text.trim()) throw new AppError(400, 'blank_input', message("errors.write_a_turn_before_sending_it"));
-    }
+    if (text === undefined) return this.beginResponse(expected, requestId, chatId, { kind: 'retry' });
+    const input = trimBoundaryNewlines(text);
+    if (!input.trim()) throw new AppError(400, 'blank_input', message("errors.write_a_turn_before_sending_it"));
+    return this.beginResponse(expected, requestId, chatId, { kind: 'submit', text: input });
+  }
+  beginOpening(expected: number, requestId: string, chatId: string) {
+    return this.beginResponse(expected, requestId, chatId, { kind: 'opening' });
+  }
+  private beginResponse(expected: number, requestId: string, chatId: string, input: { kind: 'submit'; text: string } | { kind: 'retry' } | { kind: 'opening' }) {
     return this.sqlite.transaction(() => {
-      const command = JSON.stringify({ kind: text === undefined ? 'retry' : 'submit', text });
+      const command = JSON.stringify(input);
       const existing = this.db.select().from(schema.generations).where(eq(schema.generations.requestId, requestId)).get();
       if (existing) {
         if (existing.command !== command || existing.chatId !== chatId) throw new AppError(409, 'request_id_conflict', message("errors.that_request_identity_was_already_used_for_a"));
@@ -1375,14 +1382,22 @@ export class Store {
       const snapshot = this.engineSnapshot(chatId);
       if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.save_a_connection_before_sending_a_turn"));
       if (hasPromptMarker(snapshot.sources.prompt, 'summary')) assertRefusalSelection(snapshot.context);
-      let turn = snapshot.turns.at(-1);
-      if (text !== undefined) {
+      const turn = snapshot.turns.at(-1);
+      let turnId: string;
+      if (input.kind === 'opening') {
+        if (turn) throw new AppError(409, 'chat_not_empty', message('opening.empty_chat_required'));
+        requireOpeningMessages(snapshot.sources.prompt);
+        turnId = this.insertTurn(chatId, 1, { user: '', assistant: '', complete: false });
+      } else if (input.kind === 'submit') {
         if (turn && !turn.complete) throw new AppError(409, 'pending_turn', message("errors.resolve_or_delete_the_pending_turn_before_submitting"));
-        this.insertTurn(chatId, (turn?.position ?? 0) + 1, { user: text, assistant: '', complete: false });
-        turn = this.engineSnapshot(chatId).turns.at(-1);
-      } else if (!turn || turn.complete) throw new AppError(409, 'no_pending_turn', message("errors.there_is_no_pending_turn_to_retry"));
+        turnId = this.insertTurn(chatId, (turn?.position ?? 0) + 1, { user: input.text, assistant: '', complete: false });
+      } else {
+        if (!turn || turn.complete) throw new AppError(409, 'no_pending_turn', message("errors.there_is_no_pending_turn_to_retry"));
+        if (isOpeningTurn(snapshot.turns)) requireOpeningMessages(snapshot.sources.prompt);
+        turnId = turn.id;
+      }
       const id = randomUUID(), now = new Date().toISOString();
-      this.db.insert(schema.generations).values({ id, chatId, requestId, command, turnId: turn!.id, status: 'running', sourceRevision: this.bumpRevision(chatId), request: null, partialText: '', error: null, createdAt: now, updatedAt: now }).run();
+      this.db.insert(schema.generations).values({ id, chatId, requestId, command, turnId, status: 'running', sourceRevision: this.bumpRevision(chatId), request: null, partialText: '', error: null, createdAt: now, updatedAt: now }).run();
       return { id, fresh: true };
     })();
   }
@@ -1404,6 +1419,7 @@ export class Store {
       if (regenerating && (!target?.complete || target.id !== turnId)) throw new AppError(409, 'latest_turn_only', message("errors.only_the_latest_completed_turn_can_be_regenerated"));
       if (!snapshot.connection) throw new AppError(422, 'connection_required', message(regenerating
         ? "errors.select_a_connection_before_regenerating_a_response" : 'continue.connection_required'));
+      if (regenerating && isOpeningTurn(snapshot.turns)) requireOpeningMessages(snapshot.sources.prompt);
       const context = regenerating ? regenerationView(snapshot).context : null;
       const continuationVariantId = regenerating ? null : continuationTarget(snapshot, turnId).variantId;
       const id = randomUUID(), now = new Date().toISOString();
@@ -1424,11 +1440,14 @@ export class Store {
     if (generation.continuationVariantId !== null) {
       const target = continuationTarget(snapshot, generation.turnId);
       if (target.variantId !== generation.continuationVariantId) throw new AppError(409, 'stale_result', message('continue.target_changed'));
-      return { ...snapshot, continuationTurnId: target.id };
+      return { ...snapshot, turnInstruction: { kind: 'continuation', turnId: target.id } };
     }
-    if (generation.kind !== 'regeneration') return snapshot;
-    if (snapshot.turns.at(-1)?.id !== generation.turnId || !generation.contextSelection) throw new AppError(409, 'stale_result', message("errors.the_regeneration_endpoint_is_no_longer_available"));
-    return regenerationView({ ...snapshot, context: { ...snapshot.context, ...generation.contextSelection } });
+    const target = snapshot.turns.at(-1);
+    const view: EngineSnapshot = target?.id === generation.turnId && isOpeningTurn(snapshot.turns)
+      ? { ...snapshot, turnInstruction: { kind: 'opening' } } : snapshot;
+    if (generation.kind !== 'regeneration') return view;
+    if (target?.id !== generation.turnId || !generation.contextSelection) throw new AppError(409, 'stale_result', message("errors.the_regeneration_endpoint_is_no_longer_available"));
+    return regenerationView({ ...view, context: { ...view.context, ...generation.contextSelection } });
   }
   saveGenerationContext(id: string, state: Pick<ChatSnapshot['context'], 'revision' | 'selected' | 'archivedTurnIds'>) {
     const generation = this.generation(id);

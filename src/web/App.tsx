@@ -515,6 +515,8 @@ export function App() {
   const continuationBlocked = continuationTarget?.continuationBlocked;
   const continuationPreview = !continuationBlocked && (!working || active?.kind === 'continuation') && !drafts.needsReview
     ? continuationTarget?.id : undefined;
+  const openingPreview = snapshot?.totalTurns === 0 && !working && !hasDraft && !drafts.needsReview
+    && hasPromptMarker(snapshot.sources.prompt, 'messages');
   const interruption = preparation?.status === 'interrupted' && preparation.generationId === latest?.id
     ? preparation.errorMessage ?? preparation.error : null;
   const latestError = interruption ?? latest?.errorMessage ?? latest?.error;
@@ -533,7 +535,9 @@ export function App() {
   });
   const preview = useRequestPreview(snapshot, preparing?.mode === 'prepare' || regenerationPreparation ? '' : draft,
     view !== 'library' && view !== 'data' && view !== 'new-chat', tab === 'request' && !generationId || peek,
-    tab === 'memory' || tab === 'settings' ? undefined : continuationPreview);
+    tab === 'memory' || tab === 'settings' ? undefined
+      : openingPreview ? { kind: 'opening' }
+      : continuationPreview ? { kind: 'continuation', turnId: continuationPreview } : undefined);
   const currentRequest = snapshot?.connection ? preview.estimate : null;
   const inspectionCurrent = preview.current;
   const inspectionError = formatMessage(preview.error) || (!currentRequest && snapshot?.connection ? t('app.counting_current_input') : '');
@@ -582,6 +586,8 @@ export function App() {
   }
   const canSubmit = Boolean(snapshot?.connection && !busy && !pending && !working && !memoryStale && !authorNote.pending
     && !dataChanged && !drafts.needsReview && (hasDraft || continuationTarget && !continuationBlocked && !edit));
+  const canGenerateOpening = Boolean(snapshot?.connection && snapshot.totalTurns === 0 && !busy && !working
+    && !memoryStale && !authorNote.pending && !dataChanged && !drafts.needsReview && !edit);
   const canSaveEdit = Boolean(edit && snapshot?.id === chatId && !busy && !working && !dataChanged);
   const enterKeyBehavior = chatBehaviorError ? 'button-only' : chatBehavior?.settings.enterKeyBehavior ?? 'button-only';
   const mobileKeyboard = isPhoneOrTablet(navigator);
@@ -623,6 +629,18 @@ export function App() {
       await latestRefresh.current();
       sendInFlight.current = false;
       setBusy(false);
+    }
+  }
+
+  async function generateOpening() {
+    if (!snapshot || !canGenerateOpening || authorNote.editor.getSnapshot().pending || sendInFlight.current) return;
+    const id = snapshot.id;
+    sendInFlight.current = true;
+    try {
+      const accepted = await command(() => api(`/chats/${id}/opening`, 'POST', { revision: snapshot.revision, requestId: newId() }));
+      if (accepted && selectedChat.current === id) setPeek(false);
+    } finally {
+      sendInFlight.current = false;
     }
   }
 
@@ -777,12 +795,8 @@ export function App() {
         {pageError && <div className="recovery" role="alert">{pageError}<button className="secondary" onClick={() => setPageError('')}>{t("app.dismiss")}</button></div>}
         <div className="transcript-frame"><div className="transcript" ref={transcript}>
           {snapshot.page.hasOlder && <div className="history-page-control" data-history-direction="older"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('older')}>{pageLoading ? t("app.loading_history") : t("app.load_older_turns")}</button></div>}
-          {snapshot.totalTurns === 0 && <div className="empty-transcript">
-            <p className="muted">{t(snapshot.connection ? 'app.empty_conversation' : 'app.empty_conversation_needs_connection')}</p>
-            {!snapshot.connection && <button type="button" className="text-link" onClick={() => setTab('settings')}>
-              {t('app.open_chat_settings')}
-            </button>}
-          </div>}
+          {snapshot.totalTurns === 0 && <EmptyTranscript connected={Boolean(snapshot.connection)}
+            canGenerate={canGenerateOpening} generate={() => void generateOpening()} openSettings={() => setTab('settings')} />}
           {snapshot.page.turns.map((turn) => {
             const generating = active?.turnId === turn.id;
             const continuing = generating && active.kind === 'continuation';
@@ -805,7 +819,7 @@ export function App() {
             const showLiveReasoning = appearance.settings.showReasoningDuringGeneration && reasoning && generating && !(continuing ? streamedAddition : responseText);
             const waiting = preparing && preparing.generationId === active?.id ? "app.preparing_memory"
               : reasoning ? "app.reasoning" : "app.waiting_for_first_token";
-            const inputVisible = !(turn.complete && turn.user.text === '' && turn.user.revision === 0)
+            const inputVisible = !((turn.complete || turn.ordinal === 1) && turn.user.text === '' && turn.user.revision === 0)
               || (edit?.turnId === turn.id && edit.part === 'user');
             return <article className="turn" key={turn.id} data-turn-id={turn.id} aria-label={t("app.turn", { ordinal: turn.ordinal })}>
             <div className="turn-heading"><span className="turn-number">{turn.pinned && <span className="turn-pinned" title={t('pins.pinned')}><Icon name="Bookmark" /><span className="sr-only">{t('pins.pinned')}</span></span>}{t("app.turn_2", { ordinal: turn.ordinal, value: turn.complete ? summariesEnabled && turn.archived ? t("interface.archived") : '' : t("interface.pending") })}</span>
@@ -952,6 +966,23 @@ export function App() {
 
     {connectionDialog}
   </div></ChatDetailsTarget.Provider>;
+}
+
+const openingActionSlot = '{{action}}';
+
+function EmptyTranscript({ connected, canGenerate, generate, openSettings }: {
+  connected: boolean; canGenerate: boolean; generate: () => void; openSettings: () => void;
+}) {
+  useLocale();
+  const [before, after] = t('app.empty_conversation', { action: openingActionSlot }).split(openingActionSlot);
+  return <div className="empty-transcript">
+    {connected ? <p className="muted">{before}<button type="button" className="text-link" disabled={!canGenerate} onClick={generate}>
+      {t('opening.action')}
+    </button>{after}</p> : <>
+      <p className="muted">{t('app.empty_conversation_needs_connection')}</p>
+      <button type="button" className="text-link" onClick={openSettings}>{t('app.open_chat_settings')}</button>
+    </>}
+  </div>;
 }
 
 function Login({ session, onLogin }: { session: Session; onLogin: () => Promise<void> }) {

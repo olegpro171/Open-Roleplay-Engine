@@ -84,6 +84,7 @@ const categories = (): { kind: PromptEntry['kind'] | 'overhead'; label: string }
   { kind: 'pinned', label: t('pins.title') },
   { kind: 'history', label: t("app.active_turns") }, { kind: 'draft', label: t("prompt_peek.unsent_input") },
   { kind: 'continuation', label: t('continue.instruction') },
+  { kind: 'opening', label: t('opening.instruction') },
   { kind: 'overhead', label: t("prompt_peek.message_framing") },
 ];
 

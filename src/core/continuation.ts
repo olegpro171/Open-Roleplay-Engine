@@ -1,5 +1,5 @@
 import { message } from '../shared/localization.js';
-import type { EngineSnapshot } from '../shared/contracts.js';
+import type { EngineSnapshot, TurnInstruction } from '../shared/contracts.js';
 import { hasPromptMarker, transcriptPartLimit } from '../shared/library.js';
 import { appendContinuation } from '../shared/text.js';
 import { AppError } from './errors.js';
@@ -24,6 +24,6 @@ export function continuationTarget(snapshot: EngineSnapshot, turnId: string) {
   return { ...target, variantId: target.assistant.variantId };
 }
 
-export function requiredVerbatimTail(minimum: number, continuationTurnId?: string): number {
-  return continuationTurnId ? Math.max(minimum, 1) : minimum;
+export function requiredVerbatimTail(minimum: number, instruction?: TurnInstruction): number {
+  return instruction?.kind === 'continuation' ? Math.max(minimum, 1) : minimum;
 }

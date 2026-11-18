@@ -25,7 +25,7 @@ export function savedReplacement(snapshot: EngineSnapshot, operation: ContextOpe
   if (operation.repair || !connection) return null;
   selectedContext(snapshot.turns, snapshot.context);
   const measure = (state: ContextState) => assembleRequest(connection, snapshot.settings, snapshot.turns, snapshot.sources, state,
-    { validateLimits: false, lore: snapshot.loreResolution, continuationTurnId: snapshot.continuationTurnId }).budget.inputTokens;
+    { validateLimits: false, lore: snapshot.loreResolution, turnInstruction: snapshot.turnInstruction }).budget.inputTokens;
   const inputBefore = measure(snapshot.context), key = operationKey(operation);
   for (const node of savedSummaries(snapshot.turns, snapshot.context)) {
     if (operationKey({ level: node.level, turnIds: node.turns.map(source => source.turnId), children: node.children }) !== key) continue;

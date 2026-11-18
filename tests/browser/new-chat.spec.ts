@@ -86,7 +86,7 @@ for (const width of [1440, 390]) {
     await start.click();
     const conversation = page.getByRole('region', { name: 'Conversation', exact: true });
     await expect(conversation).toContainText(`Welcome, Starter visitor ${width}.`);
-    await expect(conversation.getByText('No messages yet. Send the first one to begin.')).toHaveCount(0);
+    await expect(conversation.getByRole('button', { name: 'generate an opening', exact: true })).toHaveCount(0);
     await openNewChatSettings(page);
     await expect(page.getByRole('region', { name: 'Chat settings', exact: true })).toBeVisible();
     await expect(page.getByLabel('Chat title')).toHaveValue(title);
@@ -134,7 +134,7 @@ test('an empty Story guides the first send or offers help choosing a Connection'
   const composer = conversation.getByLabel('Your next turn');
   const send = conversation.getByRole('button', { name: 'Send', exact: true });
   const settingsShortcut = conversation.getByRole('button', { name: 'Open chat settings', exact: true });
-  const firstMessage = conversation.getByText('No messages yet. Send the first one to begin.', { exact: true });
+  const firstMessage = conversation.getByText('No messages yet. Send the first message or generate an opening.', { exact: true });
   const missingConnection = conversation.getByText('Choose a Connection to send messages.', { exact: true });
   await expect(composer).toBeVisible();
   const [legacyChat] = (await library(page)).chats;

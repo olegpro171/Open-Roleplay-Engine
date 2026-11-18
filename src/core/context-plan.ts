@@ -17,7 +17,7 @@ import { requiredVerbatimTail } from './continuation.js';
 export function contextPlan(snapshot: EngineSnapshot): ContextPlan {
   if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.select_a_roleplay_connection_to_measure_the_complete"));
   const state = snapshot.context;
-  const options = { validateLimits: false, lore: snapshot.loreResolution, continuationTurnId: snapshot.continuationTurnId };
+  const options = { validateLimits: false, lore: snapshot.loreResolution, turnInstruction: snapshot.turnInstruction };
   const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, state, { ...options, allowStale: true });
   const hasPinnedBlock = request.layout?.some(entry => entry.kind === 'pinned');
   const effectiveLimit = Math.min(snapshot.settings.targetInputTokens, snapshot.connection.contextWindow - snapshot.connection.maxOutputTokens);
@@ -54,7 +54,7 @@ export function contextPlan(snapshot: EngineSnapshot): ContextPlan {
     }
   }
   else if (state.preset) {
-    const config = { ...state.preset, minTail: requiredVerbatimTail(state.preset.minTail, snapshot.continuationTurnId) };
+    const config = { ...state.preset, minTail: requiredVerbatimTail(state.preset.minTail, snapshot.turnInstruction) };
     let pinnedFloor: number | undefined;
     if (hasPinnedBlock && required >= effectiveLimit && request.budget.inputTokens > effectiveLimit) {
       // Even after every eligible whole batch, minimum tail, residual turns,

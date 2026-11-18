@@ -7,7 +7,7 @@ import { displayLibraryRecord, libraryEditorTitle, newLibraryLabel, searchLibrar
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale, currentPack } from './localization';
 import { libraryLabel, characterFieldLabel, markerLabel as localizedMarkerLabel, stateLabel } from './localization-labels';
 import { librarySortSchema, readLibrarySort, sortLibraryItems, sortLibraryRecords, sortOptions, type LibrarySort } from './library-sorting';
-import { defaultContinuationInstruction } from '../shared/default-prompt';
+import { defaultContinuationInstruction, defaultOpeningInstruction } from '../shared/default-prompt';
 import { chatGroupId, preferredBranch } from './chat-selection';
 import { SpeechColorSelector } from './SpeechColorSelector';
 import { newId } from './uuid';
@@ -770,6 +770,7 @@ function ContextPresetFields({ value, change, connections }: { value: ContextPre
 function PromptEditor({ value, change }: { value: PromptPreset; change: (value: PromptPreset) => void }) {
   useLocale();
   const instructionHelp = useId();
+  const openingHelp = useId();
   const [expandedBlocks, setExpandedBlocks] = useState<Set<string>>(() => new Set());
   function update(index: number, block: PromptBlock) { change({ ...value, blocks: value.blocks.map((old, i) => i === index ? block : old) }); }
   function move(from: number, to: number) {
@@ -783,6 +784,12 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
       maxLength={100_000} value={value.continuationInstruction ?? defaultContinuationInstruction}
       onChange={event => change({ ...value, continuationInstruction: event.target.value })} />
     <small id={instructionHelp}>{t('continue.instruction_help')}</small>
+  </label>
+  <label className="full">{t('opening.instruction')}
+    <EditorTextarea aria-label={t('opening.instruction')} aria-describedby={openingHelp}
+      maxLength={100_000} value={value.openingInstruction ?? defaultOpeningInstruction}
+      onChange={event => change({ ...value, openingInstruction: event.target.value })} />
+    <small id={openingHelp}>{t('opening.instruction_help')}</small>
   </label>
   <div className="prompt-blocks" {...reorder.list}>{value.blocks.map((block, index) => {
     const expanded = expandedBlocks.has(block.id);
