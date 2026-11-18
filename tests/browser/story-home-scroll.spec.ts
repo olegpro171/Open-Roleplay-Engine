@@ -5,7 +5,7 @@ import type { LibrarySnapshot } from '../../src/shared/library';
 test.use({ starterChat: false, browserName: 'webkit' });
 
 test('keeps the New chat scroll position when participant cards replace their placeholders', async ({ page, browserApp }) => {
-  await page.setViewportSize({ width: 390, height: 760 });
+  await page.setViewportSize({ width: 390, height: 780 });
   await page.goto('/');
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: 'Create owner account', exact: true }).click();

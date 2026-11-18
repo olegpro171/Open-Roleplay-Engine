@@ -114,22 +114,33 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
   }
 
   const addConnection = { label: t('story_home.add_connection'), onClick: () => create('connections'), disabled: busy };
+  const connectionHeading = t('libraries.connection');
   const noConnection = t('story_home.no_connection_selected');
   const connectionSummary = connection
-    ? <p role="status">
+    ? <p role="status" title={compact ? `${connection.name} · ${connection.model}` : undefined}>
       <strong>{connection.name}</strong>{compact ? ' · ' : <br />}<span className="muted">{connection.model}</span>
     </p>
-    : compact
-      ? <p className="muted">{noConnection}</p>
-      : <HomeCardPlaceholder details={{ label: noConnection, action: addConnection }} />;
+    : null;
   const defaultPanels = <div key="defaults" className="story-home-defaults">
     <section className={`story-home-panel story-home-summary${connection ? '' : ' blocks-chat'}`} aria-labelledby="story-home-connection">
       <div className="story-home-summary-content">
-        <h2 id="story-home-connection">{t('libraries.connection')}</h2>
-        {connectionSummary}
+        {compact ? <>
+          <h2 id="story-home-connection" className="story-home-connection-heading">
+            <span aria-hidden={!connection || undefined}>{connectionHeading}</span>
+            <span aria-hidden={!!connection || undefined}>{noConnection}</span>
+          </h2>
+          <div className="story-home-connection-details">
+            <div aria-hidden={!!connection || undefined}>
+              <HomeAction {...addConnection} disabled={busy || !!connection} />
+            </div>
+            {connectionSummary}
+          </div>
+        </> : <>
+          <h2 id="story-home-connection">{connectionHeading}</h2>
+          {connectionSummary ?? <HomeCardPlaceholder details={{ label: noConnection, action: addConnection }} />}
+        </>}
       </div>
       <div className="actions">
-        {compact && !connection && <HomeAction {...addConnection} />}
         <HomeAction label={t('story_home.manage_connections')} onClick={() => browse('connections')} disabled={busy} />
       </div>
     </section>
