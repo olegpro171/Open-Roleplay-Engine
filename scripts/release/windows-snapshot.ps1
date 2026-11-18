@@ -234,6 +234,12 @@ public static class OreLongPaths {
     public static string Hash(string root,string path) {
         using(var stream=Open(root,path,false)) using(var sha=SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-","").ToLowerInvariant();
     }
+    public static bool Matches(string root,string path,long bytes,string hash) {
+        using(var stream=Open(root,path,false)) {
+            if (stream.Length!=bytes) return false;
+            using(var sha=SHA256.Create()) return String.Equals(BitConverter.ToString(sha.ComputeHash(stream)).Replace("-",""),hash,StringComparison.OrdinalIgnoreCase);
+        }
+    }
     static List<FindData> Entries(string root,string directory) {
         directory=Assert(root,directory);
         FindData data;
@@ -253,7 +259,10 @@ public static class OreLongPaths {
     }
     static void Walk(string root,string directory,List<string> files) {
         foreach(var entry in Entries(root,directory)) {
-            string path=Assert(root,directory+"\\"+entry.Name);
+            // Entries checks the directory ancestry and every entry's reparse
+            // flag. Recheck a directory before opening it. File names returned
+            // by FindFirst/NextFile are single components and are never opened here.
+            string path=directory.TrimEnd('\\')+"\\"+entry.Name;
             if ((entry.Attributes&DirectoryFlag)!=0) Walk(root,path,files);
             else { files.Add(path);if(files.Count>100000)throw new IOException("Managed file count exceeded."); }
         }

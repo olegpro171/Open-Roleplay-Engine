@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, cpSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync, existsSync, cpSync, realpathSync, symlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { inventory } from '../scripts/release/stage.mjs';
-import { installWindowsPackage, verifyWindowsPackage } from '../scripts/release/windows-package-install.mjs';
+import { inventory, omitDependencyDeclarations } from '../scripts/release/stage.mjs';
+import { activatePreparedWindowsPackage, installWindowsPackage, prepareWindowsPackage, verifyWindowsPackage } from '../scripts/release/windows-package-install.mjs';
+import { launcherVersion } from '../scripts/release/windows-launcher-version.mjs';
 
 const roots: string[] = [];
 const commit = 'a'.repeat(40), nextCommit = 'b'.repeat(40);
@@ -33,6 +34,116 @@ function fixture() {
 }
 
 describe('Windows package verification and atomic code publication', () => {
+ it.skipIf(process.platform !== 'win32').each([
+  { name: 'a clean shutdown', status: 0, message: 'ORE stopped.' },
+  { name: 'startup cancellation', status: 1, message: 'Cancelled. Run the launcher again to retry.' },
+  { name: 'a shutdown failure', status: 42, message: 'Synthetic server shutdown failed.' },
+ ])('preserves the foreground process result for $name when the helper observes Ctrl+C first', ({ status, message }) => {
+  const f = fixture(), installed = f.packageFor();
+  installWindowsPackage(installed.payload, f.home, commit);
+  writeFileSync(join(f.home, '.ore-installation'), 'ORE-installation:1\n');
+  writeFileSync(join(f.home, '.env'), '');
+  const app = join(f.home, 'app', installed.id), tools = join(app, 'scripts/release');
+  const helper = join(tools, 'windows-package-launcher.ps1');
+  const interrupt = join(f.root, 'interrupt'), observed = join(f.root, 'observed');
+  for (const name of ['windows-install-verify.mjs', 'application-assets.mjs']) cpSync(resolve('scripts/release', name), join(tools, name));
+  cpSync(process.execPath, join(f.home, 'runtime', runtime, 'node.exe'));
+  writeFileSync(join(app, 'build-info.json'), JSON.stringify({ kind: 'release', commit, schema: 1, node: process.versions.node, platform: process.platform, arch: process.arch }));
+  for (const path of ['dist/server/server/main.js', 'dist/server/server/picture-worker.js', 'dist/client/index.html', 'migrations/0014_library_sorting.sql']) {
+   mkdirSync(join(app, path, '..'), { recursive: true });
+   writeFileSync(join(app, path), '');
+  }
+  writeFileSync(join(app, 'manifest.json'), JSON.stringify({ files: inventory(app) }));
+  writeFileSync(join(tools, 'portable-launch.mjs'), `
+import { existsSync, writeFileSync } from 'node:fs';
+import { setTimeout as delay } from 'node:timers/promises';
+writeFileSync(${JSON.stringify(interrupt)}, '');
+while (!existsSync(${JSON.stringify(observed)})) await delay(10);
+console.log(${JSON.stringify(message)});
+process.exitCode = ${status};
+`);
+  // Supply cancellation to the helper before letting the foreground process exit.
+  const body = '# The installed helper owns the lease';
+  const code = readFileSync(resolve('scripts/release/windows-package-launcher.ps1'), 'utf8');
+  writeFileSync(helper, code.replace(body, `function Test-OreCancellation {
+    if (![OreCancellation]::IsCancelled -and [IO.File]::Exists($env:ORE_TEST_WINDOW_INTERRUPT)) {
+        [OreCancellation]::Cancel()
+        [IO.File]::WriteAllText($env:ORE_TEST_WINDOW_OBSERVED,'')
+    }
+    return [OreCancellation]::IsCancelled
+}\n${body}`));
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-File', helper, '-Installed', '-Installation', f.home, '-Invoking', f.root, '-Language', 'en'], {
+   encoding: 'utf8', timeout: 20000,
+   env: { ...process.env, ORE_NO_PAUSE: '1', ORE_TEST_WINDOW_INTERRUPT: interrupt, ORE_TEST_WINDOW_OBSERVED: observed },
+  });
+  const logs = join(f.home, 'logs');
+  const report = existsSync(logs) ? readdirSync(logs).map(name => readFileSync(join(logs, name), 'utf8')).join('\n') : '';
+  expect(existsSync(observed), result.stdout+result.stderr+report).toBe(true);
+  expect(result.status, result.stdout+result.stderr).toBe(status);
+  expect(result.stdout.trimEnd().split(/\r?\n/u).at(-1)).toBe(message);
+  expect(result.stderr).toBe('');
+  expect(readdirSync(logs)).toHaveLength(1);
+  expect(report).not.toContain('OperationCanceledException');
+ }, 25000);
+ it.skipIf(process.platform !== 'win32')('an older batch declines a new installation before requesting package bytes', () => {
+  const f = fixture(), entry = join(f.root, 'ORE-launcher.bat'), requests = join(f.root, 'requests.txt');
+  const min = launcherVersion + 1;
+  const tag = 'build-'+commit;
+  const archive = 'ORE-windows-x64.zip';
+  const assets = [archive, archive+'.sha256', 'ORE-windows-x64.json'].map(name => ({
+   name, state: 'uploaded', browser_download_url: `https://github.com/olegpro171/Open-Roleplay-Engine/releases/download/${tag}/${name}`,
+  }));
+  writeFileSync(join(f.root,'latest.json'), JSON.stringify({ tag_name: tag, draft: false, prerelease: false, assets }));
+  writeFileSync(join(f.root,'descriptor.json'), JSON.stringify({
+   formatVersion: 2, platform: 'win32', arch: 'x64', launcherProtocol: 2, commit, archive,
+   sha256: 'a'.repeat(64), bytes: 1, minimumLauncherVersion: min,
+  }));
+  const override = `function Get-OreHttps([string]$Url,[string]$Output,[int]$Seconds) {
+    [IO.File]::AppendAllText($env:ORE_TEST_VERSION_REQUESTS,$Url+[Environment]::NewLine)
+    $name = if ($Url.EndsWith('/releases/latest')) { 'latest.json' }
+    elseif ($Url.EndsWith('/ORE-windows-x64.json')) { 'descriptor.json' }
+    else { throw 'Unexpected download in the version gate test.' }
+    [IO.File]::Copy((Join-Path $env:ORE_TEST_VERSION_ROOT $name),$Output)
+}`;
+  const batch = readFileSync(resolve('ORE-launcher.bat'), 'utf8');
+  writeFileSync(entry, batch.replace('# Bootstrap contract 2.', override+'\n# Bootstrap contract 2.').replaceAll(/\r?\n/gu, '\r\n'));
+  const result = spawnSync('cmd.exe', ['/d', '/s', '/c', '""%ORE_TEST_VERSION_BATCH%""'], {
+   cwd: f.root, windowsVerbatimArguments: true, encoding: 'utf8', timeout: 20000,
+   env: { ...process.env, ORE_TEST_VERSION_ROOT: f.root, ORE_TEST_VERSION_BATCH: entry, ORE_TEST_VERSION_REQUESTS: requests, ORE_NO_PAUSE: '1', ORE_SKIP_UPDATE: '0' },
+  });
+  expect(result.status, result.stdout+result.stderr).toBe(1);
+  expect(result.stdout).toMatch(new RegExp(`(?:version|версии) ${min}\\b`, 'u'));
+  expect(result.stdout).toContain('https://github.com/olegpro171/Open-Roleplay-Engine/releases/latest');
+  expect(readFileSync(requests, 'utf8').trim().split(/\r?\n/u)).toEqual([
+   'https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/releases/latest',
+   assets[2].browser_download_url,
+  ]);
+  expect(existsSync(join(f.root, 'ORE-internal/current'))).toBe(false);
+ }, 25000);
+ it('omits dependency declarations while retaining JavaScript, maps and notices', () => {
+  const f = fixture(), modules = join(f.root, 'node_modules/package'), nested = join(modules,'lib');
+  mkdirSync(nested, { recursive: true });
+  for (const file of ['index.js', 'index.d.ts', 'LICENSE', 'lib/index.cjs', 'lib/index.cjs.map', 'lib/index.d.cts', 'lib/index.d.mts']) writeFileSync(join(modules, file), file);
+  omitDependencyDeclarations(modules);
+  expect(inventory(modules).map(file => file.path)).toEqual(['LICENSE', 'index.js', 'lib/index.cjs', 'lib/index.cjs.map']);
+ });
+ it.skipIf(process.platform !== 'win32')('walks long ordinary paths and rejects nested junctions without following them', () => {
+  const f = fixture(), directory = join(f.root, 'tree'), nested = join(directory, 'nested'), outside = join(f.root, 'outside');
+  const longPath = join(nested, 'a'.repeat(110), 'b'.repeat(110), 'story.txt');
+  mkdirSync(join(longPath, '..'), { recursive: true });
+  mkdirSync(outside); writeFileSync(longPath, 'Synthetic story');
+  const run = () => spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-Command', "$ErrorActionPreference='Stop'; . $env:ORE_ZIP_TOOLS; Get-OreLongFiles $env:ORE_PACKAGE_DIRECTORY"], {
+   encoding: 'utf8', timeout: 15000, env: { ...process.env, ORE_ZIP_TOOLS: resolve('scripts/release/windows-snapshot.ps1'), ORE_PACKAGE_DIRECTORY: directory },
+  });
+  const ordinary = run(); expect(ordinary.status, ordinary.stderr).toBe(0);
+  expect(ordinary.stdout.trim()).toBe(longPath);
+  const link = join(nested, 'junction');
+  symlinkSync(outside, link, 'junction');
+  try {
+   const escaped = run(); expect(escaped.status).not.toBe(0);
+   expect(escaped.stderr).toMatch(/Reparse point/u);
+  } finally { rmSync(link, { force: true }); }
+ });
  it.skipIf(process.platform !== 'win32').each([1, 2])('validates a native inventory with %i files and rejects corruption and malformed inventories', count => {
   const f = fixture(), directory = join(f.root, 'inventory'); mkdirSync(directory);
   for (let index = 0; index < count; index++) writeFileSync(join(directory, `story-${index}.txt`), 'Synthetic saved story');
@@ -96,6 +207,63 @@ describe('Windows package verification and atomic code publication', () => {
   expect(readFileSync(join(f.home, 'working'), 'utf8')).toBe(first.selection);
   expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(next.selection);
   expect(existsSync(join(f.home, 'app', first.id))).toBe(true);
+ });
+ it('prepares an update without changing any active pointers or root tools until activation', () => {
+  const f = fixture(), first = f.packageFor(); installWindowsPackage(first.payload, f.home, commit);
+  writeFileSync(join(f.home, 'working'), first.selection);
+  const next = f.packageFor(nextCommit), tool = 'start-app.bat';
+  writeFileSync(join(next.payload, tool), 'next tool'); next.seal();
+  const prepared = prepareWindowsPackage(next.payload, f.home, nextCommit, 2);
+  for (const ptr of ['current', 'recovery/current', 'working']) expect(readFileSync(join(f.home, ptr), 'utf8')).toBe(first.selection);
+  expect(readFileSync(join(f.home, tool), 'utf8')).toBe('synthetic '+tool);
+  expect(existsSync(join(f.home, 'previous'))).toBe(false);
+  expect(existsSync(join(f.home, 'app', next.id))).toBe(true);
+  expect(() => activatePreparedWindowsPackage(f.home, prepared, 1)).toThrow('requires a newer Windows launcher');
+  for (const ptr of ['current', 'recovery/current', 'working']) expect(readFileSync(join(f.home, ptr), 'utf8')).toBe(first.selection);
+  expect(readFileSync(join(f.home, tool), 'utf8')).toBe('synthetic '+tool);
+  activatePreparedWindowsPackage(f.home, prepared, 2);
+  for (const ptr of ['current', 'recovery/current']) expect(readFileSync(join(f.home, ptr), 'utf8')).toBe(next.selection);
+  for (const ptr of ['working', 'previous']) expect(readFileSync(join(f.home, ptr), 'utf8')).toBe(first.selection);
+  expect(readFileSync(join(f.home, tool), 'utf8')).toBe('next tool');
+ });
+ it.skipIf(process.platform !== 'win32')('keeps a prepared update for a compatible batch when launching offline with an older one', () => {
+  const f = fixture(), first = f.packageFor(); installWindowsPackage(first.payload, f.home, commit);
+  const next = f.packageFor(nextCommit);
+  prepareWindowsPackage(next.payload, f.home, nextCommit, 2);
+  const prepared = join(f.home, 'cache/prepared-update');
+  const receipt = inventory(prepared);
+  const check = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-Command', `
+$ErrorActionPreference = 'Stop'
+foreach ($script in @('windows-common.ps1','windows-snapshot.ps1','windows-standalone-common.ps1','windows-package.ps1','windows-package-session.ps1','windows-package-update.ps1')) {
+ . (Join-Path $env:ORE_TEST_VERSION_TOOLS $script)
+}
+function Show-OreMessage($Id,$Parameters) { [Console]::WriteLine("$Id "+$Parameters.required) }
+function Invoke-OreProcess { throw 'Old launcher reached activation.' }
+$Installation = $env:ORE_TEST_VERSION_HOME
+$script:OreReport = Join-Path $Installation 'version-test.log'
+$result = Use-OrePreparedUpdate (Get-OreSelection $Installation) (Join-Path $Installation 'cache/prepared-update') 1
+if ($result) { throw 'Old launcher activated a prepared update.' }
+`], {
+   encoding: 'utf8', timeout: 15000,
+   env: { ...process.env, ORE_TEST_VERSION_HOME: f.home, ORE_TEST_VERSION_TOOLS: resolve('scripts/release') },
+  });
+  expect(check.status, check.stdout+check.stderr).toBe(0);
+  expect(check.stdout.trim()).toBe('launcherUpdateRequired 2');
+  expect(inventory(prepared)).toEqual(receipt);
+  expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(first.selection);
+  expect(readFileSync(join(f.home, 'recovery/current'), 'utf8')).toBe(first.selection);
+ });
+ it.each(['receipt corruption', 'requirement corruption', 'different base'])('leaves the selected version intact after %s', kind => {
+  const f = fixture(), first = f.packageFor(); installWindowsPackage(first.payload, f.home, commit);
+  const next = f.packageFor(nextCommit), prepared = prepareWindowsPackage(next.payload, f.home, nextCommit, 2);
+  if (kind === 'receipt corruption') writeFileSync(join(f.home, 'cache/prepared-update/start-app.bat'), 'changed tool');
+  else if (kind === 'requirement corruption') writeFileSync(join(f.home, 'cache/prepared-update/minimum-launcher-version'), '1');
+  else writeFileSync(join(f.home, 'current'), 'release-other\n'+runtime+'\n');
+  const selected = readFileSync(join(f.home, 'current'), 'utf8');
+  expect(() => activatePreparedWindowsPackage(f.home, prepared, 2)).toThrow(/inventory|no longer matches/u);
+  expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(selected);
+  expect(readFileSync(join(f.home, 'recovery/current'), 'utf8')).toBe(first.selection);
+  expect(readFileSync(join(f.home, 'start-app.bat'), 'utf8')).toBe('synthetic start-app.bat');
  });
  it('retries an interrupted publication with complete immutable orphan directories', () => {
   const f = fixture(), p = f.packageFor();

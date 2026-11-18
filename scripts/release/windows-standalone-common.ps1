@@ -12,6 +12,7 @@ public static class OreCancellation {
     [DllImport("kernel32.dll",SetLastError=true)] static extern bool SetConsoleCtrlHandler(Handler callback,bool add);
     public static CancellationToken Token { get { return source.Token; } }
     public static bool IsCancelled { get { return source.IsCancellationRequested; } }
+    public static void Cancel() { source.Cancel(); }
     static bool Handle(uint type) {
         if (type != 0 && type != 1) return false;
         source.Cancel();
@@ -142,7 +143,7 @@ function ConvertTo-OreArgument([string]$Value) {
     # CommandLineToArgvW quoting; paths are never evaluated as shell source.
     return '"'+[regex]::Replace([regex]::Replace($Value,'(\\*)"','$1$1\"'),'(\\+)$','$1$1')+'"'
 }
-function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$Report, [switch]$Console) {
+function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$Report, [switch]$Console, [scriptblock]$WhileRunning) {
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $Executable
     $start.Arguments = (($Arguments | ForEach-Object { ConvertTo-OreArgument $_ }) -join ' ')
@@ -165,16 +166,20 @@ function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$R
             $paths += $path; $outputs += $outputStream; $tasks += $stream.CopyToAsync($outputStream)
         }
         do {
-            if (Test-OreCancellation) { throw (New-Object OperationCanceledException 'Launcher cancelled.') }
+            if (Test-OreCancellation) {
+                # The foreground controller also receives Ctrl+C and reports its own shutdown.
+                if ($Console -and $process.WaitForExit(5000)) { break }
+                throw (New-Object OperationCanceledException 'Launcher cancelled.')
+            }
             foreach ($task in $tasks) { if ($task.IsFaulted) { $task.GetAwaiter().GetResult() | Out-Null } }
+            if ($WhileRunning -and !$process.HasExited) { & $WhileRunning }
         } while (!$process.WaitForExit(100))
         foreach ($task in $tasks) { $task.GetAwaiter().GetResult() | Out-Null }
         return $process.ExitCode
     } finally {
         # Never leave workers running after presenter/log/phase failure.
         if ($started -and !$process.HasExited) {
-            if ($Console -and (Test-OreCancellation)) { $process.WaitForExit(5000) | Out-Null }
-            if (!$process.HasExited) { $process.Kill(); $process.WaitForExit() }
+            $process.Kill(); $process.WaitForExit()
         }
         foreach ($task in $tasks) { try { $task.GetAwaiter().GetResult() | Out-Null } catch { } }
         foreach ($outputStream in $outputs) { $outputStream.Dispose() }

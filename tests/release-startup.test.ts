@@ -48,9 +48,9 @@ it('requires an actual interface after owned readiness and reports an unexpected
 
 it('isolates temporary startup reports from an inherited live-launch report', () => {
   const f = fixture(`
-    if (process.env.ORE_LAUNCH_REPORT || process.env.ORE_LAUNCH_LOCK_TOKEN) throw new Error('Inherited live startup authority');
+    if (process.env.ORE_LAUNCH_REPORT || process.env.ORE_LAUNCH_LOCK_TOKEN || process.env.ORE_LAUNCH_READY_RECEIPT) throw new Error('Inherited live startup authority');
     ${releaseServer}`);
-  const result = f.run('{}', { ORE_LAUNCH_REPORT: join(f.root, 'live-report.txt'), ORE_LAUNCH_LOCK_TOKEN: 'synthetic-live-token' });
+  const result = f.run('{}', { ORE_LAUNCH_REPORT: join(f.root, 'live-report.txt'), ORE_LAUNCH_LOCK_TOKEN: 'synthetic-live-token', ORE_LAUNCH_READY_RECEIPT: join(f.root, 'live-ready.tmp') });
   expect(result.status, result.stdout + result.stderr).toBe(0);
   expect(readdirSync(f.cache)).toEqual([]);
 });

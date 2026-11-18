@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { isLauncherVersion, readLauncherVersion } from './windows-launcher-version.mjs';
 
 export const windowsReleaseAssets = ['ORE-launcher.bat', 'ORE-windows-x64.json', 'ORE-windows-x64.zip', 'ORE-windows-x64.zip.sha256'];
 export const releaseRepository = 'olegpro171/Open-Roleplay-Engine';
@@ -17,7 +18,11 @@ export function readWindowsRelease(directory, commit) {
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 1) throw new Error(`Invalid release asset: ${name}`);
   }
   const descriptor = JSON.parse(readFileSync(join(directory, 'ORE-windows-x64.json'), 'utf8'));
-  if (descriptor.formatVersion !== 1 || descriptor.platform !== 'win32' || descriptor.arch !== 'x64' || descriptor.commit !== commit || descriptor.archive !== 'ORE-windows-x64.zip' || descriptor.launcherProtocol !== 2 || !Number.isSafeInteger(descriptor.bytes) || descriptor.bytes < 1 || descriptor.bytes > 512 * 1024 * 1024 || typeof descriptor.sha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(descriptor.sha256)) throw new Error('Invalid Windows release descriptor.');
+  if (descriptor.formatVersion !== 2 || descriptor.platform !== 'win32' || descriptor.arch !== 'x64' || descriptor.commit !== commit || descriptor.archive !== 'ORE-windows-x64.zip' || descriptor.launcherProtocol !== 2 || !Number.isSafeInteger(descriptor.bytes) || descriptor.bytes < 1 || descriptor.bytes > 512 * 1024 * 1024 || typeof descriptor.sha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(descriptor.sha256)) throw new Error('Invalid Windows release descriptor.');
+  const minimum = descriptor.minimumLauncherVersion;
+  if (!isLauncherVersion(minimum) || minimum === 0) throw new Error('Invalid minimum Windows launcher version.');
+  const batch = readFileSync(join(directory, 'ORE-launcher.bat'), 'utf8');
+  if (readLauncherVersion(batch) < minimum) throw new Error('Release batch does not meet its minimum launcher version.');
   const archive = readFileSync(join(directory, descriptor.archive));
   if (archive.length !== descriptor.bytes || createHash('sha256').update(archive).digest('hex') !== descriptor.sha256) throw new Error('Release archive differs from its descriptor.');
   if (readFileSync(join(directory, 'ORE-windows-x64.zip.sha256'), 'utf8') !== `${descriptor.sha256}  ${descriptor.archive}\n`) throw new Error('Release checksum differs from its descriptor.');

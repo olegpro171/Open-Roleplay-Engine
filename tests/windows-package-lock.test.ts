@@ -20,7 +20,9 @@ afterEach(async () => {
 });
 
 describe.skipIf(process.platform !== 'win32')('Windows package ownership and legacy recovery', () => {
-  const setup = `. $env:ORE_TEST_PATH_TOOLS
+  // Node decodes the captured output as UTF-8, including Unicode fixture paths.
+  const setup = `[Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
+. $env:ORE_TEST_PATH_TOOLS
 . $env:ORE_TEST_LOCK_TOOLS
 $ErrorActionPreference='Stop'
 function Get-OreWindowsBootTime { [DateTime]::Parse('2026-10-28T00:00:00Z').ToUniversalTime() }

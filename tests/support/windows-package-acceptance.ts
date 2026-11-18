@@ -8,6 +8,7 @@ import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { inventory } from '../../scripts/release/stage.mjs';
+import { minimumLauncherVersion, readLauncherVersion } from '../../scripts/release/windows-launcher-version.mjs';
 
 const [releaseArgument, originalCommit] = process.argv.slice(2);
 if (process.platform !== 'win32' || !releaseArgument || !/^[a-f0-9]{40}$/u.test(originalCommit ?? '')) throw Error('Expected Windows release directory and full commit.');
@@ -25,6 +26,10 @@ const previousBatch = readFileSync(resolve('tests/fixtures/windows-launcher/b638
 assert.equal(createHash('sha256').update(previousBatch).digest('hex'), '000184cb43b98b3fcdf26cfbbc556d2bd699a7f86b9d1b951705a4fd2cdde5af');
 const cutover = readFileSync(join(releaseDirectory, 'ORE-launcher.bat'));
 assert.deepEqual(cutover, readFileSync(resolve('ORE-launcher.bat')));
+const launcherVersion = readLauncherVersion(cutover.toString('utf8'));
+const laterVersion = launcherVersion + 1;
+const laterBatch = Buffer.from(cutover.toString('utf8').replace(`$LauncherVersion = ${launcherVersion}\r\n`, `$LauncherVersion = ${laterVersion}\r\n`));
+assert.equal(readLauncherVersion(laterBatch.toString('utf8')), laterVersion);
 const markerLine = '# ORE_POWERSHELL_PAYLOAD';
 const shippedText = shipped.toString('utf8');
 const shippedHelper = '\ufeff' + shippedText.slice(shippedText.lastIndexOf(markerLine) + markerLine.length).trimStart();
@@ -65,13 +70,14 @@ function instrument(text: string, before: string, version: string) {
 }
 // Only the bootstrap worker uses this seam. Installed helpers have their own.
 const freshBootstrap = Buffer.from(instrument(cutover.toString('utf8'), '# Bootstrap contract 2.', 'bootstrap'));
+const laterBootstrap = Buffer.from(instrument(laterBatch.toString('utf8'), '# Bootstrap contract 2.', 'bootstrap'));
 function powershell(code: string, env: NodeJS.ProcessEnv) {
  const result = spawnSync(ps, ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-Command', "$ErrorActionPreference='Stop'; . $env:ORE_TEST_PATH_TOOLS; "+code], { env: { ...process.env, ORE_TEST_PATH_TOOLS: resolve('scripts/release/windows-snapshot.ps1'), ...env }, encoding: 'utf8' });
  assert.equal(result.status, 0, result.stdout+result.stderr);
 }
 const originalPayload = join(root, 'original');
 powershell('Expand-OreZip $env:ORE_TEST_ARCHIVE $env:ORE_TEST_ARCHIVE_ROOT $env:ORE_TEST_EXTRACT -LongPaths', { ORE_TEST_ARCHIVE: join(releaseDirectory, 'ORE-windows-x64.zip'), ORE_TEST_ARCHIVE_ROOT: `ORE-${originalCommit.slice(0, 12)}-release-win32-x64`, ORE_TEST_EXTRACT: originalPayload });
-function release(commit: string, previousCommit: string, helperVersion: string) {
+function release(commit: string, previousCommit: string, helperVersion: string, requiredLauncher?: number) {
  const transportRoot = join(root, 'transport-'+commit), packRoot = join(root, 'pack-'+commit);
  mkdirSync(transportRoot); mkdirSync(packRoot);
  const payload = join(packRoot, `ORE-${commit.slice(0, 12)}-release-win32-x64`);
@@ -111,7 +117,11 @@ try {
 }finally{$zip.Dispose()}`, { ORE_TEST_SOURCE: packRoot, ORE_TEST_ARCHIVE_ROOT: `ORE-${commit.slice(0, 12)}-release-win32-x64`, ORE_TEST_ARCHIVE: join(transportRoot, 'ORE-windows-x64.zip') });
  const archive = readFileSync(join(transportRoot, 'ORE-windows-x64.zip'));
  const sha256 = createHash('sha256').update(archive).digest('hex');
- writeFileSync(join(transportRoot, 'ORE-windows-x64.json'), JSON.stringify({ formatVersion: 1, platform: 'win32', arch: 'x64', commit, archive: 'ORE-windows-x64.zip', sha256, bytes: archive.length, launcherProtocol: 2 }));
+ writeFileSync(join(transportRoot, 'ORE-windows-x64.json'), JSON.stringify({
+  formatVersion: requiredLauncher === undefined ? 1 : 2, platform: 'win32', arch: 'x64', commit,
+  archive: 'ORE-windows-x64.zip', sha256, bytes: archive.length, launcherProtocol: 2,
+  minimumLauncherVersion: requiredLauncher,
+ }));
  writeFileSync(join(transportRoot, 'ORE-windows-x64.zip.sha256'), `${sha256}  ORE-windows-x64.zip\n`);
  const assets = ['ORE-windows-x64.zip', 'ORE-windows-x64.zip.sha256', 'ORE-windows-x64.json'].map(name => ({ name, state: 'uploaded', browser_download_url: `https://github.com/olegpro171/Open-Roleplay-Engine/releases/download/build-${commit}/${name}` }));
  writeFileSync(join(transportRoot, 'release.json'), JSON.stringify({ tag_name: `build-${commit}`, draft: false, prerelease: false, assets }));
@@ -120,9 +130,9 @@ try {
 }
 const offline = join(root, 'offline'), hold = join(root, 'hold'), entered = join(root, 'entered');
 const first = release(shippedCommit, shippedCommit, 'historical');
-const qualified = release(originalCommit, shippedCommit, 'cutover');
+const qualified = release(originalCommit, shippedCommit, 'cutover', minimumLauncherVersion);
 const nextCommit = 'b'.repeat(40) === originalCommit ? 'c'.repeat(40) : 'b'.repeat(40);
-const later = release(nextCommit, originalCommit, 'later');
+const later = release(nextCommit, originalCommit, 'later', laterVersion);
 let transportRoot = first, runId = 0, origin = '', cookie = '';
 type Run = ReturnType<typeof start>;
 let current: Run | undefined;
@@ -221,15 +231,15 @@ try {
  assert.equal(selection(), original);
  await stop();
 
- // Both previously shipped batches delegate to the installed helper and hit
- // the oversized first page before the candidate ZIP can be downloaded.
+ // Legacy helpers reject the new descriptor format before ancestry or archive requests.
  transportRoot = qualified;
  for (const batch of [shipped, previousBatch]) {
   writeFileSync(entry, batch);
   const before = readFileSync(calls, 'utf8').length;
   assert.match(await launch(), /Couldn't check for updates/u);
   const requests = readFileSync(calls, 'utf8').slice(before);
-  assert.match(requests, /\/compare\/.*\?per_page=1\n/u);
+  assert(requests.includes('ORE-windows-x64.json'));
+  assert(!requests.includes('/compare/'));
   assert(!requests.includes('.zip'));
   assert.equal(selection(), original);
   await stop();
@@ -293,42 +303,94 @@ try {
  await stop();
  recover('--resume-updates');
  assert(!existsSync(pause));
- assert.match(await launch(), /Couldn't check for updates/u);
+ await launch();
+ assert(current);
+ await waitFor(current, () => current?.output().includes("Couldn't prepare an update.") ?? false, 'Offline check did not finish');
  assert.deepEqual(await content(), saved);
  await stop();
  rmSync(offline);
 
- // Continue using the exact cutover bytes across corrupt and interrupted
- // updates and a subsequent successful update to different helper behavior.
+ // The old versioned batch keeps the current app and never asks for the ZIP.
  transportRoot = later;
+ const requiredLauncher = `This update requires ORE launcher version ${laterVersion}.`;
+ const beforeBlocked = readFileSync(calls, 'utf8').length;
+ await launch();
+ assert(current);
+ await waitFor(current, () => current?.output().includes(requiredLauncher) ?? false, 'Old launcher was not told to upgrade');
+ const blockedRequests = readFileSync(calls, 'utf8').slice(beforeBlocked);
+ assert(blockedRequests.includes('ORE-windows-x64.json'));
+ assert(!blockedRequests.includes('.zip'));
+ assert.equal(selection(), selected);
+ assert.deepEqual(await content(), saved);
+ await stop();
+ writeFileSync(entry, laterBatch);
+
+ // Use the replacement across corrupt, interrupted, and successful preparation.
  const checksumFile = join(later, 'ORE-windows-x64.zip.sha256'), checksum = readFileSync(checksumFile);
  writeFileSync(checksumFile, 'corrupted');
- assert.match(await launch(), /Couldn't finish the update/u);
+ await launch();
+ assert(current);
+ await waitFor(current, () => current?.output().includes("Couldn't prepare an update.") ?? false, 'Corrupt update did not fail');
  assert.equal(selection(), selected);
+ assert.deepEqual(await content(), saved);
  await stop();
  writeFileSync(checksumFile, checksum);
  writeFileSync(hold, '');
  const interrupted = current = start();
  await waitFor(interrupted, () => existsSync(entered), 'Update did not reach archive transfer');
+ assert(interrupted.output().indexOf('ORE is ready.') >= 0);
+ assert(interrupted.output().indexOf('ORE is ready.') < interrupted.output().indexOf('Checking for updates...'));
+ assert.deepEqual(await content(), saved);
+ await expectExit(start(), /installation is locked/u);
  await stop();
  rmSync(hold);
+ const prepared = join(home, 'cache/prepared-update');
+ assert(!existsSync(prepared));
  assert.equal(selection(), selected);
  assert.match(await launch(), /Acceptance helper: cutover/u);
- const updated = selection();
- assert.notEqual(updated, selected);
+ assert(current);
+ await waitFor(current, () => existsSync(join(prepared, 'current')), 'Update was not prepared');
+ const updated = readFileSync(join(prepared, 'current'), 'utf8');
+ assert.equal(selection(), selected);
+ assert.equal(readFileSync(join(home, 'recovery/current'), 'utf8'), selected);
+ assert.equal(readFileSync(join(home, 'working'), 'utf8'), selected);
  assert.deepEqual(await content(), saved);
  await stop();
+ writeFileSync(pause, 'retain prepared update');
+ assert.match(await launch(), /Updates are paused/u);
+ assert.equal(selection(), selected);
+ assert(existsSync(prepared));
+ await stop();
+ recover('--resume-updates');
+ writeFileSync(offline, '');
+ writeFileSync(entry, cutover);
+ const blockedActivation = await launch();
+ assert(blockedActivation.includes(requiredLauncher));
+ assert(blockedActivation.indexOf(requiredLauncher) < blockedActivation.indexOf('ORE is ready.'));
+ assert.equal(selection(), selected);
+ assert(existsSync(prepared));
+ assert.deepEqual(await content(), saved);
+ await stop();
+ writeFileSync(entry, laterBatch);
+ assert.match(await launch(), /Activating new version/u);
+ assert.equal(selection(), updated);
+ assert(!existsSync(prepared));
+ assert.equal(readFileSync(join(home, 'previous'), 'utf8'), selected);
+ assert.deepEqual(await content(), saved);
+ await stop();
+ rmSync(offline);
  assert.match(await launch(), /Acceptance helper: later/u);
  assert.equal(selection(), updated);
  await stop();
- assert.deepEqual(readFileSync(entry), cutover);
+ assert.deepEqual(readFileSync(entry), laterBatch);
 
  // Recovery is independent of the external file. It pauses updates and can
- // restart an explicitly retained selection with the frozen cutover batch.
+ // restart an explicitly retained selection with the old versioned batch.
  assert.match(recover('--list'), /release-/u);
  recover('--previous');
  assert.equal(selection(), selected);
  assert(existsSync(pause));
+ writeFileSync(entry, cutover);
  assert.match(await launch(), /Updates are paused/u);
  assert.deepEqual(await content(), saved);
  await stop();
@@ -358,10 +420,13 @@ try {
  assert.equal(selection(), selected);
 
  const database = join(home, 'data/roleplay.sqlite'), retainedDatabase = database+'.retained';
+ recover('--resume-updates');
+ const requestsBeforeMissingDatabase = readFileSync(calls, 'utf8');
  renameSync(database, retainedDatabase);
  try {
   await expectExit(start(), /ORE couldn't start\./u);
   assert(!existsSync(database));
+  assert.equal(readFileSync(calls, 'utf8'), requestsBeforeMissingDatabase);
  } finally { renameSync(retainedDatabase, database); }
  assert.deepEqual(readFileSync(join(home, 'database-location.json')), location);
  assert.equal(readFileSync(join(home, '.env'), 'utf8'), 'ORE_OPEN_BROWSER=0\n');
@@ -376,9 +441,24 @@ try {
  await expectExit(start(clean), /ORE couldn't finish downloading/u);
  assert(!existsSync(join(clean, 'ORE-internal/current')));
  rmSync(offline);
+ const beforeBlockedInstall = readFileSync(calls, 'utf8').length;
+ await expectExit(start(clean), /This update requires ORE launcher version/u);
+ assert(!existsSync(join(clean, 'ORE-internal/current')));
+ assert(!readFileSync(calls, 'utf8').slice(beforeBlockedInstall).includes('.zip'));
+ writeFileSync(join(clean, 'ORE-launcher.bat'), laterBootstrap);
  assert.match(await launch(clean), /Acceptance helper: later/u);
  assert(readFileSync(join(clean, 'ORE-internal/current'), 'utf8').includes(nextCommit));
- assert.deepEqual(readFileSync(join(clean, 'ORE-launcher.bat')), freshBootstrap);
+ assert.deepEqual(readFileSync(join(clean, 'ORE-launcher.bat')), laterBootstrap);
+ await stop();
+
+ // A first activation interrupted after publishing the recovery toolkit can
+ // leave the same layout with no committed current selection.
+ const cleanHome = join(clean, 'ORE-internal');
+ const cleanLocation = readFileSync(join(cleanHome, 'database-location.json'));
+ rmSync(join(cleanHome, 'current'));
+ assert.match(await launch(clean), /Activating new version/u);
+ assert(readFileSync(join(cleanHome, 'current'), 'utf8').includes(nextCommit));
+ assert.deepEqual(readFileSync(join(cleanHome, 'database-location.json')), cleanLocation);
  await stop();
 
  // The separate protocol-1 bridge uses the old selection only as provenance.
@@ -393,7 +473,7 @@ try {
  writeFileSync(join(bridgeHome, 'current'), 'release-legacy\nnode-v24.19.0-win32-x64\n');
  writeFileSync(join(legacyTools, 'windows-launcher-protocol'), '1\n');
  writeFileSync(join(legacyTools, '../../build-info.json'), JSON.stringify({ kind: 'release', platform: 'win32', arch: 'x64', commit: originalCommit }));
- writeFileSync(join(bridge, 'ORE-launcher.bat'), freshBootstrap);
+ writeFileSync(join(bridge, 'ORE-launcher.bat'), laterBootstrap);
  const bridgePause = join(bridgeHome, 'updates-paused');
  writeFileSync(bridgePause, 'preserve');
  await expectExit(start(bridge), /No compatible ORE launcher helper/u);
@@ -407,11 +487,16 @@ try {
 
  const requests = readFileSync(calls, 'utf8');
  assert(!requests.includes('nodejs.org')); assert(!requests.includes('/archive/'));
- console.log('PASS: oversized comparison fallback, in-place repair, unchanged batch with a later helper, later clean install, offline/paused startup, corrupt/interrupted update, competing start, recovery and saved data.');
+ console.log('PASS: version gates on download and activation, replacement launchers, clean install, offline/paused startup, interrupted update, competing start, recovery and saved data.');
 } catch (error) {
  console.error(current?.output());
  const logs = join(home, 'logs');
- if (process.env.RUNNER_TEMP && existsSync(logs)) cpSync(logs, join(process.env.RUNNER_TEMP, 'ORE-package-acceptance-logs'), { recursive: true });
+ if (existsSync(logs)) {
+  if (process.env.RUNNER_TEMP) cpSync(logs, join(process.env.RUNNER_TEMP, 'ORE-package-acceptance-logs'), { recursive: true });
+  else for (const report of readdirSync(logs).filter(name => name.endsWith('.txt')).sort().slice(-4)) {
+   console.error(report, readFileSync(join(logs, report), 'utf8'));
+  }
+ }
  throw error;
 } finally {
  await Promise.all([...running].map(run => stop(run)));

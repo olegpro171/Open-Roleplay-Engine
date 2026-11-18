@@ -1,6 +1,6 @@
 import { fork, spawn } from 'node:child_process';
-import { openSync, writeSync, closeSync, existsSync, mkdirSync, accessSync, constants } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { openSync, writeFileSync, writeSync, closeSync, existsSync, mkdirSync, accessSync, constants } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { finished } from 'node:stream/promises';
 import { markWorking } from './selection.mjs';
@@ -20,6 +20,12 @@ let failed = false;
 let failureId = 'startupFailed';
 let logBroken = false;
 let browser;
+const receipt = process.env.ORE_LAUNCH_READY_RECEIPT;
+delete process.env.ORE_LAUNCH_READY_RECEIPT;
+const readyReceipt = receipt && process.platform === 'win32' &&
+  process.env.ORE_PACKAGE_LEASE_HOME === home &&
+  dirname(receipt) === resolve(home, 'cache') &&
+  /^ready-[a-f0-9-]{36}\.tmp$/u.test(basename(receipt)) ? receipt : null;
 const startupStarted = performance.now();
 const say = (id, params = {}) => console.log(launcherMessage(id, language, params));
 function diagnostic(value) {
@@ -118,6 +124,12 @@ try {
     } catch (error) { failed = true; diagnostic(`${error.stack}\n`); stop(); return; }
     say('ready'); say('openUrl', { url: value.url }); console.log('');
     say('keepWindow'); say('stopHint');
+    if (readyReceipt) {
+      // The Windows controller allocates a private receipt for this launch.
+      // Readiness is reported only after owned IPC and the working selection.
+      try { writeFileSync(readyReceipt, '', { flag: 'wx' }); }
+      catch (error) { diagnostic(`Could not notify the update checker: ${error.message}\n`); }
+    }
     if (process.env.ORE_OPEN_BROWSER === '0') return;
     say('openingBrowser');
     const command = process.platform === 'win32' ? resolve(process.env.SystemRoot ?? 'C:\\Windows', 'System32/rundll32.exe') : process.platform === 'darwin' ? 'open' : 'xdg-open';

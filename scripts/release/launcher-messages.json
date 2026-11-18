@@ -11,6 +11,10 @@
     "en": "Checking for updates...",
     "ru": "Проверка обновлений..."
   },
+  "launcherUpdateRequired": {
+    "en": "This update requires ORE launcher version {required}. Download ORE-launcher.bat from {url} and replace the batch beside your ORE-internal folder.",
+    "ru": "Для этого обновления требуется лаунчер ORE версии {required}. Скачайте ORE-launcher.bat со страницы {url} и замените файл рядом с папкой ORE-internal."
+  },
   "downloadingVersion": {
     "en": "Downloading new version...",
     "ru": "Загрузка новой версии..."
@@ -75,13 +79,17 @@
     "en": "For technical assistance, share this log file:",
     "ru": "Для получения технической помощи отправьте этот файл журнала:"
   },
-  "checkFallback": {
-    "en": "Couldn't check for updates. Starting the installed version.",
-    "ru": "Не удалось проверить обновления. Запускается установленная версия."
+  "backgroundUpdateFailed": {
+    "en": "Couldn't prepare an update. You can continue using ORE.",
+    "ru": "Не удалось подготовить обновление. Вы можете продолжить работу с ORE."
   },
-  "updateFallback": {
-    "en": "Couldn't finish the update. Starting the installed version.",
-    "ru": "Не удалось завершить обновление. Запускается установленная версия."
+  "updateReadyOnRestart": {
+    "en": "Update ready. Restart ORE to use the new version.",
+    "ru": "Обновление готово. Перезапустите ORE, чтобы перейти на новую версию."
+  },
+  "preparedUpdateFailed": {
+    "en": "Couldn't activate the prepared update. Starting the installed version.",
+    "ru": "Не удалось активировать подготовленное обновление. Запускается установленная версия."
   },
   "updatesPaused": {
     "en": "Updates are paused. Starting the installed version.",

@@ -1,5 +1,5 @@
 // Package activation changes code selection only; saved data is owned by application-start.
-import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, mkdirSync, copyFileSync, cpSync, rmSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, mkdirSync, copyFileSync, cpSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +7,15 @@ import { inventory } from './stage.mjs';
 import { parseSelection, readSelection, writeSelection, publishRename } from './selection.mjs';
 import { verifyApplication } from './application-assets.mjs';
 import { windowsPackageRootFiles as rootFiles } from './windows-package-files.mjs';
+import { isLauncherVersion } from './windows-launcher-version.mjs';
+
+const minimumVersionFile = 'minimum-launcher-version';
+
+function parseLauncherVersion(text) {
+  const version = Number(text);
+  if (!isLauncherVersion(version) || String(version) !== text) throw new Error('Invalid Windows launcher version.');
+  return version;
+}
 
 export function verifyWindowsPackage(directory, commit) {
   if (!/^[a-f0-9]{40}$/u.test(commit)) throw new Error('Invalid package commit.');
@@ -55,13 +64,15 @@ function publishDirectory(source, destination, copy = false) {
   } finally { rmSync(temporary, { recursive: true, force: true }); }
 }
 
-export function installWindowsPackage(directory, home, commit) {
-  const selected = verifyWindowsPackage(directory, commit);
-  const previous = readSelection(home, 'working');
+function publishPayload(directory, home, selected) {
   for (const name of ['app', 'runtime', 'recovery']) mkdirSync(join(home, name), { recursive: true });
   publishDirectory(join(directory, 'app', selected.id), join(home, 'app', selected.id));
   publishDirectory(join(directory, 'runtime', selected.runtime), join(home, 'runtime', selected.runtime), true);
   publishDirectory(join(directory, 'recovery', selected.id), join(home, 'recovery', selected.id));
+}
+
+function activateSelection(directory, home, selected) {
+  const previous = readSelection(home, 'working');
   for (const name of rootFiles) {
     const temporary = join(home, `${name}-${randomUUID()}.tmp`);
     copyFileSync(join(directory, name), temporary);
@@ -75,12 +86,81 @@ export function installWindowsPackage(directory, home, commit) {
   return selected;
 }
 
+export function installWindowsPackage(directory, home, commit) {
+  const selected = verifyWindowsPackage(directory, commit);
+  publishPayload(directory, home, selected);
+  return activateSelection(directory, home, selected);
+}
+
+const preparedDirectory = home => join(home, 'cache', 'prepared-update');
+const equalSelection = (a, b) => a?.id === b?.id && a?.runtime === b?.runtime;
+
+function prepareSelection(directory, home, selected, minimumLauncherVersion) {
+  if (!isLauncherVersion(minimumLauncherVersion)) throw new Error('Invalid minimum launcher version.');
+  const current = readSelection(home);
+  if (!current || current.id === selected.id) throw new Error('Prepared update requires a different installed version.');
+  const prepared = preparedDirectory(home);
+  const staging = join(directory, '..', 'prepared-update');
+  if (existsSync(prepared)) throw new Error('A prepared update already exists.');
+  mkdirSync(join(home, 'cache'), { recursive: true });
+  mkdirSync(staging);
+  for (const name of rootFiles) copyFileSync(join(directory, name), join(staging, name));
+  writeSelection(staging, 'base', current);
+  writeSelection(staging, 'current', selected);
+  writeFileSync(join(staging, minimumVersionFile), String(minimumLauncherVersion), { flag: 'wx' });
+  writeFileSync(join(staging, 'checksums.json'), JSON.stringify(inventory(staging)), { flag: 'wx' });
+  publishPayload(directory, home, selected);
+  // The running app and its recovery pointers retain their previous selection.
+  // Publish the receipt only once every immutable payload is in place.
+  publishRename(staging, prepared);
+}
+
+export function prepareWindowsPackage(directory, home, commit, minimumLauncherVersion) {
+  const selected = verifyWindowsPackage(directory, commit);
+  prepareSelection(directory, home, selected, minimumLauncherVersion);
+  return selected;
+}
+
+export function activatePreparedWindowsPackage(home, expected, launcherVersion) {
+  if (!isLauncherVersion(launcherVersion)) throw new Error('Invalid Windows launcher version.');
+  const directory = preparedDirectory(home);
+  const checksumsPath = join(directory, 'checksums.json');
+  const checksumFile = lstatSync(checksumsPath);
+  if (!checksumFile.isFile() || checksumFile.size > 16 * 1024) throw new Error('Invalid prepared update inventory.');
+  const checksums = JSON.parse(readFileSync(checksumsPath, 'utf8'));
+  const files = inventory(directory).filter(file => file.path !== 'checksums.json');
+  if (files.some(file => 'link' in file) || JSON.stringify(files) !== JSON.stringify(checksums) ||
+      files.map(file => file.path).join('\n') !== [...rootFiles, 'base', 'current', minimumVersionFile].sort().join('\n')) {
+    throw new Error('Prepared update metadata differs from its inventory.');
+  }
+  const base = readSelection(directory, 'base');
+  const selected = readSelection(directory);
+  if (!base || !selected || !equalSelection(base, readSelection(home)) || !equalSelection(selected, expected) || base.id === selected.id) {
+    throw new Error('Prepared update no longer matches the installed selection.');
+  }
+  const minimum = parseLauncherVersion(readFileSync(join(directory, minimumVersionFile), 'utf8'));
+  if (launcherVersion < minimum) throw new Error('Prepared update requires a newer Windows launcher.');
+  return activateSelection(directory, home, selected);
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [directory, home, commit] = process.argv.slice(2);
-  if (!directory || !home || !commit) throw new Error('Expected package directory, installation and commit.');
-  // Runtime-dependent preflight belongs at the executable boundary. The file
-  // publication routine itself is platform-independent and does no execution.
-  const selected = verifyWindowsPackage(resolve(directory), commit);
-  verifyApplication(join(resolve(directory), 'app', selected.id));
-  installWindowsPackage(resolve(directory), resolve(home), commit);
+  const args = process.argv.slice(2);
+  if (args[0] === '--activate-prepared') {
+    const [, home, id, runtime, launcherVersion] = args;
+    if (!home || !id || !runtime) throw new Error('Expected installation and prepared selection.');
+    activatePreparedWindowsPackage(resolve(home), { id, runtime }, parseLauncherVersion(launcherVersion));
+  } else {
+    const prepare = args[0] === '--prepare';
+    const [directory, home, commit, minimumLauncherVersion] = prepare ? args.slice(1) : args;
+    if (!directory || !home || !commit) throw new Error('Expected package directory, installation and commit.');
+    // Runtime-dependent preflight belongs at the executable boundary. The file
+    // publication routines are platform-independent and execute no payload code.
+    const selected = verifyWindowsPackage(resolve(directory), commit);
+    verifyApplication(join(resolve(directory), 'app', selected.id));
+    if (prepare) prepareSelection(resolve(directory), resolve(home), selected, parseLauncherVersion(minimumLauncherVersion));
+    else {
+      publishPayload(resolve(directory), resolve(home), selected);
+      activateSelection(resolve(directory), resolve(home), selected);
+    }
+  }
 }
