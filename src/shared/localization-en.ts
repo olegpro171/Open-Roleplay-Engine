@@ -314,7 +314,7 @@ export const englishMessages = {
   "app.delete_turn_with_lore": "Delete this entire turn, including its saved request records? Lore activation history for this chat will start fresh.",
   "app.delete_turn_2": "Delete turn",
   "app.load_newer_turns": "Load newer turns",
-  "app.the_edited_turn_was_removed_or_replaced": "The edited turn was removed or replaced. Copy your unsaved text before closing.",
+  "app.the_edited_turn_was_removed_or_replaced": "The edited turn was removed or replaced. Copy any text you want to keep, then close the edit to send or continue.",
   "app.unsaved_turn_edit": "Unsaved turn edit",
   "app.close_edit": "Close edit",
   "app.latest_turn": "Latest turn ",

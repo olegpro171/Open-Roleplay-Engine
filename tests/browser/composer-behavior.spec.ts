@@ -146,6 +146,7 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
     await expect(editor).toHaveValue(editedInput);
     expect(attempts).toBe(1);
     await page.unroute(editRoute);
+    await expect(editor).toBeEditable();
     await editor.press('Enter');
     await expect(editor).toHaveCount(0);
     expect((await page.request.get(`/api/chats/${id}`).then(r => r.json())).turns[0].user.text).toBe(editedInput);

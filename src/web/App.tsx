@@ -510,6 +510,7 @@ export function App() {
   const memoryStale = summariesEnabled && Boolean(snapshot?.memory.stale || snapshot?.memory.refusalBlocked);
   const pending = snapshot?.latestTurn?.complete === false;
   const latest = snapshot?.latestGeneration;
+  const recoveredEdit = edit && snapshot && !snapshot.page.turns.some(turn => turn.id === edit.turnId) ? edit : null;
   const hasDraft = Boolean(draft.trim());
   const continuationTarget = !hasDraft && snapshot?.latestTurn?.complete ? snapshot.latestTurn : null;
   const continuationBlocked = continuationTarget?.continuationBlocked;
@@ -585,7 +586,7 @@ export function App() {
     } finally { setBusy(false); }
   }
   const canSubmit = Boolean(snapshot?.connection && !busy && !pending && !working && !memoryStale && !authorNote.pending
-    && !dataChanged && !drafts.needsReview && (hasDraft || continuationTarget && !continuationBlocked && !edit));
+    && !dataChanged && !drafts.needsReview && !recoveredEdit && (hasDraft || continuationTarget && !continuationBlocked && !edit));
   const canGenerateOpening = Boolean(snapshot?.connection && snapshot.totalTurns === 0 && !busy && !working
     && !memoryStale && !authorNote.pending && !dataChanged && !drafts.needsReview && !edit);
   const canSaveEdit = Boolean(edit && snapshot?.id === chatId && !busy && !working && !dataChanged);
@@ -881,7 +882,12 @@ export function App() {
           </article>;
           })}
           {snapshot.page.hasNewer && <div className="history-page-control" data-history-direction="newer"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('newer')}>{pageLoading ? t("app.loading_history") : t("app.load_newer_turns")}</button></div>}
-          {edit && !snapshot.page.turns.some(turn => turn.id === edit.turnId) && <div className="recovery" role="alert"><div><p>{t("app.the_edited_turn_was_removed_or_replaced")}</p><ChatTextarea aria-label={t("app.unsaved_turn_edit")} value={edit.text} onValueChange={text => setEdit({ ...edit, text })} /><button onClick={() => setEdit(null)}>{t("app.close_edit")}</button></div></div>}
+          {recoveredEdit && <div className="recovery turn-edit-recovery">
+            <p id="turn-edit-recovery-notice" role="alert">{t("app.the_edited_turn_was_removed_or_replaced")}</p>
+            <ChatTextarea aria-label={t("app.unsaved_turn_edit")} aria-describedby="turn-edit-recovery-notice"
+              value={recoveredEdit.text} onValueChange={text => setEdit({ ...recoveredEdit, text })} />
+            <button type="button" className="secondary" onClick={cancelEdit}>{t("app.close_edit")}</button>
+          </div>}
         </div>
           {(preparing || snapshot.memory.refusalCount > 0 || memoryStale) && <TranscriptNotices transcript={transcript} hasOlderTurns={snapshot.page.hasOlder}>
             {snapshot.memory.refusalCount > 0 ? <WarningDetails label={t('refusals.review')} message={msg('refusals.notice', { count: snapshot.memory.refusalCount })}
@@ -891,7 +897,7 @@ export function App() {
             {preparing && <PreparationStatus preparation={preparing} disabled={busy || dataChanged} review={() => setTab('memory')}
               stop={() => void command(() => api(preparing.generationId ? `/generations/${preparing.generationId}/cancel` : `/context/jobs/${preparing.id}/cancel`, 'POST', {}))} />}
           </TranscriptNotices>}
-          {(awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}
+          {!recoveredEdit && (awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}
         </div>
         {!working && preparation?.generationId === null && preparation.error && ['failed', 'interrupted'].includes(preparation.status) && <div className="recovery" role="status">
           <p>{formatMessage(preparation.errorMessage ?? preparation.error)}</p>

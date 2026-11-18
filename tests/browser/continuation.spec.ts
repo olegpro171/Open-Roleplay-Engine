@@ -173,6 +173,54 @@ test('Escape discards both turn edit drafts without changing the saved turn', as
   expect(after[1].user.text).toBe('I look at the window.');
 });
 
+test('turn edit recovery blocks composer submission until the edit is closed', async ({ page, context }) => {
+  const { state, calls } = await setup(page, 'dark');
+  const composer = page.getByRole('textbox', { name: 'Your next turn', exact: true });
+  const send = page.getByRole('button', { name: 'Send', exact: true });
+  const extend = page.getByRole('button', { name: 'Continue', exact: true });
+  const turn = page.getByRole('article', { name: 'Turn 2', exact: true });
+  const editText = 'Unsaved prose from the removed turn.';
+  const nextText = 'I open the shutters.';
+
+  await composer.fill('I approach the window.');
+  await send.click();
+  await expect(extend).toBeEnabled();
+  await turn.getByRole('button', { name: 'Edit response', exact: true }).click();
+  await turn.getByLabel('Edit assistant text').fill(editText);
+
+  const otherTab = await context.newPage();
+  await otherTab.goto('/');
+  await otherTab.getByRole('article', { name: 'Turn 2', exact: true })
+    .getByRole('button', { name: 'More turn actions', exact: true }).click();
+  await otherTab.getByRole('menuitem', { name: 'Delete turn', exact: true }).click();
+  await otherTab.getByRole('dialog').getByRole('button', { name: 'Delete turn', exact: true }).click();
+  await expect(otherTab.getByRole('article', { name: 'Turn 2', exact: true })).toHaveCount(0);
+  await otherTab.close();
+
+  const recovered = page.getByRole('textbox', { name: 'Unsaved turn edit', exact: true });
+  await expect(recovered).toHaveValue(editText);
+  await expect(extend).toBeDisabled();
+  await composer.fill(nextText);
+  await expect(send).toBeDisabled();
+  await composer.press('Control+Enter');
+  await expect(composer).toHaveValue(nextText);
+  await expect(recovered).toHaveValue(editText);
+  expect((await state()).turns.map(item => item.assistant.text)).toEqual([original]);
+  expect(await calls()).toHaveLength(1);
+
+  await page.getByRole('button', { name: 'Close edit', exact: true }).click();
+  await expect(recovered).toHaveCount(0);
+  await expect(composer).toHaveValue(nextText);
+  await expect(send).toBeEnabled();
+  await composer.fill('');
+  await expect(extend).toBeEnabled();
+  await composer.fill(nextText);
+  await send.click();
+  await expect(turn.getByText(reply, { exact: true })).toBeVisible();
+  expect((await state()).turns[1].user.text).toBe(nextText);
+  expect(await calls()).toHaveLength(2);
+});
+
 test('a saved prompt controls future continuation previews and requests', async ({ page }) => {
   const { state, calls } = await setup(page, 'dark');
   const openPrompt = async () => {
