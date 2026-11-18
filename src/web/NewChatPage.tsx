@@ -76,7 +76,7 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
           : <HomeCardPlaceholder label={t('story_home.no_connection_selected')}
             actionLabel={t('story_home.add_connection')} create={() => create('connections')} disabled={busy} />}
         <div className="actions">
-          <button type="button" className="secondary" disabled={busy} onClick={() => browse('connections')}>{t('story_home.manage_connections')}</button>
+          <button type="button" className="text-link" disabled={busy} onClick={() => browse('connections')}>{t('story_home.manage_connections')}</button>
         </div>
       </section>
       <section className="story-home-panel story-home-summary" aria-labelledby="story-home-prompt">
@@ -84,7 +84,7 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
         {prompt && <p role="status"><strong>{displayLibraryRecord(prompt).name}</strong><br />
           <span className="muted">{t('libraries.block_count', { count: prompt.blocks.length })}</span></p>}
         <div className="actions">
-          <button type="button" className="secondary" disabled={busy} onClick={() => browse('prompts')}>{t('story_home.manage_prompts')}</button>
+          <button type="button" className="text-link" disabled={busy} onClick={() => browse('prompts')}>{t('story_home.manage_prompts')}</button>
         </div>
       </section>
       <section className={`story-home-panel story-home-participants${character ? '' : ' blocks-chat'}`} aria-labelledby="story-home-character">
@@ -100,7 +100,7 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
           : <HomeCardPlaceholder picture label={t('story_home.no_character_selected')}
             actionLabel={newLibraryLabel('characters')} create={() => create('characters')} disabled={busy} />}
         <div className="actions">
-          <button type="button" className="secondary" disabled={busy} onClick={() => browse('characters')}>{t('story_home.manage_characters')}</button>
+          <button type="button" className="text-link" disabled={busy} onClick={() => browse('characters')}>{t('story_home.manage_characters')}</button>
         </div>
       </section>
       <section className="story-home-panel story-home-participants" aria-labelledby="story-home-persona">
@@ -116,7 +116,7 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
           : <HomeCardPlaceholder label={t('story_home.persona_help')}
             actionLabel={newLibraryLabel('personas')} create={() => create('personas')} disabled={busy} />}
         <div className="actions">
-          <button type="button" className="secondary" disabled={busy} onClick={() => browse('personas')}>{t('story_home.manage_personas')}</button>
+          <button type="button" className="text-link" disabled={busy} onClick={() => browse('personas')}>{t('story_home.manage_personas')}</button>
         </div>
       </section>
     </div>

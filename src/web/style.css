@@ -760,6 +760,7 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .story-home-placeholder-description p{margin:0}
 .story-home-placeholder-description .text-link{display:flex;align-items:flex-start;padding-block-start:4px;text-align:start}
 .story-home-panel .actions,.story-home-chat-actions{flex-wrap:wrap}
+.story-home-panel>.actions>.text-link{display:inline-flex;align-items:flex-end;text-align:start}
 .story-home-panel button:not(.library-card-open),.story-home-chat-actions button{min-height:44px;max-width:100%;white-space:normal}
 @media(max-width:800px){
   .story-home-panels{grid-template-columns:minmax(0,1fr)}
