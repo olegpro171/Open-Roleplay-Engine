@@ -14,7 +14,7 @@ function fixture() {
   writeFileSync(join(root, 'local-edit'), 'Uncommitted working tree');
   writeFileSync(join(root, 'scripts/release/build-portable.sh'), `#!/bin/bash
 set -euo pipefail
-[ "$1" = --development ]
+[ "$1" = --local-development ]
 source=$(cd "$(dirname -- "$0")/../.." && pwd -P)
 [ "$2" = "$source/ore-development" ]
 [ ! -f "$source/fail-build" ] || exit 42

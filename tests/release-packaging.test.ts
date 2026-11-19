@@ -29,7 +29,7 @@ function fixture() {
   writeFileSync(join(home, 'update-source.txt'), '/synthetic/private/source-checkout');
   const runtime = `node-v24.19.0-${process.platform}-${process.arch}`;
   mkdirSync(join(home, 'runtime', runtime), { recursive: true }); writeFileSync(join(home, 'runtime', runtime, 'LICENSE'), 'Synthetic runtime license');
-  const install = (commit = 'a'.repeat(40)) => spawnSync(process.execPath, [resolve('scripts/release/stage.mjs'), 'install', work, home, '--development', commit, runtime, 'b'.repeat(64), notices], { encoding: 'utf8' });
+  const install = (commit = 'a'.repeat(40), mode = '--development') => spawnSync(process.execPath, [resolve('scripts/release/stage.mjs'), 'install', work, home, mode, commit, runtime, 'b'.repeat(64), notices], { encoding: 'utf8' });
   const installed = install(); expect(installed.status, installed.stderr).toBe(0);
   const id = readFileSync(join(home, 'current'), 'utf8').split('\n')[0];
   const application = join(home, 'app', id);
@@ -60,6 +60,28 @@ describe.skipIf(process.platform === 'win32')('portable artifact boundaries', ()
     expect(readFileSync(join(f.home, 'working'), 'utf8')).toBe(previous);
     expect(readFileSync(join(f.home, 'current'), 'utf8')).not.toBe(previous);
     expect(existsSync(join(f.home, 'recover.command'))).toBe(true);
+  });
+  it('replaces local development history only after a successful build', () => {
+    const f = fixture(), first = readFileSync(join(f.home, 'current'), 'utf8');
+    writeFileSync(join(f.home, 'working'), first);
+    expect(f.install('b'.repeat(40)).status).toBe(0);
+    expect(readdirSync(join(f.home, 'app'))).toHaveLength(2);
+
+    const result = f.install('c'.repeat(40), '--local-development');
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    const selected = readFileSync(join(f.home, 'current'), 'utf8');
+    const id = selected.split('\n')[0];
+    expect(readdirSync(join(f.home, 'app'))).toEqual([id]);
+    expect(readdirSync(join(f.home, 'recovery')).sort()).toEqual(['current', id]);
+    expect(existsSync(join(f.home, 'previous'))).toBe(false);
+    expect(readFileSync(join(f.home, 'data/PRIVATE'), 'utf8')).toBe('synthetic installed private data');
+
+    writeFileSync(join(f.work, 'dist/server/server/main.js'), 'throw new Error("Synthetic dev startup failure");');
+    const failed = f.install('d'.repeat(40), '--local-development');
+    expect(failed.status).not.toBe(0);
+    expect(failed.stderr).toContain('Synthetic dev startup failure');
+    expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(selected);
+    expect(readdirSync(join(f.home, 'app'))).toEqual([id]);
   });
   it('moves disposable dependencies into a verified replacement and retains the selected app on a later failure', () => {
     const f = fixture();

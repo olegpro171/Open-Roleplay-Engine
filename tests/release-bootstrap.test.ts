@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -47,6 +47,7 @@ function controlledBuild(f: ReturnType<typeof fixture>, buildStatus = 0) {
       writeFileSync(join(home, 'start.command'), '#!/bin/bash\\nprintf started >> "$(dirname -- "$0")/started"\\n');
     }
   `);
+  writeFileSync(join(f.bin, 'ps'), '#!/bin/bash\nexit 0\n', { mode: 0o755 });
 }
 
 function failTemporaryCleanup(f: ReturnType<typeof fixture>, failures: number | 'always') {
@@ -104,6 +105,36 @@ esac
     expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe('new-app\nprivate-runtime\n');
     expect(readFileSync(join(f.home, 'data/sentinel'), 'utf8')).toBe('saved user data');
     expect(readFileSync(join(f.home, 'languages/sentinel'), 'utf8')).toBe('saved language pack');
+  });
+  it('leaves a legacy running development snapshot in place', () => {
+    const f = fixture(true);
+    writeFileSync(join(f.home, 'start.command'), '#!/bin/bash\nexit 99\n');
+    const home = realpathSync(f.home);
+    const command = `${home}/runtime/${f.runtime}/bin/node ${home}/app/dev-example/scripts/release/portable-launch.mjs`;
+    writeFileSync(join(f.bin, 'ps'), `#!/bin/bash\nprintf '%s\\n' '${command}'\n`, { mode: 0o755 });
+    const result = f.run(['--local-development', f.home]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Stop the running development session before rebuilding.');
+    f.unchanged();
+  });
+  it('holds the build lock during installed development startup and releases it on exit', () => {
+    const f = fixture(true);
+    cpSync(resolve('scripts/release/start.command'), join(f.home, 'start.command'));
+    const tools = join(f.home, 'app/dev-working/scripts/release');
+    const bin = join(f.home, 'runtime', f.runtime, 'bin');
+    mkdirSync(tools, { recursive: true }); mkdirSync(bin, { recursive: true }); mkdirSync(join(f.home, 'cache'));
+    cpSync(resolve('scripts/release/load-env.sh'), join(tools, 'load-env.sh'));
+    for (const name of ['application-start.mjs', 'portable-launch.mjs']) writeFileSync(join(tools, name), '');
+    writeFileSync(join(f.home, 'current'), `dev-working\n${f.runtime}\n`);
+    writeFileSync(join(f.home, 'cache/local-development'), '');
+    writeFileSync(join(bin, 'node'), '#!/bin/bash\n[ -d "$2/cache/build.lock" ] || exit 41\nexit 42\n', { mode: 0o755 });
+    const launch = () => spawnSync('/bin/bash', [join(f.home, 'start.command')], { encoding: 'utf8' });
+    mkdirSync(join(f.home, 'cache/build.lock'));
+    expect(launch().status).toBe(75);
+    expect(existsSync(join(f.home, 'cache/build.lock'))).toBe(true);
+    rmSync(join(f.home, 'cache/build.lock'), { recursive: true });
+    expect(launch().status).toBe(42);
+    expect(existsSync(join(f.home, 'cache/build.lock'))).toBe(false);
   });
   it('retries transient temporary cleanup failures', () => {
     const f = fixture();

@@ -357,9 +357,15 @@ try {
  assert.deepEqual(await content(), saved);
  await stop();
  writeFileSync(pause, 'retain prepared update');
+ const obsoleteId = 'release-0123456789ab-12345678-abcd-abcd-abcd-123456789abc';
+ const obsolete = [join(home, 'app', obsoleteId), join(home, 'recovery', obsoleteId), join(home, 'runtime/node-v24.0.0-win32-x64')];
+ for (const directory of obsolete) mkdirSync(directory, { recursive: true });
  assert.match(await launch(), /Updates are paused/u);
+ assert(current);
+ await waitFor(current, () => obsolete.every(directory => !existsSync(directory)), 'Ready launcher did not prune obsolete builds');
  assert.equal(selection(), selected);
  assert(existsSync(prepared));
+ assert(existsSync(join(home, 'app', updated.split('\n')[0])));
  await stop();
  recover('--resume-updates');
  writeFileSync(offline, '');

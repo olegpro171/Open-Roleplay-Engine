@@ -7,8 +7,8 @@ $script:OreLanguage = if ($Language -eq 'ru') { 'ru' } else { 'en' }
 $script:OreReport = $null
 $script:OreEnvLine = 1
 $lockStream = $null
-$script:OreUpdate = $null
-$script:OreUpdateStarted = $false
+$script:OreMaintenance = $null
+$script:OreMaintenanceStarted = $false
 $readyReceipt = $null
 $result = 1
 try {
@@ -42,19 +42,16 @@ try {
         $tools = $activation.Tools
     } else { Test-OreInstalled $selection $tools }
     if (!$updates) { Show-OreMessage 'updatesPaused' }
-    $whileRunning = $null
-    if ($updates -and ![IO.Directory]::Exists($prepared) -and ![IO.File]::Exists($prepared)) {
-        $info = Read-OreJson (Join-Path $selection.Application 'build-info.json')
-        $readyReceipt = Join-Path $Installation ('cache/ready-'+[guid]::NewGuid()+'.tmp')
-        $env:ORE_LAUNCH_READY_RECEIPT = $readyReceipt
-        $whileRunning = {
-            if (!$script:OreUpdateStarted -and [IO.File]::Exists($readyReceipt)) {
-                $script:OreUpdateStarted = $true
-                try { $script:OreUpdate = Start-OreUpdateCheck $Installation $info.commit $LauncherVersion }
-                catch {
-                    Write-OreDiagnostic ($_.Exception.ToString())
-                    Show-OreMessage 'backgroundUpdateFailed'
-                }
+    $checkForUpdate = $updates -and ![IO.Directory]::Exists($prepared) -and ![IO.File]::Exists($prepared)
+    $readyReceipt = Join-Path $Installation ('cache/ready-'+[guid]::NewGuid()+'.tmp')
+    $env:ORE_LAUNCH_READY_RECEIPT = $readyReceipt
+    $whileRunning = {
+        if (!$script:OreMaintenanceStarted -and [IO.File]::Exists($readyReceipt)) {
+            $script:OreMaintenanceStarted = $true
+            try { $script:OreMaintenance = Start-OrePackageMaintenance $Installation $selection $LauncherVersion $checkForUpdate }
+            catch {
+                Write-OreDiagnostic ($_.Exception.ToString())
+                if ($checkForUpdate) { Show-OreMessage 'backgroundUpdateFailed' }
             }
         }
     }
@@ -72,7 +69,7 @@ try {
     Show-OrePackageFailure $_
 } finally {
     try {
-        Stop-OreUpdateCheck $script:OreUpdate
+        Stop-OrePackageMaintenance $script:OreMaintenance
         if ($readyReceipt) { [IO.File]::Delete($readyReceipt) }
     } catch { if ($script:OreReport) { Write-OreDiagnostic ($_.Exception.ToString()) } }
     finally { if ($lockStream) { $lockStream.Dispose() } }

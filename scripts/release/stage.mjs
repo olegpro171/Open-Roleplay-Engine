@@ -7,6 +7,7 @@ import { verifyStartup } from './startup-smoke.mjs';
 import { readSelection, writeSelection, runtimeExecutable, publishRename } from './selection.mjs';
 import { buildPhase } from './build-timing.mjs';
 import { windowsRootTools } from './windows-package-files.mjs';
+import { pruneDevelopmentBuilds } from './build-retention.mjs';
 
 const recoveryFiles = [
   'load-env.sh', 'recover.mjs', 'database-location.mjs', 'selection.mjs', 'startup-smoke.mjs',
@@ -71,10 +72,11 @@ function notices(work, output) {
   writeFileSync(join(output, 'README.txt'), `ORE third-party inventory\n\npackages.json includes build-time UI packages as well as server packages. Their supplied license/notice/readme files accompany it. Node's full license and bundled component notices are in runtime/<version>/LICENSE.\n\nsharp/libvips native component versions and upstream combined notices are retained with the @img packages. Rebuilding/replacing those dynamic libraries is permitted by their licenses; ORE does not embed them into its executable. Source/build recipes: https://github.com/lovell/sharp-libvips/tree/v1.3.4 and the pinned versions.json. Full GPL/LGPL texts, exact native component source/patch URLs and the pinned build recipe are in native-sources/. No publication/signing is performed by these scripts.\n`);
 }
 async function install(work, home, mode, commit, runtime, runtimeChecksum, noticeDirectory, transfer = 'copy') {
-  if (mode !== '--release' && mode !== '--development') throw new Error('Unknown build mode.');
+  const localDevelopment = mode === '--local-development';
+  if (mode !== '--release' && mode !== '--development' && !localDevelopment) throw new Error('Unknown build mode.');
   if (!['copy', 'move-dependencies', 'development-dependencies'].includes(transfer)) throw new Error('Unknown dependency staging mode.');
   const developmentDependencies = transfer === 'development-dependencies';
-  if (developmentDependencies && (mode !== '--development' || process.platform !== 'win32')) throw new Error('Shared development dependencies are only supported for local Windows development.');
+  if (developmentDependencies && (mode === '--release' || process.platform !== 'win32')) throw new Error('Shared development dependencies are only supported for local Windows development.');
   const dependencyCache = developmentDependencies ? JSON.parse(readFileSync(join(work, '.development-dependencies.json'), 'utf8')) : null;
   const developmentModules = dependencyCache ? realpathSync(dependencyCache.modules) : null;
   if (transfer !== 'copy') {
@@ -100,7 +102,7 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
       if (release && windows) omitDependencyDeclarations(join(staging, 'node_modules'));
     });
     mkdirSync(join(staging, 'scripts/release'), { recursive: true });
-    const applicationFiles = ['native-smoke.mjs', 'package-portable.mjs', 'stage.mjs', 'windows-package-files.mjs', 'build-timing.mjs', ...toolkitFiles];
+    const applicationFiles = ['native-smoke.mjs', 'package-portable.mjs', 'stage.mjs', 'windows-package-files.mjs', 'build-timing.mjs', 'build-retention.mjs', ...toolkitFiles];
     if (windows) applicationFiles.push('windows-package-install.mjs', 'windows-launcher-version.mjs');
     for (const name of applicationFiles) cpSync(join(work, 'scripts/release', name), join(staging, 'scripts/release', name));
     cpSync(noticeDirectory, join(staging, 'notices'), { recursive: true, verbatimSymlinks: true });
@@ -127,9 +129,9 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     console.log('[Verify] Starting the new app with a temporary test database and checking that its interface loads...');
     await buildPhase('verify-application-startup', () => verifyStartup(staging, process.execPath, join(home, 'cache')));
     console.log('[Verify] New app passed its startup check. Preparing activation...');
-    let previous = readSelection(home, 'working');
+    let previous = localDevelopment ? null : readSelection(home, 'working');
     if (previous && !existsSync(join(home, 'app', previous.id, 'scripts/release/portable-launch.mjs'))) previous = null;
-    if (!previous) {
+    if (!localDevelopment && !previous) {
       const current = readSelection(home);
       if (current) {
         try {
@@ -148,6 +150,11 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     cpSync(join(work, 'scripts/release/recover.command'), recoveryLauncher);
     publishRename(recoveryLauncher, join(home, 'recover.command'));
     // Root launcher contract is stable; all evolving logic belongs to the versioned app.
+    if (localDevelopment && !windows) {
+      const marker = join(home, 'cache/local-development');
+      try { writeFileSync(marker, '', { flag: 'wx', mode: 0o600 }); }
+      catch (error) { if (error.code !== 'EEXIST' || !lstatSync(marker).isFile()) throw error; }
+    }
     const launcher = join(home, `start-${randomUUID()}.tmp`);
     cpSync(join(work, 'scripts/release/start.command'), launcher);
     publishRename(launcher, join(home, 'start.command'));
@@ -159,7 +166,12 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
       }
     }
     if (previous) writeSelection(home, 'previous', previous);
-    writeSelection(home, 'current', { id, runtime });
+    const selected = { id, runtime };
+    writeSelection(home, 'current', selected);
+    if (localDevelopment) {
+      try { pruneDevelopmentBuilds(home, selected, dependencyCache?.directory); }
+      catch (error) { console.warn(`Development build cleanup: ${error.message}`); }
+    }
     console.log('[Build] New app activated successfully.');
     console.log(`Activated ${metadata.kind} ${commit}; schema ${metadata.schema}; manifest ${join(application, 'manifest.json')}`);
   } finally { rmSync(staging, { recursive: true, force: true }); }

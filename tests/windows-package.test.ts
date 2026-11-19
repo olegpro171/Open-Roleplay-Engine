@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { inventory, omitDependencyDeclarations } from '../scripts/release/stage.mjs';
 import { activatePreparedWindowsPackage, installWindowsPackage, prepareWindowsPackage, verifyWindowsPackage } from '../scripts/release/windows-package-install.mjs';
 import { launcherVersion } from '../scripts/release/windows-launcher-version.mjs';
+import { pruneWindowsBuilds } from '../scripts/release/build-retention.mjs';
 
 const roots: string[] = [];
 const commit = 'a'.repeat(40), nextCommit = 'b'.repeat(40);
@@ -16,14 +17,14 @@ function fixture() {
  const home = join(root, 'home'); mkdirSync(home);
  for (const directory of ['data', 'languages']) { mkdirSync(join(home, directory)); writeFileSync(join(home, directory, 'retained'), 'synthetic private content'); }
  for (const file of ['.env', 'database-location.json', 'updates-paused']) writeFileSync(join(home, file), 'retained '+file);
- function packageFor(sha = commit) {
-  const payload = join(root, 'payload-'+sha), id = 'release-'+sha;
-  for (const directory of ['data', 'languages', 'cache', 'logs', `app/${id}/scripts/release`, `runtime/${runtime}`, `recovery/${id}`]) mkdirSync(join(payload, directory), { recursive: true });
-  const selection = `${id}\n${runtime}\n`;
+ function packageFor(sha = commit, node = runtime) {
+  const payload = join(root, 'payload-'+sha), id = `release-${sha.slice(0, 12)}-12345678-abcd-abcd-abcd-123456789abc`;
+  for (const directory of ['data', 'languages', 'cache', 'logs', `app/${id}/scripts/release`, `runtime/${node}`, `recovery/${id}`]) mkdirSync(join(payload, directory), { recursive: true });
+  const selection = `${id}\n${node}\n`;
   writeFileSync(join(payload, 'current'), selection); writeFileSync(join(payload, 'recovery/current'), selection);
   for (const file of ['start.command', 'recover.command', 'start-app.bat', 'recover-app.bat', 'start-windows.ps1', 'recover-windows.ps1', 'windows-common.ps1', 'windows-snapshot.ps1', 'windows-package-lock.ps1', 'windows-package.ps1', 'windows-standalone-common.ps1', 'README.md', 'LICENSE']) writeFileSync(join(payload, file), 'synthetic '+file);
   writeFileSync(join(payload, 'app', id, 'build-info.json'), JSON.stringify({ commit: sha, platform: 'win32', arch: 'x64', kind: 'release' }));
-  writeFileSync(join(payload, 'runtime', runtime, 'node.exe'), 'synthetic runtime');
+  writeFileSync(join(payload, 'runtime', node, 'node.exe'), 'synthetic runtime');
   for (const tools of [join(payload, 'app', id, 'scripts/release'), join(payload, 'recovery', id)]) {
    writeFileSync(join(tools, 'windows-package-protocol'), '2\n'); writeFileSync(join(tools, 'windows-package-launcher.ps1'), 'synthetic helper');
   }
@@ -207,6 +208,50 @@ process.exitCode = ${status};
   expect(readFileSync(join(f.home, 'working'), 'utf8')).toBe(first.selection);
   expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(next.selection);
   expect(existsSync(join(f.home, 'app', first.id))).toBe(true);
+ });
+ it('prunes old builds after readiness and protects rollback, a prepared update and their runtimes', () => {
+  const f = fixture();
+  const oldestRuntime = 'node-v24.18.0-win32-x64', candidateRuntime = 'node-v24.20.0-win32-x64';
+  const oldest = f.packageFor(commit, oldestRuntime), previous = f.packageFor(nextCommit);
+  const currentCommit = 'c'.repeat(40), candidateCommit = 'd'.repeat(40);
+  const current = f.packageFor(currentCommit), candidate = f.packageFor(candidateCommit, candidateRuntime);
+  for (const [sha, build] of [[commit, oldest], [nextCommit, previous]] as const) {
+   installWindowsPackage(build.payload, f.home, sha);
+   writeFileSync(join(f.home, 'working'), build.selection);
+  }
+  installWindowsPackage(current.payload, f.home, currentCommit);
+  pruneWindowsBuilds(f.home);
+  expect(readdirSync(join(f.home, 'app')).sort()).toEqual([oldest.id, previous.id, current.id]);
+  expect(readFileSync(join(f.home, 'previous'), 'utf8')).toBe(previous.selection);
+
+  writeFileSync(join(f.home, 'working'), current.selection);
+  const prepared = prepareWindowsPackage(candidate.payload, f.home, candidateCommit, 2);
+  const unmanaged = join(f.home, 'app/personal-files'); mkdirSync(unmanaged);
+  writeFileSync(join(unmanaged, 'keep'), 'unmanaged');
+  symlinkSync(unmanaged, join(f.home, 'app', oldest.id, 'linked-folder'), 'junction');
+  pruneWindowsBuilds(f.home);
+  expect(readdirSync(join(f.home, 'app')).sort()).toEqual(['personal-files', previous.id, current.id, candidate.id]);
+  expect(readdirSync(join(f.home, 'recovery')).sort()).toEqual(['current', previous.id, current.id, candidate.id]);
+  expect(readdirSync(join(f.home, 'runtime')).sort()).toEqual([runtime, candidateRuntime]);
+  expect(readFileSync(join(f.home, 'data/retained'), 'utf8')).toBe('synthetic private content');
+  expect(readFileSync(join(unmanaged, 'keep'), 'utf8')).toBe('unmanaged');
+
+  activatePreparedWindowsPackage(f.home, prepared, 2);
+  rmSync(join(f.home, 'cache/prepared-update'), { recursive: true });
+  writeFileSync(join(f.home, 'working'), candidate.selection);
+  pruneWindowsBuilds(f.home);
+  pruneWindowsBuilds(f.home);
+  expect(readdirSync(join(f.home, 'app')).sort()).toEqual(['personal-files', current.id, candidate.id]);
+  expect(readFileSync(join(f.home, 'previous'), 'utf8')).toBe(current.selection);
+
+  const newerCommit = 'e'.repeat(40);
+  const newer = f.packageFor(newerCommit);
+  prepareWindowsPackage(newer.payload, f.home, newerCommit, 2);
+  writeFileSync(join(f.home, 'current'), current.selection);
+  writeFileSync(join(f.home, 'working'), current.selection);
+  pruneWindowsBuilds(f.home);
+  expect(readdirSync(join(f.home, 'app')).sort()).toEqual(['personal-files', current.id]);
+  expect(existsSync(join(f.home, 'recovery', candidate.id))).toBe(true);
  });
  it('prepares an update without changing any active pointers or root tools until activation', () => {
   const f = fixture(), first = f.packageFor(); installWindowsPackage(first.payload, f.home, commit);

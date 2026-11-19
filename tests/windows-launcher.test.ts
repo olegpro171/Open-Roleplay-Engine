@@ -185,6 +185,8 @@ describe.skipIf(process.platform !== 'win32')('Windows PowerShell 5.1 builder an
     const lockChanged=build();expect(lockChanged.status,lockChanged.stdout+lockChanged.stderr).toBe(0);
     expect(installs()).toBe(3);
     const retained=readFileSync(join(f.home,'current'),'utf8');
+    expect(readdirSync(join(f.home,'app'))).toEqual([retained.split('\n')[0]]);
+    expect(readdirSync(join(f.home,'cache/development-dependencies'),{withFileTypes:true}).filter(entry=>entry.isDirectory())).toHaveLength(1);
     writeFileSync(join(source,'scripts/release/native-smoke.mjs'),'throw Error("SYNTHETIC native verification failed");');
     const nativeFailed=build();expect(nativeFailed.status).not.toBe(0);
     expect(nativeFailed.stdout+nativeFailed.stderr).toContain('SYNTHETIC native verification failed');

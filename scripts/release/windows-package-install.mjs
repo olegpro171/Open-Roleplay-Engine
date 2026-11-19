@@ -8,6 +8,8 @@ import { parseSelection, readSelection, writeSelection, publishRename } from './
 import { verifyApplication } from './application-assets.mjs';
 import { windowsPackageRootFiles as rootFiles } from './windows-package-files.mjs';
 import { isLauncherVersion } from './windows-launcher-version.mjs';
+import { pruneWindowsBuilds } from './build-retention.mjs';
+import { ownsWindowsPackageLease } from './database-location.mjs';
 
 const minimumVersionFile = 'minimum-launcher-version';
 
@@ -145,7 +147,12 @@ export function activatePreparedWindowsPackage(home, expected, launcherVersion) 
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  if (args[0] === '--activate-prepared') {
+  if (args[0] === '--prune') {
+    if (args.length !== 2) throw new Error('Expected an installation to prune.');
+    const home = resolve(args[1]);
+    if (!ownsWindowsPackageLease(home)) throw new Error('Build cleanup requires the Windows installation lease.');
+    pruneWindowsBuilds(home);
+  } else if (args[0] === '--activate-prepared') {
     const [, home, id, runtime, launcherVersion] = args;
     if (!home || !id || !runtime) throw new Error('Expected installation and prepared selection.');
     activatePreparedWindowsPackage(resolve(home), { id, runtime }, parseLauncherVersion(launcherVersion));

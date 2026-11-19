@@ -7,8 +7,8 @@ fail() { echo "ORE build: $*" >&2; exit 1; }
 mode=${1:-}
 case "$mode" in
   --release) [ "$#" -eq 3 ] || fail 'Usage: build-portable.sh --release FULL_COMMIT INSTALL_DIRECTORY'; commit=$2; destination=$3 ;;
-  --development) [ "$#" -eq 2 ] || fail 'Usage: build-portable.sh --development INSTALL_DIRECTORY'; commit=$(git -C "$ore_source" rev-parse HEAD); destination=$2 ;;
-  *) fail 'Choose --release FULL_COMMIT INSTALL_DIRECTORY or --development INSTALL_DIRECTORY.' ;;
+  --development|--local-development) [ "$#" -eq 2 ] || fail "Usage: build-portable.sh $mode INSTALL_DIRECTORY"; commit=$(git -C "$ore_source" rev-parse HEAD); destination=$2 ;;
+  *) fail 'Choose --release FULL_COMMIT INSTALL_DIRECTORY, --development INSTALL_DIRECTORY or --local-development INSTALL_DIRECTORY.' ;;
 esac
 for command in curl tar awk sed; do command -v "$command" >/dev/null || fail "Required tool missing: $command. No system packages were installed."; done
 command -v git >/dev/null || fail 'Git is required for source-checkout builds.'
@@ -37,8 +37,13 @@ ore_runtime_identity "$ore_source/scripts/release/runtime.conf" "$ore_source/scr
 mkdir -p -- "$destination" || fail 'Cannot create installation. Select a user-writable directory.'
 ore_home=$(CDPATH='' cd -- "$destination" && pwd -P)
 [ "$ore_home" != "$ore_source" ] || fail 'Use a separate installation directory, not the source checkout.'
+if [ "$mode" = '--local-development' ]; then
+  for entry in cache app recovery runtime; do
+    [ ! -L "$ore_home/$entry" ] || fail "Development path must be a real directory: $entry"
+  done
+fi
 mkdir -p -- "$ore_home/cache" "$ore_home/runtime" "$ore_home/app" "$ore_home/logs" "$ore_home/languages" "$ore_home/data" || fail 'Installation is not writable.'
-mkdir "$ore_home/cache/build.lock" 2>/dev/null || { echo 'Another build owns cache/build.lock.' >&2; exit 75; }
+mkdir "$ore_home/cache/build.lock" 2>/dev/null || { echo 'Another build or development session owns cache/build.lock. Stop it before rebuilding.' >&2; exit 75; }
 stage=''
 cleanup() {
   local build_status=$? attempt
@@ -60,6 +65,14 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
+if [ "$mode" = '--local-development' ] && [ -f "$ore_home/start.command" ]; then
+  # Before upgrading an existing installation, its old start.command does not
+  # hold the build lock. Look for its private runtime before replacing files.
+  processes=$(ps -ww -ax -o command=) || fail 'Could not check for an older running development session.'
+  if ORE_DEV_HOME="$ore_home" awk '{ sub(/^ +/, ""); if (index($0, ENVIRON["ORE_DEV_HOME"] "/runtime/") == 1) found=1 } END { exit !found }' <<< "$processes"; then
+    fail 'Stop the running development session before rebuilding.'
+  fi
+fi
 stage=$(mktemp -d "$ore_home/cache/build.XXXXXXXX")
 export TMPDIR="$stage" TMP="$stage" TEMP="$stage"
 for ore_setting in ${!npm_config_@} ${!NPM_CONFIG_@}; do unset "$ore_setting"; done
@@ -103,7 +116,11 @@ echo '[Build 4/6] Collecting third-party licenses and notices...'
 echo '[Build 5/6] Preparing the packages needed to run the finished app...'
 "$node" "$npm" ci --omit=dev --ignore-scripts --include=optional --prefer-offline 3>&-
 echo '[Build 6/6] Staging and verifying the new app before activation...'
-"$node" scripts/release/stage.mjs install "$work" "$ore_home" "$mode" "$commit" "$runtime" "$expected" "$stage/notices"
+transfer=copy
+if [ "$mode" = '--local-development' ]; then transfer=move-dependencies; fi
+"$node" scripts/release/stage.mjs install "$work" "$ore_home" "$mode" "$commit" "$runtime" "$expected" "$stage/notices" "$transfer"
 echo "ORE installed in $ore_home"
 echo "Start (also offline): $ore_home/start.command"
-echo 'The running version, if any, continues until you stop it. Start again to use the new version.'
+if [ "$mode" != '--local-development' ]; then
+  echo 'The running version, if any, continues until you stop it. Start again to use the new version.'
+fi

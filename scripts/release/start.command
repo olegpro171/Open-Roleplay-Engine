@@ -4,6 +4,12 @@ set -euo pipefail
 umask 077
 unset NODE_OPTIONS NODE_PATH || true
 ore_home=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+ore_dev_lock=''
+if [ -f "$ore_home/cache/local-development" ]; then
+  ore_dev_lock="$ore_home/cache/build.lock"
+  mkdir "$ore_dev_lock" 2>/dev/null || { echo 'Another build or development session owns cache/build.lock.' >&2; exit 75; }
+  trap 'rmdir "$ore_dev_lock"' EXIT
+fi
 ore_release=$(sed -n '1p' "$ore_home/current")
 ore_runtime=$(sed -n '2p' "$ore_home/current")
 case "$ore_release" in release-*|dev-*) ;; *) echo 'Invalid application selection.' >&2; exit 1;; esac
@@ -21,4 +27,8 @@ fi
 . "$ore_tools/load-env.sh"
 ore_load_env "$ore_home/.env"
 unset NODE_OPTIONS NODE_PATH || true
-exec "$ore_home/runtime/$ore_runtime/bin/node" "$ore_tools/portable-launch.mjs" "$ore_home" "$ore_app"
+if [ -n "$ore_dev_lock" ]; then
+  "$ore_home/runtime/$ore_runtime/bin/node" "$ore_tools/portable-launch.mjs" "$ore_home" "$ore_app"
+else
+  exec "$ore_home/runtime/$ore_runtime/bin/node" "$ore_tools/portable-launch.mjs" "$ore_home" "$ore_app"
+fi

@@ -115,6 +115,7 @@ try {
         Build-Tool 'collect-notices' @('scripts/release/stage.mjs','notices',$work,$notices)
         if (!$ReuseDevelopmentDependencies) { Build-Tool 'prepare-production-dependencies' @('scripts/release/prepare-windows-dependencies.mjs',$npm) }
         $stageMode = if ($Mode -eq 'Release') { '--release' } else { '--development' }
+        if ($ReuseDevelopmentDependencies) { $stageMode = '--local-development' }
         $dependencyTransfer = if ($ReuseDevelopmentDependencies) { 'development-dependencies' } else { 'move-dependencies' }
         Build-Tool 'stage-and-verify-application' @('scripts/release/stage.mjs','install',$work,$installation,$stageMode,$Commit,$runtime.Id,$runtime.Checksum,$notices,$dependencyTransfer)
         [Console]::Write([IO.File]::ReadAllText($toolLog))

@@ -147,6 +147,8 @@ Windows x64 is the supported public download. `ORE-launcher.bat` installs a veri
 
 Windows releases declare a minimum batch launcher version. An older launcher leaves the installed build selected and gives the user a link and instructions to replace the batch beside the existing `ORE-internal/` folder. Check the requirement before downloading and before activating a prepared update. A blocked prepared update remains available for activation with a compatible launcher, including offline. First installation requires a compatible launcher.
 
+The public Windows installation keeps the selected build, one previously working build for explicit rollback, and any update prepared for the next launch. The working-tree launchers keep only the latest successfully built snapshot. They report build failure and exit, and a running development instance must stop before its files can be replaced.
+
 Failed checks/builds before live startup may visibly use a verified installed app. Application startup owns database identity, compatibility, pre-upgrade snapshots and migrations; the launcher never inspects SQLite. Recovery selects compatible retained code explicitly and pauses updates. Once live startup begins, failures stop without automatically launching older code. Established missing databases must not silently become empty replacements. The owner's working-tree development installation is independent. [RELEASES.md](docs/RELEASES.md) defines startup, packaging and recovery.
 
 ## Open decisions and scope

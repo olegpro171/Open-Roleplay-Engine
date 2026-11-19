@@ -66,7 +66,6 @@ function Use-OrePreparedUpdate([hashtable]$Current, [string]$Prepared, [int]$Lau
 function Invoke-OreUpdateCheck([string]$Installation, [string]$Commit, [int]$LauncherVersion) {
     $stage = $null
     try {
-        Open-OrePackageReport -Quiet -Prefix 'update'
         Assert-OrePath $Installation (Join-Path $Installation 'cache/prepared-update') | Out-Null
         if (Test-OreCancellation) { return }
         $stage = New-OrePackageStage
@@ -89,7 +88,19 @@ function Invoke-OreUpdateCheck([string]$Installation, [string]$Commit, [int]$Lau
     } finally { Remove-OrePackageStage $stage }
 }
 
-function Start-OreUpdateCheck([string]$Installation, [string]$Commit, [int]$LauncherVersion) {
+function Invoke-OreBuildCleanup([string]$Installation, [hashtable]$Selection) {
+    try {
+        if (Test-OreCancellation) { return }
+        $installer = Assert-OrePath $Installation (Join-Path $Selection.Application 'scripts/release/windows-package-install.mjs')
+        if ((Invoke-OreProcess $Selection.Node @($installer,'--prune',$Installation) $script:OreReport) -ne 0) {
+            throw 'Old build cleanup did not complete.'
+        }
+    } catch {
+        if (!(Test-OreCancellation)) { Write-OreDiagnostic ($_.Exception.ToString()) }
+    }
+}
+
+function Start-OrePackageMaintenance([string]$Installation, [hashtable]$Selection, [int]$LauncherVersion, [bool]$CheckForUpdate) {
     # A separate runspace keeps the console controller responsive. It shares
     # the controller's OS lease, job and cancellation token, and cannot commit
     # an active selection. All spawned workers stay in the same Windows job.
@@ -102,24 +113,30 @@ function Start-OreUpdateCheck([string]$Installation, [string]$Commit, [int]$Laun
     $worker = [PowerShell]::Create($state)
     try {
         $null = $worker.AddScript(@'
-param($installation, $commit, $launcherVersion)
+param($installation, $selection, $launcherVersion, $checkForUpdate)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $script:OreReport = $null
-Invoke-OreUpdateCheck $installation $commit $launcherVersion
-'@).AddArgument($Installation).AddArgument($Commit).AddArgument($LauncherVersion)
+Open-OrePackageReport -Quiet -Prefix 'update'
+# Sweep under the same lease, before preparing another payload in this runspace.
+Invoke-OreBuildCleanup $installation $selection
+if ($checkForUpdate -and !(Test-OreCancellation)) {
+    $info = Read-OreJson (Join-Path $selection.Application 'build-info.json')
+    Invoke-OreUpdateCheck $installation $info.commit $launcherVersion
+}
+'@).AddArgument($Installation).AddArgument($Selection).AddArgument($LauncherVersion).AddArgument($CheckForUpdate)
         return @{Worker=$worker; Async=$worker.BeginInvoke()}
     } catch { $worker.Dispose(); throw }
 }
 
-function Stop-OreUpdateCheck([hashtable]$Update) {
-    if (!$Update) { return }
+function Stop-OrePackageMaintenance([hashtable]$Maintenance) {
+    if (!$Maintenance) { return }
     try {
-        if (!$Update.Async.IsCompleted) {
+        if (!$Maintenance.Async.IsCompleted) {
             [OreCancellation]::Cancel()
-            $Update.Worker.Stop()
+            $Maintenance.Worker.Stop()
         }
-        try { $null = $Update.Worker.EndInvoke($Update.Async) }
+        try { $null = $Maintenance.Worker.EndInvoke($Maintenance.Async) }
         catch [Management.Automation.PipelineStoppedException] { }
-    } finally { $Update.Worker.Dispose() }
+    } finally { $Maintenance.Worker.Dispose() }
 }

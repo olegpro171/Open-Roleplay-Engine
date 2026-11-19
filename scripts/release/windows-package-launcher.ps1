@@ -1038,7 +1038,6 @@ function Use-OrePreparedUpdate([hashtable]$Current, [string]$Prepared, [int]$Lau
 function Invoke-OreUpdateCheck([string]$Installation, [string]$Commit, [int]$LauncherVersion) {
     $stage = $null
     try {
-        Open-OrePackageReport -Quiet -Prefix 'update'
         Assert-OrePath $Installation (Join-Path $Installation 'cache/prepared-update') | Out-Null
         if (Test-OreCancellation) { return }
         $stage = New-OrePackageStage
@@ -1061,7 +1060,19 @@ function Invoke-OreUpdateCheck([string]$Installation, [string]$Commit, [int]$Lau
     } finally { Remove-OrePackageStage $stage }
 }
 
-function Start-OreUpdateCheck([string]$Installation, [string]$Commit, [int]$LauncherVersion) {
+function Invoke-OreBuildCleanup([string]$Installation, [hashtable]$Selection) {
+    try {
+        if (Test-OreCancellation) { return }
+        $installer = Assert-OrePath $Installation (Join-Path $Selection.Application 'scripts/release/windows-package-install.mjs')
+        if ((Invoke-OreProcess $Selection.Node @($installer,'--prune',$Installation) $script:OreReport) -ne 0) {
+            throw 'Old build cleanup did not complete.'
+        }
+    } catch {
+        if (!(Test-OreCancellation)) { Write-OreDiagnostic ($_.Exception.ToString()) }
+    }
+}
+
+function Start-OrePackageMaintenance([string]$Installation, [hashtable]$Selection, [int]$LauncherVersion, [bool]$CheckForUpdate) {
     # A separate runspace keeps the console controller responsive. It shares
     # the controller's OS lease, job and cancellation token, and cannot commit
     # an active selection. All spawned workers stay in the same Windows job.
@@ -1074,26 +1085,32 @@ function Start-OreUpdateCheck([string]$Installation, [string]$Commit, [int]$Laun
     $worker = [PowerShell]::Create($state)
     try {
         $null = $worker.AddScript(@'
-param($installation, $commit, $launcherVersion)
+param($installation, $selection, $launcherVersion, $checkForUpdate)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $script:OreReport = $null
-Invoke-OreUpdateCheck $installation $commit $launcherVersion
-'@).AddArgument($Installation).AddArgument($Commit).AddArgument($LauncherVersion)
+Open-OrePackageReport -Quiet -Prefix 'update'
+# Sweep under the same lease, before preparing another payload in this runspace.
+Invoke-OreBuildCleanup $installation $selection
+if ($checkForUpdate -and !(Test-OreCancellation)) {
+    $info = Read-OreJson (Join-Path $selection.Application 'build-info.json')
+    Invoke-OreUpdateCheck $installation $info.commit $launcherVersion
+}
+'@).AddArgument($Installation).AddArgument($Selection).AddArgument($LauncherVersion).AddArgument($CheckForUpdate)
         return @{Worker=$worker; Async=$worker.BeginInvoke()}
     } catch { $worker.Dispose(); throw }
 }
 
-function Stop-OreUpdateCheck([hashtable]$Update) {
-    if (!$Update) { return }
+function Stop-OrePackageMaintenance([hashtable]$Maintenance) {
+    if (!$Maintenance) { return }
     try {
-        if (!$Update.Async.IsCompleted) {
+        if (!$Maintenance.Async.IsCompleted) {
             [OreCancellation]::Cancel()
-            $Update.Worker.Stop()
+            $Maintenance.Worker.Stop()
         }
-        try { $null = $Update.Worker.EndInvoke($Update.Async) }
+        try { $null = $Maintenance.Worker.EndInvoke($Maintenance.Async) }
         catch [Management.Automation.PipelineStoppedException] { }
-    } finally { $Update.Worker.Dispose() }
+    } finally { $Maintenance.Worker.Dispose() }
 }
 
 # The installed helper owns the lease, workers, recurring updates and startup.
@@ -1105,8 +1122,8 @@ $script:OreLanguage = if ($Language -eq 'ru') { 'ru' } else { 'en' }
 $script:OreReport = $null
 $script:OreEnvLine = 1
 $lockStream = $null
-$script:OreUpdate = $null
-$script:OreUpdateStarted = $false
+$script:OreMaintenance = $null
+$script:OreMaintenanceStarted = $false
 $readyReceipt = $null
 $result = 1
 try {
@@ -1140,19 +1157,16 @@ try {
         $tools = $activation.Tools
     } else { Test-OreInstalled $selection $tools }
     if (!$updates) { Show-OreMessage 'updatesPaused' }
-    $whileRunning = $null
-    if ($updates -and ![IO.Directory]::Exists($prepared) -and ![IO.File]::Exists($prepared)) {
-        $info = Read-OreJson (Join-Path $selection.Application 'build-info.json')
-        $readyReceipt = Join-Path $Installation ('cache/ready-'+[guid]::NewGuid()+'.tmp')
-        $env:ORE_LAUNCH_READY_RECEIPT = $readyReceipt
-        $whileRunning = {
-            if (!$script:OreUpdateStarted -and [IO.File]::Exists($readyReceipt)) {
-                $script:OreUpdateStarted = $true
-                try { $script:OreUpdate = Start-OreUpdateCheck $Installation $info.commit $LauncherVersion }
-                catch {
-                    Write-OreDiagnostic ($_.Exception.ToString())
-                    Show-OreMessage 'backgroundUpdateFailed'
-                }
+    $checkForUpdate = $updates -and ![IO.Directory]::Exists($prepared) -and ![IO.File]::Exists($prepared)
+    $readyReceipt = Join-Path $Installation ('cache/ready-'+[guid]::NewGuid()+'.tmp')
+    $env:ORE_LAUNCH_READY_RECEIPT = $readyReceipt
+    $whileRunning = {
+        if (!$script:OreMaintenanceStarted -and [IO.File]::Exists($readyReceipt)) {
+            $script:OreMaintenanceStarted = $true
+            try { $script:OreMaintenance = Start-OrePackageMaintenance $Installation $selection $LauncherVersion $checkForUpdate }
+            catch {
+                Write-OreDiagnostic ($_.Exception.ToString())
+                if ($checkForUpdate) { Show-OreMessage 'backgroundUpdateFailed' }
             }
         }
     }
@@ -1170,7 +1184,7 @@ try {
     Show-OrePackageFailure $_
 } finally {
     try {
-        Stop-OreUpdateCheck $script:OreUpdate
+        Stop-OrePackageMaintenance $script:OreMaintenance
         if ($readyReceipt) { [IO.File]::Delete($readyReceipt) }
     } catch { if ($script:OreReport) { Write-OreDiagnostic ($_.Exception.ToString()) } }
     finally { if ($lockStream) { $lockStream.Dispose() } }
