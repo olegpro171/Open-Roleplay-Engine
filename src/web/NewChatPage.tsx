@@ -65,9 +65,7 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
   function renderLibraryShortcut(kind: SetupLibrary | 'prompts') {
     const onClick = () => browse(kind);
     if (!compact) return <HomeAction label={t(`story_home.manage_${kind}`)} onClick={onClick} disabled={busy} />;
-    return <button type="button" className="quiet" disabled={busy} onClick={onClick}>
-      <span>{libraryLabel(kind)}</span><Icon name="ArrowShortForward" />
-    </button>;
+    return <HomeLibraryShortcut label={libraryLabel(kind)} onClick={onClick} disabled={busy} />;
   }
 
   function startChat(returnFocus: HTMLElement) {
@@ -168,14 +166,16 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
   const participantPanels = [renderParticipantPanel('characters'), renderParticipantPanel('personas')];
 
   return <main ref={scroller} className={`document-panel story-home${compact ? ' story-home-compact' : ''}`} aria-labelledby="story-home-heading">
-    <h1 ref={heading} id="story-home-heading" tabIndex={-1}>{t('libraries.new_chat')}</h1>
+    <header className="story-home-heading">
+      <h1 ref={heading} id="story-home-heading" tabIndex={-1}>{t('libraries.new_chat')}</h1>
+      {library.chats.length > 0 && <HomeLibraryShortcut label={t('story_home.open_chats')} onClick={() => browse('chats')} disabled={busy} />}
+    </header>
     {!compact && <p className="muted">{t('story_home.welcome')}</p>}
     <div className="story-home-panels">
       {compact ? [...participantPanels, defaultPanels] : [defaultPanels, ...participantPanels]}
     </div>
     <div className="actions story-home-chat-actions">
       <button type="button" disabled={busy || !connection || !character} onClick={event => startChat(event.currentTarget)}>{t('new_chat.start')}</button>
-      {library.chats.length > 0 && <button type="button" className="secondary" disabled={busy} onClick={() => browse('chats')}>{t('story_home.open_chats')}</button>}
     </div>
   </main>;
 }
@@ -184,6 +184,12 @@ type HomeActionProps = { label: string; onClick: () => void; disabled: boolean }
 
 function HomeAction({ label, onClick, disabled }: HomeActionProps) {
   return <button type="button" className="text-link" disabled={disabled} onClick={onClick}>{label}</button>;
+}
+
+function HomeLibraryShortcut({ label, onClick, disabled }: HomeActionProps) {
+  return <button type="button" className="quiet" disabled={disabled} onClick={onClick}>
+    <span>{label}</span><Icon name="ArrowShortForward" />
+  </button>;
 }
 
 function HomeCreateAction({ label, onClick, disabled }: HomeActionProps) {

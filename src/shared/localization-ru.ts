@@ -378,7 +378,7 @@ export const russianMessages = {
   "story_home.persona_help": "По желанию. Персона описывает, кого играете вы.",
   "story_home.persona_optional": "По желанию",
   "story_home.manage_personas": "Управление персонами",
-  "story_home.open_chats": "Открыть чаты",
+  "story_home.open_chats": "Все чаты",
   "story_home.close_chat": "Закрыть чат",
   "story_home.discard_turn_edit": "Закрыть чат и отменить несохранённые правки хода? Черновик сообщения сохранится.",
   "app.create_the_owner_password_on_the_server": "Придумайте пароль. Он нужен для доступа к сохранённым чатам с ваших устройств.",

@@ -371,7 +371,7 @@ export const englishMessages = {
   "story_home.persona_help": "Optional. A Persona describes who you play.",
   "story_home.persona_optional": "Optional",
   "story_home.manage_personas": "Manage Personas",
-  "story_home.open_chats": "Open Chats",
+  "story_home.open_chats": "All chats",
   "story_home.close_chat": "Close chat",
   "story_home.discard_turn_edit": "Close this chat and discard the unsaved turn edit? Your composer draft will be kept.",
   "app.create_the_owner_password_on_the_server": "Create a password. Use it to access your saved chats from your devices.",

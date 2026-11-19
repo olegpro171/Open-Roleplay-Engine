@@ -13,6 +13,18 @@ const home = (page: Page) => page.getByRole('main', { name: 'New chat' });
 const library = async (page: Page): Promise<LibrarySnapshot> => (await page.request.get('/api/library')).json();
 const intro = 'Welcome to ORE. Choose a Character and an optional Persona to start a chat.';
 
+async function expectChatsShortcutBesideHeading(setup: Locator, label: string) {
+  const shortcut = setup.getByRole('button', { name: label, exact: true });
+  await expect(shortcut).toBeInViewport({ ratio: 1 });
+  await expect(shortcut).toHaveCSS('text-decoration-line', 'none');
+  const [heading, action] = await Promise.all([setup.getByRole('heading', { level: 1 }).boundingBox(), shortcut.boundingBox()]);
+  if (!heading || !action) throw new Error('Missing New chat heading or All chats action');
+  expect(action.x).toBeGreaterThan(heading.x + heading.width);
+  expect(action.y + action.height / 2).toBeCloseTo(heading.y + heading.height / 2, 0);
+  expect(action.height).toBeGreaterThanOrEqual(44);
+  expect(action.width).toBeGreaterThanOrEqual(44);
+}
+
 async function expectActionAtPanelBottom(panel: Locator, label: string) {
   const extraSpace = await panel.getByRole('button', { name: label, exact: true }).evaluate(action => {
     const section = action.closest('section');
@@ -71,6 +83,7 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
   await signIn(page);
   await expect(home(page).getByText(intro, { exact: true })).toBeVisible();
   expect((await library(page)).chats).toEqual([]);
+  await expect(button(page, 'All chats')).toHaveCount(0);
   await expect(button(page, 'Start chat')).toBeDisabled();
   await expect(page.getByLabel('Your next turn')).toHaveCount(0);
   const connectionPanel = home(page).getByRole('region', { name: 'Connection', exact: true });
@@ -183,8 +196,12 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
   await page.reload();
   await expect(home(page)).toBeVisible();
   await expect(button(page, 'New chat')).toHaveAttribute('aria-current', 'page');
-  await button(page, 'Open Chats').click();
-  await button(page, 'Keeper').click();
+  await expect(home(page).getByRole('heading', { level: 1 })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(button(page, 'All chats')).toBeFocused();
+  await page.keyboard.press('Enter');
+  const chats = page.getByRole('region', { name: 'Chats', exact: true });
+  await chats.getByRole('button', { name: 'Keeper', exact: true }).click();
   await expect(conversation).toContainText('The lantern flickers.');
   await expect(composer).toHaveValue('My next draft.');
   expect((await library(page)).chats.map(item => item.id)).toEqual([chat.id]);
@@ -201,7 +218,7 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
   const startConfirm = page.getByRole('dialog', { name: 'Start chat', exact: true });
   await startConfirm.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect((await library(page)).chats.map(item => item.id)).toEqual([chat.id]);
-  await button(page, 'Open Chats').click();
+  await button(page, 'All chats').click();
   await button(page, 'Keeper').click();
   await expect(turnEdit).toHaveValue('Unsaved greeting edit.');
   await button(page, 'Close chat').click();
@@ -557,21 +574,13 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
         await page.setViewportSize({ width: actionWidth, height: 844 });
         const compact = actionWidth <= 800;
         await expect(home(page).getByText(intro, { exact: true })).toHaveCount(compact ? 0 : 1);
-        const start = await button(page, 'Start chat').boundingBox();
-        const openChats = await button(page, 'Open Chats').boundingBox();
-        if (!start || !openChats) throw new Error('Missing New chat actions');
+        await expectChatsShortcutBesideHeading(home(page), 'All chats');
         if (compact) {
+          const start = await button(page, 'Start chat').boundingBox();
           const panel = await characterPanel.boundingBox();
-          if (!panel) throw new Error('Missing Character panel');
+          if (!start || !panel) throw new Error('Missing Start chat action or Character panel');
           expect(start.x).toBe(panel.x);
           expect(start.width).toBe(panel.width);
-          expect(openChats.x).toBe(start.x);
-          expect(openChats.width).toBe(start.width);
-          expect(openChats.height).toBe(start.height);
-          expect(openChats.y).toBeGreaterThan(start.y + start.height);
-        } else {
-          expect(openChats.x).toBeGreaterThan(start.x + start.width);
-          expect(openChats.y).toBe(start.y);
         }
       }
       const compact = width <= 800;
@@ -615,7 +624,7 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
         await expect(button(page, 'Start chat')).toBeInViewport({ ratio: 1 });
       }
       await page.screenshot({ path: testInfo.outputPath(`ready-${theme}-${width}-top.png`), animations: 'disabled' });
-      await button(page, 'Open Chats').scrollIntoViewIfNeeded();
+      await button(page, 'Start chat').scrollIntoViewIfNeeded();
       await page.screenshot({ path: testInfo.outputPath(`ready-${theme}-${width}-bottom.png`), animations: 'disabled' });
       for (const panel of [characterPanel, personaPanel]) {
         await panel.getByRole('combobox').click();
@@ -625,7 +634,7 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
       expect(await previews()).toEqual(emptyLayout.get(width));
       await expect(button(page, 'Start chat')).toBeDisabled();
       await expectPanelBorder(characterPanel, '--danger-border');
-      await button(page, 'Open Chats').click();
+      await button(page, 'All chats').click();
       await button(page, 'Forest guide').click();
       await expect(page.getByRole('region', { name: 'Conversation' })).toContainText('Welcome to the forest.');
     }
@@ -660,20 +669,23 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
   await expect(page.getByRole('region', { name: 'Персона', exact: true }).getByText('По желанию', { exact: true })).toBeVisible();
   for (const theme of themes) {
     await setTheme(theme);
-    for (const width of [390, 320]) {
+    for (const width of [1440, 390, 320]) {
       await page.setViewportSize({ width, height: 844 });
-      expect(await russianHome.evaluate(panel => panel.scrollWidth <= panel.clientWidth)).toBe(true);
-      for (const label of ['Создать персонажа', 'Создать персону', ...categories]) {
-        const action = russianHome.getByRole('button', { name: label, exact: true });
-        await expect(action).toHaveCSS('text-decoration-line', 'none');
-        const bounds = await action.boundingBox();
-        if (!bounds) throw new Error(`Missing ${label}`);
-        expect(bounds.height).toBeGreaterThanOrEqual(44);
-        expect(bounds.width).toBeGreaterThanOrEqual(44);
-        expect(bounds.x).toBeGreaterThanOrEqual(0);
-        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
-      }
       await russianHome.evaluate(panel => { panel.scrollTop = 0; });
+      await expectChatsShortcutBesideHeading(russianHome, 'Все чаты');
+      expect(await russianHome.evaluate(panel => panel.scrollWidth <= panel.clientWidth)).toBe(true);
+      if (width <= 800) {
+        for (const label of ['Создать персонажа', 'Создать персону', ...categories]) {
+          const action = russianHome.getByRole('button', { name: label, exact: true });
+          await expect(action).toHaveCSS('text-decoration-line', 'none');
+          const bounds = await action.boundingBox();
+          if (!bounds) throw new Error(`Missing ${label}`);
+          expect(bounds.height).toBeGreaterThanOrEqual(44);
+          expect(bounds.width).toBeGreaterThanOrEqual(44);
+          expect(bounds.x).toBeGreaterThanOrEqual(0);
+          expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+        }
+      }
       await page.screenshot({ path: testInfo.outputPath(`home-russian-${theme}-${width}.png`), animations: 'disabled' });
     }
   }
@@ -693,7 +705,7 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
   await expect(russianConnectionPanel.getByRole('status')).toContainText(model);
   expect(await russianConnectionPanel.evaluate(panel => panel.getBoundingClientRect().height)).toBe(connectionHeight);
 
-  await button(page, 'Открыть чаты').click();
+  await button(page, 'Все чаты').click();
   await button(page, 'Forest guide').click();
   await expect(button(page, 'История')).toHaveAttribute('aria-current', 'page');
 });
