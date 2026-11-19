@@ -67,9 +67,9 @@ async function signIn(page: Page) {
   await expect(button(page, 'New chat')).toHaveAttribute('aria-current', 'page');
 }
 
-async function addConnection(page: Page, actionName: 'Add a Connection' | 'Create Connection' = 'Add a Connection') {
+async function addConnection(page: Page) {
   const endpoint = (await (await page.request.get('/__test/endpoint')).json()).endpoint;
-  await button(page, actionName).click();
+  await button(page, 'Create Connection').click();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('First model');
   await page.getByLabel('API base URL').fill(endpoint);
   await button(page, 'Model identifier').click();
@@ -87,31 +87,31 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
   await expect(button(page, 'Start chat')).toBeDisabled();
   await expect(page.getByLabel('Your next turn')).toHaveCount(0);
   const connectionPanel = home(page).getByRole('region', { name: 'Connection', exact: true });
-  const addLink = connectionPanel.getByRole('button', { name: 'Add a Connection', exact: true });
+  const createConnection = connectionPanel.getByRole('button', { name: 'Create Connection', exact: true });
   await expect(connectionPanel.getByText('No Connection selected.', { exact: true })).toBeVisible();
-  await expect(addLink).toHaveCSS('text-decoration-line', 'underline');
-  await addLink.click();
+  await expect(createConnection).toHaveText('Create');
+  await createConnection.click();
   await expect(page.getByLabel('API base URL')).toBeVisible();
   await button(page, 'Cancel').click();
   await expect(home(page)).toBeVisible();
   await addConnection(page);
   await expect(home(page).getByText(intro, { exact: true })).toBeVisible();
-  await expect(addLink).toHaveCount(0);
+  await expect(createConnection).toHaveCount(0);
   await expect(button(page, 'Start chat')).toBeDisabled();
 
-  await button(page, 'New persona').click();
+  await button(page, 'Create persona').click();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Visitor');
   await page.getByLabel('Title / comment').fill('Tower traveller');
   await page.getByLabel('Persona description').fill('A traveller visiting the tower.');
   await button(page, 'Save').click();
-  await expect(button(page, 'Manage Personas')).toBeVisible();
+  await expect(button(page, 'Personas')).toBeVisible();
   const personaPanel = home(page).getByRole('region', { name: 'Persona', exact: true });
   const personaCard = personaPanel.getByRole('article');
   await expect(personaCard.getByRole('heading')).toHaveText('Visitor · Tower traveller');
   await expect(personaCard).toContainText('A traveller visiting the tower.');
 
   await expect(home(page).getByText('None selected.', { exact: true })).toBeVisible();
-  await button(page, 'New character').click();
+  await button(page, 'Create character').click();
   await expect(page.getByText('Start with a name and a short description.', { exact: false })).toBeVisible();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Keeper');
   await page.getByLabel('Character description').fill('Keeps watch over a quiet tower.');
@@ -247,7 +247,7 @@ test('imports a card before Connection setup and tracks bookmarks independently 
   await expect(home(page)).toContainText('Imported guide');
   await expect(button(page, 'Create Connection')).toBeVisible();
   await expect(button(page, 'Start chat')).toBeDisabled();
-  await addConnection(page, 'Create Connection');
+  await addConnection(page);
   await expect(button(page, 'Create Connection')).toHaveCount(0);
 
   const saved = await library(page);
@@ -286,7 +286,7 @@ test('imports a card before Connection setup and tracks bookmarks independently 
   await button(page, 'New chat').click();
   await expect(promptPanel.getByRole('status')).toContainText(promptName);
   await page.setViewportSize({ width: 801, height: 844 });
-  await expectActionAtPanelBottom(panel, 'Manage Connections');
+  await expectActionAtPanelBottom(panel, 'Connections');
   await page.setViewportSize({ width: 390, height: 844 });
 
   await expect(home(page).getByRole('heading', { name: 'Imported guide', exact: true })).toBeVisible();
@@ -432,7 +432,7 @@ const participantLayout = (panel: Locator) => panel.evaluate(element => {
 });
 
 const compactActions = ['Create character', 'Characters', 'Create persona', 'Personas', 'Create Connection', 'Connections', 'Prompts'];
-const desktopActions = ['New character', 'Manage Characters', 'New persona', 'Manage Personas', 'Add a Connection', 'Manage Connections', 'Manage Prompts'];
+const desktopActions = ['Create Connection', 'Connections', 'Prompts', 'Create character', 'Characters', 'Create persona', 'Personas'];
 
 test('New chat fits desktop and phone in each approved theme and updates when switched to Russian', async ({ page, browserApp }, testInfo) => {
   await signIn(page);
@@ -466,11 +466,15 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
       await expect(personaPanel.getByText('Optional', { exact: true })).toHaveCount(compact ? 1 : 0);
       await expect(connectionPanel.getByRole('heading', { name: compact ? 'No Connection selected.' : 'Connection', exact: true })).toBeVisible();
       for (const label of compact ? compactActions : desktopActions) {
-        const bounds = await button(page, label).boundingBox();
+        const action = button(page, label);
+        await expect(action).toHaveCSS('text-decoration-line', 'none');
+        if (label.startsWith('Create ')) await expect(action).toHaveText('Create');
+        const bounds = await action.boundingBox();
         if (!bounds) throw new Error(`Missing ${label}`);
         expect(bounds.x).toBeGreaterThanOrEqual(0);
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
-        if (label !== 'Create Connection') expect(bounds.height).toBeGreaterThanOrEqual(44);
+        expect(bounds.width).toBeGreaterThanOrEqual(44);
+        if (!compact || label !== 'Create Connection') expect(bounds.height).toBeGreaterThanOrEqual(44);
       }
       expect(await home(page).evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
       const [connection, prompt, character, persona] = await Promise.all([
@@ -483,12 +487,23 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
         expect(prompt.x).toBeGreaterThan(connection.x + connection.width);
         expect(character.width).toBe(prompt.x + prompt.width - connection.x);
         expect(character.y).toBeGreaterThan(prompt.y + prompt.height);
-        await expectActionAtPanelBottom(connectionPanel, 'Manage Connections');
-        await expectActionAtPanelBottom(promptPanel, 'Manage Prompts');
+        await expectActionAtPanelBottom(connectionPanel, 'Connections');
+        await expectActionAtPanelBottom(promptPanel, 'Prompts');
+        for (const [panel, createLabel, libraryLabel] of [
+          [connectionPanel, 'Create Connection', 'Connections'],
+          [characterPanel, 'Create character', 'Characters'],
+          [personaPanel, 'Create persona', 'Personas'],
+        ] as const) {
+          const [create, shortcut] = await Promise.all([
+            panel.getByRole('button', { name: createLabel, exact: true }).boundingBox(),
+            panel.getByRole('button', { name: libraryLabel, exact: true }).boundingBox(),
+          ]);
+          if (!create || !shortcut) throw new Error(`Missing ${createLabel} or ${libraryLabel}`);
+          expect(create.y).toBe(shortcut.y);
+          expect(create.x + create.width).toBeLessThan(shortcut.x);
+        }
       } else {
         const create = connectionPanel.getByRole('button', { name: 'Create Connection', exact: true });
-        await expect(create).toHaveText(/Create$/);
-        await expect(create).toHaveCSS('text-decoration-line', 'none');
         const add = await create.boundingBox();
         const heading = await connectionPanel.getByRole('heading').boundingBox();
         if (!add || !heading) throw new Error('Missing empty Connection heading or add action');
@@ -519,7 +534,7 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
       emptyLayout.set(width, layouts);
       if (width === 1440 || width === 390) {
         await page.screenshot({ path: testInfo.outputPath(`home-${theme}-${width}.png`), animations: 'disabled' });
-        await button(page, compact ? 'Personas' : 'Manage Personas').scrollIntoViewIfNeeded();
+        await button(page, 'Personas').scrollIntoViewIfNeeded();
         await page.screenshot({ path: testInfo.outputPath(`home-${theme}-${width}-bottom.png`), animations: 'disabled' });
         await home(page).evaluate(element => { element.scrollTop = 0; });
       }
@@ -531,8 +546,10 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
           return bounds.width >= 44 && document.elementFromPoint(bounds.x + bounds.width / 2, bounds.bottom - 43) === action;
         });
         expect(hasTouchTarget).toBe(true);
+      }
+      if (theme === 'dark' && (width === 1440 || width === 390)) {
         await welcome.focus();
-        for (const label of compactActions) {
+        for (const label of compact ? compactActions : desktopActions) {
           await page.keyboard.press('Tab');
           await expect(button(page, label)).toBeFocused();
         }
@@ -540,7 +557,7 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
       }
     }
   }
-  await addConnection(page, 'Create Connection');
+  await addConnection(page);
   await page.setViewportSize({ width: 1440, height: 844 });
   await expect(home(page).getByText(intro, { exact: true })).toBeVisible();
   for (const panel of [connectionPanel, promptPanel]) {
@@ -553,7 +570,7 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
   }
   await addCharacter(page, browserApp.url, 'Forest guide', 'Welcome to the forest.', true);
   await addCharacter(page, browserApp.url, 'Tower guide');
-  await button(page, 'New persona').click();
+  await button(page, 'Create persona').click();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Woodland traveller');
   await page.getByLabel('Persona description').fill('An explorer with a well-worn map.');
   await button(page, 'Save').click();
@@ -586,10 +603,9 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
           expect(start.width).toBe(panel.width);
         }
       }
-      const compact = width <= 800;
-      await expect(characterPanel.getByRole('button')).toHaveText(compact ? [/Create$/, 'Characters'] : ['New character', 'Manage Characters']);
-      await expect(button(page, compact ? 'Characters' : 'Manage Characters')).toHaveCSS('font-size',
-        await button(page, compact ? 'Personas' : 'Manage Personas').evaluate(element => getComputedStyle(element).fontSize));
+      await expect(characterPanel.getByRole('button')).toHaveText(['Create', 'Characters']);
+      await expect(button(page, 'Characters')).toHaveCSS('font-size',
+        await button(page, 'Personas').evaluate(element => getComputedStyle(element).fontSize));
       await expect(characterPanel.getByRole('article')).toHaveCount(0);
       await expect(personaPanel.getByRole('article')).toHaveCount(0);
       await expectPanelBorder(connectionPanel, '--line');
@@ -604,6 +620,9 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
       await expect(characterPanel.getByRole('article').locator('img')).toBeVisible();
       await expect(personaPanel.getByRole('article')).toContainText('An explorer with a well-worn map.');
       expect(await previews()).toEqual(emptyLayout.get(width));
+      await expect(characterPanel.getByRole('button', { name: 'Create character', exact: true })).toBeVisible();
+      await expect(personaPanel.getByRole('button', { name: 'Create persona', exact: true })).toBeVisible();
+      await expect(button(page, 'Create Connection')).toHaveCount(0);
       if (width <= 800) {
         for (const summaryPanel of [connectionPanel, promptPanel]) {
           const bottomInset = await summaryPanel.getByRole('status').evaluate(summary => {
@@ -618,8 +637,6 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
         const summary = await connectionPanel.getByRole('status').boundingBox();
         if (!panel || !summary) throw new Error('Missing selected Connection summary');
         expect({ height: panel.height, leftInset: summary.x - panel.x, topInset: summary.y - panel.y }).toEqual(emptyConnectionLayout.get(width));
-        await expect(characterPanel.getByRole('button', { name: 'Create character', exact: true })).toBeVisible();
-        await expect(personaPanel.getByRole('button', { name: 'Create persona', exact: true })).toBeVisible();
       }
       expect(await home(page).evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
       await home(page).evaluate(element => { element.scrollTop = 0; });
@@ -677,17 +694,15 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
       await russianHome.evaluate(panel => { panel.scrollTop = 0; });
       await expectChatsShortcutBesideHeading(russianHome, 'Все чаты');
       expect(await russianHome.evaluate(panel => panel.scrollWidth <= panel.clientWidth)).toBe(true);
-      if (width <= 800) {
-        for (const label of ['Создать персонажа', 'Создать персону', ...categories]) {
-          const action = russianHome.getByRole('button', { name: label, exact: true });
-          await expect(action).toHaveCSS('text-decoration-line', 'none');
-          const bounds = await action.boundingBox();
-          if (!bounds) throw new Error(`Missing ${label}`);
-          expect(bounds.height).toBeGreaterThanOrEqual(44);
-          expect(bounds.width).toBeGreaterThanOrEqual(44);
-          expect(bounds.x).toBeGreaterThanOrEqual(0);
-          expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
-        }
+      for (const label of ['Создать персонажа', 'Создать персону', ...categories]) {
+        const action = russianHome.getByRole('button', { name: label, exact: true });
+        await expect(action).toHaveCSS('text-decoration-line', 'none');
+        const bounds = await action.boundingBox();
+        if (!bounds) throw new Error(`Missing ${label}`);
+        expect(bounds.height).toBeGreaterThanOrEqual(44);
+        expect(bounds.width).toBeGreaterThanOrEqual(44);
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
       }
       await page.screenshot({ path: testInfo.outputPath(`home-russian-${theme}-${width}.png`), animations: 'disabled' });
     }

@@ -9,7 +9,7 @@ import { LibraryCard } from './LibraryCard';
 import { PictureSquare } from './Pictures';
 import { message as msg, t, useLocale } from './localization';
 import { useConfirmation } from './Confirmation';
-import { displayLibraryRecord, libraryLabel, newLibraryLabel } from './localization-labels';
+import { displayLibraryRecord, libraryLabel } from './localization-labels';
 import { useCreateChat } from './useCreateChat';
 
 const compactLayoutQuery = '(max-width: 800px)';
@@ -63,9 +63,7 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
   const browse = (kind: LibraryDestination['kind']) => openLibrary({ kind, action: 'browse' });
 
   function renderLibraryShortcut(kind: SetupLibrary | 'prompts') {
-    const onClick = () => browse(kind);
-    if (!compact) return <HomeAction label={t(`story_home.manage_${kind}`)} onClick={onClick} disabled={busy} />;
-    return <HomeLibraryShortcut label={libraryLabel(kind)} onClick={onClick} disabled={busy} />;
+    return <HomeLibraryShortcut label={libraryLabel(kind)} onClick={() => browse(kind)} disabled={busy} />;
   }
 
   function startChat(returnFocus: HTMLElement) {
@@ -88,11 +86,6 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
     const participant = isCharacter ? character : persona;
     const canChoose = isCharacter ? library.characters.length > 1 : library.personas.length > 0;
     const blocksChat = isCharacter && !participant;
-    const createAction = {
-      label: newLibraryLabel(kind),
-      onClick: () => create(kind),
-      disabled: busy,
-    };
     return <section key={kind} className={`story-home-panel story-home-participants${blocksChat ? ' blocks-chat' : ''}`} aria-labelledby={headingId}>
       <header className="story-home-panel-heading">
         <div>
@@ -108,18 +101,18 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
         ? <LibraryCard title={participant} description={participant.description} heading="h3"
           picture={isCharacter ? <PictureSquare url={picture?.thumbnailUrl} /> : undefined}
           disabled={busy} open={() => openLibrary({ kind, id: participant.id, action: 'edit', returnTo: 'story' })} />
-        : <HomeCardPlaceholder picture={isCharacter} details={compact ? undefined : {
-          label: t(isCharacter ? 'story_home.no_character_selected' : 'story_home.persona_help'),
-          action: createAction,
-        }} />}
+        : <HomeCardPlaceholder picture={isCharacter}
+          description={compact ? undefined : t(isCharacter ? 'story_home.no_character_selected' : 'story_home.persona_help')} />}
       <div className="actions">
-        {compact && <HomeCreateAction {...createAction} label={t(isCharacter ? 'story_home.create_character' : 'story_home.create_persona')} />}
+        <HomeCreateAction label={t(isCharacter ? 'story_home.create_character' : 'story_home.create_persona')}
+          onClick={() => create(kind)} disabled={busy} />
         {renderLibraryShortcut(kind)}
       </div>
     </section>;
   }
 
-  const addConnection = { label: t('story_home.add_connection'), onClick: () => create('connections'), disabled: busy };
+  const createConnection = <HomeCreateAction label={t('story_home.create_connection')}
+    onClick={() => create('connections')} disabled={busy || !!connection} />;
   const connectionHeading = t('libraries.connection');
   const noConnection = t('story_home.no_connection_selected');
   const connectionSummary = connection
@@ -137,16 +130,17 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
           </h2>
           <div className="story-home-connection-details">
             <div aria-hidden={!!connection || undefined}>
-              <HomeCreateAction {...addConnection} label={t('story_home.create_connection')} disabled={busy || !!connection} />
+              {createConnection}
             </div>
             {connectionSummary}
           </div>
         </> : <>
           <h2 id="story-home-connection">{connectionHeading}</h2>
-          {connectionSummary ?? <HomeCardPlaceholder details={{ label: noConnection, action: addConnection }} />}
+          {connectionSummary ?? <p className="muted">{noConnection}</p>}
         </>}
       </div>
       <div className="actions">
+        {!compact && !connection && createConnection}
         {renderLibraryShortcut('connections')}
       </div>
     </section>
@@ -184,10 +178,6 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
 
 type HomeActionProps = { label: string; onClick: () => void; disabled: boolean };
 
-function HomeAction({ label, onClick, disabled }: HomeActionProps) {
-  return <button type="button" className="text-link" disabled={disabled} onClick={onClick}>{label}</button>;
-}
-
 function HomeLibraryShortcut({ label, onClick, disabled }: HomeActionProps) {
   return <button type="button" className="quiet" disabled={disabled} onClick={onClick}>
     <span>{label}</span><Icon name="ArrowShortForward" />
@@ -201,18 +191,14 @@ function HomeCreateAction({ label, onClick, disabled }: HomeActionProps) {
   </button>;
 }
 
-function HomeCardPlaceholder({ picture, details }: {
-  picture?: boolean; details?: { label: string; action: HomeActionProps };
-}) {
-  return <div className="library-card" aria-hidden={details ? undefined : true}>
+function HomeCardPlaceholder({ picture, description }: { picture: boolean; description?: string }) {
+  return <div className="library-card" aria-hidden={description ? undefined : true}>
     <div className="library-card-body">
       {picture && <div className="picture-square" aria-hidden="true" />}
       <div className="library-card-content">
         <span className="story-home-placeholder-title" aria-hidden="true" />
-        {details ? <div className="story-home-placeholder-description small muted">
-          <p>{details.label}</p>
-          <HomeAction {...details.action} />
-        </div> : <span className="story-home-placeholder-line" />}
+        {description ? <p className="story-home-placeholder-description small muted">{description}</p>
+          : <span className="story-home-placeholder-line" />}
       </div>
     </div>
   </div>;

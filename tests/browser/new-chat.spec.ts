@@ -63,7 +63,7 @@ for (const width of [1440, 390]) {
     expect((await library(page)).chats).toEqual(before.chats);
     await expect(composer).toHaveCount(0);
     await expect(setup.getByRole('heading', { level: 1 })).toBeFocused();
-    await setup.getByRole('button', { name: width <= 800 ? 'Characters' : 'Manage Characters', exact: true }).click();
+    await setup.getByRole('button', { name: 'Characters', exact: true }).click();
     await expect(page.getByRole('region', { name: 'Characters', exact: true })).toBeVisible();
     const primaryTab = page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'New chat', exact: true });
     await primaryTab.click();
