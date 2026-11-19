@@ -168,7 +168,9 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
   return <main ref={scroller} className={`document-panel story-home${compact ? ' story-home-compact' : ''}`} aria-labelledby="story-home-heading">
     <header className="story-home-heading">
       <h1 ref={heading} id="story-home-heading" tabIndex={-1}>{t('libraries.new_chat')}</h1>
-      {library.chats.length > 0 && <HomeLibraryShortcut label={t('story_home.open_chats')} onClick={() => browse('chats')} disabled={busy} />}
+      {library.chats.length > 0 && <button type="button" className="text-link" disabled={busy} onClick={() => browse('chats')}>
+        <span>{t('story_home.open_chats')}</span><Icon name="ArrowShortForward" />
+      </button>}
     </header>
     {!compact && <p className="muted">{t('story_home.welcome')}</p>}
     <div className="story-home-panels">

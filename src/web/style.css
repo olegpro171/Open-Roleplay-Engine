@@ -799,7 +799,7 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .story-home{min-height:0;overflow-wrap:anywhere;container:library / inline-size}
 .story-home-heading{display:grid;grid-template-columns:minmax(0,1fr) fit-content(50%);align-items:center;gap:8px;margin-block-end:20px}
 .story-home-heading h1{margin:0}
-.story-home-heading>.quiet{color:var(--accent)}
+.story-home-heading>.text-link{min-width:44px;padding-inline:5px;text-decoration-line:none}
 .story-home h1:focus{outline:none}
 .story-home-panels,.story-home-defaults{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
 .story-home-panels{margin:24px 0}
@@ -883,8 +883,8 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .story-home-compact .story-home-placeholder-title{inline-size:min(45%,90px)}
 .story-home-placeholder-line{inline-size:min(67%,145px);margin-block:3px 4px}
 .story-home-compact .story-home-participants>.actions{justify-content:space-between;gap:0 8px;margin:0}
-.story-home-heading>button.quiet,.story-home-compact .story-home-panel button.quiet{display:inline-flex;align-items:center;gap:4px;min-width:44px;padding-inline:4px}
-.story-home-heading>.quiet>.ui-icon,.story-home-compact .story-home-panel .quiet>.ui-icon{width:16px;height:16px}
+.story-home-compact .story-home-panel button.quiet{display:inline-flex;align-items:center;gap:4px;min-width:44px;padding-inline:4px}
+.story-home-heading>.text-link>.ui-icon,.story-home-compact .story-home-panel .quiet>.ui-icon{width:16px;height:16px}
 .story-home-compact .story-home-defaults{grid-template-columns:minmax(0,1fr);gap:0}
 .story-home-compact .story-home-summary{
   display:grid;
