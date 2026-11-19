@@ -47,10 +47,25 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     await page.getByRole('button', { name: 'История', exact: true }).click();
     const russianRateLimit = /Достигнут лимит провайдера.*HTTP 429.*баланс аккаунта/;
     await expect(recovery).toContainText(russianRateLimit);
-    for (const width of [1440, 390]) {
+    const composer = page.getByRole('textbox', { name: 'Ваш следующий ход' });
+    const send = page.getByRole('button', { name: 'Отправить', exact: true });
+    for (const width of [1768, 801, 800, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await expect(recovery.getByRole('button', { name: 'Повторить ответ', exact: true })).toBeInViewport();
-      await recovery.screenshot({ path: testInfo.outputPath(`pending-response-${width}.png`) });
+      await expect(composer).toBeInViewport();
+      await expect(send).toBeInViewport();
+      const [noticeBounds, inputBounds, sendBounds, transcriptBounds] = await Promise.all([
+        recovery.boundingBox(), composer.boundingBox(), send.boundingBox(), page.locator('.transcript').boundingBox(),
+      ]);
+      if (!noticeBounds || !inputBounds || !sendBounds || !transcriptBounds) throw new Error('Story controls must be visible');
+      expect(noticeBounds.x).toBeCloseTo(inputBounds.x);
+      expect(noticeBounds.x + noticeBounds.width).toBeCloseTo(sendBounds.x + sendBounds.width);
+      expect(noticeBounds.y).toBeGreaterThanOrEqual(transcriptBounds.y + transcriptBounds.height);
+      expect(noticeBounds.y + noticeBounds.height).toBeLessThan(inputBounds.y);
+      if (width > 800) {
+        await expect(page.locator('.composer')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      }
+      await page.screenshot({ path: testInfo.outputPath(`pending-response-${width}.png`) });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     }
 
