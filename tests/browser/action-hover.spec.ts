@@ -73,7 +73,7 @@ for (const theme of ['light', 'dark', 'midnight-black'] as const) {
       expect(await fillPixel(selected), `selected category at ${width}px`).toEqual(selectedFill);
       await page.mouse.move(0, 0);
     }
-    await checkHover(page.getByRole('button', { name: 'Delete chat', exact: true }).first(), 'library-quiet');
+    await checkHover(page.getByRole('region', { name: 'Chats', exact: true }).getByRole('button', { name: /^Actions for / }).first(), 'library-quiet');
     await page.getByRole('button', { name: 'Prompts', exact: true }).click();
     await page.getByRole('heading', { name: 'Default prompt', exact: true }).getByRole('button').click();
     await checkHover(page.getByRole('button', { name: 'Add marker', exact: true }), 'library-secondary');

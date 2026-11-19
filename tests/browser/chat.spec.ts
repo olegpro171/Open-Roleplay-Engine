@@ -410,17 +410,22 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await page.screenshot({ path: 'test-results/phone-empty-story.png', fullPage: true });
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   const temporary = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Temporary sweep chat', exact: true }) });
-  await temporary.getByRole('button', { name: 'Delete chat', exact: true }).click();
-  await page.locator('.confirmation-dialog').getByRole('button', { name: 'Delete chat', exact: true }).click();
+  const confirmDelete = page.getByRole('dialog', { name: 'Delete chat?', exact: true }).getByRole('button', { name: 'Delete chat', exact: true });
+  const deleteFromMenu = page.getByRole('menu').getByRole('menuitem', { name: 'Delete chat', exact: true });
+  await temporary.getByRole('button', { name: 'Actions for Temporary sweep chat', exact: true }).click();
+  await deleteFromMenu.click();
+  await confirmDelete.click();
   await expect(temporary).toHaveCount(0);
   const chats = page.getByRole('region', { name: 'Chats', exact: true });
   await expect(chats.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
   // All fixture chats, including the original and final chat, can be removed without leaving the library.
-  while (await page.getByRole('button', { name: 'Delete chat', exact: true }).count()) {
-    const before = await page.getByRole('article').count();
-    await page.getByRole('button', { name: 'Delete chat', exact: true }).first().click();
-    await page.locator('.confirmation-dialog').getByRole('button', { name: 'Delete chat', exact: true }).click();
-    await expect(page.getByRole('article')).toHaveCount(before - 1);
+  const cards = chats.getByRole('article');
+  while (await cards.count()) {
+    const before = await cards.count();
+    await cards.first().getByRole('button', { name: /^Actions for / }).click();
+    await deleteFromMenu.click();
+    await confirmDelete.click();
+    await expect(cards).toHaveCount(before - 1);
     await expect(chats.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
   }
   await page.reload();

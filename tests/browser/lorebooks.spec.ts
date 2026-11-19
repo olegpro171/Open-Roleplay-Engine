@@ -113,7 +113,7 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await page.getByLabel('Entry comment', { exact: true }).fill('Never send this human-only comment.');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   const bookRow = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Moon Gate atlas', exact: true }) });
-  await expect(bookRow).toContainText('1 entries · 1 enabled');
+  await expect(bookRow.getByText('1 entry', { exact: true })).toBeVisible();
   const savedEntry = (await library(page)).lorebooks.find(book => book.name === 'Moon Gate atlas')?.entries[0];
   expect(savedEntry?.keys).toEqual(['MoonGate', 'Silver Hall', 'harbor', 'Bell Tower']);
   expect(savedEntry?.secondaryKeys).toEqual(['crescent', 'moonlight', 'silver']);

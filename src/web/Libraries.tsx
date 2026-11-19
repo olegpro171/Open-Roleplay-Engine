@@ -63,6 +63,19 @@ function newPrompt(): PromptPreset {
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 type Selection = { title: string; targetInputTokens: number; connectionId: string | null; promptId: string; characterId: string | null; personaId: string | null; contextPresetId: string | null; lorebookId: string | null };
 type LibraryRecord = LibraryCharacter | LibraryPersona | PromptPreset | Connection | ContextPreset | Lorebook;
+
+function libraryCardDetails(item: LibraryRecord): string | undefined {
+  if ('entries' in item) {
+    const total = item.entries.length;
+    const enabled = item.entries.filter(entry => entry.enabled).length;
+    return enabled === total
+      ? t('libraries.entry_count', { count: total })
+      : t('libraries.entries_enabled', { length: total, length2: enabled });
+  }
+  if ('blocks' in item) return t('libraries.block_count', { count: item.blocks.length });
+  if ('minTail' in item) return t('libraries.minimum_tail_batch', { minTail: item.minTail, batchSize: item.batchSize });
+}
+
 const libraryLabels: Record<LibraryKind | 'chats', string> = {
   chats: 'Chats',
   personas: 'Personas',
@@ -409,6 +422,9 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     }));
   }, [library.chats, branchSelections, query, sort]);
   const displayLanguage = currentPack();
+  const chatDateFormat = useMemo(() => new Intl.DateTimeFormat(displayLanguage.locale, {
+    dateStyle: 'medium', timeStyle: 'short',
+  }), [displayLanguage.locale]);
   const visibleRecords = useMemo<Saved<LibraryRecord>[]>(() => {
     if (section === 'chats') return [];
     return sortLibraryItems(library[section].filter(record => matchesLibraryRecord(displayLibraryRecord(record), query)
@@ -564,23 +580,42 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     {warning && <WarningDialog {...warning} close={() => setWarning(null)} />}
     {section === 'chats' ? <>
       <div className="library-list chat-list">
-        {visibleChats.map(({ id, branch, branches, running }) => <article key={id} className="chat-card">
-          <div className="chat-card-details">
+        {visibleChats.map(({ id, branch, branches, lastMessageAt, running }) => {
+          const isCurrent = currentBranchId === branch.id;
+          const messageTime = lastMessageAt ? Date.parse(lastMessageAt) : NaN;
+          const date = Number.isFinite(messageTime) ? chatDateFormat.format(messageTime) : null;
+          const activityLabel = date ? t('libraries.chat_last_message', { date }) : undefined;
+          return <article key={id} className="chat-card">
             <CharacterAvatar url={branch.characterId ? pictureIndex.get(branch.characterId)?.thumbnailUrl : undefined} />
             <div className="chat-card-text">
-              <h2><button type="button" className="chat-card-open" onClick={() => openChat(branch.id)}>{branch.title}</button></h2>
-              <p>{t("libraries.turns", { turnCount: branch.turnCount, value: running ? t("interface.response_running") : '', value2: currentBranchId === branch.id ? t("interface.current_chat") : '' })}</p>
+              <h2><button type="button" className="chat-card-open" aria-current={isCurrent || undefined}
+                onClick={() => openChat(branch.id)}>{branch.title}</button></h2>
+              <div className="chat-card-meta">
+                <span>{t('counts.turns', { count: branch.turnCount })}</span>
+                {isCurrent && <span className="chat-card-current">{t('chat_workspace.current_chat')}</span>}
+                {running && <span>{t('branches.response_running')}</span>}
+              </div>
             </div>
-          </div>
-          <button type="button" className="quiet chat-card-delete" disabled={busy || running} onClick={() => {
-            confirmAction({ confirmOnEnter: true, title: t("libraries.delete_chat"),
-              message: t(branches.length > 1 ? 'branches.delete_chat' : 'libraries.delete_and_all_its_turns_and_requests', { title: branch.title }),
-              actionLabel: t("libraries.delete_chat_2"),
-              onConfirm: () => { void run(() => api(`/chats/${branch.id}`, 'DELETE', {
-                revision: branch.revision, branches: branches.map(({ id, revision }) => ({ id, revision })),
-              })); } });
-          }}><Icon name="TrashOutline" />{t("libraries.delete_chat_2")}</button>
-        </article>)}
+            {date ? <time className="chat-card-activity" dateTime={lastMessageAt ?? undefined}
+              aria-label={activityLabel} title={activityLabel}>{date}</time>
+              : branches.every(item => item.turnCount === 0) &&
+                <span className="chat-card-activity">{t('libraries.chat_no_messages')}</span>}
+            <div className="chat-card-actions">
+              <ActionMenu label={t('libraries.actions_for', { name: branch.title })} disabled={busy || running} revision={branch.revision}>
+                <button type="button" className="secondary" role="menuitem" tabIndex={-1} aria-haspopup="dialog" onClick={() => {
+                  confirmAction({
+                    confirmOnEnter: true, title: msg('libraries.delete_chat'),
+                    message: msg(branches.length > 1 ? 'branches.delete_chat' : 'libraries.delete_and_all_its_turns_and_requests', { title: branch.title }),
+                    actionLabel: msg('libraries.delete_chat_2'),
+                    onConfirm: () => { void run(() => api(`/chats/${branch.id}`, 'DELETE', {
+                      revision: branch.revision, branches: branches.map(({ id, revision }) => ({ id, revision })),
+                    })); },
+                  });
+                }}><Icon name="TrashOutline" />{t('libraries.delete_chat_2')}</button>
+              </ActionMenu>
+            </div>
+          </article>;
+        })}
         {library.chats.length === 0 && <p className="muted">{t("libraries.create_a_chat_to_start_your_next")}</p>}
         {query && visibleChats.length === 0 && library.chats.length > 0 && <p className="muted" role="status">{t("libraries.no_chats_match_your_search")}</p>}
       </div>
@@ -591,16 +626,12 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
         <button type="button" className="quiet" onClick={() => setFilters([])}>{t("libraries.clear_filters")}</button>
         <span className="small muted" role="status">{t("libraries.of_characters", { length: visibleRecords.length, length2: library.characters.length })}</span>
       </div>}
-      <div className={`library-list${section === 'characters' ? ' character-list' : ''}`}>
+      <div className={`library-list ${section === 'characters' || section === 'personas' ? 'participant-card-list' : 'soft-card-list'}`}>
         {visibleRecords.map(item => <LibraryCard key={item.id} title={displayLibraryRecord(item)}
           picture={section === 'characters' ? <PictureSquare url={pictureIndex.get(item.id)?.thumbnailUrl} /> : undefined}
           disabled={busy} open={() => setEditing(savedEditor(library, section, item.id))}
-          description={section === 'connections' && 'model' in item ? item.model
-            : section === 'prompts' && 'blocks' in item ? t('libraries.block_count', { count: item.blocks.length })
-            : section === 'contexts' && 'minTail' in item ? t('libraries.minimum_tail_batch', { minTail: item.minTail, batchSize: item.batchSize })
-            : 'description' in item ? item.description : ''}
-          details={section === 'lorebooks' && 'entries' in item &&
-            <p>{t('libraries.entries_enabled', { length: item.entries.length, length2: item.entries.filter(entry => entry.enabled).length })}</p>}
+          description={'model' in item ? item.model : 'description' in item ? item.description : ''}
+          details={libraryCardDetails(item)}
           tools={<>
             {(section === 'prompts' || section === 'connections' || section === 'contexts') && <DefaultBookmark kind={section} item={item} defaults={defaults} libraryRevision={library.revision} busy={busy} run={run} />}
             <ActionMenu label={t('libraries.actions_for', { name: characterLabel(item) })} disabled={busy} revision={library.revision}>

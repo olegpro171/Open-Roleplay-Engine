@@ -32,6 +32,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     await expect(page.getByRole('article')).toHaveCount(12);
 
     const trigger = page.getByRole('button', { name: /^Tags/ });
+    const characterList = page.getByRole('region', { name: 'Characters', exact: true }).locator('.library-list');
     const panel = page.locator('.tag-filter-panel');
     const filter = page.getByRole('group', { name: 'Filter characters by tags', exact: true });
     const next = filter.getByRole('button', { name: 'Next tags', exact: true });
@@ -45,11 +46,11 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
       if (!search || !button) throw new Error('Missing search or tag trigger');
       expect(Math.abs(button.y + button.height / 2 - search.y - search.height / 2)).toBeLessThanOrEqual(1);
       expect(search.width).toBeGreaterThan(140);
-      const before = await page.locator('.character-list').boundingBox();
+      const before = await characterList.boundingBox();
       const scrollHeight = await scroller.evaluate(element => element.scrollHeight);
       await trigger.click();
       await expect(filter.getByRole('searchbox', { name: 'Search tags', exact: true })).toHaveAttribute('placeholder', 'Search tags');
-      expect((await page.locator('.character-list').boundingBox())?.y).toBe(before?.y);
+      expect((await characterList.boundingBox())?.y).toBe(before?.y);
       expect(await scroller.evaluate(element => element.scrollHeight)).toBe(scrollHeight);
       await expect(previous).toBeDisabled();
       await expect(next).toBeEnabled();
@@ -112,7 +113,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
       await panel.evaluate(element => { element.scrollTop = element.scrollHeight; });
       await expect(next).toBeInViewport({ ratio: 1 });
       const popup = await panel.boundingBox();
-      const list = await page.locator('.character-list').boundingBox();
+      const list = await characterList.boundingBox();
       if (!popup || !list) throw new Error('Missing tag panel or character list');
       expect(popup.x).toBeGreaterThanOrEqual(0);
       expect(popup.x + popup.width).toBeLessThanOrEqual(width);

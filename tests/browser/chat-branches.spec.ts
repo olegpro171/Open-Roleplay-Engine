@@ -54,6 +54,12 @@ test('forks, remembers the branch in the Chats library, and exports its transcri
   await expect(lighthouseTurn).toBeVisible();
   await expect(page.getByText('Later in the source')).toHaveCount(0);
   await expect(page.getByLabel('Your next turn')).toHaveValue('');
+  const forkSummary = browserApp.store.libraries().chats.find(chat => chat.branchName === branchTitle);
+  if (!forkSummary) throw new Error('Missing forked branch');
+  const latestMessage = '2025-03-10T16:42:00.000Z';
+  const setMessageTime = browserApp.store.sqlite.prepare('UPDATE turns SET message_at = ? WHERE chat_id = ?');
+  setMessageTime.run(latestMessage, 'main');
+  setMessageTime.run('2025-03-08T11:20:00.000Z', forkSummary.id);
   const other = await page.request.post('/api/chats', { headers, data: { title: 'Another story',
     targetInputTokens: 32000, characterId: null, personaId: null, connectionId: null } });
   expect(other.ok(), await other.text()).toBe(true);
@@ -65,16 +71,33 @@ test('forks, remembers the branch in the Chats library, and exports its transcri
     has: page.getByRole('button', { name: title, exact: true }),
   });
   const sourceCard = chatCard(story.settings.title);
+  const openSource = sourceCard.getByRole('button', { name: story.settings.title, exact: true });
+  const sourceActivity = sourceCard.locator('time');
+  const actionsLabel = `Actions for ${story.settings.title}`;
+  const chatActions = sourceCard.getByRole('button', { name: actionsLabel, exact: true });
+  const chatMenu = page.getByRole('menu', { name: actionsLabel, exact: true });
+  const deleteChat = chatMenu.getByRole('menuitem', { name: 'Delete chat', exact: true });
   await openChats();
-  await expect(sourceCard).toContainText('1 turns · Current chat');
+  await expect(sourceCard.getByText('1 turn', { exact: true })).toBeVisible();
+  await expect(sourceCard.getByText('Current chat', { exact: true })).toBeVisible();
+  await expect(openSource).toHaveAttribute('aria-current', 'true');
+  await expect(sourceActivity).toHaveAttribute('datetime', latestMessage);
+  await expect(sourceActivity).toHaveAttribute('aria-label', /^Last message: .+/);
+  await expect(chatCard('Another story').getByText('No messages yet', { exact: true })).toBeVisible();
+  await chatActions.click();
+  await deleteChat.click();
+  const deleteChatDialog = page.getByRole('dialog', { name: 'Delete chat?', exact: true });
+  await expect(deleteChatDialog).toContainText('and every branch');
+  await deleteChatDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await chatCard('Another story').getByRole('button', { name: 'Another story', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Another story' })).toBeVisible();
   await openChats();
-  await expect(sourceCard).toContainText('1 turns');
+  await expect(sourceCard.getByText('1 turn', { exact: true })).toBeVisible();
   await expect(sourceCard).not.toContainText('Current chat');
+  await expect(openSource).not.toHaveAttribute('aria-current', 'true');
   await page.reload();
   await openChats();
-  await expect(sourceCard).toContainText('1 turns');
+  await expect(sourceCard.getByText('1 turn', { exact: true })).toBeVisible();
   await sourceCard.getByRole('button', { name: story.settings.title, exact: true }).click();
   await expect(lighthouseTurn).toBeVisible();
   await openBranches();
@@ -125,8 +148,14 @@ test('forks, remembers the branch in the Chats library, and exports its transcri
     await openChats();
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 850 });
-      await expect(sourceCard.getByText('1 turns · Current chat')).toBeInViewport();
+      await expect(sourceCard.getByText('Current chat', { exact: true })).toBeInViewport();
+      await expect(sourceActivity).toBeInViewport();
       await sourceCard.screenshot({ path: testInfo.outputPath(`chat-card-${theme}-${width}.png`) });
+      await chatActions.click();
+      await expect(deleteChat).toBeInViewport();
+      await page.screenshot({ path: testInfo.outputPath(`chat-card-actions-${theme}-${width}.png`) });
+      await page.keyboard.press('Escape');
+      await expect(chatMenu).toHaveCount(0);
     }
     await sourceCard.getByRole('button', { name: story.settings.title, exact: true }).click();
     await expect(lighthouseTurn).toBeVisible();
@@ -465,6 +494,13 @@ test('branch actions stay open while the Story behind the dialog scrolls during 
     await page.getByLabel('Your next turn').fill('Generate behind the branch manager.');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+    await page.getByRole('button', { name: 'Chats', exact: true }).click();
+    const openChat = page.getByRole('button', { name: 'Branch menu during streaming', exact: true });
+    const chatCard = page.getByRole('article').filter({ has: openChat });
+    await expect(chatCard.getByText('Response running', { exact: true })).toBeVisible();
+    await expect(chatCard.getByRole('button', { name: 'Actions for Branch menu during streaming', exact: true })).toBeDisabled();
+    await openChat.click();
     await page.getByRole('button', { name: 'Chat branches', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Chat branches' });
     const actions = dialog.getByRole('button', { name: 'Actions for Main', exact: true });

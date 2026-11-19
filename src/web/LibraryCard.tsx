@@ -7,7 +7,7 @@ export function LibraryCard({ title, description, picture, tools, details, open,
   description: string;
   picture?: ReactNode;
   tools?: ReactNode;
-  details?: ReactNode;
+  details?: string;
   open?: () => void;
   disabled?: boolean;
   heading?: 'h2' | 'h3';
@@ -26,13 +26,14 @@ export function LibraryCard({ title, description, picture, tools, details, open,
           </Heading>
           {tools && <div className="library-card-tools">{tools}</div>}
         </div>
-        <LibraryDescription text={description}>{details}</LibraryDescription>
+        <LibraryDescription text={description} />
+        {details && <p className="library-card-details">{details}</p>}
       </div>
     </div>
   </article>;
 }
 
-function LibraryDescription({ text, children }: { text: string; children?: ReactNode }) {
+function LibraryDescription({ text }: { text: string }) {
   useLocale();
   const node = useRef<HTMLDivElement>(null);
   const [overflow, setOverflow] = useState(false);
@@ -44,6 +45,6 @@ function LibraryDescription({ text, children }: { text: string; children?: React
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [text, children]);
-  return <div ref={node} className={`library-card-description${overflow ? ' overflows' : ''}`}><p>{text}</p>{children}</div>;
+  }, [text]);
+  return <div ref={node} className={`library-card-description${overflow ? ' overflows' : ''}`}><p>{text}</p></div>;
 }

@@ -53,20 +53,28 @@ test('opens chat cards by pointer and keyboard, keeps deletion separate and show
   await expect(row(page, titles[1]).locator('.picture-placeholder')).toContainText('Picture unavailable');
   for (const title of titles.slice(2)) await expect(row(page, title).locator('.picture-placeholder')).toBeVisible();
 
-  for (const width of [1280, 390, 320]) {
+  for (const width of [1280, 875, 874, 801, 800, 390, 320]) {
     await page.setViewportSize({ width, height: 850 });
     const card = row(page, titles[0]);
-    const details = await card.locator('.chat-card-details').boundingBox();
-    const remove = await card.getByRole('button', { name: 'Delete chat', exact: true }).boundingBox();
+    const bounds = await card.boundingBox();
+    const actions = await card.getByRole('button', { name: `Actions for ${titles[0]}`, exact: true }).boundingBox();
     const avatar = await card.locator('.character-avatar').boundingBox();
     const heading = await card.getByRole('heading').boundingBox();
-    if (!details || !remove || !avatar || !heading) throw new Error('Missing chat card geometry');
+    const activity = await card.getByText('No messages yet', { exact: true }).boundingBox();
+    if (!bounds || !actions || !avatar || !heading || !activity) throw new Error('Missing chat card geometry');
     expect(avatar.width).toBe(avatar.height);
     expect(avatar.x + avatar.width).toBeLessThan(heading.x);
-    if (width >= 390) expect(Math.abs(remove.y + remove.height / 2 - details.y - details.height / 2)).toBeLessThan(1);
-    else expect(remove.y).toBeGreaterThanOrEqual(details.y + details.height);
+    expect(actions.width).toBeGreaterThanOrEqual(44);
+    expect(actions.height).toBeGreaterThanOrEqual(44);
+    expect(actions.x).toBeGreaterThanOrEqual(activity.x + activity.width);
+    expect(Math.abs(actions.y + actions.height / 2 - bounds.y - bounds.height / 2)).toBeLessThan(1);
+    if (width === 1280) expect(activity.x).toBeGreaterThan(heading.x);
+    if (width === 320) {
+      expect(activity.x).toBe(heading.x);
+      expect(activity.y).toBeGreaterThan(heading.y + heading.height);
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({ path: `test-results/chat-library-${width}.png`, fullPage: true });
+    if ([1280, 390, 320].includes(width)) await page.screenshot({ path: `test-results/chat-library-${width}.png`, fullPage: true });
   }
   await page.setViewportSize({ width: 1280, height: 850 });
   await page.mouse.move(0, 0);
@@ -183,7 +191,7 @@ test('opens chat cards by pointer and keyboard, keeps deletion separate and show
     const open = row(page, titles[0]).getByRole('button', { name: titles[0], exact: true });
     await open.focus();
     await page.keyboard.press('Tab');
-    await expect(row(page, titles[0]).getByRole('button', { name: 'Delete chat', exact: true })).toBeFocused();
+    await expect(row(page, titles[0]).getByRole('button', { name: `Actions for ${titles[0]}`, exact: true })).toBeFocused();
     await page.keyboard.press('Shift+Tab');
     await expect(open).toBeFocused();
     await open.press(key);
@@ -191,13 +199,22 @@ test('opens chat cards by pointer and keyboard, keeps deletion separate and show
     await expect(page.locator('.story-meta h1')).toHaveText(titles[0]);
   }
   await browse();
-  const remove = row(page, titles[0]).getByRole('button', { name: 'Delete chat', exact: true });
+  const actions = row(page, titles[0]).getByRole('button', { name: `Actions for ${titles[0]}`, exact: true });
+  const menu = page.getByRole('menu', { name: `Actions for ${titles[0]}`, exact: true });
+  const remove = menu.getByRole('menuitem', { name: 'Delete chat', exact: true });
+  await expect(remove).toHaveCount(0);
+  await actions.press('Enter');
+  await expect(remove).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(actions).toBeFocused();
+  await actions.click();
   await remove.click();
   const confirmation = page.getByRole('dialog', { name: 'Delete chat?', exact: true });
   await expect(confirmation).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeVisible();
   await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(remove).toBeFocused();
+  await expect(actions).toBeFocused();
   expect((await library()).chats.some(chat => chat.id === ids[0])).toBe(true);
 
   // Assignment changes arrive even when the library cache revision is unchanged.
@@ -205,6 +222,7 @@ test('opens chat cards by pointer and keyboard, keeps deletion separate and show
   await command(`/chats/${ids[0]}/selections`, { revision: snapshot.revision, settings: { title: titles[0], targetInputTokens: 32_000, promptId: 'default', connectionId: null, characterId: null, personaId: null } }, 'PUT');
   await expect(row(page, titles[0]).locator('img')).toHaveCount(0);
   await expect(row(page, titles[0]).locator('.picture-placeholder')).toBeVisible();
+  await actions.click();
   await remove.click();
   await confirmation.getByRole('button', { name: 'Delete chat', exact: true }).click();
   await expect(row(page, titles[0])).toHaveCount(0);

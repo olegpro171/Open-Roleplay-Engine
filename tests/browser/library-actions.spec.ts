@@ -54,6 +54,13 @@ test('library action menus stack controls consistently across categories and vie
       const title = await bounds(card.getByRole('heading'));
       const titleLineHeight = await card.getByRole('heading').evaluate(element => Number.parseFloat(getComputedStyle(element).lineHeight));
       expect(title.height).toBeLessThanOrEqual(titleLineHeight * 2 + 1);
+      if (fixture.kind === 'connections') {
+        const cardBox = await bounds(card);
+        const description = await bounds(card.locator('.library-card-description'));
+        const topInset = title.y - cardBox.y;
+        const bottomInset = cardBox.y + cardBox.height - description.y - description.height;
+        expect(bottomInset, `${fixture.category} card insets at ${width}px`).toBeCloseTo(topInset, 0);
+      }
       const more = await bounds(card.getByRole('button', { name: /^Actions for / }));
       expect(more.height).toBeGreaterThanOrEqual(44);
       expect(Math.abs(more.y - title.y)).toBeLessThanOrEqual(8);

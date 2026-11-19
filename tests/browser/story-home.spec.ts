@@ -356,7 +356,10 @@ test('edits selected cards from New chat and returns there after saving and reco
     const libraryStyle = await renderedStyle(card);
     await button(page, 'New chat').click();
     await page.mouse.move(0, 0);
-    await expect.poll(() => renderedStyle(preview), { message: `${category} preview uses Library card styling` }).toEqual(libraryStyle);
+    // The pictureless New chat Persona preview retains its roomier phone line spacing.
+    const { descriptionLineHeight: _, ...participantCardStyle } = libraryStyle;
+    const sharedStyle = category === 'Personas' ? participantCardStyle : libraryStyle;
+    await expect.poll(() => renderedStyle(preview), { message: `${category} preview uses Library card styling` }).toMatchObject(sharedStyle);
   }
 
   await character.getByRole('article').click({ position: { x: 30, y: 80 } });
