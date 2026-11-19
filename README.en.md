@@ -99,9 +99,17 @@ You can move ORE to another folder. Your chats, settings, and other data move wi
 
 Your browser stores drafts, some preferences, and cookies on the device you used to access ORE. To remove them, clear site data for the ORE address on each device.
 
+## Contributing
+
+- **Report a bug.** If there’s no similar report already, open an issue on [GitHub Issues](https://github.com/olegpro171/Open-Roleplay-Engine/issues). Include your ORE version, operating system and browser, steps to reproduce the bug, and what you expected to happen versus what actually happened. For chat or memory bugs, include a sample conversation that reproduces the problem. Keep API keys and ORE data backups private.
+- **Propose a change.** You can submit a pull request directly for typo fixes, translation corrections, and small fixes where the expected behavior is clear. For new features or changes to how prompts, memory, or saved data are handled, discuss the proposal with the maintainer in GitHub Issues first.
+- **Open a pull request.** Fork the repository, create a branch from the latest `develop`, and target `develop` in the upstream repository. Explain why the change is needed, how to test it, and which checks you ran. Link any related issue. Include screenshots for UI changes and regression test results for technical review of changes to memory or data storage.
+
+The maintainer merges accepted changes into `develop`, qualifies the release candidate on `staging`, and promotes the verified commit to `main`. See the [release guide](docs/RELEASES.md#automated-windows-releases) for details.
+
 ## Development
 
-Before changing the application, read [AGENTS.md](AGENTS.md), the [product contract](CONCEPTS.md), and the [architecture and development guide](IMPLEMENTATION.md). These documents link to detailed subsystem contracts. No separate contribution or issue-reporting process is required at this stage.
+Before changing the application, read [AGENTS.md](AGENTS.md), the [product contract](CONCEPTS.md), and the [architecture and development guide](IMPLEMENTATION.md). These documents link to detailed subsystem contracts.
 
 For source development, use Node 24 or Node 22.14+ within major 22.
 
