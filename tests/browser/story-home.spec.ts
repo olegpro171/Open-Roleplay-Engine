@@ -55,9 +55,9 @@ async function signIn(page: Page) {
   await expect(button(page, 'New chat')).toHaveAttribute('aria-current', 'page');
 }
 
-async function addConnection(page: Page) {
+async function addConnection(page: Page, actionName: 'Add a Connection' | 'Create Connection' = 'Add a Connection') {
   const endpoint = (await (await page.request.get('/__test/endpoint')).json()).endpoint;
-  await button(page, 'Add a Connection').click();
+  await button(page, actionName).click();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('First model');
   await page.getByLabel('API base URL').fill(endpoint);
   await button(page, 'Model identifier').click();
@@ -217,7 +217,7 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
 test('imports a card before Connection setup and tracks bookmarks independently of library sorting', async ({ page, browserApp }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page);
-  await button(page, 'Manage Characters').click();
+  await button(page, 'Characters').click();
   const characters = page.getByRole('region', { name: 'Characters', exact: true });
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), button(page, 'Import character').click()]);
   await chooser.setFiles({ name: 'card.json', mimeType: 'application/json',
@@ -228,9 +228,10 @@ test('imports a card before Connection setup and tracks bookmarks independently 
   await expect(characters.getByRole('button', { name: 'Imported guide', exact: true })).toBeVisible();
   await button(page, 'New chat').click();
   await expect(home(page)).toContainText('Imported guide');
-  await expect(button(page, 'Add a Connection')).toBeVisible();
+  await expect(button(page, 'Create Connection')).toBeVisible();
   await expect(button(page, 'Start chat')).toBeDisabled();
-  await addConnection(page);
+  await addConnection(page, 'Create Connection');
+  await expect(button(page, 'Create Connection')).toHaveCount(0);
 
   const saved = await library(page);
   const first = saved.connections[0];
@@ -243,13 +244,13 @@ test('imports a card before Connection setup and tracks bookmarks independently 
   expect(added.ok(), await added.text()).toBe(true);
   const panel = home(page).getByRole('region', { name: 'Connection' });
   await expect(panel).toContainText('First model');
-  await button(page, 'Manage Connections').click();
+  await button(page, 'Connections').click();
   await page.getByRole('combobox', { name: 'Sort connections', exact: true }).click();
   await page.getByRole('option', { name: 'Name A–Z', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Connections', exact: true }).getByRole('heading', { level: 2 }).first()).toHaveText('A second model');
   await button(page, 'New chat').click();
   await expect(panel).toContainText('First model');
-  await button(page, 'Manage Connections').click();
+  await button(page, 'Connections').click();
   await button(page, 'Set A second model as default').click();
   await expect(button(page, 'Clear A second model as default')).toBeVisible();
   await button(page, 'New chat').click();
@@ -262,7 +263,7 @@ test('imports a card before Connection setup and tracks bookmarks independently 
     kind: 'prompts', revision: (await library(page)).revision, data: { ...defaultPrompt, name: promptName },
   } });
   expect(addedPrompt.ok(), await addedPrompt.text()).toBe(true);
-  await button(page, 'Manage Prompts').click();
+  await button(page, 'Prompts').click();
   await button(page, `Set ${promptName} as default`).click();
   await expect(button(page, `Clear ${promptName} as default`)).toBeVisible();
   await button(page, 'New chat').click();
@@ -281,7 +282,7 @@ test('imports a card before Connection setup and tracks bookmarks independently 
   await button(page, 'Chat details').click();
   await button(page, 'Close chat').click();
   await expect(home(page)).toBeVisible();
-  await button(page, 'Manage Prompts').click();
+  await button(page, 'Prompts').click();
   await button(page, `Clear ${promptName} as default`).click();
   await expect(button(page, `Set ${promptName} as default`)).toBeVisible();
   await button(page, 'New chat').click();
@@ -296,7 +297,7 @@ test('edits selected cards from New chat and returns there after saving and reco
   const character = home(page).getByRole('region', { name: 'Character', exact: true });
   await character.getByRole('combobox').click();
   await page.getByRole('option', { name: 'Forest guide', exact: true }).click();
-  await button(page, 'New persona').click();
+  await button(page, 'Create persona').click();
   const name = page.getByRole('textbox', { name: 'Name', exact: true });
   await name.fill('Traveller');
   await button(page, 'Save').click();
@@ -331,7 +332,7 @@ test('edits selected cards from New chat and returns there after saving and reco
     [character, 'Characters', 'Forest guide'], [persona, 'Personas', 'Traveller'],
   ] as const) {
     const preview = panel.getByRole('article');
-    await button(page, `Manage ${category}`).click();
+    await button(page, category).click();
     const card = page.getByRole('region', { name: category, exact: true }).getByRole('article')
       .filter({ has: page.getByRole('heading', { name: title, exact: true }) });
     await page.mouse.move(0, 0);
@@ -376,7 +377,7 @@ test('edits selected cards from New chat and returns there after saving and reco
   await character.getByRole('combobox').click();
   await page.getByRole('option', { name: 'Grove guide', exact: true }).click();
   await expect(character.getByRole('article')).toContainText('Grove guide');
-  await persona.getByRole('button', { name: 'New persona', exact: true }).click();
+  await persona.getByRole('button', { name: 'Create persona', exact: true }).click();
   await expect(name).toHaveValue('');
   await button(page, 'Cancel').click();
   await expect(persona.getByRole('article')).toContainText('Wanderer');
@@ -410,6 +411,9 @@ const participantLayout = (panel: Locator) => panel.evaluate(element => {
   };
 });
 
+const compactActions = ['Create character', 'Characters', 'Create persona', 'Personas', 'Create Connection', 'Connections', 'Prompts'];
+const desktopActions = ['New character', 'Manage Characters', 'New persona', 'Manage Personas', 'Add a Connection', 'Manage Connections', 'Manage Prompts'];
+
 test('New chat fits desktop and phone in each approved theme and updates when switched to Russian', async ({ page, browserApp }, testInfo) => {
   await signIn(page);
   const welcome = home(page).getByRole('heading', { level: 1 });
@@ -441,12 +445,12 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
       await expect(home(page).getByText(intro, { exact: true })).toHaveCount(compact ? 0 : 1);
       await expect(personaPanel.getByText('Optional', { exact: true })).toHaveCount(compact ? 1 : 0);
       await expect(connectionPanel.getByRole('heading', { name: compact ? 'No Connection selected.' : 'Connection', exact: true })).toBeVisible();
-      for (const label of ['Add a Connection', 'Manage Connections', 'Manage Prompts', 'New character', 'Manage Characters', 'New persona', 'Manage Personas']) {
+      for (const label of compact ? compactActions : desktopActions) {
         const bounds = await button(page, label).boundingBox();
         if (!bounds) throw new Error(`Missing ${label}`);
         expect(bounds.x).toBeGreaterThanOrEqual(0);
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
-        if (!compact || label !== 'Add a Connection') expect(bounds.height).toBeGreaterThanOrEqual(44);
+        if (label !== 'Create Connection') expect(bounds.height).toBeGreaterThanOrEqual(44);
       }
       expect(await home(page).evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
       const [connection, prompt, character, persona] = await Promise.all([
@@ -462,7 +466,10 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
         await expectActionAtPanelBottom(connectionPanel, 'Manage Connections');
         await expectActionAtPanelBottom(promptPanel, 'Manage Prompts');
       } else {
-        const add = await connectionPanel.getByRole('button', { name: 'Add a Connection' }).boundingBox();
+        const create = connectionPanel.getByRole('button', { name: 'Create Connection', exact: true });
+        await expect(create).toHaveText(/Create$/);
+        await expect(create).toHaveCSS('text-decoration-line', 'none');
+        const add = await create.boundingBox();
         const heading = await connectionPanel.getByRole('heading').boundingBox();
         if (!add || !heading) throw new Error('Missing empty Connection heading or add action');
         expect(add.x).toBe(heading.x);
@@ -472,9 +479,9 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
         expect(prompt.y).toBeCloseTo(connection.y + connection.height);
         expect(connection.width).toBe(character.width);
         expect(prompt.width).toBe(connection.width);
-        for (const panel of [connectionPanel, promptPanel]) {
+        for (const [panel, label] of [[connectionPanel, 'Connections'], [promptPanel, 'Prompts']] as const) {
           const heading = await panel.getByRole('heading').boundingBox();
-          const manage = await panel.getByRole('button', { name: /^Manage/ }).boundingBox();
+          const manage = await panel.getByRole('button', { name: label, exact: true }).boundingBox();
           if (!heading || !manage) throw new Error('Missing summary heading or action');
           expect(manage.x).toBeGreaterThan(heading.x + heading.width);
         }
@@ -492,21 +499,20 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
       emptyLayout.set(width, layouts);
       if (width === 1440 || width === 390) {
         await page.screenshot({ path: testInfo.outputPath(`home-${theme}-${width}.png`), animations: 'disabled' });
-        await button(page, 'Manage Personas').scrollIntoViewIfNeeded();
+        await button(page, compact ? 'Personas' : 'Manage Personas').scrollIntoViewIfNeeded();
         await page.screenshot({ path: testInfo.outputPath(`home-${theme}-${width}-bottom.png`), animations: 'disabled' });
         await home(page).evaluate(element => { element.scrollTop = 0; });
       }
       if (theme === 'dark' && width === 390) {
-        const addLink = button(page, 'Add a Connection');
-        await addLink.scrollIntoViewIfNeeded();
-        const hasTouchTarget = await addLink.evaluate(action => {
+        const create = button(page, 'Create Connection');
+        await create.scrollIntoViewIfNeeded();
+        const hasTouchTarget = await create.evaluate(action => {
           const bounds = action.getBoundingClientRect();
-          return document.elementFromPoint(bounds.x + bounds.width / 2, bounds.bottom - 43) === action;
+          return bounds.width >= 44 && document.elementFromPoint(bounds.x + bounds.width / 2, bounds.bottom - 43) === action;
         });
         expect(hasTouchTarget).toBe(true);
         await welcome.focus();
-        for (const label of ['New character', 'Manage Characters', 'New persona', 'Manage Personas',
-          'Add a Connection', 'Manage Connections', 'Manage Prompts']) {
+        for (const label of compactActions) {
           await page.keyboard.press('Tab');
           await expect(button(page, label)).toBeFocused();
         }
@@ -514,7 +520,7 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
       }
     }
   }
-  await addConnection(page);
+  await addConnection(page, 'Create Connection');
   await page.setViewportSize({ width: 1440, height: 844 });
   await expect(home(page).getByText(intro, { exact: true })).toBeVisible();
   for (const panel of [connectionPanel, promptPanel]) {
@@ -568,9 +574,10 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
           expect(openChats.y).toBe(start.y);
         }
       }
-      await expect(characterPanel.getByRole('button')).toHaveText(['New character', 'Manage Characters']);
-      await expect(button(page, 'Manage Characters')).toHaveCSS('font-size',
-        await button(page, 'Manage Personas').evaluate(element => getComputedStyle(element).fontSize));
+      const compact = width <= 800;
+      await expect(characterPanel.getByRole('button')).toHaveText(compact ? [/Create$/, 'Characters'] : ['New character', 'Manage Characters']);
+      await expect(button(page, compact ? 'Characters' : 'Manage Characters')).toHaveCSS('font-size',
+        await button(page, compact ? 'Personas' : 'Manage Personas').evaluate(element => getComputedStyle(element).fontSize));
       await expect(characterPanel.getByRole('article')).toHaveCount(0);
       await expect(personaPanel.getByRole('article')).toHaveCount(0);
       await expectPanelBorder(connectionPanel, '--line');
@@ -599,8 +606,8 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
         const summary = await connectionPanel.getByRole('status').boundingBox();
         if (!panel || !summary) throw new Error('Missing selected Connection summary');
         expect({ height: panel.height, leftInset: summary.x - panel.x, topInset: summary.y - panel.y }).toEqual(emptyConnectionLayout.get(width));
-        await expect(characterPanel.getByRole('button', { name: 'New character' })).toBeVisible();
-        await expect(personaPanel.getByRole('button', { name: 'New persona' })).toBeVisible();
+        await expect(characterPanel.getByRole('button', { name: 'Create character', exact: true })).toBeVisible();
+        await expect(personaPanel.getByRole('button', { name: 'Create persona', exact: true })).toBeVisible();
       }
       expect(await home(page).evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
       await home(page).evaluate(element => { element.scrollTop = 0; });
@@ -634,13 +641,42 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
   await expect(page.getByRole('heading', { name: 'Новый чат' })).toBeVisible();
   await expect(button(page, 'Начать чат')).toBeDisabled();
   await expect(page.getByRole('region', { name: 'Промпт', exact: true })).toContainText('Промпт по умолчанию');
-  await expect(button(page, 'Управление промптами')).toBeVisible();
-  await expect(button(page, 'Управление персонажами')).toBeVisible();
-  await expect(button(page, 'Новый персонаж')).toBeVisible();
-  await expect(button(page, 'Новая персона')).toBeVisible();
+  const russianHome = page.getByRole('main', { name: 'Новый чат', exact: true });
+  const categories = ['Персонажи', 'Персоны', 'Подключения', 'Промпты'];
+  for (const category of categories) {
+    await russianHome.getByRole('button', { name: category, exact: true }).click();
+    const destination = page.getByRole('region', { name: category, exact: true });
+    await expect(destination.getByRole('heading', { level: 1, name: category, exact: true })).toBeVisible();
+    if (category === 'Персонажи') await expect(destination.getByRole('button', { name: 'Импортировать персонажа', exact: true })).toBeVisible();
+    await button(page, 'Новый чат').click();
+  }
+  for (const [name, editor] of [['Создать персонажа', 'Персонаж: Создать'], ['Создать персону', 'Новая персона']]) {
+    await expect(button(page, name)).toContainText('Создать');
+    await button(page, name).click();
+    await expect(page.getByRole('group', { name: editor, exact: true }).getByRole('textbox', { name: 'Имя', exact: true })).toHaveValue('');
+    await button(page, 'Отмена').click();
+    await expect(russianHome).toBeVisible();
+  }
   await expect(page.getByRole('region', { name: 'Персона', exact: true }).getByText('По желанию', { exact: true })).toBeVisible();
-  expect(await page.getByRole('main', { name: 'Новый чат' }).evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
-  await page.screenshot({ path: testInfo.outputPath('home-russian-320.png'), animations: 'disabled' });
+  for (const theme of themes) {
+    await setTheme(theme);
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      expect(await russianHome.evaluate(panel => panel.scrollWidth <= panel.clientWidth)).toBe(true);
+      for (const label of ['Создать персонажа', 'Создать персону', ...categories]) {
+        const action = russianHome.getByRole('button', { name: label, exact: true });
+        await expect(action).toHaveCSS('text-decoration-line', 'none');
+        const bounds = await action.boundingBox();
+        if (!bounds) throw new Error(`Missing ${label}`);
+        expect(bounds.height).toBeGreaterThanOrEqual(44);
+        expect(bounds.width).toBeGreaterThanOrEqual(44);
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+      }
+      await russianHome.evaluate(panel => { panel.scrollTop = 0; });
+      await page.screenshot({ path: testInfo.outputPath(`home-russian-${theme}-${width}.png`), animations: 'disabled' });
+    }
+  }
 
   const russianConnectionPanel = page.getByRole('region', { name: 'Подключение', exact: true });
   const connectionHeight = await russianConnectionPanel.evaluate(panel => panel.getBoundingClientRect().height);

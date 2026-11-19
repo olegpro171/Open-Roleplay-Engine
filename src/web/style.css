@@ -829,7 +829,9 @@ button.text-link>.ui-icon{width:14px;height:14px}
 }
 .story-home-compact .story-home-placeholder-title{inline-size:min(45%,90px)}
 .story-home-placeholder-line{inline-size:min(67%,145px);margin-block:3px 4px}
-.story-home-compact .story-home-participants>.actions{flex-wrap:nowrap;gap:12px;margin:0}
+.story-home-compact .story-home-participants>.actions{justify-content:space-between;gap:0 8px;margin:0}
+.story-home-compact .story-home-panel button.quiet{display:inline-flex;align-items:center;gap:4px;min-width:44px;padding-inline:4px}
+.story-home-compact .story-home-panel .quiet>.ui-icon{width:16px;height:16px}
 .story-home-compact .story-home-defaults{grid-template-columns:minmax(0,1fr);gap:0}
 .story-home-compact .story-home-summary{
   display:grid;
@@ -851,9 +853,9 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .story-home-connection-heading,.story-home-connection-details{display:grid;grid-template-columns:minmax(0,1fr);align-items:end}
 :is(.story-home-connection-heading,.story-home-connection-details)>*{grid-area:1/1}
 :is(.story-home-connection-heading,.story-home-connection-details)>[aria-hidden=true]{visibility:hidden}
-.story-home-connection-details button.text-link{position:relative;display:block;min-height:0;min-width:44px;width:fit-content;text-align:start}
-/* Extend the Add link's hit area into its column without adding a line to the row. */
-.story-home-connection-details .text-link::after{content:"";position:absolute;inset-inline:0;inset-block-end:0;min-block-size:44px}
+.story-home-compact .story-home-connection-details button.quiet{position:relative;display:flex;min-height:0;width:fit-content;padding-block:0;border-block-width:0;text-align:start}
+/* Extend the Create button's hit area without increasing the summary row's height. */
+.story-home-connection-details button.quiet::after{content:"";position:absolute;inset-inline:0;inset-block-end:0;min-block-size:44px}
 .story-home-connection-details>p{margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .story-home-compact .story-home-summary>.actions{
   flex-direction:column;
@@ -861,7 +863,7 @@ button.text-link>.ui-icon{width:14px;height:14px}
   gap:0;
   margin:0;
 }
-.story-home-compact .story-home-summary>.actions>.text-link{text-align:end}
+.story-home-compact .story-home-summary>.actions>button{text-align:end}
 .story-home-compact .story-home-chat-actions{display:grid;grid-auto-rows:1fr;margin:0}
 @media(max-width:800px){
   .library-list-header{top:0;padding-top:12px}

@@ -3,12 +3,13 @@ import { resolveChatDefaults, type ChatDefaultsStatus } from '../shared/chat-def
 import type { LibrarySnapshot } from '../shared/library';
 import { characterDropdownOptions, personaDropdownOptions, type ChatParticipantsValue } from './ChatParticipants';
 import { Dropdown } from './Controls';
+import { Icon } from './Icon';
 import type { LibraryDestination, SetupLibrary } from './Libraries';
 import { LibraryCard } from './LibraryCard';
 import { PictureSquare } from './Pictures';
 import { message as msg, t, useLocale } from './localization';
 import { useConfirmation } from './Confirmation';
-import { displayLibraryRecord, newLibraryLabel } from './localization-labels';
+import { displayLibraryRecord, libraryLabel, newLibraryLabel } from './localization-labels';
 import { useCreateChat } from './useCreateChat';
 
 const compactLayoutQuery = '(max-width: 800px)';
@@ -61,6 +62,14 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
   const create = (kind: SetupLibrary) => openLibrary({ kind, action: 'create', returnTo: 'story' });
   const browse = (kind: LibraryDestination['kind']) => openLibrary({ kind, action: 'browse' });
 
+  function renderLibraryShortcut(kind: SetupLibrary | 'prompts') {
+    const onClick = () => browse(kind);
+    if (!compact) return <HomeAction label={t(`story_home.manage_${kind}`)} onClick={onClick} disabled={busy} />;
+    return <button type="button" className="quiet" disabled={busy} onClick={onClick}>
+      <span>{libraryLabel(kind)}</span><Icon name="ArrowShortForward" />
+    </button>;
+  }
+
   function startChat(returnFocus: HTMLElement) {
     if (busy || !connection || !character) return;
     const start = () => void createChat(character, persona?.id ?? null);
@@ -106,9 +115,8 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
           action: createAction,
         }} />}
       <div className="actions">
-        {compact && <HomeAction {...createAction} />}
-        <HomeAction label={t(isCharacter ? 'story_home.manage_characters' : 'story_home.manage_personas')}
-          onClick={() => browse(kind)} disabled={busy} />
+        {compact && <HomeCreateAction {...createAction} label={t(isCharacter ? 'story_home.create_character' : 'story_home.create_persona')} />}
+        {renderLibraryShortcut(kind)}
       </div>
     </section>;
   }
@@ -131,7 +139,7 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
           </h2>
           <div className="story-home-connection-details">
             <div aria-hidden={!!connection || undefined}>
-              <HomeAction {...addConnection} disabled={busy || !!connection} />
+              <HomeCreateAction {...addConnection} label={t('story_home.create_connection')} disabled={busy || !!connection} />
             </div>
             {connectionSummary}
           </div>
@@ -141,7 +149,7 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
         </>}
       </div>
       <div className="actions">
-        <HomeAction label={t('story_home.manage_connections')} onClick={() => browse('connections')} disabled={busy} />
+        {renderLibraryShortcut('connections')}
       </div>
     </section>
     <section className="story-home-panel story-home-summary" aria-labelledby="story-home-prompt">
@@ -153,7 +161,7 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
         </p>}
       </div>
       <div className="actions">
-        <HomeAction label={t('story_home.manage_prompts')} onClick={() => browse('prompts')} disabled={busy} />
+        {renderLibraryShortcut('prompts')}
       </div>
     </section>
   </div>;
@@ -176,6 +184,13 @@ type HomeActionProps = { label: string; onClick: () => void; disabled: boolean }
 
 function HomeAction({ label, onClick, disabled }: HomeActionProps) {
   return <button type="button" className="text-link" disabled={disabled} onClick={onClick}>{label}</button>;
+}
+
+function HomeCreateAction({ label, onClick, disabled }: HomeActionProps) {
+  useLocale();
+  return <button type="button" className="quiet" disabled={disabled} onClick={onClick} aria-label={label}>
+    <Icon name="Plus" /><span>{t('libraries.create')}</span>
+  </button>;
 }
 
 function HomeCardPlaceholder({ picture, details }: {
