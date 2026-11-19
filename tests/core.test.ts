@@ -40,6 +40,25 @@ describe('request assembly', () => {
     expect(request.body.stream_options).toEqual({ include_usage: true });
     expect(assembleRequest({ ...connection, requestUsage: false }, settings, []).body).not.toHaveProperty('stream_options');
   });
+  it('forwards typed built-ins alongside scalar and nested provider-specific JSON', () => {
+    const configured = connectionSchema.parse({ ...connection, requestUsage: false, customParameters: {
+      temperature: 0, top_k: 50, min_p: 0.05, template: { thinking: false, options: ['literal', null, { count: 2 }] },
+    } });
+    expect(assembleRequest(configured, settings, []).body).toEqual({
+      temperature: 0, top_k: 50, min_p: 0.05, template: { thinking: false, options: ['literal', null, { count: 2 }] },
+      model: 'synthetic', messages: ['Instructions', '{{literal}}', 'Persona'].map(content => ({ role: 'system', content })),
+      stream: true, max_tokens: 100,
+    });
+  });
+  it.each([
+    { max_completion_tokens: 200 }, { max_new_tokens: 200 }, { stream_options: { include_usage: true } },
+    { n: 2 }, { tools: [] }, { temperature: '0.7' }, { top_p: 1.1 }, { seed: 0.5 }, [], null, new Map(),
+    JSON.parse('{"extra":1e400}'),
+    { nested: [{ apiKey: 'synthetic-secret' }] }, JSON.parse('{"nested":{"__proto__":{"polluted":true}}}'),
+    { extra: '🕯'.repeat(17_000) }, JSON.parse('{"extra":' + '['.repeat(33) + '0' + ']'.repeat(33) + '}'),
+  ].map(customParameters => ({ customParameters })))('validates the shape and limits of a parameter map (case %#)', ({ customParameters }) => {
+    expect(connectionSchema.safeParse({ ...connection, requestUsage: false, customParameters }).success).toBe(false);
+  });
   it('rejects request replacement and credential-bearing endpoint URLs', () => {
     expect(connectionSchema.safeParse({ ...connection, customParameters: { messages: [] } }).success).toBe(false);
     expect(connectionSchema.safeParse({ ...connection, customParameters: { api_key: 'secret' } }).success).toBe(false);

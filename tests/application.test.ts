@@ -18,7 +18,7 @@ let mock: Awaited<ReturnType<typeof startMockProvider>>;
 let instance: Awaited<ReturnType<typeof createApp>>;
 let cookie: string;
 const password = 'synthetic-owner-password';
-const connection = { name: 'Synthetic model', model: 'mock-roleplay', contextWindow: 32_000, maxOutputTokens: 1000, customParameters: { temperature: 0.8 } };
+const connection = { name: 'Synthetic model', model: 'mock-roleplay', contextWindow: 32_000, maxOutputTokens: 1000, customParameters: { temperature: 0.8, min_p: 0.05, chat_template_kwargs: { enable_thinking: false } } };
 
 async function command(url: string, payload: unknown, method: 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'POST') {
   return instance.app.inject({ method, url, headers: { host: 'localhost', origin: 'http://localhost', 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, payload: JSON.stringify(payload) });
@@ -237,7 +237,8 @@ describe('persistent chat and generation', () => {
 
   it('checks and tests unsaved Connection settings without changing chat history or calibrating the counter', async () => {
     const before = await state();
-    const input = { connection: { ...before.connection, maxOutputTokens: 4096, customParameters: { reasoning_effort: 'max' } }, connectionId: before.settings.connectionId };
+    const customParameters = { reasoning_effort: 'max', top_k: 42, chat_template_kwargs: { enable_thinking: true } };
+    const input = { connection: { ...before.connection, maxOutputTokens: 4096, customParameters }, connectionId: before.settings.connectionId };
     expect(mock.requests).toHaveLength(0);
     const check = await command('/api/connections/diagnose', { ...input, action: 'check' });
     expect(check.statusCode).toBe(200);
@@ -251,7 +252,15 @@ describe('persistent chat and generation', () => {
     expect(result.request.body).toEqual(mock.requests[0].body);
     expect(result.request.body.messages).toEqual([{ role: 'user', content: 'Hi' }]);
     expect(result.request.body.max_tokens).toBe(4096);
-    expect(result.request.body.reasoning_effort).toBe('max');
+    expect(result.request.body).toMatchObject(customParameters);
+    const forbidden = await command('/api/connections/diagnose', { ...input, action: 'test', connection: {
+      ...input.connection, requestUsage: false, customParameters: { stream_options: { include_usage: true } },
+    } });
+    expect(forbidden.statusCode).toBe(400);
+    expect(forbidden.json().issues).toEqual([expect.objectContaining({ path: 'connection.customParameters.stream_options',
+      localized: expect.objectContaining({ key: 'connection_parameters.reserved' }),
+    })]);
+    expect(mock.requests).toHaveLength(1);
     expect(result.request.budget.reservedOutputTokens).toBe(4096);
     expect(result.usage).toEqual({ inputTokens: 321, outputTokens: 17, totalTokens: 338 });
     expect(result.request.budget.inputTokens).not.toBe(result.usage.inputTokens);
@@ -370,6 +379,7 @@ describe('persistent chat and generation', () => {
     expect(snapshot.turns[0].assistant.text).toBe('The lantern flickers. 🕯');
     expect(snapshot.generations[0].request!.body).toEqual(mock.requests[0].body);
     expect(preview.json().body).toEqual(mock.requests[0].body);
+    expect(mock.requests[0].body).toMatchObject(connection.customParameters);
     expect(mock.requests[0].authorization).toBe('Bearer synthetic-api-secret');
     expect(JSON.stringify(snapshot)).not.toContain('synthetic-api-secret');
     const ids = snapshot.turns[0];

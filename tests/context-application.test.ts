@@ -313,6 +313,10 @@ it('resetting the built-in context preserves prepared memory and immutable reque
 describe('chat Connection for summarization', () => {
   it.each(['step', 'prepare', 'automatic'] as const)('uses the chat model and credentials for %s preparation when the preset has no explicit Connection', async mode => {
     const f = fixture(12, 700);
+    const { connection, settings } = f.state();
+    if (!connection || !settings.connectionId) throw new Error('Missing fixture Connection');
+    const extras = { min_p: 0.1, chat_template_kwargs: { enable_thinking: false } };
+    f.store.saveLibrary(f.store.libraries().revision, 'connections', { ...connection, customParameters: extras }, settings.connectionId);
     const preset = f.state().context.preset!;
     f.store.saveLibrary(f.store.libraries().revision, 'contexts', { ...defaultContextPreset, connectionId: null, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 }, preset.id);
     if (mode === 'automatic') {
@@ -324,6 +328,7 @@ describe('chat Connection for summarization', () => {
     expect(f.state().context.archivedTurnIds.length).toBeGreaterThan(0);
     expect(f.calls.length).toBeGreaterThan(0);
     expect(f.calls.every(call => call.request.body.model === 'story-model' && call.apiKey === 'story-secret')).toBe(true);
+    expect(f.calls.map(call => call.request.body)).toEqual(f.calls.map(() => expect.objectContaining(extras)));
     const summary = f.state().context.summaries[0];
     f.store.editPart(f.state().revision, summary.turns[0].turnId, 'user', 'Mira kept her key.', f.chatId);
     const callCount = f.calls.length;
@@ -331,6 +336,7 @@ describe('chat Connection for summarization', () => {
     expect(['succeeded', 'awaiting_review']).toContain(repaired.status);
     expect(f.calls.length).toBeGreaterThan(callCount);
     expect(f.calls.slice(callCount).every(call => call.request.body.model === 'story-model' && call.apiKey === 'story-secret')).toBe(true);
+    expect(f.calls.slice(callCount).map(call => call.request.body)).toEqual(f.calls.slice(callCount).map(() => expect.objectContaining(extras)));
   });
 });
 

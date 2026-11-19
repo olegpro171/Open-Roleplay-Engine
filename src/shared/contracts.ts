@@ -1,15 +1,7 @@
 import { z } from 'zod';
 import { authorNoteSchema } from './author-note.js';
 
-export const customParametersSchema = z.object({
-  temperature: z.number().min(0).max(2).optional(),
-  top_p: z.number().min(0).max(1).optional(),
-  presence_penalty: z.number().min(-2).max(2).optional(),
-  frequency_penalty: z.number().min(-2).max(2).optional(),
-  seed: z.number().int().optional(),
-  stop: z.union([z.string().max(200), z.array(z.string().max(200)).max(4)]).optional(),
-  reasoning_effort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional(),
-}).strict();
+import { customParametersSchema, type builtInParametersSchema } from './connection-parameters.js';
 
 export const connectionSchema = z.object({
   name: z.string().trim().min(1).max(100),
@@ -55,7 +47,7 @@ export type Turn = {
 export type RequestBody = {
   model: string; messages: Message[]; stream: true; max_tokens: number;
   stream_options?: { include_usage: true };
-} & z.infer<typeof customParametersSchema>;
+} & z.infer<typeof builtInParametersSchema> & Record<string, unknown>;
 export const pinnedSourceSchema = z.object({ turnId: z.string().min(1).max(100), ordinal: z.number().int().positive().safe() }).strict();
 export type PinnedSource = z.infer<typeof pinnedSourceSchema>;
 export const promptEntryKinds = ['prompt', 'character', 'persona', 'memory', 'history', 'draft', 'lore', 'pinned', 'continuation', 'opening'] as const;

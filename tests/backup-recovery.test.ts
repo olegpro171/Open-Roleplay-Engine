@@ -40,7 +40,8 @@ const model = { name: 'Synthetic',endpoint: 'http://localhost:1234/v1',model: 's
 it('round trips variants, corrected selected memory, picture links, exact requests and approved preparation progress through wipe/import/restart',async () => {
   let db = open('roundtrip'), backups = backup(db,'roundtrip');
   db.saveLibrary(db.libraryRevision(), 'prompts', compactPrompt, 'default');
-  const connectionId = db.saveLibrary(db.libraryRevision(),'connections',model,undefined,'synthetic-story-key');
+  const customParameters = { temperature: 0, top_k: 40, chat_template_kwargs: { enable_thinking: false } };
+  const connectionId = db.saveLibrary(db.libraryRevision(),'connections',{ ...model, customParameters },undefined,'synthetic-story-key');
   const contextId = db.saveLibrary(db.libraryRevision(),'contexts',{ ...defaultContextPreset,connectionId,minTail: 2,batchSize: 2,promotionGroup: 2,retainedPerLevel: 1 });
   const processor = new PictureProcessor(); processors.push(processor); const image = await processor.process(await quadrantPicture());
   const card = { name: 'Mara',description: 'Keeper of the brass key.',personality: '',scenario: '',first_mes: 'Welcome.',alternate_greetings: ['Another welcome.'],mes_example: '' };
@@ -63,12 +64,14 @@ it('round trips variants, corrected selected memory, picture links, exact reques
   coordinator.regenerate(db.snapshot(chatId).revision,randomUUID(),requireValue(db.snapshot(chatId).turns.at(-1)).id,chatId);
   await expect.poll(() => db.snapshot(chatId).generations[0]?.status).toBe('succeeded');
   const before = db.snapshot(chatId), generation = requireValue(before.generations[0]), request = db.generation(generation.id)?.request, picture = requireValue(db.pictures.get(cid));
+  expect(request?.body).toMatchObject(customParameters);
   const bytes = await exported(backups), totalCalls = calls.length;
   const persistence = new BackupStore(db); persistence.commit({ requestId: randomUUID(),digest: '0'.repeat(64),token: persistence.token,overwrite: true });
   const review = await backups.inspect(Readable.from([bytes]), 'owner'); expect(review.blockers).toEqual([]); backups.commit(review.stageId,'owner',command(review));
   await coordinator.shutdown(); coordinators.splice(coordinators.indexOf(coordinator),1); backups.close(); db.close();
   db = open('roundtrip', false); backups = backup(db,'roundtrip'); coordinator = new GenerationCoordinator(db,provider); coordinators.push(coordinator);
   expect(calls).toHaveLength(totalCalls);
+  expect(db.connection(connectionId)?.customParameters).toEqual(customParameters);
   const after = db.snapshot(chatId);
   expect(after.turns).toEqual(before.turns); expect(after.context.selected).toEqual(before.context.selected); expect(after.context.summaries).toEqual(before.context.summaries);
   expect(after.context.archivedTurnIds).toEqual(before.context.archivedTurnIds);

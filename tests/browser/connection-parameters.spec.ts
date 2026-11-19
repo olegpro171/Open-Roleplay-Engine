@@ -1,0 +1,120 @@
+import { expect } from '@playwright/test';
+import { test } from './isolated-app';
+import { appearanceStatusSchema } from '../../src/shared/appearance';
+import type { LibrarySnapshot } from '../../src/shared/library';
+
+test('edits saved built-ins and tests and saves provider fields alongside them', async ({ page, browserApp }, testInfo) => {
+  await page.goto('/');
+  await page.getByLabel('Owner password').fill('browser-synthetic-password');
+  await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
+  await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible();
+  const headers = { Origin: browserApp.url };
+  const library = async (): Promise<LibrarySnapshot> => page.request.get('/api/library').then(response => response.json());
+  const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
+  const name = 'Model parameters';
+  const legacyParameters = { temperature: 0.7, top_p: 0.9, presence_penalty: -0.5, frequency_penalty: 0, seed: 7, stop: ['A\nB', 'C'], reasoning_effort: 'none' };
+  const created = await page.request.post('/api/library', { headers, data: { kind: 'connections', revision: (await library()).revision, data: {
+    name, endpoint, model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 1000, customParameters: legacyParameters,
+  }, apiKey: 'synthetic-parameter-secret' } });
+  expect(created.ok(), await created.text()).toBe(true);
+
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  const savedConnection = page.getByRole('button', { name, exact: true });
+  await savedConnection.click();
+  const custom = page.getByLabel('Custom request parameters');
+  const advanced = page.locator('details').filter({ has: page.getByText('Advanced parameters', { exact: true }) });
+  const advancedToggle = advanced.locator('summary');
+  const temperature = page.getByLabel('Temperature', { exact: true });
+  const topP = page.getByLabel('Top P', { exact: true });
+  const reasoning = page.getByRole('combobox', { name: 'Reasoning effort', exact: true });
+  const save = page.getByRole('group', { name: 'Editor actions' }).getByRole('button', { name: 'Save', exact: true });
+  const sendTest = page.getByRole('button', { name: 'Send test message', exact: true });
+  const requests = async () => page.request.get('/__test/requests').then(response => response.json());
+  await expect(temperature).toHaveValue('0.7');
+  await expect(topP).toHaveValue('0.9');
+  await expect(temperature).toHaveAccessibleDescription(/Range 0–2\./);
+  await expect(topP).toHaveAccessibleDescription(/Range 0–1\./);
+  await expect(custom).toBeHidden();
+  await expect(reasoning).toBeHidden();
+  await sendTest.click();
+  await expect(page.locator('.connection-success')).toBeVisible();
+  expect((await requests())[0].body).toMatchObject(legacyParameters);
+
+  await advancedToggle.focus();
+  await advancedToggle.press('Enter');
+  await expect(page.getByLabel('Presence penalty', { exact: true })).toHaveValue('-0.5');
+  await expect(page.getByLabel('Frequency penalty', { exact: true })).toHaveValue('0');
+  await expect(page.getByLabel('Seed', { exact: true })).toHaveValue('7');
+  await expect(page.getByRole('textbox', { name: 'Stop sequence 1', exact: true })).toHaveValue('A\nB');
+  await expect(reasoning).toHaveText('none');
+  await expect(advanced.getByLabel('Custom request parameters')).toBeVisible();
+  await expect(custom).toHaveValue('{}');
+
+  await custom.fill('{"temperature": 0.8}');
+  await save.click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Set temperature using its dedicated control' })).toBeVisible();
+  await expect(custom).toHaveValue('{"temperature": 0.8}');
+  await topP.fill('2');
+  await custom.fill('{"top_k": 50}');
+  await sendTest.click();
+  await expect(page.locator('.connection-tools [role="alert"]')).toContainText('Enter a number from 0 to 1 for top_p.');
+  expect(await requests()).toHaveLength(1);
+  expect((await library()).connections.find(item => item.name === name)?.customParameters).toEqual(legacyParameters);
+
+  await topP.fill('');
+  await temperature.fill('0,35');
+  await reasoning.click();
+  await page.getByRole('option', { name: 'Provider default', exact: true }).click();
+  const removeSecondStop = page.getByRole('button', { name: 'Remove stop sequence 2', exact: true });
+  await expect(removeSecondStop).toHaveText('Remove');
+  await removeSecondStop.click();
+  const extras = { top_k: 50, chat_template_kwargs: { enable_thinking: false }, extras: [0, null, 'literal'] };
+  await custom.fill(JSON.stringify(extras, null, 2));
+  await sendTest.click();
+  await expect(page.locator('.connection-success')).toBeVisible();
+  await page.getByText('Test request and response', { exact: true }).click();
+  const sent = (await requests())[1];
+  const expectedParameters = { ...extras, temperature: 0.35, presence_penalty: -0.5, frequency_penalty: 0, seed: 7, stop: ['A\nB'] };
+  expect(sent.body).toEqual({ ...expectedParameters, model: 'synthetic', messages: [{ role: 'user', content: 'Hi' }], max_tokens: 1000, stream: true, stream_options: { include_usage: true } });
+  await expect(page.locator('.connection-tools pre')).toContainText('"top_k": 50');
+  await expect(page.locator('.connection-tools pre')).not.toContainText('synthetic-parameter-secret');
+  await save.click();
+  await expect(custom).toBeHidden();
+  expect((await library()).connections.find(item => item.name === name)?.customParameters).toEqual(expectedParameters);
+  await savedConnection.click();
+  await expect(temperature).toHaveValue('0.35');
+  await expect(topP).toHaveValue('');
+  await expect(custom).toBeHidden();
+  await advancedToggle.click();
+  await expect(reasoning).toHaveText('Provider default');
+  await expect(custom).toHaveValue(JSON.stringify(extras, null, 2));
+
+  const appearancePath = '/api/application/appearance';
+  for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+    const current = appearanceStatusSchema.parse(await page.request.get(appearancePath).then(response => response.json()));
+    const response = await page.request.put(appearancePath, { headers, data: { revision: current.revision, settings: { ...current.settings, theme } } });
+    expect(response.ok(), await response.text()).toBe(true);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    for (const width of [1280, 801, 800, 390]) {
+      await page.setViewportSize({ width, height: 850 });
+      await advancedToggle.scrollIntoViewIfNeeded();
+      await expect(reasoning).toBeVisible();
+      expect(await custom.evaluate(element => {
+        const bounds = element.getBoundingClientRect();
+        return bounds.left >= 0 && bounds.right <= innerWidth && document.documentElement.scrollWidth <= innerWidth;
+      })).toBe(true);
+      if (width === 1280 || width === 390) {
+        await reasoning.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: testInfo.outputPath(`controls-${theme}-${width}.png`) });
+        await page.getByText('Enter extra fields as a JSON object.', { exact: false }).scrollIntoViewIfNeeded();
+        await page.screenshot({ path: testInfo.outputPath(`custom-${theme}-${width}.png`) });
+        await advancedToggle.click();
+        await expect(custom).toBeHidden();
+        await topP.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: testInfo.outputPath(`collapsed-${theme}-${width}.png`) });
+        await advancedToggle.click();
+      }
+    }
+  }
+});

@@ -353,6 +353,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .composer-ios[data-keyboard-visible]{padding-block-end:8px}
 @media(pointer:coarse) and (orientation:landscape){.composer textarea{font-size:calc(16px * var(--chat-text-scale,1))}}
 
+.connection-stop-sequence{min-height:0}
 .connection-tools .connection-help{margin:14px 0 18px}.connection-success{color:var(--success)}
 :root[data-theme="light"] .connection-success{color:var(--success-text)}
 .messages-marker-option{margin-top:14px}

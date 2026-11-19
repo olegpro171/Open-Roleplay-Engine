@@ -70,6 +70,13 @@ test('Connection check and test successes use the built-in Russian catalog with 
   await expect(page.locator('.eyebrow').filter({ hasText: 'БИБЛИОТЕКА' })).toBeVisible();
   await page.getByRole('button', { name: 'Подключения', exact: true }).click();
   await page.getByRole('button', { name: 'Sweep diagnostics', exact: true }).click();
+  const advanced = page.getByText('Расширенные параметры', { exact: true });
+  await expect(page.getByLabel('Дополнительные параметры запроса')).toBeHidden();
+  await advanced.click();
+  for (const label of ['Presence penalty', 'Frequency penalty', 'Seed']) {
+    await expect(page.getByLabel(label, { exact: true })).toHaveAttribute('placeholder', 'По умолчанию');
+  }
+  await expect(page.getByRole('combobox', { name: 'Уровень рассуждения', exact: true })).toHaveText('По умолчанию');
   const tools = page.locator('.connection-tools');
   await tools.getByRole('button', { name: 'Проверить подключение', exact: true }).click();
   await expect(tools.locator('.connection-success')).toHaveText('Эндпоинт принял проверку подключения');

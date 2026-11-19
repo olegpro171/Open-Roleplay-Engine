@@ -17,7 +17,7 @@ afterEach(async () => {
 const connection: Connection = {
   name: 'Synthetic profile', endpoint: 'http://localhost:9999/v1', model: 'synthetic-model',
   contextWindow: 65000, maxOutputTokens: 2345, requestUsage: false,
-  customParameters: { temperature: 0.7, stop: ['A', 'B'], seed: 123, reasoning_effort: 'high' },
+  customParameters: { temperature: 0.7, stop: ['A', 'B'], seed: 123, reasoning_effort: 'high', top_k: 50, chat_template_kwargs: { enable_thinking: false } },
 };
 const secret = 'sk-synthetic-connection-transfer-secret';
 async function open(name: string) {

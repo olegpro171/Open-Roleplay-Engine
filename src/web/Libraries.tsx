@@ -31,6 +31,8 @@ import { TranscriptImport } from './TranscriptImport';
 import { CharacterImport } from './CharacterImport';
 import { ConnectionFileDialog, type ConnectionFileAction } from './ConnectionFileDialog';
 import { ModelField } from './ModelPicker';
+import { ConnectionParameters } from './ConnectionParameters';
+import { connectionParameterDraft, parseConnectionParameters, recoverConnectionParameters, type ConnectionParameterDraft } from './connection-parameter-draft';
 import { CharacterEditor } from './CharacterEditor';
 import { EditorActions, EditorActionsTarget } from './EditorActions';
 import { useWarnOnEditorLeave, type LeaveEditor, type useEditorLeaveGuard } from './EditorLeaveGuard';
@@ -665,32 +667,40 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, busy,
   const [data, setData] = useState(recovered?.data ?? initial.data);
   const [key, setKey] = useState('');
   const [removeKey, setRemoveKey] = useState(recovered?.kind === 'connections' && recovered.removeKey);
-  const [baselineParameters] = useState(() => 'customParameters' in initial.data ? JSON.stringify(initial.data.customParameters, null, 2) : '');
-  const [parameters, setParameters] = useState(recovered?.kind === 'connections' ? recovered.parameters : baselineParameters);
+  const [baselineParameters] = useState(() => connectionParameterDraft('customParameters' in initial.data ? initial.data.customParameters : {}));
+  const [parameters, setParameters] = useState(() => recovered?.kind === 'connections'
+    ? recoverConnectionParameters(recovered.data.customParameters, recovered) : baselineParameters);
   const numberDraft = useNumberDraft(recovered?.numbers);
   const keyOmitted = !removeKey && key !== '';
   const draft = useMemo<StandardDraft>(() => {
     const target = { id: initial.id, revision: initial.revision, numbers: numberDraft.values };
-    if ('endpoint' in data) return { ...target, kind: 'connections', returnTo: initial.returnTo, data, parameters, removeKey, keyOmitted };
+    if ('endpoint' in data) return { ...target, kind: 'connections', returnTo: initial.returnTo, data, ...parameters, removeKey, keyOmitted };
     if ('blocks' in data) return { ...target, kind: 'prompts', data };
     if ('batchSize' in data) return { ...target, kind: 'contexts', data };
     return { ...target, kind: 'personas', returnTo: initial.returnTo, data };
   }, [initial.id, initial.revision, initial.returnTo, data, parameters, removeKey, keyOmitted, numberDraft.values]);
   const dataChanged = useMemo(() => data !== initial.data && !sameDraftValue(comparableLibraryFields(data), comparableLibraryFields(initial.data)), [data, initial.data]);
-  const dirty = dataChanged || parameters !== baselineParameters || removeKey || key !== '' || numberDraft.dirty;
+  const dirty = dataChanged || !sameDraftValue(parameters, baselineParameters) || removeKey || key !== '' || numberDraft.dirty;
   const storageError = useLibraryEditorDraft(draft, dirty);
   const [error, setError] = useTextState('');
   const stale = initial.revision !== currentRevision;
   const reviewMemoryCleanup = useMemoryCleanup(run, initial.id);
   async function save(e: FormEvent) {
     e.preventDefault(); setError('');
-    if (initial.kind === 'connections' && !(data as Connection).model.trim()) {
-      setError(msg('model_picker.required'));
-      return;
-    }
     let value = data;
-    try { if (initial.kind === 'connections') value = { ...data as Connection, customParameters: JSON.parse(parameters) }; }
-    catch { setError(msg("libraries.custom_parameters_must_be_valid_json")); return; }
+    if ('endpoint' in data) {
+      if (!data.model.trim()) {
+        setError(msg('model_picker.required'));
+        return;
+      }
+      try {
+        value = { ...data, customParameters: parseConnectionParameters(parameters) };
+      } catch (error) {
+        if (!(error instanceof LocalizedError)) throw error;
+        setError(error.localized);
+        return;
+      }
+    }
     if (initial.kind === 'contexts' && initial.id && 'batchSize' in value && 'batchSize' in initial.data
       && (value.batchSize !== initial.data.batchSize || value.promotionGroup !== initial.data.promotionGroup)) {
       const id = initial.id;
@@ -722,13 +732,14 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, busy,
       <div className="full api-key-row"><label>{t("libraries.api_key")}<input type="password" autoComplete="new-password" disabled={removeKey} placeholder={initial.hasApiKey ? t("libraries.saved_leave_blank_to_keep_it") : t("libraries.optional_for_endpoints_without_authentication")} value={key} onChange={e => setKey(e.target.value)} /></label>{initial.hasApiKey && <label className="checkbox"><input type="checkbox" checked={removeKey} onChange={e => setRemoveKey(e.target.checked)} />{t("libraries.remove_the_saved_api_key")}</label>}</div>
       <ModelField value={(data as Connection).model} endpoint={(data as Connection).endpoint} connectionId={initial.id}
         apiKey={removeKey ? '' : key || undefined} disabled={busy || stale} change={model => setData({ ...data as Connection, model })} />
-      <label>{t("libraries.model_context_window")}<NumberInput draftField="contextWindow" required value={(data as Connection).contextWindow} onChange={contextWindow => setData({ ...data as Connection, contextWindow })} /></label><label>{t("libraries.reserved_output_tokens")}<NumberInput draftField="maxOutputTokens" required max={1_000_000} value={(data as Connection).maxOutputTokens} onChange={maxOutputTokens => setData({ ...data as Connection, maxOutputTokens })} /></label><label className="checkbox full"><input type="checkbox" checked={(data as Connection).requestUsage !== false} onChange={e => setData({ ...data as Connection, requestUsage: e.target.checked })} />{t("libraries.request_token_usage_from_the_endpoint")}</label><p className="small muted full">{t("libraries.turn_statistics_use_counts_supplied_by_the")}</p><label className="full">{t("libraries.custom_request_parameters")}<EditorTextarea className="code-input" value={parameters} onChange={e => setParameters(e.target.value)} /><small>{t("libraries.temperature_top_p_presence_penalty_frequency_penalty")}</small></label>
+      <label>{t("libraries.model_context_window")}<NumberInput draftField="contextWindow" required value={(data as Connection).contextWindow} onChange={contextWindow => setData({ ...data as Connection, contextWindow })} /></label><label>{t("libraries.reserved_output_tokens")}<NumberInput draftField="maxOutputTokens" required max={1_000_000} value={(data as Connection).maxOutputTokens} onChange={maxOutputTokens => setData({ ...data as Connection, maxOutputTokens })} /></label><label className="checkbox full"><input type="checkbox" checked={(data as Connection).requestUsage !== false} onChange={e => setData({ ...data as Connection, requestUsage: e.target.checked })} />{t("libraries.request_token_usage_from_the_endpoint")}</label><p className="small muted full">{t("libraries.turn_statistics_use_counts_supplied_by_the")}</p>
+      <ConnectionParameters draft={parameters} change={setParameters} disabled={busy || stale} />
       <ConnectionTools connection={data as Connection} parameters={parameters} connectionId={initial.id} apiKey={removeKey ? '' : key || undefined} />
     </>}
     {initial.kind === 'prompts' && <div className="full"><p className="small muted">{t("libraries.enabled_blocks_and_markers_compose_the_base", { value: '{{user}}', value2: '{{char}}' })}</p><PromptEditor value={data as PromptPreset} change={setData} /></div>}
   </div></fieldset>{error && <p role="alert">{error}</p>}{stale && <p role="status">{t("libraries.the_library_changed_close_this_editor_and")}</p>}{stale && dirty && <CopyLibraryDraft editor={draft} />}<EditorActions formId={formId} disabled={busy || stale} cancelDisabled={busy} close={close} /></form></NumberDraftContext.Provider>;
 }
-function ConnectionTools({ connection, parameters, connectionId, apiKey }: { connection: Connection; parameters: string; connectionId?: string; apiKey?: string }) {
+function ConnectionTools({ connection, parameters, connectionId, apiKey }: { connection: Connection; parameters: ConnectionParameterDraft; connectionId?: string; apiKey?: string }) {
   useLocale();
   const [result, setResult] = useState<ConnectionDiagnostic | null>(null), [error, setError] = useTextState('');
   const [testing, setTesting] = useState(false);
@@ -741,7 +752,7 @@ function ConnectionTools({ connection, parameters, connectionId, apiKey }: { con
   async function diagnose(action: 'check' | 'test') {
     const id = ++attempt.current; setTesting(true); setResult(null); setError('');
     try {
-      const value = await api<ConnectionDiagnostic>('/connections/diagnose', 'POST', { action, connection: { ...connection, customParameters: JSON.parse(parameters) }, connectionId, apiKey });
+      const value = await api<ConnectionDiagnostic>('/connections/diagnose', 'POST', { action, connection: { ...connection, customParameters: parseConnectionParameters(parameters) }, connectionId, apiKey });
       if (attempt.current === id) setResult(value);
     } catch (error) { if (attempt.current === id) setError(errorText(error, msg("libraries.connection_test_failed"))); }
     finally { if (attempt.current === id) setTesting(false); }

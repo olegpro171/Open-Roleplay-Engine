@@ -4,6 +4,7 @@ import { contextPresetSchema } from '../shared/context';
 import { libraryCharacterSchema, libraryPersonaSchema, promptBlockSchema, promptSchema } from '../shared/library';
 import { lorebookSchema, loreEntrySchema } from '../shared/lorebook';
 import { tagIdsSchema } from '../shared/tags';
+import { builtInParameterDraftSchema } from './connection-parameter-draft';
 
 // Drafts can contain incomplete or invalid values. Check their shape here and
 // leave normalization and validation of saved records to the normal save path.
@@ -30,7 +31,7 @@ const editorDraft = z.discriminatedUnion('kind', [
   z.strictObject({ ...target, kind: z.literal('lorebooks'), data: z.strictObject({ ...lorebookSchema.shape, name: text, scanDepth: number, tokenBudget: number, entries: z.array(draftEntry) }), selectedId: text }),
   z.strictObject({ ...setupTarget, kind: z.literal('connections'), data: z.strictObject({
     ...connectionSchema.shape, name: text, endpoint: text, model: text, contextWindow: number, maxOutputTokens: number,
-  }), parameters: text, removeKey: z.boolean(), keyOmitted: z.boolean() }),
+  }), parameters: text, builtInParameters: builtInParameterDraftSchema.optional(), removeKey: z.boolean(), keyOmitted: z.boolean() }),
 ]);
 const storedDraft = z.strictObject({ version: z.literal(1), epoch: text, editor: editorDraft });
 export type LibraryEditorDraft = z.infer<typeof editorDraft>;

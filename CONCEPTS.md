@@ -8,7 +8,7 @@ Read [IMPLEMENTATION.md](IMPLEMENTATION.md) for module ownership and development
 
 | Concept | Owns |
 | --- | --- |
-| Connection | Endpoint/protocol, credentials, model, physical limits, supported custom parameters |
+| Connection | Endpoint/protocol, credentials, model, physical limits, built-in and custom request parameters |
 | Prompt preset | Ordered enabled text blocks and source markers, their roles and configuration |
 | Context preset | Reusable memory settings and extraction, compression and repair prompts; optional summarization Connection |
 | Chat | Shared title, Connection, Character/Persona, prompt and context selections, lorebook selection and working input target |
@@ -74,6 +74,8 @@ Structural coverage, freshness, text equality and refusal heuristics do not esta
 ## Libraries and imports
 
 Supported formats are a bounded compatibility profile, not full SillyTavern behavior: V1/V2/V3 JSON or embedded PNG character data, supported lorebook formats, persona-backup/basic JSON, ORE prompt/context JSON and SillyTavern-style solo JSONL transcript interchange. Unsupported metadata remains inactive. [COMPATIBILITY.md](docs/COMPATIBILITY.md) owns exact mappings and limits.
+
+Connections provide optional controls for Temperature and Top P. **Advanced parameters** opens from a collapsed state and contains Presence penalty, Frequency penalty, Seed, Stop sequences, Reasoning effort and the JSON editor for extra provider fields. Unset values use the provider’s defaults. Extra fields are sent as top-level Chat Completions fields. The provider determines which optional parameters it supports. The JSON editor rejects built-in keys and fields that override ORE’s request structure, output limit or credentials. **Send test message** uses the edited parameters and displays the request.
 
 Shared reusable edits affect future requests in selecting chats and retain existing request bodies and greetings. Shared-record edits are blocked during response and memory preparation. The built-in Default prompt and Default context preset are protected from deletion. Confirmed Restore or Reset uses current factory values and applies the existing layout impact review if the batch or group size changes.
 

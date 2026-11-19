@@ -1,3 +1,4 @@
+import { chatCompletionRequest } from './chat-completion.js';
 import { message, promptLabel } from '../shared/localization.js';
 import type { ChatSettings, Connection, Message, PromptEntry, RequestPreview, Turn, TurnInstruction } from '../shared/contracts.js';
 import { AppError } from './errors.js';
@@ -251,12 +252,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   return {
     warnings: warningMessages.map(warning => warning.fallback), warningMessages, layout,
     ...(options.lore !== undefined ? { lore: options.lore } : {}),
-    endpoint: `${connection.endpoint.replace(/\/+$/, '')}/chat/completions`,
-    body: {
-      ...connection.customParameters,
-      model: connection.model, messages, stream: true, max_tokens: connection.maxOutputTokens,
-      ...(connection.requestUsage !== false ? { stream_options: { include_usage: true as const } } : {}),
-    },
+    ...chatCompletionRequest(connection, messages),
     coverage: turns.map(sourceOf),
     ...(context ? { context: { selected: summariesEnabled ? context.selected : [], archivedTurnIds: summariesEnabled ? context.archivedTurnIds : [] } } : {}),
     history: { mode: summariesEnabled ? 'managed' : 'recent', verbatimTurnIds: verbatim.map(turn => turn.id) },

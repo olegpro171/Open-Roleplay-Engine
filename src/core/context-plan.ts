@@ -1,3 +1,4 @@
+import { chatCompletionRequest } from './chat-completion.js';
 import { blockedText, type LocalizedMessage } from '../shared/localization.js';
 import { message } from '../shared/localization.js';
 import type { EngineSnapshot, Message, RequestPreview } from '../shared/contracts.js';
@@ -104,8 +105,7 @@ export function summaryRequest(snapshot: EngineSnapshot, operation: ContextOpera
     if (measurement.inputTokens > physicalInput) throw new AppError(422, 'summary_window_exceeded', inputs.rebuilding
       ? message('refusals.reconstruction_too_large') : message("errors.the_existing_summary_repair_instructions_and_complete_input"));
     return { prior: inputs.prior, request: {
-      endpoint: `${connection.endpoint.replace(/\/+$/, '')}/chat/completions`,
-      body: { ...connection.customParameters, model: connection.model, messages, stream: true, max_tokens: connection.maxOutputTokens, ...(connection.requestUsage !== false ? { stream_options: { include_usage: true as const } } : {}) },
+      ...chatCompletionRequest(connection, messages),
       coverage: turns.map(sourceOf), ...(operation.level === 1 ? { summarySources: inputs.currentSources } : {}),
       budget: { ...measurement, targetInputTokens: physicalInput, reservedOutputTokens: connection.maxOutputTokens, contextWindow: connection.contextWindow },
     } };
@@ -145,8 +145,7 @@ export function summaryRequest(snapshot: EngineSnapshot, operation: ContextOpera
   // display images were excluded, retain the original source separately for repair.
   const filteredSources = operation.level === 1 && turns.some(turn => modelText(turn.user.text) !== turn.user.text || modelText(turn.assistant.text) !== turn.assistant.text);
   return { prior, request: {
-    endpoint: `${connection.endpoint.replace(/\/+$/, '')}/chat/completions`,
-    body: { ...connection.customParameters, model: connection.model, messages, stream: true, max_tokens: connection.maxOutputTokens, ...(connection.requestUsage !== false ? { stream_options: { include_usage: true as const } } : {}) },
+    ...chatCompletionRequest(connection, messages),
     coverage: turns.map(sourceOf), ...(filteredSources ? { summarySources: turns.map(turn => ({ turnId: turn.id, user: turn.user.text, assistant: turn.assistant.text })) } : {}),
     budget: { ...measurement, targetInputTokens: physicalInput, reservedOutputTokens: connection.maxOutputTokens, contextWindow: connection.contextWindow },
   } };

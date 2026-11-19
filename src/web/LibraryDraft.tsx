@@ -116,6 +116,7 @@ function formatDraftFields(editor: LibraryEditorDraft) {
   if (editor.numbers) append(editor.numbers, 'numbers');
   if (editor.kind === 'characters') append(editor.tagIds, 'tagIds');
   if (editor.kind === 'connections') {
+    if (editor.builtInParameters) append(editor.builtInParameters, 'builtInParameters');
     append(editor.parameters, 'customParameters');
     append(editor.removeKey, 'removeKey');
   }

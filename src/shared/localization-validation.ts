@@ -2,6 +2,12 @@ import { message, type LocalizedMessage, type MessageKey } from './localization.
 import type { z } from 'zod';
 
 const authored = new Map<string, MessageKey>(Object.entries({
+  [message("connection_parameters.object").fallback]: "connection_parameters.object",
+  [message("connection_parameters.reserved").fallback]: "connection_parameters.reserved",
+  [message("connection_parameters.credentials").fallback]: "connection_parameters.credentials",
+  [message("connection_parameters.unsafe_key").fallback]: "connection_parameters.unsafe_key",
+  [message("connection_parameters.depth").fallback]: "connection_parameters.depth",
+  [message("connection_parameters.size").fallback]: "connection_parameters.size",
   "Use a six-digit hex color.": "validation.use_a_six_digit_hex_color",
   "Use an HTTP(S) API base URL without credentials, query parameters, or a fragment.": "validation.use_an_http_s_api_base_url_without",
   "Reserved output must be smaller than the context window.": "validation.reserved_output_must_be_smaller_than_the_context",
