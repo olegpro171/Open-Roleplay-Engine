@@ -328,7 +328,6 @@ export const russianMessages = {
   "app.last_turn_is_still_pending": "Последний ход ещё не завершён.",
   "app.response_cancelled_generate_response_before_next_turn": "Ответ отменён. Сгенерируйте ответ перед следующим ходом.",
   "app.generate_response_before_next_turn": "Сгенерируйте ответ перед следующим ходом.",
-  "app.partial_text_is_preserved_for_inspection_it": "Частичный текст сохранён для просмотра. Он не принят как ответ.",
   "app.retry_response": "Повторить ответ",
   "app.regeneration_did_not_finish_try_again": "Повторная генерация не завершилась. Попробуйте ещё раз.",
   "app.this_browser_draft_predates_a_backup_import": "Этот черновик был создан до импорта резервной копии или удаления данных. Проверьте его текст и восстановленную историю перед отправкой. Повтор прежней подготовленной отправки недоступен.",

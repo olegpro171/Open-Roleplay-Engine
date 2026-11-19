@@ -321,7 +321,6 @@ export const englishMessages = {
   "app.last_turn_is_still_pending": "Last turn is still pending.",
   "app.response_cancelled_generate_response_before_next_turn": "Response cancelled. Generate response before next turn.",
   "app.generate_response_before_next_turn": "Generate response before next turn.",
-  "app.partial_text_is_preserved_for_inspection_it": "Partial text is preserved for inspection. It has not been accepted as a response.",
   "app.retry_response": "Retry response",
   "app.regeneration_did_not_finish_try_again": "Regeneration did not finish. Try again.",
   "app.this_browser_draft_predates_a_backup_import": "This browser draft predates a backup import or wipe. Review its text and the restored story before sending. Its previous staged send has no retry authority.",

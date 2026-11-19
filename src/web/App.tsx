@@ -577,7 +577,6 @@ export function App() {
     const generation = variant?.generationId ? generationById.get(variant.generationId) : undefined;
     return generation ? [[turn.id, generation] as const] : [];
   }));
-  const partial = active?.partialText ?? (pending ? latest?.partialText : '');
 
   async function command(action: () => Promise<unknown>): Promise<boolean> {
     setBusy(true); setFailure(null);
@@ -910,7 +909,6 @@ export function App() {
             <div>
               <strong>{t("app.last_turn_is_still_pending")}</strong>
               <p>{latest?.status === 'cancelled' ? t("app.response_cancelled_generate_response_before_next_turn") : formatMessage(latestError ?? msg("app.generate_response_before_next_turn"))}</p>
-              {partial && <small>{t("app.partial_text_is_preserved_for_inspection_it")}</small>}
             </div>
             <button className="secondary" disabled={busy || working || authorNote.pending} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: newId() }))}>{t("app.retry_response")}</button>
           </div>}

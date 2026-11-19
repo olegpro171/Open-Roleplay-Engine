@@ -164,8 +164,12 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await page.getByRole('button', { name: 'Retry response' }).click();
   await expect(pendingTurn.locator('.part.assistant .prose')).toHaveText('The lantern');
   await pendingTurn.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Retry response' })).toBeVisible();
-  await expect(page.locator('.recovery')).toContainText('Partial text is preserved for inspection.');
+  for (const device of [page, phone]) {
+    const warning = device.getByRole('status').filter({ hasText: 'Last turn is still pending.' });
+    await expect(warning).toBeVisible();
+    await expect(warning.getByRole('button', { name: 'Retry response', exact: true })).toBeEnabled();
+    await expect(warning).not.toContainText('Partial text is preserved for inspection.');
+  }
   await page.reload();
   await expect(pendingTurn.locator('.part.assistant .prose')).toHaveText('The lantern');
   await expect(phonePendingTurn.locator('.part.assistant .prose')).toHaveText('The lantern');
