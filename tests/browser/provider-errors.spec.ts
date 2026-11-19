@@ -49,7 +49,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     await expect(recovery).toContainText(russianRateLimit);
     const composer = page.getByRole('textbox', { name: 'Ваш следующий ход' });
     const send = page.getByRole('button', { name: 'Отправить', exact: true });
-    for (const width of [1768, 801, 800, 390]) {
+    for (const width of [1768, 801, 800, 320, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await expect(recovery.getByRole('button', { name: 'Повторить ответ', exact: true })).toBeInViewport();
       await expect(composer).toBeInViewport();
@@ -62,9 +62,8 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
       expect(noticeBounds.x + noticeBounds.width).toBeCloseTo(sendBounds.x + sendBounds.width);
       expect(noticeBounds.y).toBeGreaterThanOrEqual(transcriptBounds.y + transcriptBounds.height);
       expect(noticeBounds.y + noticeBounds.height).toBeLessThan(inputBounds.y);
-      if (width > 800) {
-        await expect(page.locator('.composer')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-      }
+      await expect(page.locator('.composer')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      await expect(page.locator('.composer')).toHaveCSS('border-top-width', '0px');
       await page.screenshot({ path: testInfo.outputPath(`pending-response-${width}.png`) });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     }
@@ -74,6 +73,8 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     await expect(page.getByText('The lantern flickers. 🕯', { exact: true })).toBeVisible();
     await expect(page.getByText(input, { exact: true })).toHaveCount(1);
     await expect(recovery).toHaveCount(0);
+    await expect(composer).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath('composer-after-retry.png') });
 
     await page.getByRole('button', { name: 'Библиотека', exact: true }).click();
     await page.getByRole('button', { name: 'Подключения', exact: true }).click();
