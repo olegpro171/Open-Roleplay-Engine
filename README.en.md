@@ -116,4 +116,6 @@ Browser tests require `npx playwright install chromium webkit` and permission to
 
 ## License
 
-Original ORE code is available under the [MIT License](LICENSE). Third-party dependencies and adapted assets retain their own licenses and notices, including the MPL-2.0 Yandex icons. Keep these notices when redistributing; portable builds include the relevant material.
+Original ORE code is licensed under the [GNU Affero General Public License, version 3](LICENSE) (`AGPL-3.0-only`). Copyright © 2026 Oleg (olegpro171) and ORE contributors.
+
+When distributing a build, make its corresponding source available under the license. If users interact with your modified version over a network, offer them its source at no charge. Third-party dependencies and adapted assets retain their licenses and notices, including the MPL-2.0 Yandex icons. Portable builds include the relevant notices.

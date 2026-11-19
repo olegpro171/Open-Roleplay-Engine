@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
-import { readWindowsRelease, validateCommit, windowsReleaseAssets } from './ci-release-files.mjs';
+import { readWindowsRelease, releaseRepository, validateCommit, windowsReleaseAssets } from './ci-release-files.mjs';
 
 export function githubClient(repository) {
   function gh(args, input) {
@@ -85,6 +85,9 @@ export async function publishWindowsRelease(directory, commit, client) {
     if (order.status === 'behind') latest = false;
     else if (!['ahead', 'identical'].includes(order.status) || order.base_commit?.sha !== previousCommit || order.merge_base_commit?.sha !== previousCommit) throw new Error('Latest release is not a proven ancestor; draft retained.');
   }
-  await client.request(`releases/${release.id}`, 'PATCH', { draft: false, make_latest: latest ? 'true' : 'false' });
+  const sourceLink = `[Corresponding source for this build (ZIP)](https://github.com/${releaseRepository}/archive/${commit}.zip)`;
+  const notes = release.body ?? '';
+  const body = notes.includes(sourceLink) ? notes : [notes, sourceLink].filter(Boolean).join('\n\n');
+  await client.request(`releases/${release.id}`, 'PATCH', { body, draft: false, make_latest: latest ? 'true' : 'false' });
   return { tag, published: true, latest, reused: false };
 }

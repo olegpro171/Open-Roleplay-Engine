@@ -29,7 +29,7 @@ const directory=process.env.ORE_CI_TEST_DIRECTORY, scenario=process.env.ORE_CI_T
 const commit=${JSON.stringify(commit)},newer=${JSON.stringify(newer)},tag='build-'+commit,events=[];
 const assets=windowsReleaseAssets.map(name=>({name,state:'uploaded',size:1}));
 let reference=scenario==='published'?{object:{type:'commit',sha:commit}}:null;
-let release=scenario==='published'?{id:1,tag_name:tag,draft:false,assets}:scenario==='draft'?{id:1,tag_name:tag,draft:true,assets:[]}:null;
+let release=scenario==='published'?{id:1,tag_name:tag,draft:false,assets}:scenario==='draft'?{id:1,tag_name:tag,draft:true,body:'Existing draft notes.',assets:[]}:null;
 const missing=()=>{const error=new Error('missing');error.notFound=true;throw error};
 const client={
 async request(path,method='GET',body){
@@ -40,7 +40,7 @@ async request(path,method='GET',body){
  if(path==='git/ref/tags/'+tag)return scenario==='wrong-tag'?{object:{type:'commit',sha:newer}}:reference??missing();
  if(path==='git/refs'&&method==='POST'){reference={object:{type:'commit',sha:body.sha}};return reference;}
  if(path==='releases/tags/'+tag)return release??missing();
- if(path==='releases'&&method==='POST'){release={id:1,tag_name:body.tag_name,draft:body.draft,assets:[]};return release;}
+ if(path==='releases'&&method==='POST'){release={id:1,tag_name:body.tag_name,draft:body.draft,body:body.body,assets:[]};return release;}
  if(path==='releases/1'&&method==='GET')return release;
  if(path==='releases/latest')return scenario==='older'?{tag_name:'build-'+newer}:missing();
  if(path==='releases/1'&&method==='PATCH'){release={...release,...body};return release;}
@@ -66,7 +66,9 @@ describe('Windows CI publication', () => {
       { path: 'git/refs', method: 'POST', body: { ref: `refs/tags/build-${commit}`, sha: commit } },
       expect.objectContaining({ path: 'releases', body: expect.objectContaining({ target_commitish: commit, draft: true }) }),
     ]);
-    expect(result.events.at(-1)).toEqual({ path: 'releases/1', method: 'PATCH', body: { draft: false, make_latest: 'true' } });
+    expect(result.events.at(-1)).toMatchObject({ path: 'releases/1', method: 'PATCH', body: { draft: false, make_latest: 'true' } });
+    expect(result.release.body).toContain('Download **ORE-launcher.bat**');
+    expect(result.release.body).toContain(`[Corresponding source for this build (ZIP)](https://github.com/olegpro171/Open-Roleplay-Engine/archive/${commit}.zip)`);
     expect(result.release.assets).toHaveLength(4);
   });
   it('retains a hidden draft when an upload fails', () => {
@@ -88,10 +90,13 @@ describe('Windows CI publication', () => {
     expect(result.events.some((event: { method?: string }) => event.method === 'PATCH')).toBe(false);
   });
   it('resumes an incomplete draft and leaves a newer Latest untouched when builds finish out of order', () => {
-    expect(publish(fixture().root, 'draft').result).toMatchObject({ published: true, latest: true });
+    const draft = publish(fixture().root, 'draft');
+    expect(draft.result).toMatchObject({ published: true, latest: true });
+    expect(draft.release.body).toContain('Existing draft notes.');
+    expect(draft.release.body).toContain(`https://github.com/olegpro171/Open-Roleplay-Engine/archive/${commit}.zip`);
     const result = publish(fixture().root, 'older');
     expect(result.result).toMatchObject({ published: true, latest: false });
-    expect(result.events.at(-1)).toEqual({ path: 'releases/1', method: 'PATCH', body: { draft: false, make_latest: 'false' } });
+    expect(result.events.at(-1)).toMatchObject({ path: 'releases/1', method: 'PATCH', body: { draft: false, make_latest: 'false' } });
   });
   it.each(['wrong-tag', 'diverged'])('preserves incompatible existing history: %s', scenario => {
     const result = publish(fixture().root, scenario);
