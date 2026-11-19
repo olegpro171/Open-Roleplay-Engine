@@ -105,6 +105,8 @@ Warnings use dismissible modal dialogs. An action that completes with a fallback
 
 The Story turn footer keeps response versions, regeneration or cancellation, editing and pinning directly accessible when applicable. More contains reasoning, branching and whole-turn deletion. It opens with focus on the menu panel. At narrow widths the footer wraps to keep actions accessible without horizontal scrolling.
 
+Story and the reasoning dialog follow live generation at the bottom. Any upward scroll pauses following in that view and keeps the reading position as text arrives. Scrolling back to the bottom or using Latest turn or Latest reasoning resumes following.
+
 When the current branch has zero turns, Story shows a first-message hint and leaves the composer in place without moving focus to it. If the chat has no Connection, the hint instead offers a shortcut to Chat settings.
 
 **Close chat** in Chat details clears the selected chat in the current browser across reloads and opens **New chat**. It preserves composer drafts, saved branch choices and active server work. Confirm before discarding an inline turn edit. A valid chat left open can still reopen on reload.

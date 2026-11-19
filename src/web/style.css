@@ -189,7 +189,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .reasoning-dialog::backdrop{background:var(--overlay-bg)}
 .reasoning-dialog-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 22px;border-bottom:1px solid var(--line);flex-shrink:0}
 .reasoning-dialog-heading h2{margin:0}.reasoning-dialog-heading button{font-size:13px}
-.reasoning-stream{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:20px 22px;font-size:14px;scrollbar-color:var(--scrollbar) transparent}
+.reasoning-stream{flex:1;min-height:0;overflow-y:auto;overflow-anchor:none;overscroll-behavior:contain;padding:20px 22px;font-size:14px;scrollbar-color:var(--scrollbar) transparent}
 .reasoning-stream:focus-visible{outline:2px solid var(--muted);outline-offset:-3px}
 .reasoning-dialog-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;padding:8px 22px;border-top:1px solid var(--line);color:var(--muted);font-size:12px;flex-shrink:0}
 .reasoning-error{padding:10px 22px;margin:0;color:var(--danger-text);font-size:13px;flex-shrink:0}

@@ -96,14 +96,18 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   const stream = popup.getByLabel('Model reasoning stream', { exact: true });
   await expect(stream).toHaveText(syntheticReasoningStart);
   await expect.poll(() => stream.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);
-  await page.screenshot({ path: `test-results/reasoning-popup-${theme}-${width}.png`, fullPage: true });
-  // Reading earlier text must survive incoming chunks without jumping to the tail.
-  await stream.evaluate(node => { node.scrollTop = 0; });
-  await expect(popup.getByRole('button', { name: 'Latest reasoning', exact: true })).toBeVisible();
+  // One short wheel movement must hold the reading position through the next chunk.
+  const readingTop = await stream.evaluate(node => node.scrollTop - 16);
+  await stream.hover();
+  await page.mouse.wheel(0, -16);
+  await expect.poll(() => stream.evaluate(node => node.scrollTop)).toBeCloseTo(readingTop, 0);
   await request.post('/__test/finish', { data: {} });
   await expect(stream).toHaveText(syntheticReasoningStart + syntheticReasoningTail);
-  expect(await stream.evaluate(node => node.scrollTop)).toBe(0);
-  await popup.getByRole('button', { name: 'Latest reasoning', exact: true }).click();
+  expect(await stream.evaluate(node => node.scrollTop)).toBeCloseTo(readingTop, 0);
+  const latestReasoning = popup.getByRole('button', { name: 'Latest reasoning', exact: true });
+  await expect(latestReasoning).toBeInViewport();
+  await page.screenshot({ path: `test-results/reasoning-popup-${theme}-${width}.png`, fullPage: true });
+  await latestReasoning.click();
   await expect.poll(() => stream.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);
   await popup.press('Escape');
   await expect(popup).toHaveCount(0);

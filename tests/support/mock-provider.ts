@@ -5,7 +5,7 @@ export async function startMockProvider() {
   const modelRequests: { authorization?: string }[] = [];
   let modelMode: 'normal' | 'error' | 'invalid' | 'redirect' | number = 'normal';
   const waiting: (() => void)[] = [];
-  let mode: 'normal' | 'refusal' | 'repair-unchanged' | 'hold' | 'hold-first-token' | 'markdown' | 'reasoning' | 'reasoning-only' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' | 'placeholder' | 'no-usage' | 'bad-usage' | number = 'normal';
+  let mode: 'normal' | 'refusal' | 'repair-unchanged' | 'hold' | 'hold-first-token' | 'markdown' | 'reasoning' | 'reasoning-only' | 'scroll-stream' | 'broken' | 'empty' | 'error' | 'padded' | 'whitespace' | 'placeholder' | 'no-usage' | 'bad-usage' | number = 'normal';
   const send = (response: ServerResponse, value: unknown) => response.write(`data: ${JSON.stringify(value)}\n\n`);
   const server = createServer(async (request, response) => {
     if (request.url === '/v1/models') {
@@ -39,7 +39,22 @@ export async function startMockProvider() {
       if (currentMode !== 'no-usage') send(response, { choices: [], usage: currentMode === 'bad-usage' ? { prompt_tokens: -1, completion_tokens: 'wrong', total_tokens: 19 } : { prompt_tokens: 321, completion_tokens: 17, total_tokens: 338 } });
       response.end('data: [DONE]\n\n');
     };
-    if (currentMode === 'reasoning' || currentMode === 'reasoning-only') {
+    if (currentMode === 'scroll-stream') {
+      const reply = (section: string) => `\n\n${section}\n\n${'The keeper describes another room.\n\n'.repeat(30)}`;
+      const chunks = [
+        { reasoning: syntheticReasoningStart }, { reasoning: syntheticReasoningTail },
+        { content: reply('First response section') }, { content: reply('Second response section') },
+        { content: reply('Third response section') }, { content: reply('Fourth response section') },
+      ][Symbol.iterator]();
+      const advance = () => {
+        if (response.destroyed) return;
+        const chunk = chunks.next();
+        if (chunk.done) { finish(); return; }
+        send(response, { choices: [{ index: 0, delta: chunk.value, finish_reason: null }] });
+        waiting.push(advance);
+      };
+      advance();
+    } else if (currentMode === 'reasoning' || currentMode === 'reasoning-only') {
       response.flushHeaders();
       send(response, { choices: [{ index: 0, delta: { reasoning: syntheticReasoningStart }, finish_reason: null }] });
       waiting.push(() => {

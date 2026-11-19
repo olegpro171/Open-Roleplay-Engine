@@ -1,30 +1,31 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { ScrollFollow } from './scroll-follow';
 
-type Anchor = { turnId: string; progress: number };
+type Anchor = { turnId: string; offset: number; progress: number; width: number };
 
 // Keep the visible turn and the reading position within it stable as text reflows.
 export function useTranscriptScroll(chatId: string | null, content: unknown, editing: boolean) {
   const transcript = useRef<HTMLDivElement>(null);
   const anchor = useRef<Anchor | null>(null);
-  const following = useRef(true);
+  const follow = useRef(new ScrollFollow()).current;
   const editingRef = useRef(editing);
   editingRef.current = editing;
   const previousChat = useRef<string | null>(null);
   const [awayFromLatest, setAwayFromLatest] = useState(false);
-  const captureRef = useRef<(trackFollowing?: boolean) => void>(() => {});
-  const restoreRef = useRef<() => void>(() => {});
+  const captureRef = useRef<(forceAnchor?: boolean) => void>(() => {});
+  const restoreRef = useRef<(trackMovement?: boolean) => void>(() => {});
+  function captureScroll() { captureRef.current(false); }
+  function restoreScroll() { restoreRef.current(false); }
   function preservePosition(holdAnchor = false) {
-    // Only a scroll interaction changes whether we follow the end. Content
-    // may have grown before ResizeObserver restores it during this read.
-    captureRef.current(false);
-    if (holdAnchor) following.current = false;
+    captureRef.current();
+    if (holdAnchor) follow.following = false;
   }
-  function followingLatest() { return following.current; }
+  function followingLatest() { return follow.following; }
 
   function scrollToLatest() {
-    following.current = true;
+    follow.following = true;
     const node = transcript.current;
-    if (node) node.scrollTop = node.scrollHeight;
+    if (node) follow.scrollToEnd(node);
     setAwayFromLatest(false);
   }
 
@@ -34,53 +35,78 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, edi
     if (previousChat.current !== chatId) {
       previousChat.current = chatId;
       anchor.current = null;
-      following.current = true;
+      follow.following = true;
     }
-    let width = node.clientWidth, height = node.clientHeight;
+    follow.rememberPosition(node);
+    let width = node.clientWidth;
+    let height = node.clientHeight;
     const turns = () => Array.from(node.querySelectorAll<HTMLElement>('[data-turn-id]'));
-    const capture = (trackFollowing = true) => {
-      if (editingRef.current) {
-        setAwayFromLatest(node.scrollHeight - node.scrollTop - node.clientHeight >= 80);
-        return;
-      }
+    const updateLatestButton = () => {
+      // Keep the floating action clear of the turn controls near the bottom.
+      setAwayFromLatest(node.scrollHeight - node.scrollTop - node.clientHeight >= 80);
+    };
+    const captureAnchor = () => {
       const top = node.getBoundingClientRect().top;
       const turn = turns().find(turn => turn.getBoundingClientRect().bottom > top);
       const turnId = turn?.dataset.turnId;
       if (turn && turnId) {
         const rect = turn.getBoundingClientRect();
-        anchor.current = { turnId, progress: (top - rect.top) / rect.height };
-      }
-      if (trackFollowing) {
-        following.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
-        setAwayFromLatest(!following.current);
+        const offset = top - rect.top;
+        anchor.current = { turnId, offset, progress: offset / rect.height, width: node.clientWidth };
       }
     };
-    const restore = () => {
-      width = node.clientWidth; height = node.clientHeight;
+    const capture = (forceAnchor = true) => {
+      if (editingRef.current) return;
+      if (follow.readMovement(node) || forceAnchor) captureAnchor();
+    };
+    const restore = (trackMovement = true) => {
+      width = node.clientWidth;
+      height = node.clientHeight;
       // An expanding editor and its caret own the reading position until it
       // closes. Following the latest turn would hide the beginning of the edit.
-      if (editingRef.current) return;
-      if (following.current) node.scrollTop = node.scrollHeight;
+      if (editingRef.current) {
+        follow.rememberPosition(node);
+        return;
+      }
+      if (trackMovement) capture(false);
+      if (follow.following) follow.scrollToEnd(node);
       else if (anchor.current) {
         const savedAnchor = anchor.current;
         const turn = turns().find(turn => turn.dataset.turnId === savedAnchor.turnId);
         if (turn) {
           const rect = turn.getBoundingClientRect();
-          node.scrollTop += rect.top - node.getBoundingClientRect().top + rect.height * savedAnchor.progress;
+          const widthChanged = savedAnchor.width !== width;
+          // Appending text can grow this same turn. Scaling the offset in that
+          // case would move the reader down even with follow paused.
+          const offset = widthChanged || savedAnchor.offset >= rect.height
+            ? rect.height * savedAnchor.progress : savedAnchor.offset;
+          const adjustment = rect.top - node.getBoundingClientRect().top + offset;
+          if (adjustment !== 0) {
+            node.scrollTop += adjustment;
+            follow.rememberPosition(node);
+          }
+          if (widthChanged) captureAnchor();
         }
       }
-      setAwayFromLatest(node.scrollHeight - node.scrollTop - node.clientHeight >= 80);
+      if (!trackMovement && !follow.following) follow.rememberPosition(node);
+      updateLatestButton();
     };
     const onScroll = () => {
       // A resize can dispatch a scroll event before ResizeObserver runs.
-      if (width !== node.clientWidth || height !== node.clientHeight) restore();
-      else capture();
+      if (editingRef.current) {
+        follow.rememberPosition(node);
+        updateLatestButton();
+      } else if (width !== node.clientWidth || height !== node.clientHeight) restore();
+      else if (follow.readMovement(node)) {
+        captureAnchor();
+        updateLatestButton();
+      }
     };
     captureRef.current = capture;
     restoreRef.current = restore;
     restore();
     capture();
-    const observer = new ResizeObserver(restore);
+    const observer = new ResizeObserver(() => restore());
     observer.observe(node);
     node.addEventListener('scroll', onScroll, { passive: true });
     return () => {
@@ -89,22 +115,20 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, edi
       captureRef.current = () => {};
       restoreRef.current = () => {};
     };
-  }, [chatId]);
+  }, [chatId, follow]);
 
   const jumpToTurn = useCallback((turnId: string) => {
-    const target = transcript.current?.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(turnId)}"]`);
-    if (!target) return;
+    const node = transcript.current;
+    if (!node?.querySelector(`[data-turn-id="${CSS.escape(turnId)}"]`)) return;
     // Align through the same transcript-only scroll path as anchor restoration.
     // scrollIntoView can also scroll the overflow-hidden document in WebKit.
-    following.current = false;
-    anchor.current = { turnId, progress: 0 };
-    restoreRef.current();
+    follow.following = false;
+    anchor.current = { turnId, offset: 0, progress: 0, width: node.clientWidth };
+    restoreRef.current(false);
     // Near the end the scroller can clamp the requested alignment.
-    captureRef.current(false);
-  }, []);
+    captureRef.current();
+  }, [follow]);
 
-  // Restore against stable turn identities after a page is prepended or trimmed.
-  useLayoutEffect(() => { restoreRef.current(); }, [content, chatId]);
   useLayoutEffect(() => { if (!editing) restoreRef.current(); }, [editing]);
   useLayoutEffect(() => {
     const node = transcript.current;
@@ -115,5 +139,5 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, edi
     node.querySelectorAll<HTMLElement>('[data-turn-id]').forEach(turn => observer.observe(turn));
     return () => observer.disconnect();
   }, [content, chatId]);
-  return { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest, jumpToTurn };
+  return { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest, jumpToTurn, captureScroll, restoreScroll };
 }

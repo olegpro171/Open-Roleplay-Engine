@@ -35,6 +35,7 @@ import { transcriptInitialSize, transcriptBatchSize, transcriptWindowLimit, type
 import { BudgetBreakdown, InputMeter, PromptPeek, LoreInspection, requestWarnings } from './PromptPeek';
 import { WarningDetails, WarningDialog, WarningMessages } from './WarningDialog';
 import { useTranscriptScroll } from './useTranscriptScroll';
+import { TranscriptFrame } from './TranscriptFrame';
 import { useChatDraft } from './useChatDraft';
 import { continueResponse } from './continue-response';
 import { TurnControls } from './TurnControls';
@@ -166,7 +167,8 @@ export function App() {
   }, []);
   useEscapeAction(view === 'story' && edit && !busy ? cancelEdit : undefined);
   const loadId = useRef(0);
-  const { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest, jumpToTurn } = useTranscriptScroll(view === 'story' ? snapshot?.id ?? null : null, snapshot, Boolean(edit));
+  const { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest, jumpToTurn, captureScroll, restoreScroll } =
+    useTranscriptScroll(view === 'story' ? snapshot?.id ?? null : null, snapshot, Boolean(edit));
   useLayoutEffect(() => {
     const scroller = transcript.current;
     const form = editForm.current;
@@ -794,7 +796,7 @@ export function App() {
       </>}>
       <section className="conversation" aria-label={t("app.conversation")}>
         {pageError && <div className="recovery" role="alert">{pageError}<button className="secondary" onClick={() => setPageError('')}>{t("app.dismiss")}</button></div>}
-        <div className="transcript-frame"><div className="transcript" ref={transcript}>
+        <TranscriptFrame snapshot={snapshot} captureScroll={captureScroll} restoreScroll={restoreScroll}><div className="transcript" ref={transcript}>
           {snapshot.page.hasOlder && <div className="history-page-control" data-history-direction="older"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('older')}>{pageLoading ? t("app.loading_history") : t("app.load_older_turns")}</button></div>}
           {snapshot.totalTurns === 0 && <EmptyTranscript connected={Boolean(snapshot.connection)}
             canGenerate={canGenerateOpening} generate={() => void generateOpening()} openSettings={() => setTab('settings')} />}
@@ -898,7 +900,7 @@ export function App() {
               stop={() => void command(() => api(preparing.generationId ? `/generations/${preparing.generationId}/cancel` : `/context/jobs/${preparing.id}/cancel`, 'POST', {}))} />}
           </TranscriptNotices>}
           {!recoveredEdit && (awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}
-        </div>
+        </TranscriptFrame>
         {!working && preparation?.generationId === null && preparation.error && ['failed', 'interrupted'].includes(preparation.status) && <div className="recovery" role="status">
           <p>{formatMessage(preparation.errorMessage ?? preparation.error)}</p>
           <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('story_preparation.open_memory')}</button>
