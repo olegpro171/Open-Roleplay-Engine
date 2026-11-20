@@ -73,7 +73,7 @@ for (const width of [1440, 390, 320]) test(`built-in Russian needs no import and
   await expect(page.locator('html')).toHaveAttribute('lang', 'ru');
   await expect(page.getByRole('heading', { name: 'Язык', exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Язык', exact: true })).toContainText(`Переведено ${status.languages[0].total} из ${status.languages[0].total}`);
-  await expect(page.getByRole('slider', { name: 'Масштаб текста — 100% (по умолчанию)', exact: true })).toHaveAttribute('aria-valuetext', '100% (по умолчанию)');
+  await expect(page.getByRole('slider', { name: 'Масштаб текста — 100%', exact: true })).toHaveAttribute('aria-valuetext', '100%');
   await page.screenshot({ path: testInfo.outputPath(`russian-settings-${width}.png`) });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'История', exact: true }).click();

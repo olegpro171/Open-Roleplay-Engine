@@ -103,7 +103,7 @@ it('isolates empty and unsafe entries and disables whole plural groups without a
   const source = { ...russian, messages: {
     ...russian.messages,
     'language.select': '',
-    'language.description': '<img src=x>',
+    'language.coverage': '<img src=x>',
     'language.template': '$t(language.heading)',
     'language.extend': '{{- html}}',
     'counts.turns_one': '{{count}} ход',

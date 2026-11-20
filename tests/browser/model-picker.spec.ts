@@ -210,7 +210,7 @@ test('retries retain the query and new openings use the latest endpoint/key with
 test('a cancelled discovery cannot replace a reopened picker and missing models cannot be saved', async ({ page }) => {
   await editor(page);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByRole('alert')).toHaveText('Select a model or enter its identifier before saving.');
+  await expect(page.getByRole('alert')).toHaveText('Select a model or enter its identifier.');
   let release: () => void = () => {};
   const gate = new Promise<void>(resolve => { release = resolve; });
   let settled: () => void = () => {};

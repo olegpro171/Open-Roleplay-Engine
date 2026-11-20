@@ -692,6 +692,11 @@ function comparableLibraryFields(data: StandardDraft['data']) {
   return data;
 }
 
+function connectionFromDraft(connection: Connection, parameters: ConnectionParameterDraft): Connection {
+  if (!connection.model.trim()) throw new LocalizedError(msg('model_picker.required'));
+  return { ...connection, customParameters: parseConnectionParameters(parameters) };
+}
+
 function LibraryEditor({ initial, recovered, connections, currentRevision, busy, run, close, committed }: { initial: LibraryEditing & { data: StandardDraft['data'] }; recovered?: StandardDraft; connections: Saved<Connection>[]; currentRevision: number; busy: boolean; run: Run; close: MouseEventHandler<HTMLButtonElement>; committed: (id?: string) => void }) {
   useLocale();
   const formId = useId();
@@ -720,12 +725,8 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, busy,
     e.preventDefault(); setError('');
     let value = data;
     if ('endpoint' in data) {
-      if (!data.model.trim()) {
-        setError(msg('model_picker.required'));
-        return;
-      }
       try {
-        value = { ...data, customParameters: parseConnectionParameters(parameters) };
+        value = connectionFromDraft(data, parameters);
       } catch (error) {
         if (!(error instanceof LocalizedError)) throw error;
         setError(error.localized);
@@ -783,7 +784,8 @@ function ConnectionTools({ connection, parameters, connectionId, apiKey }: { con
   async function diagnose(action: 'check' | 'test') {
     const id = ++attempt.current; setTesting(true); setResult(null); setError('');
     try {
-      const value = await api<ConnectionDiagnostic>('/connections/diagnose', 'POST', { action, connection: { ...connection, customParameters: parseConnectionParameters(parameters) }, connectionId, apiKey });
+      const input = connectionFromDraft(connection, parameters);
+      const value = await api<ConnectionDiagnostic>('/connections/diagnose', 'POST', { action, connection: input, connectionId, apiKey });
       if (attempt.current === id) setResult(value);
     } catch (error) { if (attempt.current === id) setError(errorText(error, msg("libraries.connection_test_failed"))); }
     finally { if (attempt.current === id) setTesting(false); }

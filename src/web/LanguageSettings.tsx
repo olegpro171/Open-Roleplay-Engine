@@ -91,7 +91,6 @@ export function LanguageSettings() {
   }
   return <section className="settings-section" aria-labelledby="language-heading">
     <h2 id="language-heading" tabIndex={-1}>{t('language.heading')}</h2>
-    <p>{t('language.description')}</p>
     <div className="language-selection"><label>{t('language.select')}<Dropdown aria-label={t('language.select')} disabled={busy} value={locale()} options={(status?.languages ?? [{ locale: 'en', nativeName: 'English' }, { locale: 'ru', nativeName: 'Русский' }]).map(item => ({ value: item.locale, label: item.nativeName }))} onChange={value => void run(async () => {
       if (!await selectLanguage(value)) setError(message('language.storageFailed'));
     })} /></label>
@@ -103,11 +102,10 @@ export function LanguageSettings() {
         }} renderTrigger={chooseFile => <ActionMenu label={t('language.actions')} disabled={busy}>
           <button type="button" className="secondary" role="menuitem" tabIndex={-1} onClick={chooseFile}><Icon name="Import" />{t('language.import')}</button>
           <button type="button" className="secondary" role="menuitem" tabIndex={-1} onClick={() => download(translationTemplate(), 'ORE-language-template.json')}><Icon name="Upload" />{t('language.template')}</button>
-          <button type="button" className="secondary" role="menuitem" tabIndex={-1} disabled={locale() === 'en'} aria-describedby="language-extend-help" onClick={() => download(extendTranslation(currentPack()), `${locale()}.json`)}><Icon name="Upload" />{t('language.extend')}</button>
+          <button type="button" className="secondary" role="menuitem" tabIndex={-1} disabled={locale() === 'en'} onClick={() => download(extendTranslation(currentPack()), `${locale()}.json`)}><Icon name="Upload" />{t('language.extend')}</button>
         </ActionMenu>} />
     </div>
     {selected && <p className="small muted">{t('language.coverage', { translated: selected.translated, total: selected.total })}</p>}
-    <p id="language-extend-help" className="small muted">{t('language.extendHelp')}</p>
     {busy && <p role="status">{t('language.loading')}</p>}{notice && <p role="status">{notice}</p>}{error && <p role="alert">{error}</p>}
     {status?.languages.filter(language => language.translationIssues.length).map(language => <TranslationReport key={`${language.locale}:${language.revision}`} language={language} />)}
     {Boolean(status?.issues.length) && <WarningDetails>

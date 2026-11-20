@@ -14,11 +14,23 @@ test('connection diagnostics stay concise, use explicit test calls and distingui
   const requests = () => page.request.get('/__test/requests').then(response => response.json() as Promise<{ body: object }[]>);
   const initialCount = (await requests()).length;
   await page.getByLabel('API base URL').fill(endpoint);
+  const tools = page.locator('.connection-tools');
+  const diagnosticCalls: string[] = [];
+  await page.route('**/api/connections/diagnose', route => {
+    diagnosticCalls.push(route.request().method());
+    return route.continue();
+  });
+  for (const action of ['Check connection', 'Send test message']) {
+    await page.getByRole('button', { name: action, exact: true }).click();
+    await expect(tools.getByRole('alert')).toHaveText('Select a model or enter its identifier.');
+    expect(diagnosticCalls).toHaveLength(0);
+  }
+  await expect(page.getByLabel('API base URL')).toHaveValue(endpoint);
   await enterModel(page, 'google/gemma-3-4b-it');
+  await expect(tools.getByRole('alert')).toHaveCount(0);
   await page.getByLabel('Reserved output tokens', { exact: true }).fill('4096');
   const savedState = await page.request.get('/api/chat').then(response => response.json());
   const savedLibrary = await page.request.get('/api/library').then(response => response.json());
-  const tools = page.locator('.connection-tools');
   await expect(tools.locator('.counting-note')).toHaveCount(0);
   await expect(tools).not.toContainText('o200k_base');
   expect((await requests()).length).toBe(initialCount);
@@ -30,6 +42,7 @@ test('connection diagnostics stay concise, use explicit test calls and distingui
   await page.getByRole('button', { name: 'Send test message', exact: true }).click();
   await expect(tools.locator('.connection-test-result')).toContainText('Token usage: 321 input / 17 output.');
   await expect(tools.locator('.connection-success')).toHaveText('Test completed.');
+  expect(diagnosticCalls).toHaveLength(2);
   await expect(tools.locator('.connection-success')).toHaveCSS('color', 'rgb(142, 182, 152)');
   await expect(tools.locator('.connection-test-result')).not.toContainText('Estimated input:');
   expect((await requests()).length).toBe(initialCount + 1);

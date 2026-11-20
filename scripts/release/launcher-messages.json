@@ -1,7 +1,7 @@
 {
   "heading": {
-    "en": "ORE",
-    "ru": "ORE"
+    "en": "Welcome to ORE.",
+    "ru": "Добро пожаловать в ORE."
   },
   "helperUnavailable": {
     "en": "No compatible ORE launcher helper is available. Use ORE-internal\\recover-app.bat to inspect the installation. First package activation requires updates to be enabled.",
