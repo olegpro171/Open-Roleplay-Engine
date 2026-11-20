@@ -166,7 +166,6 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
         <span>{t('story_home.open_chats')}</span><Icon name="ArrowShortForward" />
       </button>}
     </header>
-    {!compact && <p className="muted">{t('story_home.welcome')}</p>}
     <div className="story-home-panels">
       {compact ? [...participantPanels, defaultPanels] : [defaultPanels, ...participantPanels]}
     </div>

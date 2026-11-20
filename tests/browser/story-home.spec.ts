@@ -2,7 +2,7 @@ import { expect, type Locator, type Page } from '@playwright/test';
 import { test } from './isolated-app';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
-import { appearanceStatusSchema } from '../../src/shared/appearance';
+import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 import { quadrantPicture } from '../support/pictures';
 import { openChatCreation } from './chat-tools';
 
@@ -81,7 +81,6 @@ async function addConnection(page: Page) {
 
 test('first run guides setup, preserves a closed chat and lets an in-flight reply finish', async ({ page, browserApp }) => {
   await signIn(page);
-  await expect(home(page).getByText(intro, { exact: true })).toBeVisible();
   expect((await library(page)).chats).toEqual([]);
   await expect(button(page, 'All chats')).toHaveCount(0);
   await expect(button(page, 'Start chat')).toBeDisabled();
@@ -95,7 +94,6 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
   await button(page, 'Cancel').click();
   await expect(home(page)).toBeVisible();
   await addConnection(page);
-  await expect(home(page).getByText(intro, { exact: true })).toBeVisible();
   await expect(createConnection).toHaveCount(0);
   await expect(button(page, 'Start chat')).toBeDisabled();
 
@@ -211,7 +209,7 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
   await turnEdit.fill('Unsaved greeting edit.');
   await button(page, 'Libraries').click();
   await openChatCreation(page);
-  await expect(home(page).getByText(intro, { exact: true })).toBeVisible();
+  await expect(home(page)).toBeVisible();
   await homeCharacter.click();
   await page.getByRole('option', { name: 'Keeper', exact: true }).click();
   await button(page, 'Start chat').click();
@@ -434,7 +432,7 @@ const participantLayout = (panel: Locator) => panel.evaluate(element => {
 const compactActions = ['Create character', 'Characters', 'Create persona', 'Personas', 'Create Connection', 'Connections', 'Prompts'];
 const desktopActions = ['Create Connection', 'Connections', 'Prompts', 'Create character', 'Characters', 'Create persona', 'Personas'];
 
-test('New chat fits desktop and phone in each approved theme and updates when switched to Russian', async ({ page, browserApp }, testInfo) => {
+test('New chat fits desktop and phone in each theme and updates when switched to Russian', async ({ page, browserApp }, testInfo) => {
   await signIn(page);
   const welcome = home(page).getByRole('heading', { level: 1 });
   const welcomeFont = await welcome.evaluate(element => getComputedStyle(element).fontFamily);
@@ -442,10 +440,11 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
   const promptPanel = home(page).getByRole('region', { name: 'Prompt', exact: true });
   const characterPanel = home(page).getByRole('region', { name: 'Character', exact: true });
   const personaPanel = home(page).getByRole('region', { name: 'Persona', exact: true });
+  const optionalPersona = personaPanel.getByText('Optional', { exact: true });
   const previews = async () => Promise.all([participantLayout(characterPanel), participantLayout(personaPanel)]);
   const emptyLayout = new Map<number, Awaited<ReturnType<typeof previews>>>();
   const emptyConnectionLayout = new Map<number, { height: number; leftInset: number; topInset: number }>();
-  const themes = ['dark', 'light', 'midnight-black'] as const;
+  const themes = themeSchema.options;
   const setTheme = async (theme: typeof themes[number]) => {
     const state = appearanceStatusSchema.parse(await (await page.request.get('/api/application/appearance')).json());
     const response = await page.request.put('/api/application/appearance', { headers: { Origin: browserApp.url },
@@ -462,8 +461,8 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
     for (const width of [1440, 801, 800, 390, 320]) {
       await page.setViewportSize({ width, height: 844 });
       const compact = width <= 800;
-      await expect(home(page).getByText(intro, { exact: true })).toHaveCount(compact ? 0 : 1);
-      await expect(personaPanel.getByText('Optional', { exact: true })).toHaveCount(compact ? 1 : 0);
+      await expect(home(page).getByText(intro, { exact: true })).toHaveCount(0);
+      await expect(optionalPersona).toHaveCount(compact ? 1 : 0);
       await expect(connectionPanel.getByRole('heading', { name: compact ? 'No Connection selected.' : 'Connection', exact: true })).toBeVisible();
       for (const label of compact ? compactActions : desktopActions) {
         const action = button(page, label);
@@ -559,7 +558,7 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
   }
   await addConnection(page);
   await page.setViewportSize({ width: 1440, height: 844 });
-  await expect(home(page).getByText(intro, { exact: true })).toBeVisible();
+  await expect(optionalPersona).toHaveCount(0);
   for (const panel of [connectionPanel, promptPanel]) {
     const [title, selection, action] = await Promise.all([
       panel.getByRole('heading').boundingBox(), panel.getByRole('status').boundingBox(), panel.getByRole('button').boundingBox(),
@@ -593,7 +592,8 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
       for (const actionWidth of width === 1440 ? [801, 800, 1440] : [width]) {
         await page.setViewportSize({ width: actionWidth, height: 844 });
         const compact = actionWidth <= 800;
-        await expect(home(page).getByText(intro, { exact: true })).toHaveCount(compact ? 0 : 1);
+        await expect(optionalPersona).toHaveCount(compact ? 1 : 0);
+        await expect(home(page).getByText(intro, { exact: true })).toHaveCount(0);
         await expectChatsShortcutBesideHeading(home(page), 'All chats');
         if (compact) {
           const start = await button(page, 'Start chat').boundingBox();
@@ -692,6 +692,7 @@ test('New chat fits desktop and phone in each approved theme and updates when sw
     for (const width of [1440, 390, 320]) {
       await page.setViewportSize({ width, height: 844 });
       await russianHome.evaluate(panel => { panel.scrollTop = 0; });
+      await expect(russianHome.getByText('Добро пожаловать в ORE.', { exact: false })).toHaveCount(0);
       await expectChatsShortcutBesideHeading(russianHome, 'Все чаты');
       expect(await russianHome.evaluate(panel => panel.scrollWidth <= panel.clientWidth)).toBe(true);
       for (const label of ['Создать персонажа', 'Создать персону', ...categories]) {

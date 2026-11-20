@@ -357,7 +357,6 @@ export const russianMessages = {
   "app.turn_identities_and_source_revisions": "Идентификаторы ходов и ревизии источников",
   "app.your_stories_start_here": "Ваши истории начинаются здесь.",
   "app.welcome_back": "С возвращением.",
-  "story_home.welcome": "Добро пожаловать в ORE. Чтобы начать чат, выберите персонажа и, при желании, персону.",
   "new_chat.start": "Начать чат",
   "new_chat.discard_turn_edit": "При создании нового чата несохранённые изменения реплики в предыдущем чате будут потеряны. Черновик сообщения сохранится.",
   "story_home.add_connection": "Добавить подключение",

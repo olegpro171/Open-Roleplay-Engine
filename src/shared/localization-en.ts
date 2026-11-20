@@ -350,7 +350,6 @@ export const englishMessages = {
   "app.turn_identities_and_source_revisions": "Turn identities and source revisions",
   "app.your_stories_start_here": "Your stories start here.",
   "app.welcome_back": "Welcome back.",
-  "story_home.welcome": "Welcome to ORE. Choose a Character and an optional Persona to start a chat.",
   "new_chat.start": "Start chat",
   "new_chat.discard_turn_edit": "Starting a new chat will discard the unsaved turn edit in your previous chat. Your composer draft will be kept.",
   "story_home.add_connection": "Add a Connection",
