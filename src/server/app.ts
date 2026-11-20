@@ -58,6 +58,8 @@ import { LanAccess } from './lan.js';
 import { isLoopback } from './lan-policy.js';
 import type { LanInterface } from '../shared/lan.js';
 import { AppearanceSettings } from './appearance.js';
+import type { Theme } from '../shared/appearance.js';
+import { faviconLinks, installIconLinks } from '../shared/favicon.js';
 import { ChatBehaviorSettings } from './chat-behavior.js';
 import { Languages } from './languages.js';
 import { dirname } from 'node:path';
@@ -992,18 +994,30 @@ export async function createApp(options: {
   });
   if (options.staticDirectory && existsSync(options.staticDirectory)) {
     const index = readFileSync(join(options.staticDirectory, 'index.html'), 'utf8');
+    const defaultFavicon = faviconLinks('dark');
+    const defaultInstall = installIconLinks('dark');
     const sendIndex = (reply: FastifyReply) => {
       const nonce = randomBytes(24).toString('base64');
       reply.header('Content-Security-Policy', contentSecurityPolicy(nonce));
       reply.header('Cache-Control', 'no-store');
       // Appearance failure must not prevent login or recovery; the authenticated read reports it.
-      let theme = 'dark';
+      let theme: Theme = 'dark';
       try {
         theme = appearance.status().settings.theme;
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
       }
-      return reply.type('text/html').send(index.replace('<html lang="en">', `<html lang="en" data-theme="${theme}">`).replace('<head>', `<head><meta name="csp-nonce" content="${nonce}">`));
+      // Browsers can select the icons before client code applies appearance settings.
+      const favicon = faviconLinks(theme);
+      const install = installIconLinks(theme);
+      const document = index
+        .replace('<html lang="en">', `<html lang="en" data-theme="${theme}">`)
+        .replace('<head>', `<head><meta name="csp-nonce" content="${nonce}">`)
+        .replace(`href="${defaultFavicon.svg}"`, `href="${favicon.svg}"`)
+        .replace(`href="${defaultFavicon.png}"`, `href="${favicon.png}"`)
+        .replace(`href="${defaultInstall.appleTouch}"`, `href="${install.appleTouch}"`)
+        .replace(`href="${defaultInstall.manifest}"`, `href="${install.manifest}"`);
+      return reply.type('text/html').send(document);
     };
     await app.register(staticFiles, { root: options.staticDirectory });
     app.get('/', async (_request, reply) => sendIndex(reply));

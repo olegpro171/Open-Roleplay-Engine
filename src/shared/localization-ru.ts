@@ -244,7 +244,6 @@ export const russianMessages = {
   "app.full_history": "Полная история",
   "app.prompt_peek": "Просмотр промпта",
   "app.select_a_connection_to_inspect_input": "Выберите подключение для просмотра входа.",
-  "app.o": "O",
   "app.ore": "ORE",
   "app.your_stories_room_to_continue": "Простор для Ваших историй.",
   "app.workspace": "Рабочая область",

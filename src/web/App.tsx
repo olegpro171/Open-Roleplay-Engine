@@ -1,7 +1,7 @@
 import { PinnedTurns, saveTurnPin } from './PinnedTurns';
 import { ChatBranches } from './ChatBranches';
 import { chatGroupId, preferredBranch, readBranchSelections, storeBranchSelection } from './chat-selection';
-import { applyTheme } from './theme';
+import { applyTheme, brandMarkUrl, useTheme } from './theme';
 import { stateLabel } from './localization-labels';
 import type { MessageText } from './localization';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
@@ -753,7 +753,7 @@ export function App() {
 
   return <ChatDetailsTarget.Provider value={chatDetailsTarget}><div className="app">
     <header className="topbar">
-      <div className="brand"><span className="brand-mark" aria-hidden="true">{t("app.o")}</span><div><strong>{t("app.ore")}</strong><small>{t("app.your_stories_room_to_continue")}</small></div></div>
+      <div className="brand"><BrandMark /><div><strong>{t("app.ore")}</strong><small>{t("app.your_stories_room_to_continue")}</small></div></div>
       <nav className="tabs" aria-label={t("app.workspace")}>
         <button disabled={busy && (tab === 'library' || tab === 'settings')} aria-current={tab !== 'library' && tab !== 'data' ? 'page' : undefined} onClick={event => leaveEditor(() => setTab('story'), { returnFocus: event.currentTarget })}>{t(workspaceView === 'new-chat' ? 'libraries.new_chat' : 'app.story')}</button>
         <button disabled={busy && tab === 'settings'} aria-current={tab === 'library' ? 'page' : undefined} onClick={event => {
@@ -1000,6 +1000,11 @@ function EmptyTranscript({ connected, canGenerate, generate, openSettings }: {
   </div>;
 }
 
+function BrandMark() {
+  const theme = useTheme();
+  return <img className="brand-mark" src={brandMarkUrl[theme]} alt="" width={40} height={40} />;
+}
+
 function Login({ session, onLogin }: { session: Session; onLogin: () => Promise<void> }) {
   useLocale();
   const [password, setPassword] = useState('');
@@ -1008,7 +1013,7 @@ function Login({ session, onLogin }: { session: Session; onLogin: () => Promise<
   useEffect(() => { setPasswordVisible(false); }, [session.setupRequired]);
   const [error, setError] = useTextState('');
   const [busy, setBusy] = useState(false);
-  return <main className="login"><div className="login-card"><span className="brand-mark">{t("app.o")}</span><h1>{session.setupRequired ? t("app.your_stories_start_here") : t("app.welcome_back")}</h1>{session.setupRequired && <p>{t("app.create_the_owner_password_on_the_server")}</p>}<form onSubmit={async (event) => {
+  return <main className="login"><div className="login-card"><BrandMark /><h1>{session.setupRequired ? t("app.your_stories_start_here") : t("app.welcome_back")}</h1>{session.setupRequired && <p>{t("app.create_the_owner_password_on_the_server")}</p>}<form onSubmit={async (event) => {
     event.preventDefault(); setBusy(true); setError('');
     try { await api(session.setupRequired ? '/setup' : '/login', 'POST', { password }); setPassword(''); setPasswordVisible(false); await onLogin(); }
     catch (error) { setError(errorText(error, msg("app.could_not_sign_in"))); } finally { setBusy(false); }

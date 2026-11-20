@@ -1,28 +1,28 @@
 # ORE icon artwork
 
-`ore-mark.svg` is the source for the PNG icons, Apple touch icon and ICO favicon.
-Regenerate them from the repository root with the supported Node runtime:
+The Bold bird marks live in [public/icons](../public/icons/). ORE uses Dark Bold
+by default, and uses the matching mark for Light, Midnight Black and Porcelain
+in the header and on sign-in and setup screens.
+
+Browser tabs use the supplied Bold SVG and 32px PNG for the active theme. Dark
+uses [Peach Bold](../public/icons/favicon-peach-bold.svg) with its
+[32px PNG](../public/icons/icon-32.png). The match for each other theme uses the
+corresponding `favicon-*-bold` files in `public/icons/`. The favicons fill
+the canvas with their tile color. ORE sends the saved theme's links in the
+initial page and updates them after a theme change.
+
+The legacy `/favicon.ico` uses Peach Bold at 16, 32 and 48px. The generator renders the
+16px and 48px PNGs from the SVG and includes the supplied 32px PNG as-is.
+
+Safari Add to Dock and Chrome app installs use the active theme's manifest.
+Each manifest includes the exact favicon SVG and 192px and 512px PNGs rendered
+from it. The Apple touch icon uses the matching 192px PNG. The opaque 1024px
+maskable PNG insets the crest so system masks can round the tile without
+clipping the bird. All manifests identify the same ORE app at `/`.
+
+Regenerate the exports and manifests from the repository root with the supported
+Node runtime.
 
 ```sh
 node scripts/generate-icons.mjs
 ```
-
-The dark fill and bronze stroke share one closed path, leaving the canvas outside
-the stroke transparent. The letter, colors, 26px stroke and 28px outline inset
-are retained from the original mark.
-
-The outline uses a cubic approximation of the iOS continuous-corner shape,
-with a 216.8px nominal radius on the 968px outline (about 22.4%). Unlike an SVG
-`rect` with `rx`, the curve eases into the straight edges. Control-point ratios
-follow [PaintCode's measurements of UIKit's continuous corners](https://www.paintcodeapp.com/news/code-for-ios-7-rounded-rectangles).
-This is a static approximation, not a claim of pixel identity with every OS mask.
-
-The favicon exports (16, 32 and 48px, including ICO) fill transparent exterior
-pixels with the mark's dark background. The Apple touch icon remains unchanged.
-Separate opaque full-square `maskable-*.png` exports are declared as `maskable`
-in the manifest so Safari on macOS can apply its own system mask without placing
-the transparent mark inside a padded white tile. The existing large transparent
-exports remain available as `any` icons. The letter fits inside the maskable safe
-zone; the decorative outer stroke may be cropped by platform masks.
-
-See [WebKit's macOS web app icon guidance](https://webkit.org/blog/14787/webkit-features-in-safari-17-2/).

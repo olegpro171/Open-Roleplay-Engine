@@ -237,7 +237,6 @@ export const englishMessages = {
   "app.full_history": "Full history",
   "app.prompt_peek": "Prompt peek",
   "app.select_a_connection_to_inspect_input": "Select a Connection to inspect input.",
-  "app.o": "O",
   "app.ore": "ORE",
   "app.your_stories_room_to_continue": "Your stories. Room to continue.",
   "app.workspace": "Workspace",
