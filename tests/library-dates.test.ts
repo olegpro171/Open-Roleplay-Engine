@@ -1,4 +1,5 @@
 import { seedTranscript } from './support/transcript-fixture.js';
+import { openStoryStore } from './support/story-fixture.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, cpSync, writeFileSync } from 'node:fs';
@@ -87,7 +88,7 @@ it('upgrades populated schema13 without changing history, keeps unknown dates an
   const directory = mkdtempSync(join(tmpdir(), 'ore-sort-migration-'));
   const path = join(directory, 'story.sqlite');
   try {
-    const seed = new Store(path);
+    const seed = openStoryStore(path);
     const cid = seed.saveLibrary(seed.libraryRevision(), 'characters', card);
     seedTranscript(seed, seed.snapshot().revision, 'main', [{ user: 'Original', assistant: 'Intact', complete: true }]);
     seed.saveSettings(seed.snapshot().revision, model, seed.snapshot().settings);

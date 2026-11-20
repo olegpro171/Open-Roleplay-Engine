@@ -36,6 +36,11 @@ function open(filename = path()) {
   stores.push(store);
   return store;
 }
+function reopen(filename: string) {
+  const store = new Store(filename, undefined, { mustExist: true });
+  stores.push(store);
+  return store;
+}
 function required<T>(value: T | undefined): T {
   if (value === undefined) throw new Error('Expected a saved fixture record.');
   return value;
@@ -97,7 +102,7 @@ describe('durable lorebook imports', () => {
     expect(store.importBook(revision, requestId, fixtures.worldInfo)).toEqual(first);
     expect(store.libraries()).toEqual(library);
     store.close();
-    store = open(filename);
+    store = reopen(filename);
     expect(store.importBook(revision, requestId, fixtures.worldInfo)).toEqual(first);
     expect(store.libraries()).toEqual(library);
     const duplicate = store.importBook(store.libraries().revision, randomUUID(), fixtures.worldInfo);
@@ -489,7 +494,7 @@ describe('schema 7 lorebook migration', () => {
 
   it.each([false, true])('preserves populated version-6 data and upgrades only the exact factory (customized: %s)', customized => {
     const seeded = populatedVersion6(customized);
-    let store = open(seeded.filename);
+    let store = reopen(seeded.filename);
     const actual = savedRows(store.sqlite, true);
     for (const table of ['turns', 'generations', 'connections', 'credentials', 'owners', 'sessions', 'summaries', 'context_states', 'context_jobs', 'context_steps']) expect(actual[table]).toEqual(seeded.records[table]);
     const saved = store.snapshot(seeded.chatId);
@@ -525,7 +530,7 @@ describe('schema 7 lorebook migration', () => {
     expect(store.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion);
     const after = savedRows(store.sqlite), snapshotAfter = store.snapshot(seeded.chatId);
     store.close();
-    store = open(seeded.filename);
+    store = reopen(seeded.filename);
     expect(savedRows(store.sqlite)).toEqual(after);
     expect(store.snapshot(seeded.chatId)).toEqual(snapshotAfter);
     expect(commandRows(store)).toEqual([]);
@@ -545,7 +550,7 @@ describe('schema 7 lorebook migration', () => {
       expect(failed.prepare('SELECT * FROM runtime_owner').all()).toEqual([]);
       failed.exec('DROP TRIGGER reject_lore_migration');
     } finally { failed.close(); }
-    const recovered = open(seeded.filename);
+    const recovered = reopen(seeded.filename);
     expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion);
     expect(withoutIdentity(required(recovered.libraries().prompts.find(prompt => prompt.id === 'default')))).toEqual(legacyRoleplayPrompt);
     expect(savedRows(recovered.sqlite, true).generations).toEqual(seeded.records.generations);

@@ -1,4 +1,4 @@
-import { createStoryApp } from './support/story-fixture.js';
+import { seedStory } from './support/story-fixture.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createServer, request } from 'node:http';
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -28,8 +28,13 @@ async function unusedPort() {
   await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   return address.port;
 }
-async function start() {
-  instance = await createStoryApp({ database: join(directory, 'chat.sqlite'), lan: { interfaces: () => available, hostname: () => hostname() } });
+async function start({ fresh = false } = {}) {
+  instance = await createApp({
+    database: join(directory, 'chat.sqlite'),
+    databaseMustExist: !fresh,
+    lan: { interfaces: () => available, hostname: () => hostname() },
+  });
+  if (fresh) seedStory(instance.store);
   await instance.app.listen({ host: '127.0.0.1', port: 0 });
 }
 function command(url: string, payload: unknown, method: 'PUT' | 'POST' = 'PUT') {
@@ -64,7 +69,7 @@ beforeEach(async () => {
   port = await unusedPort();
   cookie = '';
   hostname = async () => 'ore-fixture.local';
-  await start();
+  await start({ fresh: true });
   const setup = await command('/api/setup', { password: 'synthetic-lan-password' }, 'POST');
   expect(setup.statusCode).toBe(200);
   cookie = setup.cookies.map(value => `${value.name}=${value.value}`).join('; ');
