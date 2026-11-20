@@ -74,7 +74,7 @@ export function SummaryInspection({ snapshot, node, historical, selected, locked
       if (await run(() => api(`/chats/${snapshot.id}/context/summaries/${node.id}`, 'PATCH', { revision: edit.revision, summaryRevision: node.revision, text: edit.text }))) saved();
     }}>
       <label>{t("summary_inspection.summary_text")}<textarea className="summary-edit-text" aria-label={t("summary_inspection.summary_text")} required maxLength={1_000_000} value={edit.text} onChange={event => setEdit({ ...edit, text: event.target.value })} /></label>
-      <p className="small muted">{t("summary_inspection.an_unchanged_save_does_nothing_changed_text")}</p>
+      <p className="field-help small muted">{t("summary_inspection.an_unchanged_save_does_nothing_changed_text")}</p>
       <div className="actions"><button disabled={locked || edit.revision !== snapshot.revision || !edit.text.trim()}>{t("summary_inspection.save_summary_edit")}</button><button type="button" className="quiet" onClick={() => setEdit(null)}>{t("app.cancel_edit")}</button></div>
       {edit.revision !== snapshot.revision && <p role="status">{t("summary_inspection.the_chat_changed_cancel_and_reopen_the")}</p>}
     </form> : <><div ref={summaryText} className="prose summary-text" role="region" aria-label={t("summary_inspection.summary_text")} tabIndex={0}>{node.text}</div>{!historical && latest && <button type="button" className="quiet" disabled={locked} onClick={() => setEdit({ summary: summaryKey, text: node.text, revision: snapshot.revision })}>{t("summary_inspection.edit_summary")}</button>}</>}

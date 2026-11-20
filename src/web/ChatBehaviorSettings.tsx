@@ -27,7 +27,7 @@ export function ChatBehaviorSettings({ autosave }: { autosave: SettingsAutosave<
         {options.map(option => <label className="radio-option" key={option.value}>
           <input type="radio" name="enter-key-behavior" value={option.value} checked={draft?.enterKeyBehavior === option.value}
             onChange={() => autosave.update({ enterKeyBehavior: option.value })} />
-          <span>{option.label}<small>{option.help}</small></span>
+          <span>{option.label}<small className="field-help">{option.help}</small></span>
         </label>)}
       </fieldset>
       <fieldset disabled={!draft} className="summary-retry-controls">
@@ -37,7 +37,7 @@ export function ChatBehaviorSettings({ autosave }: { autosave: SettingsAutosave<
         <label>{t('chat_behavior.maximum_overshoot_tokens')}<NumberInput required min={0} max={Number.MAX_SAFE_INTEGER}
           disabled={!draft?.allowInputOvershoot} value={draft?.maximumOvershootTokens ?? 100}
           onChange={value => { if (Number.isSafeInteger(value) && value >= 0) autosave.update({ maximumOvershootTokens: value }); }} /></label>
-        <p className="small muted">{t('chat_behavior.overshoot_help')}</p>
+        <p className="field-help small muted">{t('chat_behavior.overshoot_help')}</p>
       </fieldset>
     </div>
   </section>;

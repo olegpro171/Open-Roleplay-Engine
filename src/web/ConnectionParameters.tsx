@@ -32,7 +32,7 @@ export function ConnectionParameters({ draft, change, disabled }: {
         else next[key] = event.target.value;
         changeBuiltIn({ numbers: next });
       }} /></label>;
-    return help ? <div>{field}<small className="muted" id={helpId}>{help}</small></div> : field;
+    return help ? <div>{field}<small className="field-help muted" id={helpId}>{help}</small></div> : field;
   }
   const stopSequences = Array.isArray(stop) ? stop : stop === undefined ? [] : [stop];
   function changeStop(index: number, value: string) {
@@ -79,7 +79,7 @@ export function ConnectionParameters({ draft, change, disabled }: {
           <label>{t('libraries.custom_request_parameters')}
             <EditorTextarea className="code-input" aria-describedby={customHelpId} value={parameters} onChange={event => change({ ...draft, parameters: event.target.value })} />
           </label>
-          <small id={customHelpId} className="muted">{t('connection_parameters.custom_help')}</small>
+          <small id={customHelpId} className="field-help muted">{t('connection_parameters.custom_help')}</small>
         </div>
       </div>
     </details>

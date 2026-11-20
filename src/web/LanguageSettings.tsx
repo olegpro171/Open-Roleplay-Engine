@@ -105,7 +105,7 @@ export function LanguageSettings() {
           <button type="button" className="secondary" role="menuitem" tabIndex={-1} disabled={locale() === 'en'} onClick={() => download(extendTranslation(currentPack()), `${locale()}.json`)}><Icon name="Upload" />{t('language.extend')}</button>
         </ActionMenu>} />
     </div>
-    {selected && <p className="small muted">{t('language.coverage', { translated: selected.translated, total: selected.total })}</p>}
+    {selected && <p className="field-help small muted">{t('language.coverage', { translated: selected.translated, total: selected.total })}</p>}
     {busy && <p role="status">{t('language.loading')}</p>}{notice && <p role="status">{notice}</p>}{error && <p role="alert">{error}</p>}
     {status?.languages.filter(language => language.translationIssues.length).map(language => <TranslationReport key={`${language.locale}:${language.revision}`} language={language} />)}
     {Boolean(status?.issues.length) && <WarningDetails>

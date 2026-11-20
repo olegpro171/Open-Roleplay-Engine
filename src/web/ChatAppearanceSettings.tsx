@@ -28,7 +28,7 @@ export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosav
       <fieldset>
         <label>{t('appearance.theme')}<Dropdown aria-label={t('appearance.theme')} value={draft.theme} onChange={value => autosave.update({ theme: themeSchema.parse(value) })}
           options={themeSchema.options.map(value => ({ value, label: t(themeLabels[value]) }))} /></label>
-        <p className="small muted">{t('appearance.theme_help')}</p>
+        <p className="field-help small muted">{t('appearance.theme_help')}</p>
       </fieldset>
       <fieldset>
         <label className="checkbox"><input type="checkbox" checked={draft.displayCharacterPicture} onChange={event => {
@@ -39,7 +39,7 @@ export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosav
         <label className="checkbox"><input type="checkbox" checked={draft.showReasoningDuringGeneration} aria-describedby="show-reasoning-help" onChange={event => {
           autosave.update({ showReasoningDuringGeneration: event.target.checked });
         }} />{t("chat_appearance_settings.show_reasoning_during_generation")}</label>
-        <p className="small muted" id="show-reasoning-help">{t("chat_appearance_settings.show_reasoning_help")}</p>
+        <p className="field-help small muted" id="show-reasoning-help">{t("chat_appearance_settings.show_reasoning_help")}</p>
       </fieldset>
       <fieldset><legend>{t("chat_appearance_settings.chat_text_size")}</legend>
         <label htmlFor="chat-text-scale">{t("chat_appearance_settings.text_scale", { chatTextScale: draft.chatTextScale, value: '' })}</label>

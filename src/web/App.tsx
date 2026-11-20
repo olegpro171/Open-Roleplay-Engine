@@ -836,7 +836,7 @@ export function App() {
                 <ChatTextarea autoSize enterKeyHint="enter" aria-label={t("app.edit_text", { part })} value={edit.text} readOnly={busy}
                   onKeyDown={event => submitWithChatShortcut(event, canSaveEdit)}
                   onValueChange={text => setEdit({ ...edit, text })} />
-                <p className="small muted">{snapshot.settings.lorebookId ? t("app.saving_a_history_edit_starts_fresh_lore") : ""}</p>
+                {snapshot.settings.lorebookId && <p className="field-help small muted">{t("app.saving_a_history_edit_starts_fresh_lore")}</p>}
                 <div className="actions">
                   <button disabled={!canSaveEdit} title={saveEditTitle}>{t("app.save_edit")}</button>
                   <button type="button" className="quiet" disabled={busy} onClick={cancelEdit}>{t("app.cancel_edit")}</button>

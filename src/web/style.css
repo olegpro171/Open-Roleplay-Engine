@@ -685,6 +685,10 @@ button.danger{background:var(--danger-button);color:var(--on-danger-button);bord
 .settings-save-status>p { margin:0; flex:1; min-width:min(220px,100%); overflow-wrap:anywhere; }
 .error-banner:has(>.error-banner-actions) { flex-wrap: wrap; }
 .error-banner-actions { flex-shrink: 0; justify-content: flex-end; margin: 0 0 0 auto; }
+.field-help { display: block; margin-block-start: 10px; }
+textarea:has(+ .field-help) { display: block; }
+/* Stacked labels already supply 7px between the control and its help. */
+label > :is(input, textarea, select) + small:not([role="alert"]) { margin-block-start: 3px; }
 .settings-panel p, .settings-panel li { overflow-wrap: anywhere; }
 .settings-section + .settings-section { margin-top: 40px; padding-top: 28px; border-top: 1px solid var(--line); }
 .settings-section > h2 { scroll-margin-top: 24px; }
@@ -694,7 +698,7 @@ button.danger{background:var(--danger-button);color:var(--on-danger-button);bord
 .speech-color-defaults .speech-color-selector { display:flex; flex-direction:column; align-items:flex-start; gap:8px; }
 .chat-behavior-options .radio-option { flex-wrap:nowrap; align-items:flex-start; margin-top:12px; }
 .chat-behavior-options .radio-option > span { min-width:0; }
-.chat-behavior-options small { display:block; margin-top:5px; line-height:1.5; }
+.chat-behavior-options small { line-height:1.5; }
 .lan-settings-controls { margin-block: 20px; }
 .lan-settings .checkbox + .checkbox { margin-top: 12px; }
 .lan-settings .form-grid { margin-block: 16px; }
