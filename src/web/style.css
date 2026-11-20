@@ -828,6 +828,7 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .story-home-participants{min-width:0}
 .story-home-panel-heading{display:grid;grid-template-columns:auto minmax(0,360px);align-items:start;justify-content:space-between;gap:12px;min-block-size:44px;margin-bottom:12px}
 .story-home-panel-heading h2{margin:0}
+.story-home-panel-heading small{display:block}
 .story-home-panel-heading .select-trigger{display:flex;block-size:44px;padding-block:6px}
 .story-home-panel-heading :is(.select-label,.select-option-text){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .story-home-placeholder-title{height:10px;width:min(96px,100%);margin-block:4px;border-radius:5px;background:var(--control-border)}
@@ -837,6 +838,7 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .story-home-panel button.quiet{gap:4px;min-width:44px;padding-inline:4px}
 .story-home-heading>.text-link>.ui-icon,.story-home-panel .quiet>.ui-icon{width:16px;height:16px}
 .story-home-heading>button,.story-home-panel button:not(.library-card-open),.story-home-chat-actions button{min-height:44px;max-width:100%;white-space:normal}
+.story-home:not(.story-home-compact) .story-home-chat-actions{justify-content:flex-end}
 .library-notice{margin-top:16px}
 .library-card{display:flex;flex-direction:column;border-radius:12px}
 .library-card-body{display:flex;gap:16px;padding:18px;min-width:0}
@@ -909,7 +911,6 @@ button.text-link>.ui-icon{width:14px;height:14px}
   margin-bottom:8px;
 }
 .story-home-compact .story-home-panel-heading h2{font-size:16px}
-.story-home-compact .story-home-panel-heading small{display:block;font-size:12px}
 .story-home-participant-status{justify-self:end;text-align:end}
 .story-home-compact .story-home-panel-heading .select-trigger{padding-inline:8px;gap:6px}
 .story-home-compact .story-home-placeholder-title,.story-home-placeholder-line{

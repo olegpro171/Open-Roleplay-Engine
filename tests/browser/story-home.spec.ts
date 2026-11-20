@@ -403,7 +403,7 @@ test('edits selected cards from New chat and returns there after saving and reco
   expect((await library(page)).personas).toEqual(saved.personas);
 });
 
-const participantLayout = (panel: Locator) => panel.evaluate(element => {
+const characterPreviewLayout = (panel: Locator) => panel.evaluate(element => {
   const heading = element.querySelector('h2');
   const card = element.querySelector('.library-card');
   if (!heading || !card) throw new Error('Missing participant heading or preview');
@@ -441,8 +441,8 @@ test('New chat fits desktop and phone in each theme and updates when switched to
   const characterPanel = home(page).getByRole('region', { name: 'Character', exact: true });
   const personaPanel = home(page).getByRole('region', { name: 'Persona', exact: true });
   const optionalPersona = personaPanel.getByText('Optional', { exact: true });
-  const previews = async () => Promise.all([participantLayout(characterPanel), participantLayout(personaPanel)]);
-  const emptyLayout = new Map<number, Awaited<ReturnType<typeof previews>>>();
+  const personaHelp = personaPanel.getByText('Optional. A Persona describes who you play.', { exact: true });
+  const emptyCharacterLayout = new Map<number, Awaited<ReturnType<typeof characterPreviewLayout>>>();
   const emptyConnectionLayout = new Map<number, { height: number; leftInset: number; topInset: number }>();
   const themes = themeSchema.options;
   const setTheme = async (theme: typeof themes[number]) => {
@@ -463,6 +463,7 @@ test('New chat fits desktop and phone in each theme and updates when switched to
       const compact = width <= 800;
       await expect(home(page).getByText(intro, { exact: true })).toHaveCount(0);
       await expect(optionalPersona).toHaveCount(compact ? 1 : 0);
+      await expect(personaHelp).toHaveCount(compact ? 0 : 1);
       await expect(connectionPanel.getByRole('heading', { name: compact ? 'No Connection selected.' : 'Connection', exact: true })).toBeVisible();
       for (const label of compact ? compactActions : desktopActions) {
         const action = button(page, label);
@@ -480,7 +481,7 @@ test('New chat fits desktop and phone in each theme and updates when switched to
         connectionPanel.boundingBox(), promptPanel.boundingBox(), characterPanel.boundingBox(), personaPanel.boundingBox(),
       ]);
       if (!connection || !prompt || !character || !persona) throw new Error('Expected all New chat panels');
-      const layouts = await previews();
+      const characterPreview = await characterPreviewLayout(characterPanel);
       if (!compact) {
         expect(connection.y).toBe(prompt.y);
         expect(prompt.x).toBeGreaterThan(connection.x + connection.width);
@@ -519,21 +520,18 @@ test('New chat fits desktop and phone in each theme and updates when switched to
           if (!heading || !manage) throw new Error('Missing summary heading or action');
           expect(manage.x).toBeGreaterThan(heading.x + heading.width);
         }
-        const [characterPreview, personaPreview] = layouts;
-        expect(characterPreview.cardHeight).toBe(personaPreview.cardHeight);
         const picture = characterPreview.picture;
         if (!picture) throw new Error('Missing Character picture placeholder');
         expect(picture.width).toBe(picture.height);
         expect(picture.height).toBeCloseTo(picture.availableHeight);
         expect(picture.topInset).toBeCloseTo(picture.bottomInset);
-        expect(personaPreview.picture).toBeNull();
       }
       expect(persona.y).toBeGreaterThan(character.y + character.height);
       expect(persona.width).toBe(character.width);
-      emptyLayout.set(width, layouts);
+      emptyCharacterLayout.set(width, characterPreview);
       if (width === 1440 || width === 390) {
         await page.screenshot({ path: testInfo.outputPath(`home-${theme}-${width}.png`), animations: 'disabled' });
-        await button(page, 'Personas').scrollIntoViewIfNeeded();
+        await button(page, 'Start chat').scrollIntoViewIfNeeded();
         await page.screenshot({ path: testInfo.outputPath(`home-${theme}-${width}-bottom.png`), animations: 'disabled' });
         await home(page).evaluate(element => { element.scrollTop = 0; });
       }
@@ -595,13 +593,13 @@ test('New chat fits desktop and phone in each theme and updates when switched to
         await expect(optionalPersona).toHaveCount(compact ? 1 : 0);
         await expect(home(page).getByText(intro, { exact: true })).toHaveCount(0);
         await expectChatsShortcutBesideHeading(home(page), 'All chats');
-        if (compact) {
-          const start = await button(page, 'Start chat').boundingBox();
-          const panel = await characterPanel.boundingBox();
-          if (!start || !panel) throw new Error('Missing Start chat action or Character panel');
-          expect(start.x).toBe(panel.x);
-          expect(start.width).toBe(panel.width);
-        }
+        const start = await button(page, 'Start chat').boundingBox();
+        const lastPanel = await (compact ? promptPanel : personaPanel).boundingBox();
+        if (!start || !lastPanel) throw new Error('Missing Start chat action or final setup panel');
+        expect(start.y).toBeGreaterThan(lastPanel.y + lastPanel.height);
+        expect(start.x + start.width).toBeCloseTo(lastPanel.x + lastPanel.width);
+        if (compact) expect(start.width).toBeCloseTo(lastPanel.width);
+        else expect(start.x).toBeGreaterThan(lastPanel.x);
       }
       await expect(characterPanel.getByRole('button')).toHaveText(['Create', 'Characters']);
       await expect(button(page, 'Characters')).toHaveCSS('font-size',
@@ -611,15 +609,27 @@ test('New chat fits desktop and phone in each theme and updates when switched to
       await expectPanelBorder(connectionPanel, '--line');
       await expectPanelBorder(characterPanel, '--danger-border');
       await expectPanelBorder(personaPanel, '--line');
-      expect(await previews()).toEqual(emptyLayout.get(width));
+      expect(await characterPreviewLayout(characterPanel)).toEqual(emptyCharacterLayout.get(width));
       await chooseForestGuide();
-      await expect(button(page, 'Start chat')).toBeEnabled();
+      const start = button(page, 'Start chat');
+      await expect(start).toBeEnabled();
       await expectPanelBorder(characterPanel, '--line');
+      const emptyPersonaHeight = (await personaPanel.boundingBox())?.height ?? 0;
+      await home(page).evaluate(element => { element.scrollTop = 0; });
+      if (width <= 800) await expect(start).toBeInViewport({ ratio: 1 });
+      if (width === 1440 || width === 390) {
+        await start.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: testInfo.outputPath(`optional-persona-${theme}-${width}.png`), animations: 'disabled' });
+      }
       await personaPanel.getByRole('combobox', { name: 'Persona', exact: true }).click();
       await page.getByRole('option', { name: 'Woodland traveller', exact: true }).click();
       await expect(characterPanel.getByRole('article').locator('img')).toBeVisible();
       await expect(personaPanel.getByRole('article')).toContainText('An explorer with a well-worn map.');
-      expect(await previews()).toEqual(emptyLayout.get(width));
+      expect(await characterPreviewLayout(characterPanel)).toEqual(emptyCharacterLayout.get(width));
+      const selectedPersonaHeight = (await personaPanel.boundingBox())?.height ?? 0;
+      const previewHeight = (await personaPanel.getByRole('article').boundingBox())?.height ?? 0;
+      expect(previewHeight).toBeGreaterThan(0);
+      expect(selectedPersonaHeight - emptyPersonaHeight).toBeGreaterThan(previewHeight / 2);
       await expect(characterPanel.getByRole('button', { name: 'Create character', exact: true })).toBeVisible();
       await expect(personaPanel.getByRole('button', { name: 'Create persona', exact: true })).toBeVisible();
       await expect(button(page, 'Create Connection')).toHaveCount(0);
@@ -640,19 +650,18 @@ test('New chat fits desktop and phone in each theme and updates when switched to
       }
       expect(await home(page).evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
       await home(page).evaluate(element => { element.scrollTop = 0; });
-      if (width <= 800) {
-        await expect(button(page, 'Start chat')).toBeInViewport({ ratio: 1 });
-      }
+      if (width <= 800) await expect(start).toBeInViewport({ ratio: 1 });
       await page.screenshot({ path: testInfo.outputPath(`ready-${theme}-${width}-top.png`), animations: 'disabled' });
-      await button(page, 'Start chat').scrollIntoViewIfNeeded();
+      await start.scrollIntoViewIfNeeded();
       await page.screenshot({ path: testInfo.outputPath(`ready-${theme}-${width}-bottom.png`), animations: 'disabled' });
       for (const panel of [characterPanel, personaPanel]) {
         await panel.getByRole('combobox').click();
         await page.getByRole('option', { name: 'None selected', exact: true }).click();
         await expect(panel.getByRole('article')).toHaveCount(0);
       }
-      expect(await previews()).toEqual(emptyLayout.get(width));
-      await expect(button(page, 'Start chat')).toBeDisabled();
+      expect(await characterPreviewLayout(characterPanel)).toEqual(emptyCharacterLayout.get(width));
+      expect((await personaPanel.boundingBox())?.height).toBeCloseTo(emptyPersonaHeight);
+      await expect(start).toBeDisabled();
       await expectPanelBorder(characterPanel, '--danger-border');
       await button(page, 'All chats').click();
       await button(page, 'Forest guide').click();

@@ -86,11 +86,14 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
     const participant = isCharacter ? character : persona;
     const canChoose = isCharacter ? library.characters.length > 1 : library.personas.length > 0;
     const blocksChat = isCharacter && !participant;
+    const personaHint = !isCharacter && (compact || !participant)
+      ? t(compact ? 'story_home.persona_optional' : 'story_home.persona_help')
+      : null;
     return <section key={kind} className={`story-home-panel story-home-participants${blocksChat ? ' blocks-chat' : ''}`} aria-labelledby={headingId}>
       <header className="story-home-panel-heading">
         <div>
           <h2 id={headingId}>{title}</h2>
-          {compact && !isCharacter && <small className="muted">{t('story_home.persona_optional')}</small>}
+          {personaHint && <small className="muted">{personaHint}</small>}
         </div>
         {canChoose && <Dropdown aria-label={title} disabled={busy} value={participant?.id ?? ''}
           options={isCharacter ? characterDropdownOptions(library) : personaDropdownOptions(library)}
@@ -101,8 +104,8 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
         ? <LibraryCard title={participant} description={participant.description} heading="h3"
           picture={isCharacter ? <PictureSquare url={picture?.thumbnailUrl} /> : undefined}
           disabled={busy} open={() => openLibrary({ kind, id: participant.id, action: 'edit', returnTo: 'story' })} />
-        : <HomeCardPlaceholder picture={isCharacter}
-          description={compact ? undefined : t(isCharacter ? 'story_home.no_character_selected' : 'story_home.persona_help')} />}
+        : isCharacter && <CharacterPreviewPlaceholder
+          description={compact ? undefined : t('story_home.no_character_selected')} />}
       <div className="actions">
         <HomeCreateAction label={t(isCharacter ? 'story_home.create_character' : 'story_home.create_persona')}
           onClick={() => create(kind)} disabled={busy} />
@@ -190,10 +193,10 @@ function HomeCreateAction({ label, onClick, disabled }: HomeActionProps) {
   </button>;
 }
 
-function HomeCardPlaceholder({ picture, description }: { picture: boolean; description?: string }) {
+function CharacterPreviewPlaceholder({ description }: { description?: string }) {
   return <div className="library-card" aria-hidden={description ? undefined : true}>
     <div className="library-card-body">
-      {picture && <div className="picture-square" aria-hidden="true" />}
+      <div className="picture-square" aria-hidden="true" />
       <div className="library-card-content">
         <span className="story-home-placeholder-title" aria-hidden="true" />
         {description ? <p className="story-home-placeholder-description small muted">{description}</p>
