@@ -9,6 +9,7 @@ import { libraryLabel, characterFieldLabel, markerLabel as localizedMarkerLabel,
 import { librarySortSchema, readLibrarySort, sortLibraryItems, sortLibraryRecords, sortOptions, type LibrarySort } from './library-sorting';
 import { defaultContinuationInstruction, defaultOpeningInstruction } from '../shared/default-prompt';
 import { chatGroupId, preferredBranch } from './chat-selection';
+import { ChatCardActivity } from './ChatCardActivity';
 import { SpeechColorSelector } from './SpeechColorSelector';
 import { newId } from './uuid';
 import { Icon } from './Icon';
@@ -583,8 +584,6 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
         {visibleChats.map(({ id, branch, branches, lastMessageAt, running }) => {
           const isCurrent = currentBranchId === branch.id;
           const messageTime = lastMessageAt ? Date.parse(lastMessageAt) : NaN;
-          const date = Number.isFinite(messageTime) ? chatDateFormat.format(messageTime) : null;
-          const activityLabel = date ? t('libraries.chat_last_message', { date }) : undefined;
           return <article key={id} className="chat-card">
             <CharacterAvatar url={branch.characterId ? pictureIndex.get(branch.characterId)?.thumbnailUrl : undefined} />
             <div className="chat-card-text">
@@ -596,8 +595,8 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
                 {running && <span>{t('branches.response_running')}</span>}
               </div>
             </div>
-            {date ? <time className="chat-card-activity" dateTime={lastMessageAt ?? undefined}
-              aria-label={activityLabel} title={activityLabel}>{date}</time>
+            {lastMessageAt && Number.isFinite(messageTime)
+              ? <ChatCardActivity key={lastMessageAt} timestamp={lastMessageAt} messageTime={messageTime} dateFormat={chatDateFormat} />
               : branches.every(item => item.turnCount === 0) &&
                 <span className="chat-card-activity">{t('libraries.chat_no_messages')}</span>}
             <div className="chat-card-actions">
