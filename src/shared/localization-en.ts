@@ -383,6 +383,7 @@ export const englishMessages = {
   "application_settings.settings_categories": "Settings categories",
   "appearance.theme": "Theme",
   "appearance.midnight_black": "Midnight Black",
+  "appearance.porcelain": "Porcelain",
   "appearance.dark": "Dark",
   "appearance.light": "Light",
   "appearance.theme_help": "Applies to every device using ORE.",

@@ -8,8 +8,9 @@ import { openChatTool } from './chat-tools';
 import { createCompactPrompt } from './compact-prompt';
 
 const themeCases = [
-  { theme: 'light', label: 'Light', russian: 'Светлая', character: '#343a42', persona: '#562a0a', speech: 'rgb(52, 58, 66)', chrome: '#eeebe5', page: 'rgb(247, 245, 241)', input: 'rgb(255, 255, 255)', scheme: 'light' },
-  { theme: 'midnight-black', label: 'Midnight Black', russian: 'Полночная чёрная', character: '#e8e8e8', persona: '#e8e8e8', speech: 'rgb(232, 232, 232)', chrome: /^#(?:000|000000)$/, page: 'rgb(0, 0, 0)', input: 'rgb(0, 0, 0)', scheme: 'dark' },
+  { theme: 'light', label: 'Light', russian: 'Светлая', character: '#343a42', persona: '#562a0a', speech: 'rgb(52, 58, 66)', personaSpeech: 'rgb(86, 42, 10)', chrome: '#eeebe5', page: 'rgb(247, 245, 241)', input: 'rgb(255, 255, 255)', scheme: 'light' },
+  { theme: 'midnight-black', label: 'Midnight Black', russian: 'Полночная чёрная', character: '#e8e8e8', persona: '#e8e8e8', speech: 'rgb(232, 232, 232)', personaSpeech: 'rgb(232, 232, 232)', chrome: /^#(?:000|000000)$/, page: 'rgb(0, 0, 0)', input: 'rgb(0, 0, 0)', scheme: 'dark' },
+  { theme: 'porcelain', label: 'Porcelain', russian: 'Фарфор', character: '#262424', persona: '#262424', speech: 'rgb(38, 36, 36)', personaSpeech: 'rgb(38, 36, 36)', chrome: '#fcfaf8', page: 'rgb(252, 250, 248)', input: 'rgb(252, 250, 248)', scheme: 'light' },
 ] as const;
 
 for (const choice of themeCases) for (const width of [1440, 390]) test(`${choice.theme} saves recover, synchronize and preserve speech overrides at ${width}px`, async ({ page, context, browserApp }, testInfo) => {
@@ -52,6 +53,10 @@ for (const choice of themeCases) for (const width of [1440, 390]) test(`${choice
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', choice.chrome);
   await expect(theme).toHaveCSS('background-color', choice.input);
   await page.screenshot({ animations: 'disabled', path: testInfo.outputPath(`${choice.theme}-settings.png`) });
+  await theme.press('ArrowDown');
+  await expect(page.getByRole('option', { name: choice.label, exact: true })).toBeVisible();
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath(`${choice.theme}-theme-menu.png`) });
+  await page.keyboard.press('Escape');
 
   // A competing save while this window has an old revision preserves unrelated fields.
   let release: () => void = () => {};
@@ -81,7 +86,7 @@ for (const choice of themeCases) for (const width of [1440, 390]) test(`${choice
   await expect(settings.locator('.direct-speech')).toHaveCSS('color', choice.speech);
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', choice.theme);
-  const fresh = await context.browser()?.newContext();
+  const fresh = await context.browser()?.newContext({ viewport: { width, height: 900 } });
   if (!fresh) throw new Error('Missing browser');
   try {
     const login = await fresh.newPage();
@@ -89,6 +94,11 @@ for (const choice of themeCases) for (const width of [1440, 390]) test(`${choice
     await expect(login.getByLabel('Owner password')).toBeVisible();
     await expect(login.locator('html')).toHaveAttribute('data-theme', choice.theme);
     await expect(login.locator('html')).toHaveCSS('background-color', choice.page);
+    if (choice.theme === 'porcelain') {
+      const signIn = login.getByRole('button', { name: 'Sign in', exact: true });
+      await expect(signIn).toHaveCSS('background-color', 'rgb(144, 59, 64)');
+      await expect(signIn).toHaveCSS('color', 'rgb(255, 255, 255)');
+    }
     await login.screenshot({ path: testInfo.outputPath(`${choice.theme}-login.png`) });
   } finally { await fresh.close(); }
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
@@ -130,7 +140,7 @@ for (const choice of themeCases) test(`${choice.theme} covers story, menus, memo
   const initial = await read();
   await command('/api/application/appearance', { revision: initial.revision, settings: { ...initial.settings, theme: choice.theme } }, 'PUT');
   await expect(page.locator('html')).toHaveAttribute('data-theme', choice.theme);
-  const contrast = await page.evaluate(() => {
+  const contrast = await page.evaluate(theme => {
     const canvas = document.createElement('canvas'); canvas.width = 1; canvas.height = 1;
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Missing canvas');
@@ -145,15 +155,17 @@ for (const choice of themeCases) test(`${choice.theme} covers story, menus, memo
       });
       return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
     }
-    return [['text', 'page'], ['muted', 'page'], ['text-faint', 'page'], ['text', 'input-bg'],
+    const pairs = [['text', 'page'], ['muted', 'page'], ['text-faint', 'page'], ['text', 'input-bg'],
       ['accent', 'chrome'], ['muted', 'input-bg'], ['header-highlight', 'chrome'], ['link', 'page'], ['speech-character', 'page'],
       ['on-accent', 'accent'], ['danger-text', 'danger-surface'], ['danger-text-strong', 'danger-surface'],
       ['danger-text-strong', 'danger-surface-strong'], ['warning-text', 'warning-surface'], ['success-text', 'success-surface'], ['info-text', 'info-surface'],
-      ['on-danger-button', 'danger-button'], ['on-retained', 'border-strong']].map(([foreground, background]) => {
+      ['on-danger-button', 'danger-button'], ['on-retained', 'border-strong']];
+    if (theme === 'porcelain') pairs.push(['header-highlight', 'accent-selected'], ['text', 'text-selection'], ['muted', 'surface-raised'], ['speech-persona', 'page']);
+    return pairs.map(([foreground, background]) => {
         const a = luminance(foreground), b = luminance(background);
         return { foreground, background, ratio: (Math.max(a, b) + .05) / (Math.min(a, b) + .05) };
       });
-  });
+  }, choice.theme);
   for (const pair of contrast) expect(pair.ratio, `${pair.foreground} on ${pair.background}`).toBeGreaterThanOrEqual(4.5);
   if (choice.theme === 'midnight-black') {
     const colors = await page.evaluate(() => {
@@ -199,7 +211,11 @@ for (const choice of themeCases) test(`${choice.theme} covers story, menus, memo
   await page.evaluate(id => localStorage.setItem('roleplay-chat', id), chat.id);
   await page.reload();
   await expect(page.locator('.part.assistant .direct-speech').first()).toHaveCSS('color', choice.speech);
-  await expect(page.locator('.part.user .direct-speech').first()).toHaveCSS('color', choice.theme === 'light' ? 'rgb(86, 42, 10)' : choice.speech);
+  await expect(page.locator('.part.user .direct-speech').first()).toHaveCSS('color', choice.personaSpeech);
+  if (choice.theme === 'porcelain') {
+    await expect(page.locator('.part.assistant .prose a').first()).toHaveCSS('color', 'rgb(144, 59, 64)');
+    await expect(page.locator('.composer textarea')).toHaveCSS('background-color', choice.page);
+  }
   await page.getByLabel('Your next turn').fill('Keep this draft while switching themes.');
   for (const width of [1440, 801, 800, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });

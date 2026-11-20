@@ -1,11 +1,19 @@
 import { t, useLocale } from './localization';
-import { chatTextScales, chatTextScaleSchema, themeSchema, type Appearance, type AppearanceStatus } from '../shared/appearance';
+import { chatTextScales, chatTextScaleSchema, themeSchema, type Appearance, type AppearanceStatus, type Theme } from '../shared/appearance';
+import type { MessageKey } from '../shared/localization';
 import { SettingsSaveStatus, useSettingsState } from './useSettingsAutosave';
 import { ChatMarkdown } from './ChatMarkdown';
 import { Dropdown } from './Controls';
 import { themeSpeechColor, useTheme } from './theme';
 import { ColorPicker } from './ColorPicker';
 import type { SettingsAutosave } from './settings-autosave';
+
+const themeLabels: Record<Theme, MessageKey> = {
+  dark: 'appearance.dark',
+  light: 'appearance.light',
+  'midnight-black': 'appearance.midnight_black',
+  porcelain: 'appearance.porcelain',
+};
 
 export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosave<Appearance, AppearanceStatus> }) {
   useLocale();
@@ -19,7 +27,7 @@ export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosav
     <div>
       <fieldset>
         <label>{t('appearance.theme')}<Dropdown aria-label={t('appearance.theme')} value={draft.theme} onChange={value => autosave.update({ theme: themeSchema.parse(value) })}
-          options={[{ value: 'dark', label: t('appearance.dark') }, { value: 'light', label: t('appearance.light') }, { value: 'midnight-black', label: t('appearance.midnight_black') }]} /></label>
+          options={themeSchema.options.map(value => ({ value, label: t(themeLabels[value]) }))} /></label>
         <p className="small muted">{t('appearance.theme_help')}</p>
       </fieldset>
       <fieldset>

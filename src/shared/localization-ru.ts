@@ -390,6 +390,7 @@ export const russianMessages = {
   "application_settings.settings_categories": "Разделы настроек",
   "appearance.theme": "Тема",
   "appearance.midnight_black": "Полночная чёрная",
+  "appearance.porcelain": "Фарфор",
   "appearance.dark": "Тёмная",
   "appearance.light": "Светлая",
   "appearance.theme_help": "Применяется на всех устройствах, использующих ORE.",

@@ -125,9 +125,13 @@ describe('interface palette approval boundary', () => {
     expect(paletteChanges([...approved, ['--text', 'var(--muted)']])).toContain('Duplicate palette definitions');
   });
 
-  it.each([['light', themePalettes.lightOverrides], ['midnight-black', themePalettes.midnightBlackOverrides]] as const)('locks %s overrides and supplies every shared role', (theme, approved) => {
+  it.each([
+    ['light', themePalettes.lightOverrides],
+    ['midnight-black', themePalettes.midnightBlackOverrides],
+    ['porcelain', themePalettes.porcelainOverrides],
+  ] as const)('locks %s overrides and supplies every shared role', (theme, baseline) => {
     const overrides = paletteDefinitions(paletteSource(theme));
-    expect(paletteChanges(overrides, new Map(Object.entries(approved)))).toEqual([]);
+    expect(paletteChanges(overrides, new Map(Object.entries(baseline)))).toEqual([]);
     const dark = new Map(paletteDefinitions(paletteSource('dark')));
     const themed = new Map([...dark, ...overrides]);
     expect([...themed.keys()].sort()).toEqual([...dark.keys()].sort());

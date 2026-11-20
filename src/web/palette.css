@@ -200,3 +200,65 @@
   /* Character's category color is independent of the neutral interface accent. */
   --input-character: #e4aa7f;
 }
+
+/* Porcelain shares Midnight Black's flat surfaces and uses burgundy accents. */
+:root[data-theme="porcelain"] {
+  color-scheme: light;
+  --palette-page: #fcfaf8;
+  --palette-inset: var(--palette-page);
+  --palette-chrome: var(--palette-page);
+  --palette-surface: var(--palette-page);
+  --palette-raised: color-mix(in srgb, var(--palette-page) 94%, var(--palette-black));
+  --palette-border: #88817f;
+  --palette-text: #262424;
+  --palette-muted: #595555;
+  --palette-accent: #903b40;
+  --palette-success: #86b397;
+  --palette-danger: #d58280;
+  --palette-destructive: #ad3533;
+  --palette-info: #83a6cd;
+  --palette-warning: #e6bd70;
+  --palette-purple: #a58acb;
+  --palette-gold: #d2b56d;
+  --palette-teal: #6fb7bf;
+  --palette-pink: #cf99b4;
+  --palette-speech: var(--palette-text);
+
+  --text-faint: var(--muted);
+  --header-highlight: var(--accent);
+  --on-accent: var(--palette-white);
+  --accent-border: color-mix(in srgb, var(--accent) 75%, var(--page));
+  --accent-line: color-mix(in srgb, var(--accent) 45%, var(--page));
+  --accent-tint: color-mix(in srgb, var(--accent) 8%, var(--page));
+  --accent-selected: color-mix(in srgb, var(--accent) 12%, var(--page));
+  --link: var(--accent);
+
+  --success-text: color-mix(in srgb, var(--success) 20%, var(--text));
+  --success-surface: color-mix(in srgb, var(--success) 70%, var(--page));
+  --on-success: var(--text);
+  --danger-text: color-mix(in srgb, var(--danger) 20%, var(--text));
+  --danger-text-strong: var(--danger-text);
+  --danger-surface: color-mix(in srgb, var(--danger) 65%, var(--page));
+  --danger-surface-muted: color-mix(in srgb, var(--danger) 5%, var(--page));
+  --danger-surface-strong: color-mix(in srgb, var(--danger) 80%, var(--page));
+  --info-text: color-mix(in srgb, var(--info) 30%, var(--text));
+  --info-surface: color-mix(in srgb, var(--info) 12%, var(--surface));
+  --on-info: var(--text);
+  --warning-icon: #855d00;
+  --warning-text: color-mix(in srgb, var(--warning) 30%, var(--text));
+  --warning-surface: color-mix(in srgb, var(--warning) 65%, var(--page));
+  --on-retained: var(--palette-black);
+
+  /* Keep the Character allocation distinct from primary actions. */
+  --input-character: #dba57a;
+  --input-overhead: var(--palette-border);
+  --tooltip-bg: var(--surface);
+  --login-glow: var(--page);
+  --text-selection: var(--accent-selected);
+  --overlay-bg: color-mix(in srgb, var(--palette-black) 32%, transparent);
+  --overlay-strong: color-mix(in srgb, var(--palette-black) 45%, transparent);
+  --picture-overlay: color-mix(in srgb, var(--page) 96%, transparent);
+  --highlight-faint: color-mix(in srgb, var(--palette-black) 2%, transparent);
+  --highlight-soft: color-mix(in srgb, var(--palette-black) 7%, transparent);
+  --swatch-border: color-mix(in srgb, var(--palette-black) 25%, transparent);
+}

@@ -5,6 +5,7 @@ import { Compartment, EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { MergeView, goToNextChunk, goToPreviousChunk, unifiedMergeView } from '@codemirror/merge';
+import type { Theme } from '../shared/appearance';
 
 function proseTheme(dark: boolean) { return EditorView.theme({
   '&': { backgroundColor: 'var(--input-bg)', color: 'var(--text)', fontSize: '14px' },
@@ -23,7 +24,13 @@ function proseTheme(dark: boolean) { return EditorView.theme({
   '.cm-inlineChangedLineGutter': { backgroundColor: 'var(--input-prompt)' },
 }, { dark }); }
 const darkProseTheme = proseTheme(true);
-const proseThemes = { dark: darkProseTheme, light: proseTheme(false), 'midnight-black': darkProseTheme };
+const lightProseTheme = proseTheme(false);
+const proseThemes: Record<Theme, typeof darkProseTheme> = {
+  dark: darkProseTheme,
+  light: lightProseTheme,
+  'midnight-black': darkProseTheme,
+  porcelain: lightProseTheme,
+};
 const nonce = () => EditorView.cspNonce.of(document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content ?? '');
 
 /** Plain text only: both panes use the same editor, typography and wrapping. */
