@@ -87,7 +87,7 @@ for (const width of [1440, 390]) test(`settings save feedback stays quiet until 
   }
 });
 
-for (const width of [1440, 820, 390, 320]) {
+for (const width of [1440, 801, 800, 390, 320]) {
   test(`application settings shares the workspace and scrolls categories at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 700 });
     const session = await page.request.get('/api/session').then(response => response.json());
@@ -104,6 +104,8 @@ for (const width of [1440, 820, 390, 320]) {
     await expect(page.getByRole('button', { name: /^(Save (chat|LAN)|Reload )/ })).toHaveCount(0);
     const categories = page.getByRole('navigation', { name: 'Settings categories' });
     const content = page.locator('.settings-panel');
+    const currentCategory = categories.locator('[aria-current="location"]');
+    await expect(currentCategory).toHaveText('Language');
     const sidebarBox = await page.locator('.library-sidebar').boundingBox();
     const contentBox = await content.boundingBox();
     if (!librarySidebar || !libraryContent || !sidebarBox || !contentBox) throw new Error('Missing workspace columns');
@@ -134,16 +136,19 @@ for (const width of [1440, 820, 390, 320]) {
           revision: current.revision, settings: { ...current.settings, theme },
         } })).ok()).toBe(true);
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-        for (const category of ['Chat appearance', 'Chat behavior']) {
+        for (const category of ['Chat appearance', 'Chat behavior', 'Phone / LAN access']) {
           await categories.getByRole('button', { name: category, exact: true }).click();
           if (category === 'Chat appearance') await expect(page.getByLabel('Default character speech color', { exact: true })).toBeVisible();
           const section = page.getByRole('region', { name: category, exact: true });
           await expect(section.getByRole('heading', { name: category, exact: true })).toBeInViewport();
+          await expect(currentCategory).toHaveText(category);
+          await expect(currentCategory).toBeInViewport({ ratio: 0.95 });
           expect(await content.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
-          await page.screenshot({ path: testInfo.outputPath(`settings-${category}-${theme}-${width}.png`) });
-          const panels = await section.locator('fieldset:has(> p:last-child)').all();
-          for (const [index, panel] of panels.entries()) {
-            await panel.screenshot({ path: testInfo.outputPath(`settings-help-${category}-${index}-${theme}-${width}.png`) });
+          await page.screenshot({ animations: 'disabled', path: testInfo.outputPath(`settings-${category}-${theme}-${width}.png`) });
+          if (category === 'Chat appearance') {
+            await section.getByRole('group', { name: 'Default speech colors', exact: true }).screenshot({
+              path: testInfo.outputPath(`settings-speech-colors-${theme}-${width}.png`),
+            });
           }
         }
       }
@@ -159,18 +164,40 @@ for (const width of [1440, 820, 390, 320]) {
     const wipeHeading = page.getByRole('heading', { name: 'Wipe application data', exact: true });
     await expect(wipeHeading).toBeFocused();
     await expect(wipeHeading).toBeInViewport();
+    await expect(currentCategory).toHaveText('Wipe application data');
     await expect(page.getByRole('region', { name: 'Data backup', exact: true })).toHaveCount(1);
     expect(await pageNode?.evaluate(node => node.isConnected)).toBe(true);
     await expect(navigation).toBeInViewport();
     await categories.getByRole('button', { name: 'About ORE', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'About ORE', exact: true })).toBeFocused();
+    await expect(currentCategory).toHaveText('About ORE');
     await expect(page.getByText(commit, { exact: true })).toBeVisible();
     await expect(page.locator('.about-version dt')).toHaveText(['Commit', 'Database schema', 'Node runtime', 'Platform']);
     expect(await content.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`about-${width}.png`) });
-    await categories.getByRole('button', { name: 'Data backup', exact: true }).click();
+    const backupCategory = categories.getByRole('button', { name: 'Data backup', exact: true });
+    await backupCategory.focus();
+    await backupCategory.press('Enter');
     await expect(page.getByRole('heading', { name: 'Data backup', exact: true })).toBeFocused();
     await expect(page.getByRole('button', { name: 'Save...', exact: true })).toBeInViewport();
+    await expect(currentCategory).toHaveText('Data backup');
+    const sidebarBeforeScroll = await categories.boundingBox();
+    await content.evaluate(panel => { panel.scrollTop = 0; });
+    await expect(currentCategory).toHaveText('Language');
+    await expect(currentCategory).toBeInViewport({ ratio: 0.95 });
+    expect(await categories.boundingBox()).toEqual(sidebarBeforeScroll);
+    await page.getByRole('heading', { name: 'Chat behavior', exact: true }).evaluate(heading => heading.scrollIntoView({ block: 'start' }));
+    await expect(currentCategory).toHaveText('Chat behavior');
+    await expect(navigation).toBeInViewport();
+    await content.evaluate(panel => { panel.scrollTop = panel.scrollHeight; });
+    await expect(currentCategory).toHaveText('About ORE');
+    await expect(currentCategory).toBeInViewport({ ratio: 0.95 });
+    if (width === 801) {
+      await page.setViewportSize({ width, height: 430 });
+      await content.evaluate(panel => { panel.scrollTop = panel.scrollHeight; });
+      await expect(currentCategory).toHaveText('About ORE');
+      await expect(currentCategory).toBeInViewport({ ratio: 0.95 });
+    }
   });
 }
 

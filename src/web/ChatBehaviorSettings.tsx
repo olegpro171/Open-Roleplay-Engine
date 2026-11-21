@@ -19,22 +19,20 @@ export function ChatBehaviorSettings({ autosave }: { autosave: SettingsAutosave<
   return <section className="settings-section" aria-labelledby="chat-behavior-heading">
     <h2 id="chat-behavior-heading" tabIndex={-1}>{t('chat_behavior.heading')}</h2>
     <SettingsSaveStatus saving={saving} error={error} retry={autosave.retry} />
-    <div>
-      <fieldset className="chat-behavior-options" disabled={!draft} aria-describedby="chat-behavior-description chat-behavior-phone-help">
-        <legend>{t('chat_behavior.enter_key')}</legend>
-        <p id="chat-behavior-description">{t('chat_behavior.description')}</p>
-        <p className="small muted" id="chat-behavior-phone-help"><strong>{t('chat_behavior.physical_only')}</strong><br />{t('chat_behavior.phone_help')}</p>
+    <div className="settings-rows">
+      <fieldset className="settings-row chat-behavior-options" disabled={!draft} aria-labelledby="enter-key-heading">
+        <h3 id="enter-key-heading">{t('chat_behavior.enter_key')}</h3>
         {options.map(option => <label className="radio-option" key={option.value}>
           <input type="radio" name="enter-key-behavior" value={option.value} checked={draft?.enterKeyBehavior === option.value}
             onChange={() => autosave.update({ enterKeyBehavior: option.value })} />
-          <span>{option.label}<small className="field-help">{option.help}</small></span>
+          <span>{option.label}<small>{option.help}</small></span>
         </label>)}
       </fieldset>
-      <fieldset disabled={!draft} className="summary-retry-controls">
-        <legend className="sr-only">{t('chat_behavior.input_target')}</legend>
+      <fieldset disabled={!draft} className="settings-row" aria-labelledby="input-target-heading">
+        <h3 id="input-target-heading">{t('chat_behavior.input_target')}</h3>
         <label className="checkbox"><input type="checkbox" checked={draft?.allowInputOvershoot ?? true}
           onChange={event => autosave.update({ allowInputOvershoot: event.target.checked })} />{t('chat_behavior.allow_input_overshoot')}</label>
-        <label>{t('chat_behavior.maximum_overshoot_tokens')}<NumberInput required min={0} max={Number.MAX_SAFE_INTEGER}
+        <label>{t('chat_behavior.maximum_overshoot_tokens')}<NumberInput className="settings-number" required min={0} max={Number.MAX_SAFE_INTEGER}
           disabled={!draft?.allowInputOvershoot} value={draft?.maximumOvershootTokens ?? 100}
           onChange={value => { if (Number.isSafeInteger(value) && value >= 0) autosave.update({ maximumOvershootTokens: value }); }} /></label>
         <p className="field-help small muted">{t('chat_behavior.overshoot_help')}</p>

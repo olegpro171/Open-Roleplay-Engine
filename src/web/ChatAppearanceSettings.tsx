@@ -24,24 +24,25 @@ export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosav
   return <section className="settings-section" aria-labelledby="chat-appearance-heading">
     <h2 id="chat-appearance-heading" tabIndex={-1}>{t("application_settings.chat_appearance")}</h2>
     <SettingsSaveStatus saving={saving} error={error} retry={autosave.retry} />
-    <div>
-      <fieldset>
-        <label>{t('appearance.theme')}<Dropdown aria-label={t('appearance.theme')} value={draft.theme} onChange={value => autosave.update({ theme: themeSchema.parse(value) })}
+    <div className="settings-rows">
+      <div className="settings-row">
+        <label className="settings-field">{t('appearance.theme')}<Dropdown aria-label={t('appearance.theme')} value={draft.theme} onChange={value => autosave.update({ theme: themeSchema.parse(value) })}
           options={themeSchema.options.map(value => ({ value, label: t(themeLabels[value]) }))} /></label>
         <p className="field-help small muted">{t('appearance.theme_help')}</p>
-      </fieldset>
-      <fieldset>
+      </div>
+      <div className="settings-row">
         <label className="checkbox"><input type="checkbox" checked={draft.displayCharacterPicture} onChange={event => {
           autosave.update({ displayCharacterPicture: event.target.checked });
         }} />{t("chat_appearance_settings.display_character_picture")}</label>
-      </fieldset>
-      <fieldset>
+      </div>
+      <div className="settings-row">
         <label className="checkbox"><input type="checkbox" checked={draft.showReasoningDuringGeneration} aria-describedby="show-reasoning-help" onChange={event => {
           autosave.update({ showReasoningDuringGeneration: event.target.checked });
         }} />{t("chat_appearance_settings.show_reasoning_during_generation")}</label>
         <p className="field-help small muted" id="show-reasoning-help">{t("chat_appearance_settings.show_reasoning_help")}</p>
-      </fieldset>
-      <fieldset><legend>{t("chat_appearance_settings.chat_text_size")}</legend>
+      </div>
+      <fieldset className="settings-row" aria-labelledby="chat-text-size-heading">
+        <h3 id="chat-text-size-heading">{t("chat_appearance_settings.chat_text_size")}</h3>
         <label htmlFor="chat-text-scale">{t("chat_appearance_settings.text_scale", { chatTextScale: draft.chatTextScale, value: '' })}</label>
         <p className="small muted" id="chat-text-scale-help">{t("chat_appearance_settings.adjust_message_text_independently_of_the_rest")}</p>
         <div className="chat-text-scale-control">
@@ -58,12 +59,15 @@ export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosav
           <ChatMarkdown text={t("chat_appearance_settings.the_story_continues_hello")} textScale={draft.chatTextScale} speechColor={draft.characterSpeechColor ?? undefined} />
         </div>
       </fieldset>
-      <fieldset><legend>{t("chat_appearance_settings.default_speech_colors")}</legend><div className="speech-color-defaults">
-        <div className="speech-color-selector"><span className="speech-color-label">{t("chat_appearance_settings.character_speech_color")}</span><ColorPicker instant label={t("chat_appearance_settings.default_character_speech_color")} value={draft.characterSpeechColor ?? themeSpeechColor('character')} onChange={characterSpeechColor => autosave.update({ characterSpeechColor })} />
-          {draft.characterSpeechColor === null ? <small className="muted">{t('appearance.using_theme_color')}</small> : <button type="button" className="secondary" onClick={() => autosave.update({ characterSpeechColor: null })}>{t('appearance.use_theme_character_color')}</button>}</div>
-        <div className="speech-color-selector"><span className="speech-color-label">{t("chat_appearance_settings.persona_speech_color")}</span><ColorPicker instant label={t("chat_appearance_settings.default_persona_speech_color")} value={draft.personaSpeechColor ?? themeSpeechColor('persona')} onChange={personaSpeechColor => autosave.update({ personaSpeechColor })} />
-          {draft.personaSpeechColor === null ? <small className="muted">{t('appearance.using_theme_color')}</small> : <button type="button" className="secondary" onClick={() => autosave.update({ personaSpeechColor: null })}>{t('appearance.use_theme_persona_color')}</button>}</div>
-      </div></fieldset>
+      <fieldset className="settings-row" aria-labelledby="default-speech-colors-heading">
+        <h3 id="default-speech-colors-heading">{t("chat_appearance_settings.default_speech_colors")}</h3>
+        <div className="speech-color-defaults">
+          <div className="speech-color-selector"><span className="speech-color-label">{t("chat_appearance_settings.character_speech_color")}</span><ColorPicker instant label={t("chat_appearance_settings.default_character_speech_color")} value={draft.characterSpeechColor ?? themeSpeechColor('character')} onChange={characterSpeechColor => autosave.update({ characterSpeechColor })} />
+            {draft.characterSpeechColor === null ? <small className="muted">{t('appearance.using_theme_color')}</small> : <button type="button" className="secondary" onClick={() => autosave.update({ characterSpeechColor: null })}>{t('appearance.use_theme_character_color')}</button>}</div>
+          <div className="speech-color-selector"><span className="speech-color-label">{t("chat_appearance_settings.persona_speech_color")}</span><ColorPicker instant label={t("chat_appearance_settings.default_persona_speech_color")} value={draft.personaSpeechColor ?? themeSpeechColor('persona')} onChange={personaSpeechColor => autosave.update({ personaSpeechColor })} />
+            {draft.personaSpeechColor === null ? <small className="muted">{t('appearance.using_theme_color')}</small> : <button type="button" className="secondary" onClick={() => autosave.update({ personaSpeechColor: null })}>{t('appearance.use_theme_persona_color')}</button>}</div>
+        </div>
+      </fieldset>
     </div>
   </section>;
 }

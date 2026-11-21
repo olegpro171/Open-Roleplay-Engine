@@ -26,26 +26,30 @@ export function LanSettings({ autosave }: { autosave: SettingsAutosave<Settings,
     {status?.runtime.state === 'unavailable' && <div role="alert"><p>{formatMessage(status.runtime.localized ?? status.runtime.message)}</p>
       {status.canConfigure && error == null && <button type="button" className="secondary" disabled={saving} onClick={() => { if (draft) autosave.update(draft, true); }}>{t('settings.retry')}</button>}
     </div>}
-    {draft && <div className="lan-settings-controls">
-      <label className="checkbox"><input type="checkbox" checked={draft.enabled} disabled={disabled} onChange={event => autosave.update({ enabled: event.target.checked })} />{t("lan_settings.enable_http_access_from_the_local_network")}</label>
-      <label className="checkbox"><input type="checkbox" checked={draft.automatic} disabled={disabled} onChange={event => autosave.update({ automatic: event.target.checked, port: event.target.checked ? 3000 : draft.port, interfaceId: event.target.checked ? null : draft.interfaceId ?? status?.interfaces[0]?.id ?? null })} />{t("lan_settings.select_network_automatically")}</label>
-      {!draft.automatic && <div className="form-grid">
-        <label>{t("lan_settings.local_network")}<Dropdown aria-label={t("lan_settings.local_network")} value={draft.interfaceId ?? ''} disabled={disabled} options={options} onChange={value => autosave.update({ interfaceId: value || null })} /></label>
-        <label>{t("lan_settings.lan_port")}<NumberInput min={1024} max={65535} required value={draft.port} disabled={disabled} onChange={port => { if (lanSettingsSchema.shape.port.safeParse(port).success) autosave.update({ port }); }} /></label>
-      </div>}
+    {draft && <div className="settings-rows">
+      <div className="settings-row">
+        <label className="checkbox"><input type="checkbox" checked={draft.enabled} disabled={disabled} onChange={event => autosave.update({ enabled: event.target.checked })} />{t("lan_settings.enable_http_access_from_the_local_network")}</label>
+      </div>
+      <div className="settings-row">
+        <label className="checkbox"><input type="checkbox" checked={draft.automatic} disabled={disabled} onChange={event => autosave.update({ automatic: event.target.checked, port: event.target.checked ? 3000 : draft.port, interfaceId: event.target.checked ? null : draft.interfaceId ?? status?.interfaces[0]?.id ?? null })} />{t("lan_settings.select_network_automatically")}</label>
+        {!draft.automatic && <div className="form-grid lan-network-fields">
+          <label>{t("lan_settings.local_network")}<Dropdown aria-label={t("lan_settings.local_network")} value={draft.interfaceId ?? ''} disabled={disabled} options={options} onChange={value => autosave.update({ interfaceId: value || null })} /></label>
+          <label>{t("lan_settings.lan_port")}<NumberInput className="settings-number" min={1024} max={65535} required value={draft.port} disabled={disabled} onChange={port => { if (lanSettingsSchema.shape.port.safeParse(port).success) autosave.update({ port }); }} /></label>
+        </div>}
+      </div>
     </div>}
-    {status?.runtime.state === 'listening' && <>
+    {status?.runtime.state === 'listening' && <div className="settings-row">
       {status.runtime.hostname.state === 'available'
         ? <label className="lan-address">{t('lan_settings.hostname_recommended')}<input aria-label={t('lan_settings.hostname_address')} aria-describedby="lan-address-help" type="text" readOnly spellCheck={false} value={status.runtime.hostname.url} /></label>
         : <WarningDetails message={status.runtime.hostname.localized} />}
       <label className="lan-address">{t('lan_settings.ipv4_fallback')}<input aria-label={t('lan_settings.ipv4_address')} aria-describedby="lan-address-help" type="text" readOnly spellCheck={false} value={status.runtime.ipv4Url} />
         <small id="lan-address-help">{t('lan_settings.address_help')}</small>
       </label>
-    </>}
-    {draft?.enabled && <fieldset className="settings-subsection" aria-describedby="lan-vpn-help">
+    </div>}
+    {draft?.enabled && <fieldset className="settings-row" aria-describedby="lan-vpn-help">
       <p id="lan-vpn-help">{t('lan_settings.vpn_help')}</p>
       {status?.runtime.state === 'listening' && <label className="lan-address">{t('lan_settings.local_subnet')}
-        <input aria-label={t('lan_settings.local_subnet')} aria-describedby="lan-vpn-help" type="text" readOnly spellCheck={false} value={status.runtime.subnet} />
+        <input className="settings-field" aria-label={t('lan_settings.local_subnet')} aria-describedby="lan-vpn-help" type="text" readOnly spellCheck={false} value={status.runtime.subnet} />
       </label>}
     </fieldset>}
     {status && !draft?.automatic && status.interfaces.length === 0 && <p>{t("lan_settings.no_supported_private_ipv4_network_is_available")}</p>}

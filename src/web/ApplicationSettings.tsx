@@ -1,7 +1,7 @@
 import { LocalizedError, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
 import { LibraryImport } from './LibraryImport';
 import { LanguageSettings } from './LanguageSettings';
-import { localizedMessageSchema, type LocalizedMessage } from '../shared/localization';
+import { localizedMessageSchema, type LocalizedMessage, type MessageKey } from '../shared/localization';
 import { newId } from './uuid';
 import { About } from './About';
 import { BackupFileDialog, BackupRestoreDialog, type BackupFileAction } from './BackupFileDialog';
@@ -14,7 +14,7 @@ import type { Appearance, AppearanceStatus } from '../shared/appearance';
 import { Dropdown } from './Controls';
 import type { SettingsAutosave } from './settings-autosave';
 import type { LanSettings as LanConfiguration, LanStatus } from '../shared/lan';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { backupLimits, backupTables, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type DataOutcome } from '../shared/backups';
 import { api, ApiError } from './api';
 import { z } from 'zod';
@@ -33,6 +33,21 @@ class BackupUploadError extends Error {
 }
 type Command = z.infer<typeof commandSchema>;
 const commandKey = 'ore-data-management-command';
+const settingsCategories = [
+  { id: 'language-heading', label: 'language.heading' },
+  { id: 'chat-appearance-heading', label: 'application_settings.chat_appearance' },
+  { id: 'chat-behavior-heading', label: 'chat_behavior.heading' },
+  { id: 'lan-heading', label: 'application_settings.phone_lan_access' },
+  { id: 'data-backup-heading', label: 'application_settings.data_backup' },
+  { id: 'wipe-data-heading', label: 'application_settings.wipe_application_data' },
+  { id: 'about-heading', label: 'about.about_ore' },
+] as const satisfies readonly { id: string; label: MessageKey }[];
+type SettingsCategory = (typeof settingsCategories)[number]['id'];
+
+function settingsScrollInset(panel: HTMLElement) {
+  return Number.parseFloat(getComputedStyle(panel).scrollPaddingTop) || 0;
+}
+
 function recoveredCommand(): Command | null {
   try { const saved = localStorage.getItem(commandKey); return saved ? commandSchema.parse(JSON.parse(saved)) : null; }
   catch { return null; }
@@ -55,18 +70,72 @@ export function ApplicationSettings({ openLibraries, appearance, chatBehavior, l
   const [fileAction, setFileAction] = useState<BackupFileAction | null>(null);
   const mounted = useRef(true), pending = useRef(false), stage = useRef<string|null>(null);
   const confirm = useConfirmation();
-  function scrollToCategory(id: string) {
-    const heading = document.getElementById(id);
-    const panel = heading?.closest<HTMLElement>('.settings-panel');
-    if (!heading || !panel) return;
-    const scrollArea = getComputedStyle(panel).overflowY === 'visible'
-      ? panel.closest<HTMLElement>('.application-settings') : panel;
-    if (!scrollArea) return;
+  const scrollPanel = useRef<HTMLDivElement>(null);
+  const settingsContent = useRef<HTMLDivElement>(null);
+  const categoryNav = useRef<HTMLElement>(null);
+  const jumpPosition = useRef<number | null>(null);
+  const [currentCategory, setCurrentCategory] = useState<SettingsCategory>(settingsCategories[0].id);
+
+  const syncCurrentCategory = useCallback(() => {
+    const panel = scrollPanel.current;
+    if (!panel || panel.scrollTop === jumpPosition.current) return;
+    jumpPosition.current = null;
+    const visibleTop = panel.getBoundingClientRect().top + settingsScrollInset(panel) + 1;
+    const atEnd = panel.scrollTop > 0 && panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1;
+    let current: SettingsCategory = settingsCategories[0].id;
+    for (const { id } of settingsCategories) {
+      const heading = panel.querySelector<HTMLElement>(`#${id}`);
+      if (heading && (atEnd || heading.getBoundingClientRect().top <= visibleTop)) current = id;
+    }
+    setCurrentCategory(current);
+  }, []);
+
+  useEffect(() => {
+    const panel = scrollPanel.current;
+    const content = settingsContent.current;
+    if (!panel || !content) return;
+    const observer = new ResizeObserver(syncCurrentCategory);
+    observer.observe(panel);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [syncCurrentCategory]);
+
+  useEffect(() => {
+    const nav = categoryNav.current;
+    const sidebar = nav?.parentElement;
+    const button = nav?.querySelector('[aria-current="location"]');
+    if (!nav || !sidebar || !button) return;
+    const revealCurrent = () => {
+      const active = button.getBoundingClientRect();
+      if (nav.scrollWidth > nav.clientWidth) {
+        const rail = nav.getBoundingClientRect();
+        if (active.left < rail.left) nav.scrollLeft += active.left - rail.left;
+        else if (active.right > rail.right) nav.scrollLeft += active.right - rail.right;
+      }
+      if (sidebar.scrollHeight > sidebar.clientHeight) {
+        const bounds = sidebar.getBoundingClientRect();
+        if (active.top < bounds.top) sidebar.scrollTop += active.top - bounds.top;
+        else if (active.bottom > bounds.bottom) sidebar.scrollTop += active.bottom - bounds.bottom;
+      }
+    };
+    revealCurrent();
+    const observer = new ResizeObserver(revealCurrent);
+    observer.observe(nav);
+    observer.observe(sidebar);
+    observer.observe(button);
+    return () => observer.disconnect();
+  }, [currentCategory]);
+
+  function scrollToCategory(category: SettingsCategory, headingId: string = category) {
+    const panel = scrollPanel.current;
+    const heading = panel?.querySelector<HTMLElement>(`#${headingId}`);
+    if (!panel || !heading) return;
     heading.focus({ preventScroll: true });
-    // Scroll only the responsive workspace owner. scrollIntoView also moves
-    // the overflow-hidden document when longer settings push headings deeper.
-    const margin = Number.parseFloat(getComputedStyle(heading).scrollMarginTop) || 0;
-    scrollArea.scrollTop += heading.getBoundingClientRect().top - scrollArea.getBoundingClientRect().top - margin;
+    const target = panel.scrollTop + heading.getBoundingClientRect().top - panel.getBoundingClientRect().top - settingsScrollInset(panel);
+    panel.scrollTop = target;
+    // A short final section may share the same clamped scroll position as its neighbor.
+    jumpPosition.current = Math.abs(panel.scrollTop - target) > 1 ? panel.scrollTop : null;
+    setCurrentCategory(category);
   }
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; if (stage.current && !pending.current) void api(`/data/stages/${stage.current}`,'DELETE',{}).catch(() => {}); }; },[]);
   async function run(action: () => Promise<void>, area: 'backup' | 'wipe' = 'backup') {
@@ -103,7 +172,7 @@ export function ApplicationSettings({ openLibraries, appearance, chatBehavior, l
       const value: BackupReview = result;
       if (!mounted.current) { await api(`/data/stages/${value.stageId}`,'DELETE',{}); return; }
       stage.current = value.stageId; setOffset(0); setReview(value); setUncertain(null); setFileAction(null);
-      requestAnimationFrame(() => { if (mounted.current) scrollToCategory('import-backup-heading'); });
+      requestAnimationFrame(() => { if (mounted.current) scrollToCategory('data-backup-heading', 'import-backup-heading'); });
     });
   }
   async function refresh(next = 0) {
@@ -143,16 +212,13 @@ export function ApplicationSettings({ openLibraries, appearance, chatBehavior, l
   return <main className="library-layout application-settings">
     <aside className="library-sidebar">
       <p className="eyebrow" id="application-settings-heading">{t("application_settings.application_settings")}</p>
-      <nav className="library-tabs" aria-label={t("application_settings.settings_categories")}><button type="button" onClick={() => scrollToCategory('language-heading')}>{t("language.heading")}</button>
-        <button type="button" onClick={() => scrollToCategory('chat-appearance-heading')}>{t("application_settings.chat_appearance")}</button>
-        <button type="button" onClick={() => scrollToCategory('chat-behavior-heading')}>{t('chat_behavior.heading')}</button>
-        <button type="button" onClick={() => scrollToCategory('lan-heading')}>{t("application_settings.phone_lan_access")}</button>
-        <button type="button" onClick={() => scrollToCategory('data-backup-heading')}>{t("application_settings.data_backup")}</button>
-        <button type="button" onClick={() => scrollToCategory('wipe-data-heading')}>{t("application_settings.wipe_application_data")}</button>
-        <button type="button" onClick={() => scrollToCategory('about-heading')}>{t("about.about_ore")}</button>
+      <nav className="library-tabs" ref={categoryNav} aria-label={t("application_settings.settings_categories")}>
+        {settingsCategories.map(({ id, label }) => <button key={id} type="button"
+          aria-current={id === currentCategory ? 'location' : undefined} onClick={() => scrollToCategory(id)}>{t(label)}</button>)}
       </nav>
     </aside>
-    <div className="document-panel library-panel settings-panel" aria-labelledby="application-settings-heading">
+    <div className="document-panel library-panel settings-panel" ref={scrollPanel} onScroll={syncCurrentCategory} aria-labelledby="application-settings-heading">
+    <div className="settings-content" ref={settingsContent}>
     {uncertain && <div className="recovery"><p>{t("application_settings.the_command_may_have_committed_retry_this")}</p><button disabled={busy} onClick={() => {
       if (uncertain.path === '/data/wipe') void run(() => execute(uncertain), 'wipe');
       else restore(uncertain);
@@ -169,7 +235,7 @@ export function ApplicationSettings({ openLibraries, appearance, chatBehavior, l
       setError(''); setErrorDetails(''); setMessage(''); setFileAction({ kind: 'save' });
     }}>{t('application_settings.open_save_backup')}</button>
     <section className="settings-subsection" aria-labelledby="import-backup-heading">
-    <h3 id="import-backup-heading">{t("application_settings.import_backup")}</h3>
+    <h3 id="import-backup-heading" tabIndex={-1}>{t("application_settings.import_backup")}</h3>
     <LibraryImport label={t('application_settings.select_backup_file')} dialogTitle={t('application_settings.import_backup')}
       description={t('library_import.backup_description')} accept=".orebackup,.sqlite,.db,application/octet-stream"
       disabled={busy || Boolean(uncertain)} onChange={event => {
@@ -198,7 +264,7 @@ export function ApplicationSettings({ openLibraries, appearance, chatBehavior, l
       const preview = await api<{ token: string; digest: string }>('/data/wipe-preview');
       confirm({ title: t("application_settings.wipe_application_data_2"),message: t("application_settings.all_saved_story_content_libraries_api_keys"),actionLabel: t("application_settings.wipe_application_data"),onConfirm: () => void run(() => execute({ path: '/data/wipe',body: { ...preview,requestId: newId(),overwrite: true } }), 'wipe') });
     }, 'wipe')}>{t("application_settings.wipe_application_data")}</button>
-  </section><About /></div>
+  </section><About /></div></div>
   {restoreOpen && <BackupRestoreDialog busy={busy} error={error} close={() => setRestoreOpen(false)} />}
   {fileAction && <BackupFileDialog action={fileAction} busy={busy} error={error} errorDetails={errorDetails}
     cancel={() => { if (!pending.current) { setFileAction(null); setError(''); setErrorDetails(''); } }}

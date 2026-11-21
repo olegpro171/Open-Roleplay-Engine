@@ -51,7 +51,7 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 .library-search svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);width:18px;height:18px;fill:none;stroke:var(--muted);stroke-width:1.75;stroke-linecap:round;pointer-events:none}
 .library-search input{padding-left:42px;min-height:44px}
 
-.library-tabs button[aria-pressed=true]{background:var(--accent-selected);border-color:var(--accent-border);color:var(--header-highlight)}.library-list{display:grid;gap:16px;margin-top:20px}.library-list h2{margin-bottom:5px;overflow-wrap:anywhere}.library-list p{color:var(--muted);font-size:13px;margin-bottom:0;white-space:pre-wrap;overflow-wrap:anywhere}.prompt-blocks{display:grid;gap:16px;margin:20px 0}.prompt-block{border:1px solid var(--control-border);background:var(--surface-low);padding:18px;border-radius:10px}.block-heading{display:flex;align-items:center;gap:8px;margin-bottom:18px;flex-wrap:wrap}.block-heading .checkbox{margin-right:auto}.drag-handle{cursor:grab;color:var(--accent);padding:4px 8px}.import-panel{margin-top:45px;padding-top:28px;border-top:1px solid var(--line)}.actions{flex-wrap:wrap}.tabs{overflow-x:auto;flex-shrink:0}.tabs button{white-space:nowrap}.prompt-block .form-grid{gap:14px}
+.library-tabs button:is([aria-pressed=true],[aria-current=location]){background:var(--accent-selected);border-color:var(--accent-border);color:var(--header-highlight)}.library-list{display:grid;gap:16px;margin-top:20px}.library-list h2{margin-bottom:5px;overflow-wrap:anywhere}.library-list p{color:var(--muted);font-size:13px;margin-bottom:0;white-space:pre-wrap;overflow-wrap:anywhere}.prompt-blocks{display:grid;gap:16px;margin:20px 0}.prompt-block{border:1px solid var(--control-border);background:var(--surface-low);padding:18px;border-radius:10px}.block-heading{display:flex;align-items:center;gap:8px;margin-bottom:18px;flex-wrap:wrap}.block-heading .checkbox{margin-right:auto}.drag-handle{cursor:grab;color:var(--accent);padding:4px 8px}.import-panel{margin-top:45px;padding-top:28px;border-top:1px solid var(--line)}.actions{flex-wrap:wrap}.tabs{overflow-x:auto;flex-shrink:0}.tabs button{white-space:nowrap}.prompt-block .form-grid{gap:14px}
 @media(max-width:800px){.library-layout{display:block;overflow:auto}.library-sidebar{padding:22px 18px 18px;border-right:0;border-bottom:1px solid var(--line);overflow:visible}.library-sidebar .eyebrow{margin-bottom:12px}.library-tabs{flex-direction:row;flex-wrap:wrap}.library-tabs button{padding:9px 12px;font-size:12px}.library-panel{overflow:visible;padding:24px 18px 50px}.prompt-block{padding:12px}.tabs{gap:20px}.block-heading{gap:4px}}
 
 .library-card,.chat-card{border:1px solid var(--line);background:var(--surface);min-width:0;position:relative;transition:background .15s}
@@ -678,7 +678,7 @@ button.danger{background:var(--danger-button);color:var(--on-danger-button);bord
 }
 
 .error-banner { flex-shrink: 0; }
-.language-selection{display:flex;align-items:flex-end;gap:8px}
+.language-selection{display:flex;align-items:flex-end;gap:8px;max-inline-size:24rem}
 .language-selection>label{flex:1;min-width:0}
 .language-selection>.action-menu-trigger{height:44px;min-width:44px;justify-content:center}
 .settings-save-status { border:1px solid var(--danger-border); border-radius:8px; flex-wrap:wrap; margin-bottom:12px; }
@@ -689,23 +689,41 @@ button.danger{background:var(--danger-button);color:var(--on-danger-button);bord
 textarea:has(+ .field-help) { display: block; }
 /* Stacked labels already supply 7px between the control and its help. */
 label > :is(input, textarea, select) + small:not([role="alert"]) { margin-block-start: 3px; }
-.settings-panel p, .settings-panel li { overflow-wrap: anywhere; }
-.settings-section + .settings-section { margin-top: 40px; padding-top: 28px; border-top: 1px solid var(--line); }
-.settings-section > h2 { scroll-margin-top: 24px; }
-.settings-section fieldset > p:last-child { margin-bottom: 0; }
+.settings-panel { min-block-size:0; scroll-padding-top:24px; }
+.settings-content { max-inline-size:48rem; }
+.settings-panel p, .settings-panel li { overflow-wrap:anywhere; }
+.settings-section p, .settings-section .lan-address > small { max-inline-size:68ch; }
+.settings-section + .settings-section { margin-block-start:28px; padding-block-start:24px; border-block-start:1px solid var(--line); }
+.settings-section > h2 { margin-block-end:16px; }
+.settings-section .settings-row { min-inline-size:0; padding:0; margin:0; border:0; border-radius:0; background:none; }
+.settings-section :is(.settings-row + .settings-row, .settings-rows + .settings-row) { margin-block-start:12px; padding-block-start:12px; border-block-start:1px solid var(--line); }
+.settings-row > p:last-child { margin-block-end:0; }
+.settings-row > h3 { margin:0 0 8px; }
+.settings-row > .checkbox { min-block-size:44px; inline-size:fit-content; max-inline-size:100%; }
+.settings-row > .checkbox + .field-help { margin-block-start:0; }
+.settings-field { max-inline-size:24rem; }
+.settings-number { max-inline-size:12rem; }
 .settings-panel .actions > button { min-height:44px; }
 .speech-color-defaults { display:flex; flex-wrap:wrap; gap:16px 32px; }
 .speech-color-defaults .speech-color-selector { display:flex; flex-direction:column; align-items:flex-start; gap:8px; }
-.chat-behavior-options .radio-option { flex-wrap:nowrap; align-items:flex-start; margin-top:12px; }
+.chat-behavior-options .radio-option { flex-wrap:nowrap; align-items:flex-start; padding:8px 0; border:0; background:none; }
 .chat-behavior-options .radio-option > span { min-width:0; }
-.chat-behavior-options small { line-height:1.5; }
-.lan-settings-controls { margin-block: 20px; }
-.lan-settings .checkbox + .checkbox { margin-top: 12px; }
-.lan-settings .form-grid { margin-block: 16px; }
-.lan-settings .form-grid > label { min-width: 0; }
-.lan-address { margin-top: 20px; }
-.settings-subsection { margin-top: 32px; }
+.chat-behavior-options .radio-option input { margin-block-start:1px; }
+.chat-behavior-options .radio-option small { display:block; line-height:1.5; }
+.lan-network-fields { max-inline-size:38rem; margin-block-start:8px; }
+.lan-network-fields > label { min-width:0; }
+.lan-address + .lan-address { margin-block-start:12px; }
+#lan-vpn-help { font-size:13px; color:var(--muted); }
+.settings-subsection { margin-block-start:24px; }
 .settings-panel h3, .settings-panel h4, .settings-panel h5 { font-size: 16px; font-weight: 550; }
+@media(max-width:800px) {
+  .application-settings { display:grid; grid-template: auto minmax(0,1fr) / minmax(0,1fr); overflow:hidden; }
+  .application-settings .library-sidebar { padding-block:8px; overflow:hidden; }
+  .application-settings .library-sidebar .eyebrow { margin-block-end:2px; }
+  .application-settings .library-tabs { flex-wrap:nowrap; overflow-x:auto; overscroll-behavior-inline:contain; padding:4px; margin-inline:-4px; scrollbar-color:var(--scrollbar) transparent; }
+  .application-settings .library-tabs > button { flex:none; white-space:nowrap; }
+  .application-settings .settings-panel { overflow:auto; scroll-padding-top:16px; }
+}
 .backup-inspection { margin-top: 28px; }
 .backup-file-dialog .form-grid { margin-bottom: 20px; }
 .backup-file-dialog { overflow-wrap: anywhere; }
@@ -746,10 +764,10 @@ button:has(> .ui-icon):has(> .sr-only), .block-actions button { min-width:36px; 
 .chat-text-scale-control { max-width: 420px; }
 .chat-text-scale-control input[type=range] { padding: 0; margin: 0; height: 32px; accent-color: var(--accent); cursor: pointer; }
 .chat-text-scale-control input[type=range]:disabled { cursor: not-allowed; }
-.chat-text-scale-labels { display: flex; justify-content: space-between; margin: 0 0 20px; color: var(--muted); font-size: 12px; }
+.chat-text-scale-labels { display: flex; justify-content: space-between; margin: 0 0 12px; color: var(--muted); font-size: 12px; }
 .chat-text-scale-labels span { text-align: center; }
 .chat-text-scale-labels small { display: block; font-size: 10px; }
-.chat-text-preview { border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: var(--input-bg); }
+.chat-text-preview { max-inline-size:34rem; border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: var(--input-bg); }
 [dir=rtl] .story-meta{border-right:0;border-left:1px solid var(--line)}
 [dir=rtl] .part.assistant{border-left:0;border-right:2px solid var(--accent-line);padding-left:0;padding-right:18px}
 

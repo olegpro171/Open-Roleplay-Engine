@@ -79,8 +79,8 @@ for (const width of [1440, 390]) test(`saves keyboard modes, retains failed draf
   const send = page.getByRole('button', { name: 'Send', exact: true });
   const region = await settings(page);
   try {
-    await expect(region.getByRole('radio', { name: /^Send with Ctrl/ })).toBeChecked();
-    await expect(region.getByText('Physical keyboard only', { exact: true })).toBeVisible();
+    const enterOptions = region.getByRole('group', { name: 'Enter key behavior', exact: true });
+    await expect(enterOptions.getByRole('radio', { name: /^Send with Ctrl/ })).toBeChecked();
     await page.route(`**${url}`, route => route.request().method() === 'PUT'
       ? route.fulfill({ status: 500, json: { message: 'Synthetic behavior save failure.' } }) : route.continue());
     await region.getByRole('radio', { name: /^Use Send button only/ }).check();
