@@ -80,6 +80,12 @@ for (const width of [1440, 390, 320]) test(`built-in Russian needs no import and
   await expect(appearancePreview.locator('.part.assistant .direct-speech')).toHaveText('— Наверх. Смотри под ноги.');
   await page.screenshot({ path: testInfo.outputPath(`russian-settings-${width}.png`) });
   await appearancePreview.screenshot({ path: testInfo.outputPath(`russian-chat-preview-${width}.png`) });
+  await page.getByRole('button', { name: 'Цвет речи персонажа по умолчанию', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Выбор цвета', exact: true });
+  const pickerPreview = picker.getByRole('region', { name: 'Предпросмотр текста чата', exact: true });
+  await expect(pickerPreview.locator('.part.user .direct-speech')).toHaveText('— Куда дальше?');
+  await expect(pickerPreview.locator('.part.assistant .direct-speech')).toHaveText('— Наверх. Смотри под ноги.');
+  await picker.getByRole('button', { name: 'Закрыть', exact: true }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'История', exact: true }).click();
   await expect(page.getByLabel('Ваш следующий ход')).toHaveValue(draft);

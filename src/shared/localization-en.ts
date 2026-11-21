@@ -122,7 +122,6 @@ export const englishMessages = {
   "color_picker.edit": "Edit",
   "color_picker.current": "Current",
   "color_picker.new": "New",
-  "color_picker.sample": "“Hello, storyteller.”",
   "color_picker.hue": "Hue",
   "color_picker.saturation": "Saturation",
   "color_picker.lightness": "Lightness",

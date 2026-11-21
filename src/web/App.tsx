@@ -961,7 +961,7 @@ export function App() {
       </section>
     </ChatWorkspace>}
     {tab === 'library' && <LibraryDraftContext.Provider value={libraryLeave.drafts}>
-      <Libraries library={library} defaults={chatDefaults} currentBranchId={snapshot?.id ?? null} branchSelections={branchSelections}
+      <Libraries library={library} defaults={chatDefaults} appearance={appearance.settings} currentBranchId={snapshot?.id ?? null} branchSelections={branchSelections}
         busy={busy} run={command} openChat={openChat} openNewChat={openNewChat} initialTarget={libraryTarget} recoveredDraft={libraryLeave.drafts.recovered()}
         leaveEditor={libraryLeave.leave} clearDraft={libraryLeave.drafts.clear} setupFinished={(destination, participant) => {
           if (participant) chooseHomeParticipant(participant.kind === 'characters' ? 'characterId' : 'personaId', participant.id);

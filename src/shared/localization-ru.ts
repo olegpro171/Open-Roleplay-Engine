@@ -129,7 +129,6 @@ export const russianMessages = {
   "color_picker.edit": "Изм.",
   "color_picker.current": "Текущий",
   "color_picker.new": "Новый",
-  "color_picker.sample": "«Здравствуй, рассказчик».",
   "color_picker.hue": "Тон",
   "color_picker.saturation": "Насыщенность",
   "color_picker.lightness": "Светлота",

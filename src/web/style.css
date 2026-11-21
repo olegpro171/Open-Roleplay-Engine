@@ -942,11 +942,14 @@ button:has(> .ui-icon):has(> .sr-only), .block-actions button { min-width:36px; 
 .color-picker-dialog::backdrop { background:var(--overlay-bg); }
 .color-picker-heading h2 { margin:0 0 3px; font-size:21px; }
 .color-picker-heading p { margin:0 0 18px; color:var(--muted); font-size:12px; }
-.color-picker-preview { display:flex; align-items:center; gap:12px; padding:14px; margin-bottom:20px; border:1px solid var(--line); border-radius:10px; background:var(--input-bg); }
-.color-picker-preview>div { display:grid; justify-items:center; gap:5px; }
-.color-picker-preview .color-picker-swatch { width:38px; height:38px; border-radius:8px; }
-.color-picker-preview small { font-size:10px; color:var(--muted); }
-.color-picker-sample { margin-inline-start:auto; overflow-wrap:anywhere; font-size:15px; font-weight:650; line-height:1.5; }
+.color-picker-swatches { display:flex; flex-wrap:wrap; gap:8px 16px; margin-bottom:10px; }
+.color-picker-swatches>div { display:flex; align-items:center; gap:6px; }
+.color-picker-swatches small { font-size:12px; color:var(--muted); }
+.color-picker-comparison { margin-bottom:16px; }
+.color-picker-comparison .chat-text-preview { padding:12px; }
+.color-picker-comparison .part.user { padding-bottom:10px; }
+.color-picker-comparison .part-heading { margin-bottom:3px; }
+.color-picker-comparison .chat-markdown p:not(:last-child) { margin-bottom:.35em; }
 .color-picker-channels { display:grid; gap:12px; }
 .color-picker-channels label>span { display:flex; justify-content:space-between; font-size:12px; }
 .color-picker-channels output { color:var(--muted); font-weight:400; font-variant-numeric:tabular-nums; }
@@ -966,10 +969,13 @@ button:has(> .ui-icon):has(> .sr-only), .block-actions button { min-width:36px; 
 .color-picker-preset[aria-pressed=true]>span { box-shadow:0 0 0 2px var(--surface); }
 .color-picker-footer { justify-content:flex-end; gap:10px; margin-top:22px; padding-top:18px; border-top:1px solid var(--line); }
 .color-picker-footer button { min-height:44px; }
+@media(min-height:600px) {
+  .color-picker-body { display:flex; flex-direction:column; overflow:hidden; }
+  .color-picker-comparison { flex:none; max-height:42dvh; overflow:auto; scrollbar-width:thin; }
+  .color-picker-controls { min-height:0; overflow:auto; overscroll-behavior:contain; padding:4px; margin:-4px; scrollbar-width:thin; }
+}
 @media(max-width:450px) {
   .color-picker-dialog { padding:20px; }
-  .color-picker-preview { gap:10px; padding:12px; }
-  .color-picker-sample { font-size:13px; }
   .color-picker-palette { grid-template-columns:repeat(4,minmax(0,1fr)); gap:2px 6px; }
   .color-picker-preset { height:44px; }
 }

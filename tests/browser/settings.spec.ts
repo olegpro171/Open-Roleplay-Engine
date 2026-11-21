@@ -286,6 +286,10 @@ for (const width of [1440, 390]) test(`app color choices save while the picker i
   try {
     await page.getByRole('button', { name: 'Default character speech color', exact: true }).click();
     const picker = page.getByRole('dialog', { name: 'Choose color', exact: true });
+    const preview = picker.getByRole('region', { name: 'Chat text preview', exact: true });
+    const personaSpeech = preview.locator('.part.user .direct-speech');
+    const characterSpeech = preview.locator('.part.assistant .direct-speech');
+    const personaColor = await personaSpeech.evaluate(element => getComputedStyle(element).color);
     const hex = picker.getByRole('textbox', { name: 'Hex color', exact: true });
     await expect(picker.getByRole('button', { name: 'Apply color', exact: true })).toHaveCount(0);
     await hex.fill('#zz');
@@ -294,8 +298,11 @@ for (const width of [1440, 390]) test(`app color choices save while the picker i
     expect(writes).toHaveLength(0);
     expect((await appearance()).settings).toEqual(initial.settings);
     await picker.getByRole('button', { name: 'Coral', exact: true }).click();
+    await expect(characterSpeech).toHaveCSS('color', 'rgb(240, 120, 120)');
     await expect.poll(async () => (await appearance()).settings.characterSpeechColor).toBe('#f07878');
     await hex.fill('#ab12cd');
+    await expect(characterSpeech).toHaveCSS('color', 'rgb(171, 18, 205)');
+    await expect(personaSpeech).toHaveCSS('color', personaColor);
     await expect.poll(async () => (await appearance()).settings.characterSpeechColor).toBe('#ab12cd');
     const hue = picker.getByRole('slider', { name: 'Hue', exact: true });
     await hue.focus();

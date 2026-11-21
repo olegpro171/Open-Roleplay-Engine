@@ -3,8 +3,7 @@ import { t, useLocale } from './localization';
 import { chatTextScales, chatTextScaleSchema, themeSchema, type Appearance, type AppearanceStatus, type Theme } from '../shared/appearance';
 import type { MessageKey } from '../shared/localization';
 import { SettingsSaveStatus, useSettingsState } from './useSettingsAutosave';
-import { ChatMessage } from './ChatMessage';
-import { ChatMarkdown } from './ChatMarkdown';
+import { ChatTextPreview, type ChatPreviewAppearance } from './ChatTextPreview';
 import { Dropdown } from './Controls';
 import { themeSpeechColor, useTheme } from './theme';
 import { ColorPicker } from './ColorPicker';
@@ -30,17 +29,20 @@ const defaultSpeechColorLabels = {
   },
 } as const;
 
-function DefaultSpeechColor({ speaker, value, onChange }: {
-  speaker: 'character' | 'persona'; value: string | null; onChange: (value: string | null) => void;
+function DefaultSpeechColor({ speaker, appearance, onChange }: {
+  speaker: 'character' | 'persona'; onChange: (value: string | null) => void;
+  appearance: ChatPreviewAppearance;
 }) {
   const labels = defaultSpeechColorLabels[speaker];
+  const value = speaker === 'character' ? appearance.characterSpeechColor : appearance.personaSpeechColor;
   const statusId = useId();
   const pickerTrigger = useRef<HTMLButtonElement>(null);
 
   return <div className="speech-color-default">
     <span className="speech-color-label">{t(labels.field)}</span>
     <div className="speech-color-default-controls">
-      <ColorPicker instant label={t(labels.picker)} value={value ?? themeSpeechColor(speaker)} onChange={onChange}
+      <ColorPicker instant label={t(labels.picker)} speaker={speaker} appearance={appearance}
+        value={value ?? themeSpeechColor(speaker)} onChange={onChange}
         triggerRef={pickerTrigger} describedBy={value === null ? statusId : undefined} />
       {value === null ? <small id={statusId} className="muted">{t('appearance.using_theme_color')}</small>
         : <button type="button" className="quiet" aria-label={t(labels.reset)} onClick={event => {
@@ -91,27 +93,14 @@ export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosav
           <datalist id="chat-text-scale-ticks">{chatTextScales.map(scale => <option key={scale} value={scale} />)}</datalist>
           <div className="chat-text-scale-labels" aria-hidden="true">{chatTextScales.map(scale => <span key={scale}>{scale}%{scale === 100 && <small>{t("chat_appearance_settings.default")}</small>}</span>)}</div>
         </div>
-        <div className="chat-text-preview" role="region" aria-label={t("chat_appearance_settings.chat_text_preview")}>
-          <ChatMessage role="user" speaker={t('app.you')}>
-            <div className="prose">
-              <ChatMarkdown text={t('chat_appearance_settings.preview_user_message')} textScale={draft.chatTextScale}
-                speechColor={draft.personaSpeechColor ?? 'var(--speech-persona)'} />
-            </div>
-          </ChatMessage>
-          <ChatMessage role="assistant" speaker={t('app.character')}>
-            <div className="prose">
-              <ChatMarkdown text={t('chat_appearance_settings.preview_assistant_message')} textScale={draft.chatTextScale}
-                speechColor={draft.characterSpeechColor ?? 'var(--speech-character)'} />
-            </div>
-          </ChatMessage>
-        </div>
+        <ChatTextPreview {...draft} />
       </fieldset>
       <fieldset className="settings-row" aria-labelledby="default-speech-colors-heading">
         <h3 id="default-speech-colors-heading">{t("chat_appearance_settings.default_speech_colors")}</h3>
         <div className="speech-color-defaults">
-          <DefaultSpeechColor speaker="character" value={draft.characterSpeechColor}
+          <DefaultSpeechColor speaker="character" appearance={draft}
             onChange={characterSpeechColor => autosave.update({ characterSpeechColor })} />
-          <DefaultSpeechColor speaker="persona" value={draft.personaSpeechColor}
+          <DefaultSpeechColor speaker="persona" appearance={draft}
             onChange={personaSpeechColor => autosave.update({ personaSpeechColor })} />
         </div>
       </fieldset>

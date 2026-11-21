@@ -6,6 +6,7 @@ import { speechColorSchema } from '../shared/appearance';
 import { type MessageKey } from '../shared/localization';
 import { t, useLocale } from './localization';
 import { hexToHsl, hslToHex, type HslColor } from './hsl-color';
+import { ChatTextPreview, type ChatPreviewAppearance } from './ChatTextPreview';
 
 const presetGroups: { label: MessageKey; colors: { name: MessageKey; hex: string }[] }[] = [
   { label: 'color_picker.vivid', colors: [
@@ -28,7 +29,9 @@ const presetGroups: { label: MessageKey; colors: { name: MessageKey; hex: string
   ] },
 ];
 
-export function ColorPicker({ label, value, onChange, disabled = false, instant = false, triggerRef, describedBy }: {
+type PreviewProps = { speaker: 'character' | 'persona'; appearance: ChatPreviewAppearance };
+
+export function ColorPicker({ label, value, onChange, speaker, appearance, disabled = false, instant = false, triggerRef, describedBy }: PreviewProps & {
   label: string; value: string; onChange: (value: string) => void; disabled?: boolean; instant?: boolean;
   triggerRef?: Ref<HTMLButtonElement>; describedBy?: string;
 }) {
@@ -42,11 +45,12 @@ export function ColorPicker({ label, value, onChange, disabled = false, instant 
       <span dir="ltr">{value.toUpperCase()}</span>
       <span className="color-picker-edit">{t('color_picker.edit')}</span>
     </button>
-    {open && !disabled && <ColorPickerDialog label={label} value={value} instant={instant} change={onChange} cancel={() => setOpen(false)} apply={color => { onChange(color); setOpen(false); }} />}
+    {open && !disabled && <ColorPickerDialog label={label} value={value} speaker={speaker} appearance={appearance}
+      instant={instant} change={onChange} cancel={() => setOpen(false)} apply={color => { onChange(color); setOpen(false); }} />}
   </>;
 }
 
-function ColorPickerDialog({ label, value, instant, change, cancel, apply }: {
+function ColorPickerDialog({ label, value, speaker, appearance, instant, change, cancel, apply }: PreviewProps & {
   label: string; value: string; instant: boolean; change: (color: string) => void; cancel: () => void; apply: (color: string) => void;
 }) {
   useLocale();
@@ -102,29 +106,35 @@ function ColorPickerDialog({ label, value, instant, change, cancel, apply }: {
     }}>
     <header className="color-picker-heading"><h2 id={titleId}>{t('color_picker.title')}</h2><p id={descriptionId}>{label}</p></header>
     <div className="color-picker-body">
-      <div className="color-picker-preview">
-        {!instant && <div><span className="color-picker-swatch" style={{ backgroundColor: value }} aria-hidden="true" /><small>{t('color_picker.current')}</small></div>}
-        <div><span className="color-picker-swatch" style={{ backgroundColor: color }} aria-hidden="true" /><small>{t(instant ? 'color_picker.current' : 'color_picker.new')}</small></div>
-        <span className="color-picker-sample" style={{ color }}>{t('color_picker.sample')}</span>
+      <div className="color-picker-comparison">
+        <div className="color-picker-swatches">
+          {!instant && <div><span className="color-picker-swatch" style={{ backgroundColor: value }} aria-hidden="true" /><small>{t('color_picker.current')}</small></div>}
+          <div><span className="color-picker-swatch" style={{ backgroundColor: color }} aria-hidden="true" /><small>{t(instant ? 'color_picker.current' : 'color_picker.new')}</small></div>
+        </div>
+        <ChatTextPreview chatTextScale={appearance.chatTextScale}
+          characterSpeechColor={speaker === 'character' ? color : appearance.characterSpeechColor}
+          personaSpeechColor={speaker === 'persona' ? color : appearance.personaSpeechColor} />
       </div>
-      <div className="color-picker-channels" dir="ltr">{channels.map(({ channel, label: key, max, unit, background }) => <label key={channel}>
-        <span>{t(key)}<output>{Math.round(hsl[channel])}{unit}</output></span>
-        <input type="range" min={0} max={max} step={1} value={hsl[channel]} aria-label={t(key)} aria-valuetext={`${Math.round(hsl[channel])}${unit}`}
-          style={{ backgroundImage: background }} onChange={event => changeHsl(channel, Number(event.target.value))} />
-      </label>)}</div>
-      <label className="color-picker-hex">{t('color_picker.hex')}
-        <input type="text" dir="ltr" spellCheck={false} autoComplete="off" maxLength={7} value={hexDraft}
-          aria-invalid={!valid} aria-describedby={!valid ? errorId : undefined} onChange={event => chooseHex(event.target.value)}
-          onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (valid) { if (instant) cancel(); else apply(color); } } }} />
-      </label>
-      {!valid && <p id={errorId} className="color-picker-error" role="alert">{t('validation.use_a_six_digit_hex_color')}</p>}
-      <div className="color-picker-presets">{presetGroups.map(group => <div role="group" aria-label={t(group.label)} key={group.label}>
-        <h3>{t(group.label)}</h3>
-        <div className="color-picker-palette">{group.colors.map(preset => <button type="button" key={preset.hex} className="color-picker-preset"
-          aria-label={t(preset.name)} title={t(preset.name)} aria-pressed={color === preset.hex && valid} onClick={() => chooseHex(preset.hex)}>
-          <span style={{ backgroundColor: preset.hex }} />
-        </button>)}</div>
-      </div>)}</div>
+      <div className="color-picker-controls">
+        <div className="color-picker-channels" dir="ltr">{channels.map(({ channel, label: key, max, unit, background }) => <label key={channel}>
+          <span>{t(key)}<output>{Math.round(hsl[channel])}{unit}</output></span>
+          <input type="range" min={0} max={max} step={1} value={hsl[channel]} aria-label={t(key)} aria-valuetext={`${Math.round(hsl[channel])}${unit}`}
+            style={{ backgroundImage: background }} onChange={event => changeHsl(channel, Number(event.target.value))} />
+        </label>)}</div>
+        <label className="color-picker-hex">{t('color_picker.hex')}
+          <input type="text" dir="ltr" spellCheck={false} autoComplete="off" maxLength={7} value={hexDraft}
+            aria-invalid={!valid} aria-describedby={!valid ? errorId : undefined} onChange={event => chooseHex(event.target.value)}
+            onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (valid) { if (instant) cancel(); else apply(color); } } }} />
+        </label>
+        {!valid && <p id={errorId} className="color-picker-error" role="alert">{t('validation.use_a_six_digit_hex_color')}</p>}
+        <div className="color-picker-presets">{presetGroups.map(group => <div role="group" aria-label={t(group.label)} key={group.label}>
+          <h3>{t(group.label)}</h3>
+          <div className="color-picker-palette">{group.colors.map(preset => <button type="button" key={preset.hex} className="color-picker-preset"
+            aria-label={t(preset.name)} title={t(preset.name)} aria-pressed={color === preset.hex && valid} onClick={() => chooseHex(preset.hex)}>
+            <span style={{ backgroundColor: preset.hex }} />
+          </button>)}</div>
+        </div>)}</div>
+      </div>
     </div>
     <footer className="actions color-picker-footer">
       {instant ? <button type="button" className="secondary" onClick={cancel}>{t('reasoning.close')}</button> : <>

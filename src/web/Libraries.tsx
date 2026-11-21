@@ -11,6 +11,7 @@ import { defaultContinuationInstruction, defaultOpeningInstruction } from '../sh
 import { chatGroupId, preferredBranch } from './chat-selection';
 import { ChatCardActivity } from './ChatCardActivity';
 import { SpeechColorSelector } from './SpeechColorSelector';
+import type { ChatPreviewAppearance } from './ChatTextPreview';
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { PersonaIcon } from './PersonaIcon';
@@ -173,9 +174,10 @@ function newEditor(kind: LibraryKind, revision: number): LibraryEditing {
   return { kind, revision, data };
 }
 
-export function Libraries({ library, defaults, currentBranchId, branchSelections, busy, run, openChat, openNewChat, initialTarget, recoveredDraft, leaveEditor, clearDraft, setupFinished }: {
+export function Libraries({ library, defaults, appearance, currentBranchId, branchSelections, busy, run, openChat, openNewChat, initialTarget, recoveredDraft, leaveEditor, clearDraft, setupFinished }: {
   library: LibrarySnapshot;
   defaults: ChatDefaultsStatus;
+  appearance: ChatPreviewAppearance;
   currentBranchId: string | null;
   branchSelections: ReadonlyMap<string, string>;
   busy: boolean;
@@ -359,7 +361,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     const recovered = recovery?.editor;
     if (initial.kind === 'characters' && 'personality' in initial.data) {
       return <CharacterEditor key={initial.id ?? 'new-character'} initial={{ ...initial, data: initial.data }}
-        recovered={recovered?.kind === 'characters' ? recovered : undefined} library={library} busy={busy} run={run}
+        recovered={recovered?.kind === 'characters' ? recovered : undefined} library={library} appearance={appearance} busy={busy} run={run}
         close={cancelEditor} openBook={openBook}
         saved={id => {
           setNotice(msg("libraries.character_saved", { value: filters.length ? t("interface.it_may_be_hidden_by_your_tag_filters") : '' }));
@@ -382,7 +384,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
     const restored = recovered?.kind !== 'characters' && recovered?.kind !== 'lorebooks' ? recovered : undefined;
     return <LibraryEditor key={initial.id ?? initial.kind} initial={{ ...initial, data: initial.data }} recovered={restored}
       connections={initial.kind === 'contexts' ? sortLibraryRecords(library.connections, 'connections', library.dates) : []}
-      currentRevision={library.revision} busy={busy} run={run}
+      currentRevision={library.revision} appearance={appearance} busy={busy} run={run}
       close={cancelEditor} committed={id => finishEditor(id && initial.kind === 'personas' ? { kind: 'personas', id } : undefined)} />;
   }
   async function duplicate(item: Saved<LibraryRecord>) {
@@ -606,7 +608,7 @@ function connectionFromDraft(connection: Connection, parameters: ConnectionParam
   return { ...connection, customParameters: parseConnectionParameters(parameters) };
 }
 
-function LibraryEditor({ initial, recovered, connections, currentRevision, busy, run, close, committed }: { initial: LibraryEditing & { data: StandardDraft['data'] }; recovered?: StandardDraft; connections: Saved<Connection>[]; currentRevision: number; busy: boolean; run: Run; close: MouseEventHandler<HTMLButtonElement>; committed: (id?: string) => void }) {
+function LibraryEditor({ initial, recovered, connections, currentRevision, appearance, busy, run, close, committed }: { initial: LibraryEditing & { data: StandardDraft['data'] }; recovered?: StandardDraft; connections: Saved<Connection>[]; currentRevision: number; appearance: ChatPreviewAppearance; busy: boolean; run: Run; close: MouseEventHandler<HTMLButtonElement>; committed: (id?: string) => void }) {
   useLocale();
   const formId = useId();
   const [data, setData] = useState(recovered?.data ?? initial.data);
@@ -676,7 +678,7 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, busy,
   return <NumberDraftContext.Provider value={numberDraft}><form id={formId} onSubmit={e => void save(e)}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy || stale}><legend>{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend><div className="form-grid">{textField('name', t("character_editor.name"), false, initial.kind !== 'personas', personaNameHelp)}
     {initial.kind === 'personas' && <>
       <label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={(data as LibraryPersona).titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("libraries.an_optional_label_useful_for_distinguishing_between")}</small></label>
-      <SpeechColorSelector speaker="persona" value={(data as LibraryPersona).speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || stale} />
+      <SpeechColorSelector speaker="persona" appearance={appearance} value={(data as LibraryPersona).speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || stale} />
       {textField('description', t('libraries.persona_description'), true, true, t('libraries.persona_description_help'))}
     </>}
     {initial.kind === 'contexts' && <ContextPresetFields value={data as ContextPreset} change={setData} connections={connections} />}

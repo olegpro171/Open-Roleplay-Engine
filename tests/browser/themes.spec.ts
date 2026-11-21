@@ -103,6 +103,16 @@ for (const choice of themeCases) for (const width of [1440, 390]) test(`${choice
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', choice.chrome);
   await expect(theme).toHaveCSS('background-color', choice.input);
   await page.screenshot({ animations: 'disabled', path: testInfo.outputPath(`${choice.theme}-settings.png`) });
+  await settings.getByRole('button', { name: 'Default character speech color', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Choose color', exact: true });
+  const pickerPreview = picker.getByRole('region', { name: 'Chat text preview', exact: true });
+  await expect(pickerPreview).toHaveCSS('background-color', choice.page);
+  await expect(pickerPreview.locator('.part.user .direct-speech')).toHaveCSS('color', choice.personaSpeech);
+  await expect(pickerPreview.locator('.part.assistant .direct-speech')).toHaveCSS('color', choice.speech);
+  await expect(pickerPreview).toBeInViewport({ ratio: 1 });
+  await expect(picker.getByRole('button', { name: 'Close', exact: true })).toBeInViewport({ ratio: 1 });
+  await picker.screenshot({ path: testInfo.outputPath(`${choice.theme}-color-picker.png`) });
+  await picker.getByRole('button', { name: 'Close', exact: true }).click();
   await theme.press('ArrowDown');
   await expect(page.getByRole('option', { name: choice.label, exact: true })).toBeVisible();
   await page.screenshot({ animations: 'disabled', path: testInfo.outputPath(`${choice.theme}-theme-menu.png`) });

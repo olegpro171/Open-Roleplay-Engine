@@ -1,14 +1,18 @@
 import { t, useLocale } from './localization';
 import { themeSpeechColor } from './theme';
 import { ColorPicker } from './ColorPicker';
+import type { ChatPreviewAppearance } from './ChatTextPreview';
 
-export function SpeechColorSelector({ value, change, speaker = 'character', disabled = false }: { value?: string | null; speaker?: 'character' | 'persona'; change: (value: string | null) => void; disabled?: boolean }) {
+export function SpeechColorSelector({ value, change, appearance, speaker = 'character', disabled = false }: {
+  value?: string | null; speaker?: 'character' | 'persona'; appearance: ChatPreviewAppearance;
+  change: (value: string | null) => void; disabled?: boolean;
+}) {
   useLocale();
   return <fieldset className="full speech-color-selector" aria-label={t("speech_color_selector.speech_color_selection")}>
     <legend>{t("character_editor.speech_color")}</legend>
     <div className="speech-color-controls">
       {value ? <>
-        <ColorPicker label={t("character_editor.speech_color")} value={value} onChange={change} disabled={disabled} />
+        <ColorPicker label={t("character_editor.speech_color")} speaker={speaker} appearance={appearance} value={value} onChange={change} disabled={disabled} />
         <button type="button" className="secondary" onClick={() => change(null)}>{t("speech_color_selector.clear_color")}</button>
       </> : <>
         <span className="speech-color-unset">{t("character_editor.not_set")}</span>

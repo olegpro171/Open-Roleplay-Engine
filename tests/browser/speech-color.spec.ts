@@ -241,7 +241,7 @@ for (const width of [1440, 390, 320]) test(`custom HSL picker previews, validate
   await page.goto('/');
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
-  await setAppearance({ theme: 'dark', characterSpeechColor: null, personaSpeechColor: null, chatTextScale: 100 });
+  await setAppearance({ theme: 'dark', characterSpeechColor: '#c9a8f0', personaSpeechColor: null, chatTextScale: 100 });
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await selectLibraryCategory(page, 'Personas');
   await page.getByRole('button', { name: 'New persona', exact: true }).click();
@@ -250,6 +250,9 @@ for (const width of [1440, 390, 320]) test(`custom HSL picker previews, validate
   const trigger = page.getByRole('button', { name: 'Speech color', exact: true });
   await trigger.click();
   const picker = page.getByRole('dialog', { name: 'Choose color', exact: true });
+  const preview = picker.getByRole('region', { name: 'Chat text preview', exact: true });
+  const personaSpeech = preview.locator('.part.user .direct-speech');
+  const characterSpeech = preview.locator('.part.assistant .direct-speech');
   const hex = picker.getByRole('textbox', { name: 'Hex color', exact: true });
   const hue = picker.getByRole('slider', { name: 'Hue', exact: true });
   const saturation = picker.getByRole('slider', { name: 'Saturation', exact: true });
@@ -266,8 +269,13 @@ for (const width of [1440, 390, 320]) test(`custom HSL picker previews, validate
   await expect(hex).toBeFocused();
   await expect(page.locator('input[type=color]')).toHaveCount(0);
   await expect(hex).toHaveValue('#a8c9f0');
+  await expect(personaSpeech).toHaveCSS('color', 'rgb(168, 201, 240)');
+  await expect(characterSpeech).toHaveCSS('color', 'rgb(201, 168, 240)');
   await picker.getByRole('group', { name: 'Pastels', exact: true }).getByRole('button', { name: 'Pastel mint', exact: true }).click();
   await expect(hex).toHaveValue('#b8dfc4');
+  await expect(personaSpeech).toHaveCSS('color', 'rgb(184, 223, 196)');
+  await expect(characterSpeech).toHaveCSS('color', 'rgb(201, 168, 240)');
+  await expect(preview).toBeInViewport({ ratio: 1 });
   await expect(picker.getByRole('button', { name: 'Pastel mint', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(apply).toBeInViewport({ ratio: 1 });
   await picker.screenshot({ path: testInfo.outputPath('hsl-picker-pastels.png') });
@@ -276,6 +284,7 @@ for (const width of [1440, 390, 320]) test(`custom HSL picker previews, validate
   await hex.fill('#12oops');
   await expect(hex).toHaveAttribute('aria-invalid', 'true');
   await expect(apply).toBeDisabled();
+  await expect(personaSpeech).toHaveCSS('color', 'rgb(184, 223, 196)');
   await expect(picker.getByRole('alert')).toHaveText('Use a six-digit hex color.');
   await picker.getByRole('button', { name: 'Cancel', exact: true }).focus();
   await picker.getByRole('button', { name: 'Cancel', exact: true }).press('Tab');
@@ -299,6 +308,8 @@ for (const width of [1440, 390, 320]) test(`custom HSL picker previews, validate
   await expect(hex).toHaveValue('#ff0400');
   await hue.fill('120');
   await expect(hex).toHaveValue('#00ff00');
+  await expect(personaSpeech).toHaveCSS('color', 'rgb(0, 255, 0)');
+  await expect(characterSpeech).toHaveCSS('color', 'rgb(201, 168, 240)');
   await saturation.fill('0');
   await expect(hex).toHaveValue('#808080');
   await hue.fill('240');
@@ -326,6 +337,14 @@ for (const width of [1440, 390, 320]) test(`custom HSL picker previews, validate
   await expect(picker).toHaveCount(0);
   await expect(trigger).toContainText('#A8C9F0');
   await trigger.click();
+  if (width === 320) {
+    await page.setViewportSize({ width, height: 599 });
+    const lastPreset = picker.getByRole('button', { name: 'Charcoal', exact: true });
+    await lastPreset.click();
+    await expect(hex).toHaveValue('#3c4350');
+    await expect(apply).toBeInViewport({ ratio: 1 });
+    await picker.screenshot({ path: testInfo.outputPath('short-color-picker.png') });
+  }
   await hex.fill('#ABCDEF');
   await hex.press('Enter');
   await expect(picker).toHaveCount(0);

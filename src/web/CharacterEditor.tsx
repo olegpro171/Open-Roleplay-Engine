@@ -1,6 +1,7 @@
 import { useTextState, errorText, t, message as msg, useLocale } from './localization';
 import { cardInstructionLabel, stateLabel } from './localization-labels';
 import { SpeechColorSelector } from './SpeechColorSelector';
+import type { ChatPreviewAppearance } from './ChatTextPreview';
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { cardInstructionFields, cardInstructionLabels, readCardInstruction, readCharacterDepthPrompt } from '../shared/card-instructions';
@@ -31,7 +32,7 @@ function editableCharacter(data: LibraryCharacter): LibraryCharacter {
   if (note.success) editable.depth_prompt = note.data;
   return editable;
 }
-export function CharacterEditor({ initial, recovered, library, busy, run, close, openBook, extracted, saved }: { initial: Initial; recovered?: DraftOf<'characters'>; library: LibrarySnapshot; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; close: MouseEventHandler<HTMLButtonElement>; openBook: (id: string, returnFocus: HTMLElement) => void; extracted: (id: string) => void; saved: (id: string) => void }) {
+export function CharacterEditor({ initial, recovered, library, appearance, busy, run, close, openBook, extracted, saved }: { initial: Initial; recovered?: DraftOf<'characters'>; library: LibrarySnapshot; appearance: ChatPreviewAppearance; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; close: MouseEventHandler<HTMLButtonElement>; openBook: (id: string, returnFocus: HTMLElement) => void; extracted: (id: string) => void; saved: (id: string) => void }) {
   useLocale();
   const formId = useId();
   const [baselineData, setBaselineData] = useState(() => editableCharacter(initial.data));
@@ -150,7 +151,7 @@ export function CharacterEditor({ initial, recovered, library, busy, run, close,
       <label>{t("character_editor.name")}<input required maxLength={100} value={data.name} onChange={event => setData({ ...data, name: event.target.value })} /></label>
       <label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={data.titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("character_editor.an_optional_label_useful_for_distinguishing_between")}</small></label>
       <PictureEditor value={picture} change={setPicture} original={baselinePicture} disabled={busy || pending || stale || Boolean(uncertain)} processing={setProcessing} />
-      <SpeechColorSelector value={data.speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || pending || stale || Boolean(uncertain)} />
+      <SpeechColorSelector appearance={appearance} value={data.speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || pending || stale || Boolean(uncertain)} />
       {textField('description', t('character_editor.character_description'), t('character_editor.description_help'))}
       {textField('personality', t('character_editor.personality'), t('character_editor.personality_help'))}
       {textField('scenario', t('character_editor.scenario'), t('character_editor.scenario_help'))}
