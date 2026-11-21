@@ -31,7 +31,7 @@ test('warns about a lost server while retaining a rejected action, then recovers
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
   const connectionWarning = page.getByRole('dialog', { name: 'Warning', exact: true });
   await expect(connectionWarning).toContainText(warning);
-  await expect(connectionWarning.getByRole('button', { name: 'Retry loading' })).toBeVisible();
+  await expect(connectionWarning.getByRole('button')).toHaveText(['Dismiss']);
   await expect(page.getByRole('img', { name: 'Reconnecting', exact: true, includeHidden: true })).toBeVisible();
   await expect(page.locator('[role=alert]').filter({ hasText: rejection })).toBeVisible();
 

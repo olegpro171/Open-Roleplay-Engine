@@ -537,14 +537,22 @@ test('failed draft sync keeps browser text and can be retried', async ({ page },
     else await route.continue();
   });
   try {
-    const composer = page.getByLabel('Your next turn');
     const draft = 'Keep this until the server is reachable.';
-    await composer.fill(draft);
-    const retry = page.getByRole('button', { name: 'Retry draft sync', exact: true });
-    await expect(retry).toBeVisible();
+    const englishComposer = page.getByLabel('Your next turn');
+    await englishComposer.fill(draft);
+    await expect(page.getByRole('button', { name: 'Retry draft sync', exact: true })).toBeVisible();
     await page.reload();
+    await expect(englishComposer).toHaveValue(draft);
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { name: 'Language', exact: true }).click();
+    await page.getByRole('combobox', { name: 'Interface language', exact: true }).click();
+    await page.getByRole('option', { name: 'Русский', exact: true }).click();
+    await page.getByRole('button', { name: 'История', exact: true }).click();
+
+    const composer = page.getByLabel('Ваш следующий ход');
     await expect(composer).toHaveValue(draft);
-    await expect(retry).toBeVisible();
+    const notice = page.getByRole('alert').filter({ hasText: 'Не удалось синхронизировать черновик с сервером.' });
+    const retry = notice.getByRole('button', { name: 'Повторить', exact: true });
     for (const theme of ['dark', 'light', 'midnight-black', 'porcelain'] as const) {
       await changeTheme(theme);
       for (const width of [390, 1440]) {
@@ -558,7 +566,7 @@ test('failed draft sync keeps browser text and can be retried', async ({ page },
     await retry.click();
     await expect.poll(async () => (await page.request.get(`/api/chats/${chatId}/draft`).then(response => response.json())).text).toBe(draft);
     await expect(composer).toHaveValue(draft);
-    await expect(retry).toHaveCount(0);
+    await expect(notice).toHaveCount(0);
   } finally { await changeTheme(originalAppearance.settings.theme); }
 });
 

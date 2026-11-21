@@ -670,8 +670,7 @@ export function App() {
   }
 
   const connectionDialog = connectionWarning === 'visible' && <WarningDialog message={serverUnavailable}
-    close={() => setConnectionWarning(current => current === 'visible' ? 'dismissed' : current)}
-    actions={() => <button type="button" className="secondary" disabled={busy} onClick={() => void recoverConnection()}>{t("app.retry_loading")}</button>} />;
+    close={() => setConnectionWarning(current => current === 'visible' ? 'dismissed' : current)} />;
   const datasetChangeNotice = dataChanged && <div className="error-banner" role="alert"><span>{t("app.application_data_was_imported_or_wiped_in")}</span><button onClick={() => window.location.reload()}>{t("app.reload_current_data")}</button></div>;
   if (!session) return <main className="login"><p>{t("app.opening_ore")}</p>{error && <p role="alert">{error}</p>}{connectionDialog}</main>;
   if (!session.authenticated) return <Login session={session} onLogin={async () => { setFailure(null); await refreshSession(); }} />;

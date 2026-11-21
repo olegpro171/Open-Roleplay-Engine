@@ -123,7 +123,6 @@ for (const width of [1280, 801, 800, 390, 320]) test(`automatically clears the s
   await expect(popup).toContainText(warning);
   await expect(popup).toBeInViewport();
   await expect(popup.getByRole('heading')).toBeFocused();
-  await expect(popup.getByRole('button', { name: 'Retry loading', exact: true })).toBeInViewport();
   await expect(popup.getByRole('button', { name: 'Dismiss', exact: true })).toBeInViewport();
   expect(await popup.evaluate(dialog => dialog.matches(':modal'))).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
