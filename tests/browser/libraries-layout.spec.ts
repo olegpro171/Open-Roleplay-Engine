@@ -5,6 +5,8 @@ import { defaultPrompt, type LibraryKind, type LibrarySnapshot } from '../../src
 import { defaultContextPreset } from '../../src/shared/context';
 import { newLorebook, newLoreEntry } from '../../src/shared/lorebook';
 
+const categoryNames = ['Chats', 'Characters', 'Personas', 'Lorebooks', 'Prompts', 'Connections', 'Context presets'];
+
 async function login(page: Page) {
   const session = await page.request.get('/api/session').then(response => response.json());
   await page.goto('/');
@@ -289,18 +291,18 @@ test('keeps vertical library navigation beside a scrolling list and preserves fa
   await page.setViewportSize({ width: 1280, height: 800 });
   await login(page);
   const categories = page.getByRole('navigation', { name: 'Library categories' });
-  const names = ['Chats', 'Personas', 'Characters', 'Lorebooks', 'Prompts', 'Connections', 'Context presets'];
-  const actions = ['New chat', 'New persona', 'New character', 'New lorebook', 'New prompt', 'New Connection', 'New context preset'];
+  const actions = ['New chat', 'New character', 'New persona', 'New lorebook', 'New prompt', 'New Connection', 'New context preset'];
+  await expect(categories.getByRole('button')).toHaveText(categoryNames);
   const positions = await categories.getByRole('button').evaluateAll(buttons => buttons.map(button => {
     const { x, y, width, height } = button.getBoundingClientRect();
     return { x, y, width, height };
   }));
-  expect(positions).toHaveLength(names.length);
+  expect(positions).toHaveLength(categoryNames.length);
   for (let index = 1; index < positions.length; index++) {
     expect(positions[index].x).toBe(positions[0].x);
     expect(positions[index].y).toBeGreaterThanOrEqual(positions[index - 1].y + positions[index - 1].height);
   }
-  for (const [index, name] of names.entries()) {
+  for (const [index, name] of categoryNames.entries()) {
     const category = categories.getByRole('button', { name, exact: true });
     await category.focus();
     await category.press('Enter');
@@ -367,7 +369,8 @@ test('keeps every category and the library editors usable on narrow screens', as
   const categories = page.getByRole('navigation', { name: 'Library categories' });
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
-    for (const name of ['Chats', 'Personas', 'Characters', 'Lorebooks', 'Prompts', 'Connections', 'Context presets']) {
+    await expect(categories.getByRole('button')).toHaveText(categoryNames);
+    for (const name of categoryNames) {
       await categories.getByRole('button', { name, exact: true }).click();
       await expect(page.getByRole('region', { name, exact: true }).getByRole('heading', { level: 1, name, exact: true })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

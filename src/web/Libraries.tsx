@@ -515,7 +515,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
       <div className="library-navigation">
       <p className="eyebrow">{t("libraries.your_libraries")}</p>
       <nav className="library-tabs" aria-label={t("libraries.library_categories")}>
-        {(['chats', 'personas', 'characters', 'lorebooks', 'prompts', 'connections', 'contexts'] as const).map(kind => <button
+        {(['chats', 'characters', 'personas', 'lorebooks', 'prompts', 'connections', 'contexts'] as const).map(kind => <button
           type="button"
           aria-pressed={section === kind}
           key={kind}
