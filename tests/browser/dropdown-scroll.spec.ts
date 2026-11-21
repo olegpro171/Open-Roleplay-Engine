@@ -25,7 +25,7 @@ for (const width of [1280, 390]) {
         await page.getByLabel('Name', { exact: true }).fill('Keep this prompt draft');
         await page.getByRole('button', { name: 'Add marker', exact: true }).click();
         const position = await page.locator('.prompt-block').count();
-        await page.getByRole('button', { name: `Expand block ${position}`, exact: true }).click();
+        await page.getByRole('button', { name: new RegExp(`\\bExpand block ${position}$`) }).click();
         const marker = page.getByRole('combobox', { name: `Marker source for block ${position}`, exact: true });
         const menu = page.getByRole('listbox', { name: `Marker source for block ${position}`, exact: true });
         const outerPositions = () => page.evaluate(() => Array.from(document.querySelectorAll('.library-layout, .library-panel')).map(node => node.scrollTop));

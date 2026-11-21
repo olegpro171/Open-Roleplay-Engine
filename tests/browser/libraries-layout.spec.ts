@@ -281,7 +281,7 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
 
     await page.getByRole('button', { name: 'Prompts', exact: true }).click();
     await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Sized prompt editor', exact: true }) }).getByRole('heading').getByRole('button').click();
-    await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
+    await page.getByRole('button', { name: /\bExpand block 1$/ }).click();
     expect(await page.getByRole('textbox', { name: 'Block text', exact: true }).evaluate(element => element.getBoundingClientRect().height >= parseFloat(getComputedStyle(element).minHeight) * 4)).toBe(true);
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   }

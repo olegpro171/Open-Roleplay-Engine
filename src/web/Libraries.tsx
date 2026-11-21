@@ -910,7 +910,18 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
 
 function PromptBlocks({ value, change }: { value: PromptPreset; change: (value: PromptPreset) => void }) {
   useLocale();
+  const listId = useId();
   const [expandedBlocks, setExpandedBlocks] = useState<Set<string>>(() => new Set());
+  function setBlockExpanded(id: string, expanded: boolean) {
+    setExpandedBlocks(previous => {
+      if (previous.has(id) === expanded) return previous;
+      const next = new Set(previous);
+      if (expanded) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+  const roleOptions = (['system', 'user', 'assistant'] as const).map(role => ({ value: role, label: stateLabel(role) }));
   function update(index: number, block: PromptBlock) { change({ ...value, blocks: value.blocks.map((old, i) => i === index ? block : old) }); }
   function move(from: number, to: number) {
     if (to < 0 || to >= value.blocks.length || from === to) return;
@@ -919,28 +930,78 @@ function PromptBlocks({ value, change }: { value: PromptPreset; change: (value: 
   const reorder = useListReorder(move);
   return <>
   <div className="prompt-blocks" {...reorder.list}>{value.blocks.map((block, index) => {
+    const position = index + 1;
     const expanded = expandedBlocks.has(block.id);
-    return <section className={`prompt-block${reorder.rowClass(index, value.blocks.length)}`} aria-label={t("libraries.prompt_block", { value: index + 1 })} key={block.id}>
+    const hasOriginalRoles = block.kind === 'marker' && block.marker === 'messages';
+    const roleLabel = hasOriginalRoles ? t('libraries.original_roles') : stateLabel(block.role);
+    const blockId = `${listId}-${position}`;
+    const disclosureLabel = t(expanded ? 'libraries.collapse_block_number' : 'libraries.expand_block_number', { number: position });
+    const toggle = () => setBlockExpanded(block.id, !expanded);
+    return <section className={`prompt-block${reorder.rowClass(index, value.blocks.length)}`} aria-label={t('libraries.prompt_block', { value: position })} key={block.id}>
       <div className="block-heading">
-        <span {...reorder.handle(index, block.id)} title={t("libraries.drag_to_reorder")} className="drag-handle" aria-label={t("libraries.drag_block", { value: index + 1 })}><Icon name="Menu" /></span>
-        <input type="checkbox" aria-label={t("libraries.enable_block", { value: index + 1 })} checked={block.enabled} onChange={event => update(index, { ...block, enabled: event.target.checked })} />
-        <label className="block-name">{t("libraries.block_name")}<input required value={block.name} onChange={event => update(index, { ...block, name: event.target.value })} /></label>
-        <label className="block-role">{t("libraries.role")}<Dropdown aria-label={t("libraries.role_for_block", { value: index + 1 })} disabled={block.kind === 'marker' && block.marker === 'messages'} value={block.role} onChange={role => update(index, { ...block, role: role as PromptBlock['role'] })} options={['system', 'user', 'assistant'].map(role => ({ value: role, label: stateLabel(role === 'system' || role === 'user' ? role : 'assistant') }))} /></label>
-        <div className="block-actions"><button type="button" className="quiet" title={t("libraries.move_up")} aria-label={t("libraries.move_block_up", { value: index + 1 })} disabled={index === 0} onClick={() => move(index, index - 1)}><Icon name="ArrowLongTop" /></button><button type="button" className="quiet" title={t("libraries.move_down")} aria-label={t("libraries.move_block_down", { value: index + 1 })} disabled={index === value.blocks.length - 1} onClick={() => move(index, index + 1)}><Icon name="ArrowLongBottom" /></button><button type="button" className="quiet" title={t("libraries.delete_block")} aria-label={t("libraries.remove_block", { value: index + 1 })} onClick={() => change({ ...value, blocks: value.blocks.filter((_, i) => i !== index) })}><Icon name="TrashOutline" /></button><button type="button" className="quiet block-toggle" aria-expanded={expanded} aria-controls={`block-content-${block.id}`} title={expanded ? t("libraries.collapse_block") : t("libraries.expand_block")} aria-label={t(expanded ? "libraries.collapse_block_number" : "libraries.expand_block_number", { number: index + 1 })} onClick={() => setExpandedBlocks(old => { const next = new Set(old); if (expanded) next.delete(block.id); else next.add(block.id); return next; })}><Icon name={expanded ? 'ArrowShortTop' : 'ArrowShortBottom'} /></button></div>
+        <span {...reorder.handle(index, block.id)} title={t('libraries.drag_to_reorder')} className="drag-handle" aria-label={t('libraries.drag_block', { value: position })}><Icon name="Menu" /></span>
+        <label className="block-enabled">
+          <input type="checkbox" aria-label={t('libraries.enable_block', { value: position })} checked={block.enabled}
+            onChange={event => update(index, { ...block, enabled: event.target.checked })} />
+        </label>
+        <button type="button" className="quiet block-summary" aria-expanded={expanded} aria-controls={`${blockId}-fields`}
+          aria-labelledby={`${blockId}-name ${blockId}-disclosure`} aria-describedby={`${blockId}-role`} onClick={toggle}>
+          <span className="block-summary-text">
+            <span id={`${blockId}-name`} className="block-summary-name">{block.name.trim() ? block.name : t('libraries.block_name')}</span>
+            <span id={`${blockId}-role`} className="small muted">{roleLabel}</span>
+          </span>
+          <Icon name={expanded ? 'ArrowShortTop' : 'ArrowShortBottom'} />
+          <span id={`${blockId}-disclosure`} className="sr-only">{disclosureLabel}</span>
+        </button>
+        <div className="block-fields" id={`${blockId}-fields`} data-expanded={expanded}>
+          <label className="block-name">
+            <span className="block-name-label" aria-hidden="true">{t('libraries.block_name')}</span>
+            <input required aria-label={t('libraries.block_name')} value={block.name}
+              onInvalid={() => {
+                // The collapsed name still participates in native form validation.
+                if (!expanded) flushSync(() => setBlockExpanded(block.id, true));
+              }}
+              onChange={event => update(index, { ...block, name: event.target.value })} />
+          </label>
+          <button type="button" className="quiet block-toggle" aria-expanded={expanded} aria-controls={`${blockId}-content`}
+            title={t(expanded ? 'libraries.collapse_block' : 'libraries.expand_block')}
+            aria-label={disclosureLabel} onClick={toggle}>
+            <Icon name={expanded ? 'ArrowShortTop' : 'ArrowShortBottom'} />
+          </button>
+          <div className="block-settings">
+            <div className="block-role">
+              {hasOriginalRoles
+                ? <span className="small muted">{roleLabel}</span>
+                : <Dropdown aria-label={t('libraries.role_for_block', { value: position })} value={block.role} options={roleOptions} minMenuWidth={176}
+                    onChange={selected => {
+                      const role = roleOptions.find(option => option.value === selected);
+                      if (role) update(index, { ...block, role: role.value });
+                    }} />}
+            </div>
+            <div className="block-actions">
+              <button type="button" className="quiet" title={t('libraries.move_up')} aria-label={t('libraries.move_block_up', { value: position })}
+                disabled={index === 0} onClick={() => move(index, index - 1)}><Icon name="ArrowLongTop" /></button>
+              <button type="button" className="quiet" title={t('libraries.move_down')} aria-label={t('libraries.move_block_down', { value: position })}
+                disabled={index === value.blocks.length - 1} onClick={() => move(index, index + 1)}><Icon name="ArrowLongBottom" /></button>
+              <button type="button" className="quiet" title={t('libraries.delete_block')} aria-label={t('libraries.remove_block', { value: position })}
+                onClick={() => change({ ...value, blocks: value.blocks.filter((_, i) => i !== index) })}><Icon name="TrashOutline" /></button>
+            </div>
+          </div>
+          {expanded && <div className="block-content" id={`${blockId}-content`}>
+            {block.kind === 'text' ? <label>{t("libraries.block_text")}<EditorTextarea value={block.text} onChange={event => update(index, { ...block, text: event.target.value })} /></label> : <>
+              <label>{t("libraries.marker_source")}<Dropdown aria-label={t("libraries.marker_source_for_block", { value: index + 1 })} value={block.marker} onChange={selected => {
+                const marker = markers.find(marker => marker === selected);
+                if (!marker || marker === block.marker) return;
+                const { fields: _fields, fallback: _fallback, allowDepthPrompt: _allowDepthPrompt, ...base } = block;
+                update(index, { ...base, name: block.name === 'Marker' || block.name === markerLabel(block.marker) ? markerLabel(marker) : block.name, marker, ...(marker === 'character' ? { fields: [...characterFields] } : {}) });
+              }} options={markers.map(marker => ({ value: marker, label: localizedMarkerLabel(marker) }))} /></label>
+              {(block.marker === 'card_system_prompt' || block.marker === 'card_post_history_instructions') && <label>{t("libraries.fallback_text")}<EditorTextarea aria-label={t("libraries.fallback_text")} maxLength={100_000} value={block.fallback ?? ''} onChange={event => update(index, { ...block, fallback: event.target.value })} /><small>{t("libraries.used_when_the_card_field_is_empty", { value: '{{original}}' })}</small></label>}
+              {block.marker === 'messages' && <label className="checkbox messages-marker-option"><input type="checkbox" checked={block.allowDepthPrompt ?? false} onChange={event => update(index, { ...block, allowDepthPrompt: event.target.checked })} />{t("libraries.allow_character_depth_prompt_injection")}</label>}
+              {block.marker === 'character' && <MarkerFieldSelection label={t("libraries.included_character_fields")} options={characterFields.map(field => ({ value: field, label: characterFieldLabel(field) }))} selected={block.fields ?? [...characterFields]} change={fields => update(index, { ...block, fields })} />}
+            </>}
+          </div>}
+        </div>
       </div>
-      {expanded && <div className="block-content" id={`block-content-${block.id}`}>
-        {block.kind === 'text' ? <label>{t("libraries.block_text")}<EditorTextarea value={block.text} onChange={event => update(index, { ...block, text: event.target.value })} /></label> : <>
-          <label>{t("libraries.marker_source")}<Dropdown aria-label={t("libraries.marker_source_for_block", { value: index + 1 })} value={block.marker} onChange={selected => {
-            const marker = markers.find(marker => marker === selected);
-            if (!marker || marker === block.marker) return;
-            const { fields: _fields, fallback: _fallback, allowDepthPrompt: _allowDepthPrompt, ...base } = block;
-            update(index, { ...base, name: block.name === 'Marker' || block.name === markerLabel(block.marker) ? markerLabel(marker) : block.name, marker, ...(marker === 'character' ? { fields: [...characterFields] } : {}) });
-          }} options={markers.map(marker => ({ value: marker, label: localizedMarkerLabel(marker) }))} /></label>
-          {(block.marker === 'card_system_prompt' || block.marker === 'card_post_history_instructions') && <label>{t("libraries.fallback_text")}<EditorTextarea aria-label={t("libraries.fallback_text")} maxLength={100_000} value={block.fallback ?? ''} onChange={event => update(index, { ...block, fallback: event.target.value })} /><small>{t("libraries.used_when_the_card_field_is_empty", { value: '{{original}}' })}</small></label>}
-          {block.marker === 'messages' && <label className="checkbox messages-marker-option"><input type="checkbox" checked={block.allowDepthPrompt ?? false} onChange={event => update(index, { ...block, allowDepthPrompt: event.target.checked })} />{t("libraries.allow_character_depth_prompt_injection")}</label>}
-          {block.marker === 'character' && <MarkerFieldSelection label={t("libraries.included_character_fields")} options={characterFields.map(field => ({ value: field, label: characterFieldLabel(field) }))} selected={block.fields ?? [...characterFields]} change={fields => update(index, { ...block, fields })} />}
-        </>}
-      </div>}
     </section>;
   })}</div><div className="actions"><button type="button" className="secondary" disabled={value.blocks.length >= 100} onClick={() => change({ ...value, blocks: [...value.blocks, { id: newId(), name: 'Text', enabled: true, kind: 'text', role: 'system', text: '' }] })}>{t("libraries.add_text_block")}</button><button type="button" className="secondary" disabled={value.blocks.length >= 100} onClick={() => change({ ...value, blocks: [...value.blocks, { id: newId(), name: 'Marker', enabled: true, kind: 'marker', role: 'system', marker: 'description' }] })}>{t("libraries.add_marker")}</button></div></>;
 }

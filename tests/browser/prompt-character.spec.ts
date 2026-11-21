@@ -57,7 +57,7 @@ test('selects Character fields, inspects a flat prompt with remembered lore disc
   if (!saved) throw new Error('Missing saved prompt.');
   const row = page.getByRole('article').filter({ has: page.getByRole('heading', { name: saved.name, exact: true }) });
   await row.getByRole('heading').getByRole('button').click();
-  await page.getByRole('button', { name: 'Expand block 3', exact: true }).click();
+  await page.getByRole('button', { name: /\bExpand block 3$/ }).click();
   await expect(fields.getByRole('checkbox', { name: 'Name', exact: true })).not.toBeChecked();
   await expect(fields.getByRole('checkbox', { name: 'Description', exact: true })).toBeChecked();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();

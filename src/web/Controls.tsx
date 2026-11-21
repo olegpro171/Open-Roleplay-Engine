@@ -7,10 +7,10 @@ import { createPortal } from 'react-dom';
 type Option = { value: string; label: string; disabled?: boolean; leading?: ReactNode };
 type DropdownProps = {
   value: string; onChange: (value: string) => void; options: Option[];
-  'aria-label'?: string; disabled?: boolean; editable?: boolean; required?: boolean;
+  'aria-label'?: string; disabled?: boolean; editable?: boolean; required?: boolean; minMenuWidth?: number;
 };
 
-export function Dropdown({ value, onChange, options, disabled, editable, required, 'aria-label': label }: DropdownProps) {
+export function Dropdown({ value, onChange, options, disabled, editable, required, minMenuWidth, 'aria-label': label }: DropdownProps) {
   useLocale();
   const id = useId(), anchor = useRef<HTMLDivElement>(null), popup = useRef<HTMLDivElement>(null);
   const openedWith = useRef<PopupInput>('keyboard');
@@ -30,11 +30,17 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   useLayoutEffect(() => {
     if (!expanded) return;
     const place = () => {
-      const rect = anchor.current!.getBoundingClientRect();
+      const rect = anchor.current?.getBoundingClientRect();
+      if (!rect || (rect.width === 0 && rect.height === 0)) {
+        setOpen(false);
+        return;
+      }
+      const width = Math.max(rect.width, Math.min(minMenuWidth ?? 0, innerWidth - 24));
+      const left = width > rect.width ? Math.min(rect.left, innerWidth - width - 12) : rect.left;
       const below = innerHeight - rect.bottom - 12, above = rect.top - 12;
       const upwards = below < Math.min(240, visible.length * 42 + 12) && above > below;
       const maxHeight = Math.min(280, upwards ? above : below);
-      setPosition({ left: rect.left, width: rect.width, top: upwards ? rect.top - Math.min(maxHeight, visible.length * 42 + 12) - 5 : rect.bottom + 5, maxHeight });
+      setPosition({ left, width, top: upwards ? rect.top - Math.min(maxHeight, visible.length * 42 + 12) - 5 : rect.bottom + 5, maxHeight });
     };
     place();
     const openingScrollPositions = new Map<Element, { left: number; top: number }>();
@@ -71,7 +77,7 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
       window.removeEventListener('wheel', dismissOnScroll, true);
       window.removeEventListener('touchmove', dismissOnScroll, true);
     };
-  }, [expanded, visible.length]);
+  }, [expanded, visible.length, minMenuWidth]);
   useEffect(() => {
     const menu = popup.current;
     const option = menu?.querySelector<HTMLElement>('[data-active=true]');
