@@ -13,8 +13,9 @@ The user visually approved Dark, Light and Midnight Black on 2026-10-26. The app
 Dark and Light retain their approved surfaces/hues. Midnight Black uses pure-black ordinary surfaces and neutral decoration/controls/speech, preserving meaningful status/difference/category hues and explicit user colors. Theme speech defaults yield to explicit application overrides, then Character/Persona overrides. Light's Character/Persona defaults remain distinct; seed Persona overrides from its own role.
 
 Porcelain is Midnight Black's light counterpart. It uses flat warm-white surfaces
-(`#fcfaf8`), dark neutral speech and a burgundy accent (`#903b40`). It reuses Light's
-status and allocation hues to keep those meanings distinct from the interface accent.
+(`#fcfaf8`) and a burgundy accent (`#903b40`). Character speech defaults to the
+accent and Persona speech defaults to neutral text. Porcelain reuses Light's status
+and allocation hues to keep those meanings distinct from the interface accent.
 
 ## Ownership
 

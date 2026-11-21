@@ -11,7 +11,7 @@ import { createCompactPrompt } from './compact-prompt';
 const themeCases = [
   { theme: 'light', label: 'Light', russian: 'Светлая', character: '#343a42', persona: '#562a0a', speech: 'rgb(52, 58, 66)', personaSpeech: 'rgb(86, 42, 10)', chrome: '#eeebe5', page: 'rgb(247, 245, 241)', input: 'rgb(255, 255, 255)', scheme: 'light', faviconTile: [237, 233, 227, 255] },
   { theme: 'midnight-black', label: 'Midnight Black', russian: 'Полночная чёрная', character: '#e8e8e8', persona: '#e8e8e8', speech: 'rgb(232, 232, 232)', personaSpeech: 'rgb(232, 232, 232)', chrome: /^#(?:000|000000)$/, page: 'rgb(0, 0, 0)', input: 'rgb(0, 0, 0)', scheme: 'dark', faviconTile: [32, 32, 32, 255] },
-  { theme: 'porcelain', label: 'Porcelain', russian: 'Фарфор', character: '#262424', persona: '#262424', speech: 'rgb(38, 36, 36)', personaSpeech: 'rgb(38, 36, 36)', chrome: '#fcfaf8', page: 'rgb(252, 250, 248)', input: 'rgb(252, 250, 248)', scheme: 'light', faviconTile: [252, 250, 248, 255] },
+  { theme: 'porcelain', label: 'Porcelain', russian: 'Фарфор', character: '#903b40', persona: '#262424', speech: 'rgb(144, 59, 64)', personaSpeech: 'rgb(38, 36, 36)', chrome: '#fcfaf8', page: 'rgb(252, 250, 248)', input: 'rgb(252, 250, 248)', scheme: 'light', faviconTile: [252, 250, 248, 255] },
 ] as const;
 
 const defaultFaviconTile = [41, 39, 37, 255];
