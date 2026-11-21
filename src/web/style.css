@@ -50,7 +50,13 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 .editor-disclosure-content{border-block-start:1px solid var(--line);padding:14px}
 .library-sidebar .eyebrow{margin-bottom:20px}
 .library-tabs{display:flex;flex-direction:column;gap:6px}
-.library-tabs button{text-align:left;min-height:44px;padding:11px 14px;background:none;border-color:transparent;color:var(--muted);font-size:14px;font-weight:500}
+:is(.library-tabs,.prompt-editor-tabs) button{text-align:left;min-height:44px;padding:11px 14px;background:none;border-color:transparent;color:var(--muted);font-size:14px;font-weight:500}
+.prompt-editor{min-width:0}
+.prompt-editor-tabs{display:flex;gap:6px;margin-block-end:14px}
+.prompt-editor-tabs button{min-width:0;overflow-wrap:anywhere;text-align:center}
+.prompt-assembly-help{margin:0}
+.prompt-assembly-help p{margin:8px 0 0;overflow-wrap:anywhere}
+.prompt-instructions:not([hidden]){display:grid;gap:12px}
 .library-panel{min-width:0;padding:34px 42px 70px;scrollbar-color:var(--scrollbar) transparent;overscroll-behavior:contain;container:library / inline-size}
 @media(min-width:801px){.library-workspace .library-panel{padding-top:0}}
 
@@ -64,7 +70,7 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 .library-search svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);width:18px;height:18px;fill:none;stroke:var(--muted);stroke-width:1.75;stroke-linecap:round;pointer-events:none}
 .library-search input{padding-left:42px;min-height:44px}
 
-.library-tabs button:is([aria-pressed=true],[aria-current=location]){background:var(--accent-selected);border-color:var(--accent-border);color:var(--header-highlight)}.library-list{display:grid;gap:16px;margin-top:20px}.library-list h2{margin-bottom:5px;overflow-wrap:anywhere}.library-list p{color:var(--muted);font-size:13px;margin-bottom:0;white-space:pre-wrap;overflow-wrap:anywhere}.prompt-blocks{display:grid;gap:16px;margin:20px 0}.prompt-block{border:1px solid var(--control-border);background:var(--surface-low);padding:18px;border-radius:10px}.block-heading{display:flex;align-items:center;gap:8px;margin-bottom:18px;flex-wrap:wrap}.block-heading .checkbox{margin-right:auto}.drag-handle{cursor:grab;color:var(--accent);padding:4px 8px}.import-panel{margin-top:45px;padding-top:28px;border-top:1px solid var(--line)}.actions{flex-wrap:wrap}.tabs{overflow-x:auto;flex-shrink:0}.tabs button{white-space:nowrap}.prompt-block .form-grid{gap:14px}
+:is(.library-tabs button:is([aria-pressed=true],[aria-current=location]),.prompt-editor-tabs button[aria-selected=true]){background:var(--accent-selected);border-color:var(--accent-border);color:var(--header-highlight)}.library-list{display:grid;gap:16px;margin-top:20px}.library-list h2{margin-bottom:5px;overflow-wrap:anywhere}.library-list p{color:var(--muted);font-size:13px;margin-bottom:0;white-space:pre-wrap;overflow-wrap:anywhere}.prompt-blocks{display:grid;gap:16px;margin:20px 0}.prompt-block{border:1px solid var(--control-border);background:var(--surface-low);padding:18px;border-radius:10px}.block-heading{display:flex;align-items:center;gap:8px;margin-bottom:18px;flex-wrap:wrap}.block-heading .checkbox{margin-right:auto}.drag-handle{cursor:grab;color:var(--accent);padding:4px 8px}.import-panel{margin-top:45px;padding-top:28px;border-top:1px solid var(--line)}.actions{flex-wrap:wrap}.tabs{overflow-x:auto;flex-shrink:0}.tabs button{white-space:nowrap}.prompt-block .form-grid{gap:14px}
 @media(max-width:800px){.library-layout{display:block;overflow:auto}.library-sidebar{padding:22px 18px 18px;border-right:0;border-bottom:1px solid var(--line);overflow:visible}.library-sidebar .eyebrow{margin-bottom:12px}.library-tabs{flex-direction:row;flex-wrap:wrap}.library-tabs button{padding:9px 12px;font-size:12px}.library-panel{overflow:visible;padding:24px 18px 50px}.prompt-block{padding:12px}.tabs{gap:20px}.block-heading{gap:4px}}
 
 .library-card,.chat-card{border:1px solid var(--line);background:var(--surface);min-width:0;position:relative;transition:background .15s}
@@ -551,7 +557,7 @@ button.turn-action, .turn-actions > .action-menu-trigger { display: inline-flex;
   /* Explicit palette fills must not inherit button brightness: Light's fill
      would blend into the page, then flash darker as the background fades out. */
   /* Keep category hover below the persistent selected-category style. */
-  .library-tabs button:where(:hover:enabled),
+  :is(.library-tabs,.prompt-editor-tabs) button:where(:hover:enabled),
   .turn-action:hover:enabled:not([aria-disabled="true"]),
   .turn-actions > .action-menu-trigger:hover:enabled,
   .memory-repair-actions > .action-menu-trigger:hover:enabled,

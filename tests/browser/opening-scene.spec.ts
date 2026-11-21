@@ -96,6 +96,8 @@ test('edits the opening instruction and regenerates a greeting without losing it
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
     await page.getByRole('button', { name: 'Prompts', exact: true }).click();
     await page.getByRole('button', { name: 'Default prompt', exact: true }).click();
+    await page.getByRole('tab', { name: 'Action instructions', exact: true }).click();
+    await page.getByRole('tabpanel', { name: 'Action instructions', exact: true }).getByText('Opening scene', { exact: true }).click();
   };
   const setting = page.getByRole('textbox', { name: 'Opening scene instruction', exact: true });
   for (const theme of themeSchema.options) {

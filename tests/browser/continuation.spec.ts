@@ -227,6 +227,8 @@ test('a saved prompt controls future continuation previews and requests', async 
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
     await page.getByRole('button', { name: 'Prompts', exact: true }).click();
     await page.getByRole('button', { name: 'Default prompt', exact: true }).click();
+    await page.getByRole('tab', { name: 'Action instructions', exact: true }).click();
+    await page.getByRole('tabpanel', { name: 'Action instructions', exact: true }).getByText('Continue', { exact: true }).click();
   };
   const setting = page.getByRole('textbox', { name: 'Continuation instruction' });
   const custom = '  Move {{char}} to the doorway. Wait for {{user}}.  ';

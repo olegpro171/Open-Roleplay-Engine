@@ -1,10 +1,10 @@
 import { expect } from '@playwright/test';
 import { test } from './isolated-app';
-import { appearanceStatusSchema } from '../../src/shared/appearance';
+import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 import { defaultContinuationInstruction } from '../../src/shared/default-prompt';
 
-for (const theme of ['dark', 'light', 'midnight-black'] as const) for (const width of [1440, 390]) {
+for (const theme of themeSchema.options) for (const width of [1440, 390]) {
   test(`new prompts start with blank instructions in ${theme} at ${width}px`, async ({ page, browserApp }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/');
@@ -20,12 +20,25 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) for (const wid
     await page.getByRole('button', { name: 'Prompts', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Default prompt', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'New prompt', exact: true }).click();
+    const main = page.getByRole('tab', { name: 'Main prompt', exact: true });
+    const actionTab = page.getByRole('tab', { name: 'Action instructions', exact: true });
     const blocks = page.getByRole('region', { name: /^Prompt block \d+$/ });
+    await expect(main).toHaveAttribute('aria-selected', 'true');
     await expect(blocks).toHaveCount(9);
     const continuation = page.getByRole('textbox', { name: 'Continuation instruction' });
+    await expect(continuation).toHaveCount(0);
+    await expect(page.getByText(/^Enabled blocks and markers compose the base prompt/)).toBeHidden();
+    await page.screenshot({ path: testInfo.outputPath('main-prompt.png') });
+    await actionTab.click();
+    await expect(blocks).toHaveCount(0);
+    const instructions = page.getByRole('tabpanel', { name: 'Action instructions', exact: true });
+    await expect(instructions.getByText('Built-in instruction', { exact: true })).toHaveCount(2);
+    await page.screenshot({ path: testInfo.outputPath('action-instructions.png') });
+    await instructions.getByText('Continue', { exact: true }).click();
     await expect(continuation).toHaveValue(defaultContinuationInstruction);
     expect(await continuation.evaluate(field => field.clientHeight >= field.scrollHeight)).toBe(true);
     await continuation.screenshot({ path: testInfo.outputPath('continuation-instruction.png') });
+    await main.click();
     const checkInstructions = async () => {
       for (const [position, name] of [[1, 'Pre-history instructions'], [9, 'Post-history instructions']] as const) {
         const block = blocks.nth(position - 1);
@@ -54,3 +67,58 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) for (const wid
     await checkInstructions();
   });
 }
+
+test('keeps edits across prompt tabs and reveals invalid blocks before saving', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('Owner password').fill('browser-synthetic-password');
+  await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+  await page.getByRole('button', { name: 'New prompt', exact: true }).click();
+  const main = page.getByRole('tab', { name: 'Main prompt', exact: true });
+  const actionTab = page.getByRole('tab', { name: 'Action instructions', exact: true });
+  const instructions = page.getByRole('tabpanel', { name: 'Action instructions', exact: true });
+  const block = page.getByRole('region', { name: 'Prompt block 1', exact: true });
+  const blockName = block.getByRole('textbox', { name: 'Block name', exact: true });
+  const blockText = block.getByRole('textbox', { name: 'Block text', exact: true });
+  const save = page.getByRole('button', { name: 'Save', exact: true });
+  const name = 'Prompt edited across tabs';
+  const text = 'Keep the ferry dialogue brief.';
+  const openingText = 'Have {{char}} meet {{user}} at the ferry.';
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(name);
+  await page.getByText('How prompt assembly works', { exact: true }).click();
+  await expect(page.getByText(/^Enabled blocks and markers compose the base prompt/)).toBeVisible();
+  await block.getByRole('button', { name: 'Expand block 1', exact: true }).click();
+  await blockText.fill(text);
+  await blockName.clear();
+
+  await main.press('ArrowRight');
+  await expect(actionTab).toBeFocused();
+  await expect(actionTab).toHaveAttribute('aria-selected', 'true');
+  await expect(block).toBeHidden();
+  await instructions.getByText('Opening scene', { exact: true }).click();
+  const opening = instructions.getByRole('textbox', { name: 'Opening scene instruction', exact: true });
+  await opening.fill(openingText);
+  await expect(instructions.getByText('Custom text', { exact: true })).toBeVisible();
+  await save.click();
+  await expect(main).toHaveAttribute('aria-selected', 'true');
+  await expect(blockName).toBeFocused();
+  await expect(blockText).toHaveValue(text);
+  await blockName.fill('Ferry dialogue');
+
+  await main.press('End');
+  await expect(opening).toHaveValue(openingText);
+  await instructions.getByText('Opening scene', { exact: true }).click();
+  await expect(opening).toHaveCount(0);
+  await instructions.getByText('Opening scene', { exact: true }).click();
+  await expect(opening).toHaveValue(openingText);
+  await instructions.getByText('Continue', { exact: true }).click();
+  await instructions.getByRole('textbox', { name: 'Continuation instruction', exact: true }).clear();
+  await expect(instructions.getByText('Built-in instruction', { exact: true })).toBeVisible();
+  await save.click();
+  await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+  const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
+  const saved = library.prompts.find(prompt => prompt.name === name);
+  expect(saved).toMatchObject({ continuationInstruction: '', openingInstruction: openingText });
+  expect(saved?.blocks[0]).toMatchObject({ name: 'Ferry dialogue', text });
+});

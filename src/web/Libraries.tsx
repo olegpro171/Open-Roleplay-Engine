@@ -23,6 +23,7 @@ import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { CharacterAvatar, PictureSquare } from './Pictures';
 import { LibraryCard } from './LibraryCard';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { ChatWorkspace } from './ChatWorkspace';
 import type { ChatToolsSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
 import { characterLabel, personaLabel, characterFields, defaultPrompt, markers, markerLabel, promptWarningMessages, type ChatSummary, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
@@ -779,7 +780,7 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, busy,
       <ConnectionParameters draft={parameters} change={setParameters} disabled={busy || stale} />
       <ConnectionTools connection={data as Connection} parameters={parameters} connectionId={initial.id} apiKey={removeKey ? '' : key || undefined} />
     </>}
-    {initial.kind === 'prompts' && <div className="full"><p className="small muted">{t("libraries.enabled_blocks_and_markers_compose_the_base", { value: '{{user}}', value2: '{{char}}' })}</p><PromptEditor value={data as PromptPreset} change={setData} /></div>}
+    {initial.kind === 'prompts' && <PromptEditor value={data as PromptPreset} change={setData} />}
   </div></fieldset>{error && <p role="alert">{error}</p>}{stale && <p role="status">{t("libraries.the_library_changed_close_this_editor_and")}</p>}{stale && dirty && <CopyLibraryDraft editor={draft} />}<EditorActions formId={formId} disabled={busy || stale} cancelDisabled={busy} close={close} /></form></NumberDraftContext.Provider>;
 }
 function ConnectionTools({ connection, parameters, connectionId, apiKey }: { connection: Connection; parameters: ConnectionParameterDraft; connectionId?: string; apiKey?: string }) {
@@ -822,10 +823,85 @@ function ContextPresetFields({ value, change, connections }: { value: ContextPre
     <p className="small muted full">{t("libraries.available_variables_source_text_is_attached_separately", { value: '{{target_tokens}}', value2: '{{level}}', value3: '{{user}}', value4: '{{char}}' })}</p>
   </>;
 }
+function PromptInstruction({ title, label, help, custom, fallback, change }: {
+  title: string; label: string; help: string; custom?: string; fallback: string; change: (text: string) => void;
+}) {
+  useLocale();
+  const helpId = useId();
+  const [open, setOpen] = useState(false);
+  return <details className="editor-disclosure" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>
+      <span>
+        <span>{title}</span>
+        <small className="muted">{t(custom?.trim() ? 'libraries.prompt_instruction_custom' : 'libraries.prompt_instruction_default')}</small>
+      </span>
+      <Icon name="ArrowShortBottom" />
+    </summary>
+    {open && <label className="editor-disclosure-content">
+      <small id={helpId}>{help}</small>
+      <EditorTextarea aria-label={label} aria-describedby={helpId} maxLength={100_000}
+        value={custom ?? fallback} onChange={event => change(event.target.value)} />
+    </label>}
+  </details>;
+}
+
+const promptEditorTabs = [
+  ['main', 'libraries.main_prompt'],
+  ['instructions', 'libraries.action_instructions'],
+] as const;
+type PromptEditorTab = (typeof promptEditorTabs)[number][0];
+
 function PromptEditor({ value, change }: { value: PromptPreset; change: (value: PromptPreset) => void }) {
   useLocale();
-  const instructionHelp = useId();
-  const openingHelp = useId();
+  const id = useId();
+  const [activeTab, setActiveTab] = useState<PromptEditorTab>('main');
+  return <div className="full prompt-editor">
+    <div className="prompt-editor-tabs" role="tablist" aria-label={t('libraries.prompt_editor_sections')}>
+      {promptEditorTabs.map(([tab, label]) => <button key={tab} type="button" role="tab"
+        id={`${id}-${tab}-tab`} aria-controls={`${id}-${tab}-panel`}
+        aria-selected={activeTab === tab} tabIndex={activeTab === tab ? 0 : -1}
+        onClick={() => setActiveTab(tab)}
+        onKeyDown={event => {
+          if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+          let next: PromptEditorTab;
+          switch (event.key) {
+            case 'ArrowLeft':
+            case 'ArrowRight': next = tab === 'main' ? 'instructions' : 'main'; break;
+            case 'Home': next = 'main'; break;
+            case 'End': next = 'instructions'; break;
+            default: return;
+          }
+          event.preventDefault();
+          setActiveTab(next);
+          event.currentTarget.ownerDocument.getElementById(`${id}-${next}-tab`)?.focus();
+        }}>{t(label)}</button>)}
+    </div>
+    <WarningMessages messages={promptWarningMessages(value)} />
+    <div role="tabpanel" id={`${id}-main-panel`} aria-labelledby={`${id}-main-tab`} hidden={activeTab !== 'main'}
+      onInvalid={() => {
+        // Reveal invalid block fields before the browser moves focus to the first one.
+        if (activeTab !== 'main') flushSync(() => setActiveTab('main'));
+      }}>
+      <details className="prompt-assembly-help">
+        <summary>{t('libraries.how_prompt_assembly_works')}</summary>
+        <p className="small muted">{t('libraries.enabled_blocks_and_markers_compose_the_base', { value: '{{user}}', value2: '{{char}}' })}</p>
+      </details>
+      <PromptBlocks value={value} change={change} />
+    </div>
+    <div className="prompt-instructions" role="tabpanel" id={`${id}-instructions-panel`}
+      aria-labelledby={`${id}-instructions-tab`} hidden={activeTab !== 'instructions'}>
+      <PromptInstruction title={t('continue.action')} label={t('continue.instruction')} help={t('continue.instruction_help')}
+        custom={value.continuationInstruction} fallback={defaultContinuationInstruction}
+        change={continuationInstruction => change({ ...value, continuationInstruction })} />
+      <PromptInstruction title={t('libraries.opening_scene')} label={t('opening.instruction')} help={t('opening.instruction_help')}
+        custom={value.openingInstruction} fallback={defaultOpeningInstruction}
+        change={openingInstruction => change({ ...value, openingInstruction })} />
+    </div>
+  </div>;
+}
+
+function PromptBlocks({ value, change }: { value: PromptPreset; change: (value: PromptPreset) => void }) {
+  useLocale();
   const [expandedBlocks, setExpandedBlocks] = useState<Set<string>>(() => new Set());
   function update(index: number, block: PromptBlock) { change({ ...value, blocks: value.blocks.map((old, i) => i === index ? block : old) }); }
   function move(from: number, to: number) {
@@ -833,19 +909,7 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
     change({ ...value, blocks: moveListItem(value.blocks, from, to) });
   }
   const reorder = useListReorder(move);
-  return <><WarningMessages messages={promptWarningMessages(value)} />
-  <label className="full">{t('continue.instruction')}
-    <EditorTextarea aria-label={t('continue.instruction')} aria-describedby={instructionHelp}
-      maxLength={100_000} value={value.continuationInstruction ?? defaultContinuationInstruction}
-      onChange={event => change({ ...value, continuationInstruction: event.target.value })} />
-    <small id={instructionHelp}>{t('continue.instruction_help')}</small>
-  </label>
-  <label className="full">{t('opening.instruction')}
-    <EditorTextarea aria-label={t('opening.instruction')} aria-describedby={openingHelp}
-      maxLength={100_000} value={value.openingInstruction ?? defaultOpeningInstruction}
-      onChange={event => change({ ...value, openingInstruction: event.target.value })} />
-    <small id={openingHelp}>{t('opening.instruction_help')}</small>
-  </label>
+  return <>
   <div className="prompt-blocks" {...reorder.list}>{value.blocks.map((block, index) => {
     const expanded = expandedBlocks.has(block.id);
     return <section className={`prompt-block${reorder.rowClass(index, value.blocks.length)}`} aria-label={t("libraries.prompt_block", { value: index + 1 })} key={block.id}>
