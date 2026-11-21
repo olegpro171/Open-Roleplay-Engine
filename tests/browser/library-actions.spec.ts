@@ -1,4 +1,4 @@
-import { openLibraryActions } from './library-card-helpers';
+import { openLibraryActions, selectLibraryCategory } from './library-card-helpers';
 import { expect, test, type Locator } from '@playwright/test';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
@@ -37,7 +37,7 @@ test('library action menus stack controls consistently across categories and vie
     await page.setViewportSize({ width, height: 900 });
     let creationSlot: { x: number; width: number } | undefined;
     for (const fixture of fixtures) {
-      await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: fixture.category, exact: true }).click();
+      await selectLibraryCategory(page, fixture.category);
       const panel = page.getByRole('region', { name: fixture.category, exact: true });
       const toolbar = panel.getByRole('group', { name: 'Library actions', exact: true });
       const create = await bounds(toolbar.getByRole('button').first());
@@ -93,7 +93,7 @@ test('library action menus stack controls consistently across categories and vie
   // Confirm the relocated bookmark still saves, and card actions remain usable
   // from the keyboard after the sticky header has scrolled into position.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Prompts', exact: true }).click();
+  await selectLibraryCategory(page, 'Prompts');
   const prompt = page.getByRole('article').filter({ hasText: 'Action layout prompts with' });
   const bookmark = prompt.getByRole('button', { name: /^Set .* default/ });
   await bookmark.focus();
@@ -125,7 +125,7 @@ test('creation controls stay reachable while browsing long lists at desktop and 
     expect(response.ok(), await response.text()).toBe(true);
   }
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Personas', exact: true }).click();
+  await selectLibraryCategory(page, 'Personas');
   const panel = page.getByRole('region', { name: 'Personas', exact: true });
   await panel.getByRole('searchbox').fill('Pinned controls');
   for (const width of [1280, 820, 390, 320]) {

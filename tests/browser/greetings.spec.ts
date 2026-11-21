@@ -3,7 +3,7 @@ import { expect, type Page } from '@playwright/test';
 import { test } from './isolated-app';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
-import { confirmLeaveEditor } from './library-card-helpers';
+import { confirmLeaveEditor, selectLibraryCategory } from './library-card-helpers';
 
 async function library(page: Page): Promise<LibrarySnapshot> {
   return page.request.get('/api/library').then(response => response.json());
@@ -16,7 +16,7 @@ for (const width of [1440, 390]) {
     await page.getByLabel('Owner password').fill('browser-synthetic-password');
     await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'Characters', exact: true }).click();
+    await selectLibraryCategory(page, 'Characters');
     const name = `Greeting keeper ${width}`;
     const card = { spec: 'chara_card_v3', spec_version: '3.0', data: {
       name, description: 'Synthetic greeting keeper.', first_mes: 'Welcome, {{user}}.',
@@ -66,7 +66,7 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
     await addChatModel(page);
-    await page.getByRole('button', { name: 'Chats', exact: true }).click();
+    await selectLibraryCategory(page, 'Chats');
     await openChatCreation(page);
     await chooseNewChatCharacter(page, name);
     await page.getByRole('button', { name: 'Start chat', exact: true }).click();

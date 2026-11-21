@@ -22,7 +22,7 @@ import { WarningDetails, WarningDialog, WarningMessages } from './WarningDialog'
 import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { CharacterAvatar, PictureSquare } from './Pictures';
 import { LibraryCard } from './LibraryCard';
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { ChatWorkspace } from './ChatWorkspace';
 import type { ChatToolsSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
@@ -78,19 +78,13 @@ function libraryCardDetails(item: LibraryRecord): string | undefined {
   if ('minTail' in item) return t('libraries.minimum_tail_batch', { minTail: item.minTail, batchSize: item.batchSize });
 }
 
-const libraryLabels: Record<LibraryKind | 'chats', string> = {
-  chats: 'Chats',
-  personas: 'Personas',
-  characters: 'Characters',
-  lorebooks: 'Lorebooks',
-  prompts: 'Prompts',
-  connections: 'Connections',
-  contexts: 'Context presets',
-};
-function lastLibrarySection(): LibraryKind | 'chats' {
+type LibraryCategory = LibraryKind | 'chats';
+const libraryCategories = ['chats', 'characters', 'personas', 'lorebooks', 'prompts', 'connections', 'contexts'] as const satisfies readonly LibraryCategory[];
+
+function lastLibrarySection(): LibraryCategory {
   try {
     const value = localStorage.getItem('roleplay-library-section');
-    return value && Object.hasOwn(libraryLabels, value) ? value as LibraryKind | 'chats' : 'chats';
+    return libraryCategories.find(category => category === value) ?? 'chats';
   } catch { return 'chats'; }
 }
 function selection(snapshot: ChatToolsSnapshot): Selection {
@@ -224,7 +218,7 @@ function LibrarySearch({ section, value, change, sort, changeSort, children }: {
     {children}<div className="library-sort"><Dropdown aria-label={sortLibraryLabel(section)} value={sort} onChange={changeSort} options={sortOptions(section)} /></div>
   </div>;
 }
-const libraryIcons: Record<LibraryKind | 'chats', ReactNode> = {
+const libraryIcons: Record<LibraryCategory, ReactNode> = {
   chats: <Icon name="ChatOutline" />,
   personas: <PersonaIcon />,
   characters: <Icon name="Profile" />,
@@ -233,10 +227,6 @@ const libraryIcons: Record<LibraryKind | 'chats', ReactNode> = {
   connections: <Icon name="Link" />,
   contexts: <Icon name="FilterOutline" />,
 };
-
-function LibraryIcon({ kind }: { kind: LibraryKind | 'chats' }) {
-  return libraryIcons[kind];
-}
 
 function LibraryHeader({ editing, children }: { editing: boolean; children: ReactNode }) {
   const header = useRef<HTMLElement>(null);
@@ -280,7 +270,7 @@ type LibraryEditing = {
 
 function libraryScroller(panel: HTMLElement | null) {
   if (!panel) return null;
-  // Phones scroll the categories and content together in the workspace.
+  // Phones scroll the heading and content together in the workspace.
   return getComputedStyle(panel).overflowY === 'visible' ? panel.parentElement : panel;
 }
 
@@ -313,7 +303,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
 }) {
   useLocale();
   const [recovery, setRecovery] = useState(recoveredDraft);
-  const [section, setSection] = useState<LibraryKind | 'chats'>(recovery?.editor.kind ?? initialTarget?.kind ?? lastLibrarySection);
+  const [section, setSection] = useState<LibraryCategory>(recovery?.editor.kind ?? initialTarget?.kind ?? lastLibrarySection);
   useEffect(() => {
     try { localStorage.setItem('roleplay-library-section', section); }
     catch { /* Navigation still works when browser storage is unavailable. */ }
@@ -370,11 +360,18 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
   const reviewMemoryCleanup = useMemoryCleanup(run, `${section}:${editing?.id ?? editing?.kind ?? ''}`);
   const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
   const panel = useRef<HTMLElement>(null);
+  const categoryTrigger = useRef<HTMLButtonElement>(null);
   const previousEditor = useRef(editing);
+  const previousSection = useRef(section);
   useLayoutEffect(() => {
     const closedEditor = previousEditor.current;
+    const changedSection = previousSection.current !== section;
     previousEditor.current = editing;
-    if (!closedEditor || editing) return;
+    previousSection.current = section;
+    if (!closedEditor || editing) {
+      if (changedSection) libraryScroller(panel.current)?.scrollTo({ left: 0, top: 0, behavior: 'instant' });
+      return;
+    }
     const scroller = libraryScroller(panel.current);
     if (!scroller) return;
     const top = closedEditor.kind === section ? closedEditor.listScrollTop ?? 0 : 0;
@@ -400,6 +397,16 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
   const presetImportTrigger = useRef<HTMLButtonElement>(null);
   const [pendingBook, setPendingBook] = useState<string | null>(null);
   const [filters, setFilters] = useState<string[]>([]);
+  function changeSection(kind: LibraryCategory, returnFocus?: HTMLElement) {
+    leaveEditor(() => {
+      if (kind !== 'characters') setFilters([]);
+      setSection(kind);
+      closeEditor();
+      setNotice('');
+      setDiagnostics([]);
+      setSearch('');
+    }, { returnFocus });
+  }
   const pictureIndex = useMemo(() => new Map(library.characterPictures.map(picture => [picture.characterId, picture])), [library.characterPictures]);
   const tagCatalog = useMemo(() => new Map(library.tags.map(tag => [tag.id, tag])), [library.tags]);
   const tagIndex = useMemo(() => characterTagIndex(library.characterTags), [library.characterTags]);
@@ -515,27 +522,31 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
       <div className="library-navigation">
       <p className="eyebrow">{t("libraries.your_libraries")}</p>
       <nav className="library-tabs" aria-label={t("libraries.library_categories")}>
-        {(['chats', 'characters', 'personas', 'lorebooks', 'prompts', 'connections', 'contexts'] as const).map(kind => <button
+        {libraryCategories.map(kind => <button
           type="button"
           aria-pressed={section === kind}
           key={kind}
           disabled={busy && editorOpen}
-          onClick={event => leaveEditor(() => {
-            if (kind !== 'characters') setFilters([]);
-            setSection(kind);
-            closeEditor();
-            setNotice('');
-            setDiagnostics([]);
-            setSearch('');
-          }, { returnFocus: event.currentTarget })}
-        ><LibraryIcon kind={kind} />{libraryLabel(kind)}</button>)}
+          onClick={event => changeSection(kind, event.currentTarget)}
+        >{libraryIcons[kind]}{libraryLabel(kind)}</button>)}
       </nav>
       </div>
       <div className="library-editor-target" ref={setActionsTarget} />
     </aside>
-    <section ref={panel} key={section} className="document-panel library-panel" aria-labelledby="library-heading">
+    {/* Keep the heading mounted so the picker retains focus when the category changes. */}
+    <section ref={panel} className="document-panel library-panel" aria-labelledby="library-heading">
     <LibraryHeader editing={editorOpen}>
-      <h1 id="library-heading">{libraryLabel(section)}</h1>
+      <h1 id="library-heading" aria-label={libraryLabel(section)}>
+        <span className="library-desktop-heading">{libraryLabel(section)}</span>
+        <Dropdown presentation="heading" triggerRef={categoryTrigger} aria-label={t('libraries.library_categories')}
+          value={section} disabled={busy && editorOpen}
+          options={libraryCategories.map(kind => ({ value: kind, label: libraryLabel(kind), leading: libraryIcons[kind] }))}
+          onChange={value => {
+            const kind = libraryCategories.find(category => category === value);
+            if (kind && kind !== section) changeSection(kind, categoryTrigger.current ?? undefined);
+          }} />
+      </h1>
+      <Fragment key={section}>
       {section === 'chats' && <div className="actions library-toolbar" role="group" aria-label={t("character_import.library_actions")}><button disabled={busy} onClick={openNewChat}><Icon name="AddToList" />{t("libraries.new_chat")}</button>
         <TranscriptImport destination={{ kind: 'chat', library }} disabled={busy} created={id => openChat(id, 'settings')} />
       </div>}
@@ -585,7 +596,9 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
       {!editorOpen && <LibrarySearch section={section} value={search} change={setSearch} sort={sort} changeSort={changeSort}>
         {section === 'characters' && <TagFilterMenu library={library} busy={busy} run={run} selected={filters} change={setFilters} />}
       </LibrarySearch>}
+      </Fragment>
     </LibraryHeader>
+    <Fragment key={section}>
     {notice && <p className="library-notice" role="status">{notice}</p>}<LoreDiagnostics diagnostics={diagnostics} />
     {warning && <WarningDialog {...warning} close={() => setWarning(null)} />}
     {section === 'chats' ? <>
@@ -667,6 +680,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
       {section === 'characters' && library.characters.length > 0 && visibleRecords.length === 0 && <p role="status">{query ? filters.length ? t("libraries.no_characters_match_your_search_and_selected") : t("libraries.no_characters_match_your_search") : t("libraries.no_characters_match_all_selected_tags_clear")}</p>}
       </>}
     </>}
+    </Fragment>
     </section>
   </main>{deletion && <LibraryDeletionDialog target={deletion}
     name={library[deletion.kind].find(item => item.id === deletion.id)?.name}

@@ -1,4 +1,4 @@
-import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
+import { confirmLeaveEditor, openLibraryActions, selectLibraryCategory } from './library-card-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import sharp from 'sharp';
@@ -17,7 +17,7 @@ async function login(page: Page) {
   const session = await page.request.get('/api/session').then(response => response.json());
   await page.goto('/'); await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
-  await page.getByRole('button', { name: 'Libraries', exact: true }).click(); await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click(); await selectLibraryCategory(page, 'Characters');
 }
 async function corner(page: Page) {
   await page.getByRole('button', { name: 'Adjust crop', exact: true }).click();
@@ -232,7 +232,7 @@ test('keeps crop/editor save levels separate, recovers exact saves, and refreshe
   const picture = saved.characterPictures.find(item => item.characterId === card.id); if (!picture) throw new Error('Missing saved picture');
   expect(picture.crop).toEqual({ version: 1, x: 0, y: 0, width: .125, height: .25 });
   expect(await pixel(await page.request.get(picture.thumbnailUrl).then(response => response.body()), 160, 160)).toEqual([240,30,30,255]);
-  const other = await context.newPage(); await other.goto('/'); await other.getByRole('button', { name: 'Libraries', exact: true }).click(); await other.getByRole('button', { name: 'Characters', exact: true }).click();
+  const other = await context.newPage(); await other.goto('/'); await other.getByRole('button', { name: 'Libraries', exact: true }).click(); await selectLibraryCategory(other, 'Characters');
   await expect(row(other, card.name).locator('img')).toHaveAttribute('src', picture.thumbnailUrl);
   await row(page, card.name).getByRole('button', { name: `${card.name}`, exact: true }).click();
   await upload(page, await sharp({ create: { width: 100, height: 300, channels: 4, background: 'teal' } }).png().toBuffer(), 'Replace picture');
@@ -309,7 +309,7 @@ test('keeps mixed library rows bounded and crop controls usable at desktop, phon
     const url = new URL(route.request().url());
     return url.pathname.includes(`/characters/${unavailable.id}/`) ? route.abort() : route.continue();
   });
-  await page.reload(); await page.getByRole('button', { name: 'Libraries', exact: true }).click(); await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await page.reload(); await page.getByRole('button', { name: 'Libraries', exact: true }).click(); await selectLibraryCategory(page, 'Characters');
   await row(page, 'Picture visual 2').scrollIntoViewIfNeeded(); await expect(row(page, 'Picture visual 2')).toContainText('Picture unavailable');
   for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 });

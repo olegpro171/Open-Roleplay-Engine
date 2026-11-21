@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { addChatCharacter, addChatModel, chooseNewChatCharacter, openChatTool, openNewChatSettings, openChatCreation } from './chat-tools';
 import { expect, type Page } from '@playwright/test';
 import { test } from './isolated-app';
@@ -121,7 +122,7 @@ for (const width of [1440, 390]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Chats', exact: true }).click();
+    await selectLibraryCategory(page, 'Chats');
     await page.getByRole('button', { name: previous.settings.title, exact: true }).click();
     await expect(composer).toHaveValue('Keep the draft from the previous chat.');
   });
@@ -145,9 +146,8 @@ test('an empty Story guides the first send or offers help choosing a Connection'
   await addChatModel(page);
   await addChatCharacter(page, 'Silent keeper');
   const libraries = page.getByRole('button', { name: 'Libraries', exact: true });
-  const chatsCategory = page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Chats', exact: true });
   await libraries.click();
-  await chatsCategory.click();
+  await selectLibraryCategory(page, 'Chats');
   await openChatCreation(page);
   await page.getByRole('button', { name: 'Start chat', exact: true }).click();
   await expect(firstMessage).toBeVisible();
@@ -194,7 +194,7 @@ test('an empty Story guides the first send or offers help choosing a Connection'
   await expect(turn).toHaveCount(0);
 
   await libraries.click();
-  await chatsCategory.click();
+  await selectLibraryCategory(page, 'Chats');
   await page.getByRole('region', { name: 'Chats', exact: true }).getByRole('button', { name: legacyChat.title, exact: true }).click();
   await expect(missingConnection).toBeVisible();
   await expect(firstMessage).toHaveCount(0);

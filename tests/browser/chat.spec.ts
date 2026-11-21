@@ -1,5 +1,5 @@
 import { enterModel } from './model-picker-helpers';
-import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
+import { confirmLeaveEditor, openLibraryActions, selectLibraryCategory } from './library-card-helpers';
 import { openChatTool, openNewChatSettings, openChatCreation, chooseNewChatCharacter, openBlankChatFixture } from './chat-tools';
 import { expect, devices, type Page } from '@playwright/test';
 import { test as isolatedTest } from './isolated-app';
@@ -30,7 +30,7 @@ async function createOwner(page: Page) {
 async function createTowerConnection(page: Page) {
   const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  await selectLibraryCategory(page, 'Connections');
   await page.getByRole('button', { name: 'New Connection', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Tower model');
   await page.getByLabel('API base URL').fill(endpoint);
@@ -42,12 +42,12 @@ async function createTowerConnection(page: Page) {
 test('desktop and phone share streaming, recovery, edits, and inspectable requests', async ({ page, phone, request }) => {
   await createOwner(page);
   await createTowerConnection(page);
-  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await selectLibraryCategory(page, 'Characters');
   await page.getByRole('button', { name: 'New character', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Keeper');
   await page.getByLabel('Character description', { exact: true }).fill('You play the keeper of the tower.');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await page.getByRole('button', { name: 'Personas', exact: true }).click();
+  await selectLibraryCategory(page, 'Personas');
   await page.getByRole('button', { name: 'New persona', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Traveller');
   await page.getByLabel('Persona description').fill('The user is a traveller.');
@@ -183,7 +183,7 @@ test('desktop and phone share streaming, recovery, edits, and inspectable reques
   await page.screenshot({ path: 'test-results/desktop-chat.png', fullPage: true });
 
   await phone.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await phone.getByRole('button', { name: 'Connections', exact: true }).click();
+  await selectLibraryCategory(phone, 'Connections');
   await phone.getByRole('article').getByRole('heading').getByRole('button').click();
   await expect(phone.getByLabel('API key', { exact: true })).toHaveValue('');
   await expect(phone.getByLabel('API key', { exact: true })).toHaveAttribute('placeholder', 'Saved · leave blank to keep it');
@@ -194,16 +194,16 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed J
   await createOwner(page);
   await createTowerConnection(page);
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Personas', exact: true }).click();
+  await selectLibraryCategory(page, 'Personas');
   const persona = { personas: { 'visitor.png': 'Visitor' }, persona_descriptions: { 'visitor.png': { description: '{{user}} is visiting {{char}}.' } } };
   await page.getByLabel('Import persona').setInputFiles({ name: 'personas.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(persona)) });
   await expect(page.getByRole('heading', { name: 'Visitor', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await selectLibraryCategory(page, 'Characters');
   const card = { spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'Moon', description: '{{char}} welcomes {{user}}.', personality: 'Kind', scenario: 'An observatory', first_mes: 'Hello, {{user}}. I am {{char}}.', alternate_greetings: ['Welcome back, {{user}}.'], mes_example: '', character_book: { extensions: {}, entries: [{ keys: [], content: 'INACTIVE LORE', enabled: false, insertion_order: 0, extensions: {} }] } } };
   await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'moon.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(card)) });
   await page.getByRole('button', { name: 'Import', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Moon', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+  await selectLibraryCategory(page, 'Prompts');
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Observatory prompt');
   await page.getByRole('button', { name: 'Expand block 2', exact: true }).click();
@@ -218,7 +218,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed J
   await choose(page, `Marker source for block ${markerPosition}`, 'Character scenario');
   await page.getByRole('button', { name: `Move block ${markerPosition} up`, exact: true }).click();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await selectLibraryCategory(page, 'Chats');
   await openChatCreation(page);
   await chooseNewChatCharacter(page, 'Moon');
   await choose(page, 'Persona', 'Visitor');
@@ -242,7 +242,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed J
   expect(JSON.stringify(preview)).not.toContain('INACTIVE LORE');
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await selectLibraryCategory(page, 'Chats');
   const entries = [{ user_name: 'Visitor', character_name: 'Moon', chat_metadata: { summary: 'IGNORE OLD SUMMARY' } },
     { is_user: false, mes: 'Imported opening', extra: { advancedMemorySnapshot: 'x'.repeat(1_200_000), hiddenFromAI: true } },
     { is_user: false, mes: 'Another assistant entry' }, { is_user: true, mes: 'A question' }, { is_user: false, mes: 'An answer' }, { is_user: true, mes: 'Unanswered question' }];
@@ -287,7 +287,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed J
   await page.getByRole('button', { name: 'The Observatory', exact: true }).click();
   await expect(page.getByLabel('Conversation')).toContainText('Hello, Visitor. I am Moon.');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+  await selectLibraryCategory(page, 'Prompts');
   const builtIn = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Default prompt' }) });
   await builtIn.getByRole('heading').getByRole('button').click();
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
@@ -308,7 +308,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed J
   await page.screenshot({ path: 'test-results/phone-imported-chat.png', fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await selectLibraryCategory(page, 'Chats');
   await page.screenshot({ path: 'test-results/desktop-libraries.png', fullPage: true });
 });
 
@@ -319,7 +319,7 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await expect(page.getByRole('combobox', { name: 'Current chat', exact: true })).toHaveCount(0);
   await expect(page.locator('.topbar .tabs button')).toHaveText(['Story', 'Libraries', 'Settings']);
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  await selectLibraryCategory(page, 'Connections');
   await page.getByRole('article').getByRole('heading').getByRole('button').click();
   for (const name of ['Model context window', 'Reserved output tokens']) {
     const field = page.getByLabel(name, { exact: true });
@@ -341,7 +341,7 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await expect(page.getByLabel('API key', { exact: true })).toBeDisabled();
   await page.getByLabel('Remove the saved API key').uncheck();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+  await selectLibraryCategory(page, 'Prompts');
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
   const first = page.getByRole('region', { name: 'Prompt block 1', exact: true });
   const blockCount = await page.locator('.prompt-block').count();
@@ -392,7 +392,7 @@ test('UI controls, prompt collapse and drop position, model completion, and repe
   await page.screenshot({ path: 'test-results/phone-prompt.png', fullPage: true });
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await confirmLeaveEditor(page);
-  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await selectLibraryCategory(page, 'Chats');
   await openBlankChatFixture(page);
   await openNewChatSettings(page);
   await page.getByLabel('Chat title').fill('Temporary sweep chat');

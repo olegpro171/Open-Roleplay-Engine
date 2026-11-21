@@ -1,23 +1,30 @@
 import { t, useLocale, locale } from './localization';
 import { Icon } from './Icon';
 import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
-import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type InputHTMLAttributes, type KeyboardEvent, type PointerEventHandler, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
 type Option = { value: string; label: string; disabled?: boolean; leading?: ReactNode };
+type TouchPress = { pointerId: number; value: string; x: number; y: number };
 type DropdownProps = {
   value: string; onChange: (value: string) => void; options: Option[];
   'aria-label'?: string; disabled?: boolean; editable?: boolean; required?: boolean; minMenuWidth?: number;
+  presentation?: 'heading'; triggerRef?: RefObject<HTMLButtonElement | null>;
 };
 
-export function Dropdown({ value, onChange, options, disabled, editable, required, minMenuWidth, 'aria-label': label }: DropdownProps) {
+export function Dropdown({ value, onChange, options, disabled, editable, required, minMenuWidth, presentation, triggerRef, 'aria-label': label }: DropdownProps) {
   useLocale();
-  const id = useId(), anchor = useRef<HTMLDivElement>(null), popup = useRef<HTMLDivElement>(null);
+  const heading = presentation === 'heading';
+  const Anchor = heading ? 'span' : 'div';
+  const id = useId(), anchor = useRef<HTMLElement>(null), popup = useRef<HTMLDivElement>(null);
   const openedWith = useRef<PopupInput>('keyboard');
   const [open, setOpen] = useState(false), [active, setActive] = useState(0);
-  const [position, setPosition] = useState({ left: 0, top: 0, width: 0, maxHeight: 280 });
+  const [touchPress, setTouchPress] = useState<TouchPress | null>(null);
+  const [position, setPosition] = useState<CSSProperties>({ left: 0, top: 0, width: 0, maxHeight: 280 });
+  if (heading && open && disabled) setOpen(false);
   const visible = editable ? options.filter(option => option.label.toLowerCase().includes(value.toLowerCase())).slice(0, 100) : options;
   const expanded = open && visible.length > 0 && !disabled;
+  if (!expanded && touchPress) setTouchPress(null);
   const activeIndex = Math.min(active, Math.max(0, visible.length - 1));
   const selected = options.find(option => option.value === value);
   // A modal makes outside content inert, so its options must share the dialog.
@@ -29,10 +36,24 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   }
   useLayoutEffect(() => {
     if (!expanded) return;
+    const viewport = heading ? window.visualViewport : undefined;
     const place = () => {
       const rect = anchor.current?.getBoundingClientRect();
       if (!rect || (rect.width === 0 && rect.height === 0)) {
         setOpen(false);
+        return;
+      }
+      if (heading) {
+        const topEdge = viewport?.offsetTop ?? 0;
+        const leftEdge = viewport?.offsetLeft ?? 0;
+        const rightEdge = leftEdge + (viewport?.width ?? innerWidth);
+        const below = topEdge + (viewport?.height ?? innerHeight) - rect.bottom - 12;
+        const above = rect.top - topEdge - 12;
+        const width = Math.min(rect.width, rightEdge - leftEdge - 16);
+        const left = Math.max(leftEdge + 8, Math.min(rect.left, rightEdge - width - 8));
+        const upwards = below < visible.length * 44 + 12 && above > below;
+        setPosition({ left, width, maxHeight: Math.max(0, upwards ? above : below),
+          ...(upwards ? { bottom: innerHeight - rect.top + 5 } : { top: rect.bottom + 5 }) });
         return;
       }
       const width = Math.max(rect.width, Math.min(minMenuWidth ?? 0, innerWidth - 24));
@@ -66,6 +87,8 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
     };
     document.addEventListener('pointerdown', outside); document.addEventListener('focusin', blur);
     window.addEventListener('resize', place);
+    viewport?.addEventListener('resize', place);
+    viewport?.addEventListener('scroll', place);
     window.addEventListener('scroll', dismissOnScroll, true);
     window.addEventListener('wheel', dismissOnScroll, { capture: true, passive: true });
     window.addEventListener('touchmove', dismissOnScroll, { capture: true, passive: true });
@@ -73,11 +96,13 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
       document.removeEventListener('pointerdown', outside);
       document.removeEventListener('focusin', blur);
       window.removeEventListener('resize', place);
+      viewport?.removeEventListener('resize', place);
+      viewport?.removeEventListener('scroll', place);
       window.removeEventListener('scroll', dismissOnScroll, true);
       window.removeEventListener('wheel', dismissOnScroll, true);
       window.removeEventListener('touchmove', dismissOnScroll, true);
     };
-  }, [expanded, visible.length, minMenuWidth]);
+  }, [expanded, visible.length, minMenuWidth, heading]);
   useEffect(() => {
     const menu = popup.current;
     const option = menu?.querySelector<HTMLElement>('[data-active=true]');
@@ -89,6 +114,9 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
     if (top < menu.scrollTop) menu.scrollTop = top;
     else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight;
   }, [activeIndex, expanded, position]);
+  const endTouchPress: PointerEventHandler<HTMLDivElement> = event => {
+    if (event.pointerId === touchPress?.pointerId) setTouchPress(null);
+  };
   function choose(option: Option) { if (!option.disabled && !anchor.current?.querySelector(':disabled')) onChange(option.value); setOpen(false); }
   const props = {
     role: 'combobox' as const, 'aria-label': label, 'aria-expanded': expanded, 'aria-controls': expanded ? id : undefined,
@@ -125,9 +153,9 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
       }
     },
   };
-  return <div className="dropdown" ref={anchor}>
+  return <Anchor className={heading ? 'dropdown heading-dropdown' : 'dropdown'} ref={element => { anchor.current = element; }}>
     {editable ? <input {...props} required={required} autoComplete="off" value={value} onFocus={show} onClick={show} onChange={event => { onChange(event.target.value); setActive(0); setOpen(true); }} />
-      : <button {...props} type="button" className="select-trigger" onClick={event => {
+      : <button {...props} ref={triggerRef} type="button" className="select-trigger" onClick={event => {
         if (expanded) setOpen(false);
         else {
           // WebKit can leave a pointer-activated button unfocused. The
@@ -135,9 +163,28 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
           event.currentTarget.focus({ preventScroll: true });
           show();
         }
-      }}><span className="select-label"><OptionLabel label={selected?.label ?? t("character_editor.none_selected")} leading={selected?.leading} /></span><Icon name="ArrowShortBottom" /></button>}
-    {expanded && createPortal(<div ref={popup} id={id} role="listbox" aria-label={label} className="select-menu" style={position} onMouseDown={event => event.preventDefault()}>{visible.map((option, index) => <div role="option" id={`${id}-${index}`} key={option.value} aria-selected={option.value === value} aria-disabled={option.disabled || undefined} data-active={index === activeIndex} onPointerMove={() => setActive(index)} onClick={() => choose(option)}><OptionLabel label={option.label} leading={option.leading} />{option.value === value && <Icon name="Check" />}</div>)}</div>, portalTarget)}
-  </div>;
+      }}><span className="select-label"><OptionLabel label={selected?.label ?? t("character_editor.none_selected")} leading={heading ? undefined : selected?.leading} /></span><Icon name="ArrowShortBottom" /></button>}
+    {expanded && createPortal(<div ref={popup} id={id} role="listbox" aria-label={label} className={heading ? 'select-menu heading-select-menu' : 'select-menu'} style={position}
+      onPointerUp={endTouchPress} onPointerCancel={endTouchPress} onLostPointerCapture={endTouchPress} onPointerLeave={endTouchPress}
+      onMouseDown={event => event.preventDefault()}>
+      {visible.map((option, index) => <div role="option" id={`${id}-${index}`} key={option.value} aria-selected={option.value === value}
+        aria-disabled={option.disabled || undefined} data-active={index === activeIndex}
+        data-touch-pressed={touchPress?.value === option.value || undefined}
+        onPointerDown={event => {
+          if (heading && event.pointerType === 'touch' && event.isPrimary && !option.disabled) {
+            setTouchPress({ pointerId: event.pointerId, value: option.value, x: event.clientX, y: event.clientY });
+          }
+        }}
+        onPointerMove={event => {
+          // Changing the active option can scroll the list, so leave touch scrolling to the browser.
+          if (event.pointerType !== 'touch') setActive(index);
+          else if (touchPress?.pointerId === event.pointerId
+            && Math.hypot(event.clientX - touchPress.x, event.clientY - touchPress.y) >= 8) setTouchPress(null);
+        }} onClick={() => choose(option)}>
+        <OptionLabel label={option.label} leading={option.leading} />{option.value === value && <Icon name="Check" />}
+      </div>)}
+    </div>, portalTarget)}
+  </Anchor>;
 }
 
 function OptionLabel({ label, leading }: Pick<Option, 'label' | 'leading'>) {

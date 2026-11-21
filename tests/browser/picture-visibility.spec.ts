@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { expect, test } from '@playwright/test';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -106,10 +107,10 @@ for (const width of [1280, 801, 800, 390]) test(`saves chat picture visibility w
     if (width <= 800) await page.getByRole('button', { name: 'Chat details', exact: true }).click();
     await inspectTitle(false);
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'Chats', exact: true }).click();
+    await selectLibraryCategory(page, 'Chats');
     const card = page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
     await expect(card.locator('.character-avatar img')).toBeVisible();
-    await page.getByRole('button', { name: 'Characters', exact: true }).click();
+    await selectLibraryCategory(page, 'Characters');
     await expect(page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) }).locator('.picture-square img')).toBeVisible();
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Settings', exact: true }).click();
     await expect(checkbox).not.toBeChecked();

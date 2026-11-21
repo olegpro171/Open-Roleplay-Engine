@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import { defaultContextPreset, type ContextPreset } from '../../src/shared/context';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
@@ -18,7 +19,7 @@ for (const width of [1280, 801]) {
     let chooserCount = 0;
     page.on('filechooser', () => chooserCount++);
     for (const category of ['Characters', 'Personas', 'Lorebooks', 'Prompts', 'Context presets', 'Connections']) {
-      await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: category, exact: true }).click();
+      await selectLibraryCategory(page, category);
       const trigger = page.getByRole('group', { name: 'Library actions', exact: true }).getByRole('button').nth(1);
       await trigger.click();
       const dialog = page.getByRole('dialog');
@@ -35,7 +36,7 @@ for (const width of [1280, 801]) {
       await expect(dialog).toHaveCount(0);
       await expect(trigger).toBeFocused();
     }
-    await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+    await selectLibraryCategory(page, 'Prompts');
     await page.getByRole('group', { name: 'Library actions' }).getByRole('button').nth(1).click();
     const chooser = page.waitForEvent('filechooser');
     await page.getByRole('button', { name: 'Drop file here or click to browse' }).press('Enter');
@@ -43,7 +44,7 @@ for (const width of [1280, 801]) {
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: `Popup browse ${width}`, exact: true })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Lorebooks', exact: true }).click();
+    await selectLibraryCategory(page, 'Lorebooks');
     const before = await page.request.get('/api/library').then(response => response.json());
     await page.getByRole('button', { name: 'Import lorebook', exact: true }).click();
     const dropArea = page.getByRole('button', { name: 'Drop file here or click to browse' });
@@ -72,7 +73,7 @@ for (const width of [800, 390]) {
     await page.setViewportSize({ width, height: 844 });
     await login(page);
     for (const category of ['Characters', 'Personas', 'Lorebooks', 'Prompts', 'Context presets', 'Connections']) {
-      await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: category, exact: true }).click();
+      await selectLibraryCategory(page, category);
       const trigger = page.getByRole('group', { name: 'Library actions', exact: true }).getByRole('button').nth(1);
       const chooser = page.waitForEvent('filechooser', { timeout: 2000 });
       await trigger.click();
@@ -80,7 +81,7 @@ for (const width of [800, 390]) {
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expect(trigger).toBeEnabled();
     }
-    await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+    await selectLibraryCategory(page, 'Prompts');
     const chooser = page.waitForEvent('filechooser');
     await page.getByRole('group', { name: 'Library actions' }).getByRole('button').nth(1).click();
     await (await chooser).setFiles({ name: 'prompt.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ ...defaultPrompt, name: `Phone picker ${width}` })) });
@@ -104,7 +105,7 @@ test('warns after a portable context preset falls back and keeps valid Connectio
   } });
   expect(created.ok(), await created.text()).toBe(true);
   const { id: connectionId } = await created.json();
-  await page.getByRole('button', { name: 'Context presets', exact: true }).click();
+  await selectLibraryCategory(page, 'Context presets');
 
   const unavailable = { ...defaultContextPreset, name: 'Portable memory preset', connectionId: 'missing-synthetic-connection', minTail: 11 };
   const normalCreate = await page.request.post('/api/library', { headers, data: { revision: (await read()).revision, kind: 'contexts', data: unavailable } });

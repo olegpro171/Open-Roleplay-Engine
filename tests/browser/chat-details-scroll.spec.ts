@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { devices, expect, type Locator, type Page } from '@playwright/test';
 import { test } from './isolated-app';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
@@ -63,7 +64,7 @@ for (const width of [390, 800, 801, 1440]) test(`Chat details keeps native verti
   expect(created.ok(), await created.text()).toBe(true);
   await page.reload();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await selectLibraryCategory(page, 'Chats');
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Details scroll fixture', exact: true }) }).click();
   await expect(page.getByLabel('Your next turn')).toBeVisible();
   const details = page.locator('.chat-details');

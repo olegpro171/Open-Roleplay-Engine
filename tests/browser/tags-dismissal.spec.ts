@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { expect, type Locator } from '@playwright/test';
 import { test } from './isolated-app';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -22,7 +23,7 @@ for (const [width, input] of [[1280, 'mouse'], [390, 'touch'], [320, 'mouse']] a
     } });
     expect(saved.ok()).toBe(true);
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'Characters', exact: true }).click();
+    await selectLibraryCategory(page, 'Characters');
     const trigger = page.getByRole('button', { name: /^Tags/ });
     const panel = page.locator('.tag-filter-panel');
     const card = page.getByRole('article');

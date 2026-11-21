@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { openChatTool } from './chat-tools';
 import { test, expect, devices, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -30,7 +31,7 @@ async function setup(page: Page) {
 }
 async function open(page: Page, title: string) {
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await selectLibraryCategory(page, 'Chats');
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: `${title} ${test.info().testId}`, exact: true }) }).last().click();
   await expect(page.getByLabel('Your next turn')).toBeVisible();
 }

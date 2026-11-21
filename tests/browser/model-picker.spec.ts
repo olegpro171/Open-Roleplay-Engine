@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { expect, type Page } from '@playwright/test';
 import { test } from './isolated-app';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
@@ -7,7 +8,7 @@ async function editor(page: Page) {
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  await selectLibraryCategory(page, 'Connections');
   await page.getByRole('button', { name: 'New Connection', exact: true }).click();
   const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
   await page.getByLabel('Name', { exact: true }).fill('Model picker draft');

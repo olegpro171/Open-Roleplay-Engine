@@ -14,6 +14,7 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 .library-workspace .library-tabs{overflow:auto;min-height:0;flex-shrink:1}
 .library-workspace .library-tabs>button{flex-shrink:0}
 .library-navigation{display:contents}
+.library-workspace .heading-dropdown{display:none}
 .library-editor-target{flex-shrink:0}
 .floating-controls{padding:4px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:0 4px 16px var(--shadow)}
 .floating-controls:has(>button:only-child){padding:0;border:0;background:none;box-shadow:none}
@@ -26,12 +27,14 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 @media(max-width:800px){
   .editor-actions.floating-controls:has(>button:only-child)>button{box-shadow:0 4px 16px var(--shadow)}
   .library-workspace .library-sidebar{display:contents}
-  .library-workspace .library-navigation{display:block;padding:22px 18px 18px;border-bottom:1px solid var(--line)}
-  .library-workspace .library-tabs{overflow:visible}
+  .library-workspace :is(.library-navigation,.library-desktop-heading){display:none}
+  .library-workspace .heading-dropdown{display:block}
+  .library-workspace .library-panel{padding-top:10px}
   .library-editor-target{position:sticky;top:12px;height:0;z-index:20}
-  .library-editor-target:has(.library-editor-actions){margin-top:32px;margin-bottom:-32px}
+  .library-editor-target:has(.library-editor-actions){margin-top:22px;margin-bottom:-22px}
   .library-editor-target .library-editor-actions{position:absolute;top:0;right:max(18px,env(safe-area-inset-right))}
-  .library-workspace .library-list-header.is-editing{padding-right:120px;min-height:86px}
+  .library-workspace .library-list-header.is-editing{min-height:86px}
+  .library-list-header.is-editing .heading-dropdown{padding-inline-end:110px}
 }
 .add-alternate-greeting{display:block;margin-inline:auto}
 .alternate-greeting{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-bottom:18px}.alternate-greeting>button{align-self:flex-end;min-height:44px}
@@ -49,7 +52,7 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 [dir="rtl"] .editor-disclosure:not([open])>summary .ui-icon{transform:rotate(90deg)}
 .editor-disclosure-content{border-block-start:1px solid var(--line);padding:14px}
 .library-sidebar .eyebrow{margin-bottom:20px}
-.library-tabs{--library-tab-gap:6px;display:flex;flex-direction:column;gap:var(--library-tab-gap)}
+.library-tabs{display:flex;flex-direction:column;gap:6px}
 :is(.library-tabs,.prompt-editor-tabs) button{text-align:left;min-height:44px;padding:11px 14px;background:none;border-color:transparent;color:var(--muted);font-size:14px;font-weight:500}
 .prompt-editor{min-width:0}
 .prompt-editor-tabs{display:flex;gap:6px;margin-block-end:14px}
@@ -123,9 +126,15 @@ dialog:focus,dialog h2[tabindex="-1"]:focus,.action-menu[tabindex="-1"]:focus{ou
 .select-trigger[aria-expanded=true]{border-color:var(--accent-border)}
 .select-menu{position:fixed;z-index:100;overflow:auto;overscroll-behavior:contain;padding:5px;background:var(--surface);border:1px solid var(--accent-line);border-radius:8px;box-shadow:0 12px 36px var(--shadow);color:var(--text);font-size:14px;font-weight:400;scrollbar-color:var(--scrollbar) transparent}
 .select-menu [role=option]{min-height:42px;padding:9px 10px;border-radius:4px;display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;overflow-wrap:anywhere}
-.select-menu [role=option][data-active=true]{background:var(--surface-hover)}
+.select-menu [role=option]:is([data-active=true],[data-touch-pressed=true]){background:var(--surface-hover)}
 .select-menu [role=option][aria-selected=true]{color:var(--header-highlight)}
 .select-menu [role=option][aria-disabled=true]{opacity:.45;cursor:default}
+.heading-dropdown .select-trigger{width:auto;max-width:100%;min-width:44px;min-height:44px;justify-content:flex-start;gap:8px;padding:2px 6px;margin-inline-start:-6px;border:0;background:none;text-align:start}
+.heading-dropdown .select-trigger>.ui-icon{flex:none;color:var(--header-highlight)}
+.heading-dropdown .select-trigger[aria-expanded=true]>.ui-icon{transform:rotate(180deg)}
+.heading-select-menu [role=option]{min-height:44px;border:1px solid transparent;border-radius:7px}
+.heading-select-menu [role=option][aria-selected=true]{border-color:var(--accent-border)}
+.heading-select-menu [role=option][aria-selected=true]:not([data-touch-pressed=true]){background:var(--accent-selected)}
 input[type=checkbox]{appearance:none;-webkit-appearance:none;width:18px;height:18px;flex:0 0 18px;border:1px solid var(--border-strong);border-radius:4px;background:var(--input-bg);padding:0;margin:0;cursor:pointer;vertical-align:middle}
 input[type=checkbox]:checked{border-color:var(--accent);background:var(--accent)}
 input[type=checkbox]:checked::after{content:"";display:block;width:14px;height:14px;margin:1px;background:var(--on-accent);mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m3 8 3 3 7-7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
@@ -197,7 +206,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 @media(max-width:860px){.topbar .brand{display:none}.topbar{gap:20px}}
 @media(max-width:800px){.topbar{padding:0 16px;min-height:60px;gap:14px}.tabs{padding:0;gap:20px}.tabs button{font-size:12px;padding:18px 0}.connection-status{font-size:0;gap:0}.signout{font-size:11px!important}.api-key-row{align-items:stretch;flex-direction:column;gap:10px}.api-key-row>.checkbox{padding-bottom:0}.select-menu{font-size:16px}}
 @media(max-width:500px){.topbar{padding:0 10px;gap:10px}.tabs{gap:12px}.tabs button{font-size:11px}.topbar .connection-status{display:none}.signout{margin-left:auto;font-size:10px!important}}
-@media(forced-colors:active){input[type=checkbox]{appearance:auto}.select-menu [role=option][data-active=true]{outline:1px solid Highlight}}
+@media(forced-colors:active){input[type=checkbox]{appearance:auto}.select-menu [role=option]:is([data-active=true],[data-touch-pressed=true]){outline:1px solid Highlight}}
 
 /* The library sidebar can leave an editor narrower than the viewport breakpoint. */
 @container library (max-width:660px){
@@ -624,6 +633,7 @@ button.turn-action, .turn-actions > .action-menu-trigger { display: inline-flex;
      would blend into the page, then flash darker as the background fades out. */
   /* Keep category hover below the persistent selected-category style. */
   :is(.library-tabs,.prompt-editor-tabs) button:where(:hover:enabled),
+  .heading-dropdown .select-trigger:hover:enabled,
   .turn-action:hover:enabled:not([aria-disabled="true"]),
   .turn-actions > .action-menu-trigger:hover:enabled,
   .memory-repair-actions > .action-menu-trigger:hover:enabled,
@@ -1060,16 +1070,7 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .story-home-compact .story-home-chat-actions{display:grid;margin:0}
 @media(max-width:800px){
   .library-list-header{top:0;padding-top:12px}
-  .library-workspace .library-tabs{--library-tab-columns:3}
-  .library-workspace .library-tabs>button{
-    flex-basis:calc((100% + var(--library-tab-gap)) / var(--library-tab-columns) - var(--library-tab-gap));
-    min-width:0;
-    padding-block:2px;
-    overflow-wrap:anywhere;
-  }
-}
-@media(max-width:420px){
-  .library-workspace .library-tabs{--library-tab-columns:2}
+  .library-list-header h1{margin-block-end:12px}
 }
 
 @media(max-height:500px){.library-list-header{position:static}}

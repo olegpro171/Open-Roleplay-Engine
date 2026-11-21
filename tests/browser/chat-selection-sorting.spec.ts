@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { expect } from '@playwright/test';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
 import { defaultContextPreset } from '../../src/shared/context';
@@ -58,15 +59,14 @@ for (const width of [1440, 390]) {
 
     await page.reload();
     await libraries.click();
-    const categories = page.getByRole('navigation', { name: 'Library categories' });
     for (const fixture of fixtures) {
-      await categories.getByRole('button', { name: fixture.category, exact: true }).click();
+      await selectLibraryCategory(page, fixture.category);
       const sortLabel = `Sort ${fixture.category.toLowerCase()}`;
       await page.getByRole('combobox', { name: sortLabel, exact: true }).click();
       await page.getByRole('listbox', { name: sortLabel, exact: true }).getByRole('option', { name: fixture.sort, exact: true }).click();
       await expect(page.getByRole('region', { name: fixture.category, exact: true }).getByRole('heading', { level: 2 })).toHaveText(fixture.order);
     }
-    await categories.getByRole('button', { name: 'Chats', exact: true }).click();
+    await selectLibraryCategory(page, 'Chats');
     await openChatCreation(page);
     const [created] = await Promise.all([
       page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/chats'),
@@ -111,11 +111,11 @@ for (const width of [1440, 390]) {
       };
       await checkOptions('Context preset', ['No context preset', ...fixtures[1].order]);
       await libraries.click();
-      await categories.getByRole('button', { name: 'Context presets', exact: true }).click();
+      await selectLibraryCategory(page, 'Context presets');
       await page.getByRole('button', { name: 'Amber Context preset', exact: true }).click();
       await checkOptions('Summarization Connection', ['Same as current chat connection', 'Amber Connection · mock', 'Echo Connection · mock']);
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-      await categories.getByRole('button', { name: 'Characters', exact: true }).click();
+      await selectLibraryCategory(page, 'Characters');
       await page.getByRole('button', { name: 'Sorting witness', exact: true }).click();
       await checkOptions('Default lorebook', ['None selected', ...fixtures[3].order]);
       const reviewTags = page.getByRole('button', { name: 'Review embedded tags', exact: true });

@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { expect, test } from '@playwright/test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultContextPreset } from '../../src/shared/context';
@@ -44,7 +45,7 @@ for (const width of [1280, 390]) {
         }, 'PUT');
 
         await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-        await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: kind === 'characters' ? 'Characters' : 'Personas', exact: true }).click();
+        await selectLibraryCategory(page, kind === 'characters' ? 'Characters' : 'Personas');
         await page.getByRole('heading', { name, exact: true }).getByRole('button').click();
         const editor = page.getByRole('textbox', { name: kind === 'characters' ? 'Character description' : 'Persona description', exact: true });
         await editor.fill(draft);

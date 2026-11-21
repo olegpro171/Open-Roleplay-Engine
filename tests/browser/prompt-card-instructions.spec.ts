@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { openChatTool } from './chat-tools';
 import { expect, test, type Page } from '@playwright/test';
 import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
@@ -37,7 +38,7 @@ test('edits card instructions, enables preset injection, explains unavailable so
   const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
   await command(`/api/__test/transcripts/${chat.id}`, { revision: (await state()).revision, turns: [{ user: 'Old input', assistant: 'Old response', complete: true }] }, 'PUT');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await selectLibraryCategory(page, 'Chats');
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Card instructions story', exact: true }) }).click();
   await expect(page.getByRole('button', { name: 'Chat settings', exact: true })).toHaveText('Chat settings (4)');
   await openChatTool(page, 'Chat settings');
@@ -89,7 +90,7 @@ test('edits card instructions, enables preset injection, explains unavailable so
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await selectLibraryCategory(page, 'Characters');
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Instruction Mira', exact: true }) }).getByRole('button', { name: 'Instruction Mira', exact: true }).click();
   await page.getByText('Card instructions', { exact: true }).click();
   await expect(page.getByLabel('Card system prompt', { exact: true })).toHaveValue('{{original}} Narrate {{char}}.');

@@ -1,9 +1,10 @@
 import { openNewChatSettings, openBlankChatFixture } from './chat-tools';
-import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
+import { confirmLeaveEditor, openLibraryActions, selectLibraryCategory } from './library-card-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import { defaultPrompt, type LibraryKind, type LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
 import { newLorebook, newLoreEntry } from '../../src/shared/lorebook';
+import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 
 const categoryNames = ['Chats', 'Characters', 'Personas', 'Lorebooks', 'Prompts', 'Connections', 'Context presets'];
 
@@ -34,7 +35,7 @@ test.describe('phone editor scroll recovery', () => {
     await login(page);
     const name = `Momentum character ${height} run ${test.info().repeatEachIndex}`;
     await addRecord(page, 'characters', { name, description: 'A long source field.\n'.repeat(150), personality: '', scenario: '', first_mes: '', mes_example: '' });
-    await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Characters', exact: true }).click();
+    await selectLibraryCategory(page, 'Characters');
     const search = page.getByPlaceholder('Search characters');
     await search.fill(name);
     const content = page.getByRole('region', { name: 'Characters', exact: true });
@@ -62,6 +63,101 @@ test.describe('phone editor scroll recovery', () => {
       await expect(edit).toBeInViewport();
       await session.detach();
     }
+  });
+});
+
+test.describe('phone category switching', () => {
+  test.use({ hasTouch: true, isMobile: true });
+
+  for (const height of [844, 370]) test(`swiping categories does not leave a hover highlight at ${height}px`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height });
+    await login(page);
+    const picker = await selectLibraryCategory(page, 'Chats');
+    await picker.tap();
+    const list = page.getByRole('listbox', { name: 'Library categories' });
+    const option = list.getByRole('option', { name: 'Personas', exact: true });
+    const bounds = await option.boundingBox();
+    if (!bounds) throw new Error('Missing category option');
+    const idleFill = await option.evaluate(element => getComputedStyle(element).backgroundColor);
+    const x = Math.round(bounds.x + bounds.width / 2);
+    const y = Math.round(bounds.y + bounds.height / 2);
+    const session = await page.context().newCDPSession(page);
+    try {
+      await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      await expect(option).not.toHaveCSS('background-color', idleFill);
+      for (const distance of [2, 18, 36, 54, 72, 90]) {
+        await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - distance }] });
+      }
+      await expect(option).toHaveCSS('background-color', idleFill);
+      await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    } finally {
+      await session.detach();
+    }
+    await expect(list).toBeVisible();
+    await expect(list.getByRole('option', { selected: true })).toHaveText('Chats');
+    await expect(option).toHaveCSS('background-color', idleFill);
+    if (height === 370) await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  });
+
+  test('highlights a held category, clears a cancelled touch, and selects on release', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await login(page);
+    const picker = await selectLibraryCategory(page, 'Chats');
+    await picker.tap();
+    const list = page.getByRole('listbox', { name: 'Library categories' });
+    const option = list.getByRole('option', { name: 'Connections', exact: true });
+    const bounds = await option.boundingBox();
+    if (!bounds) throw new Error('Missing category option');
+    const idleFill = await option.evaluate(element => getComputedStyle(element).backgroundColor);
+    const point = { x: Math.round(bounds.x + bounds.width / 2), y: Math.round(bounds.y + bounds.height / 2) };
+    const session = await page.context().newCDPSession(page);
+    try {
+      await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+      await expect(option).not.toHaveCSS('background-color', idleFill);
+      await expect(picker).toHaveText('Chats');
+      await list.screenshot({ path: testInfo.outputPath('category-pressed.png') });
+      await session.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+      await expect(option).toHaveCSS('background-color', idleFill);
+      await expect(picker).toHaveText('Chats');
+
+      await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+      await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...point, x: point.x + 2 }] });
+      await expect(option).not.toHaveCSS('background-color', idleFill);
+      await expect(picker).toHaveText('Chats');
+      await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await expect(picker).toHaveText('Connections');
+      await expect(list).toBeHidden();
+    } finally {
+      await session.detach();
+    }
+  });
+
+  test('switches by touch only after confirming a dirty editor', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 700 });
+    await login(page);
+    const picker = await selectLibraryCategory(page, 'Personas');
+    const list = page.getByRole('listbox', { name: 'Library categories' });
+    await page.getByRole('button', { name: 'New persona', exact: true }).tap();
+    const draft = page.getByLabel('Persona description');
+    await draft.fill('Unsaved on the phone.');
+    const revision = (await library(page)).revision;
+
+    await picker.tap();
+    await page.touchscreen.tap(2, 75);
+    await expect(list).toBeHidden();
+    await expect(draft).toHaveValue('Unsaved on the phone.');
+
+    await picker.tap();
+    await list.getByRole('option', { name: 'Connections', exact: true }).tap();
+    const confirmation = page.getByRole('dialog', { name: 'Leave editor?' });
+    await expect(confirmation).toBeVisible();
+    await expect(list).toBeHidden();
+    await expect(picker).toHaveText('Personas');
+    await confirmation.getByRole('button', { name: 'Leave editor', exact: true }).tap();
+    await expect(picker).toHaveText('Connections');
+    await expect(page.getByRole('searchbox', { name: 'Search connections' })).toBeVisible();
+    await expect(draft).toHaveCount(0);
+    expect((await library(page)).revision).toBe(revision);
   });
 });
 
@@ -99,14 +195,10 @@ for (const width of [1280, 820, 800, 390, 320]) {
     for (const fixture of fixtures) {
       const name = `Sidebar editor ${fixture.kind} ${width}`;
       await addRecord(page, fixture.kind, { ...fixture.data, name });
-      await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: fixture.category, exact: true }).click();
+      await selectLibraryCategory(page, fixture.category);
       const content = page.getByRole('region', { name: fixture.category, exact: true });
       const article = () => content.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
-      const sidebarHeight = await page.locator('.library-navigation').evaluate(element => element.getBoundingClientRect().height);
       await article().getByRole('heading').getByRole('button').click();
-      if (width <= 800) {
-        expect(await page.locator('.library-navigation').evaluate(element => element.getBoundingClientRect().height)).toBe(sidebarHeight);
-      }
       const actions = page.getByRole('group', { name: 'Editor actions', exact: true });
       const save = actions.getByRole('button', { name: 'Save', exact: true });
       const close = actions.getByRole('button', { name: 'Cancel', exact: true });
@@ -123,12 +215,11 @@ for (const width of [1280, 820, 800, 390, 320]) {
         expect(closeBounds.y).toBeGreaterThanOrEqual(saveBounds.y + saveBounds.height);
         await expect(save).toHaveText('Save');
       } else {
-        const navigation = await page.getByRole('navigation', { name: 'Library categories' }).boundingBox();
-        const heading = await content.getByRole('heading', { level: 1 }).boundingBox();
-        if (!navigation || !heading) throw new Error('Missing library navigation or heading');
-        expect(saveBounds.y).toBeGreaterThanOrEqual(navigation.y + navigation.height);
+        const heading = await content.getByRole('combobox', { name: 'Library categories' }).boundingBox();
+        if (!heading) throw new Error('Missing library category heading');
         expect(saveBounds.y).toBeLessThan(heading.y + heading.height);
         expect(saveBounds.y + saveBounds.height).toBeGreaterThan(heading.y);
+        expect(saveBounds.x).toBeGreaterThanOrEqual(heading.x + heading.width);
         expect(closeBounds.x).toBeGreaterThanOrEqual(saveBounds.x + saveBounds.width);
         expect(closeBounds.y).toBe(saveBounds.y);
         expect(closeBounds.x + closeBounds.width).toBeGreaterThan(width - 40);
@@ -367,19 +458,26 @@ test('keeps vertical library navigation beside a scrolling list and preserves fa
 test('keeps every category and the library editors usable on narrow screens', async ({ page }, testInfo) => {
   await login(page);
   const categories = page.getByRole('navigation', { name: 'Library categories' });
-  for (const width of [390, 320]) {
+  const picker = page.getByRole('combobox', { name: 'Library categories', exact: true });
+  const list = page.getByRole('listbox', { name: 'Library categories', exact: true });
+  for (const width of [800, 390, 320]) {
     await page.setViewportSize({ width, height: 844 });
-    await expect(categories.getByRole('button')).toHaveText(categoryNames);
+    await expect(categories).toBeHidden();
+    await expect(picker).toBeInViewport();
+    await expect(list).toBeHidden();
     for (const name of categoryNames) {
-      await categories.getByRole('button', { name, exact: true }).click();
+      await picker.click();
+      await expect(list.getByRole('option')).toHaveText(categoryNames);
+      await expect(list.getByRole('option', { selected: true })).toHaveText(await picker.innerText());
+      await list.getByRole('option', { name, exact: true }).click();
+      await expect(list).toBeHidden();
+      await expect(picker).toHaveText(name);
       await expect(page.getByRole('region', { name, exact: true }).getByRole('heading', { level: 1, name, exact: true })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     }
-    await categories.getByRole('button', { name: 'Personas', exact: true }).click();
+    await selectLibraryCategory(page, 'Personas');
     const content = page.getByRole('region', { name: 'Personas', exact: true });
-    const panel = await content.boundingBox(), navigation = await categories.boundingBox();
-    if (!panel || !navigation) throw new Error('Missing mobile library workspace');
-    expect(panel.y).toBeGreaterThanOrEqual(navigation.y + navigation.height);
+    await expect(content.getByRole('searchbox')).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath(`libraries-phone-${width}.png`), animations: 'disabled' });
     await content.getByRole('button', { name: 'New persona', exact: true }).click();
     await content.getByLabel('Name', { exact: true }).fill('Unsaved phone persona');
@@ -394,11 +492,10 @@ test('keeps every category and the library editors usable on narrow screens', as
 
 test('fits library editors within their forms at desktop and phone widths', async ({ page }, testInfo) => {
   await login(page);
-  const categories = page.getByRole('navigation', { name: 'Library categories' });
   for (const width of [1024, 820, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     for (const [name, action] of [['Prompts', 'New prompt'], ['Connections', 'New Connection'], ['Context presets', 'New context preset'], ['Characters', 'New character'], ['Lorebooks', 'New lorebook']]) {
-      await categories.getByRole('button', { name, exact: true }).click();
+      await selectLibraryCategory(page, name);
       const content = page.getByRole('region', { name, exact: true });
       await content.getByRole('button', { name: action, exact: true }).click();
       await expect(content.getByLabel(name === 'Lorebooks' ? 'Book name' : 'Name', { exact: true })).toBeVisible();
@@ -408,6 +505,88 @@ test('fits library editors within their forms at desktop and phone widths', asyn
       await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: 'Cancel', exact: true }).click();
     }
   }
+});
+
+test('opens the phone category picker over the list in every theme', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const picker = await selectLibraryCategory(page, 'Prompts');
+  const list = page.getByRole('listbox', { name: 'Library categories' });
+  const firstRecord = page.getByRole('button', { name: 'Default prompt', exact: true });
+  const path = '/api/application/appearance';
+  const readAppearance = async () => appearanceStatusSchema.parse(await page.request.get(path).then(response => response.json()));
+  const initial = await readAppearance();
+  async function setTheme(theme: typeof initial.settings.theme) {
+    const appearance = await readAppearance();
+    const response = await page.request.put(path, { headers: { Origin: 'http://127.0.0.1:4173' }, data: {
+      revision: appearance.revision, settings: { ...appearance.settings, theme },
+    } });
+    expect(response.ok()).toBe(true);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+  }
+  try {
+    for (const theme of themeSchema.options) {
+      await setTheme(theme);
+      await page.setViewportSize({ width: 801, height: 844 });
+      await expect(picker).toBeHidden();
+      await expect(page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Prompts', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await page.screenshot({ path: testInfo.outputPath(`library-desktop-${theme}.png`), animations: 'disabled' });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await expect(firstRecord).toBeInViewport();
+      await page.screenshot({ path: testInfo.outputPath(`library-picker-closed-${theme}.png`), animations: 'disabled' });
+      const recordPosition = await firstRecord.boundingBox();
+      await picker.click();
+      await expect(list.getByRole('option', { name: 'Context presets' })).toBeInViewport({ ratio: 1 });
+      expect(await firstRecord.boundingBox()).toEqual(recordPosition);
+      const bounds = await list.boundingBox();
+      if (!bounds) throw new Error('Missing category list');
+      expect(bounds.x).toBeGreaterThan(0);
+      expect(bounds.x + bounds.width).toBeLessThan(390);
+      await page.screenshot({ path: testInfo.outputPath(`library-picker-open-${theme}.png`), animations: 'disabled' });
+      await page.getByRole('searchbox', { name: 'Search prompts' }).evaluate(element => element.focus());
+      await expect(list).toBeHidden();
+    }
+  } finally {
+    await setTheme(initial.settings.theme);
+  }
+});
+
+test('supports keyboard selection, short viewports and category restoration on phones', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 370 });
+  await login(page);
+  const picker = await selectLibraryCategory(page, 'Chats');
+  const list = page.getByRole('listbox', { name: 'Library categories' });
+  await picker.focus();
+  await page.keyboard.press('Enter');
+  await expect(list.getByRole('option', { selected: true })).toHaveText('Chats');
+  const characters = list.getByRole('option', { name: 'Characters', exact: true });
+  const idleFill = await characters.evaluate(element => getComputedStyle(element).backgroundColor);
+  await characters.hover();
+  await expect(characters).not.toHaveCSS('background-color', idleFill);
+  await page.keyboard.press('Escape');
+  await expect(picker).toBeFocused();
+  await expect(list).toBeHidden();
+
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('End');
+  const contexts = list.getByRole('option', { name: 'Context presets' });
+  await expect(contexts).toBeInViewport({ ratio: 1 });
+  expect(await list.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  await page.keyboard.press('Enter');
+  await expect(list).toBeHidden();
+  await expect(picker).toHaveText('Context presets');
+  await expect(picker).toBeFocused();
+  await expect(page.getByRole('searchbox', { name: 'Search context presets' })).toBeInViewport();
+
+  await page.reload();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await expect(picker).toHaveText('Context presets');
+  await picker.click();
+  await expect(list).toBeVisible();
+  await page.setViewportSize({ width: 801, height: 620 });
+  await expect(list).toBeHidden();
+  await page.setViewportSize({ width: 320, height: 400 });
+  await expect(picker).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('restores the prompt list position after saving or discarding edits', async ({ page }) => {

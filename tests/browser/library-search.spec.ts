@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import { defaultPrompt, type LibraryKind, type LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
@@ -47,9 +48,8 @@ test('searches every library, preserves the query through editing, and combines 
   }
   await page.reload();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  const navigation = page.getByRole('navigation', { name: 'Library categories' });
   for (const category of categories) {
-    await navigation.getByRole('button', { name: category, exact: true }).click();
+    await selectLibraryCategory(page, category);
     const content = page.getByRole('region', { name: category, exact: true });
     const search = content.getByRole('searchbox', { name: `Search ${category.toLowerCase()}`, exact: true });
     await expect(search).toHaveValue('');
@@ -76,7 +76,7 @@ test('searches every library, preserves the query through editing, and combines 
       await page.screenshot({ path: testInfo.outputPath('library-search-desktop.png'), animations: 'disabled' });
     }
   }
-  await navigation.getByRole('button', { name: 'Characters', exact: true }).click();
+  await selectLibraryCategory(page, 'Characters');
   const characters = page.getByRole('region', { name: 'Characters', exact: true });
   await characters.getByRole('button', { name: 'Tags', exact: true }).click();
   await page.getByRole('checkbox', { name: /Library search tag/ }).check();
@@ -94,11 +94,10 @@ test('searches every library, preserves the query through editing, and combines 
 
 test('keeps search close to the actions on narrow screens and opens reviewed lorebook import from its button', async ({ page }, testInfo) => {
   await login(page);
-  const navigation = page.getByRole('navigation', { name: 'Library categories' });
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     for (const category of categories) {
-      await navigation.getByRole('button', { name: category, exact: true }).click();
+      await selectLibraryCategory(page, category);
       const content = page.getByRole('region', { name: category, exact: true });
       const search = content.getByRole('searchbox', { name: `Search ${category.toLowerCase()}`, exact: true });
       const actions = await content.getByRole('group', { name: 'Library actions', exact: true }).boundingBox();
@@ -139,7 +138,7 @@ test('keeps search close to the actions on narrow screens and opens reviewed lor
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await search.clear();
     }
-    await navigation.getByRole('button', { name: 'Lorebooks', exact: true }).click();
+    await selectLibraryCategory(page, 'Lorebooks');
     await page.screenshot({ path: testInfo.outputPath(`library-search-phone-${width}.png`), animations: 'disabled' });
   }
   const before = (await library(page)).lorebooks.length;
@@ -195,9 +194,8 @@ test('sorts every library in both directions and remembers independent choices t
   expect(history.ok(), await history.text()).toBe(true);
   await page.reload();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  const navigation = page.getByRole('navigation', { name: 'Library categories' });
   for (const category of categories) {
-    await navigation.getByRole('button', { name: category, exact: true }).click();
+    await selectLibraryCategory(page, category);
     const content = page.getByRole('region', { name: category, exact: true });
     const search = content.getByRole('searchbox', { name: `Search ${category.toLowerCase()}`, exact: true });
     await search.fill('Sorting fixture');
@@ -226,12 +224,11 @@ test('sorts every library in both directions and remembers independent choices t
   await page.reload();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   for (const category of categories) {
-    await navigation.getByRole('button', { name: category, exact: true }).click();
+    await selectLibraryCategory(page, category);
     const content = page.getByRole('region', { name: category, exact: true });
     await expect(content.getByRole('combobox', { name: `Sort ${category.toLowerCase()}`, exact: true })).toContainText(category === 'Personas' ? 'Name A–Z' : 'Name Z–A');
   }
-  const characters = page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Characters', exact: true });
-  await characters.click();
+  await selectLibraryCategory(page, 'Characters');
   await page.getByRole('searchbox', { name: 'Search characters', exact: true }).fill('Sorting fixture');
   await page.screenshot({ path: testInfo.outputPath('library-sort-desktop.png'), animations: 'disabled' });
 });

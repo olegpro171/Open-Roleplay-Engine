@@ -1,4 +1,5 @@
 import { expect, type Locator } from '@playwright/test';
+import { selectLibraryCategory } from './library-card-helpers';
 import sharp from 'sharp';
 import { test } from './isolated-app';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
@@ -65,6 +66,12 @@ for (const theme of ['light', 'dark', 'midnight-black'] as const) {
     const categories = page.getByRole('navigation', { name: 'Library categories' });
     for (const width of [1440, 801, 800, 390]) {
       await page.setViewportSize({ width, height: 1000 });
+      if (width <= 800) {
+        const picker = page.getByRole('combobox', { name: 'Library categories', exact: true });
+        await checkHover(picker, `library-category-${width}`);
+        await expect(picker).toHaveText('Chats');
+        continue;
+      }
       await checkHover(categories.getByRole('button', { name: 'Connections', exact: true }), `library-category-${width}`);
       const selected = categories.getByRole('button', { name: 'Chats', exact: true });
       await expect(selected).toHaveAttribute('aria-pressed', 'true');
@@ -74,7 +81,7 @@ for (const theme of ['light', 'dark', 'midnight-black'] as const) {
       await page.mouse.move(0, 0);
     }
     await checkHover(page.getByRole('region', { name: 'Chats', exact: true }).getByRole('button', { name: /^Actions for / }).first(), 'library-quiet');
-    await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+    await selectLibraryCategory(page, 'Prompts');
     await page.getByRole('heading', { name: 'Default prompt', exact: true }).getByRole('button').click();
     await checkHover(page.getByRole('button', { name: 'Add marker', exact: true }), 'library-secondary');
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Settings', exact: true }).click();

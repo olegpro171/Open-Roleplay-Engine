@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { test, expect, devices, type Page } from '@playwright/test';
 import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
 import { chatBehaviorStatusSchema, defaultChatBehavior } from '../../src/shared/chat-behavior';
@@ -70,7 +71,7 @@ for (const device of ['desktop', 'phone'] as const) test.describe(`automatic mem
       // Use the ordinary library selection to open the newly created chat.
       await page.reload();
       await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-      await page.getByRole('button', { name: 'Chats', exact: true }).click();
+      await selectLibraryCategory(page, 'Chats');
       await page.getByRole('article').filter({ has: page.getByRole('heading', { name: selections.title, exact: true }) }).click();
       await page.getByRole('button', { name: 'Story', exact: true }).click();
       const composer = page.getByRole('textbox', { name: 'Your next turn', exact: true });

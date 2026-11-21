@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { expect, type Page } from '@playwright/test';
 import { test } from './isolated-app';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
@@ -164,7 +165,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
       await page.request.post('/__test/mode', { data: { mode: 'normal' } });
     }
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'Characters', exact: true }).click();
+    await selectLibraryCategory(page, 'Characters');
     await page.getByRole('button', { name: 'New character', exact: true }).click();
     const example = page.getByLabel('Example dialogue', { exact: true });
     await expect(example).toBeHidden();
@@ -199,7 +200,7 @@ test('Character and Persona choices follow each Library sort in new and existing
     await page.getByRole('combobox', { name: `Sort ${category.toLowerCase()}`, exact: true }).click();
     await page.getByRole('option', { name: category === 'Characters' ? 'Name Z–A' : 'Name A–Z', exact: true }).click();
   }
-  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await selectLibraryCategory(page, 'Chats');
   await openChatCreation(page);
   const check = async () => {
     for (const [label, names] of [['Character', ['None selected', 'Zulu', 'Alpha']], ['Persona', ['None selected', 'Alpha', 'Zulu']]] as const) {
@@ -241,7 +242,7 @@ test('reuses the file drop box and fits the Russian editing controls across them
   await expect(drop).toBeVisible();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await selectLibraryCategory(page, 'Characters');
   await page.getByRole('button', { name: 'New character', exact: true }).click();
   const choosePicture = page.getByRole('button', { name: 'Choose picture', exact: true });
   await choosePicture.click();
@@ -264,7 +265,7 @@ test('reuses the file drop box and fits the Russian editing controls across them
     for (const width of [1280, 801, 800, 320]) {
       await page.setViewportSize({ width, height: 844 });
       await page.getByRole('button', { name: 'Библиотека', exact: true }).click();
-      await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+      await selectLibraryCategory(page, 'Подключения', 'Разделы библиотеки');
       await page.getByRole('button', { name: connectionName, exact: true }).click();
       const key = page.getByLabel('API-ключ', { exact: true });
       const remove = page.getByRole('checkbox', { name: 'Удалить сохранённый API-ключ', exact: true });

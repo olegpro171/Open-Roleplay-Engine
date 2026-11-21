@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { expect, test, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import type { ChatSnapshot } from '../../src/shared/contracts';
@@ -42,7 +43,7 @@ test('opens chat cards by pointer and keyboard, keeps deletion separate and show
   await page.route(`**${unavailable.thumbnailUrl}`, route => route.abort());
   async function browse() {
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'Chats', exact: true }).click();
+    await selectLibraryCategory(page, 'Chats');
     await page.getByRole('searchbox', { name: 'Search chats', exact: true }).fill('Chat card');
     await expect(row(page, titles[0])).toBeVisible();
   }

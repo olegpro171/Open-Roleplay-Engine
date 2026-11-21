@@ -17,17 +17,24 @@ test('sizes the same Russian labels after gradual and direct resizes', async ({ 
   const toolbar = page.getByRole('group', { name: 'Действия библиотеки' });
   const newChat = toolbar.getByRole('button', { name: 'Новый чат', exact: true });
   const importChat = toolbar.getByRole('button', { name: 'Импортировать чат из JSONL', exact: true });
-  const contextPresets = page.getByRole('navigation', { name: 'Разделы библиотеки' })
-    .getByRole('button', { name: 'Пресеты контекста', exact: true });
-  const heights = () => Promise.all([newChat, importChat, contextPresets].map(button =>
-    button.evaluate(element => Math.round(element.getBoundingClientRect().height))));
+  const picker = page.getByRole('combobox', { name: 'Разделы библиотеки', exact: true });
+  const contextPresets = page.getByRole('option', { name: 'Пресеты контекста', exact: true });
+  const heights = async () => {
+    await picker.click();
+    await expect(contextPresets).toBeInViewport();
+    const result = await Promise.all([newChat, importChat, contextPresets].map(button =>
+      button.evaluate(element => Math.round(element.getBoundingClientRect().height))));
+    await page.keyboard.press('Escape');
+    return result;
+  };
 
   for (const width of [900, 801, 800, 650, 550, 421, 420, 390, 360, 350, 340, 336]) await resize(width);
   const gradual = await heights();
   await resize(1280);
   await resize(336);
   expect(await heights()).toEqual(gradual);
-  expect(gradual).toEqual([44, 44, 44]);
+  expect(gradual.slice(0, 2)).toEqual([44, 44]);
+  expect(gradual[2]).toBeGreaterThanOrEqual(44);
 
   await resize(320);
   const [newHeight, importHeight] = await heights();

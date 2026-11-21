@@ -96,7 +96,7 @@ for (const width of [1440, 801, 800, 390, 320]) {
     await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
     const navigation = page.getByRole('navigation', { name: 'Workspace' });
     await navigation.getByRole('button', { name: 'Libraries', exact: true }).click();
-    const librarySidebar = await page.locator(width > 800 ? '.library-sidebar' : '.library-navigation').boundingBox();
+    const librarySidebar = width > 800 ? await page.locator('.library-sidebar').boundingBox() : null;
     const libraryContent = await page.locator('.library-panel').boundingBox();
     await navigation.getByRole('button', { name: 'Settings', exact: true }).click();
     await expect(navigation.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute('aria-current', 'page');
@@ -108,13 +108,19 @@ for (const width of [1440, 801, 800, 390, 320]) {
     await expect(currentCategory).toHaveText('Language');
     const sidebarBox = await page.locator('.library-sidebar').boundingBox();
     const contentBox = await content.boundingBox();
-    if (!librarySidebar || !libraryContent || !sidebarBox || !contentBox) throw new Error('Missing workspace columns');
-    expect(sidebarBox.x).toBe(librarySidebar.x);
-    expect(sidebarBox.width).toBe(librarySidebar.width);
+    if (!libraryContent || !sidebarBox || !contentBox) throw new Error('Missing workspace bounds');
     expect(contentBox.x).toBe(libraryContent.x);
     expect(contentBox.width).toBe(libraryContent.width);
-    if (width > 800) expect(contentBox.x).toBeGreaterThanOrEqual(sidebarBox.x + sidebarBox.width);
-    else expect(contentBox.y).toBeGreaterThanOrEqual(sidebarBox.y + sidebarBox.height);
+    if (width > 800) {
+      if (!librarySidebar) throw new Error('Missing desktop Library sidebar');
+      expect(sidebarBox.x).toBe(librarySidebar.x);
+      expect(sidebarBox.width).toBe(librarySidebar.width);
+      expect(contentBox.x).toBeGreaterThanOrEqual(sidebarBox.x + sidebarBox.width);
+    } else {
+      expect(sidebarBox.x).toBe(libraryContent.x);
+      expect(sidebarBox.width).toBe(libraryContent.width);
+      expect(contentBox.y).toBeGreaterThanOrEqual(sidebarBox.y + sidebarBox.height);
+    }
 
     const save = await page.getByRole('button', { name: 'Save...', exact: true }).boundingBox();
     const importHeading = await page.getByRole('heading', { name: 'Import backup', exact: true }).boundingBox();

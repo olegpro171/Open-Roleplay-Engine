@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { openChatTool } from './chat-tools';
 import { test, expect } from '@playwright/test';
 import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
@@ -16,7 +17,7 @@ test('edits explicit markers, uses recent history, and enables preparation again
     expect(response.ok(), await response.text()).toBe(true); return response.json();
   };
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+  await selectLibraryCategory(page, 'Prompts');
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Explicit prompt proof');
   await page.getByRole('button', { name: 'Expand block 5', exact: true }).click();
@@ -40,7 +41,7 @@ test('edits explicit markers, uses recent history, and enables preparation again
   await command(`/api/__test/transcripts/${chat.id}`, { revision: (await state()).revision, turns: Array.from({ length: 14 }, (_, i) => ({ user: `USER ${i}. ` + 'A brass key. '.repeat(20), assistant: `ASSISTANT ${i}. ` + 'The cellar is locked. '.repeat(10), complete: true })) }, 'PUT');
   await page.reload();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await selectLibraryCategory(page, 'Chats');
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Explicit prompt chat', exact: true }) }).click();
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Inspect memory');
@@ -98,7 +99,7 @@ test('saves a prompt with every block removed and shows generic advisory warning
   await page.goto('/'); await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+  await selectLibraryCategory(page, 'Prompts');
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Empty prompt proof');
   const blocks = await page.locator('.prompt-block').count();

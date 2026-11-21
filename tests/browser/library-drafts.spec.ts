@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { openNewChatSettings, openBlankChatFixture } from './chat-tools';
 import { expect, type Dialog, type Page } from '@playwright/test';
 import { test } from './appearance-test';
@@ -6,7 +7,6 @@ import { startBrowserApp } from '../support/browser-app';
 import { quadrantPicture } from '../support/pictures';
 
 const workspace = (page: Page) => page.getByRole('navigation', { name: 'Workspace' });
-const category = (page: Page, name: string) => page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name, exact: true });
 const editorAction = (page: Page, name: string) => page.getByRole('group', { name: 'Editor actions' }).getByRole('button', { name, exact: true });
 const leaveDialog = (page: Page) => page.getByRole('dialog', { name: 'Leave editor?' });
 const leave = (page: Page) => leaveDialog(page).getByRole('button', { name: 'Leave editor', exact: true }).click();
@@ -21,7 +21,7 @@ async function authenticate(page: Page) {
 
 async function openCategory(page: Page, name: string) {
   await workspace(page).getByRole('button', { name: 'Libraries', exact: true }).click();
-  await category(page, name).click();
+  await selectLibraryCategory(page, name);
 }
 
 async function library(page: Page): Promise<LibrarySnapshot> {
@@ -55,8 +55,12 @@ test('guards category and header navigation and editor cancel across themes and 
       await page.setViewportSize({ width, height: 840 });
       await newPersona.click();
       await description(page).fill(`Draft at ${width} in ${theme}.`);
-      const trigger = category(page, 'Lorebooks');
-      await trigger.click();
+      if (width === 390) {
+        await selectLibraryCategory(page, 'Personas');
+        await expect(leaveDialog(page)).toBeHidden();
+        await expect(description(page)).toHaveValue(`Draft at ${width} in ${theme}.`);
+      }
+      const trigger = await selectLibraryCategory(page, 'Lorebooks');
       await expect(leaveDialog(page)).toBeVisible();
       await expect(leaveDialog(page).getByRole('button', { name: 'Go back', exact: true })).toBeInViewport();
       await expect(leaveDialog(page).getByRole('button', { name: 'Leave editor', exact: true })).toBeInViewport();
@@ -81,10 +85,10 @@ test('guards category and header navigation and editor cancel across themes and 
   await newPersona.click();
   await description(page).fill('Reverted draft');
   await description(page).fill('');
-  await category(page, 'Lorebooks').click();
+  await selectLibraryCategory(page, 'Lorebooks');
   await expect(leaveDialog(page)).toBeHidden();
   await expect(page.getByRole('button', { name: 'New lorebook', exact: true })).toBeVisible();
-  await category(page, 'Personas').click();
+  await selectLibraryCategory(page, 'Personas');
   await newPersona.click();
   await description(page).fill('Discard on Settings navigation');
   await settings.click();
@@ -164,7 +168,7 @@ test('recovers an unfinished Lorebook entry and Character prose with picture cha
   await editorAction(page, 'Save').click();
   await expect(page.getByRole('button', { name: 'Recovered watchkeeper lore', exact: true })).toBeVisible();
 
-  await category(page, 'Characters').click();
+  await selectLibraryCategory(page, 'Characters');
   await page.getByRole('button', { name: 'New character', exact: true }).click();
   await page.getByLabel('Character description', { exact: true }).fill('An unnamed watchkeeper.');
   await page.getByLabel('Choose picture', { exact: true }).setInputFiles({ name: 'draft.png', mimeType: 'image/png', buffer: await quadrantPicture() });
@@ -273,7 +277,7 @@ test('keeps the editor and warning usable when session storage rejects the draft
   await page.getByRole('button', { name: 'New persona', exact: true }).click();
   await description(page).fill('Available to save while storage is full');
   await expect(page.getByRole('alert')).toContainText('The latest draft could not be kept for reload.');
-  await category(page, 'Characters').click();
+  await selectLibraryCategory(page, 'Characters');
   await leaveDialog(page).getByRole('button', { name: 'Go back', exact: true }).click();
   await expect(description(page)).toHaveValue('Available to save while storage is full');
   await page.getByLabel('Name', { exact: true }).fill('Saved without draft storage');

@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { addChatCharacter, addChatModel, chooseNewChatCharacter, openNewChatSettings, openChatCreation } from './chat-tools';
 import { expect, type Page, type Route } from '@playwright/test';
 import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
@@ -33,14 +34,14 @@ for (const width of [1440, 390]) {
       await page.getByRole('button', { name: 'Libraries', exact: true }).click();
       for (const { category, preset } of builtIns) {
         if (!preset) throw new Error('Missing factory preset');
-        await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: category, exact: true }).click();
+        await selectLibraryCategory(page, category);
         await expect(page.getByRole('button', { name: `Clear ${preset.name} as default`, exact: true })).toHaveAttribute('aria-pressed', 'true');
         await page.screenshot({ path: testInfo.outputPath(`${theme}-${preset.id}-${width}.png`), animations: 'disabled' });
       }
     }
     await addChatModel(page);
     await addChatCharacter(page, 'Factory defaults character');
-    await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Chats', exact: true }).click();
+    await selectLibraryCategory(page, 'Chats');
     await openChatCreation(page);
     await chooseNewChatCharacter(page, 'Factory defaults character');
     await page.getByRole('button', { name: 'Start chat', exact: true }).click();
@@ -83,9 +84,8 @@ for (const width of [1440, 390]) {
         fixture.id = (await response.json()).id;
       }
       await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-      const categories = page.getByRole('navigation', { name: 'Library categories' });
       for (const fixture of fixtures) {
-        await categories.getByRole('button', { name: fixture.category, exact: true }).click();
+        await selectLibraryCategory(page, fixture.category);
         const set = page.getByRole('button', { name: `Set ${fixture.name} as default`, exact: true });
         await expect(set).toHaveAttribute('aria-pressed', 'false');
         if (fixture.kind === 'prompts') {
@@ -106,7 +106,7 @@ for (const width of [1440, 390]) {
         await page.screenshot({ path: testInfo.outputPath(`default-${fixture.kind}-${width}.png`), fullPage: true });
       }
       // Choosing another default in a category replaces the previous bookmark.
-      await categories.getByRole('button', { name: 'Prompts', exact: true }).click();
+      await selectLibraryCategory(page, 'Prompts');
       const builtIn = (await readLibrary(page)).prompts.find(item => item.id === 'default');
       if (!builtIn) throw new Error('Missing built-in prompt');
       await page.getByRole('button', { name: `Set ${builtIn.name} as default`, exact: true }).click();
@@ -117,7 +117,7 @@ for (const width of [1440, 390]) {
       await page.reload();
       await page.getByRole('button', { name: 'Libraries', exact: true }).click();
       await expect(page.getByRole('button', { name: `Clear ${prompt.name} as default`, exact: true })).toHaveAttribute('aria-pressed', 'true');
-      await categories.getByRole('button', { name: 'Chats', exact: true }).click();
+      await selectLibraryCategory(page, 'Chats');
       await openChatCreation(page);
       await chooseNewChatCharacter(page, character);
       await page.getByRole('button', { name: 'Start chat', exact: true }).click();
@@ -133,7 +133,7 @@ for (const width of [1440, 390]) {
       await page.screenshot({ path: testInfo.outputPath(`default-chat-settings-${width}.png`), fullPage: true });
       // Clear a bookmark without changing the chat that already selected it.
       await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-      await categories.getByRole('button', { name: 'Prompts', exact: true }).click();
+      await selectLibraryCategory(page, 'Prompts');
       await page.getByRole('button', { name: `Clear ${prompt.name} as default`, exact: true }).click();
       await expect(page.getByRole('button', { name: `Set ${prompt.name} as default`, exact: true })).toHaveAttribute('aria-pressed', 'false');
       expect((await readDefaults(page)).settings.prompts).toBeNull();

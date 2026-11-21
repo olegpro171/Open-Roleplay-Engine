@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { languageStatusSchema } from '../../src/shared/localization';
 import { z } from 'zod';
 import { defaultPrompt } from '../../src/shared/library';
+import { selectLibraryCategory } from './library-card-helpers';
 
 async function openTool(page: Page, name: string) {
   const toggle = page.getByRole('button', { name: 'О чате', exact: true });
@@ -108,7 +109,7 @@ for (const width of [1440, 390, 320]) test(`built-in Russian needs no import and
   await expect(page.getByRole('heading', { name: 'Посмотрите, что получает модель.', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Библиотека', exact: true }).click();
   for (const category of ['Чаты', 'Персонажи', 'Лорбуки', 'Промпты', 'Подключения', 'Пресеты контекста', 'Персоны']) {
-    await page.getByRole('button', { name: category, exact: true }).click();
+    await selectLibraryCategory(page, category, 'Разделы библиотеки');
     await expect(page.getByRole('searchbox')).toBeVisible();
     if (category === 'Промпты') await page.screenshot({ path: testInfo.outputPath(`russian-library-prompts-${width}.png`) });
   }

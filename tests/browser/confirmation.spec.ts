@@ -1,4 +1,4 @@
-import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
+import { confirmLeaveEditor, openLibraryActions, selectLibraryCategory } from './library-card-helpers';
 import { test, expect } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
 
@@ -27,7 +27,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await page.getByLabel('Owner password').fill('browser-synthetic-password');
     await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'Personas', exact: true }).click();
+    await selectLibraryCategory(page, 'Personas');
     await page.getByRole('button', { name: 'New persona', exact: true }).click();
     const name = `Traveller ${viewport.width} <b>literal</b> ${'long name '.repeat(7)}`.trim();
     await page.getByLabel('Name', { exact: true }).fill(name);
@@ -135,7 +135,7 @@ test('lore entry deletion stays in the book draft until saved', async ({ page })
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Lorebooks', exact: true }).click();
+  await selectLibraryCategory(page, 'Lorebooks');
   await page.getByRole('button', { name: 'New lorebook', exact: true }).click();
   await page.getByLabel('Book name', { exact: true }).fill('Deletion draft atlas');
   await page.getByRole('button', { name: 'Add entry', exact: true }).click();
@@ -162,7 +162,7 @@ test('lore entry deletion stays in the book draft until saved', async ({ page })
   await expect(row).toContainText('0 entries');
   await page.reload();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Lorebooks', exact: true }).click();
+  await selectLibraryCategory(page, 'Lorebooks');
   await row.getByRole('heading').getByRole('button').click();
   await expect(entry).toHaveCount(0);
 });

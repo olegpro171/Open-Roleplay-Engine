@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { expect, test, type Page } from '@playwright/test';
 
 async function openPersonaDraft(page: Page, name: string) {
@@ -6,7 +7,7 @@ async function openPersonaDraft(page: Page, name: string) {
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Personas', exact: true }).click();
+  await selectLibraryCategory(page, 'Personas');
   await page.getByRole('button', { name: 'New persona', exact: true }).click();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(name);
   const editor = page.getByRole('textbox', { name: 'Persona description', exact: true });

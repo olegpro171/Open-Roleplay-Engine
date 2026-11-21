@@ -28,7 +28,7 @@ for (const width of [1440, 390]) {
       data: { kind: 'connections', revision: (await library(page)).revision, data: { name: `Persona mock ${width}`, endpoint, model: 'mock', contextWindow: 100_000, maxOutputTokens: 100, customParameters: {} } },
     });
     expect(connection.ok(), await connection.text()).toBe(true);
-    await page.getByRole('button', { name: 'Personas', exact: true }).click();
+    await selectLibraryCategory(page, 'Personas');
     await expect(page.getByRole('heading', { name: medieval, exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'New persona', exact: true }).click();
     await page.getByLabel('Name', { exact: true }).fill(name);
@@ -60,7 +60,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('heading', { name: university, exact: true })).toBeVisible();
 
     await addChatCharacter(page, `Persona companion ${width}`);
-    await page.getByRole('button', { name: 'Chats', exact: true }).click();
+    await selectLibraryCategory(page, 'Chats');
     await openChatCreation(page);
     await chooseNewChatCharacter(page, `Persona companion ${width}`);
     await page.getByRole('combobox', { name: 'Persona', exact: true }).click();
@@ -82,7 +82,7 @@ for (const width of [1440, 390]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'Personas', exact: true }).click();
+    await selectLibraryCategory(page, 'Personas');
     await page.getByRole('article').filter({ has: page.getByRole('heading', { name: university, exact: true }) }).getByRole('heading').getByRole('button').click();
     await page.getByLabel('Title / comment', { exact: true }).fill('');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -91,4 +91,4 @@ for (const width of [1440, 390]) {
     await expect(page.locator('.part.user .part-heading strong')).toHaveText(name);
   });
 }
-import { confirmLeaveEditor } from './library-card-helpers';
+import { confirmLeaveEditor, selectLibraryCategory } from './library-card-helpers';

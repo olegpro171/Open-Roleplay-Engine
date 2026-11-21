@@ -1,4 +1,4 @@
-import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
+import { confirmLeaveEditor, openLibraryActions, selectLibraryCategory } from './library-card-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
 
@@ -8,7 +8,7 @@ async function login(page: Page) {
   await page.goto('/'); await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await selectLibraryCategory(page, 'Characters');
 }
 async function library(page: Page): Promise<LibrarySnapshot> { return page.request.get('/api/library').then(response => response.json()); }
 async function command(page: Page, path: string, data: unknown, method = 'POST') {
@@ -429,8 +429,8 @@ test('keeps tag tools optional, dismisses the picker, and retains visible remova
   await filters(page).getByRole('searchbox').fill('quiet-ui');
   await filters(page).getByRole('checkbox', { name: /quiet-ui-tag/ }).check();
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Personas', exact: true }).click();
-  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await selectLibraryCategory(page, 'Personas');
+  await selectLibraryCategory(page, 'Characters');
   await expect(row(page, 'Quiet untagged card')).toBeVisible();
   await expect(filters(page)).toHaveCount(0);
   await expect(page.getByRole('group', { name: 'Active tag filters' })).toHaveCount(0);

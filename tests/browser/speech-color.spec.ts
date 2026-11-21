@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { test } from './appearance-test';
 import { expect, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -23,7 +24,7 @@ for (const width of [1440, 390]) test(`saves speech colors from both editors and
   const name = `Speech colors ${width}`;
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   for (const kind of ['character', 'persona'] as const) {
-    await page.getByRole('button', { name: kind === 'character' ? 'Characters' : 'Personas', exact: true }).click();
+    await selectLibraryCategory(page, kind === 'character' ? 'Characters' : 'Personas');
     await page.getByRole('button', { name: `New ${kind}`, exact: true }).click();
     await page.getByLabel('Name', { exact: true }).fill(name);
     const color = page.getByRole('button', { name: 'Speech color', exact: true });
@@ -64,7 +65,7 @@ for (const width of [1440, 390]) test(`saves speech colors from both editors and
   const before = await state();
 
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await selectLibraryCategory(page, 'Characters');
   await page.getByRole('button', { name: `${name}`, exact: true }).click();
   await expect(page.getByRole('button', { name: 'Speech color', exact: true })).toContainText('#EEAA88');
   await chooseColor(page, 'Speech color', '#cc99ff');
@@ -193,7 +194,7 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
 
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Libraries', exact: true }).click();
     for (const kind of ['character', 'persona'] as const) {
-      await page.getByRole('button', { name: kind === 'character' ? 'Characters' : 'Personas', exact: true }).click();
+      await selectLibraryCategory(page, kind === 'character' ? 'Characters' : 'Personas');
       if (kind === 'character') await page.getByRole('button', { name: `${name}`, exact: true }).click();
       else await page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) }).getByRole('heading').getByRole('button').click();
       if (kind === 'persona') {
@@ -230,7 +231,7 @@ for (const width of [1440, 390, 320]) test(`custom HSL picker previews, validate
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await setAppearance({ theme: 'dark', characterSpeechColor: null, personaSpeechColor: null, chatTextScale: 100 });
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Personas', exact: true }).click();
+  await selectLibraryCategory(page, 'Personas');
   await page.getByRole('button', { name: 'New persona', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill(`HSL picker ${width}`);
   await page.getByRole('button', { name: 'Set color', exact: true }).click();

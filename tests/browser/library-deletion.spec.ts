@@ -6,7 +6,7 @@ import type { LibrarySnapshot } from '../../src/shared/library';
 import type { LibraryDeletionCommand } from '../../src/shared/library-deletion';
 import { newLorebook } from '../../src/shared/lorebook';
 import { test } from './isolated-app';
-import { openLibraryActions } from './library-card-helpers';
+import { openLibraryActions, selectLibraryCategory } from './library-card-helpers';
 
 const password = 'browser-synthetic-password';
 const base = { title: 'Synthetic deletion story', targetInputTokens: 1234, connectionId: null, promptId: 'default', characterId: null, personaId: null };
@@ -28,7 +28,7 @@ async function fixture(page: Page, origin: string) {
 
 async function enterLibrary(page: Page, category: string) {
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: category, exact: true }).click();
+  await selectLibraryCategory(page, category);
 }
 
 test('keeps a Character’s Lorebook by default and supports deleting both', async ({ page, browserApp }, testInfo) => {

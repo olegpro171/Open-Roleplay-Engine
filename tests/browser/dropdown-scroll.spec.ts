@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { expect } from '@playwright/test';
 import { test } from './isolated-app';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
@@ -20,7 +21,7 @@ for (const width of [1280, 390]) {
         expect(saved.ok()).toBe(true);
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
         await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-        await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+        await selectLibraryCategory(page, 'Prompts');
         await page.getByRole('button', { name: 'New prompt', exact: true }).click();
         await page.getByLabel('Name', { exact: true }).fill('Keep this prompt draft');
         await page.getByRole('button', { name: 'Add marker', exact: true }).click();
@@ -77,7 +78,7 @@ for (const width of [1280, 390]) {
         await page.reload();
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
         await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-        await page.getByRole('button', { name: 'Characters', exact: true }).click();
+        await selectLibraryCategory(page, 'Characters');
         const sort = page.getByRole('combobox', { name: 'Sort characters', exact: true });
         const sortMenu = page.getByRole('listbox', { name: 'Sort characters', exact: true });
         const originalSort = await sort.textContent();

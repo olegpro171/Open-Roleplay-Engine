@@ -2,7 +2,7 @@ import { openNewChatSettings, openChatCreation, addChatModel } from './chat-tool
 import { expect, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { test } from './isolated-app';
-import { confirmLeaveEditor } from './library-card-helpers';
+import { confirmLeaveEditor, selectLibraryCategory } from './library-card-helpers';
 
 async function library(page: Page): Promise<LibrarySnapshot> {
   return page.request.get('/api/library').then(response => response.json());
@@ -19,7 +19,7 @@ for (const width of [1440, 390]) {
     await page.getByLabel('Owner password').fill('browser-synthetic-password');
     await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'Characters', exact: true }).click();
+    await selectLibraryCategory(page, 'Characters');
     const name = `Title Alice ${width}`;
     const university = `${name} · University version`;
     const medieval = `${name} · Medieval version`;
@@ -86,7 +86,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('heading', { name: university, exact: true })).toBeVisible();
 
     await addChatModel(page);
-    await page.getByRole('button', { name: 'Chats', exact: true }).click();
+    await selectLibraryCategory(page, 'Chats');
     await openChatCreation(page);
     await page.getByRole('combobox', { name: 'Character', exact: true }).click();
     await expect(page.getByRole('option', { name: university, exact: true })).toBeVisible();
@@ -110,7 +110,7 @@ for (const width of [1440, 390]) {
 
     // Clearing only the metadata leaves Story names and the copied greeting unchanged.
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'Characters', exact: true }).click();
+    await selectLibraryCategory(page, 'Characters');
     await page.getByRole('button', { name: `${university}`, exact: true }).click();
     await page.getByLabel('Title / comment', { exact: true }).fill('');
     await page.getByRole('button', { name: 'Save', exact: true }).click();

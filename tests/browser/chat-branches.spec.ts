@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { expect } from '@playwright/test';
@@ -65,7 +66,7 @@ test('forks, remembers the branch in the Chats library, and exports its transcri
   expect(other.ok(), await other.text()).toBe(true);
   async function openChats() {
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'Chats', exact: true }).click();
+    await selectLibraryCategory(page, 'Chats');
   }
   const chatCard = (title: string) => page.getByRole('article').filter({
     has: page.getByRole('button', { name: title, exact: true }),
@@ -314,7 +315,7 @@ test('imports a downloaded branch into its group and as a standalone chat', asyn
   const before = (await providerRequests()).length;
   const openChats = async () => {
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'Chats', exact: true }).click();
+    await selectLibraryCategory(page, 'Chats');
   };
   await openChats();
   const sourceCard = page.getByRole('button', { name: settings.title, exact: true });
@@ -495,7 +496,7 @@ test('branch actions stay open while the Story behind the dialog scrolls during 
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'Chats', exact: true }).click();
+    await selectLibraryCategory(page, 'Chats');
     const openChat = page.getByRole('button', { name: 'Branch menu during streaming', exact: true });
     const chatCard = page.getByRole('article').filter({ has: openChat });
     await expect(chatCard.getByText('Response running', { exact: true })).toBeVisible();

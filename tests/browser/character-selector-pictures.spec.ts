@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { expect, type Locator } from '@playwright/test';
 import { test } from './isolated-app';
 import type { ChatSnapshot } from '../../src/shared/contracts';
@@ -59,7 +60,7 @@ test('character selectors show saved portraits and fallbacks while preserving se
   for (const width of [1280, 801, 800, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'Chats', exact: true }).click();
+    await selectLibraryCategory(page, 'Chats');
     await openChatCreation(page);
     const selector = page.getByRole('combobox', { name: 'Character', exact: true });
     await expect(selector).toHaveText('None selected');

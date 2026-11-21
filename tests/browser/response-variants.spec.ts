@@ -1,3 +1,4 @@
+import { selectLibraryCategory } from './library-card-helpers';
 import { expect, devices } from '@playwright/test';
 import { test } from './appearance-test';
 import type { ChatSnapshot } from '../../src/shared/contracts';
@@ -27,7 +28,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await command(`/api/__test/transcripts/${chat.id}`, { revision: (await state()).revision, turns: [{ user: 'An invitation. ' + 'The rain falls. '.repeat(100), assistant: 'Original A.', complete: true }] }, 'PUT');
   await page.reload();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await selectLibraryCategory(page, 'Chats');
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Variant proof', exact: true }) }).click();
   await expect(page.getByText('Original A.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Regenerate', exact: true }).hover();
@@ -150,7 +151,7 @@ test('switches response versions with arrows and a textbox, restores summarized 
     await phone.getByLabel('Owner password').fill('browser-synthetic-password');
     await phone.getByRole('button', { name: 'Sign in', exact: true }).click();
     await phone.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await phone.getByRole('button', { name: 'Chats', exact: true }).click();
+    await selectLibraryCategory(phone, 'Chats');
     await phone.getByRole('article').filter({ has: phone.getByRole('heading', { name: 'Variant proof', exact: true }) }).tap();
     await phone.getByRole('button', { name: 'Regenerate', exact: true }).tap();
     const stop = phone.getByRole('button', { name: 'Cancel', exact: true });

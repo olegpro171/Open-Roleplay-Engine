@@ -1,4 +1,4 @@
-import { confirmLeaveEditor, openLibraryActions } from './library-card-helpers';
+import { confirmLeaveEditor, openLibraryActions, selectLibraryCategory } from './library-card-helpers';
 import { openChatTool, openNewChatSettings, openChatCreation, chooseNewChatCharacter } from './chat-tools';
 import { test, expect, type Page } from '@playwright/test';
 import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
@@ -28,7 +28,7 @@ async function command(page: Page, url: string, data: unknown, method = 'POST') 
 }
 async function books(page: Page) {
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Lorebooks', exact: true }).click();
+  await selectLibraryCategory(page, 'Lorebooks');
 }
 
 test('localizes Prompt Peek lore outcomes while keeping entry names and prose literal', async ({ page }, testInfo) => {
@@ -133,13 +133,13 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await (await openLibraryActions(page, copyRow)).getByRole('menuitem', { name: 'Delete', exact: true }).click();
   await page.locator('.confirmation-dialog').getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(copyRow).toHaveCount(0);
-  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await selectLibraryCategory(page, 'Characters');
   await page.getByRole('button', { name: 'New character', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Moon keeper');
   await page.getByLabel('Character description', { exact: true }).fill('Keeper of the city gate.');
   await choose(page, 'Default lorebook', 'Moon Gate atlas');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await selectLibraryCategory(page, 'Chats');
   await openChatCreation(page);
   await chooseNewChatCharacter(page, 'Moon keeper');
   await page.getByRole('button', { name: 'Start chat', exact: true }).click();
@@ -236,7 +236,7 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   if (!imported) throw new Error('Missing imported book.');
   const exported = await page.request.get(`/api/library/lorebooks/${imported.id}/export`).then(response => response.json());
   expect(exported.entries['17'].group).toBe('unsupported-group');
-  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await selectLibraryCategory(page, 'Characters');
   const character = { spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'Imported harbor keeper', description: 'The keeper waits.', personality: '', scenario: '', first_mes: '', mes_example: '', character_book: { name: 'Embedded harbor book', entries: [{ keys: ['bell'], content: 'The bell is bronze.', enabled: true, insertion_order: 0, extensions: {} }], extensions: {} } } };
   await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'keeper.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(character)) });
   await expect(page.locator('.character-import-review')).toContainText("Imported harbor keeper's lorebook");
@@ -254,7 +254,7 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   const legacySource = { ...character, data: { ...character.data, name: 'Legacy harbor keeper' } };
   const legacy = await command(page, '/api/library', { kind: 'characters', revision: (await library(page)).revision, data: { name: 'Legacy harbor keeper', description: 'Existing editable description.', personality: '', scenario: '', first_mes: '', mes_example: '', source: legacySource } });
   const beforeExtraction = (await library(page)).lorebooks.length;
-  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await selectLibraryCategory(page, 'Characters');
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Legacy harbor keeper', exact: true }) }).getByRole('heading').getByRole('button').click();
   await page.getByRole('button', { name: 'Extract embedded lorebook', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Embedded lorebook extracted' })).toBeVisible();

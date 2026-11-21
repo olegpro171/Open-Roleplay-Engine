@@ -2,7 +2,7 @@ import { expect, type Locator, type Page } from '@playwright/test';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { newLorebook, newLoreEntry } from '../../src/shared/lorebook';
 import { test } from './appearance-test';
-import { openLibraryActions } from './library-card-helpers';
+import { openLibraryActions, selectLibraryCategory } from './library-card-helpers';
 
 async function login(page: Page) {
   const session = await page.request.get('/api/session').then(response => response.json());
@@ -27,7 +27,6 @@ test('Persona and Character cards share a preview layout with room for a full-wi
     expect(response.ok(), await response.text()).toBe(true);
   }
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  const categories = page.getByRole('navigation', { name: 'Library categories' });
   const card = (name: string) => page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
   const measure = (record: Locator) => record.evaluate(element => {
     const body = element.querySelector('.library-card-body');
@@ -52,9 +51,9 @@ test('Persona and Character cards share a preview layout with room for a full-wi
   });
   for (const width of [1280, 875, 874, 801, 800, 390, 320]) {
     await page.setViewportSize({ width, height: 844 });
-    await categories.getByRole('button', { name: 'Characters', exact: true }).click();
+    await selectLibraryCategory(page, 'Characters');
     const character = await measure(card('The guide'));
-    await categories.getByRole('button', { name: 'Personas', exact: true }).click();
+    await selectLibraryCategory(page, 'Personas');
     const persona = await measure(card('The guest'));
     expect(persona.style).toEqual(character.style);
     expect(character.pictureWidth).toBeGreaterThan(0);
@@ -83,7 +82,7 @@ test('lorebook cards keep counts and actions visible beside clipped descriptions
     expect(response.ok(), await response.text()).toBe(true);
   }
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Lorebooks', exact: true }).click();
+  await selectLibraryCategory(page, 'Lorebooks');
   await page.getByRole('searchbox', { name: 'Search lorebooks', exact: true }).fill('Card preview');
   const panel = page.getByRole('region', { name: 'Lorebooks', exact: true });
   const card = (name: string) => panel.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
@@ -132,7 +131,7 @@ test('card surfaces open editors and floating actions flip, dismiss, and retain 
     expect(response.ok(), await response.text()).toBe(true);
   }
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Personas', exact: true }).click();
+  await selectLibraryCategory(page, 'Personas');
   const panel = page.getByRole('region', { name: 'Personas', exact: true });
   const card = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Floating actions 6', exact: true }) });
   const more = card.getByRole('button', { name: 'Actions for Floating actions 6', exact: true });
