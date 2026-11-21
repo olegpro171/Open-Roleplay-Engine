@@ -884,6 +884,7 @@ export function App() {
                 const revision = snapshot.revision;
                 void reviewMemoryCleanup({
                   path: `${path}/deletion-impact`, body: { revision }, alwaysConfirm: true,
+                  showRestoredTurns: false,
                   copy: {
                     confirmOnEnter: true, title: msg('app.delete_turn'), actionLabel: msg('app.delete_turn_2'),
                     message: msg(snapshot.settings.lorebookId ? 'app.delete_turn_with_lore' : 'app.delete_this_entire_turn_including_its_saved'),

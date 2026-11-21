@@ -15,11 +15,12 @@ export function useMemoryCleanup(run: (action: () => Promise<unknown>) => Promis
   const visit = useRef(0);
   const reading = useRef(false);
   useLayoutEffect(() => () => { visit.current++; }, [scope]);
-  return async function review({ path, body, copy, alwaysConfirm, commit, saved }: {
+  return async function review({ path, body, copy, alwaysConfirm, showRestoredTurns = true, commit, saved }: {
     path: string;
     body: unknown;
     copy: ConfirmationCopy;
     alwaysConfirm?: boolean;
+    showRestoredTurns?: boolean;
     commit: (memoryImpactToken?: string) => Promise<unknown>;
     saved?: () => void;
   }) {
@@ -42,7 +43,7 @@ export function useMemoryCleanup(run: (action: () => Promise<unknown>) => Promis
     if (impact || alwaysConfirm) {
       confirm({
         ...copy,
-        details: impact ? <CleanupDetails impact={impact} /> : null,
+        details: impact ? <CleanupDetails impact={impact} showRestoredTurns={showRestoredTurns} /> : null,
         returnFocus: focused instanceof HTMLElement ? focused : undefined,
         onConfirm: () => void save(),
       });
@@ -50,12 +51,15 @@ export function useMemoryCleanup(run: (action: () => Promise<unknown>) => Promis
   };
 }
 
-function CleanupDetails({ impact }: { impact: MemoryCleanupImpact }) {
+function CleanupDetails({ impact, showRestoredTurns }: { impact: MemoryCleanupImpact; showRestoredTurns: boolean }) {
   useLocale();
-  return <ul className="memory-cleanup-branches">{impact.branches.map(branch => <li key={branch.id}>
+  const branches = impact.branches.filter(branch => branch.discardedSummaries > 0 || branch.corrections.length > 0
+    || (showRestoredTurns && branch.restoredTurns > 0));
+  if (!branches.length) return null;
+  return <ul className="memory-cleanup-branches">{branches.map(branch => <li key={branch.id}>
     <strong>{branch.branchName ? t('memory_cleanup.branch', { title: branch.title, branch: branch.branchName }) : branch.title}</strong>
     {branch.discardedSummaries > 0 && <p>{t('memory_cleanup.discarded', { count: branch.discardedSummaries })}</p>}
-    {branch.restoredTurns > 0 && <p>{t('memory_cleanup.restored', { count: branch.restoredTurns })}</p>}
+    {showRestoredTurns && branch.restoredTurns > 0 && <p>{t('memory_cleanup.restored', { count: branch.restoredTurns })}</p>}
     {branch.corrections.length > 0 && <><strong>{t('memory_cleanup.corrections')}</strong>
       <ul>{branch.corrections.map(correction => <li key={correction.id}>
         {correction.firstTurn === null || correction.lastTurn === null

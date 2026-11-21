@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
-import { appearanceStatusSchema } from '../../src/shared/appearance';
+import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultContextPreset, type ContextPlan } from '../../src/shared/context';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -9,7 +9,7 @@ import { openChatTool } from './chat-tools';
 import { test } from './isolated-app';
 
 async function inspectReview(page: Page, review: Locator, testInfo: TestInfo, url: string, cancelName = 'Cancel', screenshot = 'impact') {
-  for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+  for (const theme of themeSchema.options) {
     const current = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
     const response = await page.request.put('/api/application/appearance', {
       headers: { Origin: url }, data: { revision: current.revision, settings: { ...current.settings, theme } },
@@ -280,7 +280,8 @@ test('latest-turn deletion restores older turns and keeps the edited summary', a
     await page.keyboard.press('End');
     await expect(page.getByRole('menuitem', { name: 'Delete turn', exact: true })).toBeFocused();
     await page.keyboard.press('Enter');
-    await expect(review).toContainText('2 surviving turns will return to verbatim history.');
+    await expect(review).toHaveAccessibleDescription('Delete this entire turn, including its saved request records?');
+    await expect(review).not.toContainText('will return to verbatim history');
     await expect(review).not.toContainText('will be discarded');
     await expect(review).not.toContainText(correction);
   };
