@@ -15,20 +15,17 @@ import { newId } from './uuid';
 import { Icon } from './Icon';
 import { PersonaIcon } from './PersonaIcon';
 import type { ChatDefaultsStatus, ChatDefaultKind } from '../shared/chat-defaults';
-import type { PromptDiagnostic } from '../shared/prompt-diagnostics';
 import { useConfirmation } from './Confirmation';
 import { LibraryDeletionDialog, readDeletionRetry, type LibraryDeletionTarget } from './LibraryDeletionDialog';
-import { WarningDetails, WarningDialog, WarningMessages } from './WarningDialog';
+import { WarningDialog, WarningMessages } from './WarningDialog';
 import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { CharacterAvatar, PictureSquare } from './Pictures';
 import { LibraryCard } from './LibraryCard';
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
-import { ChatWorkspace } from './ChatWorkspace';
-import type { ChatToolsSnapshot, Connection, ConnectionDiagnostic } from '../shared/contracts';
+import type { Connection, ConnectionDiagnostic } from '../shared/contracts';
 import { characterLabel, personaLabel, characterFields, defaultPrompt, markers, markerLabel, promptWarningMessages, type ChatSummary, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { upgradePrompt } from '../core/prompt-upgrade';
-import { characterDropdownOptions, personaDropdownOptions } from './ChatParticipants';
 import { TranscriptImport } from './TranscriptImport';
 import { CharacterImport } from './CharacterImport';
 import { ConnectionFileDialog, type ConnectionFileAction } from './ConnectionFileDialog';
@@ -37,7 +34,7 @@ import { ConnectionParameters } from './ConnectionParameters';
 import { connectionParameterDraft, parseConnectionParameters, recoverConnectionParameters, type ConnectionParameterDraft } from './connection-parameter-draft';
 import { CharacterEditor } from './CharacterEditor';
 import { EditorActions, EditorActionsTarget } from './EditorActions';
-import { useWarnOnEditorLeave, type LeaveEditor, type useEditorLeaveGuard } from './EditorLeaveGuard';
+import type { LeaveEditor } from './EditorLeaveGuard';
 import { EditorTextarea } from './EditorTextarea';
 import { TagChips, TagFilterMenu } from './Tags';
 import { characterTagIndex, matchesCharacterTags } from '../shared/tags';
@@ -63,7 +60,6 @@ function newPrompt(): PromptPreset {
   };
 }
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
-type Selection = { title: string; targetInputTokens: number; connectionId: string | null; promptId: string; characterId: string | null; personaId: string | null; contextPresetId: string | null; lorebookId: string | null };
 type LibraryRecord = LibraryCharacter | LibraryPersona | PromptPreset | Connection | ContextPreset | Lorebook;
 
 function libraryCardDetails(item: LibraryRecord): string | undefined {
@@ -86,115 +82,6 @@ function lastLibrarySection(): LibraryCategory {
     const value = localStorage.getItem('roleplay-library-section');
     return libraryCategories.find(category => category === value) ?? 'chats';
   } catch { return 'chats'; }
-}
-function selection(snapshot: ChatToolsSnapshot): Selection {
-  return { title: snapshot.settings.title, targetInputTokens: snapshot.settings.targetInputTokens,
-    connectionId: snapshot.settings.connectionId ?? null, promptId: snapshot.settings.promptId ?? 'default',
-    characterId: snapshot.settings.characterId ?? null, personaId: snapshot.settings.personaId ?? null, contextPresetId: snapshot.settings.contextPresetId ?? null, lorebookId: snapshot.settings.lorebookId ?? null };
-}
-function libraryDropdownOptions(library: LibrarySnapshot, kind: Exclude<LibraryKind, 'characters' | 'personas'>) {
-  const records: readonly { id: string; name: string }[] = library[kind];
-  const sorted = sortLibraryRecords(records, kind, library.dates);
-  return [
-    ...(kind === 'prompts' ? [] : [{ value: '', label: t('character_editor.none_selected') }]),
-    ...sorted.map(record => ({ value: record.id, label: displayLibraryRecord(record).name })),
-  ];
-}
-function SelectionFields({ value, change, library }: { value: Selection; change: (value: Selection) => void; library: LibrarySnapshot }) {
-  useLocale();
-  const fields = [
-    { key: 'connectionId', label: t('libraries.connection'), options: libraryDropdownOptions(library, 'connections') },
-    { key: 'promptId', label: t('libraries.prompt_preset'), options: libraryDropdownOptions(library, 'prompts') },
-    { key: 'characterId', label: t('app.character'), options: characterDropdownOptions(library) },
-    { key: 'personaId', label: t('libraries.persona'), options: personaDropdownOptions(library) },
-    { key: 'contextPresetId', label: t('libraries.context_preset'), options: libraryDropdownOptions(library, 'contexts') },
-    { key: 'lorebookId', label: t('libraries.lorebook'), options: libraryDropdownOptions(library, 'lorebooks') },
-  ] as const;
-  return <div className="form-grid">
-    <label>{t("libraries.chat_title")}<input required maxLength={100} value={value.title} onChange={e => change({ ...value, title: e.target.value })} /></label>
-    <label>{t("libraries.target_input_tokens")}<NumberInput draftField="targetInputTokens" required value={value.targetInputTokens} onChange={targetInputTokens => change({ ...value, targetInputTokens })} /></label>
-    {fields.map(({ key, label, options }) => <label key={key}>{label}
-      <Dropdown aria-label={label} value={value[key] ?? ''} onChange={selected => change({ ...value, [key]: selected || null })} options={options} />
-    </label>)}
-  </div>;
-}
-export function ChatSetup({ snapshot, library, busy, working, run, sidebar, returnToChat, openLibraryItem, addConnection, leaveGuard }: {
-  snapshot: ChatToolsSnapshot; library: LibrarySnapshot; busy: boolean; working: boolean; run: Run; sidebar: ReactNode;
-  addConnection: () => void; returnToChat: () => void; openLibraryItem: (target: LibraryTarget) => void; leaveGuard: ReturnType<typeof useEditorLeaveGuard>;
-}) {
-  useLocale();
-  const [baseline] = useState(() => selection(snapshot));
-  const [value, setValue] = useState(baseline);
-  const [revision] = useState(snapshot.revision);
-  const numberDraft = useNumberDraft();
-  useWarnOnEditorLeave(leaveGuard, numberDraft.dirty || !sameDraftValue(value, baseline));
-  const reviewMemoryCleanup = useMemoryCleanup(run, snapshot.id);
-  const warningTrigger = useRef<HTMLButtonElement>(null);
-  const [diagnosticsRetry, setDiagnosticsRetry] = useState(0);
-  const diagnosticsKey = JSON.stringify([snapshot.id, snapshot.revision, library.revision, value.promptId, value.characterId, value.personaId, value.lorebookId, diagnosticsRetry]);
-  const [diagnostics, setDiagnostics] = useState<{ key: string; warnings: PromptDiagnostic[]; error?: MessageText } | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    void api<PromptDiagnostic[]>(`/chats/${snapshot.id}/prompt-diagnostics`, 'POST', { revision: snapshot.revision, settings: { ...selection(snapshot), promptId: value.promptId, characterId: value.characterId, personaId: value.personaId, lorebookId: value.lorebookId } }, controller.signal).then(warnings => {
-      if (!controller.signal.aborted) setDiagnostics({ key: diagnosticsKey, warnings });
-    }).catch(error => {
-      if (!controller.signal.aborted) setDiagnostics({ key: diagnosticsKey, warnings: [], error: errorText(error, msg("libraries.could_not_check_prompt_configuration")) });
-    });
-    return () => controller.abort();
-  }, [snapshot.id, snapshot.revision, diagnosticsKey]);
-  const formId = useId();
-  const mounted = useRef(true);
-  const submitting = useRef(false);
-  const [saving, setSaving] = useState(false);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const leavingDisabled = busy || saving;
-  const saveDisabled = leavingDisabled || working || revision !== snapshot.revision;
-  const leaveForStory = (returnFocus?: HTMLElement) => leaveGuard.leave(returnToChat, { returnFocus });
-  return <ChatWorkspace sidebar={sidebar} returnToChat={leavingDisabled ? undefined : () => leaveForStory()} actions={<>
-    <button type="submit" form={formId} disabled={saveDisabled} aria-label={t("libraries.save_and_return")} title={t("libraries.save_and_return")}><Icon name="SaveOutline" /><span>{t("libraries.save_and_return")}</span></button>
-    <button type="button" className="secondary" disabled={leavingDisabled} onClick={event => leaveForStory(event.currentTarget)} aria-label={t("libraries.return_without_saving")} title={t("libraries.return_without_saving")}><Icon name="Close" /><span>{t("libraries.return_without_saving")}</span></button>
-  </>}><section className="document-panel chat-panel" aria-label={t("app.chat_settings")}><p className="eyebrow">{t("libraries.chat_settings")}</p><h1>{t("libraries.choose_this_story_s_ingredients")}</h1><p className="muted">{t("libraries.each_chat_keeps_its_own_selections_edit")}</p>
-    <form id={formId} onSubmit={async e => {
-      e.preventDefault();
-      if (saveDisabled || submitting.current) return;
-      submitting.current = true;
-      setSaving(true);
-      try {
-        const commit = (memoryImpactToken?: string) => api(`/chats/${snapshot.id}/selections`, 'PUT', { revision, settings: value, memoryImpactToken });
-        if (value.contextPresetId !== (snapshot.settings.contextPresetId ?? null)) {
-          await reviewMemoryCleanup({
-            path: `/chats/${snapshot.id}/settings/memory-impact`, body: { revision, contextPresetId: value.contextPresetId },
-            copy: saveMemoryCleanupCopy(), commit, saved: returnToChat,
-          });
-        } else if (await run(() => commit()) && mounted.current) returnToChat();
-      } finally { submitting.current = false; if (mounted.current) setSaving(false); }
-    }}><fieldset disabled={leavingDisabled || working}><legend>{t("libraries.selections")}</legend>
-      <NumberDraftContext.Provider value={numberDraft}><SelectionFields value={value} change={setValue} library={library} /></NumberDraftContext.Provider>
-      {library.connections.length === 0 && <div className="actions">
-        <button type="button" className="secondary" onClick={event => leaveGuard.leave(addConnection, { returnFocus: event.currentTarget })}>{t('story_home.add_connection')}</button>
-      </div>}
-    </fieldset>
-      {revision !== snapshot.revision && <p role="status">{t("libraries.this_chat_changed_reopen_chat_settings_to")}</p>}
-    </form>
-    {diagnostics?.key !== diagnosticsKey || diagnostics.error ? <section className="import-panel" aria-label={t("libraries.prompt_configuration_warnings")}>
-      <h2>{t("libraries.prompt_configuration_warnings")}</h2>
-      {diagnostics?.key !== diagnosticsKey ? <p role="status">{t("libraries.checking_prompt_configuration")}</p> : <>
-        <p role="alert">{formatMessage(diagnostics.error)}</p>
-        <button type="button" className="secondary" onClick={() => setDiagnosticsRetry(value => value + 1)}>{t("libraries.check_again")}</button>
-      </>}
-    </section> : diagnostics.warnings.length > 0 && <WarningDetails key={diagnosticsKey} triggerRef={warningTrigger} label={t("libraries.prompt_configuration_warnings")}
-      title={t("libraries.prompt_configuration_warnings")}>{close => (
-        <ul className="warning-messages">{diagnostics.warnings.map(warning => <li key={warning.code}>
-          <p>{formatMessage(warning.localized ?? warning.message)}</p>
-          <button type="button" className="secondary" disabled={leavingDisabled} onClick={() => {
-            close();
-            leaveGuard.leave(() => openLibraryItem({ kind: warning.target, id: warning.itemId }), { returnFocus: warningTrigger.current ?? undefined });
-          }}>
-            <Icon name="EditOutline" />{t("libraries.edit", { value: warning.target === 'prompts' ? t("interface.prompt_preset") : warning.target === 'characters' ? t("app.character") : t("libraries.lorebook") })}
-          </button>
-        </li>)}</ul>
-      )}</WarningDetails>}
-  </section></ChatWorkspace>;
 }
 function download(value: unknown, name: string) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }));

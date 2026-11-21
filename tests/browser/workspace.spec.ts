@@ -122,7 +122,16 @@ for (const width of [1280, 820, 801, 800, 390, 320]) {
         expect(bounds.height).toBe(44);
         expect(bounds.y).toBeGreaterThanOrEqual(header.y + header.height);
         if (region === 'Memory') expect(heading.y + heading.height).toBeGreaterThanOrEqual(bounds.y + bounds.height);
-        else expect(bounds.y + bounds.height).toBeLessThanOrEqual(heading.y);
+        else if (region === 'Chat settings') {
+          const group = await actions.boundingBox();
+          if (!group) throw new Error('Missing compact chat settings actions');
+          const textRight = await content.getByRole('heading', { level: 1 }).evaluate(node => {
+            const text = document.createRange();
+            text.selectNodeContents(node);
+            return text.getBoundingClientRect().right;
+          });
+          expect(textRight).toBeLessThanOrEqual(group.x);
+        } else expect(bounds.y + bounds.height).toBeLessThanOrEqual(heading.y);
         expect(bounds.x + bounds.width).toBeGreaterThan(width - 40);
         await expect(close.locator('svg')).toBeVisible();
         await expect(close.locator('span')).toBeHidden();

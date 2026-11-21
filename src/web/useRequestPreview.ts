@@ -53,6 +53,7 @@ export function useRequestPreview(snapshot: StorySnapshot | null, draft: string,
   const matching = inspection.chatId === snapshot?.id;
   return {
     estimate: matching ? inspection.estimate : null,
+    estimateCurrent: matching && inspection.key === key && !inspection.error && Boolean(inspection.estimate),
     request: matching ? inspection.request : null,
     current: inspection.key === key && !inspection.error && (!full || Boolean(inspection.request)),
     error: inspection.key === key ? inspection.error : '',

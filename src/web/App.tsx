@@ -21,7 +21,8 @@ import { RefreshQueue, fullRefresh, scopeForChange, type RefreshScope } from './
 import { useRequestPreview } from './useRequestPreview';
 import { useGenerationHistory } from './useGenerationHistory';
 import { hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
-import { ChatSetup, Libraries, type LibraryDestination } from './Libraries';
+import { ChatSetup } from './ChatSetup';
+import { Libraries, type LibraryDestination } from './Libraries';
 import type { ChatParticipantsValue } from './ChatParticipants';
 import { NewChatPage } from './NewChatPage';
 import { useConfirmation } from './Confirmation';
@@ -548,12 +549,12 @@ export function App() {
     const status = stateLabel(generation.status);
     return { value: generation.id, label: generation.kind === 'continuation' ? t('continue.attempt_label', { date, status }) : `${date} · ${status}` };
   });
-  const preview = useRequestPreview(snapshot, preparing?.mode === 'prepare' || regenerationPreparation ? '' : draft,
+  const preview = useRequestPreview(snapshot, tab === 'settings' || preparing?.mode === 'prepare' || regenerationPreparation ? '' : draft,
     view !== 'library' && view !== 'data' && view !== 'new-chat', tab === 'request' && !generationId || peek,
     tab === 'memory' || tab === 'settings' ? undefined
       : openingPreview ? { kind: 'opening' }
       : continuationPreview ? { kind: 'continuation', turnId: continuationPreview } : undefined);
-  const currentRequest = snapshot?.connection ? preview.estimate : null;
+  const currentRequest = snapshot?.connection && (tab !== 'settings' || preview.estimateCurrent) ? preview.estimate : null;
   const inspectionCurrent = preview.current;
   const inspectionError = formatMessage(preview.error) || (!currentRequest && snapshot?.connection ? t('app.counting_current_input') : '');
   const [savedInspection, setSavedInspection] = useState<{ chatId: string; generationId: string; request: RequestPreview | null; error: MessageText } | null>(null);
@@ -572,7 +573,6 @@ export function App() {
   }, [tab, snapshot?.id, generationId, savedRequestPresent, savedInspectionRetry]);
   const matchingSavedInspection = savedInspection?.chatId === snapshot?.id && savedInspection?.generationId === generationId ? savedInspection : null;
   const shownRequest = generationId ? matchingSavedInspection?.request : preview.request;
-  const activeTurns = currentRequest?.history?.verbatimTurns ?? (snapshot ? snapshot.totalTurns - snapshot.memory.archivedCount : 0);
   const inputLimit = currentRequest ? Math.min(currentRequest.budget.targetInputTokens, currentRequest.budget.contextWindow - currentRequest.budget.reservedOutputTokens) : 0;
   const inspectedBudget = inspectionCurrent ? currentRequest?.budget : undefined;
   const physicalOverflow = Boolean(inspectedBudget && inspectedBudget.inputTokens + inspectedBudget.reservedOutputTokens > inspectedBudget.contextWindow);
@@ -743,12 +743,29 @@ export function App() {
   const activeBranch = library.chats.find(branch => branch.id === snapshot?.id);
   const chatBranches = activeBranch ? library.chats.filter(branch => chatGroupId(branch) === chatGroupId(activeBranch)) : [];
   const sidebar = snapshot && <>
-        <p className="eyebrow">{t("app.current_chat")}</p>
-        {appearance.settings.displayCharacterPicture && <ChatCharacterPortrait key={`${snapshot.id}:${selectedCharacterPicture?.key ?? ''}`} picture={selectedCharacterPicture} />}
-        <h1>{snapshot.settings.title}</h1>
-        <p>{snapshot.connection ? `${snapshot.connection.name} · ${snapshot.connection.model}` : t("app.set_up_a_connection_to_begin")}</p>
-        <dl><div><dt>{t("app.total_turns")}</dt><dd>{snapshot.totalTurns}</dd></div><div title={t("app.saved_turns_kept_verbatim_in_the_current")}><dt>{t("app.active_turns")}</dt><dd>{activeTurns}</dd></div><div><dt>{t("app.input_target")}</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString(locale())}</dd></div><div><dt>{t("app.estimated_input")}</dt><dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>{currentRequest?.budget.inputTokens.toLocaleString(locale()) ?? '—'}</dd></div></dl>
-        <details className="context-dropdown" open={contextExpanded} onToggle={event => setContextExpanded(event.currentTarget.open)}><summary>{t("app.context")}<span>{!summariesEnabled ? t("app.summaries_are_disabled") : snapshot.memory.selectedCount ? t('counts.summaries', { count: snapshot.memory.selectedCount }) : t("app.full_history")}</span></summary>{currentRequest ? <><InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} /><BudgetBreakdown request={currentRequest} /><button className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>{t("app.prompt_peek")}</button></> : <p className="small muted">{inspectionError || t("app.select_a_connection_to_inspect_input")}</p>}</details>
+    <p className="eyebrow">{t('app.current_chat')}</p>
+    {appearance.settings.displayCharacterPicture && <ChatCharacterPortrait key={`${snapshot.id}:${selectedCharacterPicture?.key ?? ''}`} picture={selectedCharacterPicture} />}
+    <h1>{snapshot.settings.title}</h1>
+    <p>{snapshot.connection ? `${snapshot.connection.name} · ${snapshot.connection.model}` : t('app.set_up_a_connection_to_begin')}</p>
+    <dl>
+      <div><dt>{t('app.total_turns')}</dt><dd>{snapshot.totalTurns.toLocaleString(locale())}</dd></div>
+      <div title={t('app.saved_turns_kept_verbatim_in_the_current')}><dt>{t('app.active_turns')}</dt>
+        <dd>{(currentRequest?.history?.verbatimTurns ?? snapshot.totalTurns - snapshot.memory.archivedCount).toLocaleString(locale())}</dd></div>
+      <div><dt>{t('app.input_target')}</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString(locale())}</dd></div>
+      <div><dt>{t('app.estimated_input')}</dt>
+        <dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>
+          {currentRequest?.budget.inputTokens.toLocaleString(locale()) ?? '—'}
+        </dd></div>
+    </dl>
+    <details className="context-dropdown" open={contextExpanded} onToggle={event => setContextExpanded(event.currentTarget.open)}>
+      <summary>{t('app.context')}<span>{!summariesEnabled ? t('app.summaries_are_disabled')
+        : snapshot.memory.selectedCount ? t('counts.summaries', { count: snapshot.memory.selectedCount }) : t('app.full_history')}</span></summary>
+      {currentRequest ? <>
+        <InputMeter input={currentRequest.budget.inputTokens} limit={inputLimit} />
+        <BudgetBreakdown request={currentRequest} />
+        <button type="button" className="secondary" disabled={!inspectionCurrent} onClick={() => setPeek(true)}>{t('app.prompt_peek')}</button>
+      </> : <p className="small muted">{inspectionError || t('app.select_a_connection_to_inspect_input')}</p>}
+    </details>
   </>;
   function signOut(returnFocus: HTMLElement) {
     leaveEditor(() => void command(async () => {
@@ -956,6 +973,9 @@ export function App() {
     </LibraryDraftContext.Provider>}
     {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library}
       busy={busy} working={working} run={command} sidebar={sidebar} returnToChat={returnToChat} leaveGuard={chatSettingsLeave}
+      savedInput={currentRequest && toolSnapshot.revision === snapshot.revision
+        ? { tokens: currentRequest.budget.inputTokens }
+        : { status: inspectionError || t(snapshot.connection ? 'app.counting_current_input' : 'chat_setup.estimate_requires_connection') }}
       addConnection={() => openLibrary({ kind: 'connections', action: 'create', returnTo: 'settings' })}
       openLibraryItem={openLibrary} />}
     {tab === 'memory' && snapshot && toolSnapshot?.id === snapshot.id && <ChatWorkspace sidebar={sidebar} returnToChat={returnToChat} actions={<button type="button" className="secondary" onClick={returnToChat} aria-label={t("app.return_to_chat")} title={t("app.return_to_chat")}><Icon name="Close" /><span>{t("app.return_to_chat")}</span></button>}><Memory behavior={behaviorEditor} key={snapshot.id} snapshot={toolSnapshot} library={library} busy={busy} run={command} openPins={openPins} preparation={preparing} editPreset={id => { setLibraryTarget({ kind: 'contexts', id }); setTab('library'); }} /></ChatWorkspace>}

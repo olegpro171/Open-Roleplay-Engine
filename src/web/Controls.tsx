@@ -7,11 +7,11 @@ import { createPortal } from 'react-dom';
 type Option = { value: string; label: string; disabled?: boolean; leading?: ReactNode };
 type DropdownProps = {
   value: string; onChange: (value: string) => void; options: Option[];
-  'aria-label'?: string; disabled?: boolean; editable?: boolean; required?: boolean; minMenuWidth?: number;
+  'aria-label'?: string; 'aria-describedby'?: string; disabled?: boolean; editable?: boolean; required?: boolean; minMenuWidth?: number;
   presentation?: 'heading'; triggerRef?: RefObject<HTMLButtonElement | null>;
 };
 
-export function Dropdown({ value, onChange, options, disabled, editable, required, minMenuWidth, presentation, triggerRef, 'aria-label': label }: DropdownProps) {
+export function Dropdown({ value, onChange, options, disabled, editable, required, minMenuWidth, presentation, triggerRef, 'aria-label': label, 'aria-describedby': describedBy }: DropdownProps) {
   useLocale();
   const heading = presentation === 'heading';
   const Anchor = heading ? 'span' : 'div';
@@ -113,7 +113,7 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   }, [activeIndex, expanded, position]);
   function choose(option: Option) { if (!option.disabled && !anchor.current?.querySelector(':disabled')) onChange(option.value); setOpen(false); }
   const props = {
-    role: 'combobox' as const, 'aria-label': label, 'aria-expanded': expanded, 'aria-controls': expanded ? id : undefined,
+    role: 'combobox' as const, 'aria-label': label, 'aria-describedby': describedBy, 'aria-expanded': expanded, 'aria-controls': expanded ? id : undefined,
     'aria-haspopup': 'listbox' as const, 'aria-activedescendant': expanded ? `${id}-${activeIndex}` : undefined, disabled,
     onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
       if (event.key === 'Escape') {

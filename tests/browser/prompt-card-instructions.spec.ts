@@ -20,7 +20,7 @@ test('edits card instructions, enables preset injection, explains unavailable so
   await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
   const library = () => page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
   const command = async (url: string, data: unknown, method = 'POST') => {
-    const response = await page.request.fetch(url, { method, headers: { Origin: 'http://127.0.0.1:4173' }, data });
+    const response = await page.request.fetch(url, { method, headers: { Origin: new URL(page.url()).origin }, data });
     expect(response.ok(), await response.text()).toBe(true);
     return response.json();
   };
@@ -42,7 +42,8 @@ test('edits card instructions, enables preset injection, explains unavailable so
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Card instructions story', exact: true }) }).click();
   await expect(page.getByRole('button', { name: 'Chat settings', exact: true })).toHaveText('Chat settings (4)');
   await openChatTool(page, 'Chat settings');
-  const review = page.getByRole('button', { name: 'Prompt configuration warnings', exact: true });
+  const review = page.getByRole('region', { name: 'Generation', exact: true })
+    .getByRole('button', { name: 'Prompt configuration warnings', exact: true });
   const warnings = page.getByRole('dialog', { name: 'Prompt configuration warnings', exact: true });
   await review.click();
   await expect(warnings.getByRole('listitem')).toHaveCount(4);
