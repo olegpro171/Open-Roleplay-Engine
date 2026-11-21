@@ -20,12 +20,23 @@ for (const width of [1440, 390]) {
     const name = `Greeting keeper ${width}`;
     const card = { spec: 'chara_card_v3', spec_version: '3.0', data: {
       name, description: 'Synthetic greeting keeper.', first_mes: 'Welcome, {{user}}.',
+      mes_example: '<START>\n{{char}}: Welcome.',
       alternate_greetings: ['First alternative from {{char}}.', 'Remove this greeting.'],
     } };
     await page.getByLabel('Import character', { exact: true }).setInputFiles({ name: 'greetings.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(card)) });
     await page.getByRole('button', { name: 'Import', exact: true }).click();
     await page.getByRole('button', { name: `${name}`, exact: true }).click();
-    await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue('First alternative from {{char}}.');
+    const openings = page.getByRole('group', { name: 'Opening messages', exact: true });
+    await expect(openings.getByRole('textbox', { name: 'Greeting', exact: true })).toHaveValue('Welcome, {{user}}.');
+    await expect(openings.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue('First alternative from {{char}}.');
+    const example = page.getByRole('textbox', { name: 'Example dialogue', exact: true });
+    const exampleToggle = page.getByText('Example dialogue', { exact: true });
+    const updatedExample = '<START>\n{{user}}: Who is there?\n{{char}}: The keeper.';
+    await expect(example).toBeVisible();
+    await expect(example).toHaveValue(card.data.mes_example);
+    await example.fill(updatedExample);
+    await exampleToggle.click();
+    await expect(example).toBeHidden();
     await page.getByLabel('Alternate greeting 1', { exact: true }).fill('Edited greeting for {{user}} from {{char}}.');
     await page.getByRole('button', { name: 'Remove alternate greeting 2', exact: true }).click();
     await page.getByRole('button', { name: 'Add alternate greeting', exact: true }).click();
@@ -39,8 +50,13 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('alert').filter({ hasText: 'Synthetic greeting save failure.' }).first()).toBeVisible();
     await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue('Edited greeting for {{user}} from {{char}}.');
+    await exampleToggle.click();
+    await expect(example).toHaveValue(updatedExample);
+    await exampleToggle.click();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await page.getByRole('button', { name: `${name}`, exact: true }).click();
+    await expect(example).toBeVisible();
+    await expect(example).toHaveValue(updatedExample);
     await expect(page.getByLabel('Alternate greeting 2', { exact: true })).toHaveValue('A third beginning.\n\nA second paragraph.');
     await page.getByLabel('Alternate greeting 1', { exact: true }).fill('Discard this draft.');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();

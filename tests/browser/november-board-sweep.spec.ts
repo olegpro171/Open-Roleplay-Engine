@@ -167,9 +167,12 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     await page.getByRole('button', { name: 'Characters', exact: true }).click();
     await page.getByRole('button', { name: 'New character', exact: true }).click();
     const example = page.getByLabel('Example dialogue', { exact: true });
+    await expect(example).toBeHidden();
+    await page.getByText('Example dialogue', { exact: true }).press('Enter');
+    await expect(example).toBeVisible();
     await expect(example).toHaveValue('');
     await expect(example).toHaveAttribute('placeholder', '<START>\n{{user}}: \n{{char}}:');
-    await expect(page.getByText(/Write sample exchanges/)).toContainText('{{user}}: and {{char}}:');
+    await expect(example).toHaveAccessibleDescription('Show how the character sounds in a short exchange. Start each new example with <START>.');
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 850 });
       await example.scrollIntoViewIfNeeded();

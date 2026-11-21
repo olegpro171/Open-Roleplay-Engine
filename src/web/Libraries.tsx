@@ -751,12 +751,24 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, busy,
       });
     })) committed(request.result?.id);
   }
-  function textField(field: string, label: string, multiline = true, full = true) {
+  function textField(field: string, label: string, multiline = true, full = true, help?: string) {
     const value = (data as unknown as Record<string, string>)[field];
-    return <label className={full ? 'full' : undefined} key={field}>{label}{multiline ? <EditorTextarea value={value} maxLength={100_000} onChange={e => setData({ ...data, [field]: e.target.value })} /> : <input required maxLength={100} value={value} onChange={e => setData({ ...data, [field]: e.target.value })} />}</label>;
+    const helpId = `${formId}-${field}-help`;
+    const helpAttributes = help ? { 'aria-label': label, 'aria-describedby': helpId } : {};
+    return <label className={full ? 'full' : undefined} key={field}>{label}
+      {multiline
+        ? <EditorTextarea {...helpAttributes} value={value} maxLength={100_000} onChange={event => setData({ ...data, [field]: event.target.value })} />
+        : <input {...helpAttributes} required maxLength={100} value={value} onChange={event => setData({ ...data, [field]: event.target.value })} />}
+      {help && <small id={helpId}>{help}</small>}
+    </label>;
   }
-  return <NumberDraftContext.Provider value={numberDraft}><form id={formId} onSubmit={e => void save(e)}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy || stale}><legend>{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend><div className="form-grid">{textField('name', t("character_editor.name"), false, initial.kind !== 'personas')}
-    {initial.kind === 'personas' && <><label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={(data as LibraryPersona).titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("libraries.an_optional_label_useful_for_distinguishing_between")}</small></label><SpeechColorSelector speaker="persona" value={(data as LibraryPersona).speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || stale} />{textField('description', t("libraries.persona_description"))}</>}
+  const personaNameHelp = initial.kind === 'personas' ? t('libraries.persona_name_help', { user: '{{user}}' }) : undefined;
+  return <NumberDraftContext.Provider value={numberDraft}><form id={formId} onSubmit={e => void save(e)}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy || stale}><legend>{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend><div className="form-grid">{textField('name', t("character_editor.name"), false, initial.kind !== 'personas', personaNameHelp)}
+    {initial.kind === 'personas' && <>
+      <label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={(data as LibraryPersona).titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("libraries.an_optional_label_useful_for_distinguishing_between")}</small></label>
+      <SpeechColorSelector speaker="persona" value={(data as LibraryPersona).speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || stale} />
+      {textField('description', t('libraries.persona_description'), true, true, t('libraries.persona_description_help'))}
+    </>}
     {initial.kind === 'contexts' && <ContextPresetFields value={data as ContextPreset} change={setData} connections={connections} />}
     {initial.kind === 'connections' && <>
       <label className="full">{t("libraries.api_base_url")}<input type="url" required value={(data as Connection).endpoint} onChange={e => setData({ ...data as Connection, endpoint: e.target.value })} /></label>

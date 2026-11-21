@@ -40,6 +40,7 @@ export function CharacterEditor({ initial, recovered, library, busy, run, close,
   const [processing, setProcessing] = useState(false), [uncertain, setUncertain] = useState<CharacterSaveCommand | null>(null);
   const submitting = useRef(false);
   const [data, setData] = useState(() => recovered?.data ?? baselineData), [revision, setRevision] = useState(initial.revision);
+  const [exampleOpen, setExampleOpen] = useState(() => Boolean(data.mes_example.trim()));
   const [baseline, setBaseline] = useState(() => library.characterTags.filter(link => link.characterId === initial.id).map(link => link.tagId));
   const [tagIds, setTagIds] = useState(recovered?.tagIds ?? baseline), [manager, setManager] = useState(false);
   const [embedded, setEmbedded] = useState<{ revision: number; tags: TagReview } | null>(null), [policy, setPolicy] = useState<TagPolicy>('none');
@@ -116,6 +117,7 @@ export function CharacterEditor({ initial, recovered, library, busy, run, close,
     if (current) {
       const { id: _id, revision: savedRevision, ...fields } = current;
       setData(editableCharacter(fields)); setBaselineData(editableCharacter(fields)); originalRevision.current = savedRevision;
+      setExampleOpen(Boolean(fields.mes_example.trim()));
       const links = library.characterTags.filter(link => link.characterId === initial.id).map(link => link.tagId);
       setBaseline(links); setTagIds(links);
     }
@@ -129,25 +131,53 @@ export function CharacterEditor({ initial, recovered, library, busy, run, close,
   const embeddedBook = source.spec === 'chara_card_v2' || source.spec === 'chara_card_v3'
     ? typeof nested === 'object' && nested !== null && 'character_book' in nested && nested.character_book != null
     : source.character_book != null;
+  const exampleLabel = t('character_editor.example_dialogue');
+  const exampleHelpId = `${formId}-example-help`;
+  const openingsId = `${formId}-openings`;
+  const alternativesId = `${formId}-alternatives`;
+  const alternativesHelpId = `${formId}-alternatives-help`;
+  function textField(field: 'description' | 'personality' | 'scenario' | 'first_mes', label: string, help: string) {
+    const helpId = `${formId}-${field}-help`;
+    return <label className="full">{label}
+      <small id={helpId}>{help}</small>
+      <EditorTextarea aria-label={label} aria-describedby={helpId} maxLength={100_000} value={data[field]}
+        onChange={event => setData({ ...data, [field]: event.target.value })} />
+    </label>;
+  }
   return <NumberDraftContext.Provider value={numberDraft}>
     <form id={formId} onSubmit={event => { event.preventDefault(); void save(); }}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy || pending || stale || Boolean(uncertain)}><legend>{t("character_editor.character", { value: initial.id ? t("libraries.edit_2") : t("libraries.create") })}</legend><div className="form-grid">
-      {!initial.id && initial.returnTo === 'story' && <p className="small muted full">{t('story_home.character_editor_help')}</p>}
+      {!initial.id && <p className="character-editor-help small muted full">{t('story_home.character_editor_help')}</p>}
       <label>{t("character_editor.name")}<input required maxLength={100} value={data.name} onChange={event => setData({ ...data, name: event.target.value })} /></label>
       <label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={data.titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("character_editor.an_optional_label_useful_for_distinguishing_between")}</small></label>
-      <SpeechColorSelector value={data.speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || pending || stale || Boolean(uncertain)} />
       <PictureEditor value={picture} change={setPicture} original={baselinePicture} disabled={busy || pending || stale || Boolean(uncertain)} processing={setProcessing} />
-      {([['description', t("character_editor.character_description")], ['personality', t("character_editor.personality")], ['scenario', t("character_editor.scenario")], ['first_mes', t("character_editor.greeting")], ['mes_example', t("character_editor.example_dialogue")]] as const).map(([field, label]) => <label key={field} className="full">{label}<EditorTextarea aria-label={label} placeholder={field === 'mes_example' ? "<START>\n{{user}}: \n{{char}}:" : undefined} maxLength={100_000} value={data[field]} onChange={event => setData({ ...data, [field]: event.target.value })} />{field === 'mes_example' && <small>{t("character_editor.example_dialogue_help", { start: "<START>", user: "{{user}}", char: "{{char}}" })}</small>}</label>)}
-      <CardInstructions value={data} change={setData} />
-      <div className="full" role="group" aria-label={t("character_editor.alternate_greetings")}>
-        <h3>{t("character_editor.alternate_greetings")}</h3>
-        {!greetings.success && <WarningDetails message={msg("character_editor.the_preserved_alternate_greetings_are_invalid_they")} />}
-        {alternatives.map((greeting, index) => <div className="alternate-greeting" key={index}>
-          <label>{t("character_editor.alternate_greeting", { value: index + 1 })}<EditorTextarea aria-label={t("character_editor.alternate_greeting", { value: index + 1 })} maxLength={100_000} value={greeting} onChange={event => setData({ ...data, alternate_greetings: alternatives.map((text, position) => position === index ? event.target.value : text) })} /></label>
-          <button type="button" className="quiet" aria-label={t("character_editor.remove_alternate_greeting", { value: index + 1 })} onClick={() => setData({ ...data, alternate_greetings: alternatives.filter((_, position) => position !== index) })}>{t("character_editor.remove_greeting")}</button>
-        </div>)}
-        {greetings.success ? <button type="button" className="secondary add-alternate-greeting" disabled={alternatives.length >= maxAlternateGreetings} onClick={() => setData({ ...data, alternate_greetings: [...alternatives, ''] })}>{t("character_editor.add_alternate_greeting")}</button>
-          : <button type="button" className="secondary" onClick={() => setData({ ...data, alternate_greetings: [] })}>{t("character_editor.clear_invalid_alternate_greetings")}</button>}
+      <SpeechColorSelector value={data.speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || pending || stale || Boolean(uncertain)} />
+      {textField('description', t('character_editor.character_description'), t('character_editor.description_help'))}
+      {textField('personality', t('character_editor.personality'), t('character_editor.personality_help'))}
+      {textField('scenario', t('character_editor.scenario'), t('character_editor.scenario_help'))}
+      <div className="full form-grid opening-messages" role="group" aria-labelledby={openingsId}>
+        <h2 className="full" id={openingsId}>{t('character_editor.opening_messages')}</h2>
+        {textField('first_mes', t('character_editor.greeting'), t('character_editor.greeting_help'))}
+        <div className="full" role="group" aria-labelledby={alternativesId} aria-describedby={alternativesHelpId}>
+          <h3 id={alternativesId}>{t('character_editor.alternate_greetings')}</h3>
+          <p className="small muted" id={alternativesHelpId}>{t('character_editor.alternate_greetings_help')}</p>
+          {!greetings.success && <WarningDetails message={msg("character_editor.the_preserved_alternate_greetings_are_invalid_they")} />}
+          {alternatives.map((greeting, index) => <div className="alternate-greeting" key={index}>
+            <label>{t("character_editor.alternate_greeting", { value: index + 1 })}<EditorTextarea aria-label={t("character_editor.alternate_greeting", { value: index + 1 })} maxLength={100_000} value={greeting} onChange={event => setData({ ...data, alternate_greetings: alternatives.map((text, position) => position === index ? event.target.value : text) })} /></label>
+            <button type="button" className="quiet" aria-label={t("character_editor.remove_alternate_greeting", { value: index + 1 })} onClick={() => setData({ ...data, alternate_greetings: alternatives.filter((_, position) => position !== index) })}>{t("character_editor.remove_greeting")}</button>
+          </div>)}
+          {greetings.success ? <button type="button" className="secondary add-alternate-greeting" disabled={alternatives.length >= maxAlternateGreetings} onClick={() => setData({ ...data, alternate_greetings: [...alternatives, ''] })}>{t("character_editor.add_alternate_greeting")}</button>
+            : <button type="button" className="secondary" onClick={() => setData({ ...data, alternate_greetings: [] })}>{t("character_editor.clear_invalid_alternate_greetings")}</button>}
+        </div>
       </div>
+      <details className="full editor-disclosure" open={exampleOpen} onToggle={event => setExampleOpen(event.currentTarget.open)}>
+        <summary>{exampleLabel}<Icon name="ArrowShortBottom" /></summary>
+        <label className="editor-disclosure-content">
+          <small id={exampleHelpId}>{t('character_editor.example_dialogue_help', { start: '<START>' })}</small>
+          <EditorTextarea aria-label={exampleLabel} aria-describedby={exampleHelpId} placeholder={"<START>\n{{user}}: \n{{char}}:"}
+            maxLength={100_000} value={data.mes_example} onChange={event => setData({ ...data, mes_example: event.target.value })} />
+        </label>
+      </details>
+      <CardInstructions value={data} change={setData} />
       <label className="full">{t("character_editor.default_lorebook")}<Dropdown aria-label={t("character_editor.default_lorebook")} value={data.lorebookId ?? ''} options={[{ value: '', label: t("character_editor.none_selected") }, ...sortLibraryRecords(library.lorebooks, 'lorebooks', library.dates).map(book => ({ value: book.id, label: book.name }))]} onChange={id => setData({ ...data, lorebookId: id || null })} /></label>
       {data.lorebookId && <button type="button" className="secondary" onClick={event => { if (data.lorebookId) openBook(data.lorebookId, event.currentTarget); }}>{t("character_editor.open_book")}</button>}
       {initial.id && !data.lorebookId && embeddedBook && <div className="full"><button type="button" className="secondary" disabled={dirty} onClick={async () => { let bookId = ''; if (await run(async () => { bookId = (await api<{ bookId: string }>(`/library/characters/${initial.id}/extract`, 'POST', { revision, requestId: extractionId.current })).bookId; })) extracted(bookId); }}>{t("character_editor.extract_embedded_lorebook")}</button><p className="small muted">{t("character_editor.save_character_edits_first_extraction_creates_and")}</p></div>}
@@ -195,6 +225,8 @@ function CharacterReconciliation({ library, characterId, disabled, reconcile }: 
 
 function CardInstructions({ value, change }: { value: LibraryCharacter; change?: (value: LibraryCharacter) => void }) {
   useLocale();
+  const helpId = useId();
+  const label = t('character_editor.card_instructions');
   const numberDraft = useContext(NumberDraftContext);
   const [open, setOpen] = useState(() => Boolean(change && numberDraft?.values.characterDepth !== undefined));
   const note = readCharacterDepthPrompt(value);
@@ -213,14 +245,16 @@ function CardInstructions({ value, change }: { value: LibraryCharacter; change?:
       <EditorTextarea aria-label={label} maxLength={100_000} value={instruction.data} onChange={event => change({ ...value, [field]: event.target.value })} />
     </label>;
   }
-  return <details className="full card-instructions" open={open} onToggle={event => {
+  return <details className="full editor-disclosure" open={open} onToggle={event => {
     const expanded = event.currentTarget.open;
     if (change && !expanded) numberDraft?.set('characterDepth', undefined);
     setOpen(expanded);
   }}>
-    <summary>{t("character_editor.card_instructions")}</summary>
-    {open && <div className="form-grid">
-      <p className="small muted full">{t("character_editor.the_prompt_preset_controls_whether_these_instructions")}</p>
+    <summary aria-label={label} aria-describedby={helpId}>
+      <span><span>{label}</span><small className="muted" id={helpId}>{t('character_editor.the_prompt_preset_controls_whether_these_instructions')}</small></span>
+      <Icon name="ArrowShortBottom" />
+    </summary>
+    {open && <div className="form-grid editor-disclosure-content">
       {warnings.length > 0 && <div className="full"><WarningMessages messages={warnings} /></div>}
       {instructions.map(instructionField)}
       {!note.success ? <div className="full">
@@ -234,7 +268,7 @@ function CardInstructions({ value, change }: { value: LibraryCharacter; change?:
             if (role === 'system' || role === 'user' || role === 'assistant') change({ ...value, depth_prompt: { ...note.data, role } });
           }} options={['system', 'user', 'assistant'].map(role => ({ value: role, label: stateLabel(role === 'system' || role === 'user' ? role : 'assistant') }))} />
         </label>
-        <p className="small muted full">{t("character_editor.depth_0_follows_the_newest_history_message")}</p>
+        <p className="small muted full character-editor-help">{t("character_editor.depth_0_follows_the_newest_history_message")}</p>
       </> : <p className="prose small full">{t("character_editor.character_depth_note_depth", { role: note.data.role, depth: note.data.depth, value: note.data.prompt || t("character_editor.empty") })}</p>}
     </div>}
   </details>;
