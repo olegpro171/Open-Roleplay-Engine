@@ -1,6 +1,6 @@
 import { openModal } from './dialog-focus';
 import { ModalDialog } from './ModalDialog';
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type Ref } from 'react';
 import { createPortal } from 'react-dom';
 import { speechColorSchema } from '../shared/appearance';
 import { type MessageKey } from '../shared/localization';
@@ -28,14 +28,16 @@ const presetGroups: { label: MessageKey; colors: { name: MessageKey; hex: string
   ] },
 ];
 
-export function ColorPicker({ label, value, onChange, disabled = false, instant = false }: {
+export function ColorPicker({ label, value, onChange, disabled = false, instant = false, triggerRef, describedBy }: {
   label: string; value: string; onChange: (value: string) => void; disabled?: boolean; instant?: boolean;
+  triggerRef?: Ref<HTMLButtonElement>; describedBy?: string;
 }) {
   useLocale();
   const [open, setOpen] = useState(false);
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   return <>
-    <button type="button" className="secondary color-picker-trigger" aria-label={label} aria-haspopup="dialog" disabled={disabled} onClick={() => setOpen(true)}>
+    <button ref={triggerRef} type="button" className="secondary color-picker-trigger" aria-label={label} aria-describedby={describedBy}
+      aria-haspopup="dialog" disabled={disabled} onClick={() => setOpen(true)}>
       <span className="color-picker-swatch" style={{ backgroundColor: value }} aria-hidden="true" />
       <span dir="ltr">{value.toUpperCase()}</span>
       <span className="color-picker-edit">{t('color_picker.edit')}</span>

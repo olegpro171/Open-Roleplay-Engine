@@ -7,6 +7,7 @@ import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultContextPreset } from '../../src/shared/context';
 import { openChatTool } from './chat-tools';
 import { createCompactPrompt } from './compact-prompt';
+import { selectLibraryCategory } from './library-card-helpers';
 
 const themeCases = [
   { theme: 'light', label: 'Light', russian: 'Светлая', character: '#343a42', persona: '#562a0a', speech: 'rgb(52, 58, 66)', personaSpeech: 'rgb(86, 42, 10)', chrome: '#eeebe5', page: 'rgb(247, 245, 241)', input: 'rgb(255, 255, 255)', scheme: 'light', faviconTile: [237, 233, 227, 255] },
@@ -120,18 +121,28 @@ for (const choice of themeCases) for (const width of [1440, 390]) test(`${choice
   await page.getByRole('option', { name: 'Dark', exact: true }).click();
   await expect.poll(() => held).toBe(true);
   const current = await read();
-  const external = await page.request.put('/api/application/appearance', { headers, data: { revision: current.revision, settings: { ...current.settings, chatTextScale: 110, characterSpeechColor: '#765432' } } });
+  const overrides = { characterSpeechColor: '#765432', personaSpeechColor: choice.persona };
+  const external = await page.request.put('/api/application/appearance', { headers, data: { revision: current.revision, settings: { ...current.settings, chatTextScale: 110, ...overrides } } });
   expect(external.ok()).toBe(true);
   release();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await expect.poll(async () => (await read()).settings).toEqual({ ...current.settings, theme: 'dark', chatTextScale: 110, characterSpeechColor: '#765432' });
+  await expect.poll(async () => (await read()).settings).toEqual({ ...current.settings, theme: 'dark', chatTextScale: 110, ...overrides });
   await expect(page.getByRole('button', { name: 'Default character speech color', exact: true })).toContainText('#765432');
   await theme.click();
   await page.getByRole('option', { name: choice.label, exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', choice.theme);
   await expect(userSpeech).toHaveCSS('color', choice.personaSpeech);
   await expect(assistantSpeech).toHaveCSS('color', 'rgb(118, 84, 50)');
-  await settings.getByRole('button', { name: 'Use theme character color', exact: true }).click();
+  // A saved override can match the current theme swatch and still need a reset.
+  const personaPicker = settings.getByRole('button', { name: 'Default persona speech color', exact: true });
+  const restorePersona = settings.getByRole('button', { name: 'Restore theme color for persona speech', exact: true });
+  await restorePersona.press('Enter');
+  await expect(personaPicker).toBeFocused();
+  await expect(restorePersona).toHaveCount(0);
+  await expect(personaPicker).toHaveAccessibleDescription('From theme');
+  await expect(personaPicker).toContainText(choice.persona.toUpperCase());
+  await expect.poll(async () => (await read()).settings).toMatchObject({ ...overrides, personaSpeechColor: null });
+  await settings.getByRole('button', { name: 'Restore theme color for character speech', exact: true }).click();
   await expect.poll(async () => (await read()).settings.characterSpeechColor).toBeNull();
   await expect(assistantSpeech).toHaveCSS('color', choice.speech);
   await page.reload();
@@ -159,7 +170,7 @@ for (const choice of themeCases) for (const width of [1440, 390]) test(`${choice
     { category: 'Personas', create: 'New persona', kind: 'personas', color: choice.persona },
   ] as const) {
     const name = `${choice.label} ${card.kind} default ${width}`;
-    await page.getByRole('button', { name: card.category, exact: true }).click();
+    await selectLibraryCategory(page, card.category);
     await page.getByRole('button', { name: card.create, exact: true }).click();
     await page.getByLabel('Name', { exact: true }).fill(name);
     await page.getByRole('button', { name: 'Set color', exact: true }).click();

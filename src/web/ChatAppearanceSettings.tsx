@@ -1,3 +1,4 @@
+import { useId, useRef } from 'react';
 import { t, useLocale } from './localization';
 import { chatTextScales, chatTextScaleSchema, themeSchema, type Appearance, type AppearanceStatus, type Theme } from '../shared/appearance';
 import type { MessageKey } from '../shared/localization';
@@ -15,6 +16,40 @@ const themeLabels: Record<Theme, MessageKey> = {
   'midnight-black': 'appearance.midnight_black',
   porcelain: 'appearance.porcelain',
 };
+
+const defaultSpeechColorLabels = {
+  character: {
+    field: 'chat_appearance_settings.character_speech_color',
+    picker: 'chat_appearance_settings.default_character_speech_color',
+    reset: 'appearance.use_theme_character_color',
+  },
+  persona: {
+    field: 'chat_appearance_settings.persona_speech_color',
+    picker: 'chat_appearance_settings.default_persona_speech_color',
+    reset: 'appearance.use_theme_persona_color',
+  },
+} as const;
+
+function DefaultSpeechColor({ speaker, value, onChange }: {
+  speaker: 'character' | 'persona'; value: string | null; onChange: (value: string | null) => void;
+}) {
+  const labels = defaultSpeechColorLabels[speaker];
+  const statusId = useId();
+  const pickerTrigger = useRef<HTMLButtonElement>(null);
+
+  return <div className="speech-color-default">
+    <span className="speech-color-label">{t(labels.field)}</span>
+    <div className="speech-color-default-controls">
+      <ColorPicker instant label={t(labels.picker)} value={value ?? themeSpeechColor(speaker)} onChange={onChange}
+        triggerRef={pickerTrigger} describedBy={value === null ? statusId : undefined} />
+      {value === null ? <small id={statusId} className="muted">{t('appearance.using_theme_color')}</small>
+        : <button type="button" className="quiet" aria-label={t(labels.reset)} onClick={event => {
+          if (event.currentTarget === document.activeElement) pickerTrigger.current?.focus({ preventScroll: true });
+          onChange(null);
+        }}>{t('appearance.restore_theme_color')}</button>}
+    </div>
+  </div>;
+}
 
 export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosave<Appearance, AppearanceStatus> }) {
   useLocale();
@@ -74,10 +109,10 @@ export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosav
       <fieldset className="settings-row" aria-labelledby="default-speech-colors-heading">
         <h3 id="default-speech-colors-heading">{t("chat_appearance_settings.default_speech_colors")}</h3>
         <div className="speech-color-defaults">
-          <div className="speech-color-selector"><span className="speech-color-label">{t("chat_appearance_settings.character_speech_color")}</span><ColorPicker instant label={t("chat_appearance_settings.default_character_speech_color")} value={draft.characterSpeechColor ?? themeSpeechColor('character')} onChange={characterSpeechColor => autosave.update({ characterSpeechColor })} />
-            {draft.characterSpeechColor === null ? <small className="muted">{t('appearance.using_theme_color')}</small> : <button type="button" className="secondary" onClick={() => autosave.update({ characterSpeechColor: null })}>{t('appearance.use_theme_character_color')}</button>}</div>
-          <div className="speech-color-selector"><span className="speech-color-label">{t("chat_appearance_settings.persona_speech_color")}</span><ColorPicker instant label={t("chat_appearance_settings.default_persona_speech_color")} value={draft.personaSpeechColor ?? themeSpeechColor('persona')} onChange={personaSpeechColor => autosave.update({ personaSpeechColor })} />
-            {draft.personaSpeechColor === null ? <small className="muted">{t('appearance.using_theme_color')}</small> : <button type="button" className="secondary" onClick={() => autosave.update({ personaSpeechColor: null })}>{t('appearance.use_theme_persona_color')}</button>}</div>
+          <DefaultSpeechColor speaker="character" value={draft.characterSpeechColor}
+            onChange={characterSpeechColor => autosave.update({ characterSpeechColor })} />
+          <DefaultSpeechColor speaker="persona" value={draft.personaSpeechColor}
+            onChange={personaSpeechColor => autosave.update({ personaSpeechColor })} />
         </div>
       </fieldset>
     </div>
