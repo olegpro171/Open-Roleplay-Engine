@@ -348,7 +348,7 @@ export const englishMessages = {
   "app.your_stories_start_here": "Your stories start here.",
   "app.welcome_back": "Welcome back.",
   "new_chat.start": "Start chat",
-  "new_chat.discard_turn_edit": "Starting a new chat will discard the unsaved turn edit in your previous chat. Your composer draft will be kept.",
+  "new_chat.discard_turn_edit": "Starting a new chat will discard the unsaved turn edit in your previous chat.",
   "story_home.add_connection": "Add a Connection",
   "story_home.create_connection": "Create Connection",
   "story_home.no_connection_selected": "No Connection selected.",

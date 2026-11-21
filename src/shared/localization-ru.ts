@@ -355,7 +355,7 @@ export const russianMessages = {
   "app.your_stories_start_here": "Ваши истории начинаются здесь.",
   "app.welcome_back": "С возвращением.",
   "new_chat.start": "Начать чат",
-  "new_chat.discard_turn_edit": "При создании нового чата несохранённые изменения реплики в предыдущем чате будут потеряны. Черновик сообщения сохранится.",
+  "new_chat.discard_turn_edit": "При создании нового чата несохранённые правки хода в предыдущем чате будут потеряны.",
   "story_home.add_connection": "Добавить подключение",
   "story_home.create_connection": "Создать подключение",
   "story_home.no_connection_selected": "Подключение не выбрано.",
