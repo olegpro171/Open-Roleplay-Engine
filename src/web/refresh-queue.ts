@@ -8,6 +8,7 @@ export function scopeForChange(change: Change, selectedChat: string | null, show
     case 'all': return fullRefresh;
     case 'library': return { library: true, story: true, tools: true };
     case 'settings': return { [change.setting]: true };
+    case 'draft': return null;
     case 'chat':
       if (change.detail === 'stream') return showingStory && change.chatId === selectedChat ? { story: true } : null;
       return change.chatId === selectedChat ? { story: true, library: true, tools: true } : { library: true };

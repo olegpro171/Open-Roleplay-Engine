@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { authorNoteSchema } from './author-note.js';
+import { composerDraftReferenceSchema } from './composer-draft.js';
 
 import { customParametersSchema, type builtInParametersSchema } from './connection-parameters.js';
 
@@ -129,6 +130,7 @@ export const saveSettingsSchema = z.object({
 }).strict();
 export const submissionSchema = z.object({
   revision: revisionSchema, requestId: z.string().uuid(), text: z.string().min(1).max(100_000),
+  draft: composerDraftReferenceSchema.optional(),
 }).strict();
 export const retrySchema = z.object({ revision: revisionSchema, requestId: z.string().uuid() }).strict();
 export const editSchema = z.object({ revision: revisionSchema, text: z.string().max(100_000) }).strict();

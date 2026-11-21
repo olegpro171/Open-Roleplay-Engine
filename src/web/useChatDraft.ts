@@ -1,75 +1,248 @@
+import { useEffect, useState } from 'react';
+import { z } from 'zod';
+import { composerDraftReferenceSchema, composerDraftSchema, composerDraftSaveSchema, sameComposerEdit, type ComposerDraft } from '../shared/composer-draft';
+import { submissionSchema } from '../shared/contracts';
+import { trimBoundaryNewlines } from '../shared/text';
+import { api, ApiError, datasetChanged, datasetEpoch } from './api';
 import { LocalizedError, message as msg } from './localization';
 import { newId } from './uuid';
-import { useRef, useState } from 'react';
-import { z } from 'zod';
-import { datasetEpoch } from './api';
-import { trimBoundaryNewlines } from '../shared/text';
 
-const submissionSchema = z.object({ requestId: z.string().uuid(), revision: z.number().int().nonnegative(), text: z.string() });
-const draftSchema = z.object({ epoch: z.string().default('initial'), text: z.string(), editId: z.string().uuid(), submission: submissionSchema.nullable() });
-type Draft = z.infer<typeof draftSchema>;
-type Entry = { draft: Draft; storageError: boolean };
-const key = (chatId: string) => `roleplay-draft:${chatId}`;
-const emptyDraft = (): Draft => ({ epoch: datasetEpoch(), text: '', editId: newId(), submission: null });
+const localDraftSchema = z.object({
+  epoch: z.string().default('initial'), text: z.string(), editId: z.string().uuid(),
+  submission: submissionSchema.extend({ text: z.string() }).nullable(),
+  sync: z.object({ reference: composerDraftReferenceSchema, pending: z.boolean() }).optional(),
+});
+type LocalDraft = z.infer<typeof localDraftSchema>;
+type Entry = {
+  local: LocalDraft;
+  remote: ComposerDraft | null;
+  storageError: boolean;
+  syncError: boolean;
+  reading: boolean;
+  refreshNeeded: boolean;
+  writing: boolean;
+  timer?: ReturnType<typeof setTimeout>;
+};
 
-// Save during the input event: unload/debounce callbacks may never run on a suspended phone.
-export function useChatDraft(chatId: string | null) {
-  const entries = useRef(new Map<string, Entry>());
-  const [, render] = useState(0);
-  function entry(id: string): Entry {
-    const cached = entries.current.get(id);
+const key = (id: string) => `roleplay-draft:${id}`;
+const path = (id: string) => `/chats/${encodeURIComponent(id)}/draft`;
+const emptyDraft = (): LocalDraft => ({ epoch: datasetEpoch(), text: '', editId: newId(), submission: null });
+const needsReview = (local: LocalDraft) => local.epoch !== datasetEpoch() && Boolean(local.text || local.submission);
+function readLocal(id: string) {
+  const stored = localStorage.getItem(key(id));
+  return stored === null ? null : localDraftSchema.parse(JSON.parse(stored));
+}
+
+class ChatDrafts {
+  private readonly entries = new Map<string, Entry>();
+  private readonly editorId = newId();
+  private sequence = 0;
+  private enabled = false;
+
+  constructor(private render: () => void) {}
+
+  enable(enabled: boolean) {
+    this.enabled = enabled;
+    if (!enabled) for (const entry of this.entries.values()) clearTimeout(entry.timer);
+  }
+
+  private get active() { return this.enabled && !datasetChanged(); }
+
+  entry(id: string): Entry {
+    const cached = this.entries.get(id);
     if (cached) return cached;
-    let loaded: Entry;
+    const entry: Entry = {
+      local: emptyDraft(), remote: null, storageError: false, syncError: false,
+      reading: false, refreshNeeded: false, writing: false,
+    };
+    try { entry.local = readLocal(id) ?? entry.local; }
+    catch { entry.storageError = true; }
+    this.entries.set(id, entry);
+    return entry;
+  }
+
+  private keep(id: string, entry: Entry, local: LocalDraft, background = false) {
     try {
-      const stored = localStorage.getItem(key(id));
-      loaded = { draft: stored === null ? emptyDraft() : draftSchema.parse(JSON.parse(stored)), storageError: false };
-    } catch {
-      loaded = { draft: emptyDraft(), storageError: true };
-    }
-    entries.current.set(id, loaded);
-    return loaded;
-  }
-  function save(id: string, draft: Draft) {
-    let storageError = false;
-    try { localStorage.setItem(key(id), JSON.stringify(draft)); }
-    catch { storageError = true; }
-    entries.current.set(id, { draft, storageError });
-    render(value => value + 1);
-  }
-  function change(text: string) {
-    if (chatId) save(chatId, { epoch: entry(chatId).draft.text || entry(chatId).draft.submission ? entry(chatId).draft.epoch : datasetEpoch(), text, editId: newId(), submission: null });
-  }
-  function stage(id: string, revision: number) {
-    const current = entry(id).draft;
-    if (current.epoch !== datasetEpoch()) throw new LocalizedError(msg("use_chat_draft.review_this_recovered_draft_before_sending_it"));
-    const text = trimBoundaryNewlines(current.text);
-    const submission = current.submission ?? { requestId: newId(), revision, text };
-    const draft = { ...current, submission };
-    save(id, draft);
-    return draft;
-  }
-  function acknowledge(id: string, sent: Draft) {
-    const current = entry(id).draft;
-    if (current.editId !== sent.editId || current.submission?.requestId !== sent.submission?.requestId) return;
-    // Another tab may have saved newer text while this request was in flight.
-    try {
-      const stored = localStorage.getItem(key(id));
-      if (stored && draftSchema.parse(JSON.parse(stored)).editId !== sent.editId) {
-        entries.current.delete(id);
-        render(value => value + 1);
-        return;
+      // A passive read or Send acknowledgement must leave another tab's unsynced work recoverable.
+      const stored = background ? readLocal(id) : null;
+      const storedIsClean = stored && !stored.submission && (stored.sync?.pending === false || (!stored.sync && !stored.text));
+      if (!stored || stored.editId === entry.local.editId || storedIsClean) {
+        localStorage.setItem(key(id), JSON.stringify(local));
+        entry.storageError = false;
       }
-    } catch { /* The in-memory draft still survives unavailable storage. */ }
-    save(id, emptyDraft());
+    } catch { entry.storageError = true; }
+    entry.local = local;
+    this.render();
   }
-  function reject(id: string, sent: Draft) {
-    const current = entry(id).draft;
-    if (current.editId === sent.editId && current.submission?.requestId === sent.submission?.requestId) {
-      save(id, { ...current, submission: null });
+
+  private edit(text: string, baseRevision: number | null, epoch = datasetEpoch()): LocalDraft {
+    const reference = { baseRevision, edit: { editorId: this.editorId, sequence: ++this.sequence } };
+    return { ...emptyDraft(), epoch, text, sync: { reference, pending: true } };
+  }
+
+  change(id: string, text: string) {
+    const entry = this.entry(id);
+    const epoch = needsReview(entry.local) ? entry.local.epoch : datasetEpoch();
+    this.keep(id, entry, this.edit(text, entry.remote?.revision ?? null, epoch));
+    this.schedule(id, entry);
+  }
+
+  review(id: string) {
+    const entry = this.entry(id);
+    this.keep(id, entry, this.edit(entry.local.text, entry.remote?.revision ?? null));
+    this.schedule(id, entry);
+  }
+
+  stage(id: string, revision: number) {
+    const entry = this.entry(id);
+    const current = entry.local;
+    if (needsReview(current)) throw new LocalizedError(msg('use_chat_draft.review_this_recovered_draft_before_sending_it'));
+    clearTimeout(entry.timer);
+    const submission = current.submission ?? {
+      requestId: newId(), revision, text: trimBoundaryNewlines(current.text), draft: current.sync?.reference,
+    };
+    this.keep(id, entry, { ...current, submission });
+    return { editId: current.editId, submission };
+  }
+
+  acknowledge(id: string, sent: ReturnType<ChatDrafts['stage']>, remote?: ComposerDraft) {
+    const entry = this.entry(id);
+    if (entry.local.editId === sent.editId && entry.local.submission?.requestId === sent.submission.requestId) {
+      this.keep(id, entry, emptyDraft(), true);
+    }
+    if (remote) this.observe(id, entry, remote);
+    else void this.refresh(id);
+  }
+
+  reject(id: string, sent: ReturnType<ChatDrafts['stage']>) {
+    const entry = this.entry(id);
+    if (entry.local.editId === sent.editId && entry.local.submission?.requestId === sent.submission.requestId) {
+      this.keep(id, entry, { ...entry.local, submission: null }, true);
+      this.schedule(id, entry);
     }
   }
-  const current = chatId ? entry(chatId) : null;
-  const needsReview = Boolean(current && current.draft.epoch !== datasetEpoch() && (current.draft.text || current.draft.submission));
-  function review() { if (chatId) save(chatId, { ...entry(chatId).draft, epoch: datasetEpoch(), submission: null }); }
-  return { needsReview, review, text: current?.draft.text ?? '', storageError: current?.storageError ?? false, change, stage, acknowledge, reject };
+
+  private observe(id: string, entry: Entry, snapshot: ComposerDraft) {
+    // A GET/PUT or Send response can arrive after a newer notification/read.
+    const remote = entry.remote && entry.remote.revision > snapshot.revision ? entry.remote : snapshot;
+    entry.remote = remote;
+    entry.syncError = false;
+    const local = entry.local;
+    if (needsReview(local) || local.submission) { this.render(); return; }
+
+    const sync = local.epoch === datasetEpoch() ? local.sync : undefined;
+    if (!sync && local.text && remote.revision === 0) {
+      // Upgrade a browser-only draft if this branch has no shared draft history.
+      this.keep(id, entry, this.edit(local.text, remote.revision), true);
+    } else if (sync?.pending && !sameComposerEdit(remote.edit, sync.reference.edit)) {
+      const { baseRevision } = sync.reference;
+      if (baseRevision === null) {
+        this.keep(id, entry, { ...local, sync: { ...sync, reference: { ...sync.reference, baseRevision: remote.revision } } }, true);
+      } else if (baseRevision >= remote.sentRevision) {
+        this.render();
+      } else {
+        this.adopt(id, entry, remote);
+      }
+    } else {
+      this.adopt(id, entry, remote);
+    }
+  }
+
+  private adopt(id: string, entry: Entry, remote: ComposerDraft) {
+    const { local } = entry;
+    const sync = remote.edit ? { pending: false, reference: { baseRevision: remote.revision, edit: remote.edit } } : undefined;
+    this.keep(id, entry, { ...local, epoch: datasetEpoch(), text: remote.text, sync }, true);
+  }
+
+  refresh = async (id: string, revision?: number) => {
+    if (!this.active) return;
+    const entry = this.entry(id);
+    if (revision !== undefined && (entry.remote?.revision ?? -1) >= revision) return;
+    entry.refreshNeeded = true;
+    if (entry.reading) return;
+    entry.reading = true;
+    try {
+      while (entry.refreshNeeded && this.active) {
+        entry.refreshNeeded = false;
+        const remote = composerDraftSchema.parse(await api(path(id), 'GET', undefined, AbortSignal.timeout(10_000)));
+        if (this.active) this.observe(id, entry, remote);
+      }
+      this.schedule(id, entry);
+    } catch (error) { this.failed(entry, error); }
+    finally { entry.reading = false; }
+  };
+
+  private schedule(id: string, entry: Entry) {
+    clearTimeout(entry.timer);
+    if (this.active && entry.local.sync?.pending && !entry.local.submission && !needsReview(entry.local)) {
+      entry.timer = setTimeout(() => void this.flush(id), 500);
+    }
+  }
+
+  async flush(id: string) {
+    if (!this.active) return;
+    const entry = this.entry(id);
+    clearTimeout(entry.timer);
+    const local = entry.local;
+    if (entry.writing || !local.sync?.pending || local.submission || needsReview(local)) return;
+    if (!entry.remote) { void this.refresh(id); return; }
+    const input = composerDraftSaveSchema.safeParse({ ...local.sync.reference, text: local.text });
+    if (!input.success) {
+      entry.syncError = true;
+      this.render();
+      return;
+    }
+    entry.writing = true;
+    try {
+      const remote = composerDraftSchema.parse(await api(path(id), 'PUT', input.data, AbortSignal.timeout(10_000)));
+      if (this.active) this.observe(id, entry, remote);
+    } catch (error) { this.failed(entry, error); }
+    finally {
+      entry.writing = false;
+      if (entry.local.editId !== local.editId) this.schedule(id, entry);
+    }
+  }
+
+  private failed(entry: Entry, error: unknown) {
+    if (!this.active || (error instanceof ApiError && (error.status === 401 || error.status === 404))) return;
+    entry.syncError = true;
+    this.render();
+  }
+}
+
+export function useChatDraft(id: string | null, activeId: string | null, enabled: boolean) {
+  const [, render] = useState(0);
+  const [drafts] = useState(() => new ChatDrafts(() => render(value => value + 1)));
+  useEffect(() => {
+    drafts.enable(enabled);
+    return () => drafts.enable(false);
+  }, [drafts, enabled]);
+  useEffect(() => {
+    if (!enabled || activeId === null) return;
+    const refresh = () => void drafts.refresh(activeId);
+    const visibility = () => {
+      if (document.visibilityState === 'hidden') void drafts.flush(activeId);
+      else refresh();
+    };
+    refresh();
+    document.addEventListener('visibilitychange', visibility);
+    window.addEventListener('online', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', visibility);
+      window.removeEventListener('online', refresh);
+      void drafts.flush(activeId);
+    };
+  }, [drafts, activeId, enabled]);
+
+  const current = id === null ? null : drafts.entry(id);
+  return {
+    needsReview: current ? needsReview(current.local) : false,
+    ready: Boolean(current?.remote || current?.local.submission),
+    text: current?.local.text ?? '', storageError: current?.storageError ?? false, syncError: current?.syncError ?? false,
+    change: (text: string) => { if (id !== null) drafts.change(id, text); },
+    review: () => { if (id !== null) drafts.review(id); },
+    retry: () => { if (id !== null) void drafts.refresh(id); },
+    refresh: drafts.refresh,
+    stage: drafts.stage.bind(drafts), acknowledge: drafts.acknowledge.bind(drafts), reject: drafts.reject.bind(drafts),
+  };
 }

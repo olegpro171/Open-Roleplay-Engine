@@ -29,7 +29,7 @@ function editable(store: Store, id: string) { const { id: _id, revision: _revisi
 function addCharacter(store: Store, data = fields, ids?: string[]) { return store.saveLibrary(rev(store), 'characters', data, undefined, undefined, ids); }
 function allRows(database: Database.Database, legacy = false) {
   const result: Record<string, unknown[]> = {};
-  for (const { name } of database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT IN ('runtime_owner', 'tags', 'character_tags', 'library_state', 'picture_assets', 'character_pictures') ORDER BY name").all() as { name: string }[]) if (!legacy || !['response_variants', 'chat_groups', 'branch_commands'].includes(name)) result[name] = legacy ? legacyRows(database, name) : database.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all();
+  for (const { name } of database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT IN ('runtime_owner', 'tags', 'character_tags', 'library_state', 'picture_assets', 'character_pictures') ORDER BY name").all() as { name: string }[]) if (!legacy || !['response_variants', 'chat_groups', 'branch_commands', 'composer_drafts'].includes(name)) result[name] = legacy ? legacyRows(database, name) : database.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all();
   return result;
 }
 function removeTagSchema(database: Database.Database) {

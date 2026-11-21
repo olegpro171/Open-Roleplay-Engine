@@ -39,6 +39,8 @@ import { transcriptPartLimit } from '../shared/library.js';
 import { contextPresetSchema, defaultContextPreset, type ContextPreset } from '../shared/context.js';
 import { upgradedContextPrompts } from './context-prompt-upgrade.js';
 import { ContextStore } from './context-store.js';
+import { ComposerDraftStore } from './composer-drafts.js';
+import type { ComposerDraftReference } from '../shared/composer-draft.js';
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
 import { legacyLorePrompt, legacyRoleplayPrompt } from './legacy-prompt.js';
@@ -83,6 +85,7 @@ export class Store {
   readonly sqlite: Database.Database;
   readonly db;
   readonly contexts: ContextStore;
+  readonly drafts: ComposerDraftStore;
   readonly tags: TagStore;
   readonly pictures: PictureStore;
   private readonly ownerToken = randomUUID();
@@ -312,9 +315,17 @@ export class Store {
         })();
         version = 19;
       }
+      if (version === 19) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0020_composer_drafts.sql'), 'utf8'));
+          this.sqlite.pragma('user_version = 20');
+        })();
+        version = 20;
+      }
       if (version !== databaseSchemaVersion) throw new Error('Unsupported database schema version.');
       this.pictures = new PictureStore(this.sqlite, () => this.bumpLibrary());
       this.contexts = new ContextStore(this);
+      this.drafts = new ComposerDraftStore(this.db, this.sqlite, id => { this.chat(id); });
       this.tags = new TagStore(this.sqlite, expected => this.checkLibrary(expected), () => this.bumpLibrary());
       if (newDatabase) this.db.update(schema.library).set({ createdAt: new Date().toISOString() }).run();
     } catch (error) {
@@ -1361,16 +1372,16 @@ export class Store {
       this.bumpLibrary();
     })();
   }
-  begin(expected: number, requestId: string, text?: string, chatId = 'main'): { id: string; fresh: boolean } {
+  begin(expected: number, requestId: string, text?: string, chatId = 'main', draft?: ComposerDraftReference): { id: string; fresh: boolean } {
     if (text === undefined) return this.beginResponse(expected, requestId, chatId, { kind: 'retry' });
     const input = trimBoundaryNewlines(text);
     if (!input.trim()) throw new AppError(400, 'blank_input', message("errors.write_a_turn_before_sending_it"));
-    return this.beginResponse(expected, requestId, chatId, { kind: 'submit', text: input });
+    return this.beginResponse(expected, requestId, chatId, { kind: 'submit', text: input, draft });
   }
   beginOpening(expected: number, requestId: string, chatId: string) {
     return this.beginResponse(expected, requestId, chatId, { kind: 'opening' });
   }
-  private beginResponse(expected: number, requestId: string, chatId: string, input: { kind: 'submit'; text: string } | { kind: 'retry' } | { kind: 'opening' }) {
+  private beginResponse(expected: number, requestId: string, chatId: string, input: { kind: 'submit'; text: string; draft?: ComposerDraftReference } | { kind: 'retry' } | { kind: 'opening' }) {
     return this.sqlite.transaction(() => {
       const command = JSON.stringify(input);
       const existing = this.db.select().from(schema.generations).where(eq(schema.generations.requestId, requestId)).get();
@@ -1398,6 +1409,7 @@ export class Store {
       }
       const id = randomUUID(), now = new Date().toISOString();
       this.db.insert(schema.generations).values({ id, chatId, requestId, command, turnId, status: 'running', sourceRevision: this.bumpRevision(chatId), request: null, partialText: '', error: null, createdAt: now, updatedAt: now }).run();
+      if (input.kind === 'submit' && input.draft) this.drafts.submitted(chatId, input.draft);
       return { id, fresh: true };
     })();
   }

@@ -4,6 +4,7 @@ import { removePinSchema } from './support/schema-16.js';
 import { restoreLegacyPictureSchema } from './support/schema-17.js';
 import { removeBranchSchema } from './support/schema-15.js';
 import { removeContinuationSchema } from './support/schema-18.js';
+import { removeComposerDraftSchema } from './support/schema-19.js';
 import { Readable } from 'node:stream';
 import { removeSortingSchema } from './support/legacy-sorting.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -120,6 +121,7 @@ describe('portable backup persistence',() => {
   });
 
   it.each([
+    { sourceEnding: 'LF', targetEnding: 'CRLF', version: 20 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 19 },
     { sourceEnding: 'CRLF', targetEnding: 'LF', version: 19 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 18 },
@@ -157,6 +159,13 @@ describe('portable backup persistence',() => {
     const expectedTurns = source.snapshot(chatId).turns;
     const path = join(directory,'input.sqlite');
     writeFileSync(path,await bytes(sourceBackups));
+    if (version === 19) {
+      const legacy = new Database(path);
+      try {
+        removeComposerDraftSchema(legacy);
+        legacy.exec("PRAGMA user_version = 19; UPDATE backup_metadata SET data = json_set(data, '$.schema', 19)");
+      } finally { legacy.close(); }
+    }
     if (version === 18) {
       const legacy = new Database(path);
       try {
@@ -222,6 +231,7 @@ describe('portable backup persistence',() => {
   it('downloads a consistent portable SQLite snapshot and inspects/imports it without leaking credentials or owner authentication',async () => {
     const source = store('source'), backups = service(source,'source');
     const cid = character(source,'Mara'), chatId = chat(source,cid,'A saved story');
+    source.drafts.save(chatId, { baseRevision: 0, edit: { editorId: randomUUID(), sequence: 1 }, text: 'Unsent synthetic material' });
     const connection = source.saveLibrary(source.libraryRevision(),'connections',{ name: 'Private model',endpoint: 'http://127.0.0.1:9999/v1',model: 'synthetic',contextWindow: 32000,maxOutputTokens: 1000,customParameters: {} },undefined,'SYNTHETIC_SECRET_ABC');
     source.sqlite.prepare("INSERT INTO owners VALUES ('owner','synthetic-salt','synthetic-owner-hash')").run();
     source.sqlite.prepare("INSERT INTO sessions VALUES ('synthetic-session-hash',9999999999999)").run();
@@ -230,10 +240,17 @@ describe('portable backup persistence',() => {
     expect(portable.prepare('SELECT * FROM runtime_owner').all()).toEqual([]);
     expect(portable.prepare('SELECT * FROM owners').all()).toEqual([]);
     expect(portable.prepare('SELECT * FROM sessions').all()).toEqual([]);
+    expect(portable.prepare('SELECT * FROM composer_drafts').all()).toEqual([]);
     expect(portable.prepare('SELECT api_key FROM credentials WHERE id = ?').get(connection)).toEqual({ api_key: 'SYNTHETIC_SECRET_ABC' }); portable.close();
     expect(snapshot.includes(Buffer.from('synthetic-owner-hash'))).toBe(false);
+    expect(snapshot.includes(Buffer.from('Unsent synthetic material'))).toBe(false);
+    expect(source.drafts.read(chatId).text).toBe('Unsent synthetic material');
     const destination = store('destination'), target = service(destination,'destination');
     const retained = character(destination,'Current only');
+    const retainedChat = chat(destination, retained, 'Retained story');
+    const saveLocal = (id: string, text: string) => destination.drafts.save(id, { baseRevision: 0, edit: { editorId: randomUUID(), sequence: 1 }, text });
+    saveLocal('main', 'This branch will be replaced.');
+    saveLocal(retainedChat, 'This branch will be retained.');
     const review = await target.inspect(Readable.from([snapshot]), owner);
     expect(review.blockers).toEqual([]); expect(review.overlaps).toBeGreaterThan(0);
     const credentials = target.page(review.stageId,owner,'credentials',0);
@@ -242,6 +259,9 @@ describe('portable backup persistence',() => {
     expect(() => target.commit(review.stageId,owner,receipt(review,false))).toThrow('overwrite approval');
     const command = receipt(review); const outcome = target.commit(review.stageId,owner,command);
     expect(destination.snapshot(chatId).turns[0].assistant.text).toBe('Welcome, traveler.');
+    expect(destination.drafts.read(chatId).text).toBe('');
+    expect(destination.drafts.read('main').text).toBe('');
+    expect(destination.drafts.read(retainedChat).text).toBe('This branch will be retained.');
     expect(destination.libraries().characters.some(item => item.id === retained)).toBe(true);
     expect(destination.connectionApiKey(connection)).toBe('SYNTHETIC_SECRET_ABC');
     expect(target.commit(review.stageId,owner,command)).toEqual(outcome);

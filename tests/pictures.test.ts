@@ -37,7 +37,7 @@ async function image() { const p = new PictureProcessor(); processors.push(p); r
 function withPicture(command: CharacterSaveCommand, image: PreparedPicture): CharacterSaveCommand { return { ...command, picture: { mode: 'replace', base64: image.original.toString('base64'), crop: image.crop } }; }
 function rows(store: Store, excluded = ['runtime_owner', 'library_state', 'character_pictures', 'picture_assets'], legacy = false) {
   const tables = store.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[];
-  return Object.fromEntries(tables.filter(table => !excluded.includes(table.name) && (!legacy || !['response_variants', 'chat_groups', 'branch_commands'].includes(table.name))).map(table => [table.name, legacy ? legacyRows(store.sqlite, table.name) : store.sqlite.prepare(`SELECT * FROM "${table.name}" ORDER BY rowid`).all()]));
+  return Object.fromEntries(tables.filter(table => !excluded.includes(table.name) && (!legacy || !['response_variants', 'chat_groups', 'branch_commands', 'composer_drafts'].includes(table.name))).map(table => [table.name, legacy ? legacyRows(store.sqlite, table.name) : store.sqlite.prepare(`SELECT * FROM "${table.name}" ORDER BY rowid`).all()]));
 }
 
 it('keeps whole PNG artwork, JSON bytes and expanded/base64 metadata limits independent', async () => {
@@ -193,7 +193,7 @@ it('accepts schema 17 backups and migrates populated picture tables without chan
     const upgraded = open(path);
     expect(upgraded.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion);
     expect(upgraded.sqlite.pragma('foreign_key_check')).toEqual([]);
-    expect(rows(upgraded, ['runtime_owner'])).toEqual(before);
+    expect(rows(upgraded, ['runtime_owner', 'composer_drafts'])).toEqual(before);
   } finally { backup.close(); }
 }, 15000);
 

@@ -470,6 +470,98 @@ test('late acknowledgement clears only the submitted chat draft', async ({ page 
   await expect(page.getByLabel('Your next turn')).toHaveValue('Keep story B draft.');
 });
 
+test('two devices share drafts and a delayed autosave cannot restore a sent draft', async ({ page, browser }) => {
+  const [chatId] = await setup(page);
+  const phone = await browser.newContext({ baseURL: 'http://127.0.0.1:4173', ...devices['iPhone 13'] });
+  try {
+    const second = await phone.newPage();
+    await second.goto('/');
+    await second.getByLabel('Owner password').fill('browser-synthetic-password');
+    await second.getByRole('button', { name: 'Sign in', exact: true }).click();
+    const desktop = page.getByLabel('Your next turn');
+    const mobile = second.getByLabel('Your next turn');
+    const first = '\n  Mira keeps the key. 🗝\n';
+    const latest = 'Mira leaves the key with Leon.';
+    await page.evaluate(({ chatId, text }) => {
+      localStorage.setItem(`roleplay-draft:${chatId}`, JSON.stringify({ text, editId: crypto.randomUUID(), submission: null }));
+    }, { chatId, text: first });
+    await page.reload();
+    await expect(desktop).toHaveValue(first);
+    await open(second, 'Draft story B');
+    await expect(mobile).toHaveValue('');
+    await open(second, 'Draft story A');
+    await expect(mobile).toHaveValue(first);
+    await mobile.fill(latest);
+    await expect(desktop).toHaveValue(latest);
+
+    let release = () => {};
+    const delayed = new Promise<void>(resolve => { release = resolve; });
+    const draftPath = `**/api/chats/${chatId}/draft`;
+    await page.route(draftPath, async route => {
+      if (route.request().method() !== 'PUT') { await route.continue(); return; }
+      await delayed;
+      await route.continue();
+    });
+    try {
+      const held = page.waitForRequest(request => request.method() === 'PUT' && request.url().endsWith(`/chats/${chatId}/draft`));
+      await desktop.fill('A delayed edit from before Send.');
+      await held;
+      await second.getByRole('button', { name: 'Send', exact: true }).click();
+      await expect(mobile).toHaveValue('');
+      await expect(desktop).toHaveValue('');
+      await expect(page.getByRole('article', { name: 'Turn 1', exact: true }).locator('.part.user')).toContainText(latest);
+      const save = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/chats/${chatId}/draft`));
+      release();
+      expect(await (await save).json()).toMatchObject({ text: '' });
+      await page.reload();
+      await expect(desktop).toHaveValue('');
+      await expect(page.getByRole('article', { name: 'Turn 1', exact: true })).toHaveCount(1);
+    } finally { release(); }
+  } finally { await phone.close(); }
+});
+
+test('failed draft sync keeps browser text and can be retried', async ({ page }, testInfo) => {
+  const [chatId] = await setup(page);
+  const originalAppearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+  const changeTheme = async (theme: typeof originalAppearance.settings.theme) => {
+    const current = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+    const response = await page.request.put('/api/application/appearance', {
+      headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: current.revision, settings: { ...current.settings, theme } },
+    });
+    expect(response.ok()).toBe(true);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+  };
+  const draftPath = `**/api/chats/${chatId}/draft`;
+  await page.route(draftPath, async route => {
+    if (route.request().method() === 'PUT') await route.abort('connectionrefused');
+    else await route.continue();
+  });
+  try {
+    const composer = page.getByLabel('Your next turn');
+    const draft = 'Keep this until the server is reachable.';
+    await composer.fill(draft);
+    const retry = page.getByRole('button', { name: 'Retry draft sync', exact: true });
+    await expect(retry).toBeVisible();
+    await page.reload();
+    await expect(composer).toHaveValue(draft);
+    await expect(retry).toBeVisible();
+    for (const theme of ['dark', 'light', 'midnight-black', 'porcelain'] as const) {
+      await changeTheme(theme);
+      for (const width of [390, 1440]) {
+        await page.setViewportSize({ width, height: 844 });
+        await expect(retry).toBeInViewport();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.locator('.composer-notices').screenshot({ path: testInfo.outputPath(`${theme}-${width}.png`) });
+      }
+    }
+    await page.unroute(draftPath);
+    await retry.click();
+    await expect.poll(async () => (await page.request.get(`/api/chats/${chatId}/draft`).then(response => response.json())).text).toBe(draft);
+    await expect(composer).toHaveValue(draft);
+    await expect(retry).toHaveCount(0);
+  } finally { await changeTheme(originalAppearance.settings.theme); }
+});
+
 
 test('storage failure warns without discarding the in-memory draft', async ({ page }) => {
   await setup(page);

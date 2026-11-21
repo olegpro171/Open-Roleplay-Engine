@@ -324,6 +324,8 @@ export const englishMessages = {
   "app.send": "Send",
   "app.saving_changes": "Saving changes…",
   "app.draft_could_not_be_saved_in_this": "Draft could not be saved in this browser. Keep this page open and copy your text before leaving.",
+  "composer_draft.sync_failed": "Draft could not sync with the server.",
+  "composer_draft.retry_sync": "Retry draft sync",
   "app.preparing_memory": "Preparing memory…",
   "story_preparation.retry_wait": "Waiting to retry this step…",
   "story_preparation.stop": "Stop",

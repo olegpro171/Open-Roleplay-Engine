@@ -37,6 +37,7 @@ import { WarningDetails, WarningDialog, WarningMessages } from './WarningDialog'
 import { useTranscriptScroll } from './useTranscriptScroll';
 import { TranscriptFrame } from './TranscriptFrame';
 import { useChatDraft } from './useChatDraft';
+import { composerDraftSchema } from '../shared/composer-draft';
 import { continueResponse } from './continue-response';
 import { TurnControls } from './TurnControls';
 import { ReasoningPreview } from './Reasoning';
@@ -144,8 +145,9 @@ export function App() {
   const [libraryTarget, setLibraryTarget] = useState<LibraryDestination | null>(null);
   const [homeParticipants, setHomeParticipants] = useState<ChatParticipantsValue>({ characterId: null, personaId: null });
   const reviewMemoryCleanup = useMemoryCleanup(command, `${chatId}:${tab}:${session?.authenticated}`);
-  const drafts = useChatDraft(chatId);
+  const drafts = useChatDraft(chatId, view === 'story' && snapshot?.id === chatId ? chatId : null, session?.authenticated === true && !dataChanged);
   const draft = drafts.text;
+  const refreshDraft = drafts.refresh;
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<Edit | null>(null);
   const editForm = useRef<HTMLFormElement>(null);
@@ -343,12 +345,21 @@ export function App() {
     // Reading saved state must also work when the observer cannot connect.
     void refresh();
     const events = new EventSource('/api/events');
-    events.onopen = () => { setOnline(true); clearServerError(); void refresh(); };
+    events.onopen = () => {
+      setOnline(true); clearServerError(); void refresh();
+      if (selectedChat.current && visibleView.current === 'story') void refreshDraft(selectedChat.current);
+    };
     events.onmessage = event => {
       let scope: RefreshScope | null = fullRefresh;
       try {
         const parsed = changeSchema.safeParse(JSON.parse(event.data));
-        if (parsed.success) scope = scopeForChange(parsed.data, selectedChat.current, visibleView.current === 'story');
+        if (parsed.success) {
+          const change = parsed.data;
+          if (change.kind === 'draft' && selectedChat.current === change.chatId && visibleView.current === 'story') {
+            void refreshDraft(change.chatId, change.revision);
+          }
+          scope = scopeForChange(change, selectedChat.current, visibleView.current === 'story');
+        }
       } catch { /* Unknown/older notifications reconcile from authoritative state. */ }
       if (scope) void refresh(scope);
     };
@@ -367,7 +378,7 @@ export function App() {
       window.removeEventListener('offline', offline);
       window.removeEventListener('online', online);
     };
-  }, [session?.authenticated, refresh, refreshSession, clearServerError, reportServerError, recoverConnection]);
+  }, [session?.authenticated, refresh, refreshDraft, refreshSession, clearServerError, reportServerError, recoverConnection]);
   useEffect(() => {
     if (session?.authenticated && libraryCache.current) void refresh({ library: true, story: true, tools: true });
   }, [chatId, session?.authenticated, refresh]);
@@ -587,9 +598,9 @@ export function App() {
     } finally { setBusy(false); }
   }
   const canSubmit = Boolean(snapshot?.connection && !busy && !pending && !working && !memoryStale && !authorNote.pending
-    && !dataChanged && !drafts.needsReview && !recoveredEdit && (hasDraft || continuationTarget && !continuationBlocked && !edit));
+    && !dataChanged && drafts.ready && !drafts.needsReview && !recoveredEdit && (hasDraft || continuationTarget && !continuationBlocked && !edit));
   const canGenerateOpening = Boolean(snapshot?.connection && snapshot.totalTurns === 0 && !busy && !working
-    && !memoryStale && !authorNote.pending && !dataChanged && !drafts.needsReview && !edit);
+    && !memoryStale && !authorNote.pending && !dataChanged && drafts.ready && !drafts.needsReview && !edit);
   const canSaveEdit = Boolean(edit && snapshot?.id === chatId && !busy && !working && !dataChanged);
   const enterKeyBehavior = chatBehaviorError ? 'button-only' : chatBehavior?.settings.enterKeyBehavior ?? 'button-only';
   const mobileKeyboard = isPhoneOrTablet(navigator);
@@ -619,8 +630,8 @@ export function App() {
     try {
       if (continuationTarget) await continueResponse(id, continuationTarget.id, snapshot.revision);
       else if (sent) {
-        await api(`/chats/${id}/turns`, 'POST', sent.submission);
-        drafts.acknowledge(id, sent);
+        const result = await api<{ draft?: unknown }>(`/chats/${id}/turns`, 'POST', sent.submission);
+        drafts.acknowledge(id, sent, composerDraftSchema.optional().parse(result.draft));
       }
       if (selectedChat.current === id) { setPeek(false); scrollToLatest(); forceLatest.current = true; }
     } catch (error) {
@@ -915,6 +926,7 @@ export function App() {
           {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <div className="recovery" role="status">{formatMessage(latestError ?? msg("app.regeneration_did_not_finish_try_again"))}</div>}
           {drafts.needsReview && <div className="recovery" role="alert"><p>{t("app.this_browser_draft_predates_a_backup_import")}</p><button onClick={drafts.review}>{t("app.use_recovered_draft")}</button></div>}
           {drafts.storageError && <div className="recovery" role="alert">{t("app.draft_could_not_be_saved_in_this")}</div>}
+          {drafts.syncError && <div className="recovery" role="alert"><p>{t('composer_draft.sync_failed')}</p><button onClick={drafts.retry}>{t('composer_draft.retry_sync')}</button></div>}
           {!authorNoteOpen && <AuthorNoteSaveStatus saving={authorNote.saving} error={authorNote.error} retry={authorNote.editor.retry} disabled={working || busy || dataChanged} />}
           {!authorNoteOpen && authorNote.storageError && authorNote.pending && <div className="error-banner" role="alert">{t('author_note.storage_failed')}</div>}
           {continuationBlocked && <div className="recovery">{formatMessage(continuationBlocked)}</div>}

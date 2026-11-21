@@ -4,6 +4,7 @@ import type { ChatSettings, Connection, Generation, GenerationStatus, RequestPre
 import type { LibraryCharacter, Persona, PromptPreset } from '../shared/library.js';
 import type { ContextPreset } from '../shared/context.js';
 import type { Lorebook } from '../shared/lorebook.js';
+import type { ComposerEdit } from '../shared/composer-draft.js';
 
 const libraryDates = () => ({
   createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
@@ -21,6 +22,13 @@ export const chats = sqliteTable('chats', {
   groupId: text('group_id').references(() => chatGroups.id, { onDelete: 'cascade' }),
   branchName: text('branch_name'),
 }, table => [index('chats_group').on(table.groupId)]);
+export const composerDrafts = sqliteTable('composer_drafts', {
+  chatId: text('chat_id').primaryKey().notNull().references(() => chats.id, { onDelete: 'cascade' }),
+  revision: integer('revision').notNull(),
+  sentRevision: integer('sent_revision').notNull(),
+  text: text('text').notNull(),
+  edit: text('edit', { mode: 'json' }).$type<ComposerEdit>(),
+});
 export const connections = sqliteTable('connections', {
   ...libraryDates(),
   id: text('id').primaryKey(), settings: text('settings', { mode: 'json' }).$type<Connection>().notNull(),

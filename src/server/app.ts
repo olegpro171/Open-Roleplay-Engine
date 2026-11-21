@@ -46,6 +46,7 @@ import { StoryReader } from '../persistence/story-reader.js';
 import { turnPinSchema, transcriptQuerySchema } from '../shared/transcript.js';
 import { fetchModels, OpenAICompatibleProvider, type Provider } from '../provider/openai.js';
 import { connectionSchema, editSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema, generationIdentitySchema, generationPageSchema, requestEstimate, type ChatSnapshot, type ChatToolsSnapshot, type TurnInstruction } from '../shared/contracts.js';
+import { composerDraftSaveSchema } from '../shared/composer-draft.js';
 import type { Change } from '../shared/changes.js';
 import { trimBoundaryNewlines } from '../shared/text.js';
 import { Auth, sessionSeconds } from './auth.js';
@@ -657,6 +658,13 @@ export async function createApp(options: {
     coordinator.changed({ kind: 'chat', chatId: id, detail: 'state' });
     return { id, connectionId: settings.connectionId };
   });
+  app.get('/api/chats/:chatId/draft', async request => store.drafts.read(chatId(request.params)));
+  app.put('/api/chats/:chatId/draft', async request => {
+    const id = chatId(request.params);
+    const { draft, changed } = store.drafts.save(id, composerDraftSaveSchema.parse(request.body));
+    if (changed) coordinator.changed({ kind: 'draft', chatId: id, revision: draft.revision });
+    return draft;
+  });
   app.post('/api/chats/import', { bodyLimit: transcriptRequestLimit }, async request => {
     const input = importChatSchema.parse(request.body);
     const { title, characterId, personaId } = input;
@@ -924,7 +932,7 @@ export async function createApp(options: {
     });
     app.post(prefix + '/turns', async (request, reply) => {
       const input = submissionSchema.parse(request.body);
-      return reply.code(202).send(coordinator.start(input.revision, input.requestId, input.text, chatId(request.params)));
+      return reply.code(202).send(coordinator.start(input.revision, input.requestId, input.text, chatId(request.params), input.draft));
     });
     app.post(prefix + '/opening', async (request, reply) => {
       const input = retrySchema.parse(request.body);

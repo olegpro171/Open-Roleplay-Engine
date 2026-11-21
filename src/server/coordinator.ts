@@ -8,6 +8,7 @@ import { ContextCoordinator } from './context-coordinator.js';
 import { LoreRegexPool } from './lore-regex.js';
 import { resolveRequestLore } from './lore-resolution.js';
 import type { Change } from '../shared/changes.js';
+import type { ComposerDraftReference } from '../shared/composer-draft.js';
 import { defaultChatBehavior, type ChatBehavior } from '../shared/chat-behavior.js';
 
 export class GenerationCoordinator {
@@ -26,10 +27,14 @@ export class GenerationCoordinator {
   reasoningText(id: string) { return this.active.get(id)?.reasoning ?? ''; }
   partialText(id: string) { return this.active.get(id)?.text ?? ''; }
 
-  start(revision: number, requestId: string, text?: string, chatId = 'main') {
+  start(revision: number, requestId: string, text?: string, chatId = 'main', draft?: ComposerDraftReference) {
     if (this.stopping) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
-    const result = this.store.begin(revision, requestId, text, chatId);
-    return this.dispatch(result, chatId);
+    const result = this.store.begin(revision, requestId, text, chatId, draft);
+    const response = this.dispatch(result, chatId);
+    if (!draft) return response;
+    const saved = this.store.drafts.read(chatId);
+    if (result.fresh) this.changed({ kind: 'draft', chatId, revision: saved.revision });
+    return { ...response, draft: saved };
   }
   regenerate(revision: number, requestId: string, turnId: string, chatId: string) {
     if (this.stopping) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
