@@ -1,11 +1,10 @@
 import { t, useLocale, locale } from './localization';
 import { Icon } from './Icon';
 import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
-import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type InputHTMLAttributes, type KeyboardEvent, type PointerEventHandler, type ReactNode, type RefObject } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type InputHTMLAttributes, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
 type Option = { value: string; label: string; disabled?: boolean; leading?: ReactNode };
-type TouchPress = { pointerId: number; value: string; x: number; y: number };
 type DropdownProps = {
   value: string; onChange: (value: string) => void; options: Option[];
   'aria-label'?: string; disabled?: boolean; editable?: boolean; required?: boolean; minMenuWidth?: number;
@@ -19,12 +18,10 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   const id = useId(), anchor = useRef<HTMLElement>(null), popup = useRef<HTMLDivElement>(null);
   const openedWith = useRef<PopupInput>('keyboard');
   const [open, setOpen] = useState(false), [active, setActive] = useState(0);
-  const [touchPress, setTouchPress] = useState<TouchPress | null>(null);
   const [position, setPosition] = useState<CSSProperties>({ left: 0, top: 0, width: 0, maxHeight: 280 });
   if (heading && open && disabled) setOpen(false);
   const visible = editable ? options.filter(option => option.label.toLowerCase().includes(value.toLowerCase())).slice(0, 100) : options;
   const expanded = open && visible.length > 0 && !disabled;
-  if (!expanded && touchPress) setTouchPress(null);
   const activeIndex = Math.min(active, Math.max(0, visible.length - 1));
   const selected = options.find(option => option.value === value);
   // A modal makes outside content inert, so its options must share the dialog.
@@ -114,9 +111,6 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
     if (top < menu.scrollTop) menu.scrollTop = top;
     else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight;
   }, [activeIndex, expanded, position]);
-  const endTouchPress: PointerEventHandler<HTMLDivElement> = event => {
-    if (event.pointerId === touchPress?.pointerId) setTouchPress(null);
-  };
   function choose(option: Option) { if (!option.disabled && !anchor.current?.querySelector(':disabled')) onChange(option.value); setOpen(false); }
   const props = {
     role: 'combobox' as const, 'aria-label': label, 'aria-expanded': expanded, 'aria-controls': expanded ? id : undefined,
@@ -165,21 +159,12 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
         }
       }}><span className="select-label"><OptionLabel label={selected?.label ?? t("character_editor.none_selected")} leading={heading ? undefined : selected?.leading} /></span><Icon name="ArrowShortBottom" /></button>}
     {expanded && createPortal(<div ref={popup} id={id} role="listbox" aria-label={label} className={heading ? 'select-menu heading-select-menu' : 'select-menu'} style={position}
-      onPointerUp={endTouchPress} onPointerCancel={endTouchPress} onLostPointerCapture={endTouchPress} onPointerLeave={endTouchPress}
       onMouseDown={event => event.preventDefault()}>
       {visible.map((option, index) => <div role="option" id={`${id}-${index}`} key={option.value} aria-selected={option.value === value}
         aria-disabled={option.disabled || undefined} data-active={index === activeIndex}
-        data-touch-pressed={touchPress?.value === option.value || undefined}
-        onPointerDown={event => {
-          if (heading && event.pointerType === 'touch' && event.isPrimary && !option.disabled) {
-            setTouchPress({ pointerId: event.pointerId, value: option.value, x: event.clientX, y: event.clientY });
-          }
-        }}
         onPointerMove={event => {
           // Changing the active option can scroll the list, so leave touch scrolling to the browser.
           if (event.pointerType !== 'touch') setActive(index);
-          else if (touchPress?.pointerId === event.pointerId
-            && Math.hypot(event.clientX - touchPress.x, event.clientY - touchPress.y) >= 8) setTouchPress(null);
         }} onClick={() => choose(option)}>
         <OptionLabel label={option.label} leading={option.leading} />{option.value === value && <Icon name="Check" />}
       </div>)}

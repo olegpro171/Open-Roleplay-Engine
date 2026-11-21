@@ -101,6 +101,7 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
   .library-list :is(.chat-card,.library-card):hover,
   .story-home-participants .library-card:has(.library-card-open:enabled):hover{background:var(--surface-hover)}
 }
+:is(.chat-card,.library-card):has(:is(.chat-card-open,.library-card-open):enabled[data-pointer-pressed]:not([aria-disabled="true"])){background:var(--surface-hover);box-shadow:inset 0 0 0 2px var(--border-strong);transition:none}
 
 /* Initial focus on a dialog or menu container does not highlight a control. */
 dialog:focus,dialog h2[tabindex="-1"]:focus,.action-menu[tabindex="-1"]:focus{outline:none}
@@ -126,7 +127,7 @@ dialog:focus,dialog h2[tabindex="-1"]:focus,.action-menu[tabindex="-1"]:focus{ou
 .select-trigger[aria-expanded=true]{border-color:var(--accent-border)}
 .select-menu{position:fixed;z-index:100;overflow:auto;overscroll-behavior:contain;padding:5px;background:var(--surface);border:1px solid var(--accent-line);border-radius:8px;box-shadow:0 12px 36px var(--shadow);color:var(--text);font-size:14px;font-weight:400;scrollbar-color:var(--scrollbar) transparent}
 .select-menu [role=option]{min-height:42px;padding:9px 10px;border-radius:4px;display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;overflow-wrap:anywhere}
-.select-menu [role=option]:is([data-active=true],[data-touch-pressed=true]){background:var(--surface-hover)}
+.select-menu [role=option]:is([data-active=true],[data-pointer-pressed]){background:var(--surface-hover)}
 .select-menu [role=option][aria-selected=true]{color:var(--header-highlight)}
 .select-menu [role=option][aria-disabled=true]{opacity:.45;cursor:default}
 .heading-dropdown .select-trigger{width:auto;max-width:100%;min-width:44px;min-height:44px;justify-content:flex-start;gap:8px;padding:2px 6px;margin-inline-start:-6px;border:0;background:none;text-align:start}
@@ -134,7 +135,7 @@ dialog:focus,dialog h2[tabindex="-1"]:focus,.action-menu[tabindex="-1"]:focus{ou
 .heading-dropdown .select-trigger[aria-expanded=true]>.ui-icon{transform:rotate(180deg)}
 .heading-select-menu [role=option]{min-height:44px;border:1px solid transparent;border-radius:7px}
 .heading-select-menu [role=option][aria-selected=true]{border-color:var(--accent-border)}
-.heading-select-menu [role=option][aria-selected=true]:not([data-touch-pressed=true]){background:var(--accent-selected)}
+.heading-select-menu [role=option][aria-selected=true]:not([data-pointer-pressed]){background:var(--accent-selected)}
 input[type=checkbox]{appearance:none;-webkit-appearance:none;width:18px;height:18px;flex:0 0 18px;border:1px solid var(--border-strong);border-radius:4px;background:var(--input-bg);padding:0;margin:0;cursor:pointer;vertical-align:middle}
 input[type=checkbox]:checked{border-color:var(--accent);background:var(--accent)}
 input[type=checkbox]:checked::after{content:"";display:block;width:14px;height:14px;margin:1px;background:var(--on-accent);mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m3 8 3 3 7-7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
@@ -206,7 +207,26 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 @media(max-width:860px){.topbar .brand{display:none}.topbar{gap:20px}}
 @media(max-width:800px){.topbar{padding:0 16px;min-height:60px;gap:14px}.tabs{padding:0;gap:20px}.tabs button{font-size:12px;padding:18px 0}.connection-status{font-size:0;gap:0}.signout{font-size:11px!important}.api-key-row{align-items:stretch;flex-direction:column;gap:10px}.api-key-row>.checkbox{padding-bottom:0}.select-menu{font-size:16px}}
 @media(max-width:500px){.topbar{padding:0 10px;gap:10px}.tabs{gap:12px}.tabs button{font-size:11px}.topbar .connection-status{display:none}.signout{margin-left:auto;font-size:10px!important}}
-@media(forced-colors:active){input[type=checkbox]{appearance:auto}.select-menu [role=option]:is([data-active=true],[data-touch-pressed=true]){outline:1px solid Highlight}}
+@media(forced-colors:active){input[type=checkbox]{appearance:auto}.select-menu [role=option][data-active=true]{outline:1px solid Highlight}}
+
+/* Keep the pressed edge inside the control so keyboard focus can stay outside it. */
+:where(button,summary,a[href],[role="option"],.checkbox,.radio-option,.block-enabled){-webkit-tap-highlight-color:transparent}
+:is(button:enabled,summary,[role="option"],.radio-option:has(input:enabled))[data-pointer-pressed]:not([aria-disabled="true"],.chat-card-open,.library-card-open){
+  box-shadow:inset 0 0 0 1px var(--control-border);
+  filter:none;
+}
+:is(label[data-pointer-pressed]:not(.radio-option)>input,input[data-pointer-pressed]):is([type="checkbox"],[type="radio"]):enabled{
+  box-shadow:0 0 0 1px var(--control-border);
+}
+a[href][data-pointer-pressed]{text-decoration:underline;text-decoration-thickness:.15em}
+@media(forced-colors:active){
+  [data-pointer-pressed]:not(:disabled,:focus-visible,[aria-disabled="true"],label:not(.radio-option),a,.chat-card-open,.library-card-open),
+  label[data-pointer-pressed]:not(.radio-option)>input:enabled:not(:focus-visible),
+  :is(.chat-card-open,.library-card-open):enabled[data-pointer-pressed]:not([aria-disabled="true"])::after{
+    outline:2px solid Highlight;
+    outline-offset:-3px;
+  }
+}
 
 /* The library sidebar can leave an editor narrower than the viewport breakpoint. */
 @container library (max-width:660px){
