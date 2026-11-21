@@ -152,6 +152,9 @@ for (const width of [1440, 801, 800, 390, 320]) {
           expect(await content.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
           await page.screenshot({ animations: 'disabled', path: testInfo.outputPath(`settings-${category}-${theme}-${width}.png`) });
           if (category === 'Chat appearance') {
+            const preview = section.getByRole('region', { name: 'Chat text preview', exact: true });
+            await preview.screenshot({ path: testInfo.outputPath(`chat-preview-${theme}-${width}.png`) });
+            await expect(preview).toBeInViewport({ ratio: 0.99 });
             await section.getByRole('group', { name: 'Default speech colors', exact: true }).screenshot({
               path: testInfo.outputPath(`settings-speech-colors-${theme}-${width}.png`),
             });

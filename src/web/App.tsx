@@ -41,6 +41,7 @@ import { composerDraftSchema } from '../shared/composer-draft';
 import { continueResponse } from './continue-response';
 import { TurnControls } from './TurnControls';
 import { ReasoningPreview } from './Reasoning';
+import { ChatMessage } from './ChatMessage';
 import { ChatMarkdown } from './ChatMarkdown';
 import { ChatTextarea } from './ChatTextarea';
 import { ChatDetailsTarget, ChatWorkspace, useEscapeAction } from './ChatWorkspace';
@@ -839,8 +840,7 @@ export function App() {
                 {usage ? t("app.in_out", { value: usage.inputTokens.toLocaleString(locale()), value2: usage.outputTokens.toLocaleString(locale()) }) : t("app.usage_unavailable")}
               </span>}
             </div>
-            {(['user', 'assistant'] as const).filter(part => part !== 'user' || inputVisible).map((part) => <div className={`part ${part}`} key={part}>
-              <div className="part-heading"><strong>{part === 'user' ? selectedPersonaName : selectedCharacterName}</strong></div>
+            {(['user', 'assistant'] as const).filter(part => part !== 'user' || inputVisible).map((part) => <ChatMessage role={part} speaker={part === 'user' ? selectedPersonaName : selectedCharacterName} key={part}>
               {part === 'assistant' && showLiveReasoning && !continuing && <ReasoningPreview text={reasoning.text} />}
               {edit?.turnId === turn.id && edit.part === part ? <form ref={editForm} onSubmit={saveEdit} className="edit-form">
                 <ChatTextarea autoSize enterKeyHint="enter" aria-label={t("app.edit_text", { part })} value={edit.text} readOnly={busy}
@@ -863,7 +863,7 @@ export function App() {
                     : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor ?? 'var(--speech-persona)' : speechColor} /> : <span className="muted blank">{t("app.blank")}</span>}
               </div>}
               {part === 'assistant' && !edit && continuationError && <div className="continuation-progress muted small" role="status">{continuationError}</div>}
-            </div>)}
+            </ChatMessage>)}
             <TurnControls turn={turn} revision={snapshot.revision} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}
               continuing={continuing}
               pin={turn.complete ? {

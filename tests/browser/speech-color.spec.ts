@@ -141,7 +141,13 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     await page.getByRole('navigation', { name: 'Settings categories' }).getByRole('button', { name: 'Chat appearance', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Chat appearance', exact: true })).toBeFocused();
     const slider = settings.getByRole('slider', { name: 'Text scale' });
-    const preview = settings.getByRole('region', { name: 'Chat text preview' }).locator('.chat-markdown');
+    const preview = settings.getByRole('region', { name: 'Chat text preview' });
+    const userPreview = preview.locator('.part.user .chat-markdown');
+    const assistantPreview = preview.locator('.part.assistant .chat-markdown');
+    const userSpeech = userPreview.locator('.direct-speech');
+    const assistantSpeech = assistantPreview.locator('.direct-speech');
+    await expect(userSpeech).toHaveCSS('color', 'rgb(168, 201, 240)');
+    await expect(assistantSpeech).toHaveCSS('color', 'rgb(168, 201, 240)');
     const colorButton = settings.getByRole('button', { name: 'Default character speech color', exact: true });
     const buttonFontSize = await colorButton.evaluate(element => getComputedStyle(element).fontSize);
     await expect(slider).toHaveValue('100');
@@ -149,11 +155,13 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     await slider.press('Home');
     for (const [scale, pixels] of [[90, 13.5], [100, 15], [110, 16.5], [120, 18]]) {
       await expect(slider).toHaveValue(String(scale));
-      await expect(preview).toHaveCSS('font-size', `${pixels}px`);
+      for (const message of [userPreview, assistantPreview]) {
+        await expect(message).toHaveCSS('font-size', `${pixels}px`);
+        await expect(message).toHaveCSS('line-height', `${Number((pixels * 1.85).toFixed(3))}px`);
+      }
       await expect(composer).toHaveCSS('font-size', `${Number(((width > 800 ? 14 : 16) * scale / 100).toFixed(2))}px`);
       await expect(composer).toHaveValue(draft);
       await expect.poll(() => composer.evaluate(field => field.scrollHeight <= field.clientHeight + 1)).toBe(true);
-      await expect(preview).toHaveCSS('line-height', `${Number((pixels * 1.85).toFixed(3))}px`);
       if (scale < 120) await slider.press('ArrowRight');
     }
     await expect(colorButton).toHaveCSS('font-size', buttonFontSize);
@@ -162,12 +170,15 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     await page.route('**/api/application/appearance', route => route.request().method() === 'PUT'
       ? route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic appearance save failure.' }) }) : route.continue());
     await chooseColor(page, 'Default character speech color', '#eeaa88');
+    await expect(assistantSpeech).toHaveCSS('color', 'rgb(238, 170, 136)');
+    await expect(userSpeech).toHaveCSS('color', 'rgb(168, 201, 240)');
     await chooseColor(page, 'Default persona speech color', '#88cc99');
     await expect(settings.getByRole('alert')).toContainText('Synthetic appearance save failure.');
     await expect(page.getByRole('button', { name: 'Default persona speech color', exact: true })).toContainText('#88CC99');
     expect((await appearance()).settings).toEqual({ ...baseline.settings, chatTextScale: 120 });
     await expect(slider).toHaveValue('120');
-    await expect(preview).toHaveCSS('font-size', '18px');
+    await expect(userSpeech).toHaveCSS('color', 'rgb(136, 204, 153)');
+    await expect(assistantSpeech).toHaveCSS('color', 'rgb(238, 170, 136)');
     await page.unroute('**/api/application/appearance');
     await settings.getByRole('button', { name: 'Retry', exact: true }).click();
     await expect(settings.getByRole('alert')).toHaveCount(0);
@@ -175,6 +186,7 @@ for (const width of [1440, 390]) test(`uses app defaults for unset cards and cle
     await expect(observer.locator('.part.assistant .chat-markdown')).toHaveCSS('font-size', '18px');
     await expect(observer.locator('.part.user .direct-speech')).toHaveCSS('color', 'rgb(136, 204, 153)');
     await expect(observer.locator('.part.assistant .direct-speech')).toHaveCSS('color', 'rgb(204, 153, 255)');
+    await preview.screenshot({ path: testInfo.outputPath('custom-color-preview.png') });
     await settings.scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath('chat-appearance.png'), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

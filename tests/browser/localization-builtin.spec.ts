@@ -75,7 +75,11 @@ for (const width of [1440, 390, 320]) test(`built-in Russian needs no import and
   await expect(page.getByRole('heading', { name: 'Язык', exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Язык', exact: true })).toContainText(`Переведено ${status.languages[0].total} из ${status.languages[0].total}`);
   await expect(page.getByRole('slider', { name: 'Масштаб текста — 100%', exact: true })).toHaveAttribute('aria-valuetext', '100%');
+  const appearancePreview = page.getByRole('region', { name: 'Предпросмотр текста чата', exact: true });
+  await expect(appearancePreview.locator('.part.user .direct-speech')).toHaveText('— Куда дальше?');
+  await expect(appearancePreview.locator('.part.assistant .direct-speech')).toHaveText('— Наверх. Смотри под ноги.');
   await page.screenshot({ path: testInfo.outputPath(`russian-settings-${width}.png`) });
+  await appearancePreview.screenshot({ path: testInfo.outputPath(`russian-chat-preview-${width}.png`) });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'История', exact: true }).click();
   await expect(page.getByLabel('Ваш следующий ход')).toHaveValue(draft);

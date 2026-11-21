@@ -2,6 +2,7 @@ import { t, useLocale } from './localization';
 import { chatTextScales, chatTextScaleSchema, themeSchema, type Appearance, type AppearanceStatus, type Theme } from '../shared/appearance';
 import type { MessageKey } from '../shared/localization';
 import { SettingsSaveStatus, useSettingsState } from './useSettingsAutosave';
+import { ChatMessage } from './ChatMessage';
 import { ChatMarkdown } from './ChatMarkdown';
 import { Dropdown } from './Controls';
 import { themeSpeechColor, useTheme } from './theme';
@@ -55,8 +56,19 @@ export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosav
           <datalist id="chat-text-scale-ticks">{chatTextScales.map(scale => <option key={scale} value={scale} />)}</datalist>
           <div className="chat-text-scale-labels" aria-hidden="true">{chatTextScales.map(scale => <span key={scale}>{scale}%{scale === 100 && <small>{t("chat_appearance_settings.default")}</small>}</span>)}</div>
         </div>
-        <div className="chat-text-preview prose" role="region" aria-label={t("chat_appearance_settings.chat_text_preview")}>
-          <ChatMarkdown text={t("chat_appearance_settings.the_story_continues_hello")} textScale={draft.chatTextScale} speechColor={draft.characterSpeechColor ?? undefined} />
+        <div className="chat-text-preview" role="region" aria-label={t("chat_appearance_settings.chat_text_preview")}>
+          <ChatMessage role="user" speaker={t('app.you')}>
+            <div className="prose">
+              <ChatMarkdown text={t('chat_appearance_settings.preview_user_message')} textScale={draft.chatTextScale}
+                speechColor={draft.personaSpeechColor ?? 'var(--speech-persona)'} />
+            </div>
+          </ChatMessage>
+          <ChatMessage role="assistant" speaker={t('app.character')}>
+            <div className="prose">
+              <ChatMarkdown text={t('chat_appearance_settings.preview_assistant_message')} textScale={draft.chatTextScale}
+                speechColor={draft.characterSpeechColor ?? 'var(--speech-character)'} />
+            </div>
+          </ChatMessage>
         </div>
       </fieldset>
       <fieldset className="settings-row" aria-labelledby="default-speech-colors-heading">

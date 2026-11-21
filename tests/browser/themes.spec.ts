@@ -66,6 +66,9 @@ for (const choice of themeCases) for (const width of [1440, 390]) test(`${choice
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('navigation', { name: 'Settings categories' }).getByRole('button', { name: 'Chat appearance', exact: true }).click();
   const settings = page.getByRole('region', { name: 'Chat appearance', exact: true });
+  const preview = settings.getByRole('region', { name: 'Chat text preview' });
+  const userSpeech = preview.locator('.part.user .direct-speech');
+  const assistantSpeech = preview.locator('.part.assistant .direct-speech');
   const theme = settings.getByRole('combobox', { name: 'Theme', exact: true });
   await expect(theme).toHaveText('Dark');
   await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('dark-settings.png') });
@@ -93,7 +96,8 @@ for (const choice of themeCases) for (const width of [1440, 390]) test(`${choice
   await expectThemeIcons(observer, choice.faviconTile);
   await expect(page.getByRole('button', { name: 'Default character speech color', exact: true })).toContainText(choice.character.toUpperCase());
   await expect(page.getByRole('button', { name: 'Default persona speech color', exact: true })).toContainText(choice.persona.toUpperCase());
-  await expect(settings.locator('.direct-speech')).toHaveCSS('color', choice.speech);
+  await expect(userSpeech).toHaveCSS('color', choice.personaSpeech);
+  await expect(assistantSpeech).toHaveCSS('color', choice.speech);
   await expect(page.locator('html')).toHaveCSS('color-scheme', choice.scheme);
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', choice.chrome);
   await expect(theme).toHaveCSS('background-color', choice.input);
@@ -125,10 +129,11 @@ for (const choice of themeCases) for (const width of [1440, 390]) test(`${choice
   await theme.click();
   await page.getByRole('option', { name: choice.label, exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', choice.theme);
-  await expect(settings.locator('.direct-speech')).toHaveCSS('color', 'rgb(118, 84, 50)');
+  await expect(userSpeech).toHaveCSS('color', choice.personaSpeech);
+  await expect(assistantSpeech).toHaveCSS('color', 'rgb(118, 84, 50)');
   await settings.getByRole('button', { name: 'Use theme character color', exact: true }).click();
   await expect.poll(async () => (await read()).settings.characterSpeechColor).toBeNull();
-  await expect(settings.locator('.direct-speech')).toHaveCSS('color', choice.speech);
+  await expect(assistantSpeech).toHaveCSS('color', choice.speech);
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', choice.theme);
   const fresh = await context.browser()?.newContext({ viewport: { width, height: 900 } });
