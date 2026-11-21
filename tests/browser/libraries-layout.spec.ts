@@ -33,14 +33,19 @@ test.describe('phone editor scroll recovery', () => {
     const name = `Momentum character ${height} run ${test.info().repeatEachIndex}`;
     await addRecord(page, 'characters', { name, description: 'A long source field.\n'.repeat(150), personality: '', scenario: '', first_mes: '', mes_example: '' });
     await page.getByRole('navigation', { name: 'Library categories' }).getByRole('button', { name: 'Characters', exact: true }).click();
-    await page.getByPlaceholder('Search characters').fill(name);
+    const search = page.getByPlaceholder('Search characters');
+    await search.fill(name);
     const content = page.getByRole('region', { name: 'Characters', exact: true });
     await expect(content.getByRole('article')).toHaveCount(1);
     const scroller = page.locator('main.library-layout');
+    const edit = content.getByRole('heading').getByRole('button');
+    const scrollTop = () => scroller.evaluate(node => node.scrollTop);
     for (const action of ['Cancel', 'Save']) {
-      await content.getByRole('heading').getByRole('button').click();
+      await edit.scrollIntoViewIfNeeded();
+      const listPosition = await scrollTop();
+      await edit.click();
       await scroller.evaluate(node => { node.scrollTop = 600; });
-      await expect.poll(() => scroller.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+      await expect.poll(scrollTop).toBeGreaterThan(0);
       const session = await page.context().newCDPSession(page);
       const x = 380, y = height - 100;
       await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
@@ -49,10 +54,10 @@ test.describe('phone editor scroll recovery', () => {
       }
       await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       await page.getByRole('group', { name: 'Editor actions', exact: true }).getByRole('button', { name: action, exact: true }).click();
-      await expect.poll(() => scroller.evaluate(node => node.scrollTop)).toBe(0);
-      await expect(page.getByPlaceholder('Search characters')).toBeInViewport();
-      await expect(page.getByRole('navigation', { name: 'Library categories' })).toBeInViewport();
-      await expect(content.getByRole('article')).toHaveCount(1);
+      await expect(search).toHaveValue(name);
+      await expect(scroller).toHaveCSS('overflow-y', 'auto');
+      await expect.poll(scrollTop).toBe(listPosition);
+      await expect(edit).toBeInViewport();
       await session.detach();
     }
   });
@@ -402,34 +407,42 @@ test('fits library editors within their forms at desktop and phone widths', asyn
   }
 });
 
-test('returns to the top of a scrollable prompt list after saving or closing a deep editor', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
+test('restores the prompt list position after saving or discarding edits', async ({ page }) => {
   await login(page);
-  for (let index = 0; index < 8; index++) {
+  for (let index = 0; index < 16; index++) {
     await addRecord(page, 'prompts', { ...defaultPrompt, name: `Scroll position prompt ${index}` });
   }
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Prompts', exact: true });
-  const edit = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Scroll position prompt 0', exact: true }) }).getByRole('heading').getByRole('button');
-  await edit.click();
-  for (let index = 1; index <= 6; index++) {
-    await panel.getByRole('button', { name: `Expand block ${index}`, exact: true }).click();
-  }
-  await panel.evaluate(element => { element.scrollTop = element.scrollHeight; });
-  await panel.getByRole('textbox', { name: 'Fallback text' }).last().fill('Edited while scrolled down.');
-  await panel.evaluate(element => { element.scrollTop = element.scrollHeight; });
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(panel.getByRole('button', { name: 'New prompt', exact: true })).toBeInViewport();
-  expect(await panel.evaluate(element => element.scrollTop)).toBe(0);
+  const search = panel.getByRole('searchbox');
+  await search.fill('Scroll position prompt');
+  await expect(panel.getByRole('article')).toHaveCount(16);
+  const edit = panel.getByRole('button', { name: 'Scroll position prompt 7', exact: true });
+  const actions = page.getByRole('group', { name: 'Editor actions', exact: true });
 
-  await edit.click();
-  for (let index = 1; index <= 6; index++) {
-    await panel.getByRole('button', { name: `Expand block ${index}`, exact: true }).click();
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    const scroller = width > 800 ? panel : page.locator('main.library-layout');
+    const scrollTop = () => scroller.evaluate(element => element.scrollTop);
+    for (const action of ['Save', 'Cancel']) {
+      // Center the target card below the sticky toolbar at both viewport widths.
+      await edit.evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' }));
+      const listPosition = await scrollTop();
+      expect(listPosition).toBeGreaterThan(0);
+      await edit.click();
+      for (let index = 1; index <= 6; index++) {
+        await panel.getByRole('button', { name: new RegExp(`Expand block ${index}$`) }).click();
+      }
+      await panel.getByRole('textbox', { name: 'Fallback text' }).last().fill(`${action} while scrolled down at ${width}px.`);
+      await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; });
+      expect(await scrollTop()).toBeGreaterThan(0);
+      await actions.getByRole('button', { name: action, exact: true }).click();
+      if (action === 'Cancel') await confirmLeaveEditor(page);
+      await expect(search).toHaveValue('Scroll position prompt');
+      await expect.poll(scrollTop).toBe(listPosition);
+      await expect(edit).toBeInViewport();
+    }
   }
-  await panel.evaluate(element => { element.scrollTop = element.scrollHeight; });
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(panel.getByRole('button', { name: 'New prompt', exact: true })).toBeInViewport();
-  expect(await panel.evaluate(element => element.scrollTop)).toBe(0);
 });
 
 

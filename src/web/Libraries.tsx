@@ -273,7 +273,16 @@ export type LibraryDestination = LibraryTarget
   | { kind: LibraryKind | 'chats'; action: 'browse' }
   | { kind: SetupLibrary; action: 'create'; returnTo: SetupReturn }
   | (SetupParticipant & { action: 'edit'; returnTo: 'story' });
-type LibraryEditing = { kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean; returnTo?: SetupReturn };
+type LibraryEditing = {
+  kind: LibraryKind; id?: string; revision: number; data: LibraryRecord; hasApiKey?: boolean; returnTo?: SetupReturn;
+  listScrollTop?: number;
+};
+
+function libraryScroller(panel: HTMLElement | null) {
+  if (!panel) return null;
+  // Phones scroll the categories and content together in the workspace.
+  return getComputedStyle(panel).overflowY === 'visible' ? panel.parentElement : panel;
+}
 
 function savedEditor(library: LibrarySnapshot, kind: LibraryKind, id: string, returnTo?: SetupReturn): LibraryEditing | null {
   const record = library[kind].find(record => record.id === id);
@@ -361,36 +370,29 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
   const reviewMemoryCleanup = useMemoryCleanup(run, `${section}:${editing?.id ?? editing?.kind ?? ''}`);
   const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
   const panel = useRef<HTMLElement>(null);
-  const wasEditing = useRef(Boolean(editing));
+  const previousEditor = useRef(editing);
   useLayoutEffect(() => {
-    let frame = 0;
-    let restoreOverflow: (() => void) | undefined;
-    if (wasEditing.current && !editing && panel.current) {
-      const content = panel.current;
-      // Phones scroll the categories and content together, rather than the
-      // overflow:visible panel. Reset the element that actually owns scrolling.
-      const scroller = getComputedStyle(content).overflowY === 'visible' ? content.parentElement : content;
-      if (scroller) {
-        const overflow = scroller.style.overflow;
-        restoreOverflow = () => { scroller.style.overflow = overflow; };
-        // Keep the scrolling box removed for a rendered frame so compositor
-        // momentum ends before scrolling is enabled again. Keep children mounted
-        // to preserve search state and pending import reviews.
-        scroller.style.overflow = 'clip';
-        frame = requestAnimationFrame(() => {
-          frame = requestAnimationFrame(() => {
-            scroller.style.overflow = overflow;
-            scroller.scrollTo({ left: 0, top: 0, behavior: 'instant' });
-          });
-        });
-      }
-    }
-    wasEditing.current = Boolean(editing);
+    const closedEditor = previousEditor.current;
+    previousEditor.current = editing;
+    if (!closedEditor || editing) return;
+    const scroller = libraryScroller(panel.current);
+    if (!scroller) return;
+    const top = closedEditor.kind === section ? closedEditor.listScrollTop ?? 0 : 0;
+    const overflow = scroller.style.overflow;
+    // Remove the scrolling box for a rendered frame to stop editor momentum
+    // before restoring the list position.
+    scroller.style.overflow = 'clip';
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        scroller.style.overflow = overflow;
+        scroller.scrollTo({ left: 0, top, behavior: 'instant' });
+      });
+    });
     return () => {
       cancelAnimationFrame(frame);
-      restoreOverflow?.();
+      scroller.style.overflow = overflow;
     };
-  }, [editing]);
+  }, [editing, section]);
   const [deletion, setDeletion] = useState<LibraryDeletionTarget | null>(() => readDeletionRetry()?.target ?? null);
   const [connectionFile, setConnectionFile] = useState<ConnectionFileAction | null>(null);
   const [notice, setNotice] = useTextState(''), [diagnostics, setDiagnostics] = useState<LoreDiagnostic[]>([]), [search, setSearch] = useState('');
@@ -452,6 +454,12 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
   }
   function create() {
     if (section !== 'chats') setEditing(newEditor(section, library.revision));
+  }
+  function editRecord(id: string) {
+    if (section === 'chats') return;
+    const editor = savedEditor(library, section, id);
+    if (!editor) return;
+    setEditing({ ...editor, listScrollTop: libraryScroller(panel.current)?.scrollTop });
   }
   function renderEditor(initial: LibraryEditing) {
     const recovered = recovery?.editor;
@@ -629,7 +637,7 @@ export function Libraries({ library, defaults, currentBranchId, branchSelections
       <div className={`library-list ${section === 'characters' || section === 'personas' ? 'participant-card-list' : 'soft-card-list'}`}>
         {visibleRecords.map(item => <LibraryCard key={item.id} title={displayLibraryRecord(item)}
           picture={section === 'characters' ? <PictureSquare url={pictureIndex.get(item.id)?.thumbnailUrl} /> : undefined}
-          disabled={busy} open={() => setEditing(savedEditor(library, section, item.id))}
+          disabled={busy} open={() => editRecord(item.id)}
           description={'model' in item ? item.model : 'description' in item ? item.description : ''}
           details={libraryCardDetails(item)}
           tools={<>
