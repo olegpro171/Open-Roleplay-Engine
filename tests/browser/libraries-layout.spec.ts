@@ -512,7 +512,7 @@ test('opens the phone category picker over the list in every theme', async ({ pa
   await login(page);
   const picker = await selectLibraryCategory(page, 'Prompts');
   const list = page.getByRole('listbox', { name: 'Library categories' });
-  const firstRecord = page.getByRole('button', { name: 'Default prompt', exact: true });
+  const firstRecord = page.getByRole('button', { name: defaultPrompt.name, exact: true });
   const path = '/api/application/appearance';
   const readAppearance = async () => appearanceStatusSchema.parse(await page.request.get(path).then(response => response.json()));
   const initial = await readAppearance();
@@ -633,7 +633,7 @@ test('sizes Restore and Delete consistently in prompt action menus at desktop an
   await addRecord(page, 'prompts', { ...defaultPrompt, name: 'Aligned prompt actions' });
   await page.getByRole('button', { name: 'Prompts', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Prompts', exact: true });
-  const builtIn = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Default prompt', exact: true }) });
+  const builtIn = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: defaultPrompt.name, exact: true }) });
   const custom = panel.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Aligned prompt actions', exact: true }) });
   for (const width of [1440, 820, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 });
@@ -683,11 +683,12 @@ test('resets the built-in context and matches the Delete menu action width on de
     await builtIn.screenshot({ path: testInfo.outputPath(`context-reset-${width}.png`) });
   }
   await (await openLibraryActions(page, builtIn)).getByRole('menuitem', { name: 'Reset', exact: true }).click();
+  await expect(page.getByRole('dialog').getByText(`Reset this context preset to ${defaultContextPreset.name}?`, { exact: false })).toBeVisible();
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
   expect((await library(page)).contexts.find(item => item.id === 'default-context')?.minTail).toBe(23);
   await (await openLibraryActions(page, builtIn)).getByRole('menuitem', { name: 'Reset', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Reset', exact: true }).click();
-  await expect(panel.getByRole('heading', { name: 'Default context preset', exact: true })).toBeVisible();
+  await expect(panel.getByRole('heading', { name: defaultContextPreset.name, exact: true })).toBeVisible();
   const reset = (await library(page)).contexts.find(item => item.id === 'default-context');
   expect(reset).toEqual({ ...defaultContextPreset, id: 'default-context', revision: reset?.revision });
   await expect(custom).toBeVisible();

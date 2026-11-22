@@ -272,7 +272,7 @@ test('imports a card before Connection setup and tracks bookmarks independently 
   await expect(panel).toContainText('A second model');
 
   const promptPanel = home(page).getByRole('region', { name: 'Prompt', exact: true });
-  await expect(promptPanel.getByRole('status')).toContainText('Default prompt');
+  await expect(promptPanel.getByRole('status')).toContainText(defaultPrompt.name);
   const promptName = 'Grove stories for travellers, wandering storytellers, and the keepers of the old forest';
   const addedPrompt = await page.request.post('/api/library', { headers, data: {
     kind: 'prompts', revision: (await library(page)).revision, data: { ...defaultPrompt, name: promptName },
@@ -301,7 +301,7 @@ test('imports a card before Connection setup and tracks bookmarks independently 
   await button(page, `Clear ${promptName} as default`).click();
   await expect(button(page, `Set ${promptName} as default`)).toBeVisible();
   await button(page, 'New chat').click();
-  await expect(promptPanel.getByRole('status')).toContainText('Default prompt');
+  await expect(promptPanel.getByRole('status')).toContainText(defaultPrompt.name);
 });
 
 test('edits selected cards from New chat and returns there after saving and recovering a draft', async ({ page, browserApp }) => {

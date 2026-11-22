@@ -36,8 +36,8 @@ import * as legacyLibrarySchema from './legacy-library-schema.js';
 import { appendContinuation, trimBoundaryNewlines } from '../shared/text.js';
 import { continuationTarget } from '../core/continuation.js';
 import { transcriptPartLimit } from '../shared/library.js';
-import { contextPresetSchema, defaultContextPreset, type ContextPreset } from '../shared/context.js';
-import { upgradedContextPrompts } from './context-prompt-upgrade.js';
+import { contextPresetSchema, defaultContextPreset, defaultRepairPrompt, type ContextPreset } from '../shared/context.js';
+import { legacyContextPreset, upgradedContextPrompts } from './context-prompt-upgrade.js';
 import { ContextStore } from './context-store.js';
 import { ComposerDraftStore } from './composer-drafts.js';
 import type { ComposerDraftReference } from '../shared/composer-draft.js';
@@ -154,7 +154,7 @@ export class Store {
       if (version === 2) {
         this.sqlite.transaction(() => {
           this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0003_context.sql'), 'utf8'));
-          migrationDb.insert(migrationSchema.library).values({ id: 'default-context', kind: 'contexts', revision: 0, data: defaultContextPreset }).run();
+          migrationDb.insert(migrationSchema.library).values({ id: 'default-context', kind: 'contexts', revision: 0, data: newDatabase ? defaultContextPreset : legacyContextPreset }).run();
           this.sqlite.prepare('UPDATE library_state SET revision = revision + 1 WHERE id = 1').run();
           this.sqlite.pragma('user_version = 3');
         })();
@@ -650,7 +650,7 @@ export class Store {
         ...this.db.select().from(schema.connections).all().map(row => [row.id, { createdAt: row.createdAt, updatedAt: row.updatedAt }]),
       ]),
       revision: this.libraryRevision(), personas: list<LibraryPersona>('personas'), characters: list<LibraryCharacter>('characters'), prompts: list<PromptPreset>('prompts'),
-      contexts: list<ContextPreset>('contexts').map(preset => ({ ...preset, repairPrompt: preset.repairPrompt ?? defaultContextPreset.repairPrompt })),
+      contexts: list<ContextPreset>('contexts').map(preset => ({ ...preset, repairPrompt: preset.repairPrompt ?? defaultRepairPrompt })),
       lorebooks: list<Lorebook>('lorebooks'),
       ...(includeLorebookUses ? { lorebookUses: this.legacyLorebookUses(list<Lorebook>('lorebooks'), list<LibraryCharacter>('characters')) } : {}),
       connections: this.db.select().from(schema.connections).orderBy(sql`rowid`).all().map(r => ({ ...r.settings, id: r.id, revision: r.revision, hasApiKey: Boolean(this.db.select().from(schema.credentials).where(eq(schema.credentials.id, r.id)).get()?.apiKey) })),
@@ -1513,7 +1513,7 @@ export class Store {
   }
   contextPreset(id: string | null | undefined) {
     const preset = this.selected<ContextPreset>(id, 'contexts');
-    return preset ? { ...preset, repairPrompt: preset.repairPrompt ?? defaultContextPreset.repairPrompt } : null;
+    return preset ? { ...preset, repairPrompt: preset.repairPrompt ?? defaultRepairPrompt } : null;
   }
   saveRequest(id: string, request: RequestPreview) {
     this.sqlite.transaction(() => {

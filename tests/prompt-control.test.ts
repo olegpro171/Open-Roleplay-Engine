@@ -44,7 +44,8 @@ describe('explicit prompt control', () => {
   });
 
   it.each(['absent', 'disabled'] as const)('never injects %s Summary and ignores saved cutoff and stale memory', mode => {
-    const blocks = mode === 'absent' ? [messages] : [...defaultPrompt.blocks.map(block => ({ ...block, enabled: block.id !== 'summary' }))];
+    const summaryMarker: PromptBlock = { id: 'summary', name: 'Summary', kind: 'marker', marker: 'summary', role: 'system', enabled: false };
+    const blocks = mode === 'absent' ? [messages] : [summaryMarker, messages];
     const changed = turns.map((turn, i) => i ? turn : { ...turn, user: { ...turn.user, revision: 1 } });
     const resolved = request(blocks, 5_000, changed);
     expect(resolved.body.messages.some(message => message.content.includes(summary.text))).toBe(false);
@@ -102,7 +103,7 @@ describe('explicit prompt control', () => {
 });
 
 describe('pinned messages', () => {
-  const marker = defaultPrompt.blocks.find(block => block.id === 'pinned-messages')!;
+  const marker = defaultPrompt.blocks.find(block => block.kind === 'marker' && block.marker === 'pinned_messages')!;
   const summaryMarker = defaultPrompt.blocks.find(block => block.id === 'summary')!;
   const preface = 'The user has explicitly indicated that the following messages are important to the story. Pay particular attention to the facts, decisions, promises, and relationships they establish when continuing the current conversation. Read them as excerpts from earlier turns.';
 

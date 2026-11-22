@@ -1,7 +1,6 @@
 import { t, locale } from './localization';
 import { z } from 'zod';
 import type { LibraryDates, LibraryKind, LibrarySnapshot } from '../shared/library';
-import { displayLibraryRecord } from './localization-labels';
 
 export type LibrarySection = LibraryKind | 'chats';
 export const librarySortSchema = z.enum(['name-asc', 'name-desc', 'created-desc', 'created-asc', 'updated-desc', 'updated-asc', 'message-desc', 'message-asc']);
@@ -37,7 +36,7 @@ export function readLibrarySort(section: LibrarySection): LibrarySort {
 type ItemDates = LibraryDates & { lastMessageAt?: string | null };
 
 export function sortLibraryRecords<T extends { id: string; name: string }>(
-  records: readonly T[], kind: LibraryKind, dates: LibrarySnapshot['dates'], name = (record: T) => displayLibraryRecord(record).name,
+  records: readonly T[], kind: LibraryKind, dates: LibrarySnapshot['dates'], name = (record: T) => record.name,
 ): T[] {
   return sortLibraryItems(records, readLibrarySort(kind), name, record => dates[record.id]);
 }

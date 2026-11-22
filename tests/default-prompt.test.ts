@@ -5,7 +5,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../src/persistence/store.js';
+import { legacyContextPreset } from '../src/persistence/context-prompt-upgrade.js';
 import { defaultPrompt, promptSchema } from '../src/shared/library.js';
+import { contextPresetSchema, defaultContextPreset } from '../src/shared/context.js';
 import { compactPrompt } from './support/compact-prompt.js';
 import { assembleRequest } from '../src/core/prompt.js';
 
@@ -17,13 +19,9 @@ function database() {
   return join(directory, 'chat.sqlite');
 }
 
-it('seeds the supplied preset exactly, apart from its name, on a fresh installation', () => {
-  const blocks = defaultPrompt.blocks.filter(block => block.id !== 'pinned-messages');
-  // All original blocks retain the supplied JSON and relative order.
-  expect(createHash('sha256').update(JSON.stringify({ ...defaultPrompt, blocks })).digest('hex'))
-    .toBe('8b1d44aeb881dda8fa99e462bae663b9f88042383e2a59a9431d05d50810a9dc');
-  expect(defaultPrompt.blocks.slice(6, 9).map(block => block.id)).toEqual(['summary', 'pinned-messages', 'messages']);
-  expect(defaultPrompt.blocks[7]).toMatchObject({ marker: 'pinned_messages', enabled: true, role: 'system' });
+it('seeds the supplied prompt exactly and uses it in request assembly', () => {
+  expect(createHash('sha256').update(JSON.stringify(defaultPrompt)).digest('hex'))
+    .toBe('6cb4b61e563baad2af1e49997c09d0a8f86d5fb989031b052b101d19598c8389');
   expect(promptSchema.parse(defaultPrompt)).toEqual(defaultPrompt);
   const store = openStoryStore(database());
   try {
@@ -36,11 +34,22 @@ it('seeds the supplied preset exactly, apart from its name, on a fresh installat
   } finally { store.close(); }
 });
 
+it('seeds the supplied context preset with the chat Connection', () => {
+  expect(createHash('sha256').update(JSON.stringify(defaultContextPreset)).digest('hex'))
+    .toBe('d41c077237ee21cf7cb72e4187d03d6816cf133324a90699b002fb3d0dbb666b');
+  expect(contextPresetSchema.parse(defaultContextPreset)).toEqual(defaultContextPreset);
+  const store = new Store(database());
+  try {
+    expect(store.libraries().contexts).toEqual([{ ...defaultContextPreset, id: 'default-context', revision: 0 }]);
+  } finally { store.close(); }
+});
+
 it.each([compactPrompt, { name: 'Owner edited prompt', blocks: [{ id: 'owner', name: 'Owner instructions', kind: 'text' as const, enabled: true, role: 'system' as const, text: 'Keep this saved text.' }] }])('preserves saved $name across restart', saved => {
   const path = database();
   let store = openStoryStore(path);
   try {
     store.saveLibrary(store.libraryRevision(), 'prompts', saved, 'default');
+    store.saveLibrary(store.libraryRevision(), 'contexts', legacyContextPreset, 'default-context');
     const before = store.libraries();
     store.close();
     store = new Store(path);

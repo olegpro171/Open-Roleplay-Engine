@@ -3,7 +3,7 @@ import { LibraryImport } from './LibraryImport';
 import { ActionMenu } from './ActionMenu';
 import { LibrarySearchField } from './LibrarySearchField';
 import type { MessageText } from './localization';
-import { displayLibraryRecord, libraryEditorTitle, newLibraryLabel, searchLibraryLabel, sortLibraryLabel } from './localization-labels';
+import { libraryEditorTitle, newLibraryLabel, searchLibraryLabel, sortLibraryLabel } from './localization-labels';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale, currentPack } from './localization';
 import { libraryLabel, characterFieldLabel, markerLabel as localizedMarkerLabel, stateLabel } from './localization-labels';
 import { librarySortSchema, readLibrarySort, sortLibraryItems, sortLibraryRecords, sortOptions, type LibrarySort } from './library-sorting';
@@ -50,7 +50,8 @@ import { sameDraftValue, type LibraryDraft, type LibraryEditorDraft, type SetupR
 export const defaultConnection: Connection = { name: 'My Connection', endpoint: 'https://api.openai.com/v1', model: '', contextWindow: 128_000, maxOutputTokens: 8196, customParameters: {} };
 
 function newPrompt(): PromptPreset {
-  const sourceMarkers = structuredClone(defaultPrompt.blocks.filter(block => block.kind === 'marker'));
+  const sourceMarkers = defaultPrompt.blocks.filter(block => block.kind === 'marker')
+    .map(block => ({ ...structuredClone(block), name: markerLabel(block.marker) }));
   return {
     name: newLibraryLabel('prompts'),
     blocks: [
@@ -327,8 +328,8 @@ export function Libraries({ library, defaults, appearance, currentBranchId, bran
   }), [displayLanguage.locale]);
   const visibleRecords = useMemo<Saved<LibraryRecord>[]>(() => {
     if (section === 'chats') return [];
-    return sortLibraryItems(library[section].filter(record => matchesLibraryRecord(displayLibraryRecord(record), query)
-      && (section !== 'characters' || matchesCharacterTags(tagIndex.get(record.id), filters))), sort, record => characterLabel(displayLibraryRecord(record)), record => library.dates[record.id]);
+    return sortLibraryItems(library[section].filter(record => matchesLibraryRecord(record, query)
+      && (section !== 'characters' || matchesCharacterTags(tagIndex.get(record.id), filters))), sort, record => characterLabel(record), record => library.dates[record.id]);
   }, [section, library, query, tagIndex, filters, sort, displayLanguage]);
   useEffect(() => {
     if (!pendingBook) return;
@@ -537,7 +538,7 @@ export function Libraries({ library, defaults, appearance, currentBranchId, bran
         <span className="small muted" role="status">{t("libraries.of_characters", { length: visibleRecords.length, length2: library.characters.length })}</span>
       </div>}
       <div className={`library-list ${section === 'characters' || section === 'personas' ? 'participant-card-list' : 'soft-card-list'}`}>
-        {visibleRecords.map(item => <LibraryCard key={item.id} title={displayLibraryRecord(item)}
+        {visibleRecords.map(item => <LibraryCard key={item.id} title={item}
           picture={section === 'characters' ? <PictureSquare url={pictureIndex.get(item.id)?.thumbnailUrl} /> : undefined}
           disabled={busy} open={() => editRecord(item.id)}
           description={'model' in item ? item.model : 'description' in item ? item.description : ''}
@@ -549,12 +550,12 @@ export function Libraries({ library, defaults, appearance, currentBranchId, bran
               {section === 'connections' ? <button type="button" className="secondary" role="menuitem" tabIndex={-1} disabled={busy} aria-haspopup="dialog" onClick={() => {
                 setConnectionFile({ kind: 'export', id: item.id, name: item.name });
               }}><Icon name="Upload" />{t('connection_files.export_button')}</button> : <button className="secondary" role="menuitem" tabIndex={-1} aria-label={section === 'characters' ? t("libraries.export_json", { value: characterLabel(item) }) : undefined} onClick={() => void run(async () => download(await api(`/library/${section}/${item.id}/export`), `${item.name.replace(/[^a-z0-9_-]/gi, '_')}.json`))}><Icon name="Upload" />{section === 'characters' ? t("libraries.export_json_2") : t("libraries.export")}</button>}
-              {section === 'prompts' && item.id === 'default' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => { confirmAction({ title: t("libraries.restore_original_prompt"), message: t("libraries.restore_the_built_in_default_prompt_chats"), actionLabel: t("libraries.restore_original"), onConfirm: () => { void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.restore_original")}</button>}
+              {section === 'prompts' && item.id === 'default' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => { confirmAction({ title: t("libraries.restore_original_prompt"), message: t("libraries.restore_the_built_in_default_prompt_chats", { name: defaultPrompt.name }), actionLabel: t("libraries.restore_original"), onConfirm: () => { void run(() => api('/library/default/restore', 'POST', { revision: library.revision })); } }); }}><Icon name="TrashOutline" />{t("libraries.restore_original")}</button>}
               {section === 'contexts' && item.id === 'default-context' && <button className="secondary" role="menuitem" tabIndex={-1} disabled={busy} onClick={() => {
                 const revision = library.revision;
                 void reviewMemoryCleanup({
                   path: '/library/contexts/default-context/impact', body: { revision, data: defaultContextPreset }, alwaysConfirm: true,
-                  copy: { title: msg('libraries.reset_context'), message: msg('libraries.reset_context_confirmation'), actionLabel: msg('libraries.reset') },
+                  copy: { title: msg('libraries.reset_context'), message: msg('libraries.reset_context_confirmation', { name: defaultContextPreset.name }), actionLabel: msg('libraries.reset') },
                   commit: memoryImpactToken => api('/library/default-context/reset', 'POST', { revision, memoryImpactToken }),
                 });
               }}><Icon name="TrashOutline" />{t("libraries.reset")}</button>}

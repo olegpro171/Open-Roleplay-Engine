@@ -5,7 +5,7 @@ import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
 import type { ChatDefaultsStatus, ChatDefaultKind } from '../../src/shared/chat-defaults';
 import type { ChatSnapshot } from '../../src/shared/contracts';
-import { appearanceStatusSchema } from '../../src/shared/appearance';
+import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 import { test } from './isolated-app';
 
 const readLibrary = (page: Page): Promise<LibrarySnapshot> => page.request.get('/api/library').then(response => response.json());
@@ -25,7 +25,7 @@ for (const width of [1440, 390]) {
       { category: 'Context presets', preset: library.contexts.find(item => item.id === 'default-context') },
     ];
     const headers = { Origin: browserApp.url };
-    for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+    for (const theme of themeSchema.options) {
       const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
       const saved = await page.request.put('/api/application/appearance', { headers, data: { revision: appearance.revision, settings: { ...appearance.settings, theme } } });
       expect(saved.ok()).toBe(true);

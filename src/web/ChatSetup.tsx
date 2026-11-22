@@ -12,7 +12,6 @@ import type { LibraryTarget } from './Libraries';
 import { sameDraftValue } from './library-draft';
 import { sortLibraryRecords } from './library-sorting';
 import { errorText, formatMessage, locale, message as msg, t, useLocale, type MessageText } from './localization';
-import { displayLibraryRecord } from './localization-labels';
 import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { WarningDetails } from './WarningDialog';
 
@@ -39,7 +38,7 @@ function libraryDropdownOptions(library: LibrarySnapshot, kind: Exclude<LibraryK
   const sorted = sortLibraryRecords(records, kind, library.dates);
   return [
     ...(kind === 'prompts' ? [] : [{ value: '', label: t('character_editor.none_selected') }]),
-    ...sorted.map(record => ({ value: record.id, label: displayLibraryRecord(record).name })),
+    ...sorted.map(record => ({ value: record.id, label: record.name })),
   ];
 }
 

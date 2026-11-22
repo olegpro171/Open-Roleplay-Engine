@@ -288,13 +288,15 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed J
   await expect(page.getByLabel('Conversation')).toContainText('Hello, Visitor. I am Moon.');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await selectLibraryCategory(page, 'Prompts');
-  const builtIn = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Default prompt' }) });
+  const builtIn = page.getByRole('article').filter({ has: page.getByRole('heading', { name: defaultPrompt.name }) });
   await builtIn.getByRole('heading').getByRole('button').click();
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
   await page.getByLabel('Fallback text').fill('Modified default');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await (await openLibraryActions(page, builtIn)).getByRole('menuitem', { name: 'Restore', exact: true }).click();
-  await page.locator('.confirmation-dialog').getByRole('button', { name: 'Restore', exact: true }).click();
+  const restoreDialog = page.locator('.confirmation-dialog');
+  await expect(restoreDialog.getByText(`Restore ${defaultPrompt.name}?`, { exact: false })).toBeVisible();
+  await restoreDialog.getByRole('button', { name: 'Restore', exact: true }).click();
   await builtIn.getByRole('heading').getByRole('button').click();
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
   await expect(page.getByLabel('Fallback text')).toHaveValue('');

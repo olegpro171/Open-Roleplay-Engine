@@ -26,7 +26,7 @@ test('manages and jumps to off-page pins with stable estimates and prompt warnin
   });
   const savePrompt = async (name: string, state: 'enabled' | 'missing' | 'disabled') => command('POST', '/api/library', {
     revision: (await library()).revision, kind: 'prompts', data: { name, blocks: defaultPrompt.blocks
-      .filter(block => block.id === 'messages' || block.id === 'pinned-messages' && state !== 'missing')
+      .filter(block => block.kind === 'marker' && (block.marker === 'messages' || block.marker === 'pinned_messages' && state !== 'missing'))
       .map(block => ({ ...block, enabled: block.id === 'messages' || state === 'enabled' })) },
   });
   const enabled = await savePrompt('With Pinned messages', 'enabled');
@@ -221,7 +221,7 @@ test('an over-target managed request with pins prepares on Send without a Story 
     data: { ...defaultContextPreset, name: 'Pinned context', batchSize: 2, minTail: 1, connectionId: summaryModel.id },
   });
   const prompt = await command('POST', '/api/library', { revision: await libraryRevision(), kind: 'prompts',
-    data: { name: 'Managed pins', blocks: defaultPrompt.blocks.filter(block => ['summary', 'pinned-messages', 'messages'].includes(block.id)) },
+    data: { name: 'Managed pins', blocks: defaultPrompt.blocks.filter(block => block.kind === 'marker' && ['summary', 'pinned_messages', 'messages'].includes(block.marker)) },
   });
   const { id } = await command('POST', '/api/chats', { title: 'Managed pinned story', targetInputTokens: 400, connectionId: storyModel.id,
     promptId: prompt.id, contextPresetId: context.id, characterId: null, personaId: null,

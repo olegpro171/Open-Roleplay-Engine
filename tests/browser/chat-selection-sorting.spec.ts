@@ -23,9 +23,9 @@ for (const width of [1440, 390]) {
     const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
     const fixtures = [
       { kind: 'prompts', key: 'promptId', category: 'Prompts', label: 'Prompt preset', data: defaultPrompt, sort: 'Name A–Z',
-        order: ['Amber Prompt preset', 'Default prompt', 'Echo Prompt preset'] },
+        order: ['Amber Prompt preset', 'Default roleplay', 'Echo Prompt preset'] },
       { kind: 'contexts', key: 'contextPresetId', category: 'Context presets', label: 'Context preset', data: defaultContextPreset, sort: 'Name Z–A',
-        order: ['Echo Context preset', 'Default context preset', 'Amber Context preset'] },
+        order: ['Layered narrative memory', 'Echo Context preset', 'Amber Context preset'] },
       { kind: 'connections', key: 'connectionId', category: 'Connections', label: 'Connection', sort: 'Name A–Z',
         data: { endpoint, model: 'mock', contextWindow: 100_000, maxOutputTokens: 1000, customParameters: {} }, order: ['Amber Connection', 'Echo Connection'] },
       { kind: 'lorebooks', key: 'lorebookId', category: 'Lorebooks', label: 'Lorebook', data: newLorebook(), sort: 'Added: oldest',
@@ -153,7 +153,7 @@ for (const width of [1440, 390]) {
       await expect(context).toHaveText('Amber Context preset');
       await context.click();
       await expect(page.getByRole('listbox', { name: 'Пресет контекста', exact: true }).getByRole('option')).toHaveText([
-        'Не выбрано', 'Echo Context preset', 'Amber Context preset', 'Пресет контекста по умолчанию',
+        'Не выбрано', ...fixtures[1].order,
       ]);
     }
   });

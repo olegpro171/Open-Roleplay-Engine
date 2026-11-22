@@ -1,3 +1,4 @@
+import { defaultPrompt } from '../../src/shared/library';
 import { expect, devices, type Page } from '@playwright/test';
 import { themeSchema, appearanceStatusSchema } from '../../src/shared/appearance';
 import { chatBehaviorStatusSchema } from '../../src/shared/chat-behavior';
@@ -8,6 +9,7 @@ import { test } from './isolated-app';
 import { openChatTool } from './chat-tools';
 import { compactPrompt } from '../support/compact-prompt';
 
+const shippedInstruction = defaultPrompt.continuationInstruction ?? '';
 const original = 'The keeper opens the window.';
 const reply = 'The lantern flickers. 🕯';
 
@@ -82,7 +84,7 @@ for (const device of ['desktop', 'phone'] as const) test.describe(device, () => 
       await openChatTool(page, 'Request inspector');
       await page.getByText('Endpoint and request body', { exact: true }).click();
       const body = page.getByTestId('request-body');
-      await expect(body).toContainText(continuationInstruction);
+      await expect(body).toContainText(shippedInstruction);
       previewedBody = JSON.parse(await body.innerText());
       await page.getByRole('button', { name: 'Story', exact: true }).click();
     }
@@ -226,7 +228,7 @@ test('a saved prompt controls future continuation previews and requests', async 
   const openPrompt = async () => {
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
     await page.getByRole('button', { name: 'Prompts', exact: true }).click();
-    await page.getByRole('button', { name: 'Default prompt', exact: true }).click();
+    await page.getByRole('button', { name: defaultPrompt.name, exact: true }).click();
     await page.getByRole('tab', { name: 'Action instructions', exact: true }).click();
     await page.getByRole('tabpanel', { name: 'Action instructions', exact: true }).getByText('Continue', { exact: true }).click();
   };
@@ -234,7 +236,7 @@ test('a saved prompt controls future continuation previews and requests', async 
   const custom = '  Move {{char}} to the doorway. Wait for {{user}}.  ';
   const outgoing = { role: 'user', content: '  Move Character to the doorway. Wait for You.  ' };
   await openPrompt();
-  await expect(setting).toHaveValue(continuationInstruction);
+  await expect(setting).toHaveValue(shippedInstruction);
   await setting.fill(custom);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(setting).toHaveCount(0);
@@ -248,7 +250,7 @@ test('a saved prompt controls future continuation previews and requests', async 
   await expect(body).toContainText('Move Character to the doorway. Wait for You.');
   const preview: RequestBody = JSON.parse(await body.innerText());
   expect(preview.messages).toContainEqual(outgoing);
-  expect(preview.messages).not.toContainEqual({ role: 'user', content: continuationInstruction });
+  expect(preview.messages).not.toContainEqual({ role: 'user', content: shippedInstruction });
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   const extend = page.getByRole('button', { name: 'Continue', exact: true });
   await extend.click();

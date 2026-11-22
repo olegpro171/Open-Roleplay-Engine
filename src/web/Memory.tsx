@@ -1,4 +1,4 @@
-import { displayLibraryRecord, stateLabel } from './localization-labels';
+import { stateLabel } from './localization-labels';
 import { sortLibraryRecords } from './library-sorting';
 import type { MessageText } from './localization';
 import { formatMessage } from './localization';
@@ -174,7 +174,7 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
         <div className="form-grid">
           <label>{t("libraries.context_preset")}<Dropdown aria-label={t("libraries.context_preset")} value={presetId} onChange={setPresetId} options={[
             { value: '', label: t("memory.no_context_preset") },
-            ...sortLibraryRecords(library.contexts, 'contexts', library.dates).map(item => ({ value: item.id, label: displayLibraryRecord(item).name })),
+            ...sortLibraryRecords(library.contexts, 'contexts', library.dates).map(item => ({ value: item.id, label: item.name })),
           ]} /></label>
           <label>{t("app.input_target")}<NumberInput required value={target} onChange={setTarget} /></label>
         </div>

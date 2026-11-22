@@ -26,7 +26,7 @@ function fixture(path = ':memory:') {
   const store = new Store(path);
   const characterId = store.saveLibrary(store.libraryRevision(), 'characters', importCharacter(source));
   const connectionId = store.saveLibrary(store.libraryRevision(), 'connections', connection, undefined, 'SYNTHETIC-CARD-SECRET');
-  const chatId = store.createChat({ title: 'Story', targetInputTokens: 5000, characterId, connectionId, promptId: 'default', personaId: null, lorebookId: null });
+  const chatId = store.createChat({ title: 'Story', targetInputTokens: 8000, characterId, connectionId, promptId: 'default', personaId: null, lorebookId: null });
   return { store, characterId, chatId };
 }
 function card(store: Store, id: string) {
@@ -117,7 +117,7 @@ describe('server diagnostics and generation integration', () => {
     const characterId = store.saveLibrary(store.libraryRevision(), 'characters', importCharacter(source));
     const connectionId = store.saveLibrary(store.libraryRevision(), 'connections', connection, undefined, 'SYNTHETIC-CARD-SECRET');
     const oldPreset = store.saveLibrary(store.libraryRevision(), 'prompts', legacyRoleplayPrompt);
-    const selected = { title: 'Story', targetInputTokens: 5000, characterId, connectionId, promptId: oldPreset, personaId: null, lorebookId: null };
+    const selected = { title: 'Story', targetInputTokens: 8000, characterId, connectionId, promptId: oldPreset, personaId: null, lorebookId: null };
     const chatId = store.createChat(selected);
     const before = store.snapshot(chatId);
     const diagnostic = await app.inject({ method: 'POST', url: `/api/chats/${chatId}/prompt-diagnostics`, headers, payload: { revision: before.revision, settings: selected } });
@@ -150,13 +150,14 @@ describe('server diagnostics and generation integration', () => {
     store.saveLibrary(store.libraryRevision(), 'characters', { ...card(store, characterId), depth_prompt: { prompt: 'Valid note', depth: 0, role: 'assistant' } }, characterId);
     const current = store.snapshot(chatId);
     const preview = await app.inject({ method: 'POST', url: `/api/chats/${chatId}/preview`, headers, payload: { revision: current.revision } });
-    expect(preview.statusCode).toBe(200);
+    expect(preview.statusCode, preview.body).toBe(200);
     const operation = store.begin(current.revision, randomUUID(), undefined, chatId);
     const pending = store.generationSnapshot(operation.id);
     const assembled = assembleRequest(connection, pending.settings, pending.turns, pending.sources, pending.context);
     expect(assembled.body).toEqual(preview.json<RequestPreview>().body);
-    expect(assembled.body.messages).toContainEqual({ role: 'assistant', content: 'Valid note' });
-    expect(assembled.body.messages.findIndex(message => message.content === 'Valid note')).toBe(assembled.body.messages.length - 3);
+    const newestInput = assembled.body.messages.findIndex(message => message.role === 'user' && message.content === 'Continue');
+    expect(newestInput).toBeGreaterThanOrEqual(0);
+    expect(assembled.body.messages[newestInput + 1]).toEqual({ role: 'assistant', content: 'Valid note' });
     store.finish(operation.id, 'cancelled', '', 'Synthetic cancellation');
     expect(store.libraries().prompts.find(prompt => prompt.id === 'default')?.blocks).toEqual(defaultPrompt.blocks);
   });

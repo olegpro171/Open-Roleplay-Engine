@@ -9,7 +9,6 @@ import { api, ApiError, datasetEpoch } from './api';
 import { Dropdown } from './Controls';
 import { dismissModalFromAction, openModal } from './dialog-focus';
 import { LibrarySearchField } from './LibrarySearchField';
-import { displayLibraryRecord } from './localization-labels';
 import type { LibrarySnapshot } from '../shared/library';
 import { sortLibraryRecords } from './library-sorting';
 import { errorText, formatMessage, locale, message, t, useLocale, type MessageText } from './localization';
@@ -63,11 +62,11 @@ function DependencyList({ dependencies, kind }: { dependencies: LibraryDeletionR
       id: chat.id, name: chat.name,
       reasons: [
         ...(kind === 'connections' && chat.direct ? [t('library_delete.roleplay_connection')] : []),
-        ...(chat.memoryPreset ? [t('library_delete.memory_through', { preset: displayLibraryRecord(chat.memoryPreset).name })] : []),
+        ...(chat.memoryPreset ? [t('library_delete.memory_through', { preset: chat.memoryPreset.name })] : []),
       ],
     })) },
     { kind: 'characters', items: dependencies.characters.map(item => ({ ...item, reasons: [t('library_delete.character_default')] })) },
-    { kind: 'contexts', items: dependencies.contexts.map(item => ({ ...displayLibraryRecord(item), reasons: [t('library_delete.summary_connection')] })) },
+    { kind: 'contexts', items: dependencies.contexts.map(item => ({ ...item, reasons: [t('library_delete.summary_connection')] })) },
   ] as const;
   const query = searchValue(search.trim());
   const order = new Intl.Collator(locale(), { numeric: true });
@@ -121,7 +120,7 @@ function BlockedBranches({ branches }: { branches: ReviewBlocker['branches'] }) 
   </>;
 }
 
-function clearConsequences(kind: LibraryDeletionTarget['kind'], { chats, characters, contexts }: LibraryDeletionReview['dependencies']) {
+function clearConsequences(kind: Exclude<LibraryDeletionTarget['kind'], 'prompts'>, { chats, characters, contexts }: LibraryDeletionReview['dependencies']) {
   if (kind === 'connections') return [
     ...(chats.some(chat => chat.direct) ? ['library_delete.clear_chat_connections' as const] : []),
     ...(contexts.length ? ['library_delete.clear_preset_connections' as const] : []),
@@ -160,6 +159,7 @@ export function LibraryDeletionDialog({ target, name, dates, busy, run, cancel, 
   const path = `/library/${encodeURIComponent(id)}/deletion`;
   const locked = busy || phase === 'submitting' || phase === 'uncertain';
   const linked = Boolean(review && Object.values(review.dependencies).some(items => items.length));
+  const fallbackPrompt = kind === 'prompts' ? review?.replacements.find(item => item.id === 'default') : undefined;
   const linkedLorebook = review?.linkedLorebook;
   const simpleConfirmation = !linked && (!linkedLorebook || linkedLorebook.inUse);
   const actionMatches = Boolean(review && review.action.choice.mode === mode &&
@@ -298,10 +298,12 @@ export function LibraryDeletionDialog({ target, name, dates, busy, run, cancel, 
           <legend>{t('library_delete.before_deleting')}</legend>
           <label className="radio-option">
             <input type="radio" name={choiceGroup} checked={mode === 'clear'} onChange={() => { setFeedback(''); setMode('clear'); }} />
-            {t(kind === 'prompts' ? 'library_delete.use_default_prompt' : 'library_delete.clear')}
+            {fallbackPrompt ? t('library_delete.use_default_prompt', { name: fallbackPrompt.name }) : t('library_delete.clear')}
           </label>
           {mode === 'clear' && !blockers.some(blocker => blocker.reason === 'excluded') && <div className="library-deletion-clear-help">
-            {clearConsequences(kind, review.dependencies).map(key => <p key={key} className="small">{t(key)}</p>)}
+            {kind === 'prompts'
+              ? fallbackPrompt && <p className="small">{t('library_delete.clear_prompts', { name: fallbackPrompt.name })}</p>
+              : clearConsequences(kind, review.dependencies).map(key => <p key={key} className="small">{t(key)}</p>)}
           </div>}
           {(review.replacements.length > 0 || mode === 'replace') && <>
             <label className="radio-option">
@@ -315,7 +317,7 @@ export function LibraryDeletionDialog({ target, name, dates, busy, run, cancel, 
                   aria-label={t('library_delete.replacement_label')} disabled={locked}
                   options={[
                     { value: '', label: t('library_delete.select_replacement'), disabled: true },
-                    ...displayNames(sortLibraryRecords(review.replacements, kind, dates).map(displayLibraryRecord)).map(item => ({ value: item.id, label: item.name })),
+                    ...displayNames(sortLibraryRecords(review.replacements, kind, dates)).map(item => ({ value: item.id, label: item.name })),
                   ]} onChange={value => { setFeedback(''); setReplacement(value); }} />
               </div>
               <p className="small">{t('library_delete.replacement_explanation')}</p>
@@ -336,7 +338,7 @@ export function LibraryDeletionDialog({ target, name, dates, busy, run, cancel, 
       </fieldset>}
       {review?.bookmark && <div className="library-deletion-bookmark">
         <p>{t('library_delete.bookmark')}</p>
-        <p>{t('library_delete.fallback', { name: review.bookmark.fallback ? displayLibraryRecord(review.bookmark.fallback).name : t('character_editor.none') })}</p>
+        <p>{t('library_delete.fallback', { name: review.bookmark.fallback ? review.bookmark.fallback.name : t('character_editor.none') })}</p>
       </div>}
       <BlockerList blockers={blockers} />
     </div>

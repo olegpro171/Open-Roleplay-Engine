@@ -1,8 +1,8 @@
 import { expect, type Page } from '@playwright/test';
-import { appearanceStatusSchema } from '../../src/shared/appearance';
+import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 import { defaultContextPreset } from '../../src/shared/context';
 import type { StorySnapshot } from '../../src/shared/transcript';
-import type { LibrarySnapshot } from '../../src/shared/library';
+import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 import type { LibraryDeletionCommand } from '../../src/shared/library-deletion';
 import { newLorebook } from '../../src/shared/lorebook';
 import { test } from './isolated-app';
@@ -30,6 +30,40 @@ async function enterLibrary(page: Page, category: string) {
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await selectLibraryCategory(page, category);
 }
+
+test('shows the built-in prompt by name when deleting a linked prompt', async ({ page, browserApp }, testInfo) => {
+  const f = await fixture(page, browserApp.url);
+  const name = 'Prompt to remove';
+  const promptId = await f.save('prompts', { ...defaultPrompt, name });
+  const chatId = await f.create({ promptId });
+  await page.goto('/');
+  await enterLibrary(page, 'Prompts');
+  const card = page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
+  const dialog = page.getByRole('dialog', { name: 'Delete library item?' });
+  const confirm = dialog.getByRole('button', { name: 'Replace and delete', exact: true });
+  const open = async () => {
+    await (await openLibraryActions(page, card)).getByRole('menuitem', { name: 'Delete', exact: true }).click();
+    await expect(dialog.getByRole('radio', { name: `Use ${defaultPrompt.name}`, exact: true })).toBeChecked();
+    await expect(dialog.getByText(`Linked chats will use ${defaultPrompt.name}.`, { exact: true })).toBeVisible();
+    await expect(confirm).toBeEnabled();
+  };
+  for (const theme of themeSchema.options) {
+    const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+    await f.send('/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } }, 'PUT');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await open();
+      expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await dialog.screenshot({ path: testInfo.outputPath(`prompt-fallback-${theme}-${width}.png`) });
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    }
+  }
+  await open();
+  await confirm.click();
+  await expect(dialog).toHaveCount(0);
+  expect((await f.story(chatId)).settings.promptId).toBe('default');
+});
 
 test('keeps a Character’s Lorebook by default and supports deleting both', async ({ page, browserApp }, testInfo) => {
   const f = await fixture(page, browserApp.url);

@@ -9,7 +9,7 @@ import { LibraryCard } from './LibraryCard';
 import { PictureSquare } from './Pictures';
 import { message as msg, t, useLocale } from './localization';
 import { useConfirmation } from './Confirmation';
-import { displayLibraryRecord, libraryLabel } from './localization-labels';
+import { libraryLabel } from './localization-labels';
 import { useCreateChat } from './useCreateChat';
 
 const compactLayoutQuery = '(max-width: 800px)';
@@ -151,7 +151,7 @@ export function NewChatPage({ library, defaults, busy, pendingTurnEdit, run, ope
       <div className="story-home-summary-content">
         <h2 id="story-home-prompt">{t('story_home.prompt')}</h2>
         {prompt && <p role="status">
-          <strong>{displayLibraryRecord(prompt).name}</strong>{compact ? ' · ' : <br />}
+          <strong>{prompt.name}</strong>{compact ? ' · ' : <br />}
           <span className="muted">{t('libraries.block_count', { count: prompt.blocks.length })}</span>
         </p>}
       </div>

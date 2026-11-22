@@ -1,3 +1,4 @@
+import { defaultPrompt } from '../../src/shared/library';
 import { expect, type Locator } from '@playwright/test';
 import { selectLibraryCategory } from './library-card-helpers';
 import sharp from 'sharp';
@@ -82,7 +83,7 @@ for (const theme of ['light', 'dark', 'midnight-black'] as const) {
     }
     await checkHover(page.getByRole('region', { name: 'Chats', exact: true }).getByRole('button', { name: /^Actions for / }).first(), 'library-quiet');
     await selectLibraryCategory(page, 'Prompts');
-    await page.getByRole('heading', { name: 'Default prompt', exact: true }).getByRole('button').click();
+    await page.getByRole('heading', { name: defaultPrompt.name, exact: true }).getByRole('button').click();
     await checkHover(page.getByRole('button', { name: 'Add marker', exact: true }), 'library-secondary');
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Settings', exact: true }).click();
     const settingsCategories = page.getByRole('navigation', { name: 'Settings categories' });

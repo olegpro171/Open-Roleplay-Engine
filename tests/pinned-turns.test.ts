@@ -26,7 +26,7 @@ function filename(name: string) {
   close.push(() => rmSync(directory, { recursive: true, force: true }));
   return join(directory, name + '.sqlite');
 }
-const promptBlocks = defaultPrompt.blocks.filter(block => ['summary', 'pinned-messages', 'messages'].includes(block.id));
+const promptBlocks = defaultPrompt.blocks.filter(block => block.kind === 'marker' && ['summary', 'pinned_messages', 'messages'].includes(block.marker));
 const excerptIntro = 'The user has explicitly indicated that the following messages are important to the story. Pay particular attention to the facts, decisions, promises, and relationships they establish when continuing the current conversation. Read them as excerpts from earlier turns.';
 const fixtures = [
   { user: '', assistant: 'The opening bell rings.', complete: true },
@@ -191,7 +191,9 @@ test('keeps branch membership durable across stale commands, copies, Clear memor
 test('upgrades populated schema 16 with no pins and keeps later pins after reopen', () => {
   const path = filename('upgrade');
   const store = openStoryStore(path);
-  const prompt = store.saveLibrary(store.libraryRevision(), 'prompts', { name: 'Saved layout', blocks: promptBlocks.filter(block => block.id !== 'pinned-messages') });
+  const prompt = store.saveLibrary(store.libraryRevision(), 'prompts', {
+    name: 'Saved layout', blocks: promptBlocks.filter(block => block.kind === 'marker' && block.marker !== 'pinned_messages'),
+  });
   const branch = store.createChat({ title: 'Older story', targetInputTokens: 500, connectionId: null, promptId: prompt, characterId: null, personaId: null });
   seedTranscript(store, store.engineSnapshot(branch).revision, branch, fixtures);
   const before = store.engineSnapshot(branch);

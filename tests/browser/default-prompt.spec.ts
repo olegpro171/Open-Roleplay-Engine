@@ -2,7 +2,7 @@ import { selectLibraryCategory } from './library-card-helpers';
 import { expect } from '@playwright/test';
 import { test } from './isolated-app';
 import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
-import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
+import { defaultPrompt, markerLabel, type LibrarySnapshot } from '../../src/shared/library';
 import { defaultContinuationInstruction } from '../../src/shared/default-prompt';
 
 test.describe('touch prompt reordering', () => {
@@ -87,7 +87,7 @@ for (const theme of themeSchema.options) for (const width of [1440, 390]) {
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
     await selectLibraryCategory(page, 'Prompts');
-    await expect(page.getByRole('heading', { name: 'Default prompt', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: defaultPrompt.name, exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'New prompt', exact: true }).click();
     const main = page.getByRole('tab', { name: 'Main prompt', exact: true });
     const actionTab = page.getByRole('tab', { name: 'Action instructions', exact: true });
@@ -167,7 +167,7 @@ for (const theme of themeSchema.options) for (const width of [1440, 390]) {
     const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
     expect(library.prompts.find(prompt => prompt.name === 'Blank starter prompt')?.blocks).toEqual([
       expect.objectContaining({ name: 'Pre-history instructions', kind: 'text', text: '', role: 'system', enabled: true }),
-      ...defaultPrompt.blocks.filter(block => block.kind === 'marker'),
+      ...defaultPrompt.blocks.filter(block => block.kind === 'marker').map(block => ({ ...block, name: markerLabel(block.marker) })),
       expect.objectContaining({ name: 'Post-history instructions', kind: 'text', text: '', role: 'system', enabled: true }),
     ]);
     expect(library.prompts.find(prompt => prompt.id === 'default')).toEqual({ ...defaultPrompt, id: 'default', revision: 0 });

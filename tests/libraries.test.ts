@@ -19,7 +19,8 @@ import { randomUUID } from 'node:crypto';
 import { startMockProvider } from './support/mock-provider.js';
 import { deflateSync } from 'node:zlib';
 import legacyContextPrompts from './fixtures/legacy-context-prompts.json';
-import { contextPresetSchema, defaultContextPreset, type SummaryNode } from '../src/shared/context.js';
+import { contextPresetSchema, defaultContextPreset, defaultRepairPrompt, type SummaryNode } from '../src/shared/context.js';
+import { legacyContextPreset } from '../src/persistence/context-prompt-upgrade.js';
 import { legacyLorePrompt, legacyRoleplayPrompt } from '../src/persistence/legacy-prompt.js';
 import { upgradePrompt } from '../src/core/prompt-upgrade.js';
 
@@ -132,12 +133,12 @@ it('supplies the repair prompt for older saved and imported presets without rewr
     store.sqlite.prepare("UPDATE library SET data = json_remove(data, '$.repairPrompt') WHERE id = ?").run(id);
     const row = store.sqlite.prepare('SELECT data, revision FROM library WHERE id = ?').get(id);
     const revision = store.libraries().revision;
-    expect(store.contextPreset(id)?.repairPrompt).toBe(defaultContextPreset.repairPrompt);
-    expect(store.libraries().contexts.find(preset => preset.id === id)?.repairPrompt).toBe(defaultContextPreset.repairPrompt);
+    expect(store.contextPreset(id)?.repairPrompt).toBe(defaultRepairPrompt);
+    expect(store.libraries().contexts.find(preset => preset.id === id)?.repairPrompt).toBe(defaultRepairPrompt);
     expect(store.sqlite.prepare('SELECT data, revision FROM library WHERE id = ?').get(id)).toEqual(row);
     expect(store.libraries().revision).toBe(revision);
     const { repairPrompt: _, ...oldImport } = defaultContextPreset;
-    expect(contextPresetSchema.parse(oldImport).repairPrompt).toBe(defaultContextPreset.repairPrompt);
+    expect(contextPresetSchema.parse(oldImport).repairPrompt).toBe(defaultRepairPrompt);
     expect(() => contextPresetSchema.parse({ ...defaultContextPreset, repairPrompt: '   ' })).toThrow();
   } finally { store.close(); }
 });
@@ -387,8 +388,8 @@ describe('continuity prompt upgrade', () => {
     try {
       expect(store.contextPreset(id)).toEqual({ ...preset, id,
         revision: library.contexts.find(item => item.id === id)!.revision + Number(changed),
-        extractionPrompt: extractionPrompt === legacyContextPrompts.extractionPrompt ? defaultContextPreset.extractionPrompt : extractionPrompt,
-        promotionPrompt: promotionPrompt === legacyContextPrompts.promotionPrompt ? defaultContextPreset.promotionPrompt : promotionPrompt,
+        extractionPrompt: extractionPrompt === legacyContextPrompts.extractionPrompt ? legacyContextPreset.extractionPrompt : extractionPrompt,
+        promotionPrompt: promotionPrompt === legacyContextPrompts.promotionPrompt ? legacyContextPreset.promotionPrompt : promotionPrompt,
       });
       expect(store.snapshot(chatId)).toEqual({ ...before, revision: before.revision + Number(changed), context: { ...before.context, preset: store.contextPreset(id) } });
       expect(store.snapshot()).toEqual(unrelated);
@@ -423,7 +424,7 @@ describe('continuity prompt upgrade', () => {
       db.exec('DROP TRIGGER reject_prompt_upgrade');
     } finally { db.close(); }
     const recovered = new Store(path);
-    try { expect(recovered.contextPreset('default-context')?.extractionPrompt).toBe(defaultContextPreset.extractionPrompt); }
+    try { expect(recovered.contextPreset('default-context')?.extractionPrompt).toBe(legacyContextPreset.extractionPrompt); }
     finally { recovered.close(); }
   });
 });

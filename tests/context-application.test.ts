@@ -2,6 +2,7 @@ import { openStoryStore } from './support/story-fixture.js';
 import { seedTranscript } from './support/transcript-fixture.js';
 import { compactPrompt } from './support/compact-prompt.js';
 import { validateContent } from '../src/persistence/backup-validation.js';
+import { legacyContextPreset } from '../src/persistence/context-prompt-upgrade.js';
 import { legacyRows, removeVariantSchema } from './support/legacy-variants.js';
 import legacyContextPrompts from './fixtures/legacy-context-prompts.json';
 import { assembleRequest } from '../src/core/prompt.js';
@@ -567,7 +568,9 @@ describe('durable imported-session preparation', () => {
     expect(f.calls).toHaveLength(calls);
     expect(f.state().turns).toEqual(before.turns);
     expect(f.state().revision).toBe(before.revision + 1);
-    expect(f.state().context.preset).toMatchObject({ extractionPrompt: defaultContextPreset.extractionPrompt, promotionPrompt: defaultContextPreset.promotionPrompt, revision: presetRevision + 1 });
+    expect(f.state().context.preset).toMatchObject({
+      extractionPrompt: legacyContextPreset.extractionPrompt, promotionPrompt: legacyContextPreset.promotionPrompt, revision: presetRevision + 1,
+    });
   });
   it('treats a normalized identical summary save as a no-op while validating conflicts', async () => {
     const f = fixture(24); await f.idle(f.start());

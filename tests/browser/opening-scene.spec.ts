@@ -1,7 +1,7 @@
+import { defaultPrompt } from '../../src/shared/library';
 import { expect, type Page } from '@playwright/test';
 import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 import type { ChatSnapshot, RequestBody } from '../../src/shared/contracts';
-import { defaultOpeningInstruction } from '../../src/shared/default-prompt';
 import { test } from './isolated-app';
 import { openChatTool } from './chat-tools';
 import { selectLibraryCategory } from './library-card-helpers';
@@ -58,9 +58,9 @@ test('previews an opening, recovers from HTTP 400 and preserves the next draft',
   await openChatTool(page, 'Request inspector');
   await page.getByText('Endpoint and request body', { exact: true }).click();
   const body = page.getByTestId('request-body');
-  await expect(body).toContainText('Write the opening scene for this roleplay.');
+  await expect(body).toBeVisible();
   const preview: RequestBody = JSON.parse(await body.innerText());
-  expect(preview.messages.filter(part => part.role === 'user')).toEqual([{ role: 'user', content: defaultOpeningInstruction }]);
+  expect(preview.messages.filter(part => part.role === 'user')).toEqual([{ role: 'user', content: defaultPrompt.openingInstruction }]);
   expect(await calls()).toEqual([]);
 
   await story.click();
@@ -96,7 +96,7 @@ test('edits the opening instruction and regenerates a greeting without losing it
   const openPrompt = async () => {
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
     await selectLibraryCategory(page, 'Prompts');
-    await page.getByRole('button', { name: 'Default prompt', exact: true }).click();
+    await page.getByRole('button', { name: defaultPrompt.name, exact: true }).click();
     await page.getByRole('tab', { name: 'Action instructions', exact: true }).click();
     await page.getByRole('tabpanel', { name: 'Action instructions', exact: true }).getByText('Opening scene', { exact: true }).click();
   };
@@ -104,7 +104,7 @@ test('edits the opening instruction and regenerates a greeting without losing it
   for (const theme of themeSchema.options) {
     await setTheme(theme);
     await openPrompt();
-    await expect(setting).toHaveValue(defaultOpeningInstruction);
+    await expect(setting).toHaveValue(defaultPrompt.openingInstruction ?? '');
     for (const width of [1440, 801, 800, 390]) {
       await page.setViewportSize({ width, height: 844 });
       await setting.scrollIntoViewIfNeeded();
