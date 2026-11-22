@@ -68,26 +68,34 @@ test.describe('visible feedback during a phone press', () => {
     await expect(card).toHaveCSS('box-shadow', idleCard);
     await expect(chats).toBeVisible();
 
-    await down(cardPoint);
-    for (const distance of [4, 16, 36, 60]) {
-      await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...cardPoint, y: cardPoint.y - distance }] });
-    }
-    await expect(card).toHaveCSS('box-shadow', idleCard);
-    await end('touchEnd');
-    await expect(chats).toBeVisible();
     const newChat = chats.getByRole('button', { name: 'New chat', exact: true });
     const idleNewChat = await shadow(newChat);
     await down(await point(newChat));
     await expect(newChat).not.toHaveCSS('box-shadow', idleNewChat);
     await page.screenshot({ path: testInfo.outputPath('phone-primary-pressed.png') });
     await end('touchEnd');
-    const startChat = page.getByRole('button', { name: 'Start chat', exact: true });
+    const setup = page.getByRole('main', { name: 'New chat', exact: true });
+    await expect(setup).toBeVisible();
+    const startChat = setup.getByRole('button', { name: 'Start chat', exact: true });
     await expect(startChat).toBeDisabled();
     const idleStart = await shadow(startChat);
     await down(await point(startChat));
     await expect(startChat).toHaveCSS('box-shadow', idleStart);
     await end('touchEnd');
     await expect(startChat).toBeDisabled();
+
+    // Finish with the swipe so Chromium's scroll gesture cannot consume a later tap.
+    await setup.getByRole('button', { name: 'All chats', exact: true }).tap();
+    await expect(chats).toBeVisible();
+    const swipeStart = await point(card, { x: 12, y: 12 });
+    await down(swipeStart);
+    await expect(card).not.toHaveCSS('box-shadow', idleCard);
+    for (const distance of [4, 16, 36, 60]) {
+      await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...swipeStart, y: swipeStart.y - distance }] });
+    }
+    await expect(card).toHaveCSS('box-shadow', idleCard);
+    await end('touchEnd');
+    await expect(chats).toBeVisible();
 
     const desktop = await browser.newContext({ ...devices['Desktop Chrome'], baseURL: browserApp.url, storageState: await page.context().storageState() });
     try {

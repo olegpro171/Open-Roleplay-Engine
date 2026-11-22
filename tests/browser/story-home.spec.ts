@@ -36,8 +36,8 @@ async function expectActionAtPanelBottom(panel: Locator, label: string) {
   expect(extraSpace, `extra space below ${label}`).toBeCloseTo(0);
 }
 
-async function expectPanelBorder(panel: Locator, role: '--line' | '--danger-border') {
-  const expected = await panel.evaluate((element, role) => {
+function resolvedPaletteColor(locator: Locator, role: '--line' | '--danger-border' | '--surface') {
+  return locator.evaluate((element, role) => {
     const sample = document.createElement('span');
     sample.style.color = `var(${role})`;
     element.append(sample);
@@ -45,7 +45,10 @@ async function expectPanelBorder(panel: Locator, role: '--line' | '--danger-bord
     sample.remove();
     return color;
   }, role);
-  await expect(panel).toHaveCSS('border-top-color', expected);
+}
+
+async function expectPanelBorder(panel: Locator, role: '--line' | '--danger-border') {
+  await expect(panel).toHaveCSS('border-top-color', await resolvedPaletteColor(panel, role));
 }
 
 async function addCharacter(page: Page, origin: string, name: string, first_mes = '', pictured = false) {
@@ -351,6 +354,8 @@ test('edits selected cards from New chat and returns there after saving and reco
     const card = page.getByRole('region', { name: category, exact: true }).getByRole('article')
       .filter({ has: page.getByRole('heading', { name: title, exact: true }) });
     await page.mouse.move(0, 0);
+    // The pointer can hover the card as it mounts, then leave a background transition running.
+    await expect(card).toHaveCSS('background-color', await resolvedPaletteColor(card, '--surface'));
     const libraryStyle = await renderedStyle(card);
     await button(page, 'New chat').click();
     await page.mouse.move(0, 0);

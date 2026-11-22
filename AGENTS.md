@@ -6,6 +6,8 @@
 
 The user directs product decisions and manually tests features; they do not routinely review the code. **The implementing agent owns code quality, regression prevention, data safety, and technical verification.** Manual acceptance testing complements those responsibilities; it does not replace them. Deliver maintainable, complete changes and report verification honestly.
 
+Before creating a merge commit, discuss its proposed message with the user and wait for agreement on the wording. If the user has already supplied the exact message, use it.
+
 The accepted stack is TypeScript, React + Vite, Node.js + Fastify, SQLite with better-sqlite3 + Drizzle, Zod, HTTP + SSE, Vitest, and Playwright. The Mac hosts the server and data. Persistent chat, roleplay libraries, and durable layered compaction are implemented for local testing. HTTP LAN access is configured in Application Settings; HTTPS is deferred. Selected phone interactions have been checked; broader device behavior and real-model summary quality remain unverified.
 
 ## Sources of truth and scope
