@@ -4,42 +4,70 @@
 
 **Download for Windows x64.** Get `ORE-launcher.bat` from [Releases](https://github.com/olegpro171/Open-Roleplay-Engine/releases).
 
-ORE is an application for AI roleplay on your computer. It focuses on simplicity, detailed prompt customization, and long-term memory. It opens in a browser, with optional phone access on the same local network.
+ORE is an app for chatting with AI, built for long-running roleplay or writing stories. It focuses on long-term memory and easy setup while giving you detailed control over prompts. The app opens in a browser. You can also access it from your phone on the same local network.
+
+## Quick start
+
+To get started, you’ll need a computer and access to an OpenAI-compatible Chat Completions API.
+
+### API options
+
+- [Z.ai API](https://docs.z.ai/guides/overview/quick-start) gives you pay-as-you-go access to GLM models.
+- [GLM Coding Plan](https://z.ai/subscribe) worked with ORE in testing. Z.ai lists SillyTavern, an app similar to ORE, among its supported apps. [Supported tools](https://docs.z.ai/devpack/tool/others#supported-tools), [subscription terms](https://docs.z.ai/legal-agreement/subscription-terms#4-usage-rules).
+- [NanoGPT](https://nano-gpt.com/models/text?scope=subscription) offers a subscription covering many open-weight AI models, including GLM and DeepSeek.
+- [OpenRouter](https://openrouter.ai/pricing) offers access to a wide range of models, including proprietary models such as GPT, Claude, and Gemini. Paid models are billed by usage.
+- **Local models.** If you have a powerful PC and want to avoid API costs, you can run some AI models locally. For example, [LM Studio](https://lmstudio.ai/docs/developer/openai-compat) can run a local API server.
+
+Find your provider’s API base URL and get an API key if required.
+
+Next, install **Open Roleplay Engine**.
+
+- **Windows x64.** Download `ORE-launcher.bat` from [Releases](https://github.com/olegpro171/Open-Roleplay-Engine/releases) and run it.
+- **Linux/macOS.** Build from source manually or use the `./start-dev.sh` script. See the [guide to running from source](docs/RELEASES.md#working-tree-development).
+
+After ORE starts, open the displayed address and create the owner password. You’ll need this password to access the app from other devices on your local network.
+
+If the app starts in a different language than you want, go to **Settings → Language → Interface language**.
+
+On the **New chat** page, click **Create** in the **Connection** panel.
+
+1. Enter your provider’s **API base URL**, for example `https://openrouter.ai/api/v1` or `https://api.z.ai/api/paas/v4`, and enter the **API key** if required.
+2. Open **Model identifier** and select a model for this Connection or enter its identifier manually.
+3. **Send test message** checks whether the selected model responds. If the test succeeds, save the Connection.
+
+That completes the technical setup.
+
+Next, create or import a character. In the **Character** panel, click **Create**, fill in the name and description, and save the character. Add a greeting if you want the character to start the conversation. If you already have a card, choose **Characters → Import character**. ORE reads V1/V2/V3 cards from JSON and PNG files.
+
+Select a character and, optionally, a persona, which describes who you’re playing. Click **Start chat**.
+
+To create another chat, choose **Libraries → Chats → New chat**. You can also import a one-on-one chat from another app in SillyTavern-compatible JSONL format under **Libraries → Chats**.
 
 ## A word from the author
 
-Why another application for chatting with AI? I wanted an app that was simple to use and offered built-in memory and detailed prompt customization. I couldn't find a project that met these needs without compromises, so I created my own. Above all, this is a passion project.
+Why another app for chatting with AI? I wanted a simple app with built-in long-term memory that was easy to set up. I couldn’t find a project that met those needs without compromises, so I created my own. Above all, this is a passion project.
 
-I won't pretend I didn't rely on AI-assisted development. To be clear, I haven't even read most of the application's code.
+I used AI to help develop the project and tested the workflows by hand. I have high standards for interface quality and usability, so I test different workflows repeatedly and keep refining the interface.
 
-I have high standards for interface quality and usability. I tested a range of workflows repeatedly and kept refining the interface.
+The app is still in active development, and there may be rough edges. My goal is to polish the features already there and keep the app simple. I’d be grateful for bug reports through [GitHub Issues](https://github.com/olegpro171/Open-Roleplay-Engine/issues).
 
-The app is still in active development, and there may be rough edges. My goal is to smooth them out, and I welcome feedback.
-
-The guiding principle of this project is simplicity: if a feature isn't necessary for usability or the quality of AI responses, I'd rather leave it out.
-
-The current plans don't include voice calls, text-to-speech, music players, background managers, or visual-novel-style animated sprites. My priority is to make the core features comfortable and dependable.
+The guiding principle of this project is simplicity. I prefer to add only features that make the app easier to use or improve the quality of AI responses.
 
 ## What you will find here
 
-- V1/V2/V3 character imports from JSON/PNG.
-- Lorebooks.
-- A prompt editor.
-- Layered Narrative Memory: the feature this project was built around.
-- Connections to Chat Completions endpoints (currently OpenAI-compatible only).
-- Desktop and phone interfaces.
-- Dark and light themes.
-- Russian and English interface languages.
-- Data backups and recovery tools.
-- (Obviously) no analytics or telemetry collection.
+- A library for characters, personas, and lorebooks.
+- A prompt editor and a preview of the assembled messages.
+- English and Russian interface languages and several themes.
+- Phone access over the local network and data backups.
+- No analytics or telemetry collection.
 
 ## Layered Narrative Memory
 
-Long conversations eventually outgrow a model's input window. ORE keeps recent turns verbatim, summarizes older turns in batches, and compresses groups of summaries as the conversation progresses.
+To keep a long story within the input budget, ORE summarizes older turns and sends recent turns to the model verbatim. As the story grows, ORE combines groups of summaries into more compact summaries at the next level.
 
-You control the input size at which compaction kicks in, the minimum amount of recent history kept verbatim, batch sizes, and summarization prompts. You can inspect the layers and original conversation text, and correct inaccuracies in summaries.
+The input target is set per chat. In the context preset, you can set the minimum number of verbatim turns, group sizes, and summarization prompts. Under **Inspect memory**, you can read a summary, check it against the original turns, and make corrections.
 
-Of course, this system's memory is only as good as the AI model's ability to extract facts from text and compress earlier summaries while preserving those facts.
+How well the system works depends on the AI model’s ability to extract facts from text and compress earlier summaries while keeping important facts and dropping unnecessary details.
 
 ## Installation
 
@@ -49,63 +77,56 @@ You need a computer, a browser, and access to a model provider.
 
 The installation script is `ORE-launcher.bat`. Download it from [Releases](https://github.com/olegpro171/Open-Roleplay-Engine/releases).
 
-Place this file in the folder where you want to install ORE and double-click it.
+Place the file in the folder where you want to install ORE and double-click it.
 
-On first launch the script downloads and verifies the latest published Windows package, installs it into `ORE-internal/`, and starts ORE. Use the same launcher every time. Once ORE is ready, it checks and prepares updates in the background. When the console says an update is ready, restart ORE to use it.
+On the first launch, the script downloads and verifies the latest published Windows package, installs it in `ORE-internal/`, and starts ORE. Use the same launcher for future launches and updates. ORE prepares updates in the background. When the console says an update is ready, restart ORE. If an update fails to download, you can keep using the installed version.
 
-Windows x64 uses the built-in 64-bit Windows PowerShell 5.1 and .NET. See [recovery and legacy installations](docs/RELEASES.md#legacy-installations) for the retired launchers.
+If an older launcher can’t update ORE, download the new launcher from [Releases](https://github.com/olegpro171/Open-Roleplay-Engine/releases), stop the app, replace `ORE-launcher.bat` beside the existing `ORE-internal/` folder, and double-click it.
 
-### Running from source on macOS and Linux
+The `ORE-internal/` folder contains the app’s data. Deleting it will remove your saved data.
 
-Run `./start-dev.sh` from the repository folder. It builds the current working tree into `ore-development/` using its own Node.js runtime. The launcher targets glibc Linux, with end-to-end Linux verification pending. See [working-tree development](docs/RELEASES.md#working-tree-development).
+On Windows x64, the launcher uses the built-in 64-bit Windows PowerShell 5.1 and .NET. See [legacy installations](docs/RELEASES.md#legacy-installations) for recovery instructions.
 
-## First chat
+### Running from source on Linux and macOS
 
-1. After the server starts, open the displayed address.
-2. Create the owner password.
-3. On **New chat**, choose **Add a Connection**. Enter your provider’s API base URL, API key if required, and model, then save.
-4. On **New chat**, choose **New character**, or **Manage Characters → Import character** to use an existing card. Add a greeting if you want the character to open the conversation.
-5. On **New chat**, select a character and an optional persona, then choose **Start chat**. Read the greeting if the character has one, or write the opening message.
-
-To start another story, choose **Libraries → Chats → New chat**. **Close chat** in **Chat details** also opens **New chat**. To bring over an existing solo chat, use the SillyTavern JSONL import in **Libraries → Chats**. You can change the language under **Settings → Language → Interface language**.
+Clone the repository. From the repository folder, run `./start-dev.sh`. The script builds the current working tree into `ore-development/` using its own Node.js runtime. The script targets Linux with glibc. See the [guide to running from source](docs/RELEASES.md#working-tree-development) for details.
 
 ## Phone access
 
-Enable **Settings → Phone / LAN access** on the server computer. Open the recommended hostname address on a phone on the same local network. If it fails, try the local IPv4 address shown in Settings. This address is available even if ORE cannot find the hostname. Switching addresses may require signing in again. The IPv4 address can change, so check Settings for the current address. The computer must remain on and awake.
+Enable access under **Settings → Phone / LAN access** on the server computer. On a phone connected to the same local network, open the recommended hostname address. If it fails, try the local IPv4 address shown alongside it. This address is available even if ORE can’t find the hostname. Switching addresses may require signing in again. The IPv4 address can change, so check Settings for the current address. The computer must stay on and awake.
 
 ## Data and backups
 
-The application stores chat content, character data, API keys, and other data locally on the server computer.
+The app stores chat content, character data, API keys, and other data locally on the computer where it is installed.
 
-Windows package installations use `ORE-internal/data/roleplay.sqlite` and `ORE-internal/.env`. When running from source, ORE uses `data/roleplay.sqlite` and `.env` in the repository folder.
+By default, Windows launcher installations use `ORE-internal/data/roleplay.sqlite` and `ORE-internal/.env`. When running from source, ORE uses `data/roleplay.sqlite` and `.env` in the repository folder.
 
-Request content is sent to your configured model endpoint and is subject to that service's privacy policies.
+ORE sends request content to the model endpoint you configure. That service’s privacy policies apply.
 
-## Moving ORE on Windows
+## Moving ORE to another folder on Windows
 
-You can move ORE to another folder. Your chats, settings, and other data move with `ORE-internal/`.
+You can move ORE to another folder. Your chats, settings, and other data move with the `ORE-internal/` folder.
 
 1. Save a backup from **Settings → Data backup** outside the installation folder. Press **Ctrl+C** in the launcher window and wait for ORE to stop.
-2. Move `ORE-launcher.bat` and the `ORE-internal/` folder into a writable local folder with no existing ORE installation. Keep the launcher next to the folder and keep the `ORE-internal` name.
-3. Run `ORE-launcher.bat` from its new location and check that your existing chats open.
+2. Move `ORE-launcher.bat` and the `ORE-internal/` folder to a writable local folder with no existing ORE installation. Keep the launcher next to the folder and keep the `ORE-internal` name.
+3. Run `ORE-launcher.bat` from the new folder and check that your saved chats open.
 
 ## Uninstalling ORE
 
-1. To keep your chats, memory, libraries, and Connections, create a backup in **Settings → Data backup**. Save it outside the folder you plan to delete (`ORE-internal/` on Windows). Copy any custom language packs you want to keep separately. See [what a backup contains](docs/DATA.md#content-backups).
-2. Press **Ctrl+C** in the terminal or launcher window running ORE and wait for it to stop. Closing the browser tab leaves the server running.
-3. On **Windows**, delete `ORE-launcher.bat` and the `ORE-internal/` folder. This deletes the app and its saved data. If you ran ORE from source, delete the repository folder. To remove only the build created by `./start-dev.sh`, delete `ore-development/`.
+1. To keep your chats, memory, libraries, and Connections, create a backup in **Settings → Data backup** and save it outside the folder you plan to delete. Copy any custom language packs you want to keep separately. See [what a backup contains](docs/DATA.md#content-backups).
+2. Press **Ctrl+C** in the terminal or launcher window where ORE is running and wait for it to stop. Closing the browser tab leaves the server running.
+3. **Windows.** Delete `ORE-launcher.bat` and the `ORE-internal/` folder. This deletes the app and its saved data. **If you ran ORE from source**, delete the repository folder. To remove only the build created by `./start-dev.sh`, delete `ore-development/`.
 
 **Temporary files.** If the Windows launcher is interrupted, it can leave `ore-types-*` folders in `%TEMP%`. You can delete these folders manually once ORE has stopped.
 
-Your browser stores drafts, some preferences, and cookies on the device you used to access ORE. To remove them, clear site data for the ORE address on each device.
+Drafts, some preferences, and cookies are stored in the browser on the device you used to access ORE. To remove them, clear site data for the ORE address on each device.
 
-## Contributing
+## How to report a bug
 
-- **Report a bug.** If there’s no similar report already, open an issue on [GitHub Issues](https://github.com/olegpro171/Open-Roleplay-Engine/issues). Include your ORE version, operating system and browser, steps to reproduce the bug, and what you expected to happen versus what actually happened. For chat or memory bugs, include a sample conversation that reproduces the problem. Keep API keys and ORE data backups private.
-- **Propose a change.** You can submit a pull request directly for typo fixes, translation corrections, and small fixes where the expected behavior is clear. For new features or changes to how prompts, memory, or saved data are handled, discuss the proposal with the maintainer in GitHub Issues first.
-- **Open a pull request.** Fork the repository, create a branch from the latest `develop`, and target `develop` in the upstream repository. Explain why the change is needed, how to test it, and which checks you ran. Link any related issue. Include screenshots for UI changes and regression test results for technical review of changes to memory or data storage.
+- **Report a bug.** Check [GitHub Issues](https://github.com/olegpro171/Open-Roleplay-Engine/issues) for similar reports. If there are none, click **New issue**. Describe the problem and how you encountered it. Include your ORE version, browser, and operating system. If it helps reproduce the problem, attach a screenshot or screen recording. Keep your API keys and ORE backups private.
+- **Open a pull request.** You can submit a pull request directly for typo fixes, translation corrections, and small fixes where the expected behavior is clear. For new features or changes to prompts, memory, or saved data, discuss the proposal with the maintainer in [GitHub Issues](https://github.com/olegpro171/Open-Roleplay-Engine/issues) first. Fork the repository, create a branch from the latest `develop`, and target `develop` in the upstream repository. Explain why the change is needed, how to test it, and which checks you ran. Link any related issue. Include screenshots for interface changes and regression test results for changes to memory or data storage.
 
-The maintainer merges accepted changes into `develop`, qualifies the release candidate on `staging`, and promotes the verified commit to `main`. See the [release guide](docs/RELEASES.md#automated-windows-releases) for details.
+The maintainer merges accepted changes into `develop`, checks the release candidate on `staging`, and promotes the verified commit to `main`. See the [release guide](docs/RELEASES.md#automated-windows-releases) for details.
 
 ## Development
 
@@ -115,15 +136,17 @@ For source development, use Node 24 or Node 22.14+ within major 22.
 
 ```sh
 npm run build     # Typecheck and build
-npm test          # Core/server/persistence tests
-npm run test:e2e  # Browser workflows; build first
-npm run check    # Build and both test suites
+npm test          # Core, server, and persistence tests
+npm run test:e2e  # Browser workflows. Build first
+npm run check     # Build and both test suites
 ```
 
-Browser tests require `npx playwright install chromium webkit` and permission to run local servers. The WebKit test checks that selecting lorebook entries preserves the scroll position in Safari's browser engine. Tests use temporary data and mock providers.
+Browser tests require `npx playwright install chromium webkit` and permission to run local servers. The WebKit test checks that selecting lorebook entries preserves the scroll position in Safari’s browser engine. Tests use temporary data and mock providers.
 
 ## License
 
-Original ORE code is licensed under the [GNU Affero General Public License, version 3](LICENSE) (`AGPL-3.0-only`). Copyright © 2026 Oleg (olegpro171) and ORE contributors.
+ORE’s source code is available under the [GNU Affero General Public License, version 3](LICENSE) (`AGPL-3.0-only`). Copyright © 2026 Oleg (olegpro171) and ORE contributors.
 
-When distributing a build, make its corresponding source available under the license. If users interact with your modified version over a network, offer them its source at no charge. Third-party dependencies and adapted assets retain their licenses and notices, including the MPL-2.0 Yandex icons. Portable builds include the relevant notices.
+The license allows you to use, modify, and distribute ORE. When distributing a build, you must make the corresponding source code available to recipients. If users interact with your modified version over a network, you must offer them its source code at no charge. See the English license text for the full terms.
+
+Third-party dependencies and adapted assets retain their licenses and notices.
