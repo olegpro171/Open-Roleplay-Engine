@@ -678,8 +678,9 @@ test('New chat fits desktop and phone in each theme and updates when switched to
   await expect(button(page, 'Новый чат')).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('heading', { name: 'Новый чат' })).toBeVisible();
   await expect(button(page, 'Начать чат')).toBeDisabled();
-  await expect(page.getByRole('region', { name: 'Промпт', exact: true })).toContainText('Промпт по умолчанию');
   const russianHome = page.getByRole('main', { name: 'Новый чат', exact: true });
+  const russianPrompt = russianHome.getByRole('region', { name: 'Промпт', exact: true });
+  await expect(russianPrompt.getByRole('status').getByText(defaultPrompt.name, { exact: true })).toBeVisible();
   const categories = ['Персонажи', 'Персоны', 'Подключения', 'Промпты'];
   for (const category of categories) {
     await russianHome.getByRole('button', { name: category, exact: true }).click();
