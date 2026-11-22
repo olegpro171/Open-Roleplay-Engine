@@ -45,7 +45,7 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 .editor-disclosure{min-inline-size:0;margin:0;border:1px solid var(--line);border-radius:10px}
 .editor-disclosure>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;padding:10px 14px;list-style:none;border-radius:9px;color:var(--text);font-size:14px;font-weight:550}
 .editor-disclosure>summary::-webkit-details-marker{display:none}
-.editor-disclosure[open]>summary{border-end-start-radius:0;border-end-end-radius:0}
+.editor-disclosure[open]>summary:not([data-pointer-pressed]){border-end-start-radius:0;border-end-end-radius:0}
 .editor-disclosure>summary small{display:block;margin-block-start:2px}
 .editor-disclosure>summary .ui-icon{width:18px;height:18px;flex:none}
 .editor-disclosure:not([open])>summary .ui-icon{transform:rotate(-90deg)}
@@ -211,6 +211,7 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 
 /* Keep the pressed edge inside the control so keyboard focus can stay outside it. */
 :where(button,summary,a[href],[role="option"],.checkbox,.radio-option,.block-enabled){-webkit-tap-highlight-color:transparent}
+:where(summary){border-radius:6px}
 :is(button:enabled,summary,[role="option"],.radio-option:has(input:enabled))[data-pointer-pressed]:not([aria-disabled="true"],.chat-card-open,.library-card-open){
   box-shadow:inset 0 0 0 1px var(--control-border);
   filter:none;
@@ -474,7 +475,8 @@ a[href][data-pointer-pressed]{text-decoration:underline;text-decoration-thicknes
 .timeline-labels>.turn-layer-label{bottom:2px;height:22px;font-size:9px}
 .turn-band,.summary-band{min-width:1px}
 .summary-band{border-radius:0;pointer-events:none}
-.summary-span.over-summary-band{background:transparent;border-width:0;border-radius:0}
+.summary-span.over-summary-band{background:transparent;border-width:0}
+.summary-span.over-summary-band:not([data-pointer-pressed]){border-radius:0}
 .timeline-tooltip{position:fixed;z-index:200;pointer-events:none;transform:translateX(-50%);width:max-content;max-width:270px;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;background:var(--tooltip-bg);color:var(--text);font-size:12px;box-shadow:0 4px 14px var(--shadow)}
 @media(max-width:800px){
   .conversation{--composer-side-insets:16px}
@@ -984,7 +986,7 @@ button:has(> .ui-icon):has(> .sr-only), .block-actions button { min-width:36px; 
   .color-picker-preset[aria-pressed=true] { outline:2px solid Highlight; }
 }
 
-button.text-link{padding:0;border:0;border-radius:2px;background:none;color:var(--accent);font-size:13px;font-weight:450;gap:4px}
+button.text-link{padding:0;border:0;background:none;color:var(--accent);font-size:13px;font-weight:450;gap:4px}
 button.text-link>.ui-icon{width:14px;height:14px}
 
 /* Library browsing: stable creation slots and a separate, shared card footer. */
