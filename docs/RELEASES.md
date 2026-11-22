@@ -40,11 +40,24 @@ Use [`scripts/release/windows-launcher-version.mjs`](../scripts/release/windows-
 
 ### Automated Windows releases
 
-Work on `develop` and run local checks appropriate to the change; no automatic workflow runs there. Freeze a release candidate by merging it to `staging`. `windows-qualify.yml` runs on staging pushes (or explicit dispatch on staging), checks out the exact triggering SHA, runs `npm run check`, then builds with `scripts/release/build-portable.ps1 -Mode Release -ReleaseBranch staging -Commit FULL_COMMIT -Destination DIRECTORY`. The explicit staging mode requires the clean exact checkout to belong to fetched `origin/staging`; the default builder mode retains its main ancestry guard. Candidate metadata uses the real staging SHA, without synthetic commits or rewritten main references.
+Work on `develop` and run local checks appropriate to the change. Cut the release candidate on `staging` with a `--no-ff` merge of the intended `develop` commit. Use a short update title as the merge commit subject. That subject becomes the latest commit shown on `main` after promotion and supplies the title of both push-triggered Actions runs. [GitHub Actions run names](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#run-name)
+
+For example, from a clean checkout with no unpublished commits on `staging`, use the following commands when the tip of `origin/develop` is the intended candidate. Replace the example title with the name of the update and record the full merge SHA for promotion.
+
+```sh
+git fetch origin
+git switch staging
+git merge --ff-only origin/staging
+git merge --no-ff -m "Release: Default presets and Windows launcher polish" origin/develop
+git rev-parse HEAD
+git push origin staging
+```
+
+`windows-qualify.yml` runs on staging pushes or explicit dispatch on staging. It checks out the exact triggering SHA, runs `npm run check` and then builds with `scripts/release/build-portable.ps1 -Mode Release -ReleaseBranch staging -Commit FULL_COMMIT -Destination DIRECTORY`. The explicit staging mode requires the clean exact checkout to belong to fetched `origin/staging`; the default builder mode retains its main ancestry guard. Candidate metadata uses the real staging SHA, without synthetic commits or rewritten main references.
 
 Qualification invokes `ci-package-windows.mjs`, verifies the extracted inventory, native dependencies and temporary-database startup/UI probes, then exercises the actual server and SQLite through package-installer acceptance. The acceptance harness exercises the shipped batch against a populated synthetic installation, in-place replacement, a later helper update with the same cutover bytes, and clean bootstrap of that later package with controlled transport. It compares external handoff time and checks competing launches, interruption, offline and corrupt fallback, pause, recovery and retained data. Packaging excludes saved data, credentials, user configuration and local language packs. Only after all checks pass are the four release files retained as an immutable `windows-x64-FULL_COMMIT` workflow artifact for 30 days. Staging never publishes a public release.
 
-After staging is green, promote the exact tested commit to main using a fast-forward, without squashing, creating a merge commit or adding edits. For example, from a clean checkout with current remote refs:
+After qualification succeeds for the recorded merge SHA, fast-forward `main` to that exact commit. Use the full SHA as `FULL_QUALIFIED_STAGING_COMMIT` in the example below.
 
 ```sh
 git fetch origin
