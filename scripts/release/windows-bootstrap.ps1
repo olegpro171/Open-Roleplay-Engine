@@ -1,6 +1,21 @@
 # Bootstrap contract 2. The normal path runs the installed controller in this
 # PowerShell process. Bootstrap updates run in a short-lived worker so its
 # installation lease and named job are gone before the helper acquires them.
+function Show-OreGreeting {
+    $greeting = $OreMessages['heading'][$script:OreLanguage]
+    $columnWidth = 80
+    $frameWidth = 40
+    $innerWidth = $frameWidth - 2
+    $margin = ' ' * (($columnWidth - $frameWidth) / 2)
+    $padding = $innerWidth - $greeting.Length
+    $leftPadding = [int][Math]::Floor($padding / 2)
+    $rightPadding = $padding - $leftPadding
+    $border = $margin + '+' + ('-' * $innerWidth) + '+'
+    [Console]::WriteLine($border)
+    [Console]::WriteLine($margin + '|' + (' ' * $leftPadding) + $greeting + (' ' * $rightPadding) + '|')
+    [Console]::WriteLine($border)
+}
+
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
@@ -14,7 +29,7 @@ $stage = $null
 $lockStream = $null
 $result = 1
 try {
-    if (!$InstallOnly) { Show-OreMessage 'heading' }
+    if (!$InstallOnly) { Show-OreGreeting }
     Assert-OreWindows
     $script:OreFailure = 'folderCollision'
     $Installation = Assert-OreStandaloneHome $Installation
