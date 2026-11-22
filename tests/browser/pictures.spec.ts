@@ -10,7 +10,7 @@ const fields = (name: string) => ({ name, description: 'A quiet keeper of the ol
 const row = (page: Page, name: string) => page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
 async function library(page: Page): Promise<LibrarySnapshot> { return page.request.get('/api/library').then(response => response.json()); }
 async function command(page: Page, url: string, data: unknown, method = 'POST') {
-  const response = await page.request.fetch(`/api${url}`, { method, data, headers: { Origin: 'http://127.0.0.1:4173' } });
+  const response = await page.request.fetch(`/api${url}`, { method, data, headers: { Origin: new URL(page.url()).origin } });
   expect(response.ok(), await response.text()).toBe(true); return response.json();
 }
 async function login(page: Page) {
@@ -145,7 +145,13 @@ test('keeps a cached crop draft available after another editor replaces its pict
     kind: 'characters', data: { ...data, description: 'Newer text' }, revision: before.revision, requestId: crypto.randomUUID(),
     expectedPicture: picture.key, picture: { mode: 'replace', base64: newerBase64, crop: newer.crop },
   }, 'PUT');
-  await page.getByRole('button', { name: 'Use current text and tags; keep my picture draft', exact: true }).click();
+  const reconcile = page.getByRole('button', { name: 'Use current text and tags; keep my picture draft', exact: true });
+  await expect(reconcile).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Review embedded tags', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toBeEnabled();
+  await page.getByLabel('Character description').fill('Local text while the editor is stale.');
+  await reconcile.click();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(character).toContainText('Newer text');
   const recovered = (await library(page)).characterPictures.find(item => item.characterId === id);

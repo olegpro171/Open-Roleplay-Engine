@@ -50,6 +50,7 @@ export function CharacterEditor({ initial, recovered, library, appearance, busy,
   const alive = useRef(true), extractionId = useRef(newId());
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const stale = revision !== library.revision;
+  const draftControlsDisabled = busy || pending || uncertain !== null;
   const greetings = readCharacterAlternateGreetings(data);
   const alternatives = greetings.success ? greetings.data : [];
   const characterChanged = (['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'system_prompt', 'post_history_instructions'] as const).some(field => data[field] !== baselineData[field])
@@ -77,7 +78,7 @@ export function CharacterEditor({ initial, recovered, library, appearance, busy,
     if (deletedId) setTagIds(ids => ids.filter(id => id !== deletedId));
   };
   async function applyEmbedded() {
-    if (!initial.id || !embedded || pending) return;
+    if (!initial.id || !embedded || busy || pending || stale) return;
     setPending(true); setError('');
     await run(async () => {
       try {
@@ -92,7 +93,7 @@ export function CharacterEditor({ initial, recovered, library, appearance, busy,
     setPending(false);
   }
   async function save(frozen?: CharacterSaveCommand) {
-    if (submitting.current || processing || (uncertain && !frozen)) return;
+    if (busy || submitting.current || processing || (!frozen && (stale || uncertain))) return;
     submitting.current = true; setPending(true); setError('');
     const command: CharacterSaveCommand = frozen ?? { kind: 'characters', requestId: newId(), revision, data: structuredClone(data), tagIds: [...tagIds], expectedPicture: baselinePicture?.key ?? null, picture: pictureMutation(picture, baselinePicture) };
     setUncertain(command);
@@ -146,12 +147,12 @@ export function CharacterEditor({ initial, recovered, library, appearance, busy,
     </label>;
   }
   return <NumberDraftContext.Provider value={numberDraft}>
-    <form id={formId} onSubmit={event => { event.preventDefault(); void save(); }}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy || pending || stale || Boolean(uncertain)}><legend>{t("character_editor.character", { value: initial.id ? t("libraries.edit_2") : t("libraries.create") })}</legend><div className="form-grid">
+    <form id={formId} onSubmit={event => { event.preventDefault(); void save(); }}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={draftControlsDisabled}><legend>{t("character_editor.character", { value: initial.id ? t("libraries.edit_2") : t("libraries.create") })}</legend><div className="form-grid">
       {!initial.id && <p className="character-editor-help small muted full">{t('story_home.character_editor_help')}</p>}
       <label>{t("character_editor.name")}<input required maxLength={100} value={data.name} onChange={event => setData({ ...data, name: event.target.value })} /></label>
       <label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={data.titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("character_editor.an_optional_label_useful_for_distinguishing_between")}</small></label>
-      <PictureEditor value={picture} change={setPicture} original={baselinePicture} disabled={busy || pending || stale || Boolean(uncertain)} processing={setProcessing} />
-      <SpeechColorSelector appearance={appearance} value={data.speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || pending || stale || Boolean(uncertain)} />
+      <PictureEditor value={picture} change={setPicture} original={baselinePicture} disabled={draftControlsDisabled} processing={setProcessing} />
+      <SpeechColorSelector appearance={appearance} value={data.speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={draftControlsDisabled} />
       {textField('description', t('character_editor.character_description'), t('character_editor.description_help'))}
       {textField('personality', t('character_editor.personality'), t('character_editor.personality_help'))}
       {textField('scenario', t('character_editor.scenario'), t('character_editor.scenario_help'))}
@@ -181,12 +182,12 @@ export function CharacterEditor({ initial, recovered, library, appearance, busy,
       <CardInstructions value={data} change={setData} />
       <label className="full">{t("character_editor.default_lorebook")}<Dropdown aria-label={t("character_editor.default_lorebook")} value={data.lorebookId ?? ''} options={[{ value: '', label: t("character_editor.none_selected") }, ...sortLibraryRecords(library.lorebooks, 'lorebooks', library.dates).map(book => ({ value: book.id, label: book.name }))]} onChange={id => setData({ ...data, lorebookId: id || null })} /></label>
       {data.lorebookId && <button type="button" className="secondary" onClick={event => { if (data.lorebookId) openBook(data.lorebookId, event.currentTarget); }}>{t("character_editor.open_book")}</button>}
-      {initial.id && !data.lorebookId && embeddedBook && <div className="full"><button type="button" className="secondary" disabled={dirty} onClick={async () => { let bookId = ''; if (await run(async () => { bookId = (await api<{ bookId: string }>(`/library/characters/${initial.id}/extract`, 'POST', { revision, requestId: extractionId.current })).bookId; })) extracted(bookId); }}>{t("character_editor.extract_embedded_lorebook")}</button><p className="small muted">{t("character_editor.save_character_edits_first_extraction_creates_and")}</p></div>}
+      {initial.id && !data.lorebookId && embeddedBook && <div className="full"><button type="button" className="secondary" disabled={dirty || stale} onClick={async () => { let bookId = ''; if (await run(async () => { bookId = (await api<{ bookId: string }>(`/library/characters/${initial.id}/extract`, 'POST', { revision, requestId: extractionId.current })).bookId; })) extracted(bookId); }}>{t("character_editor.extract_embedded_lorebook")}</button><p className="small muted">{t("character_editor.save_character_edits_first_extraction_creates_and")}</p></div>}
       <div className="full">
         <TagChooser label={t("character_editor.assign_tags")} tags={library.tags} selected={tagIds} change={setTagIds} />
         <div className="actions">
-          <button type="button" className="secondary" onClick={() => setManager(true)}>{t("character_editor.manage_tags")}</button>
-          {initial.id && <button type="button" className="quiet" onClick={async () => { setPending(true); await run(async () => { const preview = await api<{ revision: number; tags: TagReview }>(`/library/characters/${initial.id}/tags/preview`); if (alive.current) { setEmbedded(preview); setPolicy('none'); } }); setPending(false); }}>{t("character_editor.review_embedded_tags")}</button>}
+          <button type="button" className="secondary" disabled={stale} onClick={() => setManager(true)}>{t("character_editor.manage_tags")}</button>
+          {initial.id && <button type="button" className="quiet" disabled={stale} onClick={async () => { setPending(true); await run(async () => { const preview = await api<{ revision: number; tags: TagReview }>(`/library/characters/${initial.id}/tags/preview`); if (alive.current) { setEmbedded(preview); setPolicy('none'); } }); setPending(false); }}>{t("character_editor.review_embedded_tags")}</button>}
         </div>
       </div>
     </div></fieldset>{error && <p role="alert">{error}</p>}{uncertain && <p role="status">{t("character_editor.acknowledgement_uncertain_the_save_may_have_reached")}</p>}{stale && !uncertain && <CharacterReconciliation library={library} characterId={initial.id} disabled={busy || pending} reconcile={reconcile} />}{stale && dirty && <CopyLibraryDraft editor={draft} />}{uncertain && <button type="button" disabled={busy || pending} onClick={() => void save(uncertain)}>{t("character_editor.retry_same_save")}</button>}<EditorActions formId={formId} disabled={busy || pending || processing || stale || Boolean(uncertain)} cancelDisabled={busy || pending} close={close} /></form>

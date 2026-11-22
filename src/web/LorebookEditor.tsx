@@ -200,6 +200,7 @@ export function LorebookEditor({ initial, recovered, currentRevision, busy, run,
   }
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (busy || stale) return;
     const parsed = lorebookSchema.safeParse(book);
     if (!parsed.success) { setIssues(parsed.error.issues); return; }
     setIssues([]);
@@ -211,14 +212,14 @@ export function LorebookEditor({ initial, recovered, currentRevision, busy, run,
   return <NumberDraftContext.Provider value={numberDraft}><form ref={form} id={formId} className="lorebook-editor" onSubmit={event => void save(event)}>
     <LibraryDraftNotice recovered={recovered} storageError={storageError} />
     <LoreDiagnostics diagnostics={compatibility} />
-    <fieldset disabled={busy || stale}><legend>{t("lorebook_editor.lorebook", { value: initial.id ? t("libraries.edit_2") : t("libraries.create") })}</legend><div className="form-grid">
+    <fieldset disabled={busy}><legend>{t("lorebook_editor.lorebook", { value: initial.id ? t("libraries.edit_2") : t("libraries.create") })}</legend><div className="form-grid">
       <label className="full">{t("lorebook_editor.book_name")}<input required maxLength={100} value={book.name} onChange={event => update({ name: event.target.value })} />{error('name')}</label>
       <label className="full">{t("lorebook_editor.book_description")}<EditorTextarea aria-label={t("lorebook_editor.book_description")} value={book.description} maxLength={100_000} onChange={event => update({ description: event.target.value })} /><small>{t("lorebook_editor.for_your_library_never_inserted_into_the")}</small>{error('description')}</label>
       <label>{t("lorebook_editor.book_scan_depth")}<NumberInput draftField="scanDepth" aria-label={t("lorebook_editor.book_scan_depth")} required min={0} max={1000} value={book.scanDepth} onChange={scanDepth => update({ scanDepth })} /><small>{t("lorebook_editor.number_of_recent_nonempty_original_messages_to")}</small>{error('scanDepth')}</label>
       <label>{t("lorebook_editor.lore_token_cap")}<NumberInput draftField="tokenBudget" required min={0} max={1_000_000} value={book.tokenBudget} onChange={tokenBudget => update({ tokenBudget })} />{error('tokenBudget')}</label>
       <label className="checkbox full"><input type="checkbox" checked={book.recursiveScanning} onChange={event => update({ recursiveScanning: event.target.checked })} />{t("lorebook_editor.allow_admitted_lore_to_activate_other_entries")}</label>
     </div></fieldset>
-    <fieldset disabled={busy || stale}><legend>{t("lorebook_editor.entries", { length: book.entries.length })}</legend>
+    <fieldset disabled={busy}><legend>{t("lorebook_editor.entries", { length: book.entries.length })}</legend>
       <p className="small muted">{t("lorebook_editor.higher_priority_is_admitted_first_equal_priorities")}</p>
       <div className="actions"><button type="button" className="secondary" disabled={book.entries.length >= LOREBOOK_ENTRY_LIMIT} onClick={() => add()}>{t("lorebook_editor.add_entry")}</button></div>
       <div className="lore-search">

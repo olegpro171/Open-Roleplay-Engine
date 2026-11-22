@@ -631,10 +631,13 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
   const dirty = dataChanged || !sameDraftValue(parameters, baselineParameters) || removeKey || key !== '' || numberDraft.dirty;
   const storageError = useLibraryEditorDraft(draft, dirty);
   const [error, setError] = useTextState('');
+  const [staleWarningDismissed, setStaleWarningDismissed] = useState(false);
   const stale = initial.revision !== currentRevision;
   const reviewMemoryCleanup = useMemoryCleanup(run, initial.id);
   async function save(e: FormEvent) {
-    e.preventDefault(); setError('');
+    e.preventDefault();
+    if (busy || stale) return;
+    setError('');
     let value = data;
     if ('endpoint' in data) {
       try {
@@ -676,10 +679,10 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
     </label>;
   }
   const personaNameHelp = initial.kind === 'personas' ? t('libraries.persona_name_help', { user: '{{user}}' }) : undefined;
-  return <NumberDraftContext.Provider value={numberDraft}><form id={formId} onSubmit={e => void save(e)}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy || stale}><legend>{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend><div className="form-grid">{textField('name', t("character_editor.name"), false, initial.kind !== 'personas', personaNameHelp)}
+  return <NumberDraftContext.Provider value={numberDraft}><form id={formId} onSubmit={e => void save(e)}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy}><legend>{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend><div className="form-grid">{textField('name', t("character_editor.name"), false, initial.kind !== 'personas', personaNameHelp)}
     {initial.kind === 'personas' && <>
       <label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={(data as LibraryPersona).titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("libraries.an_optional_label_useful_for_distinguishing_between")}</small></label>
-      <SpeechColorSelector speaker="persona" appearance={appearance} value={(data as LibraryPersona).speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy || stale} />
+      <SpeechColorSelector speaker="persona" appearance={appearance} value={(data as LibraryPersona).speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy} />
       {textField('description', t('libraries.persona_description'), true, true, t('libraries.persona_description_help'))}
     </>}
     {initial.kind === 'contexts' && <ContextPresetFields value={data as ContextPreset} change={setData} connections={connections} />}
@@ -687,15 +690,20 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
       <label className="full">{t("libraries.api_base_url")}<input type="url" required value={(data as Connection).endpoint} onChange={e => setData({ ...data as Connection, endpoint: e.target.value })} /></label>
       <div className="full api-key-row"><label>{t("libraries.api_key")}<input type="password" autoComplete="new-password" disabled={removeKey} placeholder={initial.hasApiKey ? t("libraries.saved_leave_blank_to_keep_it") : t("libraries.optional_for_endpoints_without_authentication")} value={key} onChange={e => setKey(e.target.value)} /></label>{initial.hasApiKey && <label className="checkbox"><input type="checkbox" checked={removeKey} onChange={e => setRemoveKey(e.target.checked)} />{t("libraries.remove_the_saved_api_key")}</label>}</div>
       <ModelField value={(data as Connection).model} endpoint={(data as Connection).endpoint} connectionId={initial.id}
-        apiKey={removeKey ? '' : key || undefined} disabled={busy || stale} change={model => setData({ ...data as Connection, model })} />
+        apiKey={removeKey ? '' : key || undefined} disabled={busy} change={model => setData({ ...data as Connection, model })} />
       <label>{t("libraries.model_context_window")}<NumberInput draftField="contextWindow" required value={(data as Connection).contextWindow} onChange={contextWindow => setData({ ...data as Connection, contextWindow })} /></label><label>{t("libraries.reserved_output_tokens")}<NumberInput draftField="maxOutputTokens" required max={1_000_000} value={(data as Connection).maxOutputTokens} onChange={maxOutputTokens => setData({ ...data as Connection, maxOutputTokens })} /></label><label className="checkbox full"><input type="checkbox" checked={(data as Connection).requestUsage !== false} onChange={e => setData({ ...data as Connection, requestUsage: e.target.checked })} />{t("libraries.request_token_usage_from_the_endpoint")}</label><p className="small muted full">{t("libraries.turn_statistics_use_counts_supplied_by_the")}</p>
-      <ConnectionParameters draft={parameters} change={setParameters} disabled={busy || stale} />
-      <ConnectionTools connection={data as Connection} parameters={parameters} connectionId={initial.id} apiKey={removeKey ? '' : key || undefined} />
+      <ConnectionParameters draft={parameters} change={setParameters} disabled={busy} />
+      <ConnectionTools connection={data as Connection} parameters={parameters} connectionId={initial.id} apiKey={removeKey ? '' : key || undefined} disabled={stale} />
     </>}
     {initial.kind === 'prompts' && <PromptEditor value={data as PromptPreset} change={setData} />}
-  </div></fieldset>{error && <p role="alert">{error}</p>}{stale && <p role="status">{t("libraries.the_library_changed_close_this_editor_and")}</p>}{stale && dirty && <CopyLibraryDraft editor={draft} />}<EditorActions formId={formId} disabled={busy || stale} cancelDisabled={busy} close={close} /></form></NumberDraftContext.Provider>;
+  </div></fieldset>
+    {error && <p role="alert">{error}</p>}
+    {stale && !staleWarningDismissed && <WarningDialog message={msg('libraries.the_library_changed_close_this_editor_and')} close={() => setStaleWarningDismissed(true)} />}
+    {stale && dirty && <CopyLibraryDraft editor={draft} />}
+    <EditorActions formId={formId} disabled={busy || stale} cancelDisabled={busy} close={close} />
+  </form></NumberDraftContext.Provider>;
 }
-function ConnectionTools({ connection, parameters, connectionId, apiKey }: { connection: Connection; parameters: ConnectionParameterDraft; connectionId?: string; apiKey?: string }) {
+function ConnectionTools({ connection, parameters, connectionId, apiKey, disabled }: { connection: Connection; parameters: ConnectionParameterDraft; connectionId?: string; apiKey?: string; disabled: boolean }) {
   useLocale();
   const [result, setResult] = useState<ConnectionDiagnostic | null>(null), [error, setError] = useTextState('');
   const [testing, setTesting] = useState(false);
@@ -715,7 +723,7 @@ function ConnectionTools({ connection, parameters, connectionId, apiKey }: { con
     finally { if (attempt.current === id) setTesting(false); }
   }
   return <div className="full connection-tools">
-    <div className="actions"><button type="button" className="secondary" disabled={testing} onClick={() => void diagnose('check')}>{t("libraries.check_connection")}</button><button type="button" className="secondary" disabled={testing} onClick={() => void diagnose('test')}>{t("libraries.send_test_message")}</button></div>
+    <div className="actions"><button type="button" className="secondary" disabled={disabled || testing} onClick={() => void diagnose('check')}>{t("libraries.check_connection")}</button><button type="button" className="secondary" disabled={disabled || testing} onClick={() => void diagnose('test')}>{t("libraries.send_test_message")}</button></div>
     <p className="small muted connection-help">{t("libraries.enter_your_provider_s_api_key_above")}</p>
     {testing && <p className="small" role="status">{t("libraries.testing_connection")}</p>}
     {error && <p role="alert">{error}</p>}

@@ -22,7 +22,7 @@ async function library(page: Page): Promise<LibrarySnapshot> {
   return page.request.get('/api/library').then(response => response.json());
 }
 async function command(page: Page, url: string, data: unknown, method = 'POST') {
-  const response = await page.request.fetch(url, { method, headers: { Origin: 'http://127.0.0.1:4173' }, data });
+  const response = await page.request.fetch(url, { method, headers: { Origin: new URL(page.url()).origin }, data });
   expect(response.ok(), await response.text()).toBe(true);
   return response.json();
 }
@@ -359,6 +359,11 @@ test('keeps unsaved entries on failures and revision conflicts, with bounded edi
   const { id: _id, revision: _revision, ...data } = current;
   await command(page, `/api/library/${created.id}`, { kind: 'lorebooks', revision: (await library(page)).revision, data: { ...data, description: 'Changed from another tab.' } }, 'PUT');
   await expect(page.getByRole('status').filter({ hasText: 'Your unsaved edits remain here' })).toBeVisible();
+  await page.getByLabel('Search entries', { exact: true }).fill('key-123');
+  await page.getByRole('button', { name: /^Record 123/ }).click();
+  await expect(page.getByLabel('Lore content', { exact: true })).toHaveValue('Saved detail 123.');
+  await page.getByLabel('Search entries', { exact: true }).fill('key-124');
+  await page.getByRole('button', { name: /^Record 124/ }).click();
   await expect(page.getByLabel('Lore content', { exact: true })).toHaveValue('Unsaved detail survives the failed write.');
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
   await page.setViewportSize({ width: 390, height: 844 });

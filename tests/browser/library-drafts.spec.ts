@@ -2,6 +2,7 @@ import { selectLibraryCategory } from './library-card-helpers';
 import { openNewChatSettings, openBlankChatFixture } from './chat-tools';
 import { expect, type Dialog, type Page } from '@playwright/test';
 import { test } from './appearance-test';
+import { themeSchema } from '../../src/shared/appearance';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { startBrowserApp } from '../support/browser-app';
 import { quadrantPicture } from '../support/pictures';
@@ -233,8 +234,35 @@ test('keeps two tab drafts independent and preserves a stale draft after another
     await description(other).fill('Saved from another browser');
     await editorAction(other, 'Save').click();
     await expect(other.getByRole('button', { name: title, exact: true })).toBeVisible();
+    const staleWarning = page.getByRole('dialog', { name: 'Warning', exact: true });
+    const dismissWarning = staleWarning.getByRole('button', { name: 'Dismiss', exact: true });
+    await expect(staleWarning).toContainText('The library changed. Close this editor and reopen it before saving.');
+    await expect(staleWarning.getByRole('heading')).toBeFocused();
+    for (const theme of themeSchema.options) {
+      await setAppearance({ theme });
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: 840 });
+        await expect(staleWarning).toBeInViewport();
+        await expect(dismissWarning).toBeInViewport();
+        expect(await staleWarning.evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth)).toBe(true);
+        await page.screenshot({ animations: 'disabled', path: testInfo.outputPath(`live-stale-warning-${theme}-${width}.png`) });
+      }
+    }
+    await dismissWarning.click();
+    await expect(staleWarning).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Library changed', exact: true })).toHaveCount(0);
+
+    await other.getByRole('button', { name: title, exact: true }).click();
+    await description(other).fill('Saved again from another browser');
+    const libraryRefresh = page.waitForResponse(response => response.ok()
+      && response.request().method() === 'GET' && new URL(response.url()).pathname === '/api/library');
+    await Promise.all([libraryRefresh, editorAction(other, 'Save').click()]);
     await expect(editorAction(page, 'Save')).toBeDisabled();
     await expect(description(page)).toHaveValue('First tab\nwith a second line');
+    const liveCopy = page.getByText('Show draft fields to copy', { exact: true });
+    await liveCopy.click();
+    await expect(page.getByRole('textbox', { name: 'Draft fields', exact: true })).toHaveValue(/First tab\nwith a second line/);
+    await expect(staleWarning).toHaveCount(0);
     await reloadWithWarning(page);
     await expect(page.getByText('The Library changed since this draft was opened.', { exact: false })).toBeVisible();
     await expect(editorAction(page, 'Save')).toHaveCount(0);
@@ -253,7 +281,7 @@ test('keeps two tab drafts independent and preserves a stale draft after another
     await page.getByRole('button', { name: 'Discard draft', exact: true }).click();
     await leave(page);
     await page.getByRole('button', { name: title, exact: true }).click();
-    await expect(description(page)).toHaveValue('Saved from another browser');
+    await expect(description(page)).toHaveValue('Saved again from another browser');
     await expect(description(sibling)).toHaveValue('Sibling tab draft');
     await other.reload();
     await expect(description(other)).toHaveCount(0);
@@ -261,6 +289,54 @@ test('keeps two tab drafts independent and preserves a stale draft after another
     await sibling.close();
     await otherContext.close();
   }
+});
+
+test('can reopen and edit a collapsed prompt block after a conflicting save', async ({ page }) => {
+  await page.goto('/');
+  await authenticate(page);
+  const headers = { Origin: new URL(page.url()).origin };
+  const prompt = {
+    name: 'Concurrent prompt draft',
+    blocks: [{ id: 'text-block', name: 'Opening instructions', enabled: true, kind: 'text', role: 'system', text: 'Saved prompt text.' }],
+  };
+  const created = await page.request.post('/api/library', {
+    headers, data: { revision: (await library(page)).revision, kind: 'prompts', data: prompt },
+  });
+  expect(created.ok(), await created.text()).toBe(true);
+  const { id } = await created.json();
+  await openCategory(page, 'Prompts');
+  await page.getByRole('button', { name: prompt.name, exact: true }).click();
+  const expand = page.getByRole('button', { name: /Expand block 1$/ });
+  const blockText = page.getByRole('textbox', { name: 'Block text', exact: true });
+  await expand.click();
+  await blockText.fill('Local prompt draft.');
+  await page.getByRole('button', { name: 'Collapse block 1', exact: true }).click();
+  await expect(blockText).toHaveCount(0);
+
+  const remoteBlocks = prompt.blocks.map(block => ({ ...block, text: 'Saved from the other editor.' }));
+  const conflict = await page.request.put(`/api/library/${id}`, {
+    headers, data: { revision: (await library(page)).revision, kind: 'prompts', data: { ...prompt, blocks: remoteBlocks } },
+  });
+  expect(conflict.ok(), await conflict.text()).toBe(true);
+  await page.getByRole('dialog', { name: 'Warning', exact: true }).getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 840 });
+  await expect(expand).toBeEnabled();
+  await expand.press('Enter');
+  await expect(blockText).toHaveValue('Local prompt draft.');
+  await blockText.fill('Updated local prompt draft.');
+  await expect(editorAction(page, 'Save')).toBeDisabled();
+
+  const writes: string[] = [];
+  await page.route(`**/api/library/${id}`, async route => {
+    if (route.request().method() === 'PUT') writes.push(route.request().url());
+    await route.continue();
+  });
+  await page.getByRole('textbox', { name: 'Name', exact: true }).evaluate((input: HTMLInputElement) => input.form?.requestSubmit());
+  await reloadWithWarning(page);
+  await page.getByText('Show draft fields to copy', { exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Draft fields', exact: true })).toHaveValue(/Updated local prompt draft\./);
+  expect(writes).toEqual([]);
+  expect((await library(page)).prompts.find(item => item.id === id)?.blocks).toEqual(remoteBlocks);
 });
 
 test('keeps the editor and warning usable when session storage rejects the draft', async ({ page }) => {
