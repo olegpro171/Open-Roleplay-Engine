@@ -4,6 +4,7 @@ import type { LibrarySnapshot } from '../../src/shared/library';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { BackupReview } from '../../src/shared/backups';
 import { readFile } from 'node:fs/promises';
+import { selectLibraryCategory } from './library-card-helpers';
 
 async function login(page: Page) {
   const session = await page.request.get('/api/session').then(response => response.json());
@@ -30,7 +31,8 @@ async function fixture(page: Page,width: number) {
   return id;
 }
 async function openChat(page: Page,title: string) {
-  await page.getByRole('button',{ name: 'Libraries',exact: true }).click(); await page.getByRole('button',{ name: 'Chats',exact: true }).click();
+  await page.getByRole('button',{ name: 'Libraries',exact: true }).click();
+  await selectLibraryCategory(page, 'Chats');
   await page.getByRole('article').filter({ has: page.getByRole('heading',{ name: title,exact: true }) }).click();
   await expect(page.getByLabel('Your next turn')).toBeVisible();
 }

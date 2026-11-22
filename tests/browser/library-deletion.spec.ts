@@ -207,7 +207,7 @@ test('reviews all 300 saved Connection users with bounded search, visible action
   await page.evaluate(() => localStorage.setItem('ore-interface-language', 'ru'));
   await page.reload();
   await page.getByRole('button', { name: 'Библиотека', exact: true }).click();
-  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await selectLibraryCategory(page, 'Подключения', 'Разделы библиотеки');
   const replacementCard = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Safe replacement', exact: true }) });
   await replacementCard.getByRole('button', { name: 'Действия: Safe replacement', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Удалить', exact: true }).click();

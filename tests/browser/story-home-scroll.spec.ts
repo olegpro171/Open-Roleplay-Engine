@@ -5,7 +5,7 @@ import type { LibrarySnapshot } from '../../src/shared/library';
 test.use({ starterChat: false, browserName: 'webkit' });
 
 test('keeps the New chat scroll position when participant cards replace their placeholders', async ({ page, browserApp }) => {
-  await page.setViewportSize({ width: 390, height: 780 });
+  await page.setViewportSize({ width: 390, height: 540 });
   await page.goto('/');
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
@@ -33,9 +33,10 @@ test('keeps the New chat scroll position when participant cards replace their pl
   await expect(persona.getByRole('combobox')).toBeVisible();
   const position = () => home.evaluate(element =>
     new Promise<number>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(element.scrollTop)))));
-  await home.evaluate(element => { element.scrollTop = element.scrollHeight; });
-  const bottom = await position();
-  expect(bottom).toBeGreaterThan(0);
+  // Start partway down so both selectors remain reachable without auto-scrolling.
+  await home.evaluate(element => { element.scrollTop = 24; });
+  const initialScrollTop = await position();
+  expect(initialScrollTop).toBeGreaterThan(0);
   const clickInPlace = async (control: Locator) => {
     await expect(control).toBeInViewport({ ratio: 1 });
     const bounds = await control.boundingBox();
@@ -45,10 +46,10 @@ test('keeps the New chat scroll position when participant cards replace their pl
   for (const [panel, name] of [[character, 'Second character'], [persona, 'Traveller']] as const) {
     for (const optionName of [name, 'None selected']) {
       await clickInPlace(panel.getByRole('combobox'));
-      expect(await position(), 'opening the participant list').toBe(bottom);
+      expect(await position(), 'opening the participant list').toBe(initialScrollTop);
       await clickInPlace(page.getByRole('option', { name: optionName, exact: true }));
       await expect(panel.getByRole('article')).toHaveCount(optionName === 'None selected' ? 0 : 1);
-      expect(await position(), `choosing ${optionName}`).toBe(bottom);
+      expect(await position(), `choosing ${optionName}`).toBe(initialScrollTop);
     }
   }
 });

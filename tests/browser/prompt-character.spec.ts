@@ -3,6 +3,7 @@ import type { ChatSnapshot, RequestPreview } from '../../src/shared/contracts';
 import type { LibrarySnapshot, PromptPreset } from '../../src/shared/library';
 import { newLorebook, newLoreEntry } from '../../src/shared/lorebook';
 import { legacyLorePrompt } from '../../src/persistence/legacy-prompt';
+import { selectLibraryCategory } from './library-card-helpers';
 
 async function choose(page: Page, label: string, value: string) {
   await page.getByRole('combobox', { name: label, exact: true }).click();
@@ -32,7 +33,7 @@ test('selects Character fields, inspects a flat prompt with remembered lore disc
     { ...newLoreEntry('history'), name: 'History lore', constant: true, placement: 'history', content: 'The moon is rising.' },
   ] } });
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+  await selectLibraryCategory(page, 'Prompts');
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Selectable fields proof');
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
@@ -64,7 +65,7 @@ test('selects Character fields, inspects a flat prompt with remembered lore disc
   const exported = await page.request.get(`/api/library/prompts/${saved.id}/export`).then(response => response.json() as Promise<PromptPreset>);
   expect(exported.blocks).toEqual(saved.blocks);
   const chat = await command('/api/chats', { title: 'Character field story', targetInputTokens: 5000, connectionId: connection.id, characterId: character.id, promptId: saved.id, personaId: persona.id, lorebookId: book.id });
-  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await selectLibraryCategory(page, 'Chats');
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Character field story', exact: true }) }).click();
   await page.getByLabel('Your next turn').fill('I enter the tower.');
   const state = () => page.request.get(`/api/chats/${chat.id}`).then(response => response.json() as Promise<ChatSnapshot>);
@@ -144,7 +145,7 @@ test('imports older prompt exports with retired lore controls as selectable fiel
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+  await selectLibraryCategory(page, 'Prompts');
   await page.getByLabel('Import prompt preset', { exact: true }).setInputFiles({ name: 'old-prompt.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ ...legacyLorePrompt, name: 'Legacy fields import' })) });
   await expect(page.getByRole('heading', { name: 'Legacy fields import', exact: true })).toBeVisible();
   const library: LibrarySnapshot = await page.request.get('/api/library').then(response => response.json());

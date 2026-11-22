@@ -4,6 +4,7 @@ import { test } from './isolated-app';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import type { ChatSnapshot } from '../../src/shared/contracts';
+import { selectLibraryCategory } from './library-card-helpers';
 
 for (const theme of ['dark', 'light', 'midnight-black'] as const) {
   for (const width of [1440, 390]) {
@@ -35,7 +36,8 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
         await expect(page.locator('html')).toHaveAttribute('lang', locale);
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
         await page.getByRole('button', { name: locale === 'en' ? 'Libraries' : 'Библиотека', exact: true }).click();
-        await page.getByRole('button', { name: locale === 'en' ? 'Chats' : 'Чаты', exact: true }).click();
+        if (locale === 'en') await selectLibraryCategory(page, 'Chats');
+        else await selectLibraryCategory(page, 'Чаты', 'Разделы библиотеки');
         await openChatCreation(page, locale);
         await chooseNewChatCharacter(page, `${name} · Local display comment`, locale);
         await page.getByRole('button', { name: locale === 'en' ? 'Start chat' : 'Начать чат', exact: true }).click();

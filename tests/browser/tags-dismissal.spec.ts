@@ -36,6 +36,7 @@ for (const [width, input] of [[1280, 'mouse'], [390, 'touch'], [320, 'mouse']] a
       const x = left ? bounds.x + 24 : bounds.x + bounds.width / 2;
       const y = bounds.y + bounds.height / 2;
       expect(x < popup.x || x > popup.x + popup.width || y < popup.y || y > popup.y + popup.height).toBe(true);
+      expect(await target.evaluate((element, point) => element.contains(document.elementFromPoint(point.x, point.y)), { x, y })).toBe(true);
       // Real pointer coordinates exercise the dismissing surface rather than
       // bypassing hit testing to dispatch directly to a covered control.
       if (input === 'touch') await page.touchscreen.tap(x, y);
@@ -68,13 +69,22 @@ for (const [width, input] of [[1280, 'mouse'], [390, 'touch'], [320, 'mouse']] a
     await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toHaveAttribute('aria-current', 'page');
     await expect(card).toHaveCount(1);
 
+    const search = page.getByRole('searchbox', { name: 'Search characters', exact: true });
     await trigger.click();
-    await activateOutside(page.getByRole('searchbox', { name: 'Search characters', exact: true }));
-    await expect(panel).toHaveCount(0);
-    await expect(page.getByRole('searchbox', { name: 'Search characters', exact: true })).not.toBeFocused();
-    await trigger.click();
-    await activateOutside(trigger);
+    if (width > 800) {
+      await activateOutside(search);
+      await expect(panel).toHaveCount(0);
+      await expect(search).not.toBeFocused();
+      await trigger.click();
+      await activateOutside(trigger);
+    } else {
+      // The detached phone popup covers the search and the trigger.
+      const close = panel.getByRole('button', { name: 'Close tag filters', exact: true });
+      if (input === 'touch') await close.tap();
+      else await close.click();
+    }
     await expect(panel).toHaveCount(0);
     await expect(trigger).toBeFocused();
+    await expect(page.getByRole('group', { name: 'Active tag filters' })).toContainText('Dismissal tag');
   });
 }

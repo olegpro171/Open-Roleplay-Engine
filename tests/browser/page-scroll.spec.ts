@@ -17,17 +17,19 @@ for (const width of [390, 1280]) {
     await submit.click();
     await page.setViewportSize({ width, height: 650 });
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Settings', exact: true }).click();
-    const content = page.locator('.settings-panel');
-    // Narrow layouts scroll the categories and content together in the workspace.
-    const scrollArea = width <= 800 ? page.locator('.library-layout') : content;
-    const header = page.locator('header');
+    const scrollArea = page.locator('.settings-panel');
+    const categories = page.getByRole('navigation', { name: 'Settings categories', exact: true });
+    const header = page.getByRole('banner');
+    await expect(categories).toBeInViewport();
+    const initialCategories = await categories.boundingBox();
     const initialHeader = await header.boundingBox();
-    await content.hover();
+    await scrollArea.hover();
     await page.mouse.wheel(0, 500);
     await expect.poll(() => scrollArea.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
     await header.hover();
     await page.mouse.wheel(0, -500);
     expect(await header.boundingBox()).toEqual(initialHeader);
+    expect(await categories.boundingBox()).toEqual(initialCategories);
     expect(await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))).toEqual({ x: 0, y: 0 });
     await page.screenshot({ path: testInfo.outputPath(`fixed-shell-${width}.png`) });
   });

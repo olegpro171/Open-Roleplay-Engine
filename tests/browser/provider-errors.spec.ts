@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import { z } from 'zod';
 import { appearanceStatusSchema } from '../../src/shared/appearance';
 import { test } from './isolated-app';
+import { selectLibraryCategory } from './library-card-helpers';
 
 for (const theme of ['dark', 'light', 'midnight-black'] as const) {
   test(`renders provider failures in the active language in the ${theme} theme`, async ({ page, browserApp }, testInfo) => {
@@ -77,7 +78,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     await page.screenshot({ path: testInfo.outputPath('composer-after-retry.png') });
 
     await page.getByRole('button', { name: 'Библиотека', exact: true }).click();
-    await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+    await selectLibraryCategory(page, 'Подключения', 'Разделы библиотеки');
     await page.getByRole('heading', { name: 'Mock provider', exact: true }).click();
     const sendTest = page.getByRole('button', { name: 'Отправить тестовое сообщение', exact: true });
     const failure = page.getByRole('alert').filter({ hasText: 'Ничего не сохранено.' });

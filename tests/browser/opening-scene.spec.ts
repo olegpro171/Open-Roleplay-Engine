@@ -4,6 +4,7 @@ import type { ChatSnapshot, RequestBody } from '../../src/shared/contracts';
 import { defaultOpeningInstruction } from '../../src/shared/default-prompt';
 import { test } from './isolated-app';
 import { openChatTool } from './chat-tools';
+import { selectLibraryCategory } from './library-card-helpers';
 
 const reply = 'The lantern flickers. 🕯';
 const original = 'Mira waits by the dock.';
@@ -94,7 +95,7 @@ test('edits the opening instruction and regenerates a greeting without losing it
   const { state, calls, setTheme } = await setup(page, original);
   const openPrompt = async () => {
     await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+    await selectLibraryCategory(page, 'Prompts');
     await page.getByRole('button', { name: 'Default prompt', exact: true }).click();
     await page.getByRole('tab', { name: 'Action instructions', exact: true }).click();
     await page.getByRole('tabpanel', { name: 'Action instructions', exact: true }).getByText('Opening scene', { exact: true }).click();

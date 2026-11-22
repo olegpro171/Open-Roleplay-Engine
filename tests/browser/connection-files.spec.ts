@@ -1,4 +1,4 @@
-import { openLibraryActions } from './library-card-helpers';
+import { openLibraryActions, selectLibraryCategory } from './library-card-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -22,7 +22,7 @@ async function fixture(page: Page, name: string) {
   });
   expect(result.ok()).toBe(true);
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  await selectLibraryCategory(page, 'Connections');
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   return (await result.json()).id as string;
 }

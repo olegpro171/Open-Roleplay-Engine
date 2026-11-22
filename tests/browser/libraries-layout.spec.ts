@@ -306,7 +306,7 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
   await addRecord(page, 'prompts', { ...defaultPrompt, name: 'Sized prompt editor', blocks: [{ id: 'sized-text', name: 'Long prose', enabled: true, kind: 'text', role: 'system', text: longText }] });
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.getByRole('button', { name: 'Characters', exact: true }).click();
+    await selectLibraryCategory(page, 'Characters');
     await page.getByRole('button', { name: 'Sized character editor · Night watch', exact: true }).click();
     const description = page.getByLabel('Character description', { exact: true });
     const measure = () => description.evaluate(element => ({ height: element.getBoundingClientRect().height, base: parseFloat(getComputedStyle(element).minHeight) }));
@@ -352,7 +352,7 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     await expect(description).toHaveValue(longText);
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
-    await page.getByRole('button', { name: 'Personas', exact: true }).click();
+    await selectLibraryCategory(page, 'Personas');
     await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Sized persona editor', exact: true }) }).getByRole('heading').getByRole('button').click();
     const medium = await page.getByLabel('Persona description').evaluate(element => ({ height: element.getBoundingClientRect().height, base: parseFloat(getComputedStyle(element).minHeight), fits: element.scrollHeight <= element.clientHeight }));
     expect(medium.height).toBeGreaterThan(medium.base);
@@ -360,7 +360,7 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     expect(medium.fits).toBe(true);
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
-    await page.getByRole('button', { name: 'Lorebooks', exact: true }).click();
+    await selectLibraryCategory(page, 'Lorebooks');
     await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Sized lorebook editor', exact: true }) }).getByRole('heading').getByRole('button').click();
     const lore = page.getByLabel('Lore content', { exact: true });
     const longLore = await lore.evaluate(element => ({ height: element.getBoundingClientRect().height, base: parseFloat(getComputedStyle(element).minHeight) }));
@@ -370,7 +370,7 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     expect(await lore.evaluate(element => element.getBoundingClientRect().height)).toBe(longLore.base);
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
-    await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+    await selectLibraryCategory(page, 'Prompts');
     await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Sized prompt editor', exact: true }) }).getByRole('heading').getByRole('button').click();
     await page.getByRole('button', { name: /\bExpand block 1$/ }).click();
     expect(await page.getByRole('textbox', { name: 'Block text', exact: true }).evaluate(element => element.getBoundingClientRect().height >= parseFloat(getComputedStyle(element).minHeight) * 4)).toBe(true);

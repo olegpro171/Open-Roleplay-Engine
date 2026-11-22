@@ -4,6 +4,7 @@ import { test } from './isolated-app';
 import { readFile } from 'node:fs/promises';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { englishPack, languagePackSchema, languageStatusSchema, validateTranslations } from '../../src/shared/localization';
+import { selectLibraryCategory } from './library-card-helpers';
 
 const russian = { formatVersion: 1, locale: 'ru', nativeName: 'Русский', direction: 'ltr', messages: {
   'language.heading': 'Язык', 'language.select': 'Язык интерфейса',
@@ -200,7 +201,7 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
   expect(await page.request.get(`/api/chats/${chatId}`).then(response => response.json())).toEqual(savedBefore);
   expect(await preview()).toEqual(inputBefore);
   await page.getByRole('button', { name: 'Библиотеки', exact: true }).click();
-  await page.getByRole('button', { name: 'Characters', exact: true }).click();
+  await selectLibraryCategory(page, 'Characters');
   const sorting = page.getByRole('combobox', { name: 'Sort characters', exact: true });
   await expect(sorting).toHaveText('Добавлены: сначала самые новые записи');
   expect(await sorting.evaluate(button => {
@@ -208,9 +209,9 @@ for (const width of [1440, 390, 320]) test(`runtime packs localize live controls
     return arrow !== null && arrow.getBoundingClientRect().right <= button.getBoundingClientRect().right;
   })).toBe(true);
   await page.screenshot({ path: testInfo.outputPath(`localized-sorting-${width}.png`) });
-  await page.getByRole('button', { name: 'Prompts', exact: true }).click();
+  await selectLibraryCategory(page, 'Prompts');
   await expect(page.getByText('Импорт: промпт', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Personas', exact: true }).click();
+  await selectLibraryCategory(page, 'Personas');
   await page.getByRole('button', { name: 'New persona', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Unsaved persona name');
   const editorSave = page.getByRole('button', { name: 'Сохранить', exact: true });

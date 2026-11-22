@@ -26,9 +26,10 @@ test('Chat settings shows saved branch input alongside editable selections', asy
   }
   const connectionId = await createConnection('Saved Connection', 'saved-model');
   const alternateConnectionId = await createConnection('Alternate Connection', 'alternate-model');
+  const targetInputTokens = 40_000;
   const { revision, settings } = await page.request.get('/api/chats/main').then(response => response.json());
   const selected = await page.request.put('/api/chats/main/selections', { headers, data: { revision, settings: {
-    title: settings.title, targetInputTokens: 40_000, promptId: 'default', connectionId, characterId: null, personaId: null,
+    title: settings.title, targetInputTokens, promptId: 'default', connectionId, characterId: null, personaId: null,
   } } });
   expect(selected.ok(), await selected.text()).toBe(true);
   const saved = await selected.json();
@@ -52,16 +53,18 @@ test('Chat settings shows saved branch input alongside editable selections', asy
   const savedTokens = await estimate('');
   const draftTokens = await estimate(draft);
   const sidebar = page.getByRole('complementary', { name: 'Current chat' });
+  const stats = sidebar.locator('dl dd');
+  const savedTarget = targetInputTokens.toLocaleString('en');
+  const inputEstimate = (tokens: number) => `≈ ${tokens.toLocaleString('en')} / ${savedTarget}`;
   expect(draftTokens).toBeGreaterThan(savedTokens);
   await expect(sidebar.getByText('Saved Connection · saved-model', { exact: true })).toBeVisible();
   await composer.fill(draft);
-  await expect(sidebar.getByText(draftTokens.toLocaleString('en'), { exact: true })).toBeVisible();
+  await expect(stats).toHaveText(['2', '2', inputEstimate(draftTokens)]);
 
   const panel = page.getByRole('region', { name: 'Chat settings', exact: true });
   const context = panel.getByRole('region', { name: 'Context', exact: true });
   const branchContext = sidebar.locator('.context-dropdown summary');
   const peekButton = sidebar.getByRole('button', { name: 'Prompt peek', exact: true });
-  const stats = sidebar.locator('dl dd');
   const target = context.getByLabel('Target input tokens', { exact: true });
   let releasePreview = () => {};
   const previewGate = new Promise<void>(resolve => { releasePreview = resolve; });
@@ -72,7 +75,7 @@ test('Chat settings shows saved branch input alongside editable selections', asy
   try {
     await openChatTool(page, 'Chat settings');
     await expect(target).toHaveAccessibleDescription('Counting current input…');
-    await expect(stats).toHaveText(['2', '2', '40,000', '—']);
+    await expect(stats).toHaveText(['2', '2', `— / ${savedTarget}`]);
   } finally {
     releasePreview();
   }
@@ -90,7 +93,7 @@ test('Chat settings shows saved branch input alongside editable selections', asy
   await expect(target).toHaveAccessibleDescription(savedEstimate);
   await expect(context.locator('details')).toHaveCount(0);
   await expect(sidebar.getByText('Saved Connection · saved-model', { exact: true })).toBeVisible();
-  await expect(stats).toHaveText(['2', '2', '40,000', savedTokens.toLocaleString('en')]);
+  await expect(stats).toHaveText(['2', '2', inputEstimate(savedTokens)]);
   await expect(branchContext).toContainText('Full history');
   await branchContext.click();
   await peekButton.click();
