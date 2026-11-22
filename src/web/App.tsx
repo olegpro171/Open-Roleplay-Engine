@@ -753,12 +753,12 @@ export function App() {
         <dd>{(currentRequest?.history?.verbatimTurns ?? snapshot.totalTurns - snapshot.memory.archivedCount).toLocaleString(locale())}</dd></div>
       <div><dt>{t('chat_workspace.input')}</dt>
         <dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>
-          <strong>{currentRequest ? t('chat_workspace.input_estimate_value', {
+          {currentRequest ? t('chat_workspace.input_estimate_value', {
             estimate: currentRequest.budget.inputTokens.toLocaleString(locale()),
             target: snapshot.settings.targetInputTokens.toLocaleString(locale()),
           }) : t('chat_workspace.input_estimate_unavailable', {
             target: snapshot.settings.targetInputTokens.toLocaleString(locale()),
-          })}</strong>
+          })}
         </dd></div>
     </dl>
     <details className="context-dropdown" open={contextExpanded} onToggle={event => setContextExpanded(event.currentTarget.open)}>
