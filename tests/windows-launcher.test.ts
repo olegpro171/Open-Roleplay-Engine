@@ -91,7 +91,7 @@ it('reproduces the generated launchers and keeps external compatibility baseline
   const hash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
   expect(hash('tests/fixtures/windows-launcher/f553710121c8.bat')).toBe('36da2eba41f560881797eaf4cd042ec3f11769b60b2e6fbbdcc98a3dc2f357ef');
   expect(hash('tests/fixtures/windows-launcher/b6387180d351.bat')).toBe('000184cb43b98b3fcdf26cfbbc556d2bd699a7f86b9d1b951705a4fd2cdde5af');
-  expect(hash('ORE-launcher.bat')).toBe('70f83dea168dd4fd81706ee7fc426fca782394581da77e6900b03fce451e0255');
+  expect(hash('ORE-launcher.bat')).toBe('35da725819cec1d554b52861c8836b83e12280d36f80ead43dff597209f958f1');
 });
 
 describe.skipIf(process.platform !== 'win32')('Windows PowerShell 5.1 builder and ZIP policy', () => {

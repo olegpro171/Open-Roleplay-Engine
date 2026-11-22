@@ -1,18 +1,21 @@
 # Bootstrap contract 2. The normal path runs the installed controller in this
 # PowerShell process. Bootstrap updates run in a short-lived worker so its
 # installation lease and named job are gone before the helper acquires them.
-function Show-OreGreeting {
+function Show-OreGreeting([int]$Version) {
     $greeting = $OreMessages['heading'][$script:OreLanguage]
+    $versionLine = $OreMessages['launcherVersion'][$script:OreLanguage].Replace('{version}', [string]$Version)
     $columnWidth = 80
     $frameWidth = 40
     $innerWidth = $frameWidth - 2
     $margin = ' ' * (($columnWidth - $frameWidth) / 2)
-    $padding = $innerWidth - $greeting.Length
-    $leftPadding = [int][Math]::Floor($padding / 2)
-    $rightPadding = $padding - $leftPadding
     $border = $margin + '+' + ('-' * $innerWidth) + '+'
     [Console]::WriteLine($border)
-    [Console]::WriteLine($margin + '|' + (' ' * $leftPadding) + $greeting + (' ' * $rightPadding) + '|')
+    foreach ($line in @($greeting, $versionLine)) {
+        $padding = $innerWidth - $line.Length
+        $leftPadding = [int][Math]::Floor($padding / 2)
+        $rightPadding = $padding - $leftPadding
+        [Console]::WriteLine($margin + '|' + (' ' * $leftPadding) + $line + (' ' * $rightPadding) + '|')
+    }
     [Console]::WriteLine($border)
 }
 
@@ -29,7 +32,7 @@ $stage = $null
 $lockStream = $null
 $result = 1
 try {
-    if (!$InstallOnly) { Show-OreGreeting }
+    if (!$InstallOnly) { Show-OreGreeting $LauncherVersion }
     Assert-OreWindows
     $script:OreFailure = 'folderCollision'
     $Installation = Assert-OreStandaloneHome $Installation
