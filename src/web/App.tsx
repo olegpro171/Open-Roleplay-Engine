@@ -751,10 +751,14 @@ export function App() {
       <div><dt>{t('app.total_turns')}</dt><dd>{snapshot.totalTurns.toLocaleString(locale())}</dd></div>
       <div title={t('app.saved_turns_kept_verbatim_in_the_current')}><dt>{t('app.active_turns')}</dt>
         <dd>{(currentRequest?.history?.verbatimTurns ?? snapshot.totalTurns - snapshot.memory.archivedCount).toLocaleString(locale())}</dd></div>
-      <div><dt>{t('app.input_target')}</dt><dd>{snapshot.settings.targetInputTokens.toLocaleString(locale())}</dd></div>
-      <div><dt>{t('app.estimated_input')}</dt>
+      <div><dt>{t('chat_workspace.input')}</dt>
         <dd className={currentRequest && currentRequest.budget.inputTokens > inputLimit ? 'over-limit' : ''}>
-          {currentRequest?.budget.inputTokens.toLocaleString(locale()) ?? '—'}
+          <strong>{currentRequest ? t('chat_workspace.input_estimate_value', {
+            estimate: currentRequest.budget.inputTokens.toLocaleString(locale()),
+            target: snapshot.settings.targetInputTokens.toLocaleString(locale()),
+          }) : t('chat_workspace.input_estimate_unavailable', {
+            target: snapshot.settings.targetInputTokens.toLocaleString(locale()),
+          })}</strong>
         </dd></div>
     </dl>
     <details className="context-dropdown" open={contextExpanded} onToggle={event => setContextExpanded(event.currentTarget.open)}>

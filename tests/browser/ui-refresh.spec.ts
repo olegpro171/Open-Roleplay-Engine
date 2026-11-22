@@ -29,7 +29,7 @@ test('keeps chat and memory budget panels mounted during debounced and delayed r
   await context.locator('summary').click();
   await expect(context.locator('.allocation-legend')).toBeVisible();
   const meter = await context.getByRole('meter').elementHandle();
-  const estimate = page.locator('.story-meta dl div').filter({ hasText: 'Estimated input' }).locator('dd');
+  const estimate = page.locator('.story-meta dl div').filter({ has: page.getByText('Input', { exact: true }) }).locator('dd');
   const originalEstimate = await estimate.textContent();
   let releasePreview!: () => void;
   const previewGate = new Promise<void>(resolve => { releasePreview = resolve; });

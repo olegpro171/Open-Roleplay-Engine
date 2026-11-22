@@ -22,8 +22,8 @@ async function fixture(page: Page, title: string) {
   await page.evaluate(id => localStorage.setItem('roleplay-chat', id), chat.id);
   await page.reload();
   await expect(page.locator('.story-meta h1')).toHaveText(title);
-  const estimate = page.locator('.story-meta dl div').filter({ hasText: 'Estimated input' }).locator('dd');
-  await expect(estimate).not.toHaveText('—');
+  const estimate = page.locator('.story-meta dl div').filter({ has: page.getByText('Input', { exact: true }) }).locator('dd');
+  await expect(estimate).toHaveText(/^≈ [\d,]+ \/ 32,000$/);
   return { id: chat.id as string, command, state: () => page.request.get(`/api/chats/${chat.id}/story`).then(response => response.json() as Promise<StorySnapshot>) };
 }
 

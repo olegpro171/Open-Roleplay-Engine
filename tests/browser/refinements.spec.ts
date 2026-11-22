@@ -37,7 +37,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await expect(meta.locator('dl div').filter({ hasText: 'Active turns' })).toHaveText('Active turns8');
   await expect(page.getByText('Your transcript is saved on the Mac.', { exact: true })).toHaveCount(0);
   await expect(page.locator('.composer label')).toHaveCount(0);
-  const estimate = meta.locator('dl div').filter({ hasText: 'Estimated input' }).locator('dd');
+  const estimate = meta.locator('dl div').filter({ has: page.getByText('Input', { exact: true }) }).locator('dd');
   const before = await estimate.textContent();
   await page.getByLabel('Your next turn').fill('Mira keeps the key for herself.');
   await expect(estimate).not.toHaveText(before!);

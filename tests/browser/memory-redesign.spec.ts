@@ -80,10 +80,10 @@ test('updates Memory and Chat Details while preparation is waiting on the next s
   const calls = () => read<unknown[]>('/__test/requests');
   const initial = await plan();
   await openChatTool(page, 'Inspect memory');
-  const sidebarEstimate = page.locator('.chat-details dl > div').filter({ has: page.getByText('Estimated input', { exact: true }) }).locator('dd');
+  const sidebarEstimate = page.locator('.chat-details dl > div').filter({ has: page.getByText('Input', { exact: true }) }).locator('dd');
   const memoryEstimate = page.getByText(/^Estimated input: [\d,]+ \/ 200$/);
   const format = (input: number) => input.toLocaleString('en');
-  await expect(sidebarEstimate).toHaveText(format(initial.inputTokens));
+  await expect(sidebarEstimate).toHaveText(`≈ ${format(initial.inputTokens)} / 200`);
   await expect(memoryEstimate).toHaveText(`Estimated input: ${format(initial.inputTokens)} / 200`);
 
   await page.request.post('/__test/mode', { data: { mode: 'hold' } });
@@ -99,7 +99,7 @@ test('updates Memory and Chat Details while preparation is waiting on the next s
   expect(progress.inputTokens).toBeGreaterThan(progress.targetInputTokens);
 
   const toggle = page.getByRole('button', { name: 'Chat details', exact: true });
-  for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+  for (const theme of themeSchema.options) {
     const appearance = appearanceStatusSchema.parse(await read<unknown>('/api/application/appearance'));
     await write('PUT', '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } });
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
@@ -109,7 +109,7 @@ test('updates Memory and Chat Details while preparation is waiting on the next s
       await expect(memoryEstimate).toHaveText(`Estimated input: ${format(progress.inputTokens)} / 200`);
       if (width === 390) await toggle.click();
       await expect(sidebarEstimate).toBeVisible();
-      await expect(sidebarEstimate).toHaveText(format(progress.inputTokens));
+      await expect(sidebarEstimate).toHaveText(`≈ ${format(progress.inputTokens)} / 200`);
       if (width === 390) await toggle.click();
     }
   }
