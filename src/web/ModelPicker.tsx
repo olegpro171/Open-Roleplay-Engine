@@ -1,7 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { z } from 'zod';
-import { connectionSchema } from '../shared/contracts';
+import { connectionSchema, modelDiscoverySchema, type DiscoveredModel } from '../shared/contracts';
 import { api } from './api';
 import { openModal } from './dialog-focus';
 import { ModalDialog } from './ModalDialog';
@@ -9,12 +8,12 @@ import { Icon } from './Icon';
 import { errorText, formatMessage, LocalizedError, message, t, useLocale, type MessageText } from './localization';
 
 type ModelSource = { endpoint: string; connectionId?: string; apiKey?: string };
-type Discovery = { kind: 'loading' } | { kind: 'ready'; models: string[] } | { kind: 'failed'; error: MessageText };
-const modelsSchema = z.object({ models: z.array(connectionSchema.shape.model).max(10_000) });
+type Discovery = { kind: 'loading' } | { kind: 'ready'; models: DiscoveredModel[] } | { kind: 'failed'; error: MessageText };
+type ReportWindow = (endpoint: string, model: DiscoveredModel) => void;
 const pageSize = 100;
 
-export function ModelField({ value, change, disabled, ...source }: ModelSource & {
-  value: string; change: (model: string) => void; disabled: boolean;
+export function ModelField({ value, change, reportWindow, disabled, ...source }: ModelSource & {
+  value: string; change: (model: DiscoveredModel) => void; reportWindow: ReportWindow; disabled: boolean;
 }) {
   useLocale();
   const id = useId();
@@ -27,15 +26,15 @@ export function ModelField({ value, change, disabled, ...source }: ModelSource &
       <span className={value ? 'select-label' : 'model-placeholder'}>{value || t('model_picker.select')}</span>
       <Icon name="ArrowShortBottom" />
     </button>
-    {open && !disabled && <ModelPicker {...source} value={value} cancel={() => setOpen(false)} select={model => {
+    {open && !disabled && <ModelPicker {...source} value={value} reportWindow={reportWindow} cancel={() => setOpen(false)} select={model => {
       change(model);
       setOpen(false);
     }} />}
   </div>;
 }
 
-function ModelPicker({ value, endpoint, connectionId, apiKey, cancel, select }: ModelSource & {
-  value: string; cancel: () => void; select: (model: string) => void;
+function ModelPicker({ value, endpoint, connectionId, apiKey, cancel, select, reportWindow }: ModelSource & {
+  value: string; cancel: () => void; select: (model: DiscoveredModel) => void; reportWindow: ReportWindow;
 }) {
   useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -47,7 +46,7 @@ function ModelPicker({ value, endpoint, connectionId, apiKey, cancel, select }: 
   const manual = connectionSchema.shape.model.safeParse(query);
   const filter = query.toLowerCase();
   const matches = discovery.kind === 'ready'
-    ? discovery.models.filter(model => model.toLowerCase().includes(filter)) : [];
+    ? discovery.models.filter(model => model.id.toLowerCase().includes(filter)) : [];
 
   useLayoutEffect(() => {
     const node = dialog.current;
@@ -80,22 +79,26 @@ function ModelPicker({ value, endpoint, connectionId, apiKey, cancel, select }: 
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const controller = new AbortController();
     setDiscovery({ kind: 'loading' });
     void (async () => {
       try {
-        const result = modelsSchema.safeParse(await api<unknown>('/models', 'POST', {
+        const result = modelDiscoverySchema.safeParse(await api<unknown>('/models', 'POST', {
           endpoint, ...(connectionId ? { connectionId } : {}), ...(apiKey !== undefined ? { apiKey } : {}),
         }, controller.signal));
+        if (controller.signal.aborted) return;
         if (!result.success) throw new LocalizedError(message('libraries.could_not_fetch_models_check_the_api'));
-        if (!controller.signal.aborted) setDiscovery({ kind: 'ready', models: result.data.models });
+        const { models } = result.data;
+        setDiscovery({ kind: 'ready', models });
+        const selected = models.find(model => model.id === value);
+        if (selected) reportWindow(endpoint, selected);
       } catch (error) {
         if (!controller.signal.aborted) setDiscovery({ kind: 'failed', error: errorText(error, message('libraries.could_not_fetch_models_check_the_api')) });
       }
     })();
     return () => controller.abort();
-  }, [endpoint, connectionId, apiKey, attempt]);
+  }, [endpoint, connectionId, apiKey, attempt, value, reportWindow]);
 
   function navigate(event: KeyboardEvent<HTMLButtonElement>) {
     const buttons = Array.from(list.current?.querySelectorAll<HTMLButtonElement>('[data-model]') ?? []);
@@ -116,7 +119,11 @@ function ModelPicker({ value, endpoint, connectionId, apiKey, cancel, select }: 
       // tree. Submitting a model must never submit/save that outer editor.
       event.preventDefault();
       event.stopPropagation();
-      if (manual.success) select(manual.data);
+      if (manual.success) {
+        const id = manual.data;
+        const model = discovery.kind === 'ready' ? discovery.models.find(model => model.id === id) : undefined;
+        select(model ?? { id });
+      }
     }}>
       <div className="model-picker-search">
         <input aria-label={t('model_picker.search')} placeholder={t('model_picker.search')} autoComplete="off" autoCapitalize="none"
@@ -130,18 +137,18 @@ function ModelPicker({ value, endpoint, connectionId, apiKey, cancel, select }: 
           }} />
       </div>
       <div ref={list} className="model-picker-list" role="region" aria-label={t('model_picker.models')} aria-busy={discovery.kind === 'loading'}>
-        {discovery.kind === 'loading' && <p role="status">{t('model_picker.loading')}</p>}
+        {discovery.kind === 'loading' && <p className="small" role="status">{t('model_picker.loading')}</p>}
         {discovery.kind === 'failed' && <div className="model-picker-notice">
-          <p role="alert">{formatMessage(discovery.error)}</p>
+          <p className="small connection-error" role="alert">{formatMessage(discovery.error)}</p>
           <button type="button" className="secondary" onClick={() => setAttempt(current => current + 1)}>{t('model_picker.retry')}</button>
         </div>}
         {discovery.kind === 'ready' && (matches.length ? <>
-          {matches.slice(0, limit).map(model => <button key={model} type="button" className="quiet model-picker-option" data-model
-            aria-pressed={model === value} onKeyDown={navigate} onClick={() => select(model)}>
-            <span>{model}</span>{model === value && <Icon name="Check" />}
+          {matches.slice(0, limit).map(model => <button key={model.id} type="button" className="quiet model-picker-option" data-model
+            aria-pressed={model.id === value} onKeyDown={navigate} onClick={() => select(model)}>
+            <span>{model.id}</span>{model.id === value && <Icon name="Check" />}
           </button>)}
           {matches.length > limit && <button type="button" className="secondary" onClick={() => setLimit(current => current + pageSize)}>{t('model_picker.more')}</button>}
-        </> : <p role="status">{t(discovery.models.length ? 'model_picker.no_matches' : 'libraries.the_provider_returned_an_empty_model_list')}</p>)}
+        </> : <p className="small muted" role="status">{t(discovery.models.length ? 'model_picker.no_matches' : 'libraries.the_provider_returned_an_empty_model_list')}</p>)}
       </div>
       <div className="model-picker-footer">
         <button type="button" className="secondary" onClick={cancel}>{t('character_import.cancel')}</button>

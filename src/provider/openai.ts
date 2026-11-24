@@ -1,7 +1,7 @@
 import { message, type LocalizedMessage } from '../shared/localization.js';
 import { AppError } from '../core/errors.js';
 import { z } from 'zod';
-import type { RequestPreview, TokenUsage } from '../shared/contracts.js';
+import { connectionSchema, modelDiscoveryLimit, type DiscoveredModel, type RequestPreview, type TokenUsage } from '../shared/contracts.js';
 
 export interface ProviderCompletion {
   finishReason: 'stop' | 'length';
@@ -43,9 +43,21 @@ function httpFailureMessage(status: number, hasApiKey: boolean, action: 'models'
   return message(action === 'models' ? 'errors.provider_models_http_failure' : 'errors.provider_generation_http_failure', { status });
 }
 
-export async function fetchModels(endpoint: string, apiKey: string): Promise<string[]> {
+const listedModelsSchema = z.object({
+  data: z.array(z.object({
+    id: connectionSchema.shape.model,
+    context_length: connectionSchema.shape.contextWindow.optional().catch(undefined),
+    available: z.unknown().optional(),
+  })).max(modelDiscoveryLimit),
+});
+const nanoGptCatalogs = new Set(['/api/v1/models', '/api/subscription/v1/models', '/api/paid/v1/models']);
+
+export async function fetchModels(endpoint: string, apiKey: string): Promise<DiscoveredModel[]> {
   try {
-    const response = await fetch(`${endpoint.replace(/\/+$/, '')}/models`, {
+    const url = new URL(`${endpoint.replace(/\/+$/, '')}/models`);
+    const nanoGpt = (url.origin === 'https://api.nano-gpt.com' || url.origin === 'https://nano-gpt.com') && nanoGptCatalogs.has(url.pathname);
+    if (nanoGpt) url.searchParams.set('detailed', 'true');
+    const response = await fetch(url.href, {
       redirect: 'error', signal: AbortSignal.timeout(20_000),
       headers: { Accept: 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
     });
@@ -67,11 +79,19 @@ export async function fetchModels(endpoint: string, apiKey: string): Promise<str
       }
       body += decoder.decode();
     } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
-    const result: unknown = JSON.parse(body);
-    if (!result || typeof result !== 'object' || !('data' in result) || !Array.isArray(result.data)) throw new Error('Invalid model list.');
-    const models = result.data.map((model: unknown) => model && typeof model === 'object' && 'id' in model ? model.id : null);
-    if (models.some(id => typeof id !== 'string' || !id.trim() || id.length > 200) || models.length > 10_000) throw new Error('Invalid model identifiers.');
-    return [...new Set(models as string[])].sort();
+    const { data } = listedModelsSchema.parse(JSON.parse(body));
+    const windows = new Map<string, number | null | undefined>();
+    for (const { id, context_length: window, available } of data) {
+      if (nanoGpt && available === false) continue;
+      const prior = windows.get(id);
+      // Conflicting totals for the same ID leave its capacity unknown.
+      if (prior !== undefined && window !== undefined && prior !== window) windows.set(id, null);
+      else if (prior === undefined) windows.set(id, window);
+    }
+    return [...windows.keys()].sort().map(id => {
+      const contextWindow = windows.get(id);
+      return contextWindow == null ? { id } : { id, contextWindow };
+    });
   } catch (error) {
     if (error instanceof AppError) throw error;
     throw new AppError(502, 'model_list_unavailable', message("errors.could_not_read_the_provider_s_model_list"));

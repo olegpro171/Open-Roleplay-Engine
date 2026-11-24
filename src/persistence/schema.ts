@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { blob, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { ChatSettings, Connection, Generation, GenerationStatus, RequestPreview, TokenUsage } from '../shared/contracts.js';
+import type { ChatSettings, ConnectionRecord, Generation, GenerationStatus, RequestPreview, TokenUsage } from '../shared/contracts.js';
 import type { LibraryCharacter, Persona, PromptPreset } from '../shared/library.js';
 import type { ContextPreset } from '../shared/context.js';
 import type { Lorebook } from '../shared/lorebook.js';
@@ -31,7 +31,7 @@ export const composerDrafts = sqliteTable('composer_drafts', {
 });
 export const connections = sqliteTable('connections', {
   ...libraryDates(),
-  id: text('id').primaryKey(), settings: text('settings', { mode: 'json' }).$type<Connection>().notNull(),
+  id: text('id').primaryKey(), settings: text('settings', { mode: 'json' }).$type<ConnectionRecord>().notNull(),
   revision: integer('revision').notNull().default(0),
 });
 export const library = sqliteTable('library', {

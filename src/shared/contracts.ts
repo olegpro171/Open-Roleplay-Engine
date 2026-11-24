@@ -17,9 +17,38 @@ export const connectionSchema = z.object({
   maxOutputTokens: z.number().int().positive().max(1_000_000),
   customParameters: customParametersSchema,
   requestUsage: z.boolean().optional(),
-}).strict().refine((value) => value.maxOutputTokens < value.contextWindow, {
+}).strict().refine(outputFitsContextWindow, {
   message: 'Reserved output must be smaller than the context window.', path: ['maxOutputTokens'],
 });
+
+export function outputFitsContextWindow({ contextWindow, maxOutputTokens }: { contextWindow: number; maxOutputTokens: number }): boolean {
+  return maxOutputTokens < contextWindow;
+}
+
+export const connectionRecordSchema = connectionSchema.safeExtend({
+  modelWindowReport: z.strictObject({
+    endpoint: connectionSchema.shape.endpoint,
+    model: connectionSchema.shape.model,
+    tokens: connectionSchema.shape.contextWindow,
+  }).optional(),
+}).refine(({ endpoint, model, modelWindowReport }) =>
+  !modelWindowReport || (modelWindowReport.endpoint === endpoint && modelWindowReport.model === model), {
+  message: 'The reported window must match the Connection endpoint and model.', path: ['modelWindowReport'],
+});
+
+export type ConnectionRecord = z.infer<typeof connectionRecordSchema>;
+
+export function connectionSettings({ modelWindowReport: _report, ...settings }: ConnectionRecord): Connection {
+  return settings;
+}
+
+export const modelDiscoveryLimit = 10_000;
+const discoveredModelSchema = z.object({
+  id: connectionSchema.shape.model,
+  contextWindow: connectionSchema.shape.contextWindow.optional(),
+});
+export const modelDiscoverySchema = z.object({ models: z.array(discoveredModelSchema).max(modelDiscoveryLimit) });
+export type DiscoveredModel = z.infer<typeof discoveredModelSchema>;
 
 export const chatSettingsSchema = z.object({
   title: z.string().trim().min(1).max(100),

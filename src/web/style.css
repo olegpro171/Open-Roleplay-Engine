@@ -154,9 +154,8 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .model-picker-search{padding:10px;flex-shrink:0}
 .model-picker-search input{font-size:16px;min-height:44px}
 .model-picker-list{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 6px;scrollbar-color:var(--scrollbar) transparent}
-.model-picker-list>p,.model-picker-notice{padding:8px;margin:0;font-size:14px;color:var(--muted)}
+.model-picker-list>p,.model-picker-notice{padding:8px;margin:0}
 .model-picker-notice p{margin-bottom:10px}
-.model-picker-notice [role=alert]{color:var(--danger-text)}
 .model-picker button{min-height:44px}
 .model-picker .model-picker-option{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:10px 8px;text-align:left;color:var(--text);font-size:14px;overflow-wrap:anywhere}
 .model-picker-option>span{min-width:0}
@@ -490,6 +489,10 @@ a[href][data-pointer-pressed]{text-decoration:underline;text-decoration-thicknes
 @media(pointer:coarse) and (orientation:landscape){.composer textarea{font-size:calc(16px * var(--chat-text-scale,1))}}
 
 .connection-stop-sequence{min-height:0}
+.connection-window-status{display:flex;align-items:center;gap:8px;min-block-size:44px;font-size:12px;white-space:nowrap}
+.connection-window-status>.text-link{display:flex;align-items:center;min-block-size:44px;font:inherit}
+.connection-output-status{min-block-size:1lh}
+.connection-error,.connection-output-status[role=alert]{color:var(--danger-text)}
 .connection-tools .connection-help{margin:14px 0 18px}.connection-success{color:var(--success)}
 :root:is([data-theme="light"],[data-theme="porcelain"]) .connection-success{color:var(--success-text)}
 .messages-marker-option{margin-top:14px}

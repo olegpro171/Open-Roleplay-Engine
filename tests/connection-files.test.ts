@@ -34,7 +34,9 @@ async function open(name: string) {
 
 it.each(['', '\uFEFF Пароль 🔑  '])('round trips settings across installations with optional keys and exact password %j', async password => {
   const source = await open('source'), destination = await open('destination');
-  const original = source.store.saveLibrary(source.store.libraryRevision(), 'connections', connection, undefined, secret);
+  const modelWindowReport = { endpoint: connection.endpoint, model: connection.model, tokens: 32_768 };
+  const original = source.store.saveLibrary(source.store.libraryRevision(), 'connections', { ...connection, modelWindowReport }, undefined, secret);
+  expect(source.store.libraries().connections).toMatchObject([{ id: original, modelWindowReport }]);
   for (const includeApiKey of [false, true]) {
     const download = await source.post(`/api/library/connections/${original}/export`, { password, includeApiKey });
     expect(download.statusCode, download.body).toBe(200);
@@ -65,6 +67,35 @@ it.each(['', '\uFEFF Пароль 🔑  '])('round trips settings across install
   const profile = JSON.parse((await unprotectBytes(defaultExport.rawPayload, 'connection', '', connectionPlaintextMaxBytes)).toString());
   expect(profile).not.toHaveProperty('apiKey');
   expect(source.store.connectionApiKey(original)).toBe(secret);
+});
+
+it('commits only valid reports scoped to the saved endpoint and model', async () => {
+  const application = await open('reported-window');
+  const modelWindowReport = { endpoint: connection.endpoint, model: connection.model, tokens: 32_768 };
+  const created = await application.post('/api/library', {
+    revision: application.store.libraryRevision(), kind: 'connections', data: { ...connection, modelWindowReport }, apiKey: secret,
+  });
+  expect(created.statusCode).toBe(200);
+  const { id } = created.json<{ id: string }>();
+  const before = application.store.libraries();
+  const save = (data: object, revision = before.revision) => application.app.inject({
+    method: 'PUT', url: `/api/library/${id}`, headers: application.headers, payload: { revision, kind: 'connections', data },
+  });
+  for (const data of [
+    { ...connection, endpoint: 'http://localhost:9998/v1', modelWindowReport },
+    { ...connection, model: 'different-model', modelWindowReport },
+    { ...connection, modelWindowReport: { ...modelWindowReport, tokens: 10_000_001 } },
+  ]) {
+    expect((await save(data)).statusCode).toBe(400);
+    expect(application.store.libraries()).toEqual(before);
+  }
+  expect((await save({ ...connection, contextWindow: 32_768, modelWindowReport }, before.revision - 1)).statusCode).toBe(409);
+  expect(application.store.libraries()).toEqual(before);
+  expect((await save({ ...connection, model: 'different-model' })).statusCode).toBe(200);
+  const changed = application.store.libraries().connections[0];
+  expect(changed).toMatchObject({ model: 'different-model', contextWindow: 65_000, maxOutputTokens: 2345 });
+  expect(changed.modelWindowReport).toBeUndefined();
+  expect(application.store.connectionApiKey(id)).toBe(secret);
 });
 
 it('rejects tampering, wrong kinds, invalid settings, oversized and malformed files without changing data', async () => {

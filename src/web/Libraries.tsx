@@ -22,9 +22,9 @@ import { WarningDialog, WarningMessages } from './WarningDialog';
 import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { CharacterAvatar, PictureSquare } from './Pictures';
 import { LibraryCard } from './LibraryCard';
-import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
-import type { Connection, ConnectionDiagnostic } from '../shared/contracts';
+import { connectionSettings, outputFitsContextWindow, type Connection, type ConnectionRecord, type ConnectionDiagnostic, type DiscoveredModel } from '../shared/contracts';
 import { characterLabel, personaLabel, characterFields, defaultPrompt, markers, markerLabel, promptWarningMessages, type ChatSummary, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { upgradePrompt } from '../core/prompt-upgrade';
 import { TranscriptImport } from './TranscriptImport';
@@ -45,7 +45,7 @@ import { defaultContextPreset, type ContextPreset } from '../shared/context';
 import { newLorebook, type Lorebook, type LoreDiagnostic } from '../shared/lorebook';
 import { LorebookEditor, LorebookImport, LoreDiagnostics } from './LorebookEditor';
 import { CopyLibraryDraft, LibraryDraftNotice, StaleLibraryDraft, useLibraryEditorDraft } from './LibraryDraft';
-import { sameDraftValue, type LibraryDraft, type LibraryEditorDraft, type SetupReturn } from './library-draft';
+import { sameDraftValue, type DraftOf, type LibraryDraft, type LibraryEditorDraft, type SetupReturn } from './library-draft';
 
 export const defaultConnection: Connection = { name: 'My Connection', endpoint: 'https://api.openai.com/v1', model: '', contextWindow: 128_000, maxOutputTokens: 8196, customParameters: {} };
 
@@ -62,7 +62,7 @@ function newPrompt(): PromptPreset {
   };
 }
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
-type LibraryRecord = LibraryCharacter | LibraryPersona | PromptPreset | Connection | ContextPreset | Lorebook;
+type LibraryRecord = LibraryCharacter | LibraryPersona | PromptPreset | ConnectionRecord | ContextPreset | Lorebook;
 
 function libraryCardDetails(item: LibraryRecord): string | undefined {
   if ('entries' in item) {
@@ -597,6 +597,7 @@ function DefaultBookmark({ kind, item, defaults, libraryRevision, busy, run }: {
 }
 
 type StandardDraft = Exclude<LibraryEditorDraft, { kind: 'characters' | 'lorebooks' }>;
+type ContextWindowSource = DraftOf<'connections'>['contextWindowSource'];
 
 function comparableLibraryFields(data: StandardDraft['data']) {
   if ('description' in data) return { ...data, titleComment: data.titleComment ?? '', speechColor: data.speechColor ?? null };
@@ -604,7 +605,7 @@ function comparableLibraryFields(data: StandardDraft['data']) {
   return data;
 }
 
-function connectionFromDraft(connection: Connection, parameters: ConnectionParameterDraft): Connection {
+function connectionFromDraft(connection: ConnectionRecord, parameters: ConnectionParameterDraft): ConnectionRecord {
   if (!connection.model.trim()) throw new LocalizedError(msg('model_picker.required'));
   return { ...connection, customParameters: parseConnectionParameters(parameters) };
 }
@@ -613,20 +614,35 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
   useLocale();
   const formId = useId();
   const [data, setData] = useState(recovered?.data ?? initial.data);
+  const connection = 'endpoint' in data ? data : undefined;
+  const baselineWindow = 'endpoint' in initial.data ? initial.data.contextWindow : defaultConnection.contextWindow;
+  const [windowSource, setWindowSource] = useState<ContextWindowSource>(() => {
+    if (recovered?.kind !== 'connections') return undefined;
+    if (recovered.contextWindowSource) return recovered.contextWindowSource;
+    if (recovered.data.contextWindow !== baselineWindow || recovered.numbers?.contextWindow !== undefined) return 'manual';
+  });
   const [key, setKey] = useState('');
   const [removeKey, setRemoveKey] = useState(recovered?.kind === 'connections' && recovered.removeKey);
   const [baselineParameters] = useState(() => connectionParameterDraft('customParameters' in initial.data ? initial.data.customParameters : {}));
   const [parameters, setParameters] = useState(() => recovered?.kind === 'connections'
     ? recoverConnectionParameters(recovered.data.customParameters, recovered) : baselineParameters);
   const numberDraft = useNumberDraft(recovered?.numbers);
+  const reportedWindow = connection?.modelWindowReport?.tokens;
+  const windowMatchesReport = reportedWindow !== undefined && connection?.contextWindow === reportedWindow
+    && numberDraft.values.contextWindow === undefined;
+  const windowLabel = reportedWindow !== undefined
+    ? windowMatchesReport ? 'libraries.context_window_provider' : 'libraries.context_window_manual'
+    : !initial.id && !windowSource ? 'libraries.context_window_default' : 'libraries.context_window_unknown';
+  const outputConflict = connection !== undefined && numberDraft.values.contextWindow === undefined && numberDraft.values.maxOutputTokens === undefined
+    && !outputFitsContextWindow(connection);
   const keyOmitted = !removeKey && key !== '';
   const draft = useMemo<StandardDraft>(() => {
     const target = { id: initial.id, revision: initial.revision, numbers: numberDraft.values };
-    if ('endpoint' in data) return { ...target, kind: 'connections', returnTo: initial.returnTo, data, ...parameters, removeKey, keyOmitted };
+    if ('endpoint' in data) return { ...target, kind: 'connections', returnTo: initial.returnTo, data, ...parameters, removeKey, keyOmitted, contextWindowSource: windowSource };
     if ('blocks' in data) return { ...target, kind: 'prompts', data };
     if ('batchSize' in data) return { ...target, kind: 'contexts', data };
     return { ...target, kind: 'personas', returnTo: initial.returnTo, data };
-  }, [initial.id, initial.revision, initial.returnTo, data, parameters, removeKey, keyOmitted, numberDraft.values]);
+  }, [initial.id, initial.revision, initial.returnTo, data, parameters, removeKey, keyOmitted, numberDraft.values, windowSource]);
   const dataChanged = useMemo(() => data !== initial.data && !sameDraftValue(comparableLibraryFields(data), comparableLibraryFields(initial.data)), [data, initial.data]);
   const dirty = dataChanged || !sameDraftValue(parameters, baselineParameters) || removeKey || key !== '' || numberDraft.dirty;
   const storageError = useLibraryEditorDraft(draft, dirty);
@@ -634,9 +650,42 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
   const [staleWarningDismissed, setStaleWarningDismissed] = useState(false);
   const stale = initial.revision !== currentRevision;
   const reviewMemoryCleanup = useMemoryCleanup(run, initial.id);
+  const rememberModelWindow = useCallback((endpoint: string, model: DiscoveredModel) => {
+    setData(current => {
+      if (!('endpoint' in current) || current.endpoint !== endpoint || current.model !== model.id
+        || current.modelWindowReport?.tokens === model.contextWindow) return current;
+      return { ...current, modelWindowReport: model.contextWindow === undefined ? undefined
+        : { endpoint, model: model.id, tokens: model.contextWindow } };
+    });
+  }, []);
+  function replaceContextWindow(next: ConnectionRecord, source?: ContextWindowSource, contextWindow = baselineWindow) {
+    numberDraft.set('contextWindow', undefined);
+    setWindowSource(source);
+    setData({ ...next, contextWindow });
+  }
+  function changeEndpoint(current: ConnectionRecord, endpoint: string) {
+    if (endpoint === current.endpoint) return;
+    const next = { ...current, endpoint, modelWindowReport: undefined };
+    if (windowSource === 'provider') replaceContextWindow(next);
+    else setData(next);
+  }
+  function selectModel(current: ConnectionRecord, model: DiscoveredModel) {
+    const modelChanged = model.id !== current.model;
+    const modelWindowReport = model.contextWindow !== undefined
+      ? { endpoint: current.endpoint, model: model.id, tokens: model.contextWindow }
+      : modelChanged ? undefined : current.modelWindowReport;
+    const next = { ...current, model: model.id, modelWindowReport };
+    if (!initial.id && model.contextWindow !== undefined && (modelChanged || windowSource !== 'manual')) {
+      replaceContextWindow(next, 'provider', model.contextWindow);
+    } else if (modelChanged && windowSource === 'provider') {
+      replaceContextWindow(next);
+    } else {
+      setData(next);
+    }
+  }
   async function save(e: FormEvent) {
     e.preventDefault();
-    if (busy || stale) return;
+    if (busy || stale || outputConflict) return;
     setError('');
     let value = data;
     if ('endpoint' in data) {
@@ -686,21 +735,50 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
       {textField('description', t('libraries.persona_description'), true, true, t('libraries.persona_description_help'))}
     </>}
     {initial.kind === 'contexts' && <ContextPresetFields value={data as ContextPreset} change={setData} connections={connections} />}
-    {initial.kind === 'connections' && <>
-      <label className="full">{t("libraries.api_base_url")}<input type="url" required value={(data as Connection).endpoint} onChange={e => setData({ ...data as Connection, endpoint: e.target.value })} /></label>
+    {connection && <>
+      <label className="full">{t("libraries.api_base_url")}<input type="url" required value={connection.endpoint} onChange={e => changeEndpoint(connection, e.target.value)} /></label>
       <div className="full api-key-row"><label>{t("libraries.api_key")}<input type="password" autoComplete="new-password" disabled={removeKey} placeholder={initial.hasApiKey ? t("libraries.saved_leave_blank_to_keep_it") : t("libraries.optional_for_endpoints_without_authentication")} value={key} onChange={e => setKey(e.target.value)} /></label>{initial.hasApiKey && <label className="checkbox"><input type="checkbox" checked={removeKey} onChange={e => setRemoveKey(e.target.checked)} />{t("libraries.remove_the_saved_api_key")}</label>}</div>
-      <ModelField value={(data as Connection).model} endpoint={(data as Connection).endpoint} connectionId={initial.id}
-        apiKey={removeKey ? '' : key || undefined} disabled={busy} change={model => setData({ ...data as Connection, model })} />
-      <label>{t("libraries.model_context_window")}<NumberInput draftField="contextWindow" required value={(data as Connection).contextWindow} onChange={contextWindow => setData({ ...data as Connection, contextWindow })} /></label><label>{t("libraries.reserved_output_tokens")}<NumberInput draftField="maxOutputTokens" required max={1_000_000} value={(data as Connection).maxOutputTokens} onChange={maxOutputTokens => setData({ ...data as Connection, maxOutputTokens })} /></label><label className="checkbox full"><input type="checkbox" checked={(data as Connection).requestUsage !== false} onChange={e => setData({ ...data as Connection, requestUsage: e.target.checked })} />{t("libraries.request_token_usage_from_the_endpoint")}</label><p className="small muted full">{t("libraries.turn_statistics_use_counts_supplied_by_the")}</p>
+      <ModelField value={connection.model} endpoint={connection.endpoint} connectionId={initial.id}
+        apiKey={removeKey ? '' : key || undefined} disabled={busy} change={model => selectModel(connection, model)} reportWindow={rememberModelWindow} />
+      <div>
+        <label>{t('libraries.model_context_window')}
+          <NumberInput draftField="contextWindow" required value={connection.contextWindow}
+            aria-describedby={connection.model ? `${formId}-window-source` : undefined}
+            onEdit={() => setWindowSource('manual')} onChange={contextWindow => setData({ ...connection, contextWindow })} />
+        </label>
+        <div className="connection-window-status">
+          {connection.model && <small className="muted" id={`${formId}-window-source`}>{t(windowLabel)}</small>}
+          {reportedWindow !== undefined && !windowMatchesReport &&
+            <button type="button" className="text-link" title={t('libraries.context_window_apply_reported')}
+              onClick={() => replaceContextWindow(connection, 'provider', reportedWindow)}>
+              {t('libraries.context_window_restore', { tokens: reportedWindow.toLocaleString(locale()) })}
+            </button>}
+        </div>
+      </div>
+      <div>
+        <label>{t('libraries.reserved_output_tokens')}
+          <NumberInput draftField="maxOutputTokens" required max={1_000_000} value={connection.maxOutputTokens}
+            aria-invalid={outputConflict || undefined} aria-describedby={outputConflict ? `${formId}-output-conflict` : undefined}
+            onChange={maxOutputTokens => setData({ ...connection, maxOutputTokens })} />
+        </label>
+        <small className="field-help muted connection-output-status" id={`${formId}-output-conflict`} role="alert">
+          {outputConflict && (connection.contextWindow === 1 ? t('libraries.context_window_too_small')
+            : t('libraries.context_window_output_conflict', { tokens: connection.contextWindow.toLocaleString(locale()) }))}
+        </small>
+      </div>
+      <label className="checkbox full"><input type="checkbox" checked={connection.requestUsage !== false}
+        onChange={e => setData({ ...connection, requestUsage: e.target.checked })} />{t('libraries.request_token_usage_from_the_endpoint')}</label>
+      <p className="small muted full">{t('libraries.turn_statistics_use_counts_supplied_by_the')}</p>
       <ConnectionParameters draft={parameters} change={setParameters} disabled={busy} />
-      <ConnectionTools connection={data as Connection} parameters={parameters} connectionId={initial.id} apiKey={removeKey ? '' : key || undefined} disabled={stale} />
+      <ConnectionTools connection={connectionSettings(connection)} parameters={parameters} connectionId={initial.id}
+        apiKey={removeKey ? '' : key || undefined} disabled={stale || outputConflict} />
     </>}
     {initial.kind === 'prompts' && <PromptEditor value={data as PromptPreset} change={setData} />}
   </div></fieldset>
-    {error && <p role="alert">{error}</p>}
+    {error && <p className={connection ? 'small connection-error' : undefined} role="alert">{error}</p>}
     {stale && !staleWarningDismissed && <WarningDialog message={msg('libraries.the_library_changed_close_this_editor_and')} close={() => setStaleWarningDismissed(true)} />}
     {stale && dirty && <CopyLibraryDraft editor={draft} />}
-    <EditorActions formId={formId} disabled={busy || stale} cancelDisabled={busy} close={close} />
+    <EditorActions formId={formId} disabled={busy || stale || outputConflict} cancelDisabled={busy} close={close} />
   </form></NumberDraftContext.Provider>;
 }
 function ConnectionTools({ connection, parameters, connectionId, apiKey, disabled }: { connection: Connection; parameters: ConnectionParameterDraft; connectionId?: string; apiKey?: string; disabled: boolean }) {
@@ -726,7 +804,7 @@ function ConnectionTools({ connection, parameters, connectionId, apiKey, disable
     <div className="actions"><button type="button" className="secondary" disabled={disabled || testing} onClick={() => void diagnose('check')}>{t("libraries.check_connection")}</button><button type="button" className="secondary" disabled={disabled || testing} onClick={() => void diagnose('test')}>{t("libraries.send_test_message")}</button></div>
     <p className="small muted connection-help">{t("libraries.enter_your_provider_s_api_key_above")}</p>
     {testing && <p className="small" role="status">{t("libraries.testing_connection")}</p>}
-    {error && <p role="alert">{error}</p>}
+    {error && <p className="small connection-error" role="alert">{error}</p>}
     {result && <div className="connection-test-result" role="status"><p className="small connection-success">{formatMessage(result.localized ?? result.message)}</p>{result.request && <><p className="small">{result.usage ? t("libraries.token_usage_input_output", { value: result.usage.inputTokens.toLocaleString(locale()), value2: result.usage.outputTokens.toLocaleString(locale()) }) : t("libraries.token_usage_unavailable")}</p><details><summary>{t("libraries.test_request_and_response")}</summary><pre>{JSON.stringify({ request: result.request, response: result.response, usage: result.usage }, null, 2)}</pre></details></>}</div>}
   </div>;
 }

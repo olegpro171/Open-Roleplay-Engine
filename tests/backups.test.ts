@@ -40,6 +40,26 @@ beforeEach(() => { directory = mkdtempSync(join(tmpdir(),'ore-backup-test-')); }
 afterEach(() => { for (const value of services.splice(0)) value.close(); for (const value of stores.splice(0)) if (value.sqlite.open) value.close(); rmSync(directory,{ recursive: true,force: true }); });
 
 describe('portable backup persistence',() => {
+  it('recovers a saved provider window alongside its manual override and older Connections', async () => {
+    const source = store('window-source', undefined, false);
+    const connection = { name: 'Synthetic', endpoint: 'http://localhost/v1', model: 'mock', contextWindow: 28_000, maxOutputTokens: 1_000, customParameters: {} };
+    const legacy = source.saveLibrary(source.libraryRevision(), 'connections', connection);
+    const modelWindowReport = { endpoint: connection.endpoint, model: connection.model, tokens: 32_000 };
+    const reported = source.saveLibrary(source.libraryRevision(), 'connections', { ...connection, name: 'Reported', modelWindowReport });
+    const expected = source.libraries().connections;
+    source.close();
+
+    const reopened = store('window-source', undefined, false), backups = service(reopened, 'window-source');
+    expect(reopened.libraries().connections).toEqual(expected);
+    const destination = store('window-target', undefined, false), target = service(destination, 'window-target');
+    const review = await target.inspect(Readable.from([await bytes(backups)]), owner);
+    expect(review.blockers).toEqual([]);
+    target.commit(review.stageId, owner, receipt(review));
+    expect(destination.libraries().connections).toEqual(expected);
+    expect(destination.libraries().connections.find(item => item.id === legacy)?.modelWindowReport).toBeUndefined();
+    expect(destination.libraries().connections.find(item => item.id === reported)).toMatchObject({ contextWindow: 28_000, modelWindowReport });
+  });
+
   it('round-trips a continuation and the earlier response version it extended', async () => {
     const source = store('continue-source'), backups = service(source, 'continue-source');
     const connection = { name: 'Synthetic', endpoint: 'http://localhost/v1', model: 'mock', contextWindow: 32_000, maxOutputTokens: 1_000, customParameters: {} };

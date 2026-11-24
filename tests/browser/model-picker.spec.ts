@@ -1,7 +1,8 @@
 import { selectLibraryCategory } from './library-card-helpers';
 import { expect, type Page } from '@playwright/test';
 import { test } from './isolated-app';
-import { appearanceStatusSchema } from '../../src/shared/appearance';
+import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
+import type { LibrarySnapshot } from '../../src/shared/library';
 
 async function editor(page: Page) {
   await page.goto('/');
@@ -47,7 +48,7 @@ for (const width of [1280, 801, 800, 390]) {
         const calls: unknown[] = [];
         await page.route('**/api/models', route => {
           calls.push(route.request().postDataJSON());
-          return route.fulfill({ json: { models } });
+          return route.fulfill({ json: { models: models.map(id => ({ id })) } });
         });
         const trigger = page.getByRole('button', { name: 'Model identifier', exact: true });
         await expect(trigger).toHaveText('Select model');
@@ -148,9 +149,9 @@ test('manual identifiers work during loading, after errors/empty lists, and afte
   let calls = 0;
   await page.route('**/api/models', async route => {
     calls++;
-    if (calls === 1) { await gate; await route.fulfill({ json: { models: ['late-model'] } }); }
+    if (calls === 1) { await gate; await route.fulfill({ json: { models: [{ id: 'late-model' }] } }); }
     else if (calls === 2) await route.fulfill({ status: 502, json: { message: 'Synthetic model discovery failure' } });
-    else await route.fulfill({ json: { models: calls === 3 ? [] : ['listed-model'] } });
+    else await route.fulfill({ json: { models: calls === 3 ? [] : [{ id: 'listed-model' }] } });
   });
   const trigger = page.getByRole('button', { name: 'Model identifier', exact: true });
   const dialog = page.getByRole('dialog', { name: 'Select model', exact: true });
@@ -180,6 +181,8 @@ test('manual identifiers work during loading, after errors/empty lists, and afte
   await expect(trigger).toHaveText('unlisted-model');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('article')).toContainText('unlisted-model');
+  await page.getByRole('article').getByRole('heading').getByRole('button').click();
+  await expect(page.getByLabel('Model context window', { exact: true })).toHaveAccessibleDescription('Provider limit unknown');
 });
 
 test('retries retain the query and new openings use the latest endpoint/key without stale results', async ({ page }) => {
@@ -189,7 +192,7 @@ test('retries retain the query and new openings use the latest endpoint/key with
     calls.push(route.request().postDataJSON());
     return route.fulfill(calls.length === 1
       ? { status: 502, json: { message: 'Synthetic failure' } }
-      : { json: { models: [calls.length === 2 ? 'retry-model' : 'changed-model'] } });
+      : { json: { models: [{ id: calls.length === 2 ? 'retry-model' : 'changed-model' }] } });
   });
   const trigger = page.getByRole('button', { name: 'Model identifier', exact: true });
   const dialog = page.getByRole('dialog', { name: 'Select model', exact: true });
@@ -221,9 +224,9 @@ test('a cancelled discovery cannot replace a reopened picker and missing models 
     calls++;
     if (calls === 1) {
       await gate;
-      try { await route.fulfill({ json: { models: ['late-old-model'] } }); }
+      try { await route.fulfill({ json: { models: [{ id: 'late-old-model' }] } }); }
       finally { settled(); }
-    } else await route.fulfill({ json: { models: ['current-model'] } });
+    } else await route.fulfill({ json: { models: [{ id: 'current-model' }] } });
   });
   const trigger = page.getByRole('button', { name: 'Model identifier', exact: true });
   const dialog = page.getByRole('dialog', { name: 'Select model', exact: true });
@@ -272,7 +275,7 @@ test('Russian picker preserves literal model identifiers and rejects malformed d
   await page.reload();
   await page.getByRole('button', { name: 'Библиотека', exact: true }).click();
   await expect(page.getByRole('group', { name: 'Новое подключение', exact: true })).toBeVisible();
-  await page.route('**/api/models', route => route.fulfill({ json: { models: ['valid-model', 42] } }));
+  await page.route('**/api/models', route => route.fulfill({ json: { models: [{ id: 'valid-model' }, 42] } }));
   await page.getByRole('button', { name: 'Идентификатор модели', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Выберите модель', exact: true });
   await expect(dialog.getByRole('alert')).toContainText('Не удалось получить модели');
@@ -282,3 +285,249 @@ test('Russian picker preserves literal model identifiers and rejects malformed d
   await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Идентификатор модели', exact: true })).toHaveText('Literal/provider-model');
 });
+
+async function readConnections(page: Page) {
+  const response = await page.request.get('/api/library');
+  expect(response.ok()).toBe(true);
+  return (await response.json() as LibrarySnapshot).connections;
+}
+
+async function chooseModel(page: Page, id: string) {
+  await page.getByRole('button', { name: 'Model identifier', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Select model', exact: true }).getByRole('button', { name: id, exact: true }).click();
+}
+
+test('fills the total window for new selections and preserves a manual edit when reselecting the same model', async ({ page }) => {
+  const endpoint = await editor(page);
+  const window = page.getByLabel('Model context window', { exact: true });
+  const reserved = page.getByLabel('Reserved output tokens', { exact: true });
+  await expect(window).toHaveValue('128000');
+  await expect(window).toHaveAccessibleDescription('');
+  await chooseModel(page, 'another-model');
+  await expect(window).toHaveValue('16384');
+  await expect(window).toHaveAccessibleDescription('Reported by the provider');
+  await expect(reserved).toHaveValue('8196');
+  await chooseModel(page, 'synthetic-roleplay');
+  await expect(window).toHaveValue('128000');
+  await expect(window).toHaveAccessibleDescription('Default · provider limit unknown');
+  await chooseModel(page, 'another-model');
+  await expect(window).toHaveValue('16384');
+  await window.fill('128000');
+  await expect(window).toHaveValue('128000');
+  await expect(window).toHaveAccessibleDescription('Manually set');
+  page.once('dialog', dialog => dialog.accept());
+  await page.reload();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await expect(window).toHaveValue('128000');
+  await expect(window).toHaveAccessibleDescription('Manually set');
+  await chooseModel(page, 'another-model');
+  await expect(window).toHaveValue('128000');
+  await expect(window).toHaveAccessibleDescription('Manually set');
+  const restore = page.getByRole('button', { name: 'Use 16,384', exact: true });
+  await expect(restore).toBeVisible();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const card = page.getByRole('article').getByRole('heading').getByRole('button');
+  await expect(page.getByRole('article')).toContainText('another-model');
+  const saved = await readConnections(page);
+  expect(saved).toMatchObject([{ contextWindow: 128_000, maxOutputTokens: 8196,
+    modelWindowReport: { endpoint, model: 'another-model', tokens: 16_384 } }]);
+  const discoveryCalls: string[] = [];
+  await page.route('**/api/models', route => {
+    discoveryCalls.push(route.request().url());
+    return route.abort();
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await card.click();
+  await expect(window).toHaveValue('128000');
+  await expect(window).toHaveAccessibleDescription('Manually set');
+  await restore.click();
+  await expect(window).toHaveValue('16384');
+  await expect(window).toHaveAccessibleDescription('Reported by the provider');
+  await expect(restore).toBeHidden();
+  expect(discoveryCalls).toEqual([]);
+  expect(await readConnections(page)).toEqual(saved);
+});
+
+test('existing Connections apply reported windows to the draft and resolve conflicting output before Save', async ({ page }) => {
+  const endpoint = await editor(page);
+  await chooseModel(page, 'another-model');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const edit = page.getByRole('article').getByRole('heading').getByRole('button');
+  await edit.click();
+  const before = await readConnections(page);
+  const window = page.getByLabel('Model context window', { exact: true });
+  const reserved = page.getByLabel('Reserved output tokens', { exact: true });
+  const trigger = page.getByRole('button', { name: 'Model identifier', exact: true });
+  const picker = page.getByRole('dialog', { name: 'Select model', exact: true });
+  const apply = page.getByRole('button', { name: /^Use [\d,]+$/ });
+  const save = page.getByRole('button', { name: 'Save', exact: true });
+
+  await expect(window).toHaveAccessibleDescription('Reported by the provider');
+  await expect(apply).toBeHidden();
+  await window.fill('1');
+  await expect(reserved).toHaveAccessibleDescription('Set a context window above 1.');
+  await expect(save).toBeDisabled();
+  await window.fill('16384');
+  await page.route('**/api/models', route => route.fulfill({ json: { models: [
+    { id: 'another-model', contextWindow: 8196 }, { id: 'other-model', contextWindow: 32_768 },
+  ] } }));
+  await trigger.click();
+  await expect(picker.getByRole('button', { name: 'another-model', exact: true })).toBeVisible();
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(window).toHaveValue('16384');
+  await expect(window).toHaveAccessibleDescription('Manually set');
+  await expect(apply).toHaveAccessibleName('Use 8,196');
+  expect(await readConnections(page)).toEqual(before);
+
+  await apply.click();
+  await expect(window).toHaveValue('8196');
+  await expect(reserved).toHaveValue('8196');
+  await expect(reserved).toHaveAccessibleDescription('Set reserve below 8,196.');
+  await expect(save).toBeDisabled();
+  expect(await readConnections(page)).toEqual(before);
+
+  await chooseModel(page, 'other-model');
+  await expect(window).toHaveValue('16384');
+  await expect(apply).toHaveAccessibleName('Use 32,768');
+  await apply.click();
+  await expect(window).toHaveValue('32768');
+  const endpointField = page.getByLabel('API base URL', { exact: true });
+  await endpointField.fill(`${endpoint}/changed`);
+  await expect(window).toHaveValue('16384');
+  await expect(window).toHaveAccessibleDescription('Provider limit unknown');
+  await expect(apply).toBeHidden();
+  await endpointField.fill(endpoint);
+  await expect(apply).toBeHidden();
+
+  await chooseModel(page, 'another-model');
+  await apply.click();
+  await reserved.fill('2048');
+  await expect(save).toBeEnabled();
+  await expect(reserved).not.toHaveAttribute('aria-invalid');
+  expect(await readConnections(page)).toEqual(before);
+  await save.click();
+  await expect(edit).toBeVisible();
+  expect(await readConnections(page)).toMatchObject([{ model: 'another-model', contextWindow: 8196, maxOutputTokens: 2048 }]);
+  await edit.click();
+  await expect(window).toHaveAccessibleDescription('Reported by the provider');
+  await expect(apply).toBeHidden();
+});
+
+test('ignores a delayed window after the model or endpoint changes', async ({ page }) => {
+  const endpoint = await editor(page);
+  const endpointField = page.getByLabel('API base URL', { exact: true });
+  const trigger = page.getByRole('button', { name: 'Model identifier', exact: true });
+  const picker = page.getByRole('dialog', { name: 'Select model', exact: true });
+  const window = page.getByLabel('Model context window', { exact: true });
+  let release = () => {};
+  const delayed = new Promise<void>(resolve => { release = resolve; });
+  let finish = () => {};
+  const settled = new Promise<void>(resolve => { finish = resolve; });
+  await page.route('**/api/models', async route => {
+    if (route.request().postDataJSON().endpoint !== endpoint) {
+      await route.fulfill({ json: { models: [{ id: 'new-model', contextWindow: 64_000 }] } });
+      return;
+    }
+    await delayed;
+    try {
+      await route.fulfill({ json: { models: [{ id: 'new-model', contextWindow: 32_000 }] } });
+    } finally { finish(); }
+  });
+  await trigger.click();
+  await expect(picker.getByRole('status')).toHaveText('Loading models…');
+  await picker.getByRole('textbox').fill('new-model');
+  await picker.getByRole('button', { name: 'Submit', exact: true }).click();
+  await expect(window).toHaveValue('128000');
+  await endpointField.fill(`${endpoint}/changed`);
+  await chooseModel(page, 'new-model');
+  await expect(window).toHaveValue('64000');
+  release();
+  await settled;
+  await expect(window).toHaveValue('64000');
+  await expect(window).toHaveAccessibleDescription('Reported by the provider');
+  await expect(page.getByTitle('Use reported window', { exact: true })).toBeHidden();
+
+  await endpointField.fill(endpoint);
+  await expect(window).toHaveValue('128000');
+  await expect(window).toHaveAccessibleDescription('Default · provider limit unknown');
+  await expect(page.getByTitle('Use reported window', { exact: true })).toBeHidden();
+});
+
+for (const language of ['en', 'ru']) {
+  test(`context window sources and conflict fit the editor in ${language}`, async ({ page, browserApp }, testInfo) => {
+    await editor(page);
+    const russian = language === 'ru';
+    if (russian) {
+      await page.evaluate(() => localStorage.setItem('ore-interface-language', 'ru'));
+      page.once('dialog', dialog => dialog.accept());
+      await page.reload();
+      await page.getByRole('button', { name: 'Библиотека', exact: true }).click();
+    }
+    const window = page.getByLabel(russian ? 'Окно контекста модели' : 'Model context window', { exact: true });
+    const reserve = page.getByLabel(russian ? 'Резерв выходных токенов' : 'Reserved output tokens', { exact: true });
+    const trigger = page.getByRole('button', { name: russian ? 'Идентификатор модели' : 'Model identifier', exact: true });
+    const picker = page.getByRole('dialog', { name: russian ? 'Выберите модель' : 'Select model', exact: true });
+    const apply = page.getByRole('button', { name: russian ? /^Вернуть 4\s096$/ : 'Use 4,096' });
+    const usage = page.getByRole('checkbox', { name: russian ? 'Запрашивать статистику токенов у API' : 'Request token usage from the endpoint' });
+    const usagePosition = () => usage.evaluate(input => {
+      if (!(input instanceof HTMLInputElement)) throw new Error('Expected the token usage checkbox');
+      return input.offsetTop;
+    });
+    await expect(window).toHaveAccessibleDescription('');
+    const blankPosition = await usagePosition();
+    await page.route('**/api/models', route => route.fulfill({ json: { models: [{ id: 'small-window', contextWindow: 4096 }] } }));
+    await trigger.click();
+    await picker.getByRole('button', { name: 'small-window', exact: true }).click();
+    await expect(window).toHaveAccessibleDescription(russian ? 'По данным провайдера' : 'Reported by the provider');
+    await expect(reserve).toHaveAccessibleDescription(russian ? /Задайте резерв меньше/ : /Set reserve below/);
+    expect(await usagePosition()).toBe(blankPosition);
+    await window.fill('16384');
+    await expect(window).toHaveValue('16384');
+    await expect(reserve).not.toHaveAttribute('aria-invalid');
+    await expect(window).toHaveAccessibleDescription(russian ? 'Вручную' : 'Manually set');
+    await expect(apply).toBeVisible();
+
+    for (const theme of themeSchema.options) {
+      const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+      const saved = await page.request.put('/api/application/appearance', {
+        headers: { Origin: browserApp.url }, data: { revision: appearance.revision, settings: { ...appearance.settings, theme } },
+      });
+      expect(saved.ok()).toBe(true);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      for (const width of [1280, 801, 800, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        for (const control of [window, reserve, apply]) {
+          const bounds = await control.boundingBox();
+          if (!bounds) throw new Error('Missing context window control');
+          expect(bounds.x).toBeGreaterThanOrEqual(0);
+          expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+        }
+        const labelAlignedWithLink = await apply.evaluate(button => {
+          const label = button.previousElementSibling;
+          if (!label) return false;
+          const range = document.createRange();
+          range.selectNodeContents(label);
+          const labelText = range.getBoundingClientRect();
+          range.selectNodeContents(button);
+          const linkText = range.getBoundingClientRect();
+          return linkText.left >= labelText.right
+            && Math.abs(linkText.top - labelText.top) < 1
+            && Math.abs(linkText.bottom - labelText.bottom) < 1;
+        });
+        expect(labelAlignedWithLink).toBe(true);
+        if (width !== 1280 && width !== 390) continue;
+        const beforeApply = await usagePosition();
+        await window.evaluate(input => input.scrollIntoView({ block: 'center' }));
+        await page.screenshot({ path: testInfo.outputPath(`proposal-${theme}-${width}.png`), animations: 'disabled' });
+        await apply.click();
+        await expect(reserve).toHaveAttribute('aria-invalid', 'true');
+        expect(await usagePosition()).toBe(beforeApply);
+        await window.evaluate(input => input.scrollIntoView({ block: 'center' }));
+        await page.screenshot({ path: testInfo.outputPath(`conflict-${theme}-${width}.png`), animations: 'disabled' });
+        await window.fill('16384');
+        await expect(reserve).not.toHaveAttribute('aria-invalid');
+      }
+    }
+  });
+}

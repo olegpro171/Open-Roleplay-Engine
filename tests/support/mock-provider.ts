@@ -13,7 +13,10 @@ export async function startMockProvider() {
       if (typeof modelMode === 'number') { response.writeHead(modelMode).end('upstream-secret-do-not-save'); return; }
       if (modelMode === 'error') { response.writeHead(401).end('upstream-secret-do-not-save'); return; }
       if (modelMode === 'redirect') { response.writeHead(302, { Location: '/v1/redirected-models' }).end(); return; }
-      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(modelMode === 'invalid' ? { data: [{ name: 'Invalid' }] } : { data: [{ id: 'synthetic-roleplay' }, { id: 'another-model' }, { id: 'synthetic-roleplay' }] })); return;
+      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(modelMode === 'invalid'
+        ? { data: [{ name: 'Invalid' }] }
+        : { data: [{ id: 'synthetic-roleplay' }, { id: 'another-model', context_length: 16_384, max_output_tokens: 1_024 }, { id: 'synthetic-roleplay' }] }));
+      return;
     }
     if (request.url !== '/v1/chat/completions') { response.writeHead(404).end(); return; }
     let body = '';

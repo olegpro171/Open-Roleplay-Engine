@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { BackupValidationError } from '../core/errors.js';
-import { chatSettingsSchema, connectionSchema, pinnedSourceSchema, promptEntryKinds, type RequestPreview } from '../shared/contracts.js';
+import { chatSettingsSchema, connectionRecordSchema, pinnedSourceSchema, promptEntryKinds, type RequestPreview } from '../shared/contracts.js';
 import { libraryCharacterSchema, libraryPersonaSchema, promptSchema } from '../shared/library.js';
 import { summaryRefusalCheckSchema, summaryRetrySchema, contextPresetSchema, type SummaryNode, type ContextJob, type ContextStep } from '../shared/context.js';
 import { lorebookSchema, loreDiagnosticSchema, lorePlacements, loreRoleSchema } from '../shared/lorebook.js';
@@ -156,7 +156,7 @@ export function validateContent(db: Database.Database) {
   const requireLibrary = (value: string | null | undefined, kind: string) => { if (value && libraryKind.get(value) !== kind) throw invalidBackup('A library reference is missing or has the wrong kind.'); };
   const requireConnection = (value: string | null | undefined) => { if (value && !connection.get(value)) throw invalidBackup('A Connection reference is missing.'); };
   for (const row of rows(db, 'connections')) {
-    id.parse(row.id); num(row, 'revision'); parseRecord(connectionSchema,row,'connections','settings');
+    id.parse(row.id); num(row, 'revision'); parseRecord(connectionRecordSchema,row,'connections','settings');
   }
   for (const row of rows(db, 'library')) {
     id.parse(row.id); num(row, 'revision');

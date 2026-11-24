@@ -195,7 +195,7 @@ export function useNumberDraft(initial?: Record<string, string>) {
   return { values, set, dirty: Object.keys(values).length > 0 };
 }
 
-export function NumberInput({ value, onChange, min = 1, max = 10_000_000, draftField, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max' | 'type'> & { value: number; onChange: (value: number) => void; min?: number; max?: number; draftField?: string }) {
+export function NumberInput({ value, onChange, onEdit, min = 1, max = 10_000_000, draftField, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max' | 'type'> & { value: number; onChange: (value: number) => void; onEdit?: () => void; min?: number; max?: number; draftField?: string }) {
   useLocale();
   const numberLocale = locale();
   const [text, setText] = useState(String(value));
@@ -207,6 +207,7 @@ export function NumberInput({ value, onChange, min = 1, max = 10_000_000, draftF
   useEffect(() => { input.current?.setCustomValidity(visibleText !== '' && (!/^\d+$/.test(visibleText) || Number(visibleText) < min || Number(visibleText) > max) ? t("controls.enter_a_whole_number_from_to", { value: min.toLocaleString(numberLocale), value2: max.toLocaleString(numberLocale) }) : ''); }, [visibleText, min, max, numberLocale]);
   return <input {...props} ref={input} type="text" inputMode="numeric" pattern="[0-9]+" value={visibleText} onChange={event => {
     const next = event.target.value;
+    onEdit?.();
     const numeric = /^\d+$/.test(next);
     const parsed = Number(next);
     if (draftField && draft) {

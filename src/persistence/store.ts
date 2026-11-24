@@ -20,7 +20,7 @@ import { databaseSchemaVersion } from '../shared/build-info.js';
 import { AppError } from '../core/errors.js';
 import { MessageError, outcomeMessage, type LocalizedMessage } from '../shared/localization.js';
 import { replaceNameMacros } from '../core/prompt.js';
-import type { ChatSettings, ChatSnapshot, EngineSnapshot, GenerationPage, Connection, Generation, GenerationStatus, RequestPreview, ResponseVariant, TokenUsage, Turn } from '../shared/contracts.js';
+import { connectionRecordSchema, connectionSettings, type ChatSettings, type ChatSnapshot, type EngineSnapshot, type GenerationPage, type Connection, type ConnectionRecord, type Generation, type GenerationStatus, type RequestPreview, type ResponseVariant, type TokenUsage, type Turn } from '../shared/contracts.js';
 import { regenerationView } from '../core/regeneration.js';
 import { isOpeningTurn, requireOpeningMessages } from '../core/opening.js';
 import { assertRefusalSelection } from '../core/summary-refusals.js';
@@ -417,7 +417,8 @@ export class Store {
   chatHeader(chatId = 'main') {
     const chat = this.chat(chatId);
     const connectionId = roleplayConnectionId(chat.settings.connectionId);
-    const connection = connectionId ? this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get()?.settings ?? null : null;
+    const record = connectionId ? this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get() : undefined;
+    const connection = record ? connectionSettings(record.settings) : null;
     const hasApiKey = Boolean(connectionId && this.db.select().from(schema.credentials).where(eq(schema.credentials.id, connectionId)).get()?.apiKey);
     return {
       id: chatId, groupId: chat.groupId, branchName: chat.branchName, revision: chat.revision,
@@ -683,7 +684,7 @@ export class Store {
     this.db.update(schema.library).set({ data, revision, updatedAt: new Date().toISOString() })
       .where(eq(schema.library.id, id)).run();
   }
-  saveLibrary(expected: number, kind: LibraryKind, data: LibraryCharacter | LibraryPersona | PromptPreset | ContextPreset | Connection | Lorebook, id?: string, apiKey?: string, tagIds?: string[], memoryImpactToken?: string) {
+  saveLibrary(expected: number, kind: LibraryKind, data: LibraryCharacter | LibraryPersona | PromptPreset | ContextPreset | ConnectionRecord | Lorebook, id?: string, apiKey?: string, tagIds?: string[], memoryImpactToken?: string) {
     if (kind === 'prompts') data = upgradePrompt(data);
     return this.sqlite.transaction(() => {
       this.checkLibrary(expected);
@@ -691,7 +692,11 @@ export class Store {
       if (kind === 'connections') {
         const old = this.db.select().from(schema.connections).where(eq(schema.connections.id, identity)).get();
         if (id && !old) throw new AppError(404, 'item_not_found', message("errors.connection_not_found"));
-        this.db.insert(schema.connections).values({ id: identity, settings: data as Connection, revision: (old?.revision ?? -1) + 1 }).onConflictDoUpdate({ target: schema.connections.id, set: { updatedAt: new Date().toISOString(), settings: data as Connection, revision: (old?.revision ?? -1) + 1 } }).run();
+        const settings = connectionRecordSchema.strip().parse(data);
+        const revision = (old?.revision ?? -1) + 1;
+        this.db.insert(schema.connections).values({ id: identity, settings, revision }).onConflictDoUpdate({
+          target: schema.connections.id, set: { updatedAt: new Date().toISOString(), settings, revision },
+        }).run();
         if (apiKey !== undefined) this.db.insert(schema.credentials).values({ id: identity, apiKey }).onConflictDoUpdate({ target: schema.credentials.id, set: { apiKey } }).run();
       } else {
         const old = this.db.select().from(schema.library).where(and(eq(schema.library.id, identity), eq(schema.library.kind, kind))).get();
@@ -1363,7 +1368,14 @@ export class Store {
       const { groupId, settings: previous } = this.chat(chatId);
       const connectionId = settings.connectionId ?? 'main';
       const old = this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get();
-      this.db.insert(schema.connections).values({ id: connectionId, settings: connection, revision: (old?.revision ?? -1) + 1 }).onConflictDoUpdate({ target: schema.connections.id, set: { updatedAt: new Date().toISOString(), settings: connection, revision: (old?.revision ?? -1) + 1 } }).run();
+      const report = old?.settings.modelWindowReport;
+      const record = connectionSettings(connection);
+      const settingsToSave = report && report.endpoint === record.endpoint && report.model === record.model
+        ? { ...record, modelWindowReport: report } : record;
+      const revision = (old?.revision ?? -1) + 1;
+      this.db.insert(schema.connections).values({ id: connectionId, settings: settingsToSave, revision }).onConflictDoUpdate({
+        target: schema.connections.id, set: { updatedAt: new Date().toISOString(), settings: settingsToSave, revision },
+      }).run();
       if (apiKey !== undefined) this.db.insert(schema.credentials).values({ id: connectionId, apiKey }).onConflictDoUpdate({ target: schema.credentials.id, set: { apiKey } }).run();
       this.saveSharedSettings(chatId, { ...settings, authorNote: settings.authorNote ?? previous.authorNote, connectionId,
         lorebookId: settings.lorebookId === undefined ? previous.lorebookId ?? null : settings.lorebookId,
@@ -1509,7 +1521,7 @@ export class Store {
   connection(id: string): Connection {
     const row = this.db.select().from(schema.connections).where(eq(schema.connections.id, id)).get();
     if (!row) throw new AppError(422, 'missing_connection', message("errors.the_summarization_connection_is_missing"));
-    return row.settings;
+    return connectionSettings(row.settings);
   }
   contextPreset(id: string | null | undefined) {
     const preset = this.selected<ContextPreset>(id, 'contexts');
