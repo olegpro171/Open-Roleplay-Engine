@@ -10,8 +10,8 @@ const iconArtwork: Record<Theme, string> = {
 export function faviconLinks(theme: Theme) {
   const base = `/icons/favicon-${iconArtwork[theme]}`;
   return {
-    svg: `${base}.svg`,
-    png: theme === 'dark' ? '/icons/icon-32.png?v=3' : `${base}.png`,
+    svg: `${base}.svg?v=4`,
+    png: theme === 'dark' ? '/icons/icon-32.png?v=4' : `${base}.png?v=4`,
   };
 }
 

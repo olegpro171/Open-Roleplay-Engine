@@ -2,24 +2,23 @@ import { readFile } from 'node:fs/promises';
 import sharp from 'sharp';
 import { expect, it } from 'vitest';
 import { themeSchema, type Theme } from '../src/shared/appearance';
-import { installIconLinks } from '../src/shared/favicon';
+import { faviconLinks, installIconLinks } from '../src/shared/favicon';
 
 const faviconSizes = [16, 32, 48];
 
-it.each(faviconSizes)('uses the full charcoal tile in the %ipx tab favicon', async size => {
-  const png = await readFile(new URL(`../public/icons/icon-${size}.png`, import.meta.url));
-  const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  expect(info.width).toBe(size);
-  expect(info.height).toBe(size);
-  const pixelAt = (x: number, y: number) => {
-    const offset = (y * size + x) * info.channels;
-    return [...data.subarray(offset, offset + info.channels)];
-  };
+async function expectTransparentCrest(artwork: Buffer, size: number) {
+  const data = await sharp(artwork).resize(size, size).ensureAlpha().raw().toBuffer();
   const edge = size - 1;
-  const charcoal = [41, 39, 37, 255];
   for (const [x, y] of [[0, 0], [edge, 0], [0, edge], [edge, edge]]) {
-    expect(pixelAt(x, y)).toEqual(charcoal);
+    expect(data[(y * size + x) * 4 + 3]).toBe(0);
   }
+  expect(data.some((value, index) => index % 4 === 3 && value >= 192)).toBe(true);
+}
+
+it.each(faviconSizes)('uses a transparent background in the %ipx legacy favicon', async size => {
+  const png = await readFile(new URL(`../public/icons/icon-${size}.png`, import.meta.url));
+  expect(await sharp(png).metadata()).toMatchObject({ width: size, height: size });
+  await expectTransparentCrest(png, size);
 
   const ico = await readFile(new URL('../public/favicon.ico', import.meta.url));
   const entry = 6 + faviconSizes.indexOf(size) * 16;
@@ -28,6 +27,14 @@ it.each(faviconSizes)('uses the full charcoal tile in the %ipx tab favicon', asy
   const length = ico.readUInt32LE(entry + 8);
   const offset = ico.readUInt32LE(entry + 12);
   expect(ico.subarray(offset, offset + length)).toEqual(png);
+});
+
+it.each(themeSchema.options)('gives %s SVG and PNG tab favicons a transparent background', async theme => {
+  const { svg, png } = faviconLinks(theme);
+  const raster = await readFile(new URL(`../public${png}`, import.meta.url));
+  expect(await sharp(raster).metadata()).toMatchObject({ width: 32, height: 32 });
+  await expectTransparentCrest(raster, 32);
+  await expectTransparentCrest(await readFile(new URL(`../public${svg}`, import.meta.url)), 32);
 });
 
 const installTileColors: Record<Theme, readonly number[]> = {

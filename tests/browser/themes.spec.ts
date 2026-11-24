@@ -1,7 +1,8 @@
 import { expect, type Page } from '@playwright/test';
 import sharp from 'sharp';
 import { test } from './isolated-app';
-import { appearanceStatusSchema } from '../../src/shared/appearance';
+import { appearanceStatusSchema, type Theme } from '../../src/shared/appearance';
+import { faviconLinks } from '../../src/shared/favicon';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultContextPreset } from '../../src/shared/context';
@@ -10,14 +11,14 @@ import { createCompactPrompt } from './compact-prompt';
 import { selectLibraryCategory } from './library-card-helpers';
 
 const themeCases = [
-  { theme: 'light', label: 'Light', russian: 'Светлая', character: '#343a42', persona: '#562a0a', speech: 'rgb(52, 58, 66)', personaSpeech: 'rgb(86, 42, 10)', chrome: '#eeebe5', page: 'rgb(247, 245, 241)', input: 'rgb(255, 255, 255)', scheme: 'light', faviconTile: [237, 233, 227, 255] },
-  { theme: 'midnight-black', label: 'Midnight Black', russian: 'Полночная чёрная', character: '#e8e8e8', persona: '#e8e8e8', speech: 'rgb(232, 232, 232)', personaSpeech: 'rgb(232, 232, 232)', chrome: /^#(?:000|000000)$/, page: 'rgb(0, 0, 0)', input: 'rgb(0, 0, 0)', scheme: 'dark', faviconTile: [32, 32, 32, 255] },
-  { theme: 'porcelain', label: 'Porcelain', russian: 'Фарфор', character: '#903b40', persona: '#262424', speech: 'rgb(144, 59, 64)', personaSpeech: 'rgb(38, 36, 36)', chrome: '#fcfaf8', page: 'rgb(252, 250, 248)', input: 'rgb(252, 250, 248)', scheme: 'light', faviconTile: [252, 250, 248, 255] },
+  { theme: 'light', label: 'Light', russian: 'Светлая', character: '#343a42', persona: '#562a0a', speech: 'rgb(52, 58, 66)', personaSpeech: 'rgb(86, 42, 10)', chrome: '#eeebe5', page: 'rgb(247, 245, 241)', input: 'rgb(255, 255, 255)', scheme: 'light', installTile: [237, 233, 227, 255] },
+  { theme: 'midnight-black', label: 'Midnight Black', russian: 'Полночная чёрная', character: '#e8e8e8', persona: '#e8e8e8', speech: 'rgb(232, 232, 232)', personaSpeech: 'rgb(232, 232, 232)', chrome: /^#(?:000|000000)$/, page: 'rgb(0, 0, 0)', input: 'rgb(0, 0, 0)', scheme: 'dark', installTile: [32, 32, 32, 255] },
+  { theme: 'porcelain', label: 'Porcelain', russian: 'Фарфор', character: '#903b40', persona: '#262424', speech: 'rgb(144, 59, 64)', personaSpeech: 'rgb(38, 36, 36)', chrome: '#fcfaf8', page: 'rgb(252, 250, 248)', input: 'rgb(252, 250, 248)', scheme: 'light', installTile: [252, 250, 248, 255] },
 ] as const;
 
-const defaultFaviconTile = [41, 39, 37, 255];
+const defaultInstallTile = [41, 39, 37, 255];
 
-async function expectThemeIcons(page: Page, tile: readonly number[], initialHtml?: string) {
+async function expectThemeIcons(page: Page, theme: Theme, tile: readonly number[], initialHtml?: string) {
   async function readLink(selector: string) {
     const href = await page.locator(`head link${selector}`).evaluate((link: HTMLLinkElement) => link.href);
     const { pathname, search } = new URL(href);
@@ -25,14 +26,16 @@ async function expectThemeIcons(page: Page, tile: readonly number[], initialHtml
     return pathname + search;
   }
 
-  for (const type of ['image/png', 'image/svg+xml']) {
+  const favicon = faviconLinks(theme);
+  for (const [type, expectedHref] of [['image/png', favicon.png], ['image/svg+xml', favicon.svg]]) {
     const href = await readLink(`[rel="icon"][type="${type}"]`);
+    expect(href).toBe(expectedHref);
     const response = await page.request.get(href);
     expect(response.ok()).toBe(true);
     expect(response.headers()['content-type']).toContain(type);
     const corner = await sharp(await response.body())
       .extract({ left: 0, top: 0, width: 1, height: 1 }).ensureAlpha().raw().toBuffer();
-    expect([...corner]).toEqual(tile);
+    expect(corner[3]).toBe(0);
   }
 
   const appleTouch = await readLink('[rel="apple-touch-icon"]');
@@ -93,14 +96,14 @@ for (const choice of themeCases) for (const width of [1440, 390]) test(`${choice
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(observer.locator('html')).toHaveAttribute('data-theme', 'dark');
   expect((await read()).settings.theme).toBe('dark');
-  await expectThemeIcons(page, defaultFaviconTile);
+  await expectThemeIcons(page, 'dark', defaultInstallTile);
   fail = false;
   await settings.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(settings.getByRole('alert')).toHaveCount(0);
   await expect(page.locator('html')).toHaveAttribute('data-theme', choice.theme);
   await expect(observer.locator('html')).toHaveAttribute('data-theme', choice.theme);
-  await expectThemeIcons(page, choice.faviconTile);
-  await expectThemeIcons(observer, choice.faviconTile);
+  await expectThemeIcons(page, choice.theme, choice.installTile);
+  await expectThemeIcons(observer, choice.theme, choice.installTile);
   await expect(page.getByRole('button', { name: 'Default character speech color', exact: true })).toContainText(choice.character.toUpperCase());
   await expect(page.getByRole('button', { name: 'Default persona speech color', exact: true })).toContainText(choice.persona.toUpperCase());
   await expect(userSpeech).toHaveCSS('color', choice.personaSpeech);
@@ -171,7 +174,7 @@ for (const choice of themeCases) for (const width of [1440, 390]) test(`${choice
     if (!response) throw new Error('Missing sign-in response');
     await expect(login.getByLabel('Owner password')).toBeVisible();
     await expect(login.locator('html')).toHaveAttribute('data-theme', choice.theme);
-    await expectThemeIcons(login, choice.faviconTile, await response.text());
+    await expectThemeIcons(login, choice.theme, choice.installTile, await response.text());
     await expect(login.locator('html')).toHaveCSS('background-color', choice.page);
     if (choice.theme === 'porcelain') {
       const signIn = login.getByRole('button', { name: 'Sign in', exact: true });
