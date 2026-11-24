@@ -343,13 +343,16 @@ test('Send pauses for deletion review, survives reload, and resumes only after c
   await page.reload();
   await page.getByLabel('Your next turn').fill('Leon asks for the key.');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  const reviewLink = page.getByRole('button', { name: 'Review deletion', exact: true });
-  await expect(reviewLink).toBeVisible();
-  await expect(page.locator('.memory-preparation-status').getByRole('status')).toContainText('Preparation is waiting for deletion review.');
+  const progress = page.locator('.memory-preparation-status');
+  const inspectMemory = progress.getByRole('button', { name: 'Inspect memory', exact: true });
+  await expect(inspectMemory).toBeVisible();
+  await expect(progress.getByRole('status')).toContainText('Preparation is waiting for deletion review.');
   expect(await calls()).toHaveLength(2);
   await page.reload();
-  await inspectReview(page, page.locator('.memory-preparation-status'), testInfo, browserApp.url, 'Review deletion', 'waiting');
-  await reviewLink.click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(inspectMemory).toBeInViewport({ ratio: 1 });
+  await inspectReview(page, progress, testInfo, browserApp.url, 'Inspect memory', 'waiting');
+  await inspectMemory.click();
   const review = page.getByRole('region', { name: 'Summary deletion preview', exact: true });
   await expect(review).toContainText(correction);
   await expect(page.locator(`[data-summary-id="${summary.id}"]`)).toHaveClass(/deleting/);
@@ -362,7 +365,7 @@ test('Send pauses for deletion review, survives reload, and resumes only after c
 
   await page.getByRole('button', { name: 'Return to chat', exact: true }).click();
   await page.getByRole('button', { name: 'Retry response', exact: true }).click();
-  await reviewLink.click();
+  await inspectMemory.click();
   await review.getByRole('button', { name: 'Delete and continue', exact: true }).click();
   await expect(review).toHaveCount(0);
   await expect.poll(async () => (await state()).turns.at(-1)?.complete).toBe(true);

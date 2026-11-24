@@ -23,7 +23,8 @@ test('live input inspection, budget recovery, provider usage and clearing every 
     const response = await page.request.fetch(url, { method, headers: { Origin: 'http://127.0.0.1:4173' }, data });
     expect(response.ok(), await response.text()).toBe(true); return response.json();
   };
-  const { id: connectionId } = await command('/api/library', { revision: (await libraries()).revision, kind: 'connections', data: { name: 'Refinement model', endpoint, model: 'synthetic-roleplay', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
+  const connection = { name: 'Refinement model', endpoint, model: 'synthetic-roleplay', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} };
+  const { id: connectionId } = await command('/api/library', { revision: (await libraries()).revision, kind: 'connections', data: connection });
   const preset = { ...defaultContextPreset, name: 'Refinement memory', connectionId, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 };
   const { id: contextId } = await command('/api/library', { revision: (await libraries()).revision, kind: 'contexts', data: preset });
   const promptId = await createCompactPrompt(page);
@@ -87,10 +88,26 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   const tail = saved.turns.filter(turn => !saved.context.archivedTurnIds.includes(turn.id));
   const required = assembleRequest(saved.connection!, saved.settings, tail, saved.sources, undefined, { validateLimits: false }).budget.inputTokens;
   await command(`/api/library/${contextId}`, { revision: (await libraries()).revision, kind: 'contexts', data: { ...preset, minTail: tail.length } }, 'PUT');
-  await command(`/api/chats/${chatId}/selections`, { revision: (await state()).revision, settings: { title: saved.settings.title, targetInputTokens: required + 1, connectionId, promptId, characterId: null, personaId: null, contextPresetId: contextId } }, 'PUT');
+  const settings = { title: saved.settings.title, targetInputTokens: required + 1, connectionId, promptId, characterId: null, personaId: null, contextPresetId: contextId };
+  await command(`/api/chats/${chatId}/selections`, { revision: (await state()).revision, settings }, 'PUT');
   await command(`/api/chats/${chatId}/context/prepare`, { revision: (await state()).revision, requestId: crypto.randomUUID(), mode: 'prepare' });
-  await expect(page.getByTestId('memory-status')).toContainText('retained-summary floor');
+  await expect.poll(async () => (await state()).context.jobs[0]?.status).toBe('failed');
+  const targetWarning = 'Memory can’t make this chat fit. Raise the input target to continue.';
+  await page.getByRole('button', { name: 'Return to chat', exact: true }).click();
+  const storyWarning = page.getByRole('status').filter({ hasText: targetWarning });
+  await storyWarning.getByRole('button', { name: 'Inspect memory', exact: true }).click();
+  const memoryStatus = page.getByTestId('memory-status');
+  await expect(memoryStatus).toHaveText(targetWarning);
   await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();
+
+  const capped = { ...connection, contextWindow: required + 1 + connection.maxOutputTokens };
+  await command(`/api/library/${connectionId}`, { revision: (await libraries()).revision, kind: 'connections', data: capped }, 'PUT');
+  await page.getByLabel('Input target', { exact: true }).fill('9999999');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(async () => (await state()).settings.targetInputTokens).toBe(9_999_999);
+  await expect(memoryStatus).toHaveText('This chat exceeds the Connection’s input limit. Check the model’s context window in Connection settings.');
+  await command(`/api/library/${connectionId}`, { revision: (await libraries()).revision, kind: 'connections', data: connection }, 'PUT');
+  await expect(memoryStatus).toHaveText('Current input fits.');
 
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Chat settings');

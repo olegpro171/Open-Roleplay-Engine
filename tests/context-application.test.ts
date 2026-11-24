@@ -67,7 +67,7 @@ function fixture(count = 48, target = 500, builtInContext = false) {
     store = new Store(filename); coordinator = new GenerationCoordinator(store, provider, () => behavior);
   };
   cleanup.push(async () => { release?.(); await coordinator.shutdown(); store.close(); rmSync(directory, { recursive: true, force: true }); });
-  return { get store() { return store; }, get coordinator() { return coordinator; }, state, start, idle, resume, calls, imported, chatId, contextId, behavior,
+  return { get store() { return store; }, get coordinator() { return coordinator; }, state, start, idle, resume, calls, imported, chatId, connectionId, contextId, behavior,
     setStoryReply(text: string) { storyReply = text; },
     setNextModes(values: typeof nextModes) { nextModes = [...values]; },
     setMode(value: typeof mode) { mode = value; }, holdNext(offset = 1) { holdAt = calls.length + offset; }, release() { release?.(); release = null; holdAt = -1; },
@@ -760,7 +760,7 @@ describe('durable imported-session preparation', () => {
     const f = fixture(), connectionId = f.state().context.preset!.connectionId!;
     f.store.saveLibrary(f.store.libraries().revision, 'connections', { ...f.store.connection(connectionId), contextWindow: 350, maxOutputTokens: 100 }, connectionId);
     const job = await f.idle(f.start());
-    expect(job.status).toBe('failed'); expect(job.error).toContain('fixed source batch'); expect(f.calls).toHaveLength(0);
+    expect(job.status).toBe('failed'); expect(job.errorMessage?.key).toBe('errors.this_fixed_source_batch_and_summary_instructions_do'); expect(f.calls).toHaveLength(0);
     expect(f.state().context.archivedTurnIds).toEqual([]);
   });
 
@@ -917,7 +917,7 @@ describe('durable imported-session preparation', () => {
     const current = f.state();
     f.store.updateChat(current.revision, f.chatId, { title: current.settings.title, targetInputTokens: 50_000, connectionId: current.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId });
     const before = f.state(), calls = f.calls.length;
-    expect(contextPlan(before).blocked).toContain('minimum tail');
+    expect(contextPlan(before).blockedMessage?.key).toBe('diagnostics.the_saved_cutoff_no_longer_leaves_the_configured');
     const job = await f.idle(f.start());
     expect(job).toMatchObject({ status: 'succeeded', stepCount: 0, generatedCount: 0 });
     const after = f.state();
@@ -999,8 +999,9 @@ describe('durable imported-session preparation', () => {
     const tail = current.turns.filter(turn => !current.context.archivedTurnIds.includes(turn.id));
     const required = assembleRequest(current.connection!, current.settings, tail, current.sources, undefined, { validateLimits: false }).budget.inputTokens;
     f.store.updateChat(current.revision, f.chatId, { ...selection, targetInputTokens: required + 1 });
-    expect(contextPlan(f.state()).blocked).toContain('retained-summary floor');
-    expect((await f.idle(f.start())).error).toContain('retained-summary floor');
+    const targetWarning = 'Memory can’t make this chat fit. Raise the input target to continue.';
+    expect(contextPlan(f.state()).blocked).toBe(targetWarning);
+    expect((await f.idle(f.start())).error).toBe(targetWarning);
     const blocked = f.state(), calls = f.calls.length;
     f.store.updateChat(blocked.revision, f.chatId, { ...selection, targetInputTokens: contextPlan(blocked).inputTokens + 100 });
     expect(contextPlan(f.state()).ready).toBe(true);
@@ -1009,6 +1010,30 @@ describe('durable imported-session preparation', () => {
     f.store.updateChat(f.state().revision, f.chatId, { ...selection, targetInputTokens: required + 1 });
     expect(contextPlan(f.state()).next?.level).toBe(1);
     expect((await f.idle(f.start('step'))).status).toBe('succeeded');
+  });
+
+  it('points to Connection settings when raising the input target cannot free more room', async () => {
+    const f = fixture(8);
+    await f.idle(f.start('step'));
+    const saved = f.state();
+    if (!saved.context.preset || !saved.connection) throw new Error('Expected a configured chat');
+    const { id: _presetId, revision: _presetRevision, ...preset } = saved.context.preset;
+    f.store.saveLibrary(f.store.libraryRevision(), 'contexts', { ...preset, minTail: 6 }, f.contextId);
+    const tail = saved.turns.slice(saved.context.archivedTurnIds.length);
+    const connection = saved.connection;
+    const required = assembleRequest(connection, saved.settings, tail, saved.sources, undefined, { validateLimits: false }).budget.inputTokens;
+    const limit = required + 1;
+    f.store.saveLibrary(f.store.libraryRevision(), 'connections', { ...connection, contextWindow: limit + connection.maxOutputTokens }, f.connectionId);
+    const warning = 'This chat exceeds the Connection’s input limit. Check the model’s context window in Connection settings.';
+    const calls = f.calls.length;
+    for (const targetInputTokens of [limit, 9_999_999]) {
+      const current = f.state();
+      f.store.updateChat(current.revision, f.chatId, { title: current.settings.title, targetInputTokens, connectionId: f.connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId });
+      expect(contextPlan(f.state())).toMatchObject({ effectiveLimit: limit, blocked: warning, next: null });
+      expect(await f.idle(f.start())).toMatchObject({ status: 'failed', error: warning });
+      expect(f.state().context.selected).toEqual(saved.context.selected);
+    }
+    expect(f.calls).toHaveLength(calls);
   });
 
   it('clears all layers and review candidates while retaining turns, selected preset and immutable roleplay requests', async () => {

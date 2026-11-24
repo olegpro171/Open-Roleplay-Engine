@@ -233,8 +233,13 @@ test('switches response versions with arrows and a textbox, restores summarized 
     }
   }
   await staleNotice.click();
-  await expect(page.getByRole('dialog', { name: 'Warning', exact: true })).toContainText('Archived history changed');
+  const warning = page.getByRole('dialog', { name: 'Warning', exact: true });
+  await expect(warning).toContainText('Archived history changed');
   await page.keyboard.press('Escape');
+  await staleNotice.click();
+  await warning.getByRole('button', { name: 'Inspect memory', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Memory', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Return to chat', exact: true }).click();
   await turn.getByRole('group', { name: 'Turn controls', exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/phone-response-variants.png', fullPage: true });
   await previous.click();

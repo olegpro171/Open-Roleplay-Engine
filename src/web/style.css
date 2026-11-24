@@ -458,7 +458,7 @@ a[href][data-pointer-pressed]{text-decoration:underline;text-decoration-thicknes
   /* Visually center the diagonal artwork within Send. */
   transform: translate(-0.8px, 0.8px);
 }
-.transcript-notices{position:absolute;z-index:2;inset:14px 18px auto;display:grid;justify-items:center;gap:8px;pointer-events:none}
+.transcript-notices{position:absolute;z-index:2;inset:14px 18px auto;display:grid;grid-template-columns:minmax(0,1fr);justify-items:center;gap:8px;pointer-events:none}
 .transcript-notices>*{max-width:100%;pointer-events:auto}
 .transcript-notices>.warning-details{margin:0}
 .transcript-notices>.warning-details>button{box-shadow:0 4px 16px var(--shadow)}

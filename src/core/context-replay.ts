@@ -4,7 +4,7 @@ import { hasPromptMarker } from '../shared/library.js';
 import { message, type LocalizedMessage } from '../shared/localization.js';
 import { AppError } from './errors.js';
 import { latestApproved } from './context-corrections.js';
-import { hasChronologicalLevels, rankedPromotions, repairQueue, staleSummaries } from './context.js';
+import { hasChronologicalLevels, memoryBudgetWarning, memoryInputBudget, rankedPromotions, repairQueue, staleSummaries } from './context.js';
 import { operationKey, savedSummaries } from './context-reuse.js';
 import { managedInputCosts, summarySeparator, summaryText } from './prompt.js';
 import { refusalAffected } from './summary-refusals.js';
@@ -38,7 +38,7 @@ export class PreparationReplay {
   private readonly layout = new Set<string>();
   private readonly costs;
   private readonly config;
-  private readonly limit;
+  private readonly budget;
   private readonly lastCutoff;
   private readonly pinnedFloor;
   private readonly hasMessages;
@@ -53,7 +53,7 @@ export class PreparationReplay {
     if (!context.preset) throw new AppError(422, 'context_required', message('errors.select_a_context_preset_first'));
     this.config = context.preset;
     this.hasMessages = hasPromptMarker(sources.prompt, 'messages');
-    this.limit = Math.min(settings.targetInputTokens, connection.contextWindow - connection.maxOutputTokens);
+    this.budget = memoryInputBudget(settings.targetInputTokens, connection.contextWindow - connection.maxOutputTokens);
     this.positions = new Map(turns.map((turn, index) => [turn.id, index + 1]));
     this.costs = managedInputCosts(connection, settings, turns, sources, snapshot.loreResolution, snapshot.turnInstruction);
     const minimum = requiredVerbatimTail(this.config.minTail, snapshot.turnInstruction);
@@ -182,7 +182,7 @@ export class PreparationReplay {
     const { context, settings, turns } = this.base;
     const inputTokens = this.measure(this.cutoff, this.joined, this.active.at(-1));
     const plan: ContextPlan = {
-      inputTokens, targetInputTokens: settings.targetInputTokens, effectiveLimit: this.limit,
+      inputTokens, targetInputTokens: settings.targetInputTokens, effectiveLimit: this.budget.limit,
       method: this.costs.budget.method, counting: this.costs.budget.counting,
       verbatimTurnIds: this.hasMessages ? turns.slice(this.cutoff).map(turn => turn.id) : [],
       next, ready: !blocked && !next, blocked: blocked?.fallback ?? null, blockedMessage: blocked, stale: this.stale,
@@ -204,10 +204,11 @@ export class PreparationReplay {
   private decide(): ReplayDecision {
     if (this.obstruction) return { next: null, blocked: this.obstruction };
     const input = this.measure(this.cutoff, this.joined, this.active.at(-1));
-    if (input <= this.limit) return { next: null };
+    const { limit } = this.budget;
+    if (input <= limit) return { next: null };
     const required = this.costs.tailInput[this.cutoff];
     const { config, lastCutoff, cutoff } = this;
-    if (this.costs.hasPins && this.pinnedFloor >= this.limit) return { next: null, blocked: message('pins.required_budget') };
+    if (this.costs.hasPins && this.pinnedFloor >= limit) return { next: null, blocked: message('pins.required_budget') };
 
     if (this.hasMessages && cutoff < lastCutoff) {
       const leaves = this.byStart.get(cutoff) ?? [];
@@ -220,15 +221,15 @@ export class PreparationReplay {
         return { next: { level: 1, turnIds: batch.map(turn => turn.id), children: [] } };
       }
     }
-    if (required >= this.limit) {
+    if (required >= limit) {
       if (this.costs.hasPins) return { next: null, blocked: message('pins.required_budget') };
-      return { next: null, blocked: message(required > this.limit
+      return { next: null, blocked: memoryBudgetWarning(this.budget, required > limit
         ? 'diagnostics.the_required_verbatim_tail_pending_input_and_prompt'
         : 'diagnostics.no_input_capacity_remains_for_summaries_covering_archived') };
     }
     const next = this.promotions(input)[0];
     if (!next) {
-      return { next: null, blocked: message(this.hasMessages ? 'diagnostics.no_complete_promotion_group_satisfies_the_retained_summary'
+      return { next: null, blocked: memoryBudgetWarning(this.budget, this.hasMessages ? 'diagnostics.no_complete_promotion_group_satisfies_the_retained_summary'
         : 'diagnostics.the_selected_summaries_and_prompt_cannot_fit_the') };
     }
     const parents = this.exact.get(operationKey(next)) ?? [];

@@ -22,11 +22,11 @@ export function TranscriptNotices({ transcript, hasOlderTurns, children }: {
   return <div className="transcript-notices" data-older-control-visible={hasOlderTurns && olderControlVisible ? '' : undefined}>{children}</div>;
 }
 
-export function PreparationStatus({ preparation, disabled, stop, review }: {
+export function PreparationStatus({ preparation, disabled, stop, openMemory }: {
   preparation: StoryPreparation;
   disabled: boolean;
   stop: () => void;
-  review: () => void;
+  openMemory: () => void;
 }) {
   useLocale();
   const { phase, retrying, deletionReviewToken } = preparation;
@@ -39,7 +39,7 @@ export function PreparationStatus({ preparation, disabled, stop, review }: {
       {activity && <small>{activity}</small>}
     </div>
     <div className="actions">
-      {deletionReviewToken && <button type="button" className="secondary" disabled={disabled} onClick={review}>{t('memory.review_preparation_deletion')}</button>}
+      {deletionReviewToken && <button type="button" className="secondary" disabled={disabled} onClick={openMemory}>{t('app.inspect_memory')}</button>}
       <button type="button" className="secondary" disabled={disabled} onClick={stop}>{t('story_preparation.stop')}</button>
     </div>
   </div>;

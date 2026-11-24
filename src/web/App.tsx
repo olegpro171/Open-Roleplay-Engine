@@ -924,10 +924,10 @@ export function App() {
         </div>
           {(preparing || snapshot.memory.refusalCount > 0 || memoryStale) && <TranscriptNotices transcript={transcript} hasOlderTurns={snapshot.page.hasOlder}>
             {snapshot.memory.refusalCount > 0 ? <WarningDetails label={t('refusals.review')} message={msg('refusals.notice', { count: snapshot.memory.refusalCount })}
-              actions={() => <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.review_memory')}</button>} />
+              actions={() => <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.inspect_memory')}</button>} />
               : memoryStale && <WarningDetails label={t("app.memory_needs_review")} message={msg("app.archived_history_changed_repair_the_affected_summaries")}
-                actions={() => <button type="button" className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button>} />}
-            {preparing && <PreparationStatus preparation={preparing} disabled={busy || dataChanged} review={() => setTab('memory')}
+                actions={() => <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.inspect_memory')}</button>} />}
+            {preparing && <PreparationStatus preparation={preparing} disabled={busy || dataChanged} openMemory={() => setTab('memory')}
               stop={() => void command(() => api(preparing.generationId ? `/generations/${preparing.generationId}/cancel` : `/context/jobs/${preparing.id}/cancel`, 'POST', {}))} />}
           </TranscriptNotices>}
           {!recoveredEdit && (awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}
@@ -935,7 +935,7 @@ export function App() {
         <div className="composer-notices">
           {!working && preparation?.generationId === null && preparation.error && ['failed', 'interrupted'].includes(preparation.status) && <div className="recovery" role="status">
             <p>{formatMessage(preparation.errorMessage ?? preparation.error)}</p>
-            <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('story_preparation.open_memory')}</button>
+            <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.inspect_memory')}</button>
           </div>}
           {!active && pending && <div className="recovery" role="status">
             <div>
@@ -993,7 +993,7 @@ export function App() {
         ...requestWarnings(shownRequest),
       ]} actions={close => !generationId && inspectionBudgetWarning && <>
         {pinsIncluded && <button type="button" className="secondary" onClick={() => { close(); openPins(); }}>{t('pins.title')}</button>}
-        {summariesEnabled && <button type="button" className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button>}
+        {summariesEnabled && <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.inspect_memory')}</button>}
       </>} />
       {!generationId && (inspectionError || currentRequest && !inspectionCurrent) && <div role="status">
         <p>{inspectionError || t("app.counting_current_input")}</p>
