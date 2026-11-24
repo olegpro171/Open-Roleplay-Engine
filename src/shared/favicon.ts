@@ -18,6 +18,6 @@ export function faviconLinks(theme: Theme) {
 export function installIconLinks(theme: Theme) {
   return {
     manifest: theme === 'dark' ? '/site.webmanifest' : `/site-${theme}.webmanifest`,
-    appleTouch: `/icons/app-${iconArtwork[theme]}-192.png`,
+    appleTouch: `/icons/app-${iconArtwork[theme]}-touch-180.png`,
   };
 }

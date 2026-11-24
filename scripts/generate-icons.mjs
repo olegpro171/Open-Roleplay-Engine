@@ -58,28 +58,34 @@ const manifestPath = resolve(root, 'public/site.webmanifest');
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 for (const variant of ['peach', 'light', 'midnight-black', 'porcelain']) {
   const name = `${variant}-bold`;
-  const svg = `/icons/favicon-${name}.svg`;
-  const source = await readFile(resolve(root, `public${svg}`));
+  const source = await readFile(resolve(root, `public/icons/favicon-${name}.svg`));
   const base = `/icons/app-${name}`;
-  const icons = [{ src: svg, sizes: 'any', type: 'image/svg+xml', purpose: 'any' }];
-  for (const size of [192, 512]) {
-    const src = `${base}-${size}.png`;
-    await sharp(source).resize(size, size).png().toFile(resolve(root, `public${src}`));
-    icons.push({ src, sizes: `${size}x${size}`, type: 'image/png', purpose: 'any' });
-  }
 
-  // The favicon's crest reaches the canvas edge. Keep it within the
-  // maskable safe zone while extending its own solid tile to the edge.
+  // All install icons use the inset crest already used by Safari Add to Dock.
   const [r, g, b] = await sharp(source)
     .extract({ left: 0, top: 0, width: 1, height: 1 }).raw().toBuffer();
-  const size = 1024;
-  const inset = Math.ceil(size * 0.11);
-  const contentSize = size - 2 * inset;
-  const maskableSrc = `${base}-maskable-1024.png`;
-  await sharp(source).resize(contentSize, contentSize)
+  const maskableSize = 1024;
+  const inset = Math.ceil(maskableSize * 0.11);
+  const contentSize = maskableSize - 2 * inset;
+  const maskableSrc = `${base}-maskable-${maskableSize}.png`;
+  const paddedArtwork = await sharp(source).resize(contentSize, contentSize)
     .extend({ top: inset, bottom: inset, left: inset, right: inset, background: { r, g, b } })
-    .removeAlpha().png().toFile(resolve(root, `public${maskableSrc}`));
-  icons.push({ src: maskableSrc, sizes: '1024x1024', type: 'image/png', purpose: 'maskable' });
+    .removeAlpha().png().toBuffer();
+  await writeFile(resolve(root, `public${maskableSrc}`), paddedArtwork);
+
+  // iOS applies its own corner mask to the opaque touch icon.
+  await sharp(paddedArtwork).resize(180, 180).png().toFile(resolve(root, `public${base}-touch-180.png`));
+
+  const icons = [];
+  for (const size of [192, 512]) {
+    const src = `${base}-rounded-${size}.png`;
+    const roundedMask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 100 100"><rect width="100" height="100" rx="22"/></svg>`);
+    await sharp(paddedArtwork).resize(size, size).ensureAlpha()
+      .composite([{ input: roundedMask, blend: 'dest-in' }])
+      .png().toFile(resolve(root, `public${src}`));
+    icons.push({ src, sizes: `${size}x${size}`, type: 'image/png', purpose: 'any' });
+  }
+  icons.push({ src: maskableSrc, sizes: `${maskableSize}x${maskableSize}`, type: 'image/png', purpose: 'maskable' });
 
   const destination = variant === 'peach' ? manifestPath : resolve(root, `public/site-${variant}.webmanifest`);
   const output = { ...manifest, id: '/', icons };

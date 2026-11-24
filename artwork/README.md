@@ -14,11 +14,13 @@ initial page and updates them after a theme change.
 The legacy `/favicon.ico` uses Peach Bold at 16, 32 and 48px. The generator renders the
 16px and 48px PNGs from the SVG and includes the supplied 32px PNG as-is.
 
-Safari Add to Dock and Chrome app installs use the active theme's manifest.
-Each manifest includes the exact favicon SVG and 192px and 512px PNGs rendered
-from it. The Apple touch icon uses the matching 192px PNG. The opaque 1024px
-maskable PNG insets the crest so system masks can round the tile without
-clipping the bird. All manifests identify the same ORE app at `/`.
+Installed icons use the active theme's bird and tile colors, with the crest
+inset to about 78% of the tile height. Safari on iPhone uses a dedicated opaque
+180px Apple touch icon and applies its own corner mask. The manifest's 192px
+and 512px general-purpose PNGs include rounded corners with transparency for
+Chrome installs on Windows. Safari Add to Dock can use the opaque full-bleed
+1024px maskable PNG for its system mask. All manifests identify the same ORE
+app at `/`.
 
 Regenerate the exports and manifests from the repository root with the supported
 Node runtime.

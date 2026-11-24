@@ -35,25 +35,31 @@ async function expectThemeIcons(page: Page, tile: readonly number[], initialHtml
     expect([...corner]).toEqual(tile);
   }
 
-  const svg = await readLink('[rel="icon"][type="image/svg+xml"]');
   const appleTouch = await readLink('[rel="apple-touch-icon"]');
+  await expect(page.locator('head link[rel="apple-touch-icon"]')).toHaveAttribute('sizes', '180x180');
   const manifest = await page.request.get(await readLink('[rel="manifest"]'));
   expect(manifest.ok()).toBe(true);
-  expect(await manifest.json()).toMatchObject({
+  const installManifest: { icons: { src: string; sizes: string }[] } = await manifest.json();
+  expect(installManifest).toMatchObject({
     id: '/',
     start_url: '/',
-    icons: expect.arrayContaining([
-      { src: svg, sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
-      { src: appleTouch, sizes: '192x192', type: 'image/png', purpose: 'any' },
-      expect.objectContaining({ sizes: '512x512', purpose: 'any' }),
-      expect.objectContaining({ sizes: '1024x1024', purpose: 'maskable' }),
-    ]),
+    icons: [
+      expect.objectContaining({ sizes: '192x192', type: 'image/png', purpose: 'any' }),
+      expect.objectContaining({ sizes: '512x512', type: 'image/png', purpose: 'any' }),
+      expect.objectContaining({ sizes: '1024x1024', type: 'image/png', purpose: 'maskable' }),
+    ],
   });
-  const touchResponse = await page.request.get(appleTouch);
-  expect(touchResponse.ok()).toBe(true);
-  const corner = await sharp(await touchResponse.body())
-    .extract({ left: 0, top: 0, width: 1, height: 1 }).ensureAlpha().raw().toBuffer();
-  expect([...corner]).toEqual(tile);
+  for (const { src, sizes } of [{ src: appleTouch, sizes: '180x180' }, ...installManifest.icons]) {
+    const response = await page.request.get(src);
+    expect(response.ok(), src).toBe(true);
+    expect(response.headers()['content-type']).toContain('image/png');
+    const icon = sharp(await response.body());
+    const { width, height } = await icon.metadata();
+    expect(`${width}x${height}`, src).toBe(sizes);
+    const edge = await icon.extract({ left: Math.floor(width / 2), top: 0, width: 1, height: 1 })
+      .ensureAlpha().raw().toBuffer();
+    expect([...edge], src).toEqual(tile);
+  }
 }
 
 for (const choice of themeCases) for (const width of [1440, 390]) test(`${choice.theme} saves recover, synchronize and preserve speech overrides at ${width}px`, async ({ page, context, browserApp }, testInfo) => {
