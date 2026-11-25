@@ -1,4 +1,4 @@
-import { useId, useRef } from 'react';
+import { useId, useRef, type CSSProperties } from 'react';
 import { t, useLocale } from './localization';
 import { chatTextScales, chatTextScaleSchema, themeSchema, type Appearance, type AppearanceStatus, type Theme } from '../shared/appearance';
 import type { MessageKey } from '../shared/localization';
@@ -15,6 +15,10 @@ const themeLabels: Record<Theme, MessageKey> = {
   'midnight-black': 'appearance.midnight_black',
   porcelain: 'appearance.porcelain',
 };
+
+const minTextScale = chatTextScales[0];
+const maxTextScale = chatTextScales[chatTextScales.length - 1];
+const textScaleStep = chatTextScales[1] - minTextScale;
 
 const defaultSpeechColorLabels = {
   character: {
@@ -59,6 +63,10 @@ export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosav
   const { draft, saving, error } = useSettingsState(autosave);
   if (!draft) return null;
 
+  const textScaleStyle: CSSProperties & { '--text-scale-progress': string } = {
+    '--text-scale-progress': `${100 * (draft.chatTextScale - minTextScale) / (maxTextScale - minTextScale)}%`,
+  };
+
   return <section className="settings-section" aria-labelledby="chat-appearance-heading">
     <h2 id="chat-appearance-heading" tabIndex={-1}>{t("application_settings.chat_appearance")}</h2>
     <SettingsSaveStatus saving={saving} error={error} retry={autosave.retry} />
@@ -83,15 +91,18 @@ export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosav
         <h3 id="chat-text-size-heading">{t("chat_appearance_settings.chat_text_size")}</h3>
         <label htmlFor="chat-text-scale">{t("chat_appearance_settings.text_scale", { chatTextScale: draft.chatTextScale, value: '' })}</label>
         <p className="small muted" id="chat-text-scale-help">{t("chat_appearance_settings.adjust_message_text_independently_of_the_rest")}</p>
-        <div className="chat-text-scale-control">
-          <input id="chat-text-scale" type="range" min={90} max={120} step={10} list="chat-text-scale-ticks" value={draft.chatTextScale}
+        <div className="chat-text-scale-control" style={textScaleStyle}>
+          <input id="chat-text-scale" type="range" min={minTextScale} max={maxTextScale} step={textScaleStep} value={draft.chatTextScale}
             aria-describedby="chat-text-scale-help" aria-valuetext={`${draft.chatTextScale}%`}
             onChange={event => {
               const chatTextScale = chatTextScaleSchema.parse(Number(event.target.value));
               autosave.update({ chatTextScale });
             }} />
-          <datalist id="chat-text-scale-ticks">{chatTextScales.map(scale => <option key={scale} value={scale} />)}</datalist>
-          <div className="chat-text-scale-labels" aria-hidden="true">{chatTextScales.map(scale => <span key={scale}>{scale}%{scale === 100 && <small>{t("chat_appearance_settings.default")}</small>}</span>)}</div>
+          <div className="chat-text-scale-labels" aria-hidden="true">
+            {chatTextScales.map(scale => <div className="chat-text-scale-stop" key={scale}>
+              <span>{scale}%{scale === 100 && <small>{t("chat_appearance_settings.default")}</small>}</span>
+            </div>)}
+          </div>
         </div>
         <ChatTextPreview {...draft} />
       </fieldset>

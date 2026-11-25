@@ -925,11 +925,65 @@ button:has(> .ui-icon):has(> .sr-only), .block-actions button { min-width:36px; 
 .summary-deletion{margin-top:20px;padding:16px;border:1px solid var(--danger-border);border-radius:8px;overflow-wrap:anywhere}
 .summary-deletion ul{max-height:180px;overflow:auto;padding-left:22px}
 
-.chat-text-scale-control { max-width: 420px; }
-.chat-text-scale-control input[type=range] { padding: 0; margin: 0; height: 32px; accent-color: var(--accent); cursor: pointer; }
-.chat-text-scale-control input[type=range]:disabled { cursor: not-allowed; }
-.chat-text-scale-labels { display: flex; justify-content: space-between; margin: 0 0 12px; color: var(--muted); font-size: 12px; }
-.chat-text-scale-labels span { text-align: center; }
+.chat-text-scale-control {
+  --text-scale-thumb-width: 24px;
+  --text-scale-end-inset: calc(var(--text-scale-thumb-width) / 2);
+  --text-scale-fill-direction: to right;
+  position: relative;
+  max-inline-size: 420px;
+}
+.chat-text-scale-control:dir(rtl) { --text-scale-fill-direction: to left; }
+.chat-text-scale-control::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 12px;
+  inset-inline: var(--text-scale-end-inset);
+  block-size: 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--control-border);
+  border-radius: 999px;
+  background: linear-gradient(var(--text-scale-fill-direction), var(--accent) var(--text-scale-progress), var(--control-border) 0);
+  pointer-events: none;
+}
+.chat-text-scale-control input[type=range] {
+  appearance: none;
+  position: relative;
+  display: block;
+  height: 32px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.chat-text-scale-control input[type=range]::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--text-scale-thumb-width);
+  height: 18px;
+  box-sizing: border-box;
+  border: 1px solid var(--control-border);
+  border-radius: 999px;
+  background: var(--accent);
+}
+.chat-text-scale-control input[type=range]::-moz-range-thumb {
+  width: var(--text-scale-thumb-width);
+  height: 18px;
+  box-sizing: border-box;
+  border: 1px solid var(--control-border);
+  border-radius: 999px;
+  background: var(--accent);
+}
+/* Thumb travel starts half a thumb in from each edge. Label widths must not affect spacing. */
+.chat-text-scale-labels {
+  display: flex;
+  justify-content: space-between;
+  margin: 6px var(--text-scale-end-inset) 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.chat-text-scale-stop { display: grid; grid-template-columns: 0; justify-items: center; align-content: start; gap: 3px; }
+.chat-text-scale-stop::before { content: ""; width: 0; height: 4px; border-inline-start: 1px solid; }
+.chat-text-scale-stop span { inline-size: max-content; max-inline-size: 8em; text-align: center; overflow-wrap: anywhere; }
 .chat-text-scale-labels small { display: block; font-size: 10px; }
 .chat-text-preview { border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: var(--page); }
 [dir=rtl] .story-meta{border-right:0;border-left:1px solid var(--line)}
