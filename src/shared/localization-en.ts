@@ -1488,7 +1488,7 @@ export const englishMessages = {
   "errors.could_not_read_the_provider_s_model_list": "Could not read the provider’s model list. Check the API base URL and your network connection, then try again. If your provider does not support fetching models, enter its model identifier manually.",
   "errors.the_endpoint_did_not_return_a_chat_completions": "The endpoint did not return a Chat Completions event stream.",
   "errors.the_model_refused_or_filtered_the_request_no": "The model refused or filtered the request. No completed response was accepted.",
-  "errors.the_model_stream_ended_without_a_completed_response": "The model stream ended without a completed response. The turn remains pending.",
+  "errors.the_model_stream_ended_without_a_completed_response": "The model stream ended without a completed response.",
   "errors.the_lorebook_could_not_be_read": "The lorebook could not be read.",
   "errors.application_data_was_imported_or_wiped_reopen_the": "Application data was imported or wiped. Reopen the editor and review recovered draft text before sending.",
   "errors.wait_for_other_saves_uploads_responses_and_memory": "Wait for saves, uploads, and chat activity to finish, then try again.",

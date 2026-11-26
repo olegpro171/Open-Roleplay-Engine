@@ -1513,7 +1513,7 @@ export const russianMessages = {
   "errors.could_not_read_the_provider_s_model_list": "Не удалось прочитать список моделей провайдера. Проверьте базовый URL API и сеть, затем повторите попытку. Если провайдер не поддерживает загрузку моделей, введите идентификатор вручную.",
   "errors.the_endpoint_did_not_return_a_chat_completions": "API не вернул поток событий Chat Completions.",
   "errors.the_model_refused_or_filtered_the_request_no": "Модель отказала в запросе или отфильтровала его. Завершённый ответ не принят.",
-  "errors.the_model_stream_ended_without_a_completed_response": "Поток модели закончился без завершённого ответа. Ход остаётся незавершённым.",
+  "errors.the_model_stream_ended_without_a_completed_response": "Поток модели закончился без завершённого ответа.",
   "errors.the_lorebook_could_not_be_read": "Не удалось прочитать лорбук.",
   "errors.application_data_was_imported_or_wiped_reopen_the": "Данные приложения импортированы или удалены. Откройте редактор заново и проверьте восстановленный черновик перед отправкой.",
   "errors.wait_for_other_saves_uploads_responses_and_memory": "Дождитесь завершения сохранений, загрузок и работы в чатах, затем попробуйте снова.",
