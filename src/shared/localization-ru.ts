@@ -1491,7 +1491,7 @@ export const russianMessages = {
   "errors.the_summarization_connection_is_missing": "Подключение для сводок отсутствует.",
   "errors.the_response_is_no_longer_active": "Ответ больше не активен.",
   "errors.the_model_returned_no_text_the_selected_response": "Модель не вернула текст. Выбранный ответ сохранён; пересоздайте его для новой попытки.",
-  "errors.the_model_returned_no_text_the_turn_remains": "Модель не вернула текст. Ход остаётся незавершённым; повторите или удалите его.",
+  "errors.the_model_returned_no_text_the_turn_remains": "Модель не вернула текст.",
   "errors.the_turn_is_no_longer_awaiting_this_response": "Ход больше не ожидает этот ответ.",
   "errors.turn_not_found": "Ход не найден.",
   "errors.a_pending_response_cannot_be_completed_by_editing": "Незавершённый ответ нельзя завершить редактированием. Повторите ответ или удалите ход.",

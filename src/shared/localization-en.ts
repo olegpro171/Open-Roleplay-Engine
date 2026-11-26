@@ -1466,7 +1466,7 @@ export const englishMessages = {
   "errors.the_summarization_connection_is_missing": "The summarization Connection is missing.",
   "errors.the_response_is_no_longer_active": "The response is no longer active.",
   "errors.the_model_returned_no_text_the_selected_response": "The model returned no text. The selected response was kept; regenerate to try again.",
-  "errors.the_model_returned_no_text_the_turn_remains": "The model returned no text. The turn remains pending; retry or delete it.",
+  "errors.the_model_returned_no_text_the_turn_remains": "The model returned no text.",
   "errors.the_turn_is_no_longer_awaiting_this_response": "The turn is no longer awaiting this response.",
   "errors.turn_not_found": "Turn not found.",
   "errors.a_pending_response_cannot_be_completed_by_editing": "A pending response cannot be completed by editing. Retry or delete its turn.",
