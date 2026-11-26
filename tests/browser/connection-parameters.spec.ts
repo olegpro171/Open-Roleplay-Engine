@@ -23,6 +23,9 @@ test('edits saved built-ins and tests and saves provider fields alongside them',
   const savedConnection = page.getByRole('button', { name, exact: true });
   await savedConnection.click();
   const custom = page.getByLabel('Custom request parameters');
+  const editorText = () => custom.innerText();
+  const format = page.getByRole('button', { name: 'Format JSON', exact: true });
+  const problem = page.getByRole('button', { name: /^Line \d+, column / });
   const advanced = page.locator('details').filter({ has: page.getByText('Advanced parameters', { exact: true }) });
   const advancedToggle = advanced.locator('summary');
   const temperature = page.getByLabel('Temperature', { exact: true });
@@ -70,16 +73,86 @@ test('edits saved built-ins and tests and saves provider fields alongside them',
   expect(await firstStop.evaluate(field => field.clientHeight >= field.scrollHeight)).toBe(true);
   await expect(reasoning).toHaveText('none');
   await expect(advanced.getByLabel('Custom request parameters')).toBeVisible();
-  await expect(custom).toHaveValue('{}');
+  await expect.poll(editorText).toBe('{}');
+
+  await custom.fill('');
+  await expect(page.getByRole('status').filter({ hasText: 'No custom parameters' })).toBeVisible();
+  await expect(format).toBeDisabled();
+  await custom.fill('{\n}');
+  await custom.press('End');
+  await custom.press('ArrowLeft');
+  await custom.press('Tab');
+  await expect.poll(editorText).toBe('{\n    }');
+  await expect(custom).toBeFocused();
+  await page.keyboard.insertText('"top_k": 4');
+  await custom.press('Shift+ArrowLeft');
+  await custom.press('Tab');
+  await expect.poll(editorText).toBe('{\n    "top_k":     }');
+  await custom.press('ControlOrMeta+z');
+  await expect.poll(editorText).toBe('{\n    "top_k": 4}');
+  await custom.press('Escape');
+  await page.keyboard.press('Tab');
+  await expect(custom).not.toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(custom).toBeFocused();
+  await custom.press('Shift+Tab');
+  await expect(custom).not.toBeFocused();
+
+  await custom.fill('{\n    "top_k" 50\n}');
+  await expect(problem).toContainText('Line 2, column 13');
+  await expect(format).toBeDisabled();
+  await problem.click();
+  await expect(custom).toBeFocused();
+  await page.keyboard.insertText(':');
+  await expect.poll(editorText).toBe('{\n    "top_k" :50\n}');
+  await expect(custom).toHaveAttribute('aria-invalid', 'false');
+  await expect(problem).toHaveCount(0);
+
+  // A wrapped first line and a scrolled source must still use logical line numbers.
+  const wrapped = 'wrapped text '.repeat(80);
+  const distant = ['{', `    "note": "${wrapped}",`, ...Array.from({ length: 40 }, (_, i) => `    "key${i}": true,`), '    "last":', '}'];
+  await custom.fill(distant.join('\n'));
+  await custom.press('ControlOrMeta+Home');
+  await expect(problem).toContainText('Line 44, column 1');
+  await problem.focus();
+  await problem.press('Enter');
+  await expect(custom).toBeFocused();
+  await expect(page.locator('.connection-json-input .cm-lineNumbers').getByText('44', { exact: true })).toBeInViewport();
+  await page.keyboard.insertText('null');
+  await expect(custom).toHaveAttribute('aria-invalid', 'false');
+
+  await custom.fill('[]');
+  await expect(format).toBeDisabled();
+  const compact = '{"nested":{"stream":true},"stream":false}';
+  await custom.fill(compact);
+  await expect(problem).toContainText('Line 1, column 27');
+  await expect(format).toBeEnabled();
+  await format.click();
+  await expect(problem).toContainText('Line 5, column 5');
+  await custom.press('ControlOrMeta+z');
+  await expect.poll(editorText).toBe(compact);
+  await expect(problem).toContainText('Line 1, column 27');
+  await format.click();
+  await settings.click();
+  await sendTest.click();
+  await expect(parameters).toHaveAttribute('aria-selected', 'true');
+  await expect(custom).toBeFocused();
+  expect(await requests()).toHaveLength(1);
+  await problem.click();
+  await custom.press('ArrowRight');
+  await page.keyboard.insertText('extra_');
+  await expect.poll(editorText).toBe('{\n    "nested": {\n        "stream": true\n    },\n    "extra_stream": false\n}');
+  await expect(problem).toHaveCount(0);
 
   await custom.fill('{"temperature": 0.8}');
+  await format.click();
   await advancedToggle.click();
   await settings.click();
   await save.click();
   await expect(parameters).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('alert').filter({ hasText: 'Set temperature using its dedicated control' })).toBeVisible();
+  await expect(problem.filter({ hasText: 'Set temperature using its dedicated control' })).toBeVisible();
   await expect(custom).toBeFocused();
-  await expect(custom).toHaveValue('{"temperature": 0.8}');
+  await expect.poll(editorText).toBe('{\n    "temperature": 0.8\n}');
   await topP.fill('2');
   await custom.fill('{"top_k": 50}');
   await sendTest.click();
@@ -95,7 +168,12 @@ test('edits saved built-ins and tests and saves provider fields alongside them',
   await expect(removeSecondStop).toHaveText('Remove');
   await removeSecondStop.click();
   const extras = { top_k: 50, chat_template_kwargs: { enable_thinking: false }, extras: [0, null, 'literal'] };
-  await custom.fill(JSON.stringify(extras, null, 2));
+  await custom.fill(JSON.stringify(extras));
+  await format.click();
+  await expect.poll(editorText).toBe(JSON.stringify(extras, null, 4));
+  await custom.press('ControlOrMeta+z');
+  await expect.poll(editorText).toBe(JSON.stringify(extras));
+  await format.click();
   await sendTest.click();
   await expect(page.locator('.connection-success')).toBeVisible();
   await page.getByText('Test request and response', { exact: true }).click();
@@ -114,7 +192,7 @@ test('edits saved built-ins and tests and saves provider fields alongside them',
   await expect(custom).toBeHidden();
   await advancedToggle.click();
   await expect(reasoning).toHaveText('Provider default');
-  await expect(custom).toHaveValue(JSON.stringify(extras, null, 2));
+  await expect.poll(editorText).toBe(JSON.stringify(extras, null, 4));
 
   const appearancePath = '/api/application/appearance';
   for (const theme of themeSchema.options) {
@@ -135,6 +213,11 @@ test('edits saved built-ins and tests and saves provider fields alongside them',
         await page.screenshot({ path: testInfo.outputPath(`controls-${theme}-${width}.png`) });
         await page.getByText('Enter extra fields as a JSON object.', { exact: false }).scrollIntoViewIfNeeded();
         await page.screenshot({ path: testInfo.outputPath(`custom-${theme}-${width}.png`) });
+        await custom.fill('{\n    "top_k": 50,\n}');
+        await expect(problem).toContainText('Line 2, column 16 · Remove the trailing comma.');
+        await problem.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: testInfo.outputPath(`error-${theme}-${width}.png`) });
+        await custom.fill(JSON.stringify(extras, null, 4));
         await advancedToggle.click();
         await expect(custom).toBeHidden();
         await topP.scrollIntoViewIfNeeded();

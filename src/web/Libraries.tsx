@@ -22,7 +22,7 @@ import { WarningDialog, WarningMessages } from './WarningDialog';
 import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { CharacterAvatar, PictureSquare } from './Pictures';
 import { LibraryCard } from './LibraryCard';
-import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
+import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { connectionSettings, outputFitsContextWindow, type Connection, type ConnectionRecord, type ConnectionDiagnostic, type DiscoveredModel } from '../shared/contracts';
 import { characterLabel, personaLabel, characterFields, defaultPrompt, markers, markerLabel, promptWarningMessages, type ChatSummary, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
@@ -30,7 +30,7 @@ import { upgradePrompt } from '../core/prompt-upgrade';
 import { TranscriptImport } from './TranscriptImport';
 import { CharacterImport } from './CharacterImport';
 import { ConnectionFileDialog, type ConnectionFileAction } from './ConnectionFileDialog';
-import { ConnectionFields, type ConnectionTab } from './ConnectionFields';
+import type { ConnectionTab } from './ConnectionFields';
 import { ConnectionFieldError, connectionParameterDraft, parseConnectionParameters, recoverConnectionParameters, type ConnectionParameterDraft } from './connection-parameter-draft';
 import { CharacterEditor } from './CharacterEditor';
 import { EditorActions, EditorActionsTarget } from './EditorActions';
@@ -48,6 +48,8 @@ import { newLorebook, type Lorebook, type LoreDiagnostic } from '../shared/loreb
 import { LorebookEditor, LorebookImport, LoreDiagnostics } from './LorebookEditor';
 import { CopyLibraryDraft, LibraryDraftNotice, StaleLibraryDraft, useLibraryEditorDraft } from './LibraryDraft';
 import { sameDraftValue, type DraftOf, type LibraryDraft, type LibraryEditorDraft, type SetupReturn } from './library-draft';
+
+const ConnectionFields = lazy(() => import('./ConnectionFields').then(module => ({ default: module.ConnectionFields })));
 
 export const defaultConnection: Connection = { name: 'My Connection', endpoint: 'https://api.openai.com/v1', model: '', contextWindow: 128_000, maxOutputTokens: 8196, customParameters: {} };
 
@@ -385,10 +387,13 @@ export function Libraries({ library, defaults, appearance, currentBranchId, bran
     }
     if ('personality' in initial.data || 'entries' in initial.data) return null;
     const restored = recovered?.kind !== 'characters' && recovered?.kind !== 'lorebooks' ? recovered : undefined;
-    return <LibraryEditor key={initial.id ?? initial.kind} initial={{ ...initial, data: initial.data }} recovered={restored}
+    const editor = <LibraryEditor key={initial.id ?? initial.kind} initial={{ ...initial, data: initial.data }} recovered={restored}
       connections={initial.kind === 'contexts' ? sortLibraryRecords(library.connections, 'connections', library.dates) : []}
       currentRevision={library.revision} appearance={appearance} busy={busy} run={run}
       close={cancelEditor} committed={id => finishEditor(id && initial.kind === 'personas' ? { kind: 'personas', id } : undefined)} />;
+    return initial.kind === 'connections'
+      ? <Suspense fallback={<p role="status">{t('application_settings.loading_record')}</p>}>{editor}</Suspense>
+      : editor;
   }
   async function duplicate(item: Saved<LibraryRecord>) {
     if (section === 'chats') return;
@@ -657,6 +662,13 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
         : { endpoint, model: model.id, tokens: model.contextWindow } };
     });
   }, []);
+  function revealCustomError(form: HTMLFormElement) {
+    flushSync(() => setConnectionTab('parameters'));
+    const errorButton = form.querySelector<HTMLButtonElement>('.connection-json-error');
+    const disclosure = errorButton?.closest('details');
+    if (disclosure) disclosure.open = true;
+    errorButton?.click();
+  }
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy || stale || outputConflict) return;
@@ -667,6 +679,10 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
         value = connectionFromDraft(data, parameters);
       } catch (error) {
         if (!(error instanceof ConnectionFieldError)) throw error;
+        if (error.field === 'customParameters') {
+          revealCustomError(e.currentTarget);
+          return;
+        }
         flushSync(() => {
           if (error.field !== 'model') setConnectionTab('parameters');
           setError(error.localized);
@@ -708,7 +724,7 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
         numberDraft={numberDraft} outputConflict={outputConflict} busy={busy}
         reportWindow={rememberModelWindow} tab={connectionTab} selectTab={setConnectionTab} parameters={parameters} setParameters={setParameters} />
       <ConnectionTools connection={connectionSettings(connection)} parameters={parameters} connectionId={initial.id}
-        apiKey={removeKey ? '' : key || undefined} disabled={stale || outputConflict} />
+        apiKey={removeKey ? '' : key || undefined} disabled={stale || outputConflict} revealCustomError={revealCustomError} />
     </> : prompt ? <PromptEditor value={prompt} change={setData} /> :
     persona && <>
       <div className="library-editor-identity">
@@ -734,7 +750,7 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
     <EditorActions formId={formId} disabled={busy || stale || outputConflict} cancelDisabled={busy} close={close} />
   </form></NumberDraftContext.Provider>;
 }
-function ConnectionTools({ connection, parameters, connectionId, apiKey, disabled }: { connection: Connection; parameters: ConnectionParameterDraft; connectionId?: string; apiKey?: string; disabled: boolean }) {
+function ConnectionTools({ connection, parameters, connectionId, apiKey, disabled, revealCustomError }: { revealCustomError: (form: HTMLFormElement) => void; connection: Connection; parameters: ConnectionParameterDraft; connectionId?: string; apiKey?: string; disabled: boolean }) {
   useLocale();
   const [result, setResult] = useState<ConnectionDiagnostic | null>(null), [error, setError] = useTextState('');
   const [testing, setTesting] = useState(false);
@@ -752,7 +768,11 @@ function ConnectionTools({ connection, parameters, connectionId, apiKey, disable
       const input = connectionFromDraft(connection, parameters);
       const value = await api<ConnectionDiagnostic>('/connections/diagnose', 'POST', { action, connection: input, connectionId, apiKey });
       if (attempt.current === id) setResult(value);
-    } catch (error) { if (attempt.current === id) setError(errorText(error, msg("libraries.connection_test_failed"))); }
+    } catch (error) {
+      if (attempt.current !== id) return;
+      if (form && error instanceof ConnectionFieldError && error.field === 'customParameters') revealCustomError(form);
+      else setError(errorText(error, msg('libraries.connection_test_failed')));
+    }
     finally { if (attempt.current === id) setTesting(false); }
   }
   return <section className="settings-section connection-tools">

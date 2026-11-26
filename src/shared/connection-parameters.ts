@@ -39,14 +39,18 @@ const credentialKeys = new Set(['apikey', 'authorization', 'accesstoken', 'autht
 const parameterBytes = 64 * 1024;
 const parameterDepth = 32;
 
-function invalidParameterKey(value: unknown, depth: number): 'credentials' | 'unsafe_key' | 'depth' | undefined {
+type ParameterKeyIssue = { kind: 'credentials' | 'unsafe_key' | 'depth'; path: (string | number)[] };
+function invalidParameterKey(value: unknown, depth: number): ParameterKeyIssue | undefined {
   if (typeof value !== 'object' || value === null) return;
-  if (depth > parameterDepth) return 'depth';
+  if (depth > parameterDepth) return { kind: 'depth', path: [] };
   for (const [key, child] of Object.entries(value)) {
-    if (unsafeKeys.has(key)) return 'unsafe_key';
-    if (credentialKeys.has(key.toLowerCase().replace(/[^a-z0-9]/g, ''))) return 'credentials';
+    if (unsafeKeys.has(key)) return { kind: 'unsafe_key', path: [key] };
+    if (credentialKeys.has(key.toLowerCase().replace(/[^a-z0-9]/g, ''))) return { kind: 'credentials', path: [key] };
     const issue = invalidParameterKey(child, depth + 1);
-    if (issue) return issue;
+    if (issue) {
+      issue.path.unshift(Array.isArray(value) ? Number(key) : key);
+      return issue;
+    }
   }
 }
 
@@ -58,7 +62,7 @@ const parameterObjectSchema = z.custom<Record<string, unknown>>(value => {
 }, message('connection_parameters.object').fallback).superRefine((value, ctx) => {
   const issue = invalidParameterKey(value, 0);
   if (issue) {
-    ctx.addIssue({ code: 'custom', message: message(`connection_parameters.${issue}`).fallback });
+    ctx.addIssue({ code: 'custom', message: message(`connection_parameters.${issue.kind}`).fallback, params: { sourcePath: issue.path } });
     return;
   }
   for (const key of Object.keys(value)) {

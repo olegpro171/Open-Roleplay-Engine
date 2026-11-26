@@ -129,7 +129,7 @@ test('uses a native warning on refresh, Back and tab close and restores a Connec
   await expect(apiKey).toHaveValue('');
   await parameterTab.click();
   await advanced.click();
-  await expect(parameters).toHaveValue('{"temperature":');
+  await expect.poll(() => parameters.innerText()).toBe('{"temperature":');
   await expect(temperature).toHaveValue('0.');
   await expect(page.getByText('Enter the new API key again before saving.')).toBeVisible();
   expect(await page.evaluate(() => Object.values(sessionStorage))).not.toContainEqual(expect.stringContaining(secret));
@@ -141,13 +141,13 @@ test('uses a native warning on refresh, Back and tab close and restores a Connec
     await dialog.dismiss();
   });
   await Promise.all([backWarning, page.evaluate(() => history.back())]);
-  await expect(parameters).toHaveValue('{"top_p":');
+  await expect.poll(() => parameters.innerText()).toBe('{"top_p":');
   const closeWarning = page.waitForEvent('dialog').then(async dialog => {
     expect(dialog.type()).toBe('beforeunload');
     await dialog.dismiss();
   });
   await Promise.all([closeWarning, page.close({ runBeforeUnload: true })]);
-  await expect(parameters).toHaveValue('{"top_p":');
+  await expect.poll(() => parameters.innerText()).toBe('{"top_p":');
   await editorAction(page, 'Cancel').click();
   await leave(page);
   await expect(page.getByRole('button', { name: 'New Connection', exact: true })).toBeVisible();

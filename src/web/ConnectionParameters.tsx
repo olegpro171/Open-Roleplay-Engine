@@ -2,6 +2,7 @@ import { useId } from 'react';
 import { numericConnectionParameters, reasoningEffortSchema, stopSequenceLimit, stopSequenceMaxLength, type NumericConnectionParameter } from '../shared/connection-parameters';
 import { Icon } from './Icon';
 import { Dropdown } from './Controls';
+import { ConnectionJsonEditor } from './ConnectionJsonEditor';
 import { EditorTextarea } from './EditorTextarea';
 import { t, useLocale } from './localization';
 import type { ConnectionParameterDraft } from './connection-parameter-draft';
@@ -13,8 +14,7 @@ export function ConnectionParameters({ draft, change, disabled }: {
 }) {
   useLocale();
   const fieldHelpId = useId();
-  const customHelpId = `${fieldHelpId}-custom`;
-  const { builtInParameters, parameters } = draft;
+  const { builtInParameters } = draft;
   const { numbers, stop, reasoning_effort: reasoningEffort } = builtInParameters;
   function changeBuiltIn(patch: Partial<typeof builtInParameters>) {
     change({ ...draft, builtInParameters: { ...builtInParameters, ...patch } });
@@ -80,12 +80,7 @@ export function ConnectionParameters({ draft, change, disabled }: {
           {Array.isArray(stop) && stop.length === 0 && <button type="button" className="secondary"
             onClick={() => changeBuiltIn({ stop: undefined })}>{t('connection_parameters.reset_stop')}</button>}
         </div>
-        <div>
-          <label>{t('libraries.custom_request_parameters')}
-            <EditorTextarea name="customParameters" className="code-input" aria-describedby={customHelpId} value={parameters} onChange={event => change({ ...draft, parameters: event.target.value })} />
-          </label>
-          <small id={customHelpId} className="field-help muted">{t('connection_parameters.custom_help')}</small>
-        </div>
+        <ConnectionJsonEditor draft={draft} disabled={disabled} onChange={parameters => change({ ...draft, parameters })} />
       </div>
     </details>
   </>;

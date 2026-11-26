@@ -1378,3 +1378,14 @@ button.text-link>.ui-icon{width:14px;height:14px}
   .lore-order-actions { grid-column:2; justify-self:end; }
   .lore-order-actions .quiet { min-width:44px; }
 }
+
+.connection-json-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:6px; }
+.connection-json-input { min-width:0; }
+.connection-json-input .cm-editor { color:var(--text); background:var(--input-bg); border:1px solid var(--control-border); border-radius:8px; overflow:hidden; }
+.connection-json-input .cm-editor.cm-focused { outline:2px solid var(--header-highlight); outline-offset:1px; }
+.connection-json-input .cm-scroller { max-height:min(42dvh,24rem); overflow:auto; font:14px/1.5 ui-monospace, monospace; }
+.connection-json-input .cm-content { min-height:8rem; caret-color:var(--text); }
+.connection-json-input .cm-gutters { background:var(--input-bg); color:var(--muted); border-inline-end:1px solid var(--control-border); }
+.connection-json-input .json-error-line { background:var(--danger-surface-muted); box-shadow:inset 2px 0 var(--danger-border); }
+.connection-json [role=status] { margin-block:6px; }
+.connection-json button.connection-json-error { text-align:start; color:var(--danger-text); text-decoration:underline; }
