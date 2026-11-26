@@ -1,13 +1,17 @@
-import type { InvalidEvent } from 'react';
+import { useId, type InvalidEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { Icon } from './Icon';
 import { t, useLocale } from './localization';
 
-export function EditorNameField({ value, change, label }: { value: string; label?: string; change: (name: string) => void }) {
+export function EditorNameField({ value, change, label, help }: { value: string; label?: string; help?: string; change: (name: string) => void }) {
   useLocale();
-  return <label>{label ?? t('character_editor.name')}
-    <span className="library-editor-name"><input required maxLength={100} value={value}
+  const helpId = useId();
+  const title = label ?? t('character_editor.name');
+  return <label>{title}
+    <span className="library-editor-name"><input required maxLength={100} value={value} aria-label={title}
+      aria-describedby={help ? helpId : undefined}
       onChange={event => change(event.target.value)} /><Icon name="EditOutline" /></span>
+    {help && <small id={helpId}>{help}</small>}
   </label>;
 }
 

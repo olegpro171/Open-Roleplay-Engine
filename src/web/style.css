@@ -53,13 +53,9 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 .editor-disclosure-content{border-block-start:1px solid var(--line);padding:14px}
 .library-sidebar .eyebrow{margin-bottom:20px}
 .library-tabs{display:flex;flex-direction:column;gap:6px}
-:is(.library-tabs,.prompt-editor-tabs) button{text-align:left;min-height:44px;padding:11px 14px;background:none;border-color:transparent;color:var(--muted);font-size:14px;font-weight:500}
-.prompt-editor{min-width:0}
-.prompt-editor-tabs{display:flex;gap:6px;margin-block-end:14px}
-.prompt-editor-tabs button{min-width:0;overflow-wrap:anywhere;text-align:center}
-.prompt-assembly-help{margin:0}
-.prompt-assembly-help p{margin:8px 0 0;overflow-wrap:anywhere}
-.prompt-instructions:not([hidden]){display:grid;gap:12px}
+.library-tabs button{text-align:left;min-height:44px;padding:11px 14px;background:none;border-color:transparent;color:var(--muted);font-size:14px;font-weight:500}
+.prompt-assembly-help p{margin:4px 0 10px;overflow-wrap:anywhere}
+.prompt-instruction-body{padding-block:4px 14px}
 .library-panel{min-width:0;padding:34px 42px 70px;scrollbar-color:var(--scrollbar) transparent;overscroll-behavior:contain;container:library / inline-size}
 @media(min-width:801px){.library-workspace .library-panel{padding-top:0}}
 
@@ -73,7 +69,7 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 .library-search svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);width:18px;height:18px;fill:none;stroke:var(--muted);stroke-width:1.75;stroke-linecap:round;pointer-events:none}
 .library-search input{padding-left:42px;min-height:44px}
 
-:is(.library-tabs button:is([aria-pressed=true],[aria-current=location]),.prompt-editor-tabs button[aria-selected=true]){background:var(--accent-selected);border-color:var(--accent-border);color:var(--header-highlight)}.library-list{display:grid;gap:16px;margin-top:20px}.library-list h2{margin-bottom:5px;overflow-wrap:anywhere}.library-list p{color:var(--muted);font-size:13px;margin-bottom:0;white-space:pre-wrap;overflow-wrap:anywhere}.import-panel{margin-top:45px;padding-top:28px;border-top:1px solid var(--line)}.actions{flex-wrap:wrap}.tabs{overflow-x:auto;flex-shrink:0}.tabs button{white-space:nowrap}
+.library-tabs button:is([aria-pressed=true],[aria-current=location]){background:var(--accent-selected);border-color:var(--accent-border);color:var(--header-highlight)}.library-list{display:grid;gap:16px;margin-top:20px}.library-list h2{margin-bottom:5px;overflow-wrap:anywhere}.library-list p{color:var(--muted);font-size:13px;margin-bottom:0;white-space:pre-wrap;overflow-wrap:anywhere}.import-panel{margin-top:45px;padding-top:28px;border-top:1px solid var(--line)}.actions{flex-wrap:wrap}.tabs{overflow-x:auto;flex-shrink:0}.tabs button{white-space:nowrap}
 @media(max-width:800px){.library-layout{display:block;overflow:auto}.library-sidebar{padding:22px 18px 18px;border-right:0;border-bottom:1px solid var(--line);overflow:visible}.library-sidebar .eyebrow{margin-bottom:12px}.library-tabs{flex-direction:row;flex-wrap:wrap}.library-tabs button{padding:9px 12px;font-size:12px}.library-panel{overflow:visible;padding:24px 18px 50px}.tabs{gap:20px}}
 
 .library-card,.chat-card{border:1px solid var(--line);background:var(--surface);min-width:0;position:relative;transition:background .15s}
@@ -164,13 +160,12 @@ input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
 .model-picker-option>span{min-width:0}
 .model-picker .model-picker-option[aria-pressed=true]{background:var(--surface-hover);color:var(--header-highlight)}
 .model-picker-footer{display:flex;justify-content:flex-end;gap:8px;padding:8px 10px;border-top:1px solid var(--line);flex-shrink:0}
-.prompt-blocks{display:grid;gap:12px;margin:16px 0 20px}
-.prompt-block{position:relative;min-width:0;border:1px solid var(--control-border);background:var(--surface-low);padding:8px 10px;border-radius:10px}
-.prompt-block .form-grid{gap:14px}
+.prompt-blocks{margin:0 0 16px}
+.prompt-block{position:relative;min-width:0;padding-block:8px;border-block-start:1px solid var(--line)}
 :is(.prompt-block,.lore-entry-row).dragging{opacity:.5}
 :is(.prompt-block,.lore-entry-row).drop-before::before,:is(.prompt-block,.lore-entry-row).drop-after::after{content:"";position:absolute;height:3px;left:0;right:0;border-radius:3px;background:var(--accent);box-shadow:0 0 0 2px var(--page);pointer-events:none}
-.prompt-block.drop-before::before{top:-8px}
-.prompt-block.drop-after::after{bottom:-8px}
+.prompt-block.drop-before::before{top:-2px;z-index:1}
+.prompt-block.drop-after::after{bottom:-2px;z-index:1}
 .block-heading{
   display:grid;
   grid-template-columns:var(--drag-handle-width,20px) 44px minmax(0,1fr) auto auto;
@@ -233,12 +228,7 @@ a[href][data-pointer-pressed]{text-decoration:underline;text-decoration-thicknes
 
 /* The library sidebar can leave an editor narrower than the viewport breakpoint. */
 @container library (max-width:660px){
-  .prompt-blocks{gap:0;margin-inline:-8px}
-  .prompt-block{padding:4px 0;border:0;border-radius:0;background:none}
-  .prompt-block+.prompt-block{border-block-start:1px solid var(--line)}
-  .prompt-block.drop-before::before,.prompt-block.drop-after::after{z-index:1}
-  .prompt-block.drop-before::before{top:-2px}
-  .prompt-block.drop-after::after{bottom:-2px}
+  .prompt-block{padding-block:6px}
   .block-heading{
     grid-template-columns:var(--drag-handle-width,20px) 44px minmax(0,1fr);
     grid-template-areas:"drag enabled summary" "fields fields fields";
@@ -649,7 +639,7 @@ button.turn-action, .turn-actions > .action-menu-trigger { display: inline-flex;
   /* Explicit palette fills must not inherit button brightness: Light's fill
      would blend into the page, then flash darker as the background fades out. */
   /* Keep category hover below the persistent selected-category style. */
-  :is(.library-tabs,.prompt-editor-tabs) button:where(:hover:enabled),
+  .library-tabs button:where(:hover:enabled),
   .heading-dropdown .select-trigger:hover:enabled,
   .turn-action:hover:enabled:not([aria-disabled="true"]),
   .turn-actions > .action-menu-trigger:hover:enabled,
@@ -1277,12 +1267,17 @@ button.text-link>.ui-icon{width:14px;height:14px}
   .library-deletion-linked .actions>button{flex:1 1 auto;padding:10px 12px}
 }
 
-.tabbed-library-editor { min-inline-size:0; padding:0; border:0; background:none; container-type:inline-size; }
+.tabbed-library-editor, .persona-editor { min-inline-size:0; padding:0; border:0; background:none; container-type:inline-size; }
 .library-editor-identity { display:grid; grid-template-columns:minmax(0,1.12fr) minmax(0,1fr); align-items:end; gap:20px; }
 .library-editor-identity > label { min-inline-size:0; }
 .library-editor-name { position:relative; }
 .library-editor-name input { padding:4px 0; padding-inline-end:30px; border:0; border-block-end:1px solid var(--line); border-radius:0; background:transparent; font-size:clamp(21px,4cqi,29px); font-weight:650; letter-spacing:-.035em; }
 .library-editor-name .ui-icon { position:absolute; inset-inline-end:4px; top:50%; transform:translateY(-50%); width:16px; height:16px; color:var(--muted); pointer-events:none; }
+.persona-editor .library-editor-identity { align-items:start; }
+.persona-description { margin-block:22px 18px; padding-block:18px; border-block:1px solid var(--line); }
+.persona-description textarea { font-weight:400; }
+.persona-editor .speech-color-selector { min-inline-size:0; margin:0; padding:0; border:0; background:none; }
+.persona-editor .speech-color-selector legend { padding:0; color:var(--text); font-size:14px; font-weight:550; }
 .library-editor-tabs.tabs { margin-block:24px 20px; gap:24px; border-block-end:1px solid var(--line); flex-wrap:wrap; overflow:visible; }
 .library-editor-tabs.tabs button { padding:8px 0 10px; min-height:44px; font-size:14px; white-space:normal; }
 .tabbed-library-editor h3 { margin:0 0 4px; font-size:18px; }

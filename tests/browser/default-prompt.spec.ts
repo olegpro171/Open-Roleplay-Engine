@@ -183,7 +183,6 @@ test('block layout follows the editor pane and editable names follow the form ty
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await selectLibraryCategory(page, 'Prompts');
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
-  const presetName = page.getByRole('textbox', { name: 'Name', exact: true });
   const firstBlock = page.getByRole('region', { name: 'Prompt block 1', exact: true });
   const blockName = firstBlock.getByRole('textbox', { name: 'Block name', exact: true });
 
@@ -195,8 +194,8 @@ test('block layout follows the editor pane and editable names follow the form ty
     else await expect(blockName).toBeVisible();
     if (width === 801) await expect(page.getByRole('listbox', { name: 'Role for block 1' })).toHaveCount(0);
     await expand.click();
-    const nameSize = await presetName.evaluate(field => getComputedStyle(field).fontSize);
-    await expect(blockName, `Block name font size at ${width}px`).toHaveCSS('font-size', nameSize);
+    const fieldSize = await firstBlock.getByRole('textbox', { name: 'Block text', exact: true }).evaluate(field => getComputedStyle(field).fontSize);
+    await expect(blockName, `Block name font size at ${width}px`).toHaveCSS('font-size', fieldSize);
     await firstBlock.getByRole('button', { name: /\bCollapse block 1$/ }).click();
     if (width === 800) {
       await firstBlock.getByRole('combobox', { name: 'Role for block 1' }).click();

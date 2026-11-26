@@ -36,6 +36,7 @@ import { CharacterEditor } from './CharacterEditor';
 import { EditorActions, EditorActionsTarget } from './EditorActions';
 import type { LeaveEditor } from './EditorLeaveGuard';
 import { ContextPresetFields } from './ContextPresetFields';
+import { EditorNameField } from './LibraryEditorFields';
 import { EditorTabs } from './EditorTabs';
 import { EditorTextarea } from './EditorTextarea';
 import { TagChips, TagFilterMenu } from './Tags';
@@ -616,6 +617,8 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
   const [data, setData] = useState(recovered?.data ?? initial.data);
   const connection = 'endpoint' in data ? data : undefined;
   const contextPreset = 'batchSize' in data ? data : undefined;
+  const prompt = 'blocks' in data ? data : undefined;
+  const persona = 'description' in data ? data : undefined;
   const baselineWindow = 'endpoint' in initial.data ? initial.data.contextWindow : defaultConnection.contextWindow;
   const [windowSource, setWindowSource] = useState<ContextWindowSource>(() => {
     if (recovered?.kind !== 'connections') return undefined;
@@ -696,20 +699,8 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
       });
     })) committed(request.result?.id);
   }
-  function textField(field: string, label: string, multiline = true, full = true, help?: string) {
-    const value = (data as unknown as Record<string, string>)[field];
-    const helpId = `${formId}-${field}-help`;
-    const helpAttributes = help ? { 'aria-label': label, 'aria-describedby': helpId } : {};
-    return <label className={full ? 'full' : undefined} key={field}>{label}
-      {multiline
-        ? <EditorTextarea {...helpAttributes} value={value} maxLength={100_000} onChange={event => setData({ ...data, [field]: event.target.value })} />
-        : <input {...helpAttributes} required maxLength={100} value={value} onChange={event => setData({ ...data, [field]: event.target.value })} />}
-      {help && <small id={helpId}>{help}</small>}
-    </label>;
-  }
-  const personaNameHelp = initial.kind === 'personas' ? t('libraries.persona_name_help', { user: '{{user}}' }) : undefined;
-  return <NumberDraftContext.Provider value={numberDraft}><form id={formId} onSubmit={e => void save(e)}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy} className={contextPreset || connection ? 'tabbed-library-editor' : undefined}>
-    <legend className={contextPreset || connection ? 'sr-only' : undefined}>{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend>
+  return <NumberDraftContext.Provider value={numberDraft}><form id={formId} onSubmit={e => void save(e)}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy} className={persona ? 'persona-editor' : 'tabbed-library-editor'}>
+    <legend className="sr-only">{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend>
     {contextPreset ? <ContextPresetFields value={contextPreset} change={setData} connections={connections} /> : connection ? <>
       <ConnectionFields value={connection} change={setData} id={initial.id} hasApiKey={initial.hasApiKey}
         apiKey={key} setApiKey={setKey} removeKey={Boolean(removeKey)} setRemoveKey={setRemoveKey}
@@ -718,15 +709,25 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
         reportWindow={rememberModelWindow} tab={connectionTab} selectTab={setConnectionTab} parameters={parameters} setParameters={setParameters} />
       <ConnectionTools connection={connectionSettings(connection)} parameters={parameters} connectionId={initial.id}
         apiKey={removeKey ? '' : key || undefined} disabled={stale || outputConflict} />
-    </> :
-    <div className="form-grid">{textField('name', t("character_editor.name"), false, initial.kind !== 'personas', personaNameHelp)}
-    {initial.kind === 'personas' && <>
-      <label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={(data as LibraryPersona).titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("libraries.an_optional_label_useful_for_distinguishing_between")}</small></label>
-      <SpeechColorSelector speaker="persona" appearance={appearance} value={(data as LibraryPersona).speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy} />
-      {textField('description', t('libraries.persona_description'), true, true, t('libraries.persona_description_help'))}
-    </>}
-    {initial.kind === 'prompts' && <PromptEditor value={data as PromptPreset} change={setData} />}
-  </div>}</fieldset>
+    </> : prompt ? <PromptEditor value={prompt} change={setData} /> :
+    persona && <>
+      <div className="library-editor-identity">
+        <EditorNameField value={persona.name} change={name => setData({ ...persona, name })}
+          help={t('libraries.persona_name_help', { user: '{{user}}' })} />
+        <label>{t('character_editor.title_comment')}
+          <input aria-label={t('character_editor.title_comment')} aria-describedby={`${formId}-title-help`}
+            maxLength={200} value={persona.titleComment ?? ''} onChange={event => setData({ ...persona, titleComment: event.target.value })} />
+          <small id={`${formId}-title-help`}>{t('libraries.an_optional_label_useful_for_distinguishing_between')}</small>
+        </label>
+      </div>
+      <label className="persona-description">{t('libraries.persona_description')}
+        <small id={`${formId}-description-help`}>{t('libraries.persona_description_help')}</small>
+        <EditorTextarea aria-label={t('libraries.persona_description')} aria-describedby={`${formId}-description-help`}
+          maxLength={100_000} value={persona.description} onChange={event => setData({ ...persona, description: event.target.value })} />
+      </label>
+      <SpeechColorSelector speaker="persona" appearance={appearance} value={persona.speechColor}
+        change={speechColor => setData({ ...persona, speechColor })} disabled={busy} />
+    </>}</fieldset>
     {error && <p className={connection ? 'small connection-error' : undefined} role="alert">{error}</p>}
     {stale && !staleWarningDismissed && <WarningDialog message={msg('libraries.the_library_changed_close_this_editor_and')} close={() => setStaleWarningDismissed(true)} />}
     {stale && dirty && <CopyLibraryDraft editor={draft} />}
@@ -769,7 +770,7 @@ function PromptInstruction({ title, label, help, custom, fallback, change }: {
   useLocale();
   const helpId = useId();
   const [open, setOpen] = useState(false);
-  return <details className="editor-disclosure" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+  return <details className="editor-disclosure library-editor-disclosure" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>
       <span>
         <span>{title}</span>
@@ -777,7 +778,7 @@ function PromptInstruction({ title, label, help, custom, fallback, change }: {
       </span>
       <Icon name="ArrowShortBottom" />
     </summary>
-    {open && <label className="editor-disclosure-content">
+    {open && <label className="prompt-instruction-body">
       <small id={helpId}>{help}</small>
       <EditorTextarea aria-label={label} aria-describedby={helpId} maxLength={100_000}
         value={custom ?? fallback} onChange={event => change(event.target.value)} />
@@ -795,22 +796,23 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
   useLocale();
   const id = useId();
   const [activeTab, setActiveTab] = useState<PromptEditorTab>('main');
-  return <div className="full prompt-editor">
+  return <>
+    <EditorNameField value={value.name} change={name => change({ ...value, name })} />
     <EditorTabs id={id} label={t('libraries.prompt_editor_sections')} tabs={promptEditorTabs}
-      active={activeTab} select={setActiveTab} className="prompt-editor-tabs" />
+      active={activeTab} select={setActiveTab} className="tabs library-editor-tabs" />
     <WarningMessages messages={promptWarningMessages(value)} />
     <div role="tabpanel" id={`${id}-main-panel`} aria-labelledby={`${id}-main-tab`} hidden={activeTab !== 'main'}
       onInvalid={() => {
         // Reveal invalid block fields before the browser moves focus to the first one.
         if (activeTab !== 'main') flushSync(() => setActiveTab('main'));
       }}>
-      <details className="prompt-assembly-help">
-        <summary>{t('libraries.how_prompt_assembly_works')}</summary>
+      <details className="editor-disclosure library-editor-disclosure prompt-assembly-help">
+        <summary>{t('libraries.how_prompt_assembly_works')}<Icon name="ArrowShortBottom" /></summary>
         <p className="small muted">{t('libraries.enabled_blocks_and_markers_compose_the_base', { value: '{{user}}', value2: '{{char}}' })}</p>
       </details>
       <PromptBlocks value={value} change={change} />
     </div>
-    <div className="prompt-instructions" role="tabpanel" id={`${id}-instructions-panel`}
+    <div role="tabpanel" id={`${id}-instructions-panel`}
       aria-labelledby={`${id}-instructions-tab`} hidden={activeTab !== 'instructions'}>
       <PromptInstruction title={t('continue.action')} label={t('continue.instruction')} help={t('continue.instruction_help')}
         custom={value.continuationInstruction} fallback={defaultContinuationInstruction}
@@ -819,7 +821,7 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
         custom={value.openingInstruction} fallback={defaultOpeningInstruction}
         change={openingInstruction => change({ ...value, openingInstruction })} />
     </div>
-  </div>;
+  </>;
 }
 
 function PromptBlocks({ value, change }: { value: PromptPreset; change: (value: PromptPreset) => void }) {
