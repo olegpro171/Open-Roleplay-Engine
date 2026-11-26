@@ -495,7 +495,7 @@ for (const language of ['en', 'ru']) {
       });
       expect(saved.ok()).toBe(true);
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-      for (const width of [1280, 801, 800, 390, 320]) {
+      for (const width of [1280, 1160, 1148, 801, 800, 390, 320]) {
         await page.setViewportSize({ width, height: 844 });
         for (const control of [window, reserve, apply]) {
           const bounds = await control.boundingBox();
@@ -508,10 +508,21 @@ for (const language of ['en', 'ru']) {
           const range = document.createRange();
           range.selectNodeContents(input.labels[0]);
           const label = range.getBoundingClientRect(), box = input.getBoundingClientRect();
-          return { gap: box.left - label.right, centerOffset: (box.top + box.bottom - label.top - label.bottom) / 2, left: box.left };
+          const row = input.parentElement?.getBoundingClientRect();
+          if (!row) throw new Error('Missing token limits grid');
+          return {
+            gap: box.left - label.right,
+            centerOffset: (box.top + box.bottom - label.top - label.bottom) / 2,
+            left: box.left,
+            rightInset: row.right - box.right,
+          };
         })));
         expect(pairs[0].left).toBe(pairs[1].left);
-        expect(Math.min(...pairs.map(pair => pair.gap))).toBeLessThanOrEqual(16);
+        if (width >= 1160) {
+          expect(Math.min(...pairs.map(pair => pair.gap))).toBeLessThanOrEqual(16);
+        } else {
+          for (const pair of pairs) expect(Math.abs(pair.rightInset)).toBeLessThan(1);
+        }
         for (const pair of pairs) {
           expect(pair.gap).toBeGreaterThanOrEqual(0);
           expect(Math.abs(pair.centerOffset)).toBeLessThan(2);
