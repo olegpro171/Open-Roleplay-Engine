@@ -238,7 +238,7 @@ describe('persistent chat and generation', () => {
   it('checks and tests unsaved Connection settings without changing chat history or calibrating the counter', async () => {
     const before = await state();
     const customParameters = { reasoning_effort: 'max', top_k: 42, chat_template_kwargs: { enable_thinking: true } };
-    const input = { connection: { ...before.connection, maxOutputTokens: 4096, customParameters }, connectionId: before.settings.connectionId };
+    const input = { connection: { ...before.connection, requestUsage: false, maxOutputTokens: 4096, customParameters }, connectionId: before.settings.connectionId };
     expect(mock.requests).toHaveLength(0);
     const check = await command('/api/connections/diagnose', { ...input, action: 'check' });
     expect(check.statusCode).toBe(200);
@@ -252,6 +252,7 @@ describe('persistent chat and generation', () => {
     expect(result.request.body).toEqual(mock.requests[0].body);
     expect(result.request.body.messages).toEqual([{ role: 'user', content: 'Hi' }]);
     expect(result.request.body.max_tokens).toBe(4096);
+    expect(mock.requests[0].body.stream_options).toEqual({ include_usage: true });
     expect(result.request.body).toMatchObject(customParameters);
     const forbidden = await command('/api/connections/diagnose', { ...input, action: 'test', connection: {
       ...input.connection, requestUsage: false, customParameters: { stream_options: { include_usage: true } },

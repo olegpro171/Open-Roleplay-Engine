@@ -654,7 +654,9 @@ export class Store {
       contexts: list<ContextPreset>('contexts').map(preset => ({ ...preset, repairPrompt: preset.repairPrompt ?? defaultRepairPrompt })),
       lorebooks: list<Lorebook>('lorebooks'),
       ...(includeLorebookUses ? { lorebookUses: this.legacyLorebookUses(list<Lorebook>('lorebooks'), list<LibraryCharacter>('characters')) } : {}),
-      connections: this.db.select().from(schema.connections).orderBy(sql`rowid`).all().map(r => ({ ...r.settings, id: r.id, revision: r.revision, hasApiKey: Boolean(this.db.select().from(schema.credentials).where(eq(schema.credentials.id, r.id)).get()?.apiKey) })),
+      connections: this.db.select().from(schema.connections).orderBy(sql`rowid`).all().map(({ id, revision, settings: { requestUsage: _legacyUsage, ...settings } }) => ({
+        ...settings, id, revision, hasApiKey: Boolean(this.db.select().from(schema.credentials).where(eq(schema.credentials.id, id)).get()?.apiKey),
+      })),
       chats: this.chatSummaries(),
     };
   }

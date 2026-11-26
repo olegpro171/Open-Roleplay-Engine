@@ -9,7 +9,7 @@ export function chatCompletionRequest(connection: Connection, messages: Message[
       messages,
       stream: true,
       max_tokens: connection.maxOutputTokens,
-      ...(connection.requestUsage !== false ? { stream_options: { include_usage: true } } : {}),
+      stream_options: { include_usage: true },
     },
   };
 }

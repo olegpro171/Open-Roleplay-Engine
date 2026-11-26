@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 import { test } from './isolated-app';
-import { appearanceStatusSchema } from '../../src/shared/appearance';
+import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 import type { LibrarySnapshot } from '../../src/shared/library';
 
 test('edits saved built-ins and tests and saves provider fields alongside them', async ({ page, browserApp }, testInfo) => {
@@ -31,6 +31,25 @@ test('edits saved built-ins and tests and saves provider fields alongside them',
   const save = page.getByRole('group', { name: 'Editor actions' }).getByRole('button', { name: 'Save', exact: true });
   const sendTest = page.getByRole('button', { name: 'Send test message', exact: true });
   const requests = async () => page.request.get('/__test/requests').then(response => response.json());
+  const settings = page.getByRole('tab', { name: 'Connection settings', exact: true });
+  const parameters = page.getByRole('tab', { name: 'Request parameters', exact: true });
+  const endpointField = page.getByLabel('API base URL');
+  await expect(settings).toHaveAttribute('aria-selected', 'true');
+  await endpointField.fill('unfinished');
+  await settings.press('ArrowRight');
+  await expect(parameters).toBeFocused();
+  await save.click();
+  await expect(endpointField).toBeFocused();
+  await expect(endpointField).toHaveValue('unfinished');
+  await endpointField.fill(endpoint);
+  const reserve = page.getByLabel('Reserved output tokens', { exact: true });
+  await reserve.fill('unfinished');
+  await parameters.click();
+  await sendTest.click();
+  await expect(reserve).toBeFocused();
+  expect(await requests()).toHaveLength(0);
+  await reserve.fill('1000');
+  await parameters.click();
   await expect(temperature).toHaveValue('0.7');
   await expect(topP).toHaveValue('0.9');
   await expect(temperature).toHaveAccessibleDescription(/Range 0–2\./);
@@ -46,14 +65,20 @@ test('edits saved built-ins and tests and saves provider fields alongside them',
   await expect(page.getByLabel('Presence penalty', { exact: true })).toHaveValue('-0.5');
   await expect(page.getByLabel('Frequency penalty', { exact: true })).toHaveValue('0');
   await expect(page.getByLabel('Seed', { exact: true })).toHaveValue('7');
-  await expect(page.getByRole('textbox', { name: 'Stop sequence 1', exact: true })).toHaveValue('A\nB');
+  const firstStop = page.getByRole('textbox', { name: 'Stop sequence 1', exact: true });
+  await expect(firstStop).toHaveValue('A\nB');
+  expect(await firstStop.evaluate(field => field.clientHeight >= field.scrollHeight)).toBe(true);
   await expect(reasoning).toHaveText('none');
   await expect(advanced.getByLabel('Custom request parameters')).toBeVisible();
   await expect(custom).toHaveValue('{}');
 
   await custom.fill('{"temperature": 0.8}');
+  await advancedToggle.click();
+  await settings.click();
   await save.click();
+  await expect(parameters).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('alert').filter({ hasText: 'Set temperature using its dedicated control' })).toBeVisible();
+  await expect(custom).toBeFocused();
   await expect(custom).toHaveValue('{"temperature": 0.8}');
   await topP.fill('2');
   await custom.fill('{"top_k": 50}');
@@ -83,6 +108,7 @@ test('edits saved built-ins and tests and saves provider fields alongside them',
   await expect(custom).toBeHidden();
   expect((await library()).connections.find(item => item.name === name)?.customParameters).toEqual(expectedParameters);
   await savedConnection.click();
+  await parameters.click();
   await expect(temperature).toHaveValue('0.35');
   await expect(topP).toHaveValue('');
   await expect(custom).toBeHidden();
@@ -91,7 +117,7 @@ test('edits saved built-ins and tests and saves provider fields alongside them',
   await expect(custom).toHaveValue(JSON.stringify(extras, null, 2));
 
   const appearancePath = '/api/application/appearance';
-  for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+  for (const theme of themeSchema.options) {
     const current = appearanceStatusSchema.parse(await page.request.get(appearancePath).then(response => response.json()));
     const response = await page.request.put(appearancePath, { headers, data: { revision: current.revision, settings: { ...current.settings, theme } } });
     expect(response.ok(), await response.text()).toBe(true);

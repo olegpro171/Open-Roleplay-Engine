@@ -177,7 +177,7 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   </Anchor>;
 }
 
-function FadingSelectLabel({ label }: { label: string }) {
+export function FadingSelectLabel({ label }: { label: string }) {
   const clipped = useRef<HTMLSpanElement>(null);
   const [overflows, setOverflows] = useState(false);
   useLayoutEffect(() => {

@@ -38,7 +38,9 @@ describe('request assembly', () => {
     expect(request.layout?.map(part => [part.kind, part.tokens])).toEqual([['prompt', 1], ['character', 3], ['persona', 1], ['history', 9], ['history', 4]]);
     expect(request.budget.inputTokens).toBe(41);
     expect(request.body.stream_options).toEqual({ include_usage: true });
-    expect(assembleRequest({ ...connection, requestUsage: false }, settings, []).body).not.toHaveProperty('stream_options');
+  });
+  it('always requests usage even for a Connection with the legacy opt-out', () => {
+    expect(assembleRequest({ ...connection, requestUsage: false }, settings, []).body.stream_options).toEqual({ include_usage: true });
   });
   it('forwards typed built-ins alongside scalar and nested provider-specific JSON', () => {
     const configured = connectionSchema.parse({ ...connection, requestUsage: false, customParameters: {
@@ -47,7 +49,7 @@ describe('request assembly', () => {
     expect(assembleRequest(configured, settings, []).body).toEqual({
       temperature: 0, top_k: 50, min_p: 0.05, template: { thinking: false, options: ['literal', null, { count: 2 }] },
       model: 'synthetic', messages: ['Instructions', '{{literal}}', 'Persona'].map(content => ({ role: 'system', content })),
-      stream: true, max_tokens: 100,
+      stream: true, max_tokens: 100, stream_options: { include_usage: true },
     });
   });
   it.each([

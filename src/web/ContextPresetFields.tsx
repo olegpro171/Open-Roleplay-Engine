@@ -1,5 +1,5 @@
-import { useId, useState, type InvalidEvent } from 'react';
-import { flushSync } from 'react-dom';
+import { useId, useState } from 'react';
+import { EditorNameField, revealInvalidField } from './LibraryEditorFields';
 import type { ContextPreset } from '../shared/context';
 import type { Connection } from '../shared/contracts';
 import type { Saved } from '../shared/library';
@@ -34,25 +34,9 @@ export function ContextPresetFields({ value, change, connections }: {
   const id = useId();
   const [active, select] = useState<ContextTab>('memory');
 
-  function revealInvalid(event: InvalidEvent<HTMLDivElement>, tab: ContextTab) {
-    const field = event.target;
-    if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement)) return;
-    // Native validation visits every invalid control. Keep the first one visible for browser focus.
-    if (field !== field.form?.querySelector('input:invalid, textarea:invalid')) {
-      event.preventDefault();
-      return;
-    }
-    if (active !== tab) flushSync(() => select(tab));
-    const disclosure = field.closest('details');
-    if (disclosure) disclosure.open = true;
-  }
-
   return <>
-    <div className="context-preset-identity">
-      <label>{t('character_editor.name')}
-        <span className="context-preset-name"><input required maxLength={100} value={value.name}
-          onChange={event => change({ ...value, name: event.target.value })} /><Icon name="EditOutline" /></span>
-      </label>
+    <div className="library-editor-identity">
+      <EditorNameField value={value.name} change={name => change({ ...value, name })} />
       <label>{t('libraries.summarization_connection')}
         <Dropdown fadeLabel aria-label={t('libraries.summarization_connection')} value={value.connectionId ?? ''}
           onChange={connectionId => change({ ...value, connectionId: connectionId || null })}
@@ -60,12 +44,12 @@ export function ContextPresetFields({ value, change, connections }: {
             ...connections.map(connection => ({ value: connection.id, label: `${connection.name} · ${connection.model}` }))]} />
       </label>
     </div>
-    <EditorTabs id={id} label={t('libraries.context_editor_sections')} tabs={tabs} active={active} select={select} className="tabs context-preset-tabs" />
+    <EditorTabs id={id} label={t('libraries.context_editor_sections')} tabs={tabs} active={active} select={select} className="tabs library-editor-tabs" />
     <div id={`${id}-memory-panel`} role="tabpanel" aria-labelledby={`${id}-memory-tab`} hidden={active !== 'memory'}
-      onInvalid={event => revealInvalid(event, 'memory')}>
+      onInvalid={event => revealInvalidField(event, () => select('memory'))}>
       {groups.map(group => <section className="settings-section" key={group.title}>
         <h3>{t(group.title)}</h3>
-        {group.fields.map(([field, label, help, min]) => <label className="context-preset-setting" key={field}>
+        {group.fields.map(([field, label, help, min]) => <label className="library-editor-setting" key={field}>
           <span>{t(label)}<small className="muted" id={`${id}-${field}-help`}>{t(help)}</small></span>
           <NumberInput aria-label={t(label)} aria-describedby={`${id}-${field}-help`} draftField={field}
             required min={min} max={field === 'summaryTokens' ? 1_000_000 : 50_000} value={value[field]}
@@ -74,8 +58,8 @@ export function ContextPresetFields({ value, change, connections }: {
       </section>)}
     </div>
     <div id={`${id}-prompts-panel`} role="tabpanel" aria-labelledby={`${id}-prompts-tab`} hidden={active !== 'prompts'}
-      onInvalid={event => revealInvalid(event, 'prompts')}>
-      {prompts.map(([field, heading, label, help]) => <details key={field} className="editor-disclosure context-preset-prompt" open={field === 'extractionPrompt'}>
+      onInvalid={event => revealInvalidField(event, () => select('prompts'))}>
+      {prompts.map(([field, heading, label, help]) => <details key={field} className="editor-disclosure library-editor-disclosure" open={field === 'extractionPrompt'}>
         <summary>{t(heading)}<Icon name="ArrowShortBottom" /></summary>
         <div className="context-preset-prompt-body">
           <p id={`${id}-${field}-help`} className="small muted">{t(help)}</p>

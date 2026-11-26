@@ -22,7 +22,7 @@ async function library(page: Page): Promise<LibrarySnapshot> {
 
 async function addRecord(page: Page, kind: LibraryKind, data: object) {
   const response = await page.request.post('/api/library', {
-    headers: { Origin: 'http://127.0.0.1:4173' },
+    headers: { Origin: new URL(page.url()).origin },
     data: { kind, revision: (await library(page)).revision, data },
   });
   expect(response.ok(), await response.text()).toBe(true);
@@ -724,7 +724,7 @@ test('keeps both context preset tabs readable across themes and panel widths', a
   const original = await readAppearance();
   async function setTheme(theme: typeof original.settings.theme) {
     const appearance = await readAppearance();
-    const response = await page.request.put(path, { headers: { Origin: 'http://127.0.0.1:4173' }, data: {
+    const response = await page.request.put(path, { headers: { Origin: new URL(page.url()).origin }, data: {
       revision: appearance.revision, settings: { ...appearance.settings, theme },
     } });
     expect(response.ok()).toBe(true);

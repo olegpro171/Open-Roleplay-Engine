@@ -77,13 +77,17 @@ it('duplicates Connection settings and credentials on the server without exposin
   try {
     const setup = await cmd('/setup', { password: 'synthetic-library-password' });
     cookie = String(setup.headers['set-cookie']).split(';')[0];
-    const original = store.saveLibrary(store.libraryRevision(), 'connections', { ...connection, requestUsage: false }, undefined, 'synthetic-copy-secret');
+    const original = store.saveLibrary(store.libraryRevision(), 'connections', connection, undefined, 'synthetic-copy-secret');
+    // Simulate a row written by a version that allowed opting out of usage reporting.
+    store.sqlite.prepare('UPDATE connections SET settings = ? WHERE id = ?').run(JSON.stringify({ ...connection, requestUsage: false }), original);
+    expect(store.connection(original)).toEqual(connection);
+    expect(store.libraries().connections.find(row => row.id === original)).not.toHaveProperty('requestUsage');
     const revision = store.libraryRevision();
     const copied = await cmd(`/library/connections/${original}/duplicate`, { revision });
     expect(copied.statusCode).toBe(200);
     const id: string = copied.json().id;
     expect(id).not.toBe(original);
-    expect(store.connection(id)).toEqual({ ...connection, requestUsage: false, name: 'Synthetic copy' });
+    expect(store.connection(id)).toEqual({ ...connection, name: 'Synthetic copy' });
     expect(store.connectionApiKey(id)).toBe('synthetic-copy-secret');
     expect(store.libraryRevision()).toBe(revision + 1);
     const publicLibrary = await app.inject({ method: 'GET', url: '/api/library', headers: { host: 'localhost', cookie } });

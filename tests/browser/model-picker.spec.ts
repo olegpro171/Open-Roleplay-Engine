@@ -469,23 +469,23 @@ for (const language of ['en', 'ru']) {
     const trigger = page.getByRole('button', { name: russian ? 'Идентификатор модели' : 'Model identifier', exact: true });
     const picker = page.getByRole('dialog', { name: russian ? 'Выберите модель' : 'Select model', exact: true });
     const apply = page.getByRole('button', { name: russian ? /^Вернуть 4\s096$/ : 'Use 4,096' });
-    const usage = page.getByRole('checkbox', { name: russian ? 'Запрашивать статистику токенов у API' : 'Request token usage from the endpoint' });
-    const usagePosition = () => usage.evaluate(input => {
-      if (!(input instanceof HTMLInputElement)) throw new Error('Expected the token usage checkbox');
-      return input.offsetTop;
+    const diagnostics = page.getByRole('heading', { name: russian ? 'Проверка подключения' : 'Connection diagnostics', exact: true });
+    const diagnosticsPosition = () => diagnostics.evaluate(heading => {
+      if (!(heading instanceof HTMLElement)) throw new Error('Expected the diagnostics heading');
+      return heading.offsetTop;
     });
     await expect(window).toHaveAccessibleDescription('');
-    const blankPosition = await usagePosition();
+    const blankPosition = await diagnosticsPosition();
     await page.route('**/api/models', route => route.fulfill({ json: { models: [{ id: 'small-window', contextWindow: 4096 }] } }));
     await trigger.click();
     await picker.getByRole('button', { name: 'small-window', exact: true }).click();
     await expect(window).toHaveAccessibleDescription(russian ? 'По данным провайдера' : 'Reported by the provider');
     await expect(reserve).toHaveAccessibleDescription(russian ? /Задайте резерв меньше/ : /Set reserve below/);
-    expect(await usagePosition()).toBe(blankPosition);
+    expect(await diagnosticsPosition()).toBe(blankPosition);
     await window.fill('16384');
     await expect(window).toHaveValue('16384');
     await expect(reserve).not.toHaveAttribute('aria-invalid');
-    await expect(window).toHaveAccessibleDescription(russian ? 'Вручную' : 'Manually set');
+    await expect(window).toHaveAccessibleDescription(russian ? 'Установлено вручную' : 'Manually set');
     await expect(apply).toBeVisible();
 
     for (const theme of themeSchema.options) {
@@ -495,7 +495,7 @@ for (const language of ['en', 'ru']) {
       });
       expect(saved.ok()).toBe(true);
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-      for (const width of [1280, 801, 800, 390]) {
+      for (const width of [1280, 801, 800, 390, 320]) {
         await page.setViewportSize({ width, height: 844 });
         for (const control of [window, reserve, apply]) {
           const bounds = await control.boundingBox();
@@ -503,26 +503,45 @@ for (const language of ['en', 'ru']) {
           expect(bounds.x).toBeGreaterThanOrEqual(0);
           expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
         }
-        const labelAlignedWithLink = await apply.evaluate(button => {
+        const pairs = await Promise.all([window, reserve].map(control => control.evaluate(input => {
+          if (!(input instanceof HTMLInputElement) || !input.labels?.[0]) throw new Error('Expected a labeled token limit');
+          const range = document.createRange();
+          range.selectNodeContents(input.labels[0]);
+          const label = range.getBoundingClientRect(), box = input.getBoundingClientRect();
+          return { gap: box.left - label.right, centerOffset: (box.top + box.bottom - label.top - label.bottom) / 2, left: box.left };
+        })));
+        expect(pairs[0].left).toBe(pairs[1].left);
+        expect(Math.min(...pairs.map(pair => pair.gap))).toBeLessThanOrEqual(16);
+        for (const pair of pairs) {
+          expect(pair.gap).toBeGreaterThanOrEqual(0);
+          expect(Math.abs(pair.centerOffset)).toBeLessThan(2);
+        }
+        const status = await apply.evaluate(button => {
           const label = button.previousElementSibling;
-          if (!label) return false;
+          const row = button.parentElement;
+          const field = row?.previousElementSibling;
+          if (!label || !(field instanceof HTMLInputElement)) throw new Error('Expected the context window and its source');
           const range = document.createRange();
           range.selectNodeContents(label);
           const labelText = range.getBoundingClientRect();
           range.selectNodeContents(button);
           const linkText = range.getBoundingClientRect();
-          return linkText.left >= labelText.right
-            && Math.abs(linkText.top - labelText.top) < 1
-            && Math.abs(linkText.bottom - labelText.bottom) < 1;
+          return {
+            gap: labelText.top - field.getBoundingClientRect().bottom,
+            linkFollowsSource: (linkText.left >= labelText.right && Math.abs(linkText.top - labelText.top) < 1)
+              || linkText.top >= labelText.bottom,
+          };
         });
-        expect(labelAlignedWithLink).toBe(true);
+        expect(status.gap).toBeGreaterThanOrEqual(0);
+        expect(status.gap).toBeLessThanOrEqual(8);
+        expect(status.linkFollowsSource).toBe(true);
         if (width !== 1280 && width !== 390) continue;
-        const beforeApply = await usagePosition();
+        const beforeApply = await diagnosticsPosition();
         await window.evaluate(input => input.scrollIntoView({ block: 'center' }));
         await page.screenshot({ path: testInfo.outputPath(`proposal-${theme}-${width}.png`), animations: 'disabled' });
         await apply.click();
         await expect(reserve).toHaveAttribute('aria-invalid', 'true');
-        expect(await usagePosition()).toBe(beforeApply);
+        expect(await diagnosticsPosition()).toBe(beforeApply);
         await window.evaluate(input => input.scrollIntoView({ block: 'center' }));
         await page.screenshot({ path: testInfo.outputPath(`conflict-${theme}-${width}.png`), animations: 'disabled' });
         await window.fill('16384');

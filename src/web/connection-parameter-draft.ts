@@ -1,8 +1,15 @@
 import { z } from 'zod';
 import type { Connection } from '../shared/contracts';
-import { customParametersSchema, isBuiltInParameter, numericConnectionParameters, reasoningEffortSchema, stopSchema } from '../shared/connection-parameters';
+import { customParametersSchema, isBuiltInParameter, numericConnectionParameters, reasoningEffortSchema, stopSchema, type NumericConnectionParameter } from '../shared/connection-parameters';
+import type { LocalizedMessage } from '../shared/localization';
 import { validationMessage } from '../shared/localization-validation';
 import { LocalizedError, message } from './localization';
+
+export class ConnectionFieldError extends LocalizedError {
+  constructor(message: LocalizedMessage, readonly field: NumericConnectionParameter | 'customParameters' | 'model' = 'customParameters') {
+    super(message);
+  }
+}
 
 const numericParameterKey = z.object(numericConnectionParameters).keyof();
 const numericKeys = numericParameterKey.options;
@@ -31,7 +38,7 @@ function parseJson(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
-    throw new LocalizedError(message('libraries.custom_parameters_must_be_valid_json'));
+    throw new ConnectionFieldError(message('libraries.custom_parameters_must_be_valid_json'));
   }
 }
 
@@ -52,10 +59,10 @@ export function recoverConnectionParameters(saved: Connection['customParameters'
 export function parseConnectionParameters({ builtInParameters, parameters }: ConnectionParameterDraft): Connection['customParameters'] {
   const custom = parameters.trim() ? parseJson(parameters) : {};
   if (typeof custom !== 'object' || custom === null || Array.isArray(custom)) {
-    throw new LocalizedError(message('connection_parameters.object'));
+    throw new ConnectionFieldError(message('connection_parameters.object'));
   }
   const builtInKey = Object.keys(custom).find(isBuiltInParameter);
-  if (builtInKey) throw new LocalizedError(message('connection_parameters.use_control', { field: builtInKey }));
+  if (builtInKey) throw new ConnectionFieldError(message('connection_parameters.use_control', { field: builtInKey }));
   const values: Record<string, unknown> = { ...custom };
   for (const key of numericKeys) {
     const text = builtInParameters.numbers[key]?.trim();
@@ -65,7 +72,7 @@ export function parseConnectionParameters({ builtInParameters, parameters }: Con
       ? Number(text.replace(',', '.')) : Number.NaN;
     if (!schema.safeParse(value).success) {
       const range = { min: String(schema.minValue), max: String(schema.maxValue) };
-      throw new LocalizedError(message(key === 'seed' ? 'connection_parameters.invalid_seed' : 'connection_parameters.invalid_number', { field: key, ...range }));
+      throw new ConnectionFieldError(message(key === 'seed' ? 'connection_parameters.invalid_seed' : 'connection_parameters.invalid_number', { field: key, ...range }), key);
     }
     values[key] = value;
   }
@@ -76,9 +83,9 @@ export function parseConnectionParameters({ builtInParameters, parameters }: Con
     const [issue] = parsed.error.issues;
     const field = issue.path[0];
     if (typeof field === 'string' && issue.message === message('connection_parameters.reserved').fallback) {
-      throw new LocalizedError(message('connection_parameters.reserved_field', { field }));
+      throw new ConnectionFieldError(message('connection_parameters.reserved_field', { field }));
     }
-    throw new LocalizedError(validationMessage(issue));
+    throw new ConnectionFieldError(validationMessage(issue));
   }
   return parsed.data;
 }

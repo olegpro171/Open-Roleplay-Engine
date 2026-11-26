@@ -30,9 +30,8 @@ import { upgradePrompt } from '../core/prompt-upgrade';
 import { TranscriptImport } from './TranscriptImport';
 import { CharacterImport } from './CharacterImport';
 import { ConnectionFileDialog, type ConnectionFileAction } from './ConnectionFileDialog';
-import { ModelField } from './ModelPicker';
-import { ConnectionParameters } from './ConnectionParameters';
-import { connectionParameterDraft, parseConnectionParameters, recoverConnectionParameters, type ConnectionParameterDraft } from './connection-parameter-draft';
+import { ConnectionFields, type ConnectionTab } from './ConnectionFields';
+import { ConnectionFieldError, connectionParameterDraft, parseConnectionParameters, recoverConnectionParameters, type ConnectionParameterDraft } from './connection-parameter-draft';
 import { CharacterEditor } from './CharacterEditor';
 import { EditorActions, EditorActionsTarget } from './EditorActions';
 import type { LeaveEditor } from './EditorLeaveGuard';
@@ -42,7 +41,7 @@ import { EditorTextarea } from './EditorTextarea';
 import { TagChips, TagFilterMenu } from './Tags';
 import { characterTagIndex, matchesCharacterTags } from '../shared/tags';
 import { api, datasetEpoch } from './api';
-import { Dropdown, NumberDraftContext, NumberInput, useNumberDraft } from './Controls';
+import { Dropdown, NumberDraftContext, useNumberDraft } from './Controls';
 import { defaultContextPreset, type ContextPreset } from '../shared/context';
 import { newLorebook, type Lorebook, type LoreDiagnostic } from '../shared/lorebook';
 import { LorebookEditor, LorebookImport, LoreDiagnostics } from './LorebookEditor';
@@ -603,12 +602,11 @@ type ContextWindowSource = DraftOf<'connections'>['contextWindowSource'];
 
 function comparableLibraryFields(data: StandardDraft['data']) {
   if ('description' in data) return { ...data, titleComment: data.titleComment ?? '', speechColor: data.speechColor ?? null };
-  if ('endpoint' in data) return { ...data, requestUsage: data.requestUsage !== false };
   return data;
 }
 
 function connectionFromDraft(connection: ConnectionRecord, parameters: ConnectionParameterDraft): ConnectionRecord {
-  if (!connection.model.trim()) throw new LocalizedError(msg('model_picker.required'));
+  if (!connection.model.trim()) throw new ConnectionFieldError(msg('model_picker.required'), 'model');
   return { ...connection, customParameters: parseConnectionParameters(parameters) };
 }
 
@@ -630,12 +628,7 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
   const [parameters, setParameters] = useState(() => recovered?.kind === 'connections'
     ? recoverConnectionParameters(recovered.data.customParameters, recovered) : baselineParameters);
   const numberDraft = useNumberDraft(recovered?.numbers);
-  const reportedWindow = connection?.modelWindowReport?.tokens;
-  const windowMatchesReport = reportedWindow !== undefined && connection?.contextWindow === reportedWindow
-    && numberDraft.values.contextWindow === undefined;
-  const windowLabel = reportedWindow !== undefined
-    ? windowMatchesReport ? 'libraries.context_window_provider' : 'libraries.context_window_manual'
-    : !initial.id && !windowSource ? 'libraries.context_window_default' : 'libraries.context_window_unknown';
+  const [connectionTab, setConnectionTab] = useState<ConnectionTab>('settings');
   const outputConflict = connection !== undefined && numberDraft.values.contextWindow === undefined && numberDraft.values.maxOutputTokens === undefined
     && !outputFitsContextWindow(connection);
   const keyOmitted = !removeKey && key !== '';
@@ -661,32 +654,7 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
         : { endpoint, model: model.id, tokens: model.contextWindow } };
     });
   }, []);
-  function replaceContextWindow(next: ConnectionRecord, source?: ContextWindowSource, contextWindow = baselineWindow) {
-    numberDraft.set('contextWindow', undefined);
-    setWindowSource(source);
-    setData({ ...next, contextWindow });
-  }
-  function changeEndpoint(current: ConnectionRecord, endpoint: string) {
-    if (endpoint === current.endpoint) return;
-    const next = { ...current, endpoint, modelWindowReport: undefined };
-    if (windowSource === 'provider') replaceContextWindow(next);
-    else setData(next);
-  }
-  function selectModel(current: ConnectionRecord, model: DiscoveredModel) {
-    const modelChanged = model.id !== current.model;
-    const modelWindowReport = model.contextWindow !== undefined
-      ? { endpoint: current.endpoint, model: model.id, tokens: model.contextWindow }
-      : modelChanged ? undefined : current.modelWindowReport;
-    const next = { ...current, model: model.id, modelWindowReport };
-    if (!initial.id && model.contextWindow !== undefined && (modelChanged || windowSource !== 'manual')) {
-      replaceContextWindow(next, 'provider', model.contextWindow);
-    } else if (modelChanged && windowSource === 'provider') {
-      replaceContextWindow(next);
-    } else {
-      setData(next);
-    }
-  }
-  async function save(e: FormEvent) {
+  async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy || stale || outputConflict) return;
     setError('');
@@ -695,8 +663,17 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
       try {
         value = connectionFromDraft(data, parameters);
       } catch (error) {
-        if (!(error instanceof LocalizedError)) throw error;
-        setError(error.localized);
+        if (!(error instanceof ConnectionFieldError)) throw error;
+        flushSync(() => {
+          if (error.field !== 'model') setConnectionTab('parameters');
+          setError(error.localized);
+        });
+        const control = e.currentTarget.elements.namedItem(error.field);
+        if (control instanceof HTMLElement) {
+          const disclosure = control.closest('details');
+          if (disclosure) disclosure.open = true;
+          control.focus();
+        }
         return;
       }
     }
@@ -731,52 +708,22 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
     </label>;
   }
   const personaNameHelp = initial.kind === 'personas' ? t('libraries.persona_name_help', { user: '{{user}}' }) : undefined;
-  return <NumberDraftContext.Provider value={numberDraft}><form id={formId} onSubmit={e => void save(e)}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy} className={contextPreset ? 'context-preset-editor' : undefined}>
-    <legend className={contextPreset ? 'sr-only' : undefined}>{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend>
-    {contextPreset ? <ContextPresetFields value={contextPreset} change={setData} connections={connections} /> :
+  return <NumberDraftContext.Provider value={numberDraft}><form id={formId} onSubmit={e => void save(e)}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy} className={contextPreset || connection ? 'tabbed-library-editor' : undefined}>
+    <legend className={contextPreset || connection ? 'sr-only' : undefined}>{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend>
+    {contextPreset ? <ContextPresetFields value={contextPreset} change={setData} connections={connections} /> : connection ? <>
+      <ConnectionFields value={connection} change={setData} id={initial.id} hasApiKey={initial.hasApiKey}
+        apiKey={key} setApiKey={setKey} removeKey={Boolean(removeKey)} setRemoveKey={setRemoveKey}
+        windowSource={windowSource} setWindowSource={setWindowSource} baselineWindow={baselineWindow}
+        numberDraft={numberDraft} outputConflict={outputConflict} busy={busy}
+        reportWindow={rememberModelWindow} tab={connectionTab} selectTab={setConnectionTab} parameters={parameters} setParameters={setParameters} />
+      <ConnectionTools connection={connectionSettings(connection)} parameters={parameters} connectionId={initial.id}
+        apiKey={removeKey ? '' : key || undefined} disabled={stale || outputConflict} />
+    </> :
     <div className="form-grid">{textField('name', t("character_editor.name"), false, initial.kind !== 'personas', personaNameHelp)}
     {initial.kind === 'personas' && <>
       <label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={(data as LibraryPersona).titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("libraries.an_optional_label_useful_for_distinguishing_between")}</small></label>
       <SpeechColorSelector speaker="persona" appearance={appearance} value={(data as LibraryPersona).speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy} />
       {textField('description', t('libraries.persona_description'), true, true, t('libraries.persona_description_help'))}
-    </>}
-    {connection && <>
-      <label className="full">{t("libraries.api_base_url")}<input type="url" required value={connection.endpoint} onChange={e => changeEndpoint(connection, e.target.value)} /></label>
-      <div className="full api-key-row"><label>{t("libraries.api_key")}<input type="password" autoComplete="new-password" disabled={removeKey} placeholder={initial.hasApiKey ? t("libraries.saved_leave_blank_to_keep_it") : t("libraries.optional_for_endpoints_without_authentication")} value={key} onChange={e => setKey(e.target.value)} /></label>{initial.hasApiKey && <label className="checkbox"><input type="checkbox" checked={removeKey} onChange={e => setRemoveKey(e.target.checked)} />{t("libraries.remove_the_saved_api_key")}</label>}</div>
-      <ModelField value={connection.model} endpoint={connection.endpoint} connectionId={initial.id}
-        apiKey={removeKey ? '' : key || undefined} disabled={busy} change={model => selectModel(connection, model)} reportWindow={rememberModelWindow} />
-      <div>
-        <label>{t('libraries.model_context_window')}
-          <NumberInput draftField="contextWindow" required value={connection.contextWindow}
-            aria-describedby={connection.model ? `${formId}-window-source` : undefined}
-            onEdit={() => setWindowSource('manual')} onChange={contextWindow => setData({ ...connection, contextWindow })} />
-        </label>
-        <div className="connection-window-status">
-          {connection.model && <small className="muted" id={`${formId}-window-source`}>{t(windowLabel)}</small>}
-          {reportedWindow !== undefined && !windowMatchesReport &&
-            <button type="button" className="text-link" title={t('libraries.context_window_apply_reported')}
-              onClick={() => replaceContextWindow(connection, 'provider', reportedWindow)}>
-              {t('libraries.context_window_restore', { tokens: reportedWindow.toLocaleString(locale()) })}
-            </button>}
-        </div>
-      </div>
-      <div>
-        <label>{t('libraries.reserved_output_tokens')}
-          <NumberInput draftField="maxOutputTokens" required max={1_000_000} value={connection.maxOutputTokens}
-            aria-invalid={outputConflict || undefined} aria-describedby={outputConflict ? `${formId}-output-conflict` : undefined}
-            onChange={maxOutputTokens => setData({ ...connection, maxOutputTokens })} />
-        </label>
-        <small className="field-help muted connection-output-status" id={`${formId}-output-conflict`} role="alert">
-          {outputConflict && (connection.contextWindow === 1 ? t('libraries.context_window_too_small')
-            : t('libraries.context_window_output_conflict', { tokens: connection.contextWindow.toLocaleString(locale()) }))}
-        </small>
-      </div>
-      <label className="checkbox full"><input type="checkbox" checked={connection.requestUsage !== false}
-        onChange={e => setData({ ...connection, requestUsage: e.target.checked })} />{t('libraries.request_token_usage_from_the_endpoint')}</label>
-      <p className="small muted full">{t('libraries.turn_statistics_use_counts_supplied_by_the')}</p>
-      <ConnectionParameters draft={parameters} change={setParameters} disabled={busy} />
-      <ConnectionTools connection={connectionSettings(connection)} parameters={parameters} connectionId={initial.id}
-        apiKey={removeKey ? '' : key || undefined} disabled={stale || outputConflict} />
     </>}
     {initial.kind === 'prompts' && <PromptEditor value={data as PromptPreset} change={setData} />}
   </div>}</fieldset>
@@ -796,7 +743,9 @@ function ConnectionTools({ connection, parameters, connectionId, apiKey, disable
     attempt.current++; setResult(null); setError(''); setTesting(false);
   }, [signature]);
   useEffect(() => () => { attempt.current++; }, []);
-  async function diagnose(action: 'check' | 'test') {
+  async function diagnose(action: 'check' | 'test', form: HTMLFormElement | null) {
+    // Validate the visible draft before using the last parsed numeric values for a test request.
+    if (form?.querySelector('[role="tabpanel"] input:invalid') && !form.reportValidity()) return;
     const id = ++attempt.current; setTesting(true); setResult(null); setError('');
     try {
       const input = connectionFromDraft(connection, parameters);
@@ -805,13 +754,14 @@ function ConnectionTools({ connection, parameters, connectionId, apiKey, disable
     } catch (error) { if (attempt.current === id) setError(errorText(error, msg("libraries.connection_test_failed"))); }
     finally { if (attempt.current === id) setTesting(false); }
   }
-  return <div className="full connection-tools">
-    <div className="actions"><button type="button" className="secondary" disabled={disabled || testing} onClick={() => void diagnose('check')}>{t("libraries.check_connection")}</button><button type="button" className="secondary" disabled={disabled || testing} onClick={() => void diagnose('test')}>{t("libraries.send_test_message")}</button></div>
+  return <section className="settings-section connection-tools">
+    <h3>{t('libraries.connection_diagnostics')}</h3>
+    <div className="actions"><button type="button" className="secondary" disabled={disabled || testing} onClick={event => void diagnose('check', event.currentTarget.form)}>{t("libraries.check_connection")}</button><button type="button" className="secondary" disabled={disabled || testing} onClick={event => void diagnose('test', event.currentTarget.form)}>{t("libraries.send_test_message")}</button></div>
     <p className="small muted connection-help">{t("libraries.enter_your_provider_s_api_key_above")}</p>
     {testing && <p className="small" role="status">{t("libraries.testing_connection")}</p>}
     {error && <p className="small connection-error" role="alert">{error}</p>}
     {result && <div className="connection-test-result" role="status"><p className="small connection-success">{formatMessage(result.localized ?? result.message)}</p>{result.request && <><p className="small">{result.usage ? t("libraries.token_usage_input_output", { value: result.usage.inputTokens.toLocaleString(locale()), value2: result.usage.outputTokens.toLocaleString(locale()) }) : t("libraries.token_usage_unavailable")}</p><details><summary>{t("libraries.test_request_and_response")}</summary><pre>{JSON.stringify({ request: result.request, response: result.response, usage: result.usage }, null, 2)}</pre></details></>}</div>}
-  </div>;
+  </section>;
 }
 function PromptInstruction({ title, label, help, custom, fallback, change }: {
   title: string; label: string; help: string; custom?: string; fallback: string; change: (text: string) => void;

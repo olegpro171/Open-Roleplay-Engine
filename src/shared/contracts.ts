@@ -16,7 +16,8 @@ export const connectionSchema = z.object({
   contextWindow: z.number().int().positive().max(10_000_000),
   maxOutputTokens: z.number().int().positive().max(1_000_000),
   customParameters: customParametersSchema,
-  requestUsage: z.boolean().optional(),
+  // Older records, drafts and version 1 profiles may carry this retired flag.
+  requestUsage: z.boolean().optional().overwrite(() => undefined),
 }).strict().refine(outputFitsContextWindow, {
   message: 'Reserved output must be smaller than the context window.', path: ['maxOutputTokens'],
 });
@@ -38,7 +39,7 @@ export const connectionRecordSchema = connectionSchema.safeExtend({
 
 export type ConnectionRecord = z.infer<typeof connectionRecordSchema>;
 
-export function connectionSettings({ modelWindowReport: _report, ...settings }: ConnectionRecord): Connection {
+export function connectionSettings({ modelWindowReport: _report, requestUsage: _legacyUsage, ...settings }: ConnectionRecord): Connection {
   return settings;
 }
 

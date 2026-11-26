@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 const connection: Connection = {
   name: 'Synthetic profile', endpoint: 'http://localhost:9999/v1', model: 'synthetic-model',
-  contextWindow: 65000, maxOutputTokens: 2345, requestUsage: false,
+  contextWindow: 65000, maxOutputTokens: 2345,
   customParameters: { temperature: 0.7, stop: ['A', 'B'], seed: 123, reasoning_effort: 'high', top_k: 50, chat_template_kwargs: { enable_thinking: false } },
 };
 const secret = 'sk-synthetic-connection-transfer-secret';
@@ -127,13 +127,15 @@ it('rejects tampering, wrong kinds, invalid settings, oversized and malformed fi
 
 it('rolls back the whole imported profile if saving its key fails and allows an explicit retry', async () => {
   const application = await open('rollback');
-  const bytes = await protectBytes(Buffer.from(JSON.stringify({ format: 'ore-connection', version: 1, connection, apiKey: secret })), 'connection', '');
+  const bytes = await protectBytes(Buffer.from(JSON.stringify({ format: 'ore-connection', version: 1, connection: { ...connection, requestUsage: false }, apiKey: secret })), 'connection', '');
   const before = application.store.libraries();
   application.store.sqlite.exec("CREATE TRIGGER reject_import_key BEFORE INSERT ON credentials BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END");
   expect((await application.import(bytes)).statusCode).toBe(500);
   expect(application.store.libraries()).toEqual(before);
   application.store.sqlite.exec('DROP TRIGGER reject_import_key');
-  expect((await application.import(bytes)).statusCode).toBe(200);
+  const imported = await application.import(bytes);
+  expect(imported.statusCode).toBe(200);
+  expect(application.store.connection(imported.json().id)).toEqual(connection);
   expect(application.store.libraries().connections).toHaveLength(before.connections.length + 1);
 });
 

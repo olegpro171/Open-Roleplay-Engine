@@ -108,6 +108,7 @@ test('uses a native warning on refresh, Back and tab close and restores a Connec
   await openCategory(page, 'Connections');
   await page.getByRole('button', { name: 'New Connection', exact: true }).click();
   const parameters = page.getByLabel('Custom request parameters');
+  const parameterTab = page.getByRole('tab', { name: 'Request parameters', exact: true });
   const advanced = page.getByText('Advanced parameters', { exact: true });
   const apiKey = page.getByLabel('API key', { exact: true });
   const temperature = page.getByLabel('Temperature', { exact: true });
@@ -118,16 +119,18 @@ test('uses a native warning on refresh, Back and tab close and restores a Connec
   await expect(contextWindow).toHaveValue('incomplete');
   await contextWindow.click();
   await contextWindow.fill('128000');
-  await temperature.fill('0.');
   await apiKey.fill(secret);
+  await parameterTab.click();
+  await temperature.fill('0.');
   await advanced.click();
   await parameters.fill('{"temperature":');
   await reloadWithWarning(page);
   await expect(parameters).toBeHidden();
+  await expect(apiKey).toHaveValue('');
+  await parameterTab.click();
   await advanced.click();
   await expect(parameters).toHaveValue('{"temperature":');
   await expect(temperature).toHaveValue('0.');
-  await expect(apiKey).toHaveValue('');
   await expect(page.getByText('Enter the new API key again before saving.')).toBeVisible();
   expect(await page.evaluate(() => Object.values(sessionStorage))).not.toContainEqual(expect.stringContaining(secret));
   await parameters.click();

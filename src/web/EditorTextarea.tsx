@@ -10,10 +10,13 @@ export function EditorTextarea(props: Props) {
   useLayoutEffect(() => {
     const field = textarea.current;
     if (!field) return;
-    const defaultHeight = field.getBoundingClientRect().height;
+    // A tab or disclosure can hide the field on mount. Capture its natural height once it has layout.
+    let defaultHeight: number | undefined;
     const fitLoadedText = () => {
-      const width = field.getBoundingClientRect().width;
-      if (!width || !field.value) return;
+      const { width, height } = field.getBoundingClientRect();
+      if (!width || !height) return;
+      defaultHeight ??= height;
+      if (!field.value) return;
       const measurement = field.cloneNode();
       if (!(measurement instanceof HTMLTextAreaElement)) return;
       measurement.removeAttribute('id');

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { connectionSchema, modelDiscoverySchema, type DiscoveredModel } from '../shared/contracts';
 import { api } from './api';
 import { openModal } from './dialog-focus';
+import { FadingSelectLabel } from './Controls';
 import { ModalDialog } from './ModalDialog';
 import { Icon } from './Icon';
 import { errorText, formatMessage, LocalizedError, message, t, useLocale, type MessageText } from './localization';
@@ -21,9 +22,9 @@ export function ModelField({ value, change, reportWindow, disabled, ...source }:
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   return <div className="full model-field">
     <label htmlFor={id}>{t('libraries.model_identifier')}</label>
-    <button id={id} type="button" className="select-trigger" disabled={disabled} aria-haspopup="dialog"
+    <button id={id} name="model" type="button" className="select-trigger" disabled={disabled} aria-haspopup="dialog"
       onClick={() => setOpen(true)}>
-      <span className={value ? 'select-label' : 'model-placeholder'}>{value || t('model_picker.select')}</span>
+      {value ? <FadingSelectLabel label={value} /> : <span className="model-placeholder">{t('model_picker.select')}</span>}
       <Icon name="ArrowShortBottom" />
     </button>
     {open && !disabled && <ModelPicker {...source} value={value} reportWindow={reportWindow} cancel={() => setOpen(false)} select={model => {
