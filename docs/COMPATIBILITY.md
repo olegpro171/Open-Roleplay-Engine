@@ -181,7 +181,7 @@ The note is prompt content in Prompt peek and retained request inspection. It cr
 
 ### Saving and recovery
 
-Valid edits save immediately without a Save button. Closing with ×, Escape or outside the popup retains changes and does not cancel an accepted save. Response and memory work disable editing; server writes independently enforce per-chat operation ownership and revisions. Work in unrelated chats remains independent.
+Valid edits save immediately without a Save button. Closing with ×, Escape or outside the popup retains changes and does not cancel an accepted save. Response and memory work disable editing; the server checks the owning branch’s operation state and revision on write. Work on other branches remains independent.
 
 Rapid edits serialize. Competing writes reconcile only the locally edited fields. A successful save updates only the note and chat revision. Sending, response retry and regeneration wait for unresolved note changes. Ordinary saves show no transient status; after one second a delay notice appears. Requests time out after 15 seconds, release the pending request state, retain the edits and expose Retry. Recovery remains available in Story after closing the popup. Retry reads the server first, so a committed write with a lost acknowledgement can unlock sending without another mutation. A queued revert remains pending after an uncertain write, even when its text equals the older acknowledged value; reconciliation must establish the actual server state first. Memory cancellation remains available while a note needs recovery.
 

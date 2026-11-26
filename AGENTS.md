@@ -8,87 +8,54 @@ The user directs product decisions and manually tests features; they do not rout
 
 Before creating a merge commit, discuss its proposed message with the user and wait for agreement on the wording. If the user has already supplied the exact message, use it.
 
-The accepted stack is TypeScript, React + Vite, Node.js + Fastify, SQLite with better-sqlite3 + Drizzle, Zod, HTTP + SSE, Vitest, and Playwright. The Mac hosts the server and data. Persistent chat, roleplay libraries, and durable layered compaction are implemented for local testing. HTTP LAN access is configured in Application Settings; HTTPS is deferred. Selected phone interactions have been checked; broader device behavior and real-model summary quality remain unverified.
+## Scope and sources of truth
 
-## Sources of truth and scope
+Discussion and review stay at the design stage until implementation is requested. Follow the user's latest explicit decisions. Resolve routine technical choices independently. Ask when a missing decision affects product behavior, data preservation, compatibility or scope, using a concrete roleplay example where helpful. A prior suggestion, test or existing implementation alone cannot settle product policy. Obtain agreement before introducing a dependency, framework, service or broader feature. Marinara Engine is independent. Modifying it or importing its code, data or credentials requires a request. Inspect the license before proposing reuse.
 
-- Read [CONCEPTS.md](CONCEPTS.md) before architecture discussion, feature proposals, documentation changes, or implementation. It distinguishes accepted requirements from recommendations and open questions.
-- Read [IMPLEMENTATION.md](IMPLEMENTATION.md) before planning or implementing application changes. Follow its module boundaries, persistence rules, deployment model, and accepted behavior.
-- Use [README.md](README.md) and [package.json](package.json) for actual commands, supported runtime, provider subset, and verification limits. Check the implementation when claiming what currently works.
-- Read [docs/CONTEXT.md](docs/CONTEXT.md) for preparation, budgeting, selection, corrections or repair; [docs/DATA.md](docs/DATA.md) for backups/protected files; [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) for imports, lore and prompt-content rules; [docs/RELEASES.md](docs/RELEASES.md) for launchers, packaging and recovery. Connection diagnostics and development commands are in IMPLEMENTATION.md.
-- Before qualifying a Windows release, check whether the candidate still supports the previously published minimum launcher version. Keep that minimum for compatible releases. Raise it only when users need a newer external `ORE-launcher.bat` to install, update or start the candidate safely. Follow the [Windows launcher version procedure](docs/RELEASES.md#windows-launcher-version-management).
-- The Python visualizer is an isolated synthetic reference. Its workflow lives in [experiments/compaction/README.md](experiments/compaction/README.md); application commands and assumptions must not be substituted for it.
+Use the sections relevant to the task:
 
-Follow the user's latest explicit decisions. If documents disagree in a way that affects the task, resolve the discrepancy from those decisions or ask a focused question; do not silently invent policy. Existing code demonstrates behavior, not necessarily intended behavior. An earlier assistant suggestion is not an accepted requirement.
-
-Discussion, feasibility, comparison, and feedback requests stay design conversations until implementation is requested. During implementation, resolve routine technical details autonomously within the accepted design. Ask when a missing product decision materially changes behavior, data loss, compatibility, or scope. Explain tradeoffs using concrete roleplay examples. Do not introduce a new stack, framework, dependency, service, or larger feature scope without user agreement; existing authorization need not be requested again.
-
-This repository is independent of Marinara Engine. Do not modify that project or import its code, data, or credentials without a request; inspect the relevant license before proposing code reuse. Branching, product agents, broad provider adaptation, retrieval, scene detection, character-specific memory permissions, multimedia, multiplayer, and plugins remain future/open decisions as described in CONCEPTS.md, not implied implementation tasks or permanent prohibitions.
+| Question | Primary reference |
+| --- | --- |
+| What behavior has the user accepted? | [Product contract](CONCEPTS.md), including [open decisions](CONCEPTS.md#open-decisions-and-scope). Consult before design, documentation or implementation. |
+| Where does the change belong? | [Architecture and module map](IMPLEMENTATION.md#module-map). Before planning or implementing, read the affected architecture sections, including [generation and provider transport](IMPLEMENTATION.md#generation-and-transport) for Connections. |
+| How do memory selection, budgeting and repair work? | [Memory contract](docs/CONTEXT.md) |
+| What may enter a prompt or round-trip through an import? | [Compatibility contract](docs/COMPATIBILITY.md) |
+| How do backups, credentials and protected files work? | [Data contract](docs/DATA.md) |
+| How do I install, develop or qualify a release? | User setup in [Russian](README.md) or [English](README.en.md). [Development commands](IMPLEMENTATION.md#development-commands) and [npm scripts and supported runtime](package.json). For packaging and recovery use the [release guide](docs/RELEASES.md), including the [minimum launcher check before qualification](docs/RELEASES.md#windows-launcher-version-management). |
+| How do I run the synthetic Python visualizer? | Follow the isolated [compaction lab workflow](experiments/compaction/README.md). |
 
 ## Before editing
 
-1. Inspect the working tree and applicable instructions. Preserve pre-existing changes, including uncommitted work in files you need to edit. Never reset, clean, or overwrite unrelated work to obtain a convenient baseline.
-2. Trace the affected workflow through its callers, shared contracts, persistence, and tests. Read surrounding code; do not patch only the first matching line or assume a similar function has identical semantics.
-3. For a nontrivial change, state a short plan covering the expected user-visible outcome, owning modules, risks, and how success will be checked. Include failure/recovery behavior for saved state or asynchronous work. Keep planning proportional to the task.
-4. For a bug, establish the failing scenario, identify the broken invariant, and distinguish the immediate trigger from the underlying failure class. Before changing code, briefly explain the intended behavior and why the proposed fix addresses that class. Prefer a regression test that reproduces the failure; if reproduction is blocked, distinguish confirmed evidence from hypotheses. Surface unsettled product decisions about acceptance, recovery, compatibility or data preservation under the scope rules above.
-5. Identify existing helpers and tests to extend, and inspect other paths governed by the same rule. Make the smallest coherent change that solves the failure class across affected paths, even if that requires more than a one-line patch. This does not authorize unrelated redesign or broader feature scope.
+1. Inspect the working tree and applicable instructions. Preserve existing changes, including edits in files the task touches.
+2. Trace the workflow through callers, shared contracts, persistence and tests. Identify the owning module and sibling paths that enforce the same rule.
+3. State the risk and how you will check it. For nontrivial changes, include the user-visible outcome, affected modules and how saved or asynchronous work recovers.
+4. For a bug, establish the failing scenario and explain the broken invariant before editing. Reproduce it with a regression test when feasible. Distinguish confirmed evidence from hypotheses when reproduction is blocked.
 
-## Module ownership
+## Implementation and data safety
 
-| Location | Responsibility | Boundary to preserve |
-| --- | --- | --- |
-| `src/core/` | Turn rules, prompt resolution, budgeting, context selection, coverage, repair decisions | Explicit inputs and outputs; no React, Fastify, database, or provider I/O dependencies. |
-| `src/shared/` | Browser-safe contracts, runtime schemas, shared definitions | No credentials, server-only imports, or accidental exposure of persistence records. |
-| `src/persistence/` and `migrations/` | Durable state, revisions, schema upgrades, atomic mutations | Enforce commit-time invariants; callers must not bypass transaction/revision safeguards. |
-| `src/server/` | Authentication, HTTP/SSE, generation and preparation coordination | Handlers validate and delegate; coordinators own operation lifecycles, not duplicated context algorithms. |
-| `src/provider/` | Request encoding, stream decoding, transport errors and cancellation | Does not select history, advance cutoffs, or decide summary coverage. |
-| `src/web/` | Editing, inspection, progress and recovery controls | Displays authoritative server state; UI disabling is not a concurrency or integrity guarantee. |
-| `tests/` | Core, database, server, crash and browser verification | Synthetic/copy fixtures, temporary databases, controlled provider behavior. |
-| `experiments/compaction/` | Standalone Python model and visualizer | Preserve accepted state-transition parity without importing simulation assumptions into production. |
+- Fix the rule in its owning module across equivalent inputs and workflows. Reuse shared schemas, request assembly and token measurement. Special cases need a domain or compatibility reason. Preserve user input on validation failure.
+- Use readable control flow, names and explicit states. Keep TypeScript strict. Narrow or validate uncertain values with Zod or the established boundary parser. Explain any necessary local type exception. Update producers and consumers together.
+- Keep refactoring distinguishable from behavior changes. Extract helpers for a distinct responsibility or shared policy. Explain non-obvious invariants, remove obsolete paths, and keep required paths free of placeholders and test-only branches. Update the lockfile for authorized dependency changes.
+- Keep long-chat reads and rendering bounded where possible. Measure performance claims with representative synthetic data while preserving history and integrity checks.
+- Use versioned migrations and test both fresh creation and upgrade from a populated older database. Preserve identities, revisions, corrections, selections and retained historical requests. Applied migrations stay immutable.
+- Enforce branch operation ownership and pending-turn limits on the server. Chat-wide settings and shared library mutations must check all affected branches. Perform provider work outside SQLite transactions. Recheck ownership and captured revisions inside the short transaction that commits coupled changes.
+- Distinguish cancellation, observer disconnect, provider failure and restart. Reject late results, reconcile on reconnect and release resources on every exit path. Preserve completed steps. Explicit retries must be safe after an uncertain acknowledgement. Preserve retained request bodies, estimates, source revisions and endpoint usage. Restart must never silently repeat paid work.
+- Use temporary databases and synthetic or copied fixtures for destructive tests. Live SQLite backups must include committed WAL data. Verify restoration before claiming restore safety. Use the local mock provider for routine tests and synthetic keys for credential checks. Real-provider use requires authorization.
+- Validate imports, provider responses and commands at the trust boundary. Preserve authentication, origin, LAN admission, TLS and credential-forwarding rules. Map public fields explicitly and exclude credentials from ordinary responses, logs, errors and previews. Only documented protected exports may carry saved keys. Keep untrusted HTML, instructions and unsupported metadata inert.
 
-Keep Connection settings, prompt arrangement, context configuration, per-chat state, and generation coordination separate. Reuse the authoritative request assembly and token measurement paths for generation, previews, and Memory planning; do not create parallel approximations in the UI.
+## Interface changes
 
-## Maintainable implementation
+- Read the [localization contract](docs/LOCALIZATION.md) before changing application text. Maintain English and Russian together, including accessibility text. Carry core and server diagnostics as `LocalizedMessage` descriptors with English fallbacks and translate them at presentation time. Remove unused keys after checking consumers and retained historical diagnostics. Keep model-bound text and user content literal.
+- Reuse existing controls, shared styles and semantic palette roles. Read the [palette rules](docs/PALETTE.md) before styling. New colors, changed values or derivations, and expanded exceptions require explicit agreement. Preserve the palette fixtures and guards.
+- Preserve keyboard access, focus and desktop/phone layouts. Distinguish loading, empty, failed, stale, cancelled and completed states. Report success after server confirmation, keep recoverable drafts on failure, and guard subscriptions and responses against changes of branch or selection.
 
-- Prefer explicit, readable control flow and names that describe domain meaning. Break apart dense functions when distinct responsibilities obscure validation, state transitions, or failure handling. Avoid packing several mutations or branches onto one line; existing compressed code is not a style requirement.
-- Extract a helper/module when it isolates a meaningful responsibility or removes duplicated policy. Avoid speculative frameworks, generic repositories, plugin scaffolding, and arbitrary file-size targets. A large file is a reason to inspect cohesion, not permission for an unrelated rewrite.
-- Fix defects where the rule is owned. Do not hide a server bug with UI-only filtering, special-case a fixture, or copy a workaround into several callers. Exceptions tied to a particular key, value, file or historical version require an explicit domain or compatibility justification; matching the reported example alone is insufficient. Explain how equivalent inputs are handled, and do not silently rewrite or discard user input to make validation pass. Check sibling paths such as automatic, manual, single-step, and repair workflows when they share the affected rule.
-- Keep TypeScript strict. Use explicit states and narrowed unions where states differ; avoid bundles of booleans that permit impossible combinations. Validate external input with Zod or the established boundary parser. Do not use `any`, unchecked casts, non-null assertions, or compiler suppressions to conceal uncertainty; narrow or validate it. Any necessary exception must be local and explained.
-- Preserve one authoritative definition of contracts and domain rules. Reuse shared schemas/types where appropriate; update consumers together when a contract changes. Browser code must not import database or secret-bearing server types for convenience.
-- Handle expected failure states explicitly. Do not swallow exceptions, report success after a failed write, return empty data for an unexpected error, or silently apply an undocumented fallback. Preserve useful diagnostic causes while showing safe, actionable errors to the user.
-- Comments should explain a non-obvious invariant, compatibility constraint, or reason for an ordering decision. Remove misleading comments and obsolete paths made unnecessary by the change. Do not leave placeholder implementations, test-only branches, or unresolved TODOs in a required feature path.
-- Keep refactoring and behavior changes distinguishable. Preserve existing behavior unless the task changes it, and avoid unrelated formatting churn or opportunistic dependency upgrades. Use existing dependencies first; update the lockfile with any authorized dependency change.
-- Keep work bounded for long conversations: avoid repeated full-history scans, unbounded caches, and large synchronous transformations in request or render loops when a bounded approach is available. Validate performance-sensitive changes with representative synthetic data before claiming improvement; do not optimize by dropping history or skipping integrity checks.
+### Design conventions for new or revised UI
 
-## Persistence, asynchronous work, and recovery
-
-- Treat saved chats, summary corrections, and request history as user data. Never make a migration or test pass by deleting the database, resetting memory, rewriting history, or silently discarding records.
-- Add versioned migrations for schema/data upgrades; do not rewrite already-applied migrations. Keep schema definitions, migration registration, and reads/writes consistent. Exercise both fresh creation and upgrade from an affected older populated database. Preserve identities, revisions, text, selections, and historical requests unless an explicitly accepted migration changes them.
-- Keep SQLite writes transactional and short. Perform provider/network calls outside transactions; recheck captured operation, source, configuration, and selection revisions inside the committing transaction. A successful earlier check does not authorize a later stale write.
-- Commit coupled changes together: for example, save a summary and switch its selection/cutoff atomically. A failed write must retain the last valid committed state. Preserve completed steps when a later step fails.
-- Enforce per-chat operation ownership, pending-turn limits, shared-record edit restrictions, and revision checks on the server. Account for simultaneous tabs/devices, repeated commands, and delayed responses. Preserve independence between unrelated chats.
-- Treat cancellation, browser disconnection, provider failure, and server interruption as different events. Generation belongs to the server; disconnecting an SSE observer does not cancel it. Reject late results after cancellation or supersession, reconcile current saved state on reconnect, and release listeners/timers/resources on every exit path.
-- Retries must be explicit and safe against duplicate commands, duplicate coverage, and repeated progress. Restart loads committed state and exposes interrupted work; it must not silently repeat paid requests or claim a provider stream can resume.
-- Keep historical request bodies, estimates, source revisions, and endpoint usage immutable while retained. New edits affect future work and create the required versions; they do not rewrite what an earlier request received. Respect documented whole-turn deletion and Clear memory semantics.
-- Never use the user's active database or original transcript for destructive testing. Use temporary databases and synthetic/copied fixtures. A live SQLite WAL database requires a consistent backup method; copying only its main file is not a dependable backup. Do not claim restore safety without testing it.
-
-## Product invariants to protect
-
-CONCEPTS.md owns current accepted behavior; the focused contracts above own detailed rules. Read the relevant contract before changing its subsystem. Protect whole-turn/pending semantics, explicit prompt authority, managed versus Summary-off history, saved summary revisions and dependency provenance, commit-before-exclusion, complete-input budgeting, dependency-scoped reviewed repair, immutable historical requests, and explicit server-owned recovery. Structural coverage, freshness, text equality and refusal heuristics never establish semantic summary quality. Tests or existing code do not independently authorize changing these policies.
-
-## Security and user interface
-
-- Route all new or changed application-authored user-facing text through the existing localization system, including labels, help, tooltips, accessibility text, validation, errors and status messages. Read [docs/LOCALIZATION.md](docs/LOCALIZATION.md) before adding text. Reuse or add stable keys in `src/shared/localization-en.ts`; use complete messages with named placeholders and appropriate plural forms rather than concatenating translated fragments. Render with the established localization helpers and ensure mounted text updates when the language changes. Core/server diagnostics must carry `LocalizedMessage` descriptors with English fallbacks and be translated at presentation time. Keep user content, model-bound prompts, historical requests and protocol identifiers literal; do not make domain behavior depend on the interface language. Maintain the built-in English and Russian catalogs together: add, change and remove Russian translations with the corresponding interface changes, preserve named placeholders and all Russian plural forms, and follow the terminology in docs/LOCALIZATION.md. Other custom language packs remain user-maintained.
-- When removing a label, button, or other user-facing text from the app, also remove its unused localization keys and translations from the English catalog and repository-maintained language packs. Check for remaining consumers before deleting shared keys; preserve keys still used elsewhere or needed to render retained historical diagnostics.
-- Keep saved credentials on the server. Exclude them from ordinary API responses, previews, logs, errors, fixtures, and exports. Deliberately map public response fields instead of serializing database rows. Use synthetic secrets to test exclusion.
-- Preserve authentication, origin checks, credential forwarding restrictions, LAN admission policy, and TLS requirements where configured. HTTP LAN access is an accepted mode; do not weaken its restrictions to make development or browser tests easier. Validate IDs, revisions, numeric limits, imported data, custom parameters, and provider responses at their actual trust boundaries.
-- Treat imported cards, transcripts, model output, and remote errors as untrusted data. Do not execute embedded instructions/HTML or enable unsupported card features during import. Preserve supported round-trip metadata without making it active.
-- Routine automated tests use the local mock provider. Do not substitute saved credentials or send private conversations to a real endpoint merely to verify a change. Real-provider checks must be within the user's authorized scope; report their limited coverage.
-- Make loading, empty, failed, cancelled, stale, and completed states understandable for affected flows. Show committed success only after the server confirms it. Preserve recoverable user input on failed saves, except where the accepted workflow explicitly discards drafts.
-- Guard UI requests/subscriptions against stale responses after chat or selection changes. Clean up effects and prevent duplicate submissions without relying on that prevention for server integrity. Keep authoritative state distinct from unsaved editing drafts.
-- Reuse established controls and styling. Preserve labels, keyboard access, focus behavior, readable errors, and desktop/phone layouts. Keep implementation details out of ordinary product flows unless they help the user make a decision.
-- Before adding a visual or interaction style, inspect equivalent controls elsewhere in the app and reuse their shared CSS rule or component. For example, Library secondary actions and chat turn controls share hover styling; do not introduce separate colors or duplicate declarations for the same interaction unless the user requests a distinction.
-- **Locked interface palettes:** the user visually approved the Dark, Light and Midnight Black themes on 2026-10-26. Reuse roles from `src/web/palette.css`; keep color definitions and derivations centralized there. New colors/shades, changes to existing base or derived role values (including mix ratios), or expanded exceptions require explicit user agreement before editing. New semantic aliases to an approved role are allowed without changing its color; do not create component-specific variants or local color mixes. Read [docs/PALETTE.md](docs/PALETTE.md) for the approval boundary, exceptions and theme guidance. Preserve `tests/fixtures/approved-dark-palette.json`, `tests/fixtures/theme-palettes.json` and `tests/palette.test.ts`; update approved baselines only for an agreed palette change, never merely to make a failing check pass. Twenty is the original Dark interface palette's approved base count, not a quota for future themes.
+- **Connection and model dropdowns.** Keep the selected name on one line. Use the shared dropdown’s `fadeLabel` option to fade the trailing edge only when the text overflows. Show the full name in the open menu.
+- **Underlined navigation tabs.** Use the underline to identify the selected tab. Omit the pointer-press outline and preserve a visible keyboard focus indicator.
+- **Short numeric settings.** Align value fields in a compact column close to their labels, including on wide screens. Use the available panel width to determine when the rows need to reflow.
+- **Expandable rows with separators.** Leave space between each clickable heading and the separator lines so its hover fill, pressed outline and keyboard focus indicator stay clear of the lines.
+- **Editor help.** Place brief guidance beside the field it explains. Include extra detail when it helps someone make a choice or recover from an error. Omit routine explanations of internal mechanics.
 
 ## Verification requirements
 
@@ -121,23 +88,6 @@ Choose checks by the behavior at risk and the reach of the change, not by line c
 - At a full-suite checkpoint, complete targeted verification and final review, then give the user the exact command, working directory, and reason for the broader run. End the turn with full verification explicitly pending. Do not monitor or poll a user-run suite, schedule follow-ups, or remain active waiting for completion. Resume when the user supplies results: the final summary and failure details or a log path. Distinguish failed, interrupted, and not-executed stages; `npm run check` stops at the first failed stage.
 - Fix reported failures using focused reproduction and regression checks, then hand back any required full-suite rerun. Do not repeat successful checks against unchanged relevant code, dependencies and test configuration unless new evidence justifies it. Successful constituent commands against the final state may satisfy a checkpoint; account for stages that never ran and rerun only checks whose inputs changed.
 - Full-suite execution by the user does not transfer responsibility for code quality or failure investigation. Report agent-run checks separately from user-reported results. Never claim complete verification while a required checkpoint remains pending.
-
-### Commands
-
-Use the supported Node/npm environment from README.md; better-sqlite3 is native, so changing Node major versions can require reinstalling dependencies. Run commands from the repository root.
-
-| Command | Purpose |
-| --- | --- |
-| `npm ci` | Install the locked dependencies when needed. |
-| `npm run typecheck` | Strict client/server TypeScript checks. |
-| `npm test` | User-run only: all Vitest core/server/persistence tests. |
-| `npm test -- tests/context-core.test.ts` | Example of a focused existing Vitest suite; select the suite relevant to the change. |
-| `npm run build` | Typecheck and build the interface/server. |
-| `npm run test:e2e` | User-run only: all browser workflows against the built interface and an isolated test server. |
-| `npm run test:e2e -- tests/browser/libraries-layout.spec.ts` | Example of focused browser verification; select files or test names relevant to the change. |
-| `npm run check` | User-run only: build, Vitest, and browser suites together. |
-
-If an environment restriction prevents a required check, report the exact missing verification and reason rather than claiming completion of validation. Chromium installation and local-server requirements are documented in README.md. There is no separate lint script; do not claim to have run one.
 
 ## Final review and handoff
 
