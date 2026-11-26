@@ -265,17 +265,48 @@ a[href][data-pointer-pressed]{text-decoration:underline;text-decoration-thicknes
   .block-content{margin:0;padding-top:12px}
 }
 
-.memory-panel{padding:36px max(24px,calc((100% - 1100px)/2)) 70px}
-.memory-selection{margin-top:24px!important}.memory-selection fieldset{margin-bottom:18px}
-.memory-settings-actions{align-items:center;margin-top:16px;column-gap:16px}
-.memory-actions{align-items:start;margin:0 0 32px}.memory-actions button{font-size:13px}
+.memory-panel > h1 { margin-block-end:16px; }
+.memory-overview.budget { margin:0 0 16px; padding:18px 20px; gap:12px; }
+.memory-measurements { display:flex; flex-wrap:wrap; align-items:center; gap:16px 28px; }
+.memory-estimate { flex:2 1 17rem; min-inline-size:0; font-size:17px; font-variant-numeric:tabular-nums; }
+.memory-estimate .input-meter { margin:10px 0 0; }
+.memory-counts { flex:1 1 auto; display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); gap:12px; padding:0; margin:0; border:0; }
+.memory-counts > div { display:grid; grid-template-rows:subgrid; grid-row:span 2; align-content:start; gap:2px; margin:0; overflow-wrap:anywhere; }
+.memory-counts dd { font-size:19px; font-weight:600; font-variant-numeric:tabular-nums; }
+.memory-overview > p { margin:0; padding-block-start:10px; border-block-start:1px solid var(--line); }
+.memory-overview > button { align-self:start; }
+.memory-actions { align-items:center; flex-wrap:wrap; }
+.memory-actions button { min-block-size:44px; font-size:13px; }
+.memory-actions + p[role=status] { margin-block:12px; color:var(--text-secondary); font-size:14px; }
+.memory-configuration {
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,20rem),1fr)); align-items:start; gap:24px 36px;
+  border-block-start:1px solid var(--line); padding-block-start:20px; margin-block-start:24px;
+}
+.memory-configuration .memory-selection, .memory-configuration fieldset { margin:0; }
+.memory-configuration fieldset { padding:0; border:0; background:none; }
+.memory-configuration legend { padding:0; margin-block-end:14px; color:var(--text); font-size:18px; font-weight:600; }
+.memory-setting-fields {
+  display:grid; grid-template-columns:fit-content(42%) minmax(0,1fr); max-inline-size:32rem;
+  align-items:start; gap:6px 14px; overflow-wrap:anywhere;
+}
+.memory-setting-fields > label { min-block-size:44px; justify-content:center; }
+.memory-preset-field { display:grid; grid-column:1/-1; grid-template-columns:subgrid; column-gap:normal; align-items:center; }
+.memory-edit-preset { grid-column:2; justify-self:start; min-block-size:36px; text-align:start; }
+.memory-target-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; min-inline-size:0; }
+.memory-target-actions input { inline-size:min(10ch,100%); padding-inline:4px; text-align:center; font-variant-numeric:tabular-nums; }
+.memory-target-actions button { max-inline-size:100%; min-block-size:44px; margin-inline-start:auto; padding-inline:12px; }
+.summary-retry-controls .library-editor-setting {
+  grid-template-columns:fit-content(28ch) min(10ch,35%); margin-block-start:10px; align-items:start;
+}
 .memory-repair-actions{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
 .memory-repair-actions>p{grid-column:1/-1;margin:0}
-.memory-panel meter{width:100%;height:14px;accent-color:var(--success)}.memory-panel .budget p{margin:8px 0 0}
 .memory-failure{padding:14px 18px;border-left:3px solid var(--danger-border);background:var(--danger-surface-muted);font-size:13px}
-.memory-chart{border:1px solid var(--line);border-radius:12px;background:var(--surface-low);padding:24px;min-width:0;margin:24px 0}
-.memory-chart-heading{display:flex;justify-content:space-between;align-items:start;gap:18px}.memory-chart-heading h2{margin-bottom:4px}
-.memory-chart-heading .checkbox{font-size:12px;white-space:nowrap}.snapshot-slider{margin:16px 0}.snapshot-slider input{padding:0}
+.memory-chart { min-inline-size:0; margin-block:22px; padding-block-start:20px; border-block-start:1px solid var(--line); }
+.memory-chart-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:0 14px; margin-block-end:8px; }
+.memory-chart-heading h2 { margin:0; }
+.memory-chart-heading .checkbox { min-height:44px; font-size:13px; }
+.memory-plot { margin-block-start:12px; padding:12px 16px 16px; background:var(--surface-low); border:1px solid var(--line); border-radius:10px; }
+.snapshot-slider{margin:16px 0}.snapshot-slider input{padding:0}
 .timeline-scroll{overflow:auto;min-width:0;border-bottom:1px solid var(--control-border);scrollbar-color:var(--scrollbar) transparent}
 .timeline{position:relative;margin-top:20px}.timeline-row{position:absolute;left:0;right:0;height:30px;border-bottom:1px solid var(--line)}
 :is(.summary-span,.summary-band){position:absolute;height:30px;min-width:0;border:1px solid var(--success-border);border-radius:5px;padding:0;color:var(--success-text);font-size:10px;font-weight:500;white-space:nowrap;overflow:hidden;background:var(--success-surface);text-align:center}
@@ -319,12 +350,7 @@ a[href][data-pointer-pressed]{text-decoration:underline;text-decoration-thicknes
 .restore-memory{border-top:1px solid var(--line);padding-top:22px}
 .restore-memory>button{margin-top:12px}
 @media(max-width:1100px){.topbar .brand{display:none}}
-@media(max-width:800px){.memory-panel{padding:28px 18px 50px}.memory-chart{padding:16px}.memory-chart-heading{flex-wrap:wrap;gap:8px}.summary-inspection{padding:18px}.memory-legend{gap:9px 14px}}
-@media(max-width:800px){
-  .memory-settings-actions{column-gap:8px}
-  .memory-settings-actions>.text-link{flex:1 1 0;min-width:0;text-align:start}
-  .memory-settings-actions>button[type=submit]{flex:none;margin-inline-start:auto}
-}
+@media(max-width:800px){.memory-plot{padding-inline:12px}.summary-inspection{padding:18px}.memory-legend{gap:9px 14px}}
 @media(max-width:500px){.tabs{overflow-x:auto;flex-shrink:1;min-width:0}.topbar{gap:10px}.signout{padding-left:4px!important;padding-right:0!important}}
 
 /* Input inspection shares the same measurements as request assembly. */
@@ -449,7 +475,7 @@ a[href][data-pointer-pressed]{text-decoration:underline;text-decoration-thicknes
 .memory-preparation-status button{min-height:44px;margin:0}
 .memory-preparation-status .actions{flex-direction:column;align-items:stretch;margin:0}
 .request-details[open]>summary{margin-bottom:22px}
-.timeline-layout{display:grid;grid-template-columns:36px minmax(0,1fr);margin-top:26px}
+.timeline-layout{display:grid;grid-template-columns:36px minmax(0,1fr)}
 .timeline-labels{position:relative;color:var(--muted);font-size:11px}
 .timeline-labels>span{position:absolute;left:0;height:30px;display:flex;align-items:center}
 .timeline-labels>.turn-layer-label{bottom:2px;height:22px;font-size:9px}
@@ -966,10 +992,6 @@ button:has(> .ui-icon) { display:inline-flex; align-items:center; gap:8px; }
 .search-field > input { padding-left:40px; }
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
 button:has(> .ui-icon):has(> .sr-only), .block-actions button { min-width:36px; min-height:36px; }
-
-.summary-retry-controls { margin: -16px 0 24px; }
-.summary-retry-controls>label:not(.checkbox) { margin-top: 12px; }
-.summary-retry-controls input[aria-label="Maximum retries"] { width: 7rem; max-width: 100%; }
 
 .summary-span.deleting{background:repeating-linear-gradient(135deg,var(--danger-surface-strong),var(--danger-surface-strong) 6px,var(--danger-surface) 6px,var(--danger-surface) 12px);color:var(--danger-text-strong);border:2px solid var(--danger-text-strong);box-shadow:none}
 .turn-tick.restoring{background:var(--info);color:var(--on-info);border-color:var(--info-text)}

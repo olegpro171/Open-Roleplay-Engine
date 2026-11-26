@@ -110,7 +110,7 @@ for (const width of [1440, 390, 320]) test(`built-in Russian needs no import and
   await page.getByRole('button', { name: 'Закрыть просмотр промпта', exact: true }).click();
   await openTool(page, 'Просмотр памяти');
   await expect(page.getByRole('button', { name: 'Подготовить чат', exact: true })).toBeVisible();
-  await expect(page.locator('.budget')).toContainText('Активных сводок: 0');
+  await expect(page.getByText('Активные сводки', { exact: true }).locator('..').getByRole('definition')).toHaveText('0');
   await expect(page.locator('.budget')).not.toContainText('active summaries');
   await page.screenshot({ path: testInfo.outputPath(`russian-memory-${width}.png`) });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

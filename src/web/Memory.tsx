@@ -6,7 +6,7 @@ import { useTextState, errorText, t, useLocale, locale } from './localization';
 import { newId } from './uuid';
 import { useConfirmation } from './Confirmation';
 import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ChatToolsSnapshot } from '../shared/contracts';
 import { hasPromptMarker, type LibrarySnapshot } from '../shared/library';
 import { preparationRunLimit, refKey, type ContextInspection, type ContextJob, type ContextStep, type PreparationDeletionPreview, type SummaryNode } from '../shared/context';
@@ -38,6 +38,7 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
   useLocale();
   const confirmAction = useConfirmation(snapshot.id);
   const reviewMemoryCleanup = useMemoryCleanup(run, snapshot.id);
+  const inputTargetId = useId();
   const retryControls = useRef<HTMLFieldSetElement>(null);
   const retrySettings = useSettingsState(behavior);
   const autoRetry = retrySettings.draft?.autoRetryMemory ?? true;
@@ -167,28 +168,23 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
       });
     } else void run(() => commit());
   }
-  return <section className="document-panel memory-panel chat-panel" aria-label={t("memory.memory")}><h1>{t("memory.memory")}</h1>
-    <form className="memory-selection" onSubmit={e => { e.preventDefault(); if (!locked && unsavedSettings) saveMemorySettings(); }}>
-      <fieldset disabled={locked}>
-        <legend>{t("memory.preparation_settings")}</legend>
-        <div className="form-grid">
-          <label>{t("libraries.context_preset")}<Dropdown aria-label={t("libraries.context_preset")} value={presetId} onChange={setPresetId} options={[
-            { value: '', label: t("memory.no_context_preset") },
-            ...sortLibraryRecords(library.contexts, 'contexts', library.dates).map(item => ({ value: item.id, label: item.name })),
-          ]} /></label>
-          <label>{t("app.input_target")}<NumberInput required value={target} onChange={setTarget} /></label>
-        </div>
-        <div className="actions memory-settings-actions">
-          {snapshot.context.preset && savedPresetId && summariesEnabled && <button type="button" className="quiet text-link" disabled={unsavedSettings} onClick={() => editPreset(savedPresetId)}><Icon name="EditOutline" />{t("memory.edit_context_preset")}</button>}
-          <button type="submit" className="secondary" disabled={!unsavedSettings}>{t("editor_actions.save")}</button>
-        </div>
-      </fieldset>
-    </form>
+  return <section className="document-panel memory-panel chat-panel" aria-label={t("memory.memory")}>
+    <h1>{t("memory.memory")}</h1>
     <RefusalReview snapshot={snapshot} locked={locked || Boolean(awaiting)} run={run} />
-    {plan ? <div className="budget">
-      <strong>{t("app.estimated_input_2", { value: plan.inputTokens.toLocaleString(locale()), value2: plan.effectiveLimit.toLocaleString(locale()) })}</strong>
-      <InputMeter input={plan.inputTokens} limit={plan.effectiveLimit} />
-      <span>{t("memory.verbatim_turns", { length: plan.verbatimTurnIds.length, value: summariesEnabled ? t("memory.coverage_counts", { summaries: snapshot.context.selected.length, turns: snapshot.context.archivedTurnIds.length }) : '' })}</span>
+    {plan ? <div className="budget memory-overview">
+      <div className="memory-measurements">
+        <div className="memory-estimate">
+          <strong>{t("app.estimated_input_2", { value: plan.inputTokens.toLocaleString(locale()), value2: plan.effectiveLimit.toLocaleString(locale()) })}</strong>
+          <InputMeter input={plan.inputTokens} limit={plan.effectiveLimit} />
+        </div>
+        <dl className="memory-counts">
+          <div><dt>{t("memory.verbatim_count")}</dt><dd>{plan.verbatimTurnIds.length.toLocaleString(locale())}</dd></div>
+          {summariesEnabled && <>
+            <div><dt>{t("memory.active_count")}</dt><dd>{snapshot.context.selected.length.toLocaleString(locale())}</dd></div>
+            <div><dt>{t("memory.archived_count")}</dt><dd>{snapshot.context.archivedTurnIds.length.toLocaleString(locale())}</dd></div>
+          </>}
+        </dl>
+      </div>
       {status && <p role="status" data-testid="memory-status">{status}</p>}
       {replayBlocked && !active && replayBlocked !== blocked && <p role="status">{replayBlocked}</p>}
       {plan.blockedMessage?.key === 'pins.required_budget' && <button type="button" className="secondary" onClick={openPins}>{t('pins.title')}</button>}
@@ -207,27 +203,28 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
       </div>
       {active && !reviewToken && <button className="secondary" disabled={busy} onClick={() => void run(() => active.generationId ? api(`/generations/${active.generationId}/cancel`, 'POST', {}) : api(`/context/jobs/${active.id}/cancel`, 'POST', {}))}>{t("memory.stop_preparation")}</button>}
     </div>
-    {summariesEnabled && <fieldset ref={retryControls} disabled={locked || !retrySettings.draft} className="summary-retry-controls"><legend className="sr-only">{t("memory.preparation_retries")}</legend>
-      <SettingsSaveStatus saving={retrySettings.saving} error={retrySettings.error} retry={behavior.retry} />
-      <label className="checkbox"><input type="checkbox" checked={autoRetry} onChange={event => behavior.update({ autoRetryMemory: event.target.checked })} />{t("memory.auto_retry_failed_or_refused_requests")}</label>
-      {autoRetry && <label>{t("memory.maximum_retries")}<NumberInput required aria-label={t("memory.maximum_retries")} min={0} max={Number.MAX_SAFE_INTEGER} value={maxRetries} onChange={value => { if (Number.isSafeInteger(value) && value >= 0) behavior.update({ memoryMaxRetries: value }); }} /><small>{t("memory.retries_after_the_initial_attempt_per_request", { defaultRetries: defaultChatBehavior.memoryMaxRetries, runLimit: preparationRunLimit })}</small></label>}
-    </fieldset>}
     {summariesEnabled && prepared && <p role="status" data-testid="memory-prepare-result">
       {t("memory.saved_summaries_reused_new_summaries_generated", { value: prepared.mode === 'step' ? t("interface.summary_step_saved") : t("interface.memory_prepared"), value2: prepared.reusedCount ?? 0, value3: prepared.generatedCount ?? 0 })}
       {selectionReport?.limitation && <> {formatMessage(selectionReport.limitationMessage ?? selectionReport.limitation)}</>}
     </p>}
     {latestJob?.mode === 'repair' && latestJob.status === 'succeeded' && latestJob.sourceRevision === snapshot.revision && <p role="status" data-testid="memory-repair-result">{t("memory.repair_complete_approved_unchanged_after_model_check", { value: latestJob.reviewedCount ?? 0, value2: latestJob.unchangedCount ?? 0, value3: latestJob.revalidatedCount ?? 0 })}</p>}
     {repairJob && <Suspense fallback={<p role="status">{t("memory.opening_repair_review")}</p>}><RepairReview key={repairJob.id} snapshot={snapshot} job={repairJob} busy={busy} run={run} dismissed={() => setRepairSession('')} /></Suspense>}
-    <section className="memory-chart"><div className="memory-chart-heading"><h2>{t("memory.summary_layers")}</h2><label className="checkbox"><input type="checkbox" checked={zoom} onChange={e => setZoom(e.target.checked)} />{t("memory.zoom_timeline")}</label></div>
+    <section className="memory-chart">
+      <div className="memory-chart-heading">
+        <h2>{t("memory.summary_layers")}</h2>
+        <label className="checkbox"><input type="checkbox" checked={zoom} onChange={e => setZoom(e.target.checked)} />{t("memory.zoom_timeline")}</label>
+      </div>
       <label>{t("memory.saved_preparation")}<Dropdown aria-label={t("memory.saved_preparation")} disabled={Boolean(reviewToken)} value={historyId} onChange={id => { setHistoryId(id); setInspected(null); }} options={[{ value: '', label: t("memory.current_committed_selection") }, ...snapshot.context.jobs.map(job => ({ value: job.id, label: `${new Date(job.createdAt).toLocaleString(locale())} · ${stateLabel(job.mode)} · ${stateLabel(job.status)}` }))]} /></label>
       {details && <label className="snapshot-slider">{t("memory.saved_step", { frame: frame, frameCount: frameCount })}<input type="range" aria-label={t("memory.saved_preparation_step")} min={0} max={frameCount} value={frame} onChange={e => { setFrame(Number(e.target.value)); setInspected(null); }} /><small>{t("memory.history_inspection_only_current_chat_memory_is")}</small></label>}
-      <MemoryTimeline nodes={nodes} selected={selected} stale={stale} archived={archived} turnIds={viewTurnIds} operation={operation} reusable={reusable} levels={levels} zoom={zoom} inspectedId={inspected?.id ?? null} deleting={deletion?.deletedIds} restoring={restoring} inspect={inspectSummary} />
-      <div className="memory-legend">
-        <span className="active"><i className="memory-legend-swatch" aria-hidden="true" />{summariesEnabled || historyId ? t("memory.active_in_input") : t("memory.saved_selection_disabled")}</span>
-        <span className="preparing"><i className="memory-legend-swatch" aria-hidden="true" />{legendText(t("memory.next_batch"))}</span>
-        <span className="retained"><i className="memory-legend-swatch" aria-hidden="true" />{legendText(t("memory.retained_alternatives"))}</span>
-        <span className="stale"><i className="memory-legend-swatch" aria-hidden="true" />{legendText(t("memory.out_of_date"))}</span>
-        <span className="manual"><i className="memory-legend-swatch" aria-hidden="true" />{legendText(t("memory.manually_edited"))}</span>
+      <div className="memory-plot">
+        <MemoryTimeline nodes={nodes} selected={selected} stale={stale} archived={archived} turnIds={viewTurnIds} operation={operation} reusable={reusable} levels={levels} zoom={zoom} inspectedId={inspected?.id ?? null} deleting={deletion?.deletedIds} restoring={restoring} inspect={inspectSummary} />
+        <div className="memory-legend">
+          <span className="active"><i className="memory-legend-swatch" aria-hidden="true" />{summariesEnabled || historyId ? t("memory.active_in_input") : t("memory.saved_selection_disabled")}</span>
+          <span className="preparing"><i className="memory-legend-swatch" aria-hidden="true" />{legendText(t("memory.next_batch"))}</span>
+          <span className="retained"><i className="memory-legend-swatch" aria-hidden="true" />{legendText(t("memory.retained_alternatives"))}</span>
+          <span className="stale"><i className="memory-legend-swatch" aria-hidden="true" />{legendText(t("memory.out_of_date"))}</span>
+          <span className="manual"><i className="memory-legend-swatch" aria-hidden="true" />{legendText(t("memory.manually_edited"))}</span>
+        </div>
       </div>
       {(deletionTarget || reviewToken) && <section className="summary-deletion" aria-label={t("memory.summary_deletion_preview")}>
         <h3 ref={deletionHeading} tabIndex={-1}>{t("memory.delete_summary_and_dependents")}</h3>
@@ -254,6 +251,36 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
     {nodes.length > 0 && <label>{t("memory.inspect_saved_summary")}<Dropdown aria-label={t("memory.inspect_saved_summary")} value={inspected?.id ?? ''} onChange={id => inspectSummary(nodes.find(node => node.id === id) ?? null)} options={[{ value: '', label: t("memory.choose_an_identity_and_range") }, ...summaryOptions]} /></label>}
     {inspected && <SummaryInspection snapshot={snapshot} node={inspected} historical={Boolean(historyId)} selected={selected} locked={locked} inspect={inspectSummary} saved={() => setInspected(null)} run={run} previewDelete={node => setDeletionTarget({ node, revision: snapshot.revision })} />}
     {details && <details><summary>{t("memory.summary_requests_and_step_outcomes")}</summary>{details.job.error && <p className="small muted">{t("memory.saved_outcome", { error: formatMessage(details.job.errorMessage ?? details.job.error) })}</p>}{refreshFrame && <p className="small muted">{t("memory.saved_memory_selection_verbatim_turns_estimated_input", { verbatimBefore: refreshFrame.verbatimBefore, verbatimAfter: refreshFrame.verbatimAfter, value: refreshFrame.inputBefore.toLocaleString(locale()), value2: refreshFrame.inputAfter.toLocaleString(locale()) })}</p>}{finalRefresh && <p className="small muted">{t("memory.final_saved_memory_selection_verbatim_turns_estimated", { verbatimBefore: finalRefresh.verbatimBefore, verbatimAfter: finalRefresh.verbatimAfter, value: finalRefresh.inputBefore.toLocaleString(locale()), value2: finalRefresh.inputAfter.toLocaleString(locale()) })}</p>}{details.steps.map((step, i) => <details key={step.id}><summary>{t("memory.step_l", { value: i + 1, level: step.operation.level, value2: step.repairOutcome === 'model_unchanged' ? t("interface.model_checked_unchanged") : step.repairOutcome === 'inputs_unchanged' ? t("interface.unchanged_inputs_no_model_request") : step.reused ? t("interface.reused_saved_summary") : step.status })}</summary>{step.resultDeleted && <p>{t("memory.the_saved_result_summary_was_deleted_this")}</p>}{step.error && <p>{formatMessage(step.errorMessage ?? step.error)}</p>}{step.rejectedText !== undefined && <RejectedSummary text={step.rejectedText} />}<pre>{JSON.stringify(step.request ?? { note: step.repairOutcome === 'inputs_unchanged' ? t("memory.all_consumed_content_was_unchanged_updated_dependency") : step.reused ? t("memory.reused_a_saved_summary_no_model_request") : t("memory.no_model_request_all_covered_source_turns") }, null, 2)}</pre></details>)}</details>}
+    <div className="memory-configuration">
+      <form className="memory-selection" onSubmit={e => { e.preventDefault(); if (!locked && unsavedSettings) saveMemorySettings(); }}>
+        <fieldset disabled={locked}>
+          <legend>{t("memory.preparation_settings")}</legend>
+          <div className="memory-setting-fields">
+            <label className="memory-preset-field">
+              <span>{t("libraries.context_preset")}</span>
+              <Dropdown fadeLabel aria-label={t("libraries.context_preset")} value={presetId} onChange={setPresetId} options={[
+                { value: '', label: t("memory.no_context_preset") },
+                ...sortLibraryRecords(library.contexts, 'contexts', library.dates).map(item => ({ value: item.id, label: item.name })),
+              ]} />
+            </label>
+            {snapshot.context.preset && savedPresetId && summariesEnabled &&
+              <button type="button" className="quiet text-link memory-edit-preset" disabled={unsavedSettings} onClick={() => editPreset(savedPresetId)}>
+                <Icon name="EditOutline" />{t("memory.edit_context_preset")}
+              </button>}
+            <label htmlFor={inputTargetId}>{t("app.input_target")}</label>
+            <div className="memory-target-actions">
+              <NumberInput id={inputTargetId} required value={target} onChange={setTarget} />
+              <button type="submit" className="secondary" disabled={!unsavedSettings}>{t("editor_actions.save")}</button>
+            </div>
+          </div>
+        </fieldset>
+      </form>
+      {summariesEnabled && <fieldset ref={retryControls} disabled={locked || !retrySettings.draft} className="summary-retry-controls"><legend>{t("memory.preparation_retries")}</legend>
+        <SettingsSaveStatus saving={retrySettings.saving} error={retrySettings.error} retry={behavior.retry} />
+        <label className="checkbox"><input type="checkbox" checked={autoRetry} onChange={event => behavior.update({ autoRetryMemory: event.target.checked })} />{t("memory.auto_retry_failed_or_refused_requests")}</label>
+        {autoRetry && <label className="library-editor-setting"><span>{t("memory.maximum_retries")}<small>{t("memory.retries_after_the_initial_attempt_per_request", { defaultRetries: defaultChatBehavior.memoryMaxRetries, runLimit: preparationRunLimit })}</small></span><NumberInput required aria-label={t("memory.maximum_retries")} min={0} max={Number.MAX_SAFE_INTEGER} value={maxRetries} onChange={value => { if (Number.isSafeInteger(value) && value >= 0) behavior.update({ memoryMaxRetries: value }); }} /></label>}
+      </fieldset>}
+    </div>
     {snapshot.context.summaries.length > 0 || snapshot.context.jobs.length > 0 ? <details className="restore-memory"><summary>{t("memory.clear_memory")}</summary><button className="danger" disabled={locked} onClick={() => { confirmAction({ title: t("memory.clear_memory_2"), message: t("memory.clear_all_memory_layers_and_preparation_records"), actionLabel: t("memory.clear_memory"), onConfirm: () => { void run(async () => { await api(`/chats/${snapshot.id}/context/clear`, 'POST', { revision: snapshot.revision }); setHistoryId(''); setDetails(null); setInspected(null); setPlanError(''); }); } }); }}>{t("memory.clear_memory")}</button></details> : null}
   </section>;
 }
