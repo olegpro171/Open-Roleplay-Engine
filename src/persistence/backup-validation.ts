@@ -8,7 +8,7 @@ import { summaryRefusalCheckSchema, summaryRetrySchema, contextPresetSchema, typ
 import { lorebookSchema, loreDiagnosticSchema, lorePlacements, loreRoleSchema } from '../shared/lorebook.js';
 import { canonicalTagName, tagNameSchema } from '../shared/tags.js';
 import { cropPixels, cropSchema, pictureLimits } from '../shared/pictures.js';
-import { backupLimits, backupTables, type BackupTable } from '../shared/backups.js';
+import { backupLimits, backupTables, type BackupTable, type ReportBackupProgress } from '../shared/backups.js';
 import { localizedMessageSchema } from '../shared/localization.js';
 import { characterCardLimits } from '../shared/character-card-limits.js';
 import { withinJsonDepth } from '../core/json-depth.js';
@@ -129,7 +129,18 @@ function validateRendition(bytes: Buffer, edge: number) {
   if (width < 1 || height < 1 || width > edge || height > edge) throw invalidBackup('Picture rendition dimensions exceed the allowed bounds.');
 }
 
-export function validateContent(db: Database.Database) {
+export function portableRowCount(db: Database.Database, tables: readonly BackupTable[] = backupTables) {
+  return tables.reduce((total, table) => total + z.number().parse(db.prepare(`SELECT count(*) FROM "${table}"`).pluck().get()), 0);
+}
+
+const validationPhases = {
+  backup: ['validate', 'references'], cleaned: ['validateClean', 'referencesClean'], merged: ['validateMerged', 'referencesMerged'],
+} as const;
+
+export function validateContent(db: Database.Database, report?: ReportBackupProgress, target: keyof typeof validationPhases = 'backup') {
+  const [recordsPhase, referencesPhase] = validationPhases[target];
+  const total = report && portableRowCount(db);
+  report?.(recordsPhase, 0, total);
   let count = 0;
   for (const table of backupTables) {
     const columns = z.array(z.object({ name: z.string(), type: z.enum(['TEXT','INTEGER','BLOB']), notnull: z.number(), pk: z.number() })).parse(db.prepare(`PRAGMA table_info("${table}")`).all());
@@ -147,9 +158,16 @@ export function validateContent(db: Database.Database) {
       for (const field of ['created_at', 'updated_at', 'message_at']) {
         if (['library', 'connections', 'chats', 'turns'].includes(table) && row[field] !== undefined && row[field] !== null) z.iso.datetime({ precision: 3 }).parse(row[field]);
       }
-      for (const field of ['data','settings','request','usage','resolution','context_selection','crop']) if (typeof row[field] === 'string') json(row,field);
+      for (const field of ['data','settings','request','usage','resolution','context_selection','crop']) {
+        if (typeof row[field] !== 'string') continue;
+        // Validate the large historical request while this row is already in memory.
+        if (table === 'generations' && field === 'request') parseRecord(requestSchema, row, table, field);
+        else json(row, field);
+      }
+      report?.(recordsPhase, count, total);
     }
   }
+  report?.(referencesPhase);
   if (z.array(z.unknown()).parse(db.prepare('SELECT 1 FROM pragma_foreign_key_check LIMIT 1').all()).length || db.pragma('quick_check', { simple: true }) !== 'ok') throw invalidBackup('SQLite integrity or foreign-key check failed.');
   const libraryKind = db.prepare('SELECT kind FROM library WHERE id = ?').pluck();
   const connection = db.prepare('SELECT 1 FROM connections WHERE id = ?');
@@ -189,13 +207,12 @@ export function validateContent(db: Database.Database) {
     id.parse(row.id); num(row, 'source_revision');
     if (row.generation_id && !successfulGeneration.get(row.generation_id, row.turn_id)) throw invalidBackup('A response variant references a missing, unsuccessful or unrelated generation.');
   }
-  for (const row of rows(db, 'generations', 'id, source_revision, turn_id, chat_id, request, usage, error_message, context_selection, continuation_variant_id')) {
+  for (const row of rows(db, 'generations', 'id, source_revision, turn_id, chat_id, usage, error_message, context_selection, continuation_variant_id')) {
     id.parse(row.id); num(row, 'source_revision');
     if (turnChat.get(row.turn_id) !== row.chat_id) throw invalidBackup('A generation references a turn in another chat or a missing turn.');
     if (row.continuation_variant_id !== null && variantTurn.get(id.parse(row.continuation_variant_id)) !== row.turn_id) {
       throw invalidBackup('A continuation references a missing response variant or one from another turn.');
     }
-    if (row.request !== null) parseRecord(requestSchema,row,'generations','request');
     if (row.usage !== null) parseRecord(usageSchema,row,'generations','usage');
     if (row.error_message !== null) parseRecord(localizedMessageSchema,row,'generations','error_message');
     if (row.context_selection !== null) selection.extend({ revision: integer }).parse(json(row, 'context_selection'));

@@ -1,6 +1,6 @@
 import { seedTranscript } from './support/transcript-fixture.js';
 import { Readable } from 'node:stream';
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createReadStream, statSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -186,3 +186,50 @@ it('streams an encrypted backup above 128 MiB into an already-large destination'
   expect(countMarked('destination')).toBe(0);
   expect(readdirSync(join(directory, '.ore-backups-large-destination.sqlite'))).toEqual([]);
 }, 120_000);
+
+it('waits for the SQLite worker to exit before reopening its staging directory', async () => {
+  const source = await open('worker-close');
+  const path = join(directory, 'worker-files.sqlite');
+  const service = new BackupService(source.store, path);
+  const backup = await source.export('');
+  let closed: Promise<void> | undefined;
+  const pending = service.inspect(Readable.from([backup.rawPayload]), 'owner', '', phase => {
+    if (phase === 'reconstruct' && !closed) closed = service.close();
+  });
+  await expect(pending).rejects.toMatchObject({ code: 'server_stopping' });
+  expect(closed).toBeDefined();
+  await closed;
+  expect(readdirSync(directory)).not.toContain('.ore-backups-worker-files.sqlite');
+  const reopened = new BackupService(source.store, path);
+  try {
+    await service.close();
+    const review = await reopened.inspect(Readable.from([backup.rawPayload]), 'owner');
+    expect(review.blockers).toEqual([]);
+  } finally { await reopened.close(); }
+});
+
+it('exposes only the requesting session’s progress and releases it after failure', async () => {
+  const source = await open('progress');
+  const login = await source.app.inject({ method: 'POST', url: '/api/login', headers: source.headers, payload: { password: 'synthetic-owner-password' } });
+  const other = { ...source.headers, cookie: String(login.headers['set-cookie']).split(';')[0] };
+  const id = randomUUID(), path = `/api/data/backup-progress/${id}`;
+  let started = () => {}, finish = () => {};
+  const entered = new Promise<void>(resolve => { started = resolve; });
+  const release = new Promise<void>(resolve => { finish = resolve; });
+  const worker = vi.spyOn(BackupService.prototype, 'export').mockImplementationOnce(async (_password, report) => {
+    report?.('encrypt', 42, 100);
+    started();
+    await release;
+    throw new Error('fixture');
+  });
+  const pending = source.command('/api/data/backup', { password: '', progressId: id });
+  try {
+    await entered;
+    expect((await source.app.inject({ url: path, headers: source.headers })).json()).toEqual({ progress: { phase: 'encrypt', done: 42, total: 100 } });
+    expect((await source.app.inject({ url: path, headers: other })).json()).toEqual({ progress: null });
+    expect((await source.app.inject({ url: path })).statusCode).toBe(401);
+    expect((await source.command('/api/data/backup', { password: '', progressId: id })).statusCode).toBe(409);
+  } finally { finish(); worker.mockRestore(); }
+  expect((await pending).statusCode).toBe(500);
+  expect((await source.app.inject({ url: path, headers: source.headers })).json()).toEqual({ progress: null });
+});

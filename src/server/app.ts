@@ -9,7 +9,7 @@ import { buildInfo } from './installation.js';
 import { BackupService } from './backups.js';
 import { attachmentDisposition, Downloads } from './downloads.js';
 import { downloadTokenSchema } from '../shared/downloads.js';
-import { backupLimits, backupTableSchema, dataCommandSchema } from '../shared/backups.js';
+import { backupLimits, backupTableSchema, dataCommandSchema, type BackupProgress, type ReportBackupProgress } from '../shared/backups.js';
 import { protectedFilePasswordSchema } from '../shared/protected-files.js';
 import { filePasswordFromHeader } from './protected-files.js';
 import { connectionExportSchema, connectionImportSchema } from '../shared/connection-files.js';
@@ -294,9 +294,24 @@ export async function createApp(options: {
     reply.raw.once('close', () => { responseEnded = true; stream.destroy(); release(); });
     return reply.send(stream);
   });
+  const progressIdSchema = z.string().uuid();
+  const backupProgress = new Map<string, BackupProgress | null>();
+  async function withBackupProgress<T>(request: FastifyRequest, id: string | undefined, action: (report?: ReportBackupProgress) => Promise<T>) {
+    if (!id) return action();
+    const key = owner(request.cookies.session) + id;
+    if (backupProgress.has(key)) throw new AppError(409, 'backup_busy', message('errors.protected_file_busy'));
+    backupProgress.set(key, null);
+    try { return await action((phase, done, total) => { backupProgress.set(key, { phase, done, total }); }); }
+    finally { backupProgress.delete(key); }
+  }
+  app.get('/api/data/backup-progress/:id', async (request, reply) => {
+    const { id } = z.object({ id: progressIdSchema }).parse(request.params);
+    reply.header('Cache-Control', 'no-store');
+    return { progress: backupProgress.get(owner(request.cookies.session) + id) ?? null };
+  });
   app.post('/api/data/backup', async (request, reply) => {
-    const { password } = protectedFilePasswordSchema.parse(request.body);
-    const file = await backups.export(password);
+    const { password, progressId } = protectedFilePasswordSchema.extend({ progressId: progressIdSchema.optional() }).parse(request.body);
+    const file = await withBackupProgress(request, progressId, report => backups.export(password, report));
     if (reply.raw.destroyed) { file.cleanup(); return reply; }
     const filename = `ORE-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.orebackup`;
     if (request.headers.accept === 'application/json') return downloads.add(owner(request.cookies.session), filename, file);
@@ -308,7 +323,9 @@ export async function createApp(options: {
   app.post('/api/data/stages', async (request, reply) => {
     const stream = z.instanceof(Readable).parse(request.body);
     try {
-      return await backups.inspect(stream, owner(request.cookies.session), filePasswordFromHeader(request.headers['x-ore-file-password']));
+      const id = progressIdSchema.optional().parse(request.headers['x-ore-progress-id']);
+      const password = filePasswordFromHeader(request.headers['x-ore-file-password']);
+      return await withBackupProgress(request, id, report => backups.inspect(stream, owner(request.cookies.session), password, report));
     } catch (error) {
       if (!request.raw.complete) reply.header('Connection', 'close');
       throw error;
@@ -316,8 +333,12 @@ export async function createApp(options: {
   });
   app.get('/api/data/stages/:stageId', async request => {
     const { stageId } = stageParams.parse(request.params);
-    const { offset } = z.object({ offset: z.coerce.number().int().nonnegative().max(backupLimits.rows).default(0) }).strict().parse(request.query);
-    return backups.review(stageId,owner(request.cookies.session),offset);
+    const { offset, view } = z.object({
+      offset: z.coerce.number().int().nonnegative().max(backupLimits.rows).default(0),
+      view: z.literal('captured').optional(),
+    }).strict().parse(request.query);
+    const session = owner(request.cookies.session);
+    return view === 'captured' ? backups.review(stageId, session, offset) : backups.refresh(stageId, session, offset);
   });
   app.delete('/api/data/stages/:stageId', async request => {
     const { stageId } = stageParams.parse(request.params); backups.cancel(stageId,owner(request.cookies.session)); return { ok: true };
@@ -1033,6 +1054,6 @@ export async function createApp(options: {
     app.setNotFoundHandler((request, reply) => request.url.startsWith('/api/') ? reply.code(404).send({ message: 'Not found.' }) : sendIndex(reply));
   }
   app.addHook('preClose', async () => { cardUploadShutdown.abort(); await lan.close(); await pictures.close(); await coordinator.shutdown(); });
-  app.addHook('onClose', async () => { try { downloads.close(); backups.close(); } finally { store.close(); } });
+  app.addHook('onClose', async () => { try { downloads.close(); await backups.close(); } finally { store.close(); } });
   return { app, store, coordinator, lan };
 }

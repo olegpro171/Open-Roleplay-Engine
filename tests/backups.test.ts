@@ -7,7 +7,7 @@ import { removeContinuationSchema } from './support/schema-18.js';
 import { removeComposerDraftSchema } from './support/schema-19.js';
 import { Readable } from 'node:stream';
 import { removeSortingSchema } from './support/legacy-sorting.js';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { BackupService } from '../src/server/backups.js';
 import { unprotectBytes } from '../src/server/protected-files.js';
 import { BackupStore, datasetEpoch } from '../src/persistence/backup-store.js';
-import { backupLimits, type BackupReview } from '../src/shared/backups.js';
+import { backupLimits, type BackupReview, type ReportBackupProgress } from '../src/shared/backups.js';
 import { defaultPrompt } from '../src/shared/library.js';
 import { sourceOf } from '../src/core/context.js';
 import { assembleRequest } from '../src/core/prompt.js';
@@ -344,8 +344,60 @@ describe('portable backup persistence',() => {
     expect(db.libraryRevision()).toBe(before);
     expect(() => backups.commit(review.stageId,owner,receipt(review))).toThrow('changed since review');
     expect(db.snapshot(chatId).turns[0].assistant.text).toBe('Local correction');
-    const renewed = backups.review(review.stageId,owner); expect(renewed.token).not.toBe(review.token);
+    const renewed = await backups.refresh(review.stageId,owner); expect(renewed.token).not.toBe(review.token);
     backups.commit(review.stageId,owner,receipt(renewed)); expect(db.snapshot(chatId).turns[0].assistant.text).toBe('Welcome, traveler.');
+  });
+  it('pages the reviewed comparison without reading the live dataset after a local edit', async () => {
+    const db = store('pages'), backups = service(db, 'pages');
+    for (let i = 0; i < 45; i++) db.tags.create(db.libraryRevision(), `Tag ${i}`);
+    const review = await backups.inspect(Readable.from([await bytes(backups)]), owner);
+    db.tags.create(db.libraryRevision(), 'New local tag');
+    const digest = vi.spyOn(backups.persistence, 'token', 'get');
+    const page = backups.review(review.stageId, owner, 40);
+    expect(page.units.length).toBe(review.totalUnits - 40);
+    expect(page.units[0].id).not.toBe(review.units[0].id);
+    expect(page.token).toBe(review.token);
+    expect(digest).not.toHaveBeenCalled();
+    expect(() => backups.commit(review.stageId, owner, receipt(page))).toThrow('changed since review');
+  });
+  it('reports measured private-file work and checks the captured destination after a concurrent edit', async () => {
+    const db = store('progress'), backups = service(db, 'progress');
+    seedTranscript(db, db.snapshot().revision, 'main', Array.from({ length: 80 }, (_, i) => ({
+      user: `Synthetic input ${i}`, assistant: 'Synthetic text. '.repeat(2000), complete: true,
+    })));
+    const saving = vi.fn<ReportBackupProgress>();
+    const file = await backups.export('', saving);
+    try {
+      const partial = (calls: Parameters<ReportBackupProgress>[], phase: Parameters<ReportBackupProgress>[0]) =>
+        calls.some(([name, done, total]) => name === phase && done !== undefined && total !== undefined && done > 0 && done < total);
+      expect(partial(saving.mock.calls, 'snapshot')).toBe(true);
+      expect(partial(saving.mock.calls, 'encrypt')).toBe(true);
+      const before = backups.persistence.token;
+      let changed = false;
+      const opening = vi.fn<ReportBackupProgress>(phase => {
+        if (phase === 'reconstruct' && !changed) {
+          db.tags.create(db.libraryRevision(), 'Edited during inspection');
+          changed = true;
+        }
+      });
+      const review = await backups.inspect(Readable.from([readFileSync(file.path)]), owner, '', opening);
+      expect(changed).toBe(true);
+      expect(partial(opening.mock.calls, 'decrypt')).toBe(true);
+      expect(opening.mock.calls).toContainEqual(['reconstruct', expect.any(Number), expect.any(Number)]);
+      expect(opening.mock.calls).toContainEqual(['validate', expect.any(Number), expect.any(Number)]);
+      const phases = opening.mock.calls.map(([phase]) => phase);
+      expect([...new Set(phases)]).toEqual([
+        'decrypt', 'snapshot', 'reconstruct', 'validate', 'references', 'sanitize', 'validateClean', 'referencesClean',
+        'compare', 'merge', 'validateMerged', 'referencesMerged',
+      ]);
+      const trial = phases.slice(phases.indexOf('merge'));
+      expect(trial).toContain('validateMerged');
+      expect(trial.at(-1)).toBe('referencesMerged');
+      expect(trial).not.toContain('validate');
+      expect(review.token).toBe(before);
+      expect(() => backups.commit(review.stageId, owner, receipt(review))).toThrow('changed since review');
+      expect((await backups.refresh(review.stageId, owner)).token).toBe(backups.persistence.token);
+    } finally { file.cleanup(); }
   });
   it('blocks conflicting tag identities and cross-kind records without changing destination state',async () => {
     const a = store('tag-a'), b = store('tag-b'), sa = service(a,'tag-a'), sb = service(b,'tag-b');

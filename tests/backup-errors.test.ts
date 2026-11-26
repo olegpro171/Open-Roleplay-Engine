@@ -46,6 +46,8 @@ it('rejects unexpected executable schema names, binary text, wrong selected vari
       'CREATE TRIGGER sqliteXhidden AFTER INSERT ON chats BEGIN DELETE FROM chats; END',
       "UPDATE turns SET user_text = X'616263'",
       "UPDATE turns SET selected_variant_id = 'missing-variant'",
+      `INSERT INTO generations(id, chat_id, request_id, command, turn_id, status, source_revision, request, partial_text, created_at, updated_at)
+        SELECT 'g', chat_id, 'req', 'response', id, 'succeeded', 0, '{"body":{"messages":42}}', '', '', '' FROM turns`,
       `INSERT INTO summaries (id,revision,chat_id,data) VALUES ('cycle',0,'main','{"id":"cycle","revision":0,"level":1,"text":"Memory","turns":[],"children":[],"prior":[{"id":"cycle","revision":0}],"approved":true,"manual":false,"createdAt":""}')`,
     ]) {
       const path = join(directory,'malformed.sqlite'); fs.writeFileSync(path,bytes); const db = new Database(path); db.exec(sql); db.close();
