@@ -32,7 +32,7 @@ The accepted stack is strict TypeScript, React/Vite, Node/Fastify, SQLite with b
 
 ## Prompt authority
 
-The prompt preset editor opens on **Main prompt**, with the ordered blocks and markers and a collapsible assembly explanation. **Action instructions** contains separate disclosures for **Continue** and **Opening scene**. Both tabs share the preset draft and its Save/Cancel actions.
+The prompt preset editor opens on **Main prompt**, which lists the ordered blocks and markers. **Action instructions** contains separate disclosures for **Continue** and **Opening scene**. Both tabs share the preset draft and its Save/Cancel actions.
 
 Enabled preset blocks and markers compose the base request. Missing/disabled markers contribute nothing. Empty/missing-marker presets may be saved; warnings are advisory. Messages, Summary, Pinned messages and the two card instruction markers each allow at most one enabled instance. An empty resolved request fails before a provider call.
 

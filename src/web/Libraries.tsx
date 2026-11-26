@@ -843,10 +843,6 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
         // Reveal invalid block fields before the browser moves focus to the first one.
         if (activeTab !== 'main') flushSync(() => setActiveTab('main'));
       }}>
-      <details className="editor-disclosure library-editor-disclosure prompt-assembly-help">
-        <summary>{t('libraries.how_prompt_assembly_works')}<Icon name="ArrowShortBottom" /></summary>
-        <p className="small muted">{t('libraries.enabled_blocks_and_markers_compose_the_base', { value: '{{user}}', value2: '{{char}}' })}</p>
-      </details>
       <PromptBlocks value={value} change={change} />
     </div>
     <div role="tabpanel" id={`${id}-instructions-panel`}

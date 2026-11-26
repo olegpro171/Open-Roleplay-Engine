@@ -96,7 +96,6 @@ for (const theme of themeSchema.options) for (const width of [1440, 390]) {
     await expect(blocks).toHaveCount(9);
     const continuation = page.getByRole('textbox', { name: 'Continuation instruction' });
     await expect(continuation).toHaveCount(0);
-    await expect(page.getByText(/^Enabled blocks and markers compose the base prompt/)).toBeHidden();
     await page.screenshot({ path: testInfo.outputPath('main-prompt.png') });
 
     const first = blocks.first();
@@ -224,8 +223,6 @@ for (const width of [1440, 320]) test(`keeps edits across prompt tabs and reveal
   const text = 'Keep the ferry dialogue brief.';
   const openingText = 'Have {{char}} meet {{user}} at the ferry.';
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(name);
-  await page.getByText('How prompt assembly works', { exact: true }).click();
-  await expect(page.getByText(/^Enabled blocks and markers compose the base prompt/)).toBeVisible();
   const expand = block.getByRole('button', { name: /\bExpand block 1$/ });
   await expand.press('Enter');
   await blockText.fill(text);

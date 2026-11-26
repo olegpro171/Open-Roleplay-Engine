@@ -54,7 +54,6 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 .library-sidebar .eyebrow{margin-bottom:20px}
 .library-tabs{display:flex;flex-direction:column;gap:6px}
 .library-tabs button{text-align:left;min-height:44px;padding:11px 14px;background:none;border-color:transparent;color:var(--muted);font-size:14px;font-weight:500}
-.prompt-assembly-help p{margin:4px 0 10px;overflow-wrap:anywhere}
 .prompt-instruction-body{padding-block:4px 14px}
 .library-panel{min-width:0;padding:34px 42px 70px;scrollbar-color:var(--scrollbar) transparent;overscroll-behavior:contain;container:library / inline-size}
 @media(min-width:801px){.library-workspace .library-panel{padding-top:0}}
