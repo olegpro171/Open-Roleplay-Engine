@@ -216,13 +216,14 @@ test('a cancelled discovery cannot replace a reopened picker and missing models 
   const settings = page.getByRole('tab', { name: 'Connection settings', exact: true });
   const parameters = page.getByRole('tab', { name: 'Request parameters', exact: true });
   const trigger = page.getByRole('button', { name: 'Model identifier', exact: true });
+  await expect(page.getByRole('alert')).toHaveCount(0);
   await parameters.click();
   await page.getByRole('button', { name: 'Check connection', exact: true }).click();
   await expect(trigger).toHaveAccessibleDescription('Select a model or enter its identifier.');
   await expect(trigger).toBeFocused();
   await parameters.click();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByRole('alert').filter({ hasText: /^Select a model or enter its identifier\.$/ })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveText('Select a model or enter its identifier.');
   await expect(trigger).toHaveAccessibleDescription('Select a model or enter its identifier.');
   await expect(settings).toHaveAttribute('aria-selected', 'true');
   await expect(trigger).toBeFocused();

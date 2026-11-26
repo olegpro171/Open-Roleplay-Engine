@@ -21,6 +21,8 @@ Direct npm commands require Node 24 or Node 22.14+ within major 22 (see `package
 
 No lint script exists. Tests need loopback servers and temporary-file access. Use synthetic fixtures/keys and real temporary SQLite databases, mocking external provider transport. Never use active user data for destructive testing. Both start-dev entries and watch mode use repository data by default: stop the normal app before sharing that database, or explicitly set `ROLEPLAY_DATABASE` to a development path. The standalone Python lab has [its own instructions](experiments/compaction/README.md).
 
+The browser app fixture copies the built client into its temporary directory at startup. The running fixture serves that copy so later builds can replace `dist/client` without removing the assets referenced by its HTML.
+
 ## Module map
 
 | Location | Owns | Preserve |

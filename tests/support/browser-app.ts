@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createApp } from '../../src/server/app.js';
@@ -12,7 +12,7 @@ import { startMockProvider } from './mock-provider.js';
 import { seedTranscript } from './transcript-fixture.js';
 import { seedStory } from './story-fixture.js';
 
-export async function startBrowserApp(port = 0, { starterChat = true } = {}) {
+export async function startBrowserApp(port = 0, { starterChat = true, clientDirectory = resolve('dist/client') } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'roleplay-browser-'));
   let application: Awaited<ReturnType<typeof createApp>> | undefined;
   let provider: Awaited<ReturnType<typeof startMockProvider>> | undefined;
@@ -26,9 +26,12 @@ export async function startBrowserApp(port = 0, { starterChat = true } = {}) {
     }
   })();
   try {
+    // Keep the index and its hashed assets together when a later build clears dist/client.
+    const staticDirectory = join(directory, 'client');
+    cpSync(clientDirectory, staticDirectory, { recursive: true });
     const mock = await startMockProvider();
     provider = mock;
-    application = await createApp({ database: join(directory, 'chat.sqlite'), staticDirectory: resolve('dist/client'),
+    application = await createApp({ database: join(directory, 'chat.sqlite'), staticDirectory,
       lan: { hostname: async () => {
         if (lanHostname === null) throw new AppError(503, 'lan_hostname_unavailable', message('errors.the_computer_s_local_hostname_could_not_be'));
         return lanHostname;

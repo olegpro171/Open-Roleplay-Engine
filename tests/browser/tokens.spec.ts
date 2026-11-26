@@ -15,6 +15,7 @@ test('connection diagnostics stay concise, use explicit test calls and distingui
   const initialCount = (await requests()).length;
   await page.getByLabel('API base URL').fill(endpoint);
   const tools = page.locator('.connection-tools');
+  const model = page.getByRole('button', { name: 'Model identifier', exact: true });
   const diagnosticCalls: string[] = [];
   await page.route('**/api/connections/diagnose', route => {
     diagnosticCalls.push(route.request().method());
@@ -22,12 +23,13 @@ test('connection diagnostics stay concise, use explicit test calls and distingui
   });
   for (const action of ['Check connection', 'Send test message']) {
     await page.getByRole('button', { name: action, exact: true }).click();
-    await expect(tools.getByRole('alert')).toHaveText('Select a model or enter its identifier.');
+    await expect(model).toHaveAccessibleDescription('Select a model or enter its identifier.');
+    await expect(model).toBeFocused();
     expect(diagnosticCalls).toHaveLength(0);
   }
   await expect(page.getByLabel('API base URL')).toHaveValue(endpoint);
   await enterModel(page, 'google/gemma-3-4b-it');
-  await expect(tools.getByRole('alert')).toHaveCount(0);
+  await expect(model).toHaveAccessibleDescription('');
   await page.getByLabel('Reserved output tokens', { exact: true }).fill('4096');
   const savedState = await page.request.get('/api/chat').then(response => response.json());
   const savedLibrary = await page.request.get('/api/library').then(response => response.json());

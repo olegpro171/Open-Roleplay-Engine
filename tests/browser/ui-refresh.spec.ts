@@ -1,9 +1,33 @@
 import { openChatTool } from './chat-tools';
 import { test, expect } from '@playwright/test';
+import { cp, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { defaultContextPreset } from '../../src/shared/context';
 import { createCompactPrompt } from './compact-prompt';
+import { startBrowserApp } from '../support/browser-app';
+
+test('a running browser fixture can still open the app after its source build is cleared', async ({ page }) => {
+  const directory = await mkdtemp(join(tmpdir(), 'ore-browser-rebuild-'));
+  const clientDirectory = join(directory, 'client');
+  try {
+    await cp(resolve('dist/client'), clientDirectory, { recursive: true });
+    const app = await startBrowserApp(0, { clientDirectory });
+    try {
+      expect((await page.request.get(`${app.url}/api/session`)).ok()).toBe(true);
+      // Vite clears its output directory at the start of a rebuild.
+      await rm(clientDirectory, { recursive: true });
+      await page.goto(app.url);
+      await expect(page.getByLabel('Owner password')).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test('keeps chat and memory budget panels mounted during debounced and delayed refreshes', async ({ page, request }) => {
   const session = await request.get('/api/session').then(response => response.json());

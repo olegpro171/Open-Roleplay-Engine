@@ -119,7 +119,7 @@ export function ConnectionFields({ value, change, id, busy, hasApiKey, apiKey, s
           <NumberInput id={`${fieldId}-reserve`} draftField="maxOutputTokens" required max={1_000_000} value={value.maxOutputTokens}
             aria-invalid={outputConflict || undefined} aria-describedby={outputConflict ? `${fieldId}-output-conflict` : undefined}
             onChange={maxOutputTokens => change({ ...value, maxOutputTokens })} />
-          <small className="connection-output-status" id={`${fieldId}-output-conflict`} role="alert">{conflict}</small>
+          <small className="connection-output-status" id={`${fieldId}-output-conflict`} role={conflict ? 'alert' : undefined}>{conflict}</small>
         </div>
       </section>
     </div>
