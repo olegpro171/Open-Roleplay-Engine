@@ -75,7 +75,7 @@ describe('frozen lore across request and memory representations', () => {
     const plan = contextPlan(constrained);
     expect(plan.ready).toBe(false);
     expect(plan.next).toBeNull();
-    expect(plan.blocked).toContain('required verbatim');
+    expect(plan.blockedMessage?.key).toBe('diagnostics.the_required_verbatim_tail_pending_input_and_prompt');
     expect(snapshot.loreResolution.scan.map(message => message.turnId)).toContain(snapshot.turns[0].id);
     expect(required.lore).toEqual(snapshot.loreResolution);
     const noLore = assembleRequest(snapshot.connection, constrained.settings, tail, { ...snapshot.sources, lorebook: null }, emptyContextState(), { validateLimits: false });
