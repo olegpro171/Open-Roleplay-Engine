@@ -8,10 +8,10 @@ type Option = { value: string; label: string; disabled?: boolean; leading?: Reac
 type DropdownProps = {
   value: string; onChange: (value: string) => void; options: Option[];
   'aria-label'?: string; 'aria-describedby'?: string; disabled?: boolean; editable?: boolean; required?: boolean; minMenuWidth?: number;
-  presentation?: 'heading'; triggerRef?: RefObject<HTMLButtonElement | null>;
+  presentation?: 'heading'; fadeLabel?: boolean; triggerRef?: RefObject<HTMLButtonElement | null>;
 };
 
-export function Dropdown({ value, onChange, options, disabled, editable, required, minMenuWidth, presentation, triggerRef, 'aria-label': label, 'aria-describedby': describedBy }: DropdownProps) {
+export function Dropdown({ value, onChange, options, disabled, editable, required, minMenuWidth, presentation, fadeLabel, triggerRef, 'aria-label': label, 'aria-describedby': describedBy }: DropdownProps) {
   useLocale();
   const heading = presentation === 'heading';
   const Anchor = heading ? 'span' : 'div';
@@ -24,6 +24,7 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   const expanded = open && visible.length > 0 && !disabled;
   const activeIndex = Math.min(active, Math.max(0, visible.length - 1));
   const selected = options.find(option => option.value === value);
+  const selectedLabel = selected?.label ?? t("character_editor.none_selected");
   // A modal makes outside content inert, so its options must share the dialog.
   const portalTarget = anchor.current?.closest('dialog[open]') ?? document.body;
   function show() {
@@ -157,7 +158,11 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
           event.currentTarget.focus({ preventScroll: true });
           show();
         }
-      }}><span className="select-label"><OptionLabel label={selected?.label ?? t("character_editor.none_selected")} leading={heading ? undefined : selected?.leading} /></span><Icon name="ArrowShortBottom" /></button>}
+      }}>
+        {fadeLabel ? <FadingSelectLabel label={selectedLabel} /> :
+          <span className="select-label"><OptionLabel label={selectedLabel} leading={heading ? undefined : selected?.leading} /></span>}
+        <Icon name="ArrowShortBottom" />
+      </button>}
     {expanded && createPortal(<div ref={popup} id={id} role="listbox" aria-label={label} className={heading ? 'select-menu heading-select-menu' : 'select-menu'} style={position}
       onMouseDown={event => event.preventDefault()}>
       {visible.map((option, index) => <div role="option" id={`${id}-${index}`} key={option.value} aria-selected={option.value === value}
@@ -170,6 +175,22 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
       </div>)}
     </div>, portalTarget)}
   </Anchor>;
+}
+
+function FadingSelectLabel({ label }: { label: string }) {
+  const clipped = useRef<HTMLSpanElement>(null);
+  const [overflows, setOverflows] = useState(false);
+  useLayoutEffect(() => {
+    const element = clipped.current;
+    if (!element) return;
+    const measure = () => setOverflows(element.scrollWidth > element.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [label]);
+  return <span className="select-label fading-select-label" ref={clipped} data-overflows={overflows || undefined}
+    title={overflows ? label : undefined}>{label}</span>;
 }
 
 function OptionLabel({ label, leading }: Pick<Option, 'label' | 'leading'>) {

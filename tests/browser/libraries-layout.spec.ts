@@ -693,3 +693,62 @@ test('resets the built-in context and matches the Delete menu action width on de
   expect(reset).toEqual({ ...defaultContextPreset, id: 'default-context', revision: reset?.revision });
   await expect(custom).toBeVisible();
 });
+
+test('keeps both context preset tabs readable across themes and panel widths', async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('ore-interface-language', 'ru'));
+  await page.goto('/');
+  const session = await page.request.get('/api/session').then(response => response.json());
+  await page.getByLabel('Пароль владельца').fill('browser-synthetic-password');
+  await page.getByRole('button', { name: session.setupRequired ? 'Создать учётную запись владельца' : 'Войти', exact: true }).click();
+  await page.getByRole('button', { name: 'Библиотека', exact: true }).click();
+  const presetName = 'Эпистемика 1.5-RU · Макет';
+  const connectionName = 'Long-form narrative continuity editor';
+  const modelName = 'synthetic-summary-with-an-extended-model-identifier';
+  const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
+  await addRecord(page, 'connections', {
+    name: connectionName, model: modelName, endpoint, contextWindow: 100_000, maxOutputTokens: 1000, customParameters: {},
+  });
+  await addRecord(page, 'contexts', { ...defaultContextPreset, name: presetName });
+  await page.getByRole('button', { name: 'Пресеты контекста', exact: true }).click();
+  await page.getByRole('button', { name: presetName, exact: true }).click();
+  const memory = page.getByRole('tab', { name: 'Настройки памяти', exact: true });
+  const prompts = page.getByRole('tab', { name: 'Промпты', exact: true });
+  const name = page.getByRole('textbox', { name: 'Имя', exact: true });
+  const connection = page.getByRole('combobox', { name: 'Подключение для сводок', exact: true });
+  const shortHeight = (await connection.boundingBox())?.height;
+  await connection.click();
+  await page.getByRole('option', { name: `${connectionName} · ${modelName}`, exact: true }).click();
+  expect((await connection.boundingBox())?.height).toBe(shortHeight);
+  const path = '/api/application/appearance';
+  const readAppearance = async () => appearanceStatusSchema.parse(await page.request.get(path).then(response => response.json()));
+  const original = await readAppearance();
+  async function setTheme(theme: typeof original.settings.theme) {
+    const appearance = await readAppearance();
+    const response = await page.request.put(path, { headers: { Origin: 'http://127.0.0.1:4173' }, data: {
+      revision: appearance.revision, settings: { ...appearance.settings, theme },
+    } });
+    expect(response.ok()).toBe(true);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+  }
+  try {
+    for (const theme of themeSchema.options) {
+      await setTheme(theme);
+      for (const width of [1440, 801, 800, 390, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        await memory.click();
+        await expect(page.getByRole('tabpanel', { name: 'Настройки памяти' }).getByRole('textbox')).toHaveCount(5);
+        const title = await name.boundingBox(), model = await connection.boundingBox();
+        if (!title || !model) throw new Error('Missing context preset identity');
+        if (width >= 1440) expect(model.x).toBeGreaterThanOrEqual(title.x + title.width);
+        if (width <= 390) expect(model.y).toBeGreaterThanOrEqual(title.y + title.height);
+        const form = page.locator('form').filter({ has: memory });
+        expect(await form.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+        if (width === 1440 || width === 390) await page.screenshot({ path: testInfo.outputPath(`memory-${theme}-${width}.png`) });
+        await prompts.click();
+        await expect(page.getByRole('textbox', { name: 'Промпт сводки первого уровня' })).toHaveValue(defaultContextPreset.extractionPrompt);
+        expect(await form.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+        if (width === 1440 || width === 390) await page.screenshot({ path: testInfo.outputPath(`prompts-${theme}-${width}.png`) });
+      }
+    }
+  } finally { await setTheme(original.settings.theme); }
+});

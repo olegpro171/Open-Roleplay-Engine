@@ -438,3 +438,39 @@ test('keeps drafts on failed save and sign-out and clears only the signing-out t
     await sibling.close();
   }
 });
+
+test('recovers one context preset draft and reveals invalid fields across both tabs', async ({ page }) => {
+  await page.goto('/');
+  await authenticate(page);
+  await openCategory(page, 'Context presets');
+  await page.getByRole('button', { name: 'New context preset', exact: true }).click();
+  const memory = page.getByRole('tab', { name: 'Memory settings', exact: true });
+  const prompts = page.getByRole('tab', { name: 'Prompts', exact: true });
+  const tail = page.getByLabel('Minimum verbatim turns', { exact: true });
+  const repair = page.getByRole('textbox', { name: 'Repair prompt', exact: true });
+  const revision = (await library(page)).revision;
+  await page.getByLabel('Name', { exact: true }).fill('Across context tabs');
+  await tail.fill('-1');
+  await memory.press('ArrowRight');
+  await expect(prompts).toBeFocused();
+  await page.getByText('Summary repair', { exact: true }).click();
+  await repair.fill('');
+  await page.getByText('Summary repair', { exact: true }).click();
+  await reloadWithWarning(page);
+  await expect(tail).toHaveValue('-1');
+  await prompts.click();
+  await editorAction(page, 'Save').click();
+  await expect(tail).toBeFocused();
+  await tail.fill('14');
+  await editorAction(page, 'Save').click();
+  await expect(repair).toBeFocused();
+  await expect(repair).toHaveValue('');
+  expect((await library(page)).revision).toBe(revision);
+  const edited = 'Keep the original wording about {{char}} where the facts still agree.';
+  await repair.fill(edited);
+  await memory.click();
+  await editorAction(page, 'Save').click();
+  await expect(page.getByRole('heading', { name: 'Across context tabs', exact: true })).toBeVisible();
+  const saved = (await library(page)).contexts.find(preset => preset.name === 'Across context tabs');
+  expect(saved).toMatchObject({ minTail: 14, repairPrompt: edited });
+});

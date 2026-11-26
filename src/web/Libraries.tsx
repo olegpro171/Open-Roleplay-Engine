@@ -36,6 +36,8 @@ import { connectionParameterDraft, parseConnectionParameters, recoverConnectionP
 import { CharacterEditor } from './CharacterEditor';
 import { EditorActions, EditorActionsTarget } from './EditorActions';
 import type { LeaveEditor } from './EditorLeaveGuard';
+import { ContextPresetFields } from './ContextPresetFields';
+import { EditorTabs } from './EditorTabs';
 import { EditorTextarea } from './EditorTextarea';
 import { TagChips, TagFilterMenu } from './Tags';
 import { characterTagIndex, matchesCharacterTags } from '../shared/tags';
@@ -615,6 +617,7 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
   const formId = useId();
   const [data, setData] = useState(recovered?.data ?? initial.data);
   const connection = 'endpoint' in data ? data : undefined;
+  const contextPreset = 'batchSize' in data ? data : undefined;
   const baselineWindow = 'endpoint' in initial.data ? initial.data.contextWindow : defaultConnection.contextWindow;
   const [windowSource, setWindowSource] = useState<ContextWindowSource>(() => {
     if (recovered?.kind !== 'connections') return undefined;
@@ -728,13 +731,15 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
     </label>;
   }
   const personaNameHelp = initial.kind === 'personas' ? t('libraries.persona_name_help', { user: '{{user}}' }) : undefined;
-  return <NumberDraftContext.Provider value={numberDraft}><form id={formId} onSubmit={e => void save(e)}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy}><legend>{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend><div className="form-grid">{textField('name', t("character_editor.name"), false, initial.kind !== 'personas', personaNameHelp)}
+  return <NumberDraftContext.Provider value={numberDraft}><form id={formId} onSubmit={e => void save(e)}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy} className={contextPreset ? 'context-preset-editor' : undefined}>
+    <legend className={contextPreset ? 'sr-only' : undefined}>{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend>
+    {contextPreset ? <ContextPresetFields value={contextPreset} change={setData} connections={connections} /> :
+    <div className="form-grid">{textField('name', t("character_editor.name"), false, initial.kind !== 'personas', personaNameHelp)}
     {initial.kind === 'personas' && <>
       <label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={(data as LibraryPersona).titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("libraries.an_optional_label_useful_for_distinguishing_between")}</small></label>
       <SpeechColorSelector speaker="persona" appearance={appearance} value={(data as LibraryPersona).speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy} />
       {textField('description', t('libraries.persona_description'), true, true, t('libraries.persona_description_help'))}
     </>}
-    {initial.kind === 'contexts' && <ContextPresetFields value={data as ContextPreset} change={setData} connections={connections} />}
     {connection && <>
       <label className="full">{t("libraries.api_base_url")}<input type="url" required value={connection.endpoint} onChange={e => changeEndpoint(connection, e.target.value)} /></label>
       <div className="full api-key-row"><label>{t("libraries.api_key")}<input type="password" autoComplete="new-password" disabled={removeKey} placeholder={initial.hasApiKey ? t("libraries.saved_leave_blank_to_keep_it") : t("libraries.optional_for_endpoints_without_authentication")} value={key} onChange={e => setKey(e.target.value)} /></label>{initial.hasApiKey && <label className="checkbox"><input type="checkbox" checked={removeKey} onChange={e => setRemoveKey(e.target.checked)} />{t("libraries.remove_the_saved_api_key")}</label>}</div>
@@ -774,7 +779,7 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
         apiKey={removeKey ? '' : key || undefined} disabled={stale || outputConflict} />
     </>}
     {initial.kind === 'prompts' && <PromptEditor value={data as PromptPreset} change={setData} />}
-  </div></fieldset>
+  </div>}</fieldset>
     {error && <p className={connection ? 'small connection-error' : undefined} role="alert">{error}</p>}
     {stale && !staleWarningDismissed && <WarningDialog message={msg('libraries.the_library_changed_close_this_editor_and')} close={() => setStaleWarningDismissed(true)} />}
     {stale && dirty && <CopyLibraryDraft editor={draft} />}
@@ -807,19 +812,6 @@ function ConnectionTools({ connection, parameters, connectionId, apiKey, disable
     {error && <p className="small connection-error" role="alert">{error}</p>}
     {result && <div className="connection-test-result" role="status"><p className="small connection-success">{formatMessage(result.localized ?? result.message)}</p>{result.request && <><p className="small">{result.usage ? t("libraries.token_usage_input_output", { value: result.usage.inputTokens.toLocaleString(locale()), value2: result.usage.outputTokens.toLocaleString(locale()) }) : t("libraries.token_usage_unavailable")}</p><details><summary>{t("libraries.test_request_and_response")}</summary><pre>{JSON.stringify({ request: result.request, response: result.response, usage: result.usage }, null, 2)}</pre></details></>}</div>}
   </div>;
-}
-function ContextPresetFields({ value, change, connections }: { value: ContextPreset; change: (value: ContextPreset) => void; connections: Saved<Connection>[] }) {
-  useLocale();
-  const fields = [['minTail', t("libraries.minimum_verbatim_turns"), 0], ['batchSize', t("libraries.turns_per_batch"), 1], ['summaryTokens', t("libraries.requested_summary_tokens"), 1], ['promotionGroup', t("libraries.summaries_per_promotion"), 2], ['retainedPerLevel', t("libraries.retain_summaries_per_level"), 0]] as const;
-  return <><label className="full">{t("libraries.summarization_connection")}<Dropdown aria-label={t("libraries.summarization_connection")} value={value.connectionId ?? ''} onChange={connectionId => change({ ...value, connectionId: connectionId || null })} options={[{ value: '', label: t("libraries.same_as_current_chat_connection") }, ...connections.map(connection => ({ value: connection.id, label: `${connection.name} · ${connection.model}` }))]} /></label>
-    {fields.map(([field, label, min]) => <label key={field}>{label}<NumberInput draftField={field} required min={min} max={field === 'summaryTokens' ? 1_000_000 : 50_000} value={value[field]} onChange={number => change({ ...value, [field]: number })} /></label>)}
-    <p className="small muted full">{t("libraries.the_input_target_belongs_to_each_chat")}</p>
-    <label className="full">{t("libraries.first_layer_extraction_prompt")}<EditorTextarea required value={value.extractionPrompt} maxLength={100_000} onChange={e => change({ ...value, extractionPrompt: e.target.value })} /></label>
-    <label className="full">{t("libraries.higher_layer_compression_prompt")}<EditorTextarea required value={value.promotionPrompt} maxLength={100_000} onChange={e => change({ ...value, promotionPrompt: e.target.value })} /></label>
-    <label className="full">{t("libraries.repair_prompt")}<EditorTextarea required value={value.repairPrompt} maxLength={100_000} onChange={e => change({ ...value, repairPrompt: e.target.value })} /></label>
-    <p className="small muted full">{t("libraries.repair_receives_the_existing_summary_and_before")}</p>
-    <p className="small muted full">{t("libraries.available_variables_source_text_is_attached_separately", { value: '{{target_tokens}}', value2: '{{level}}', value3: '{{user}}', value4: '{{char}}' })}</p>
-  </>;
 }
 function PromptInstruction({ title, label, help, custom, fallback, change }: {
   title: string; label: string; help: string; custom?: string; fallback: string; change: (text: string) => void;
@@ -854,26 +846,8 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
   const id = useId();
   const [activeTab, setActiveTab] = useState<PromptEditorTab>('main');
   return <div className="full prompt-editor">
-    <div className="prompt-editor-tabs" role="tablist" aria-label={t('libraries.prompt_editor_sections')}>
-      {promptEditorTabs.map(([tab, label]) => <button key={tab} type="button" role="tab"
-        id={`${id}-${tab}-tab`} aria-controls={`${id}-${tab}-panel`}
-        aria-selected={activeTab === tab} tabIndex={activeTab === tab ? 0 : -1}
-        onClick={() => setActiveTab(tab)}
-        onKeyDown={event => {
-          if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-          let next: PromptEditorTab;
-          switch (event.key) {
-            case 'ArrowLeft':
-            case 'ArrowRight': next = tab === 'main' ? 'instructions' : 'main'; break;
-            case 'Home': next = 'main'; break;
-            case 'End': next = 'instructions'; break;
-            default: return;
-          }
-          event.preventDefault();
-          setActiveTab(next);
-          event.currentTarget.ownerDocument.getElementById(`${id}-${next}-tab`)?.focus();
-        }}>{t(label)}</button>)}
-    </div>
+    <EditorTabs id={id} label={t('libraries.prompt_editor_sections')} tabs={promptEditorTabs}
+      active={activeTab} select={setActiveTab} className="prompt-editor-tabs" />
     <WarningMessages messages={promptWarningMessages(value)} />
     <div role="tabpanel" id={`${id}-main-panel`} aria-labelledby={`${id}-main-tab`} hidden={activeTab !== 'main'}
       onInvalid={() => {

@@ -40,6 +40,8 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await choose(page, 'Summarization Connection', 'Memory summaries · synthetic-summary');
   await page.getByLabel('Minimum verbatim turns').fill('2'); await page.getByLabel('Turns per batch').fill('2');
   await page.getByLabel('Summaries per promotion').fill('2'); await page.getByLabel('Retain summaries per level').fill('1');
+  await page.getByRole('tab', { name: 'Prompts', exact: true }).click();
+  await page.getByText('Summary repair', { exact: true }).click();
   await expect(page.getByLabel('First-layer extraction prompt')).not.toBeEmpty();
   await expect(page.getByRole('textbox', { name: 'Repair prompt', exact: true })).toHaveValue(/character for character/);
   await page.getByRole('textbox', { name: 'Repair prompt', exact: true }).fill('Keep unaffected wording exactly. Apply only factual corrections from the changed inputs. Return the same summary when no correction is needed.');
