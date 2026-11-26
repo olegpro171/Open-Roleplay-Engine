@@ -1027,7 +1027,7 @@ export async function createApp(options: {
         .replace(`href="${defaultInstall.manifest}"`, `href="${install.manifest}"`);
       return reply.type('text/html').send(document);
     };
-    await app.register(staticFiles, { root: options.staticDirectory });
+    await app.register(staticFiles, { root: options.staticDirectory, preCompressed: true });
     app.get('/', async (_request, reply) => sendIndex(reply));
     app.get('/index.html', async (_request, reply) => sendIndex(reply));
     app.setNotFoundHandler((request, reply) => request.url.startsWith('/api/') ? reply.code(404).send({ message: 'Not found.' }) : sendIndex(reply));
