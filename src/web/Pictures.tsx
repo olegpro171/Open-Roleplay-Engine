@@ -101,7 +101,11 @@ export function PictureEditor({ value, change, original, disabled, processing }:
         const previewResponse = await fetch(value.preview, { credentials: 'same-origin', signal: controller.signal });
         if (!previewResponse.ok) throw new LocalizedError(msg("pictures.could_not_load_the_working_preview_try"));
         const preview = `data:image/png;base64,${await fileBase64(new File([await previewResponse.blob()], 'preview'))}`;
-        if (current === attempt.current) { change({ origin: 'local', base64, savedKey: value.key, width: value.width, height: value.height, preview, crop: value.crop }); setCropOpen(true); }
+        if (current === attempt.current) {
+          change({ origin: 'local', base64, savedKey: value.key, width: value.width, height: value.height, preview, crop: value.crop });
+          // The user may have switched editor tabs while the original was loading.
+          if (cropTrigger.current?.getClientRects().length) setCropOpen(true);
+        }
       } catch (error) { if (current === attempt.current) setError(errorText(error, msg("pictures.could_not_prepare_this_crop"))); }
       finally { if (current === attempt.current) { setWorking(false); processing(false); } }
     }}>{t("pictures.adjust_crop")}</button><button type="button" className="quiet" disabled={disabled || working} onClick={() => { change(null); setError(''); }}>{t("pictures.remove_picture")}</button></>}

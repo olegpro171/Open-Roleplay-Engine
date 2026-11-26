@@ -39,7 +39,7 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 .add-alternate-greeting{display:block;margin-inline:auto}
 .alternate-greeting{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-bottom:18px}.alternate-greeting>button{align-self:flex-end;min-height:44px}
 .character-editor-help{margin:0}
-.opening-messages{border-block-start:1px solid var(--line);padding-block-start:18px}
+.opening-messages{padding-block-end:18px;border-block-end:1px solid var(--line)}
 .opening-messages h2{margin:0}
 .opening-messages h3{font-size:14px;font-weight:550;margin:0 0 4px}
 .editor-disclosure{min-inline-size:0;margin:0;border:1px solid var(--line);border-radius:10px}
@@ -1273,11 +1273,11 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .library-editor-name { position:relative; }
 .library-editor-name input { padding:4px 0; padding-inline-end:30px; border:0; border-block-end:1px solid var(--line); border-radius:0; background:transparent; font-size:clamp(21px,4cqi,29px); font-weight:650; letter-spacing:-.035em; }
 .library-editor-name .ui-icon { position:absolute; inset-inline-end:4px; top:50%; transform:translateY(-50%); width:16px; height:16px; color:var(--muted); pointer-events:none; }
-.persona-editor .library-editor-identity { align-items:start; }
+:is(.character-editor,.persona-editor) .library-editor-identity { align-items:start; }
 .persona-description { margin-block:22px 18px; padding-block:18px; border-block:1px solid var(--line); }
 .persona-description textarea { font-weight:400; }
-.persona-editor .speech-color-selector { min-inline-size:0; margin:0; padding:0; border:0; background:none; }
-.persona-editor .speech-color-selector legend { padding:0; color:var(--text); font-size:14px; font-weight:550; }
+:is(.character-editor,.persona-editor) .speech-color-selector { min-inline-size:0; margin:0; padding:0; border:0; background:none; }
+:is(.character-editor,.persona-editor) .speech-color-selector legend { padding:0; color:var(--text); font-size:14px; font-weight:550; }
 .library-editor-tabs.tabs { margin-block:24px 20px; gap:24px; border-block-end:1px solid var(--line); flex-wrap:wrap; overflow:visible; }
 .library-editor-tabs.tabs button { padding:8px 0 10px; min-height:44px; font-size:14px; white-space:normal; }
 .tabbed-library-editor h3 { margin:0 0 4px; font-size:18px; }
@@ -1288,6 +1288,18 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .library-editor-disclosure.editor-disclosure { padding-block:6px; border:0; border-radius:0; }
 .library-editor-disclosure + .library-editor-disclosure { border-block-start:1px solid var(--line); }
 .library-editor-disclosure > summary { padding-inline:4px; font-size:16px; }
+.character-appearance { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:18px; align-items:center; padding-block-end:18px; border-block-end:1px solid var(--line); }
+.character-appearance .picture-editor { padding:0; border:0; background:none; }
+.character-writing { display:grid; gap:18px; padding-block:18px; border-block-end:1px solid var(--line); }
+.character-editor textarea { font-weight:400; }
+.character-editor .character-note-depth { grid-template-columns:fit-content(24ch) min(9ch,35%); align-self:end; }
+.character-lorebook { display:flex; flex-wrap:wrap; align-items:end; gap:12px; margin-block-end:22px; }
+.character-lorebook > label { flex:1 1 18rem; min-inline-size:0; }
+.character-lorebook > .full { flex-basis:100%; }
+.character-tags > .actions { flex-wrap:wrap; }
+@container (max-width:620px) {
+  .character-appearance { grid-template-columns:minmax(0,1fr); }
+}
 .context-preset-prompt-body { padding-block:4px 14px; }
 .context-preset-prompt-body p { margin:0 0 8px; }
 .context-preset-prompt-body textarea { display:block; height:14rem; font-weight:400; line-height:1.6; }

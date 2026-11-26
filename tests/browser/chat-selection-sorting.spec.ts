@@ -117,6 +117,7 @@ for (const width of [1440, 390]) {
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       await selectLibraryCategory(page, 'Characters');
       await page.getByRole('button', { name: 'Sorting witness', exact: true }).click();
+      await page.getByRole('tab', { name: 'Lore & tags', exact: true }).click();
       await checkOptions('Default lorebook', ['None selected', ...fixtures[3].order]);
       const reviewTags = page.getByRole('button', { name: 'Review embedded tags', exact: true });
       await reviewTags.scrollIntoViewIfNeeded();

@@ -116,6 +116,7 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
   await expect(page.getByText('Start with a name and a short description.', { exact: false })).toBeVisible();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Keeper');
   await page.getByLabel('Character description').fill('Keeps watch over a quiet tower.');
+  await page.getByRole('tab', { name: 'Greetings', exact: true }).click();
   await page.getByLabel('Greeting', { exact: true }).fill('Welcome, {{user}}. The tower is open.');
   await page.route('**/api/library', route => route.request().method() === 'POST'
     ? route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic save failure.' }) })
@@ -126,6 +127,7 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
   page.once('dialog', dialog => void dialog.accept());
   await page.reload();
   await expect(page.getByText('Draft restored from this tab.', { exact: false })).toBeVisible();
+  await page.getByRole('tab', { name: 'Greetings', exact: true }).click();
   await expect(page.getByLabel('Greeting', { exact: true })).toHaveValue('Welcome, {{user}}. The tower is open.');
   await button(page, 'Save').click();
   await expect(home(page)).toBeVisible();

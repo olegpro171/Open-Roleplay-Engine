@@ -35,6 +35,7 @@ for (const width of [1440, 390]) {
     await page.getByLabel('Name', { exact: true }).fill(name);
     await page.getByLabel('Title / comment', { exact: true }).fill('University version');
     await page.getByLabel('Character description', { exact: true }).fill(fields.description);
+    await page.getByRole('tab', { name: 'Greetings', exact: true }).click();
     await page.getByLabel('Greeting', { exact: true }).fill(fields.first_mes);
     await page.getByLabel('Name', { exact: true }).scrollIntoViewIfNeeded();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

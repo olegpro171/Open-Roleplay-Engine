@@ -1,7 +1,7 @@
 import { selectLibraryCategory } from './library-card-helpers';
 import { expect, type Page } from '@playwright/test';
 import { test } from './isolated-app';
-import { appearanceStatusSchema } from '../../src/shared/appearance';
+import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultContextPreset } from '../../src/shared/context';
 import type { LibrarySnapshot } from '../../src/shared/library';
@@ -74,7 +74,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     await expect(page.getByLabel('Пароль владельца', { exact: true })).toHaveAttribute('type', 'password');
   });
 
-  test(`chat warnings, preparation and character guidance in ${theme}`, async ({ page, browserApp }, testInfo) => {
+  test(`chat warnings and preparation in ${theme}`, async ({ page, browserApp }, testInfo) => {
     test.setTimeout(60_000);
     await register(page);
     const headers = { Origin: browserApp.url };
@@ -164,24 +164,35 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
       if (jobId) await page.request.post(`/api/context/jobs/${jobId}/cancel`, { headers, data: {} });
       await page.request.post('/__test/mode', { data: { mode: 'normal' } });
     }
-    await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-    await selectLibraryCategory(page, 'Characters');
-    await page.getByRole('button', { name: 'New character', exact: true }).click();
-    const example = page.getByLabel('Example dialogue', { exact: true });
-    await expect(example).toBeHidden();
-    await page.getByText('Example dialogue', { exact: true }).press('Enter');
-    await expect(example).toBeVisible();
-    await expect(example).toHaveValue('');
-    await expect(example).toHaveAttribute('placeholder', '<START>\n{{user}}: \n{{char}}:');
-    await expect(example).toHaveAccessibleDescription('Show how the character sounds in a short exchange. Start each new example with <START>.');
+  });
+}
+
+test('shows the empty example dialogue directly after Scenario on the Character profile', async ({ page, browserApp }, testInfo) => {
+  await register(page);
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await selectLibraryCategory(page, 'Characters');
+  await page.getByRole('button', { name: 'New character', exact: true }).click();
+  const profile = page.getByRole('tabpanel', { name: 'Profile', exact: true });
+  const example = profile.getByRole('textbox', { name: 'Example dialogue', exact: true });
+  await profile.getByRole('textbox', { name: 'Scenario', exact: true }).press('Tab');
+  await expect(example).toBeFocused();
+  await expect(example).toHaveValue('');
+  await expect(example).toHaveAttribute('placeholder', '<START>\n{{user}}: \n{{char}}:');
+  await expect(example).toHaveAccessibleDescription('Show how the character sounds in a short exchange. Start each new example with <START>.');
+  for (const theme of themeSchema.options) {
+    const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+    expect((await page.request.put('/api/application/appearance', { headers: { Origin: browserApp.url }, data: {
+      revision: appearance.revision, settings: { ...appearance.settings, theme },
+    } })).ok()).toBe(true);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 850 });
       await example.scrollIntoViewIfNeeded();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-example.png`) });
     }
-  });
-}
+  }
+});
 
 test('Character and Persona choices follow each Library sort in new and existing chats', async ({ page, browserApp }) => {
   await register(page);

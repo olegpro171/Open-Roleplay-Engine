@@ -184,6 +184,7 @@ test('recovers an unfinished Lorebook entry and Character prose with picture cha
   await expect(page.getByText('Unsaved picture changes could not be restored.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Choose picture', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Lore & tags', exact: true }).click();
   await page.getByRole('combobox', { name: 'Default lorebook', exact: true }).click();
   await page.getByRole('option', { name: 'Recovered watchkeeper lore', exact: true }).click();
   const openBook = page.getByRole('button', { name: 'Open book', exact: true });
@@ -476,4 +477,54 @@ test('recovers one context preset draft and reveals invalid fields across both t
   await expect(page.getByRole('heading', { name: 'Across context tabs', exact: true })).toBeVisible();
   const saved = (await library(page)).contexts.find(preset => preset.name === 'Across context tabs');
   expect(saved).toMatchObject({ minTail: 14, repairPrompt: edited });
+});
+
+test('keeps one Character draft across sections and returns to an invalid profile field', async ({ page, setAppearance }, testInfo) => {
+  await page.goto('/');
+  await authenticate(page);
+  await openCategory(page, 'Characters');
+  await page.getByRole('button', { name: 'New character', exact: true }).click();
+  const profile = page.getByRole('tab', { name: 'Profile', exact: true });
+  const greetings = page.getByRole('tab', { name: 'Greetings', exact: true });
+  const lore = page.getByRole('tab', { name: 'Lore & tags', exact: true });
+  const depth = page.getByLabel('Character note depth', { exact: true });
+  const title = 'The mountain guide';
+  await page.getByLabel('Name', { exact: true }).fill(title);
+  await page.getByLabel('Character description').fill('She knows the winter trail.');
+  await page.getByText('Card instructions', { exact: true }).click();
+  await depth.fill('1001');
+  await profile.press('ArrowRight');
+  await expect(greetings).toBeFocused();
+  await page.getByLabel('Greeting', { exact: true }).fill('Follow my tracks, {{user}}.');
+  await greetings.press('End');
+  await expect(lore).toBeFocused();
+  await reloadWithWarning(page);
+  await expect(depth).toHaveValue('1001');
+  await lore.click();
+  const revision = (await library(page)).revision;
+  await editorAction(page, 'Save').click();
+  await expect(profile).toHaveAttribute('aria-selected', 'true');
+  await expect(depth).toBeFocused();
+  expect((await library(page)).revision).toBe(revision);
+  await depth.fill('3');
+
+  for (const theme of themeSchema.options) {
+    await setAppearance({ theme });
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const tab of [profile, greetings, lore]) {
+        await tab.click();
+        const panel = page.getByRole('tabpanel');
+        await expect(panel).toHaveAccessibleName(await tab.innerText());
+        expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+        await page.getByLabel('Name', { exact: true }).scrollIntoViewIfNeeded();
+        await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-${await tab.innerText()}.png`), animations: 'disabled' });
+      }
+    }
+  }
+  await editorAction(page, 'Save').click();
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  expect((await library(page)).characters.find(card => card.name === title)).toMatchObject({
+    description: 'She knows the winter trail.', first_mes: 'Follow my tracks, {{user}}.', depth_prompt: { depth: 3 },
+  });
 });

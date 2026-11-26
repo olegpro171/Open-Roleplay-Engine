@@ -329,6 +329,7 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
       ? (pictureControls.y + pictureControls.height / 2) - (picture.y + picture.height / 2)
       : pictureControls.y - picture.y;
     expect(Math.abs(alignment)).toBeLessThanOrEqual(1);
+    await page.getByRole('tab', { name: 'Greetings', exact: true }).click();
     const greetingGroup = page.getByRole('group', { name: 'Alternate greetings', exact: true });
     const groupBounds = await greetingGroup.boundingBox();
     const addBounds = await greetingGroup.getByRole('button', { name: 'Add alternate greeting', exact: true }).boundingBox();
@@ -339,9 +340,15 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     const greetingBounds = await greeting.boundingBox(), removeBounds = await remove.boundingBox();
     if (!greetingBounds || !removeBounds) throw new Error('Missing alternate greeting controls');
     expect(Math.abs(greetingBounds.x + greetingBounds.width - removeBounds.x - removeBounds.width)).toBeLessThanOrEqual(1);
+    await page.getByRole('tab', { name: 'Profile', exact: true }).click();
     // A user's resize and subsequent typing must not snap back to the initial cap.
     await description.evaluate(element => { element.style.height = '510px'; });
     await description.fill(longText + 'A new line.');
+    expect((await measure()).height).toBe(510);
+    await page.getByRole('tab', { name: 'Greetings', exact: true }).click();
+    await expect(greeting).toBeVisible();
+    await page.getByRole('tab', { name: 'Profile', exact: true }).click();
+    await expect(description).toBeVisible();
     expect((await measure()).height).toBe(510);
     await page.getByLabel('Name', { exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath(`character-editor-${width}.png`), animations: 'disabled' });

@@ -138,6 +138,7 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await page.getByRole('button', { name: 'New character', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Moon keeper');
   await page.getByLabel('Character description', { exact: true }).fill('Keeper of the city gate.');
+  await page.getByRole('tab', { name: 'Lore & tags', exact: true }).click();
   await choose(page, 'Default lorebook', 'Moon Gate atlas');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await selectLibraryCategory(page, 'Chats');
@@ -247,6 +248,7 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   await expect(keeper).toBeVisible();
   await expect(page.locator('.library-notice')).toHaveCount(0);
   await keeper.getByRole('heading').getByRole('button').click();
+  await page.getByRole('tab', { name: 'Lore & tags', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Default lorebook', exact: true })).toContainText("Imported harbor keeper's lorebook");
   await page.getByRole('button', { name: 'Open book', exact: true }).click();
   await expect(page.getByLabel('Book name', { exact: true })).toHaveValue("Imported harbor keeper's lorebook");
@@ -257,6 +259,7 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   const beforeExtraction = (await library(page)).lorebooks.length;
   await selectLibraryCategory(page, 'Characters');
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Legacy harbor keeper', exact: true }) }).getByRole('heading').getByRole('button').click();
+  await page.getByRole('tab', { name: 'Lore & tags', exact: true }).click();
   await page.getByRole('button', { name: 'Extract embedded lorebook', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Embedded lorebook extracted' })).toBeVisible();
   await expect(page.getByLabel('Book name', { exact: true })).toHaveValue("Legacy harbor keeper's lorebook");

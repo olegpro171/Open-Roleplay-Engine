@@ -42,7 +42,8 @@ export function EditorTextarea(props: Props) {
     let width = field.getBoundingClientRect().width;
     const observer = new ResizeObserver(() => {
       const nextWidth = field.getBoundingClientRect().width;
-      if (nextWidth === width) return;
+      // Hiding a tab has no usable width. Restore the user's height when it reopens at the same width.
+      if (!nextWidth || nextWidth === width) return;
       width = nextWidth;
       fitLoadedText();
     });

@@ -54,8 +54,10 @@ test('imports a PNG card with a null lorebook and retains its picture and greeti
   if (!picture) throw new Error('Missing null-book character picture');
   await expect(row(page, card.name).locator('img')).toHaveAttribute('src', picture.thumbnailUrl);
   await row(page, source.data.name).getByRole('button', { name: `${source.data.name}`, exact: true }).click();
+  await page.getByRole('tab', { name: 'Greetings', exact: true }).click();
   await expect(page.getByLabel('Greeting', { exact: true })).toHaveValue(source.data.first_mes);
   await expect(page.getByLabel('Alternate greeting 1', { exact: true })).toHaveValue(source.data.alternate_greetings[0]);
+  await page.getByRole('tab', { name: 'Lore & tags', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Extract embedded lorebook', exact: true })).toHaveCount(0);
 });
 
@@ -122,6 +124,36 @@ test('recrops a saved PNG card above the standalone picture limit', async ({ pag
   expect(digest(await original.body())).toBe(digest(png));
 });
 
+test('keeps the current Character section active when a saved crop preview finishes', async ({ page }) => {
+  await login(page);
+  const data = fields('Keeper with a portrait');
+  const base64 = (await quadrantPicture()).toString('base64');
+  const image = await command(page, '/pictures/preview', { base64 });
+  const { id } = await command(page, '/library', {
+    kind: 'characters', data, revision: (await library(page)).revision, requestId: crypto.randomUUID(),
+    expectedPicture: null, picture: { mode: 'replace', base64, crop: image.crop },
+  });
+  const picture = (await library(page)).characterPictures.find(item => item.characterId === id);
+  if (!picture) throw new Error('Missing saved portrait');
+  await row(page, data.name).getByRole('button', { name: data.name, exact: true }).click();
+  let release!: () => void;
+  const delayed = new Promise<void>(resolve => { release = resolve; });
+  await page.route(picture.originalUrl, async route => { await delayed; await route.continue(); });
+  const save = page.getByRole('button', { name: 'Save', exact: true });
+  const adjust = page.getByRole('button', { name: 'Adjust crop', exact: true });
+  try {
+    await adjust.click();
+    await expect(save).toBeDisabled();
+    await page.getByRole('tab', { name: 'Greetings', exact: true }).click();
+  } finally { release(); }
+  await expect(save).toBeEnabled();
+  await expect(page.locator('dialog:modal')).toHaveCount(0);
+  await page.getByLabel('Greeting', { exact: true }).fill('Welcome to the pass.');
+  await page.getByRole('tab', { name: 'Profile', exact: true }).click();
+  await adjust.click();
+  await expect(page.getByRole('dialog', { name: 'Adjust picture crop' })).toBeVisible();
+});
+
 test('keeps a cached crop draft available after another editor replaces its picture', async ({ page }) => {
   await login(page);
   const data = fields('Concurrent crop draft');
@@ -148,7 +180,9 @@ test('keeps a cached crop draft available after another editor replaces its pict
   const reconcile = page.getByRole('button', { name: 'Use current text and tags; keep my picture draft', exact: true });
   await expect(reconcile).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+  await page.getByRole('tab', { name: 'Lore & tags', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Review embedded tags', exact: true })).toBeDisabled();
+  await page.getByRole('tab', { name: 'Profile', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toBeEnabled();
   await page.getByLabel('Character description').fill('Local text while the editor is stale.');
   await reconcile.click();
@@ -276,10 +310,14 @@ test('reviews PNG artwork, preserves diagnostics, blocks failed art and retains 
   await page.getByRole('button', { name: 'Import', exact: true }).click();
   await expect(row(page, source.data.name)).toBeVisible(); await row(page, source.data.name).getByRole('button', { name: `${source.data.name}`, exact: true }).click();
   await upload(page, image, 'Replace picture'); await page.getByLabel('Character description').fill('Local text remains after definite failure');
+  await page.getByRole('tab', { name: 'Lore & tags', exact: true }).click();
   await page.getByRole('button', { name: 'Manage tags', exact: true }).click(); const manager = page.getByRole('dialog', { name: 'Manage tags', exact: true });
   await manager.getByLabel('New tag name').fill('picture-manager-tag'); await manager.getByRole('button', { name: 'Create tag', exact: true }).click(); await expect(manager.getByRole('button', { name: 'Rename picture-manager-tag', exact: true })).toBeVisible(); await manager.getByRole('button', { name: 'Close tag manager', exact: true }).click();
+  await page.getByRole('tab', { name: 'Profile', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toBeEnabled();
+  await page.getByRole('tab', { name: 'Lore & tags', exact: true }).click();
   await page.getByRole('button', { name: 'Review embedded tags', exact: true }).click(); await page.getByText('Review tags', { exact: true }).click(); await page.getByRole('radio', { name: 'Import all', exact: true }).check(); await page.getByRole('button', { name: 'Apply reviewed tags', exact: true }).click();
+  await page.getByRole('tab', { name: 'Profile', exact: true }).click();
   const saved = await library(page), card = saved.characters.find(card => card.name === source.data.name); if (!card) throw new Error('Missing imported character');
   await page.route(`**/api/library/${card.id}`, route => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic picture conflict' }) }));
   await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(page.getByRole('alert').filter({ hasText: 'Synthetic picture conflict' }).first()).toBeVisible(); await expect(page.getByLabel('Character description')).toHaveValue('Local text remains after definite failure'); await page.unroute(`**/api/library/${card.id}`);
