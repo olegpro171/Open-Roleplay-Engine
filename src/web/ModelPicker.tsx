@@ -6,6 +6,7 @@ import { openModal } from './dialog-focus';
 import { FadingSelectLabel } from './Controls';
 import { ModalDialog } from './ModalDialog';
 import { Icon } from './Icon';
+import { EditorFieldError } from './LibraryEditorFields';
 import { errorText, formatMessage, LocalizedError, message, t, useLocale, type MessageText } from './localization';
 
 type ModelSource = { endpoint: string; connectionId?: string; apiKey?: string };
@@ -13,8 +14,8 @@ type Discovery = { kind: 'loading' } | { kind: 'ready'; models: DiscoveredModel[
 type ReportWindow = (endpoint: string, model: DiscoveredModel) => void;
 const pageSize = 100;
 
-export function ModelField({ value, change, reportWindow, disabled, ...source }: ModelSource & {
-  value: string; change: (model: DiscoveredModel) => void; reportWindow: ReportWindow; disabled: boolean;
+export function ModelField({ value, change, reportWindow, disabled, error, ...source }: ModelSource & {
+  value: string; change: (model: DiscoveredModel) => void; reportWindow: ReportWindow; disabled: boolean; error?: string;
 }) {
   useLocale();
   const id = useId();
@@ -23,10 +24,12 @@ export function ModelField({ value, change, reportWindow, disabled, ...source }:
   return <div className="full model-field">
     <label htmlFor={id}>{t('libraries.model_identifier')}</label>
     <button id={id} name="model" type="button" className="select-trigger" disabled={disabled} aria-haspopup="dialog"
+      aria-invalid={error ? true : undefined} aria-describedby={error ? `${id}-error` : undefined}
       onClick={() => setOpen(true)}>
       {value ? <FadingSelectLabel label={value} /> : <span className="model-placeholder">{t('model_picker.select')}</span>}
       <Icon name="ArrowShortBottom" />
     </button>
+    <EditorFieldError id={`${id}-error`} error={error} />
     {open && !disabled && <ModelPicker {...source} value={value} reportWindow={reportWindow} cancel={() => setOpen(false)} select={model => {
       change(model);
       setOpen(false);

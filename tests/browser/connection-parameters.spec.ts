@@ -44,7 +44,19 @@ test('edits saved built-ins and tests and saves provider fields alongside them',
   await save.click();
   await expect(endpointField).toBeFocused();
   await expect(endpointField).toHaveValue('unfinished');
+  await endpointField.fill(`${endpoint}?format=detail`);
+  await parameters.click();
+  await sendTest.click();
+  await expect(endpointField).toBeFocused();
+  await expect(endpointField).toHaveAccessibleDescription(/Use an HTTP\(S\) API base URL/);
   await endpointField.fill(endpoint);
+  await expect(endpointField).toHaveAccessibleDescription('');
+  const connectionName = page.getByLabel('Name', { exact: true });
+  await connectionName.fill('   ');
+  await save.click();
+  await expect(connectionName).toBeFocused();
+  await expect(connectionName).toHaveAttribute('aria-invalid', 'true');
+  await connectionName.fill(name);
   const reserve = page.getByLabel('Reserved output tokens', { exact: true });
   await reserve.fill('unfinished');
   await parameters.click();
@@ -67,7 +79,8 @@ test('edits saved built-ins and tests and saves provider fields alongside them',
   await advancedToggle.press('Enter');
   await expect(page.getByLabel('Presence penalty', { exact: true })).toHaveValue('-0.5');
   await expect(page.getByLabel('Frequency penalty', { exact: true })).toHaveValue('0');
-  await expect(page.getByLabel('Seed', { exact: true })).toHaveValue('7');
+  const seed = page.getByLabel('Seed', { exact: true });
+  await expect(seed).toHaveValue('7');
   const firstStop = page.getByRole('textbox', { name: 'Stop sequence 1', exact: true });
   await expect(firstStop).toHaveValue('A\nB');
   expect(await firstStop.evaluate(field => field.clientHeight >= field.scrollHeight)).toBe(true);
@@ -156,11 +169,23 @@ test('edits saved built-ins and tests and saves provider fields alongside them',
   await topP.fill('2');
   await custom.fill('{"top_k": 50}');
   await sendTest.click();
-  await expect(page.locator('.connection-tools [role="alert"]')).toContainText('Enter a number from 0 to 1 for top_p.');
+  await expect(topP).toBeFocused();
+  await expect(topP).toHaveAccessibleDescription(/Range 0–1\..*Enter a number from 0 to 1 for top_p\./);
   expect(await requests()).toHaveLength(1);
   expect((await library()).connections.find(item => item.name === name)?.customParameters).toEqual(legacyParameters);
 
   await topP.fill('');
+  await expect(topP).toHaveAccessibleDescription(/Range 0–1\./);
+  await expect(page.getByText('Enter a number from 0 to 1 for top_p.', { exact: true })).toHaveCount(0);
+  await seed.fill('1.5');
+  await advancedToggle.click();
+  await settings.click();
+  await save.click();
+  await expect(seed).toBeFocused();
+  await expect(seed).toHaveAccessibleDescription(/Enter an integer .* for seed\./);
+  await expect(seed).toHaveValue('1.5');
+  await seed.fill('7');
+  await expect(seed).toHaveAccessibleDescription('');
   await temperature.fill('0,35');
   await reasoning.click();
   await page.getByRole('option', { name: 'Provider default', exact: true }).click();
@@ -209,6 +234,13 @@ test('edits saved built-ins and tests and saves provider fields alongside them',
         return bounds.left >= 0 && bounds.right <= innerWidth && document.documentElement.scrollWidth <= innerWidth;
       })).toBe(true);
       if (width === 1280 || width === 390) {
+        await topP.fill('2');
+        await sendTest.click();
+        await expect(topP).toHaveAccessibleDescription(/Enter a number from 0 to 1 for top_p\./);
+        const sampling = page.getByRole('tabpanel').locator('section')
+          .filter({ has: page.getByRole('heading', { name: 'Sampling', exact: true }) });
+        await sampling.screenshot({ path: testInfo.outputPath(`number-warning-${theme}-${width}.png`) });
+        await topP.fill('');
         await reasoning.scrollIntoViewIfNeeded();
         await page.screenshot({ path: testInfo.outputPath(`controls-${theme}-${width}.png`) });
         await page.getByText('Enter extra fields as a JSON object.', { exact: false }).scrollIntoViewIfNeeded();

@@ -474,7 +474,8 @@ a[href][data-pointer-pressed]{text-decoration:underline;text-decoration-thicknes
 .connection-window-status{display:flex;flex-wrap:wrap;gap:0 8px;min-block-size:44px;align-items:start;align-content:start;font-size:13px;line-height:20px}
 .connection-window-status>.text-link{display:flex;align-items:start;min-block-size:44px;font:inherit}
 .connection-output-status{min-block-size:1lh}
-.connection-error,.connection-output-status[role=alert]{color:var(--danger-text)}
+.connection-error,.editor-field-error,.connection-output-status[role=alert]{color:var(--danger-text)}
+.editor-field-error{font-size:13px;font-weight:400;overflow-wrap:anywhere}
 .connection-tools .connection-help{margin:14px 0 18px}.connection-success{color:var(--success)}
 :root:is([data-theme="light"],[data-theme="porcelain"]) .connection-success{color:var(--success-text)}
 .messages-marker-option{margin-top:14px}
@@ -1305,13 +1306,15 @@ button.text-link>.ui-icon{width:14px;height:14px}
 .context-preset-prompt-body textarea { display:block; height:14rem; font-weight:400; line-height:1.6; }
 .context-preset-variables { margin:14px 0 0; overflow-wrap:anywhere; }
 .connection-provider-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; margin-block-start:12px; align-items:start; }
+.connection-provider-fields > .model-field { grid-column:1/-1; }
 .connection-limits { display:grid; grid-template-columns:minmax(0,1fr) 10ch; align-items:center; gap:2px 12px; margin-block-start:10px; font-size:14px; }
 .connection-limits input { padding-inline:4px; text-align:center; font-variant-numeric:tabular-nums; }
 .connection-limits :is(.connection-window-status,.connection-output-status) { grid-column:1/-1; font-size:13px; }
 .connection-window-status small { font:inherit; }
 .connection-key-field { display:grid; gap:4px; }
 .connection-key-field > .checkbox { padding:0; min-block-size:44px; }
-.connection-parameter-setting { max-inline-size:34rem; grid-template-columns:minmax(0,1fr) 10rem; }
+.connection-parameter-setting { max-inline-size:34rem; grid-template-columns:minmax(0,1fr) 10rem; row-gap:5px; }
+.connection-parameter-setting > .editor-field-error { grid-column:1/-1; }
 .connection-advanced.editor-disclosure { border-block-start:1px solid var(--line); margin-block-start:12px; }
 .connection-advanced-fields { padding-block:4px 14px; }
 .connection-advanced-fields > :is(.actions, .connection-stop-field, div:last-child) { margin-block-start:12px; }

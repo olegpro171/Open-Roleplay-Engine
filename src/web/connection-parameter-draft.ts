@@ -6,8 +6,10 @@ import type { LocalizedMessage } from '../shared/localization';
 import { validationMessage } from '../shared/localization-validation';
 import { LocalizedError, message } from './localization';
 
+export type ConnectionField = NumericConnectionParameter | 'customParameters' | 'name' | 'endpoint' | 'apiKey' | 'model';
+
 export class ConnectionFieldError extends LocalizedError {
-  constructor(message: LocalizedMessage, readonly field: NumericConnectionParameter | 'customParameters' | 'model' = 'customParameters', readonly offset = 0) {
+  constructor(message: LocalizedMessage, readonly field: ConnectionField = 'customParameters', readonly offset = 0) {
     super(message);
   }
 }

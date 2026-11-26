@@ -4,13 +4,16 @@ import { Icon } from './Icon';
 import { Dropdown } from './Controls';
 import { ConnectionJsonEditor } from './ConnectionJsonEditor';
 import { EditorTextarea } from './EditorTextarea';
-import { t, useLocale } from './localization';
-import type { ConnectionParameterDraft } from './connection-parameter-draft';
+import { EditorFieldError } from './LibraryEditorFields';
+import { formatMessage, t, useLocale } from './localization';
+import type { ConnectionFieldError, ConnectionParameterDraft } from './connection-parameter-draft';
 
-export function ConnectionParameters({ draft, change, disabled }: {
+export function ConnectionParameters({ draft, change, disabled, fieldError, clearFieldError }: {
   draft: ConnectionParameterDraft;
   disabled: boolean;
   change: (draft: ConnectionParameterDraft) => void;
+  fieldError?: ConnectionFieldError;
+  clearFieldError: (field: NumericConnectionParameter) => void;
 }) {
   useLocale();
   const fieldHelpId = useId();
@@ -26,15 +29,21 @@ export function ConnectionParameters({ draft, change, disabled }: {
       ? t(`connection_parameters.${key}_help`, { min: String(minValue), max: String(maxValue) })
       : undefined;
     const helpId = `${fieldHelpId}-${key}`;
+    const errorId = `${helpId}-error`;
+    const error = fieldError?.field === key ? formatMessage(fieldError.localized) : undefined;
     return <label className="library-editor-setting connection-parameter-setting"><span>{label}
       {help && <small className="muted" id={helpId}>{help}</small>}</span>
-      <input name={key} aria-label={label} type="text" inputMode={inputMode} aria-describedby={help ? helpId : undefined}
+      <input name={key} aria-label={label} type="text" inputMode={inputMode} aria-invalid={error ? true : undefined}
+        aria-describedby={[help && helpId, error && errorId].filter(Boolean).join(' ') || undefined}
         value={numbers[key] ?? ''} placeholder={t('connection_parameters.provider_default')} onChange={event => {
+        clearFieldError(key);
         const next = { ...numbers };
         if (event.target.value === '') delete next[key];
         else next[key] = event.target.value;
         changeBuiltIn({ numbers: next });
-      }} /></label>;
+      }} />
+      <EditorFieldError id={errorId} error={error} />
+    </label>;
   }
   const stopSequences = Array.isArray(stop) ? stop : stop === undefined ? [] : [stop];
   function changeStop(index: number, value: string) {

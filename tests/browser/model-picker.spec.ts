@@ -211,10 +211,34 @@ test('retries retain the query and new openings use the latest endpoint/key with
   await expect(trigger).toHaveText('retry-model');
 });
 
-test('a cancelled discovery cannot replace a reopened picker and missing models cannot be saved', async ({ page }) => {
+test('a cancelled discovery cannot replace a reopened picker and missing models cannot be saved', async ({ page, browserApp }, testInfo) => {
   await editor(page);
+  const settings = page.getByRole('tab', { name: 'Connection settings', exact: true });
+  const parameters = page.getByRole('tab', { name: 'Request parameters', exact: true });
+  const trigger = page.getByRole('button', { name: 'Model identifier', exact: true });
+  await parameters.click();
+  await page.getByRole('button', { name: 'Check connection', exact: true }).click();
+  await expect(trigger).toHaveAccessibleDescription('Select a model or enter its identifier.');
+  await expect(trigger).toBeFocused();
+  await parameters.click();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByRole('alert')).toHaveText('Select a model or enter its identifier.');
+  await expect(page.getByRole('alert').filter({ hasText: /^Select a model or enter its identifier\.$/ })).toBeVisible();
+  await expect(trigger).toHaveAccessibleDescription('Select a model or enter its identifier.');
+  await expect(settings).toHaveAttribute('aria-selected', 'true');
+  await expect(trigger).toBeFocused();
+  const provider = page.getByRole('tabpanel').locator('section')
+    .filter({ has: page.getByRole('heading', { name: 'Provider', exact: true }) });
+  for (const theme of themeSchema.options) {
+    const path = '/api/application/appearance';
+    const current = appearanceStatusSchema.parse(await page.request.get(path).then(response => response.json()));
+    const saved = await page.request.put(path, { headers: { Origin: browserApp.url }, data: { revision: current.revision, settings: { ...current.settings, theme } } });
+    expect(saved.ok(), await saved.text()).toBe(true);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await provider.screenshot({ path: testInfo.outputPath(`model-warning-${theme}-${width}.png`), animations: 'disabled' });
+    }
+  }
   let release: () => void = () => {};
   const gate = new Promise<void>(resolve => { release = resolve; });
   let settled: () => void = () => {};
@@ -228,7 +252,6 @@ test('a cancelled discovery cannot replace a reopened picker and missing models 
       finally { settled(); }
     } else await route.fulfill({ json: { models: [{ id: 'current-model' }] } });
   });
-  const trigger = page.getByRole('button', { name: 'Model identifier', exact: true });
   const dialog = page.getByRole('dialog', { name: 'Select model', exact: true });
   await trigger.click();
   await expect(dialog.getByRole('status')).toHaveText('Loading models…');
@@ -240,6 +263,8 @@ test('a cancelled discovery cannot replace a reopened picker and missing models 
   await expect(dialog.locator('[data-model]')).toHaveText(['current-model']);
   await dialog.getByRole('button', { name: 'current-model', exact: true }).click();
   await expect(trigger).toHaveText('current-model');
+  await expect(trigger).toHaveAccessibleDescription('');
+  await expect(page.getByText('Select a model or enter its identifier.', { exact: true })).toHaveCount(0);
 });
 
 test('saved-key discovery sends only the Connection identity; removal overrides it explicitly', async ({ page }) => {
@@ -250,7 +275,15 @@ test('saved-key discovery sends only the Connection identity; removal overrides 
   await dialog.getByRole('button', { name: 'synthetic-roleplay', exact: true }).click();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('article').getByRole('heading').getByRole('button').click();
-  await expect(page.getByLabel('API key', { exact: true })).toHaveValue('');
+  const key = page.getByLabel('API key', { exact: true });
+  const endpointField = page.getByLabel('API base URL', { exact: true });
+  await expect(key).toHaveValue('');
+  await endpointField.fill(`${endpoint}/changed`);
+  await page.getByRole('button', { name: 'Check connection', exact: true }).click();
+  await expect(key).toBeFocused();
+  await expect(key).toHaveAccessibleDescription(/Enter an API key for the changed endpoint\./);
+  await endpointField.fill(endpoint);
+  await expect(key).toHaveAccessibleDescription('');
   const calls: Record<string, unknown>[] = [];
   await page.route('**/api/models', async route => {
     calls.push(route.request().postDataJSON());
@@ -466,7 +499,9 @@ for (const language of ['en', 'ru']) {
     }
     const window = page.getByLabel(russian ? 'Окно контекста модели' : 'Model context window', { exact: true });
     const reserve = page.getByLabel(russian ? 'Резерв выходных токенов' : 'Reserved output tokens', { exact: true });
-    const trigger = page.getByRole('button', { name: russian ? 'Идентификатор модели' : 'Model identifier', exact: true });
+    const provider = page.getByRole('tabpanel').locator('section')
+      .filter({ has: page.getByRole('heading', { name: russian ? 'Провайдер' : 'Provider', exact: true }) });
+    const trigger = provider.getByRole('button', { name: russian ? 'Идентификатор модели' : 'Model identifier', exact: true });
     const picker = page.getByRole('dialog', { name: russian ? 'Выберите модель' : 'Select model', exact: true });
     const apply = page.getByRole('button', { name: russian ? /^Вернуть 4\s096$/ : 'Use 4,096' });
     const diagnostics = page.getByRole('heading', { name: russian ? 'Проверка подключения' : 'Connection diagnostics', exact: true });
@@ -497,9 +532,9 @@ for (const language of ['en', 'ru']) {
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
       for (const width of [1280, 1160, 1148, 801, 800, 390, 320]) {
         await page.setViewportSize({ width, height: 844 });
-        for (const control of [window, reserve, apply]) {
+        for (const control of [trigger, window, reserve, apply]) {
           const bounds = await control.boundingBox();
-          if (!bounds) throw new Error('Missing context window control');
+          if (!bounds) throw new Error('Missing Connection settings control');
           expect(bounds.x).toBeGreaterThanOrEqual(0);
           expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
         }
@@ -547,6 +582,7 @@ for (const language of ['en', 'ru']) {
         expect(status.gap).toBeLessThanOrEqual(8);
         expect(status.linkFollowsSource).toBe(true);
         if (width !== 1280 && width !== 390) continue;
+        await provider.screenshot({ path: testInfo.outputPath(`provider-${theme}-${width}.png`), animations: 'disabled' });
         const beforeApply = await diagnosticsPosition();
         await window.evaluate(input => input.scrollIntoView({ block: 'center' }));
         await page.screenshot({ path: testInfo.outputPath(`proposal-${theme}-${width}.png`), animations: 'disabled' });

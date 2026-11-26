@@ -24,14 +24,15 @@ import { CharacterAvatar, PictureSquare } from './Pictures';
 import { LibraryCard } from './LibraryCard';
 import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
-import { connectionSettings, outputFitsContextWindow, type Connection, type ConnectionRecord, type ConnectionDiagnostic, type DiscoveredModel } from '../shared/contracts';
+import { connectionSchema, connectionSettings, outputFitsContextWindow, saveSettingsSchema, type Connection, type ConnectionRecord, type ConnectionDiagnostic, type DiscoveredModel } from '../shared/contracts';
+import { validationMessage } from '../shared/localization-validation';
 import { characterLabel, personaLabel, characterFields, defaultPrompt, markers, markerLabel, promptWarningMessages, type ChatSummary, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { upgradePrompt } from '../core/prompt-upgrade';
 import { TranscriptImport } from './TranscriptImport';
 import { CharacterImport } from './CharacterImport';
 import { ConnectionFileDialog, type ConnectionFileAction } from './ConnectionFileDialog';
 import type { ConnectionTab } from './ConnectionFields';
-import { ConnectionFieldError, connectionParameterDraft, parseConnectionParameters, recoverConnectionParameters, type ConnectionParameterDraft } from './connection-parameter-draft';
+import { ConnectionFieldError, connectionParameterDraft, parseConnectionParameters, recoverConnectionParameters, type ConnectionField, type ConnectionParameterDraft } from './connection-parameter-draft';
 import { CharacterEditor } from './CharacterEditor';
 import { EditorActions, EditorActionsTarget } from './EditorActions';
 import type { LeaveEditor } from './EditorLeaveGuard';
@@ -41,7 +42,7 @@ import { EditorTabs } from './EditorTabs';
 import { EditorTextarea } from './EditorTextarea';
 import { TagChips, TagFilterMenu } from './Tags';
 import { characterTagIndex, matchesCharacterTags } from '../shared/tags';
-import { api, datasetEpoch } from './api';
+import { api, ApiError, datasetEpoch } from './api';
 import { Dropdown, NumberDraftContext, useNumberDraft } from './Controls';
 import { defaultContextPreset, type ContextPreset } from '../shared/context';
 import { newLorebook, type Lorebook, type LoreDiagnostic } from '../shared/lorebook';
@@ -611,9 +612,20 @@ function comparableLibraryFields(data: StandardDraft['data']) {
   return data;
 }
 
-function connectionFromDraft(connection: ConnectionRecord, parameters: ConnectionParameterDraft): ConnectionRecord {
+function connectionFromDraft(connection: ConnectionRecord, parameters: ConnectionParameterDraft, apiKey?: string): ConnectionRecord {
   if (!connection.model.trim()) throw new ConnectionFieldError(msg('model_picker.required'), 'model');
-  return { ...connection, customParameters: parseConnectionParameters(parameters) };
+  const customParameters = parseConnectionParameters(parameters);
+  const fields = [
+    ['name', connectionSchema.shape.name, connection.name],
+    ['endpoint', connectionSchema.shape.endpoint, connection.endpoint],
+    ['model', connectionSchema.shape.model, connection.model],
+    ['apiKey', saveSettingsSchema.shape.apiKey, apiKey],
+  ] as const;
+  for (const [field, schema, value] of fields) {
+    const parsed = schema.safeParse(value);
+    if (!parsed.success) throw new ConnectionFieldError(validationMessage(parsed.error.issues[0]), field);
+  }
+  return { ...connection, customParameters };
 }
 
 function LibraryEditor({ initial, recovered, connections, currentRevision, appearance, busy, run, close, committed }: { initial: LibraryEditing & { data: StandardDraft['data'] }; recovered?: StandardDraft; connections: Saved<Connection>[]; currentRevision: number; appearance: ChatPreviewAppearance; busy: boolean; run: Run; close: MouseEventHandler<HTMLButtonElement>; committed: (id?: string) => void }) {
@@ -650,7 +662,7 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
   const dataChanged = useMemo(() => data !== initial.data && !sameDraftValue(comparableLibraryFields(data), comparableLibraryFields(initial.data)), [data, initial.data]);
   const dirty = dataChanged || !sameDraftValue(parameters, baselineParameters) || removeKey || key !== '' || numberDraft.dirty;
   const storageError = useLibraryEditorDraft(draft, dirty);
-  const [error, setError] = useTextState('');
+  const [fieldError, setFieldError] = useState<ConnectionFieldError>();
   const [staleWarningDismissed, setStaleWarningDismissed] = useState(false);
   const stale = initial.revision !== currentRevision;
   const reviewMemoryCleanup = useMemoryCleanup(run, initial.id);
@@ -662,37 +674,36 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
         : { endpoint, model: model.id, tokens: model.contextWindow } };
     });
   }, []);
-  function revealCustomError(form: HTMLFormElement) {
-    flushSync(() => setConnectionTab('parameters'));
-    const errorButton = form.querySelector<HTMLButtonElement>('.connection-json-error');
-    const disclosure = errorButton?.closest('details');
-    if (disclosure) disclosure.open = true;
-    errorButton?.click();
+  function clearFieldError(field: ConnectionField) {
+    setFieldError(current => current?.field === field ? undefined : current);
   }
+  function revealFieldError(form: HTMLFormElement, error: ConnectionFieldError) {
+    const { field } = error;
+    flushSync(() => {
+      if (field === 'model' || field === 'apiKey' || field === 'endpoint') setConnectionTab('settings');
+      else if (field !== 'name') setConnectionTab('parameters');
+      setFieldError(field === 'customParameters' ? undefined : error);
+    });
+    const control = field === 'customParameters'
+      ? form.querySelector<HTMLButtonElement>('.connection-json-error') : form.elements.namedItem(field);
+    if (!(control instanceof HTMLElement)) return;
+    const disclosure = control.closest('details');
+    if (disclosure) disclosure.open = true;
+    if (field === 'customParameters') control.click();
+    else control.focus();
+  }
+  const draftApiKey = removeKey ? '' : key || undefined;
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy || stale || outputConflict) return;
-    setError('');
+    setFieldError(undefined);
     let value = data;
     if ('endpoint' in data) {
       try {
-        value = connectionFromDraft(data, parameters);
+        value = connectionFromDraft(data, parameters, draftApiKey);
       } catch (error) {
         if (!(error instanceof ConnectionFieldError)) throw error;
-        if (error.field === 'customParameters') {
-          revealCustomError(e.currentTarget);
-          return;
-        }
-        flushSync(() => {
-          if (error.field !== 'model') setConnectionTab('parameters');
-          setError(error.localized);
-        });
-        const control = e.currentTarget.elements.namedItem(error.field);
-        if (control instanceof HTMLElement) {
-          const disclosure = control.closest('details');
-          if (disclosure) disclosure.open = true;
-          control.focus();
-        }
+        revealFieldError(e.currentTarget, error);
         return;
       }
     }
@@ -711,7 +722,7 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
     if (await run(async () => {
       request.result = await api<{ id: string }>(initial.id ? `/library/${initial.id}` : '/library', initial.id ? 'PUT' : 'POST', {
         revision: initial.revision, kind: initial.kind, data: value,
-        ...(initial.kind === 'connections' && (key || removeKey) ? { apiKey: removeKey ? '' : key } : {}),
+        ...(initial.kind === 'connections' && draftApiKey !== undefined ? { apiKey: draftApiKey } : {}),
       });
     })) committed(request.result?.id);
   }
@@ -722,9 +733,10 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
         apiKey={key} setApiKey={setKey} removeKey={Boolean(removeKey)} setRemoveKey={setRemoveKey}
         windowSource={windowSource} setWindowSource={setWindowSource} baselineWindow={baselineWindow}
         numberDraft={numberDraft} outputConflict={outputConflict} busy={busy}
-        reportWindow={rememberModelWindow} tab={connectionTab} selectTab={setConnectionTab} parameters={parameters} setParameters={setParameters} />
+        reportWindow={rememberModelWindow} tab={connectionTab} selectTab={setConnectionTab} parameters={parameters} setParameters={setParameters}
+        fieldError={fieldError} clearFieldError={clearFieldError} />
       <ConnectionTools connection={connectionSettings(connection)} parameters={parameters} connectionId={initial.id}
-        apiKey={removeKey ? '' : key || undefined} disabled={stale || outputConflict} revealCustomError={revealCustomError} />
+        apiKey={draftApiKey} disabled={stale || outputConflict} revealFieldError={revealFieldError} />
     </> : prompt ? <PromptEditor value={prompt} change={setData} /> :
     persona && <>
       <div className="library-editor-identity">
@@ -744,13 +756,15 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
       <SpeechColorSelector speaker="persona" appearance={appearance} value={persona.speechColor}
         change={speechColor => setData({ ...persona, speechColor })} disabled={busy} />
     </>}</fieldset>
-    {error && <p className={connection ? 'small connection-error' : undefined} role="alert">{error}</p>}
     {stale && !staleWarningDismissed && <WarningDialog message={msg('libraries.the_library_changed_close_this_editor_and')} close={() => setStaleWarningDismissed(true)} />}
     {stale && dirty && <CopyLibraryDraft editor={draft} />}
     <EditorActions formId={formId} disabled={busy || stale || outputConflict} cancelDisabled={busy} close={close} />
   </form></NumberDraftContext.Provider>;
 }
-function ConnectionTools({ connection, parameters, connectionId, apiKey, disabled, revealCustomError }: { revealCustomError: (form: HTMLFormElement) => void; connection: Connection; parameters: ConnectionParameterDraft; connectionId?: string; apiKey?: string; disabled: boolean }) {
+function ConnectionTools({ connection, parameters, connectionId, apiKey, disabled, revealFieldError }: {
+  connection: Connection; parameters: ConnectionParameterDraft; connectionId?: string; apiKey?: string; disabled: boolean;
+  revealFieldError: (form: HTMLFormElement, error: ConnectionFieldError) => void;
+}) {
   useLocale();
   const [result, setResult] = useState<ConnectionDiagnostic | null>(null), [error, setError] = useTextState('');
   const [testing, setTesting] = useState(false);
@@ -765,12 +779,15 @@ function ConnectionTools({ connection, parameters, connectionId, apiKey, disable
     if (form?.querySelector('[role="tabpanel"] input:invalid') && !form.reportValidity()) return;
     const id = ++attempt.current; setTesting(true); setResult(null); setError('');
     try {
-      const input = connectionFromDraft(connection, parameters);
+      const input = connectionFromDraft(connection, parameters, apiKey);
       const value = await api<ConnectionDiagnostic>('/connections/diagnose', 'POST', { action, connection: input, connectionId, apiKey });
       if (attempt.current === id) setResult(value);
     } catch (error) {
       if (attempt.current !== id) return;
-      if (form && error instanceof ConnectionFieldError && error.field === 'customParameters') revealCustomError(form);
+      if (form && error instanceof ConnectionFieldError) revealFieldError(form, error);
+      else if (form && error instanceof ApiError && error.code === 'saved_key_endpoint_changed') {
+        revealFieldError(form, new ConnectionFieldError(error.localized ?? msg('errors.enter_an_api_key_for_the_changed_endpoint'), 'apiKey'));
+      }
       else setError(errorText(error, msg('libraries.connection_test_failed')));
     }
     finally { if (attempt.current === id) setTesting(false); }
