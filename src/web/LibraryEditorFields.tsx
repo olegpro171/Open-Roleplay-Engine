@@ -3,9 +3,9 @@ import { flushSync } from 'react-dom';
 import { Icon } from './Icon';
 import { t, useLocale } from './localization';
 
-export function EditorNameField({ value, change }: { value: string; change: (name: string) => void }) {
+export function EditorNameField({ value, change, label }: { value: string; label?: string; change: (name: string) => void }) {
   useLocale();
-  return <label>{t('character_editor.name')}
+  return <label>{label ?? t('character_editor.name')}
     <span className="library-editor-name"><input required maxLength={100} value={value}
       onChange={event => change(event.target.value)} /><Icon name="EditOutline" /></span>
   </label>;

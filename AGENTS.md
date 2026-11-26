@@ -55,6 +55,7 @@ Use the sections relevant to the task:
 - **Underlined navigation tabs.** Use the underline to identify the selected tab. Omit the pointer-press outline and preserve a visible keyboard focus indicator.
 - **Short numeric settings.** Align value fields in a compact column close to their labels, including on wide screens. Use the available panel width to determine when the rows need to reflow.
 - **Expandable rows with separators.** Leave space between each clickable heading and the separator lines so its hover fill, pressed outline and keyboard focus indicator stay clear of the lines.
+- **Repeated row actions.** Use the shared quiet button style for secondary actions repeated on every row, such as Move… in an ordering list. Keep the label visible and preserve the keyboard focus indicator.
 - **Editor help.** Place brief guidance beside the field it explains. Include extra detail when it helps someone make a choice or recover from an error. Omit routine explanations of internal mechanics.
 
 ## Verification requirements
