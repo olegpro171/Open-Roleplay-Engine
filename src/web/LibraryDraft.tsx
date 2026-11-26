@@ -84,7 +84,6 @@ export function useLibraryEditorDraft(editor: LibraryEditorDraft, dirty: boolean
 export function LibraryDraftNotice({ recovered, storageError }: { recovered?: LibraryEditorDraft; storageError?: boolean }) {
   useLocale();
   return <>
-    {recovered && <p role="status">{t('library_draft.recovered')}</p>}
     {recovered?.kind === 'characters' && recovered.pictureOmitted && <p role="status">{t('library_draft.picture_omitted')}</p>}
     {recovered?.kind === 'connections' && recovered.keyOmitted && <p role="status">{t('library_draft.key_omitted')}</p>}
     {storageError && <p role="alert">{t('library_draft.storage_failed')}</p>}

@@ -224,13 +224,13 @@ test('keeps two tab drafts independent and preserves a stale draft after another
     await reloadWithWarning(page);
     await expect(description(page)).toHaveValue('First tab\nwith a second line');
     await description(page).click();
-    const restored = page.getByText('Draft restored from this tab.', { exact: false });
-    for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+    for (const theme of themeSchema.options) {
       await setAppearance({ theme });
       for (const width of [1280, 390]) {
         await page.setViewportSize({ width, height: 840 });
-        await restored.scrollIntoViewIfNeeded();
-        await expect(restored).toBeInViewport();
+        await expect(description(page)).toHaveValue('First tab\nwith a second line');
+        await expect(description(page)).toBeInViewport();
+        await expect(editorAction(page, 'Save')).toBeInViewport();
         await page.screenshot({ path: testInfo.outputPath(`recovered-${theme}-${width}.png`) });
       }
     }

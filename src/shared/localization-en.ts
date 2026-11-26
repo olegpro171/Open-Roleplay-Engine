@@ -487,7 +487,6 @@ export const englishMessages = {
   "library_draft.leave_message": "Your unsaved changes will be discarded.",
   "library_draft.go_back": "Go back",
   "library_draft.leave_editor": "Leave editor",
-  "library_draft.recovered": "Draft restored from this tab. Review your changes before saving.",
   "library_draft.picture_omitted": "Unsaved picture changes could not be restored.",
   "library_draft.key_omitted": "Enter the new API key again before saving.",
   "library_draft.storage_failed": "The latest draft could not be kept for reload. Copy your edits or save before leaving.",

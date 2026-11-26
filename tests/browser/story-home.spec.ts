@@ -126,7 +126,8 @@ test('first run guides setup, preserves a closed chat and lets an in-flight repl
   await expect(page.getByLabel('Greeting', { exact: true })).toHaveValue('Welcome, {{user}}. The tower is open.');
   page.once('dialog', dialog => void dialog.accept());
   await page.reload();
-  await expect(page.getByText('Draft restored from this tab.', { exact: false })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Keeper');
+  await expect(page.getByLabel('Character description')).toHaveValue('Keeps watch over a quiet tower.');
   await page.getByRole('tab', { name: 'Greetings', exact: true }).click();
   await expect(page.getByLabel('Greeting', { exact: true })).toHaveValue('Welcome, {{user}}. The tower is open.');
   await button(page, 'Save').click();
@@ -389,8 +390,8 @@ test('edits selected cards from New chat and returns there after saving and reco
   await page.getByLabel('Persona description').fill('A wanderer with a worn map.');
   page.once('dialog', dialog => void dialog.accept());
   await page.reload();
-  await expect(page.getByText('Draft restored from this tab.', { exact: false })).toBeVisible();
   await expect(name).toHaveValue('Wanderer');
+  await expect(page.getByLabel('Persona description')).toHaveValue('A wanderer with a worn map.');
   await button(page, 'Save').click();
   await expect(persona.getByRole('combobox')).toHaveText('Wanderer');
   await expect(persona.getByRole('article')).toContainText('A wanderer with a worn map.');

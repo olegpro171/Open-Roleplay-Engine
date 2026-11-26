@@ -494,7 +494,6 @@ export const russianMessages = {
   "library_draft.leave_message": "Несохранённые изменения будут потеряны.",
   "library_draft.go_back": "Вернуться",
   "library_draft.leave_editor": "Выйти из редактора",
-  "library_draft.recovered": "Черновик восстановлен из этой вкладки. Проверьте изменения перед сохранением.",
   "library_draft.picture_omitted": "Несохранённые изменения изображения не удалось восстановить.",
   "library_draft.key_omitted": "Перед сохранением введите новый ключ API ещё раз.",
   "library_draft.storage_failed": "Не удалось сохранить последнюю версию черновика для перезагрузки. Скопируйте или сохраните правки перед выходом.",
