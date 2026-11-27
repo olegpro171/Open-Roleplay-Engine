@@ -73,12 +73,12 @@ for (const width of [1280, 390]) {
           const rejection = page.waitForResponse(response => response.url().endsWith(`/api/library/${itemId}`) && response.request().method() === 'PUT');
           await page.getByRole('button', { name: 'Save', exact: true }).click();
           expect((await rejection).status()).toBe(409);
-          const banner = page.locator('.error-banner').filter({ hasText: 'before editing shared items or this chat.' });
+          const banner = page.locator('.error-banner').filter({ has: page.getByRole('button', { name: 'Dismiss', exact: true }) });
           await expect(banner).toBeVisible();
           await expect(banner.getByRole('button')).toHaveCount(1);
           await expect(banner.locator('span')).toHaveText(operation === 'memory preparation'
-            ? 'Wait for memory preparation before editing shared items or this chat.'
-            : 'Wait for the current response before editing shared items or this chat.');
+            ? 'Wait for memory preparation to finish before editing.'
+            : 'Wait for the current response to finish before editing.');
           await expect(banner.getByRole('button', { name: 'Dismiss', exact: true })).toBeVisible();
           await expect(editor).toHaveValue(draft);
           expect((await libraries())[kind].find(item => item.id === itemId)?.description).toBe(description);

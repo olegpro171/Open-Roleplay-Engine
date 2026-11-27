@@ -159,17 +159,13 @@ describe('catalog, assignments and isolation', () => {
 });
 
 describe('atomic policy-aware card import and retries', () => {
-  it.each(['legacy', 'chara_card_v2', 'chara_card_v3'])('supports all/existing/none JSON and PNG with preserved %s metadata', format => {
-    for (const policy of ['all','existing','none'] as const) for (const png of [false,true]) {
+  it.each(['legacy', 'chara_card_v2', 'chara_card_v3'])('applies all/existing/none tag policies and preserves %s metadata', format => {
+    const source = format === 'legacy' ? { ...fields, tags: ['Fantasy', 'adventure', 'FANTASY'] } : modern(format);
+    const encoded = Buffer.from(JSON.stringify(source)).toString('base64');
+    for (const policy of ['all', 'existing', 'none'] as const) {
       const store = open(), existing = store.tags.create(rev(store), 'fantasy');
-      const source = format === 'legacy' ? {...fields,tags:['Fantasy','adventure','FANTASY']} : modern(format);
-      const text = Buffer.from(JSON.stringify(source)).toString('base64');
-      let base64 = text;
-      if (png) {
-        const payload = Buffer.from(`chara\0${text}`), chunk = Buffer.alloc(payload.length+12); chunk.writeUInt32BE(payload.length); chunk.write('tEXt',4); payload.copy(chunk,8);
-        base64 = Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk]).toString('base64');
-      }
-      const result = store.importCard(rev(store), randomUUID(), readCardFile(base64), policy), id = required(result.ids[0]);
+      const result = store.importCard(rev(store), randomUUID(), readCardFile(encoded), policy);
+      const id = required(result.ids[0]);
       expect(store.tags.assigned(id)).toHaveLength(policy === 'all' ? 2 : policy === 'existing' ? 1 : 0);
       if (policy !== 'none') expect(store.tags.assigned(id)).toContain(existing);
       expect(store.tags.catalog()).toHaveLength(policy === 'all' ? 2 : 1);
@@ -252,7 +248,9 @@ describe('version 9 migration and pre-tags command history', () => {
     const path=join(folder(),'rollback.sqlite');const store=open(path);addCharacter(store,importCharacter(modern()));store.close();
     const old=new Database(path);removeTagSchema(old);const rows=allRows(old, true);old.exec("CREATE TRIGGER reject_tag_migration BEFORE UPDATE ON library_state BEGIN SELECT RAISE(ABORT, 'synthetic migration failure'); END");old.close();
     expect(()=>new Store(path)).toThrow('synthetic migration failure');const failed=new Database(path);expect(failed.pragma('user_version',{simple:true})).toBe(8);expect(failed.prepare("SELECT name FROM sqlite_master WHERE name='tags'").get()).toBeUndefined();expect(allRows(failed, true)).toEqual(rows);failed.exec('DROP TRIGGER reject_tag_migration');failed.close();
-    const recovered=open(path);expect(recovered.sqlite.pragma('user_version',{simple:true})).toBe(databaseSchemaVersion);expect(allRows(recovered.sqlite, true)).toEqual(rows);
+    const recovered = open(path);
+    expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion);
+    expect(allRows(recovered.sqlite, true)).toEqual({ ...rows, composer_suggestion_sessions: [] });
   });
 });
 

@@ -95,6 +95,7 @@
   --login-glow: color-mix(in srgb, var(--accent) 8%, var(--surface));
 
   /* Alpha is intentional for overlays, shadows and content-independent picture tools. */
+  --overlay-subtle: var(--shadow-soft);
   --overlay-bg: color-mix(in srgb, var(--page) 72%, transparent);
   --overlay-strong: color-mix(in srgb, var(--page) 82%, transparent);
   --picture-overlay: color-mix(in srgb, var(--palette-black) 96%, transparent);

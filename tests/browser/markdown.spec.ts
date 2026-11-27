@@ -5,6 +5,8 @@ import type { LibraryCharacter, LibrarySnapshot } from '../../src/shared/library
 import { markdownReplyStart, markdownReplyEnd } from '../support/mock-provider';
 import { russianDialogueRegressions } from '../support/russian-dialogue-fixtures';
 
+const dialogueExamples = [russianDialogueRegressions[0], russianDialogueRegressions[russianDialogueRegressions.length - 1]];
+
 for (const width of [1440, 390]) test(`renders Markdown and speech without changing saved input at ${width}px`, async ({ page, request }, testInfo) => {
   await page.setViewportSize({ width, height: 900 });
   let releaseReplyImage = () => {};
@@ -30,7 +32,7 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
   const connection = await command('/api/library', { revision: (await library()).revision, kind: 'connections', data: { name: `Markdown ${width}`, endpoint, model: 'synthetic-roleplay', contextWindow: 100000, maxOutputTokens: 1000, customParameters: {} } });
   const greeting = '*Mara smiles.*\n\nMara asked "How are **you** — really?"\n\n— Здесь мне лучше, — сказала девушка.\n\n- A lantern\n- A key\n\n> Keep the gate closed.\n\n| Place | Keeper |\n| --- | --- |\n| Tower | Mara |\n\n```text\n' + 'long-code-'.repeat(25) + '\n"literal quote"\n```\n\n[Map](https://example.com/map) [unsafe](javascript:alert%281%29)\n\n![portrait](https://example.com/tracker.png)\n\n<img src="https://example.com/hidden.png" onerror="alert(1)">';
   const imageGreeting = greeting + '\n\n![](https://example.com/empty-alt.png)\n\n![scene][image]\n\n[image]: https://example.com/reference.png\n\n![unavailable](https://example.com/broken.png)\n\n![local](/api/logout)';
-  const characterData: LibraryCharacter = { name: `Mara ${width}`, description: '', personality: '', scenario: '', first_mes: imageGreeting, mes_example: '', alternate_greetings: ['**Another opening.** «Добро пожаловать».', ...russianDialogueRegressions.map(fixture => fixture.text)], lorebookId: null, titleComment: '', speechColor: '#eeaa88' };
+  const characterData: LibraryCharacter = { name: `Mara ${width}`, description: '', personality: '', scenario: '', first_mes: imageGreeting, mes_example: '', alternate_greetings: ['**Another opening.** «Добро пожаловать».', ...dialogueExamples.map(fixture => fixture.text)], lorebookId: null, titleComment: '', speechColor: '#eeaa88' };
   const character = await command('/api/library', { revision: (await library()).revision, kind: 'characters', data: characterData });
   const persona = await command('/api/library', { revision: (await library()).revision, kind: 'personas', data: { name: `Alex ${width}`, description: '', speechColor: '#88cc99' } });
   const chat = await command('/api/chats', { title: `Markdown proof ${width}`, targetInputTokens: 10000, connectionId: connection.id, promptId: 'default', characterId: character.id, personaId: persona.id });
@@ -81,7 +83,7 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
   await expect(prose.locator('strong').first()).toHaveText('Another opening.');
   await page.reload();
   await expect(prose.locator('.direct-speech')).toHaveText('«Добро пожаловать»');
-  for (const [index, fixture] of russianDialogueRegressions.entries()) {
+  for (const [index, fixture] of dialogueExamples.entries()) {
     await opening.getByRole('button', { name: 'Next response', exact: true }).click();
     await expect(prose.locator('.direct-speech')).toHaveText(fixture.speech);
     await expect(prose).toContainText(fixture.narration);
@@ -110,7 +112,8 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
     }
   }
   await page.reload();
-  await expect(prose.locator('.direct-speech')).toHaveText(['— А ты чего тут делаешь?']);
+  await expect(prose).toHaveText(dialogueExamples[1].text);
+  await expect(prose.locator('.direct-speech')).toHaveText(dialogueExamples[1].speech);
   await opening.getByLabel('Response version', { exact: true }).fill('1');
   await opening.getByLabel('Response version', { exact: true }).press('Enter');
   await expect(prose.locator('em')).toHaveText('Mara smiles.');

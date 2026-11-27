@@ -6,8 +6,6 @@ import type { LibrarySnapshot } from '../../src/shared/library';
 async function setup(page: Page, targetInputTokens = 20_000) {
   const session = await page.request.get('/api/session').then(response => response.json());
   await page.goto('/');
-  await page.getByLabel('Owner password').waitFor();
-  await page.screenshot({ path: test.info().outputPath('login.png') });
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();
@@ -73,7 +71,7 @@ for (const width of [1440, 390]) test(`next request updates automatically and re
   await expect(page.getByRole('button', { name: 'Prompt peek', exact: true })).toBeEnabled();
   await page.screenshot({ path: test.info().outputPath('next-request.png') });
   await reviewWarnings.click();
-  await warning.getByRole('button', { name: 'Review memory', exact: true }).click();
+  await warning.getByRole('button', { name: 'Inspect memory', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Memory', exact: true })).toBeVisible();
 });
 

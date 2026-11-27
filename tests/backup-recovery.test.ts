@@ -289,7 +289,7 @@ it.each(['succeeded', 'cancelled'] as const)('round trips %s preparation after d
     characterId: null, personaId: null, contextPresetId };
   const chatId = source.createChat(settings);
   const { id: generationId } = source.begin(source.snapshot(chatId).revision, randomUUID(), 'Delete this turn', chatId);
-  const turnId = requireValue(source.generation(generationId)).turnId;
+  const turnId = requireValue(source.generation(generationId)?.turnId);
   const { job } = source.contexts.begin(chatId, source.snapshot(chatId).revision, generationId, 'prepare', generationId);
   if (status === 'succeeded') {
     const replay = new PreparationReplay(source.contexts.operationSnapshot(job.id));

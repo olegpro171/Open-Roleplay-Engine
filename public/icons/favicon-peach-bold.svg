@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
   <title id="title">Peach Bold bird favicon</title>
-  <desc id="desc">A peach-to-red bird crest scaled from top to bottom on a full charcoal square.</desc>
+  <desc id="desc">A peach-to-red bird crest.</desc>
   <defs>
     <linearGradient id="crest-color" gradientUnits="userSpaceOnUse" x1="1000" y1="380" x2="330" y2="900">
       <stop offset="0" stop-color="#e9ba96"/>
@@ -10,7 +10,6 @@
       <stop offset="1" stop-color="#ae4b4e"/>
     </linearGradient>
   </defs>
-  <rect width="1024" height="1024" fill="#292725"/>
   <g transform="translate(-2.0201300501 -32.3737735319) scale(0.851941408734)" fill="url(#crest-color)" fill-rule="evenodd">
     <path id="head-and-neck" d="
       M 672.00 1225.83

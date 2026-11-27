@@ -1,5 +1,4 @@
-import { blockedText } from '../shared/localization.js';
-import { message } from '../shared/localization.js';
+import { blockedText, message, type LocalizedMessage } from '../shared/localization.js';
 import { AppError } from './errors.js';
 import type { Turn } from '../shared/contracts.js';
 import { refKey, type ContextOperation, type ContextPreset, type ContextState, type SummaryNode, type SummaryRef, type TurnSource } from '../shared/context.js';
@@ -68,8 +67,24 @@ export function belowMinimumTail(turns: Turn[], state: ContextState, minimum: nu
   return state.archivedTurnIds.length > 0 && turns.slice(state.archivedTurnIds.length).filter(turn => turn.complete).length < minimum;
 }
 
+export function memoryInputBudget(target: number, connectionLimit: number) {
+  return { limit: Math.min(target, connectionLimit), connectionLimited: connectionLimit <= target };
+}
+
+type MemoryInputBudget = ReturnType<typeof memoryInputBudget>;
+type TargetWarning =
+  | 'diagnostics.the_required_verbatim_tail_pending_input_and_prompt'
+  | 'diagnostics.no_input_capacity_remains_for_summaries_covering_archived'
+  | 'diagnostics.no_complete_promotion_group_satisfies_the_retained_summary'
+  | 'diagnostics.the_selected_summaries_and_prompt_cannot_fit_the';
+
+export function memoryBudgetWarning(budget: MemoryInputBudget, targetWarning: TargetWarning): LocalizedMessage {
+  return message(budget.connectionLimited ? 'diagnostics.memory_connection_input_limit' : targetWarning);
+}
+
 /** Budget-driven state transition; callers measure and commit the actual replacement. */
-export function nextCompaction(turns: Turn[], state: ContextState, config: ContextPreset, input: number, limit: number, required: number, summarySizes: Map<string, number>, pinnedFloor?: number): { next: ContextOperation | null; blocked: string | null; blockedMessage?: import('../shared/localization.js').LocalizedMessage } {
+export function nextCompaction(turns: Turn[], state: ContextState, config: ContextPreset, input: number, budget: MemoryInputBudget, required: number, summarySizes: Map<string, number>, pinnedFloor?: number): { next: ContextOperation | null; blocked: string | null; blockedMessage?: LocalizedMessage } {
+  const { limit } = budget;
   const { summaries, verbatim } = selectedContext(turns, state);
   const completed = verbatim.filter(turn => turn.complete);
   if (belowMinimumTail(turns, state, config.minTail)) return { next: null, ...blockedText(minimumTailDiagnostic) };
@@ -78,11 +93,10 @@ export function nextCompaction(turns: Turn[], state: ContextState, config: Conte
   if (completed.length >= config.minTail + config.batchSize) {
     return { next: { level: 1, turnIds: completed.slice(0, config.batchSize).map(turn => turn.id), children: [] }, blocked: null };
   }
-  if (required > limit) return { next: null, ...blockedText(message("diagnostics.the_required_verbatim_tail_pending_input_and_prompt")) };
-  const pool = limit - required;
-  if (pool <= 0) return { next: null, ...blockedText(message("diagnostics.no_input_capacity_remains_for_summaries_covering_archived")) };
+  if (required > limit) return { next: null, ...blockedText(memoryBudgetWarning(budget, 'diagnostics.the_required_verbatim_tail_pending_input_and_prompt')) };
+  if (required === limit) return { next: null, ...blockedText(memoryBudgetWarning(budget, 'diagnostics.no_input_capacity_remains_for_summaries_covering_archived')) };
   const best = rankedPromotions(summaries, config, summarySizes)[0];
-  if (!best) return { next: null, ...blockedText(message("diagnostics.no_complete_promotion_group_satisfies_the_retained_summary")) };
+  if (!best) return { next: null, ...blockedText(memoryBudgetWarning(budget, 'diagnostics.no_complete_promotion_group_satisfies_the_retained_summary')) };
   return { next: best, blocked: null };
 }
 

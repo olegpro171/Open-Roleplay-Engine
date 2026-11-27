@@ -17,12 +17,16 @@ const version2SavedSchema = appearanceStatusSchema.extend({
 const version3SavedSchema = appearanceStatusSchema.extend({
   version: z.literal(3), settings: legacyColors.extend({ chatTextScale: appearanceSchema.shape.chatTextScale, displayCharacterPicture: z.boolean() }),
 }).strict().transform(value => ({ ...value, settings: { ...defaultAppearance, ...value.settings } }));
+const version5Settings = appearanceSchema.omit({ appIconTheme: true });
 const version4SavedSchema = appearanceStatusSchema.extend({
-  version: z.literal(4), settings: appearanceSchema.omit({ showReasoningDuringGeneration: true }),
+  version: z.literal(4), settings: version5Settings.omit({ showReasoningDuringGeneration: true }),
 }).strict().transform(value => ({ ...value, settings: { ...defaultAppearance, ...value.settings } }));
-const savedSchema = z.union([legacySavedSchema, version2SavedSchema, version3SavedSchema, version4SavedSchema, appearanceStatusSchema.extend({ version: z.literal(5) }).strict()]);
+const version5SavedSchema = appearanceStatusSchema.extend({
+  version: z.literal(5), settings: version5Settings,
+}).strict().transform(value => ({ ...value, settings: { ...defaultAppearance, ...value.settings } }));
+const savedSchema = z.union([legacySavedSchema, version2SavedSchema, version3SavedSchema, version4SavedSchema, version5SavedSchema, appearanceStatusSchema.extend({ version: z.literal(6) }).strict()]);
 // Older open clients preserve newer appearance preferences when saving.
-const saveSchema = appearanceStatusSchema.extend({ settings: appearanceSchema.partial({ showReasoningDuringGeneration: true, theme: true, chatTextScale: true, displayCharacterPicture: true }) });
+const saveSchema = appearanceStatusSchema.extend({ settings: appearanceSchema.partial({ showReasoningDuringGeneration: true, theme: true, appIconTheme: true, chatTextScale: true, displayCharacterPicture: true }) });
 
 export class AppearanceSettings {
   constructor(private file: string) {}
@@ -47,13 +51,14 @@ export class AppearanceSettings {
       ...input.settings,
       showReasoningDuringGeneration: input.settings.showReasoningDuringGeneration ?? current.settings.showReasoningDuringGeneration,
       theme: input.settings.theme ?? current.settings.theme,
+      appIconTheme: input.settings.appIconTheme === undefined ? current.settings.appIconTheme : input.settings.appIconTheme,
       chatTextScale: input.settings.chatTextScale ?? current.settings.chatTextScale,
       displayCharacterPicture: input.settings.displayCharacterPicture ?? current.settings.displayCharacterPicture,
     } };
     const temporary = `${this.file}.${randomUUID()}.tmp`;
     try {
       try {
-        writeFileSync(temporary, JSON.stringify({ version: 5, ...next }), { mode: 0o600, flag: 'wx' });
+        writeFileSync(temporary, JSON.stringify({ version: 6, ...next }), { mode: 0o600, flag: 'wx' });
         renameSync(temporary, this.file);
       } finally {
         if (existsSync(temporary)) unlinkSync(temporary);

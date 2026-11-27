@@ -13,9 +13,13 @@ export async function startMockProvider() {
       if (typeof modelMode === 'number') { response.writeHead(modelMode).end('upstream-secret-do-not-save'); return; }
       if (modelMode === 'error') { response.writeHead(401).end('upstream-secret-do-not-save'); return; }
       if (modelMode === 'redirect') { response.writeHead(302, { Location: '/v1/redirected-models' }).end(); return; }
-      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(modelMode === 'invalid' ? { data: [{ name: 'Invalid' }] } : { data: [{ id: 'synthetic-roleplay' }, { id: 'another-model' }, { id: 'synthetic-roleplay' }] })); return;
+      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(modelMode === 'invalid'
+        ? { data: [{ name: 'Invalid' }] }
+        : { data: [{ id: 'synthetic-roleplay' }, { id: 'another-model', context_length: 16_384, max_output_tokens: 1_024 }, { id: 'synthetic-roleplay' }] }));
+      return;
     }
     if (request.url !== '/v1/chat/completions') { response.writeHead(404).end(); return; }
+    request.setEncoding('utf8');
     let body = '';
     for await (const chunk of request) body += chunk;
     requests.push({ body: JSON.parse(body), authorization: request.headers.authorization });
@@ -75,7 +79,7 @@ export async function startMockProvider() {
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('No mock endpoint address.');
   return {
-    url: `http://127.0.0.1:${address.port}/v1`, requests, modelRequests,
+    url: `http://127.0.0.1:${address.port}/v1`, server, requests, modelRequests,
     setMode(value: typeof mode) { mode = value; },
     setModelMode(value: typeof modelMode) { modelMode = value; },
     finishAll() { waiting.splice(0).forEach((finish) => finish()); },

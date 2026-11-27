@@ -32,8 +32,8 @@ test('stays idle across a real keepalive and scopes and coalesces change notific
   const f = await fixture(page, 'Quiet refresh proof');
   const reads: string[] = [];
   page.on('request', request => { if (request.url().includes('/api/') && request.method() === 'GET') reads.push(new URL(request.url()).pathname); });
-  // A negative assertion needs to span the actual server heartbeat interval.
-  await page.waitForTimeout(16_000);
+  // Span the silence deadline: a healthy heartbeat must renew it without a reconnect or data read.
+  await page.waitForTimeout(25_000);
   expect(reads).toEqual([]);
   await page.request.post('/__test/change', { data: { kind: 'chat', chatId: 'another-chat', detail: 'stream' } });
   await page.request.post('/__test/change', { data: { kind: 'settings', setting: 'appearance' } });
@@ -149,10 +149,10 @@ for (const width of [1280, 390]) test(`ignores next-draft typing in pending prev
   }
 });
 
-for (const width of [1280, 390, 320]) test(`pages saved requests and retains inspection after a failed page at ${width}px`, async ({ page }) => {
+test('pages saved requests and retains inspection after a failed page across viewport sizes', async ({ page }) => {
   test.setTimeout(60_000);
-  await page.setViewportSize({ width, height: 844 });
-  const f = await fixture(page, `Paged request proof ${width}`);
+  await page.setViewportSize({ width: 1280, height: 844 });
+  const f = await fixture(page, 'Paged request proof');
   for (let index = 0; index < 42; index++) {
     await f.command(`/chats/${f.id}/turns`, { revision: (await f.state()).revision, requestId: crypto.randomUUID(), text: `Saved input ${index + 1}.` });
     await expect.poll(async () => (await f.state()).latestGeneration?.status).toBe('succeeded');
@@ -192,10 +192,15 @@ for (const width of [1280, 390, 320]) test(`pages saved requests and retains ins
   expect(JSON.parse(await page.getByTestId('request-body').textContent() ?? '{}')).toEqual(expected.body);
   await page.unroute(`**/api/chats/${f.id}/generations?before=*`);
   await page.getByRole('button', { name: 'Older requests', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Newer requests', exact: true })).toBeEnabled();
-  await expect(page.getByRole('button', { name: 'Older requests', exact: true })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: test.info().outputPath(`requests-middle-${width}.png`) });
+  async function checkPagingLayout(checkpoint: string, buttons: string[]) {
+    for (const width of [1280, 390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const name of buttons) await page.getByRole('button', { name, exact: true }).click({ trial: true });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: test.info().outputPath(`requests-${checkpoint}-${width}.png`) });
+    }
+  }
+  await checkPagingLayout('middle', ['Latest requests', 'Newer requests', 'Older requests']);
   const middle: GenerationPage = await page.request.get(`/api/chats/${f.id}/generations?before=${latestPage.nextBefore}`).then(response => response.json());
   await page.getByRole('button', { name: 'Older requests', exact: true }).click();
   await selector.click();
@@ -215,6 +220,5 @@ for (const width of [1280, 390, 320]) test(`pages saved requests and retains ins
   await page.getByRole('button', { name: 'Latest requests', exact: true }).click();
   await expect(selector).toHaveText('Next request');
   await expect(page.getByRole('button', { name: 'Newer requests', exact: true })).toHaveCount(0);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: test.info().outputPath(`requests-${width}.png`) });
+  await checkPagingLayout('latest', ['Older requests']);
 });

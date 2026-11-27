@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { message } from '../shared/localization.js';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AppError } from '../core/errors.js';
@@ -40,6 +41,13 @@ export class StoryReader {
       const latest = this.store.db.select({ id: schema.turns.id, complete: schema.turns.complete, reply: schema.turns.assistantText }).from(schema.turns)
         .where(eq(schema.turns.chatId, chatId)).orderBy(desc(schema.turns.position)).limit(1).get() ?? null;
       const latestGeneration = this.generations(chatId, undefined)[0] ?? null;
+      const g = schema.generations, sessions = schema.composerSuggestionSessions;
+      const suggestion = this.store.db.select({ id: g.id, status: g.status, sourceRevision: g.sourceRevision,
+        error: g.error, errorMessage: g.errorMessage, sessionId: g.suggestionSession, requestId: g.requestId,
+        completedCount: sql<number>`(SELECT COUNT(*) FROM generations AS choices WHERE choices.chat_id = ${g.chatId}
+          AND choices.suggestion_session = ${g.suggestionSession} AND choices.status = 'succeeded')` })
+        .from(sessions).innerJoin(g, and(eq(sessions.generationId, g.id), eq(sessions.chatId, g.chatId)))
+        .where(eq(sessions.chatId, chatId)).get();
       const context = this.store.contexts.snapshot(chatId, header.settings.contextPresetId ?? null);
       const archived = new Set(context.archivedTurnIds);
       const latestTurn = latest && { id: latest.id, complete: latest.complete, ...(latest.complete ? {
@@ -63,6 +71,9 @@ export class StoryReader {
       }
       return {
         ...header, promptDiagnostics: promptDiagnostics(header.sources, header.settings.authorNote, pinCount > 0), sources: { ...header.sources, lorebook: undefined }, totalTurns, pinCount, latestTurn, latestGeneration,
+        // Older databases can retain a pointer to a cancelled session with no saved suggestion.
+        ...(suggestion?.sessionId && (suggestion.status !== 'cancelled' || suggestion.completedCount > 0)
+          ? { suggestion: { ...suggestion, sessionId: suggestion.sessionId } } : {}),
         preparing: Boolean(activePreparation), preparation,
         memory: { revision: context.revision, selectedCount: context.selected.length, awaitingReview: context.jobs.some(job => job.status === 'awaiting_review'), refusalCount: refusalFindings(context).length, refusalBlocked: context.selected.some(ref => refused.has(refKey(ref))),
           archivedCount: sources.filter(source => archived.has(source.turnId)).length, stale: context.selected.some(ref => stale.has(refKey(ref))) },
@@ -70,6 +81,29 @@ export class StoryReader {
           generations: turns.length ? this.generations(chatId, turns.map(turn => turn.id)) : [],
           hasOlder: start > 0, hasNewer: start + turns.length < totalTurns },
       };
+    })();
+  }
+
+  suggestion(chatId: string, sessionId: string, selected?: string | number) {
+    const rows = this.store.sqlite;
+    const filter = "chat_id = ? AND suggestion_session = ? AND status = 'succeeded'";
+    return rows.transaction(() => {
+      // Resolve a numbered jump through the session index before reading the chosen text.
+      const byNumber = typeof selected === 'number';
+      const selection = byNumber ? 'ORDER BY rowid LIMIT 1 OFFSET ?'
+        : selected ? 'AND id = ?' : 'ORDER BY rowid DESC LIMIT 1';
+      const args = byNumber ? [selected - 1] : selected ? [selected] : [];
+      const choice = z.object({ id: z.string(), ordinal: z.number(), text: z.string() }).optional().parse(
+        rows.prepare(`SELECT rowid AS ordinal, id, partial_text AS text FROM generations WHERE ${filter} ${selection}`)
+          .get(chatId, sessionId, ...args));
+      if (!choice) return null;
+      const neighbor = (previous: boolean) => z.string().optional().parse(rows.prepare(
+        `SELECT id FROM generations WHERE ${filter} AND rowid ${previous ? '<' : '>'} ? ORDER BY rowid ${previous ? 'DESC' : 'ASC'} LIMIT 1`
+      ).pluck().get(chatId, sessionId, choice.ordinal)) ?? null;
+      const number = byNumber ? selected : z.number().parse(rows.prepare(
+        `SELECT count(*) FROM generations WHERE ${filter} AND rowid <= ?`
+      ).pluck().get(chatId, sessionId, choice.ordinal));
+      return { id: choice.id, text: choice.text, number, previous: neighbor(true), next: neighbor(false) };
     })();
   }
 
@@ -102,7 +136,7 @@ export class StoryReader {
       id: schema.generations.id, turnId: schema.generations.turnId, status: schema.generations.status,
       sourceRevision: schema.generations.sourceRevision, kind: schema.generationKind,
       requestAvailable: sql<number>`${schema.generations.request} IS NOT NULL`, usage: schema.generations.usage,
-      partialText: sql<string>`CASE WHEN ${schema.generations.status} = 'succeeded' THEN '' ELSE ${schema.generations.partialText} END`,
+      partialText: sql<string>`CASE WHEN ${schema.generations.status} = 'succeeded' OR ${schema.generations.suggestionSession} IS NOT NULL THEN '' ELSE ${schema.generations.partialText} END`,
       reasoningText: sql<string>`substr(${schema.generations.reasoningText}, -2000)`,
       error: schema.generations.error, errorMessage: schema.generations.errorMessage, createdAt: schema.generations.createdAt, updatedAt: schema.generations.updatedAt,
     }).from(schema.generations).where(and(eq(schema.generations.chatId, chatId), turnIds ? inArray(schema.generations.turnId, turnIds) : undefined))

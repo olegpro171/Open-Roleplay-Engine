@@ -122,3 +122,63 @@ test('reports browser offline immediately while an existing event stream is stil
   await expect(page.getByRole('img', { name: 'Connected', exact: true })).toBeVisible();
   await expect(warning).toHaveCount(0);
 });
+
+test('detects a silent LAN outage while idle and replaces the stalled stream', async ({ page }) => {
+  test.setTimeout(45_000);
+  // Model a socket which opened successfully and never reports an error or delivers another byte.
+  await page.addInitScript(() => {
+    const NativeSource = window.EventSource;
+    window.EventSource = class extends NativeSource {
+      constructor(url: string | URL) {
+        super(url);
+        this.addEventListener('heartbeat', event => event.stopImmediatePropagation());
+      }
+    };
+  });
+  const editor = await openPersonaDraft(page, 'Sleeping host');
+  const connected = page.getByRole('img', { name: 'Connected', exact: true });
+  await expect(connected).toBeVisible();
+  const api = '**/api/**';
+  await page.route(api, route => route.abort('connectionrefused'));
+  const warning = page.getByRole('dialog', { name: 'Warning', exact: true });
+  await expect(warning).toContainText('Cannot reach the server', { timeout: 32_000 });
+  await warning.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(editor).toBeEditable();
+  await page.unroute(api);
+  await expect(connected).toBeVisible({ timeout: 10_000 });
+  await expect(editor).toHaveValue('Keep this unsaved persona draft.');
+});
+
+test('reports an unanswered session check on startup and recovers without reloading', async ({ page }) => {
+  await page.route('**/api/session', () => {});
+  await page.goto('/');
+  const warning = page.getByRole('dialog', { name: 'Warning', exact: true });
+  await expect(warning).toContainText('Cannot reach the server', { timeout: 10_000 });
+  await page.unroute('**/api/session');
+  await expect(page.getByLabel('Owner password')).toBeVisible();
+  await expect(warning).toHaveCount(0);
+});
+
+test('checks a restored page even when the browser still reports Wi-Fi', async ({ page }) => {
+  const editor = await openPersonaDraft(page, 'Resumed phone');
+  await page.route('**/api/session', () => {});
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  const warning = page.getByRole('dialog', { name: 'Warning', exact: true });
+  await expect(warning).toContainText('Cannot reach the server', { timeout: 9_000 });
+  await page.unroute('**/api/session');
+  await expect(warning).toHaveCount(0);
+  await expect(editor).toHaveValue('Keep this unsaved persona draft.');
+});
+
+test('a stalled workspace read offers retry when the session is reachable', async ({ page }) => {
+  const editor = await openPersonaDraft(page, 'Slow library');
+  await page.route('**/api/library?*', () => {});
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  const retry = page.getByRole('button', { name: 'Retry loading' });
+  await expect(retry).toBeVisible({ timeout: 19_000 });
+  await expect(page.getByRole('dialog', { name: 'Warning' })).toHaveCount(0);
+  await page.unroute('**/api/library?*');
+  await retry.click();
+  await expect(retry).toHaveCount(0);
+  await expect(editor).toHaveValue('Keep this unsaved persona draft.');
+});

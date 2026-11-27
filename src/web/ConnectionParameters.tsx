@@ -1,19 +1,23 @@
 import { useId } from 'react';
 import { numericConnectionParameters, reasoningEffortSchema, stopSequenceLimit, stopSequenceMaxLength, type NumericConnectionParameter } from '../shared/connection-parameters';
+import { Icon } from './Icon';
 import { Dropdown } from './Controls';
+import { ConnectionJsonEditor } from './ConnectionJsonEditor';
 import { EditorTextarea } from './EditorTextarea';
-import { t, useLocale } from './localization';
-import type { ConnectionParameterDraft } from './connection-parameter-draft';
+import { EditorFieldError } from './LibraryEditorFields';
+import { formatMessage, t, useLocale } from './localization';
+import type { ConnectionFieldError, ConnectionParameterDraft } from './connection-parameter-draft';
 
-export function ConnectionParameters({ draft, change, disabled }: {
+export function ConnectionParameters({ draft, change, disabled, fieldError, clearFieldError }: {
   draft: ConnectionParameterDraft;
   disabled: boolean;
   change: (draft: ConnectionParameterDraft) => void;
+  fieldError?: ConnectionFieldError;
+  clearFieldError: (field: NumericConnectionParameter) => void;
 }) {
   useLocale();
   const fieldHelpId = useId();
-  const customHelpId = `${fieldHelpId}-custom`;
-  const { builtInParameters, parameters } = draft;
+  const { builtInParameters } = draft;
   const { numbers, stop, reasoning_effort: reasoningEffort } = builtInParameters;
   function changeBuiltIn(patch: Partial<typeof builtInParameters>) {
     change({ ...draft, builtInParameters: { ...builtInParameters, ...patch } });
@@ -25,14 +29,21 @@ export function ConnectionParameters({ draft, change, disabled }: {
       ? t(`connection_parameters.${key}_help`, { min: String(minValue), max: String(maxValue) })
       : undefined;
     const helpId = `${fieldHelpId}-${key}`;
-    const field = <label>{label}<input type="text" inputMode={inputMode} aria-describedby={help ? helpId : undefined}
-      value={numbers[key] ?? ''} placeholder={t('connection_parameters.provider_default')} onChange={event => {
+    const errorId = `${helpId}-error`;
+    const error = fieldError?.field === key ? formatMessage(fieldError.localized) : undefined;
+    return <label className="library-editor-setting connection-parameter-setting"><span>{label}
+      {help && <small className="muted" id={helpId}>{help}</small>}</span>
+      <input name={key} aria-label={label} type="text" inputMode={inputMode} aria-invalid={error ? true : undefined}
+        aria-describedby={[help && helpId, error && errorId].filter(Boolean).join(' ') || undefined}
+        value={numbers[key] ?? ''} placeholder={t('connection_parameters.provider_default')} onChange={event => {
+        clearFieldError(key);
         const next = { ...numbers };
         if (event.target.value === '') delete next[key];
         else next[key] = event.target.value;
         changeBuiltIn({ numbers: next });
-      }} /></label>;
-    return help ? <div>{field}<small className="field-help muted" id={helpId}>{help}</small></div> : field;
+      }} />
+      <EditorFieldError id={errorId} error={error} />
+    </label>;
   }
   const stopSequences = Array.isArray(stop) ? stop : stop === undefined ? [] : [stop];
   function changeStop(index: number, value: string) {
@@ -43,15 +54,18 @@ export function ConnectionParameters({ draft, change, disabled }: {
     changeBuiltIn({ stop: remaining.length ? remaining : undefined });
   }
   return <>
-    {numericField('temperature', t('connection_parameters.temperature'))}
-    {numericField('top_p', t('connection_parameters.top_p'))}
-    <details className="full request-details">
-      <summary>{t('connection_parameters.advanced')}</summary>
-      <div className="form-grid">
+    <section className="settings-section">
+      <h3>{t('libraries.sampling')}</h3>
+      {numericField('temperature', t('connection_parameters.temperature'))}
+      {numericField('top_p', t('connection_parameters.top_p'))}
+    </section>
+    <details className="editor-disclosure library-editor-disclosure connection-advanced">
+      <summary>{t('connection_parameters.advanced')}<Icon name="ArrowShortBottom" /></summary>
+      <div className="connection-advanced-fields">
         {numericField('presence_penalty', t('connection_parameters.presence_penalty'))}
         {numericField('frequency_penalty', t('connection_parameters.frequency_penalty'))}
         {numericField('seed', t('connection_parameters.seed'))}
-        <label>{t('connection_parameters.reasoning_effort')}
+        <label className="library-editor-setting connection-parameter-setting">{t('connection_parameters.reasoning_effort')}
           <Dropdown aria-label={t('connection_parameters.reasoning_effort')} disabled={disabled} value={reasoningEffort ?? ''} onChange={value => {
             const choice = reasoningEffortSchema.safeParse(value);
             changeBuiltIn({ reasoning_effort: choice.success ? choice.data : undefined });
@@ -60,7 +74,7 @@ export function ConnectionParameters({ draft, change, disabled }: {
             ...reasoningEffortSchema.options.map(effort => ({ value: effort, label: effort })),
           ]} />
         </label>
-        {stopSequences.map((sequence, index) => <div className="full" key={index}>
+        {stopSequences.map((sequence, index) => <div className="connection-stop-field" key={index}>
           <label>{t('connection_parameters.stop_sequence', { number: index + 1 })}
             <EditorTextarea className="connection-stop-sequence" rows={2} maxLength={stopSequenceMaxLength} value={sequence} onChange={event => changeStop(index, event.target.value)} />
           </label>
@@ -69,18 +83,13 @@ export function ConnectionParameters({ draft, change, disabled }: {
               onClick={() => removeStop(index)}>{t('connection_parameters.remove')}</button>
           </div>
         </div>)}
-        <div className="full actions">
+        <div className="actions">
           {stopSequences.length < stopSequenceLimit && <button type="button" className="secondary"
             onClick={() => changeBuiltIn({ stop: stop === undefined ? '' : [...stopSequences, ''] })}>{t('connection_parameters.add_stop')}</button>}
           {Array.isArray(stop) && stop.length === 0 && <button type="button" className="secondary"
             onClick={() => changeBuiltIn({ stop: undefined })}>{t('connection_parameters.reset_stop')}</button>}
         </div>
-        <div className="full">
-          <label>{t('libraries.custom_request_parameters')}
-            <EditorTextarea className="code-input" aria-describedby={customHelpId} value={parameters} onChange={event => change({ ...draft, parameters: event.target.value })} />
-          </label>
-          <small id={customHelpId} className="field-help muted">{t('connection_parameters.custom_help')}</small>
-        </div>
+        <ConnectionJsonEditor draft={draft} disabled={disabled} onChange={parameters => change({ ...draft, parameters })} />
       </div>
     </details>
   </>;

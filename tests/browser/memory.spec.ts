@@ -40,6 +40,8 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await choose(page, 'Summarization Connection', 'Memory summaries · synthetic-summary');
   await page.getByLabel('Minimum verbatim turns').fill('2'); await page.getByLabel('Turns per batch').fill('2');
   await page.getByLabel('Summaries per promotion').fill('2'); await page.getByLabel('Retain summaries per level').fill('1');
+  await page.getByRole('tab', { name: 'Prompts', exact: true }).click();
+  await page.getByText('Summary repair', { exact: true }).click();
   await expect(page.getByLabel('First-layer extraction prompt')).not.toBeEmpty();
   await expect(page.getByRole('textbox', { name: 'Repair prompt', exact: true })).toHaveValue(/character for character/);
   await page.getByRole('textbox', { name: 'Repair prompt', exact: true }).fill('Keep unaffected wording exactly. Apply only factual corrections from the changed inputs. Return the same summary when no correction is needed.');
@@ -69,7 +71,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await openChatTool(page, 'Inspect memory');
   await expect(page.getByRole('button', { name: 'Save next summary', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Save next summary', exact: true }).click();
-  await expect(page.getByText(/2 archived turns/)).toBeVisible();
+  await expect(page.getByText('Archived turns', { exact: true }).locator('..').getByRole('definition')).toHaveText('2');
   await expect(page.getByRole('checkbox', { name: 'Auto retry failed or refused requests' })).toBeChecked();
   await expect(page.getByLabel('Maximum retries', { exact: true })).toHaveValue('10');
   await page.locator('.summary-retry-controls').screenshot({ path: 'test-results/desktop-summary-retries.png' });
@@ -77,7 +79,7 @@ test('prepares an imported chat, rejects a placeholder, inspects layers and revi
   await request.post('/__test/mode', { data: { mode: 'placeholder' } });
   await page.getByRole('button', { name: 'Prepare chat', exact: true }).click();
   await expect(page.locator('.memory-failure')).toContainText('placeholder');
-  await expect(page.getByText(/2 archived turns/)).toBeVisible();
+  await expect(page.getByText('Archived turns', { exact: true }).locator('..').getByRole('definition')).toHaveText('2');
   const failedState: ChatSnapshot = await page.request.get(`/api/chats/${chat.id}`).then(response => response.json());
   const failedSteps = await page.request.get(`/api/context/jobs/${failedState.context.jobs[0].id}`).then(response => response.json());
   expect(failedSteps.steps).toHaveLength(2);

@@ -111,7 +111,8 @@ for (const device of ['desktop', 'phone'] as const) test.describe(`automatic mem
       await expect(page.locator('.part.assistant').last()).toContainText('Preparing memory…');
       await expect(progress.getByRole('status')).toHaveText(/^Preparing memory…\s*Connecting…$/);
       await expect(page.locator('.composer')).not.toContainText('Preparing memory');
-      await expect(page.locator('.composer').locator(':scope > *')).toHaveCount(2);
+      await expect(page.locator('.composer').getByRole('button')).toHaveCount(2);
+      await expect(send).toBeDisabled();
       await expect(composer).toBeEditable();
       await composer.fill('Draft during preparation.');
       await page.screenshot({ path: `test-results/${device}-before-response-memory.png` });

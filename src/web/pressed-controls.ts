@@ -3,7 +3,7 @@ const pressable = 'button, summary, a[href], [role="option"], input:is([type="ch
 function pressTarget(target: EventTarget | null) {
   if (!(target instanceof Element)) return null;
   const control = target.closest(pressable);
-  if (!control || control.matches(':disabled, [aria-disabled="true"], .topbar .tabs > button')) return null;
+  if (!control || control.matches(':disabled, [aria-disabled="true"], .tabs > button')) return null;
   if (control instanceof HTMLLabelElement) {
     return control.control?.matches('input:is([type="checkbox"], [type="radio"]):enabled') ? control : null;
   }

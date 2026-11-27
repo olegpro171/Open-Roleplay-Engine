@@ -24,18 +24,18 @@ export function ChatTextarea({ value, onValueChange, autoSize = false, textScale
     if (!(measurement instanceof HTMLTextAreaElement)) return;
     measurement.removeAttribute('id');
     measurement.removeAttribute('name');
+    measurement.removeAttribute('placeholder');
     measurement.removeAttribute('aria-label');
     measurement.setAttribute('aria-hidden', 'true');
     measurement.tabIndex = -1;
+    Object.assign(measurement.style, {
+      position: 'fixed', visibility: 'hidden', pointerEvents: 'none',
+      top: '0', left: '0', height: '0', minHeight: '0', maxHeight: 'none', overflow: 'hidden',
+    });
     const fitContent = () => {
       const scrollTop = field.scrollTop;
-      // Shrinking the live field to measure it clamps the transcript's scroll
-      // position. Measure outside layout so only the final height affects chat.
-      Object.assign(measurement.style, {
-        position: 'fixed', visibility: 'hidden', pointerEvents: 'none',
-        top: '0', left: '0', width: `${field.getBoundingClientRect().width}px`,
-        height: '0', minHeight: '0', maxHeight: 'none', overflow: 'hidden',
-      });
+      // Measure outside normal flow so transient heights never move the transcript.
+      measurement.style.width = `${field.getBoundingClientRect().width}px`;
       measurement.value = field.value;
       field.after(measurement);
       try {

@@ -62,7 +62,7 @@ export async function openChatTool(page: Page, name: 'Chat settings' | 'Inspect 
 }
 
 async function clickChatTool(page: Page, name: string, detailsName: string) {
-  const tool = page.getByRole('button', { name, exact: true });
+  const tool = page.locator('.story-meta').getByRole('button', { name, exact: true });
   const collapsedDetails = page.getByRole('button', { name: detailsName, exact: true, expanded: false });
   // Story may still be loading after a reload or branch switch.
   await expect(collapsedDetails.or(tool).first()).toBeVisible();

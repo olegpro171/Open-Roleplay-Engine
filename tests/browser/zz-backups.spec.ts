@@ -2,7 +2,8 @@ import { expect, type Page } from '@playwright/test';
 import { test } from './isolated-app';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import type { ChatSnapshot } from '../../src/shared/contracts';
-import type { BackupReview } from '../../src/shared/backups';
+import type { BackupProgress } from '../../src/shared/backups';
+import { themeSchema, appearanceStatusSchema } from '../../src/shared/appearance';
 import { readFile } from 'node:fs/promises';
 import { selectLibraryCategory } from './library-card-helpers';
 
@@ -71,9 +72,27 @@ test('backup dialogs cancel without requests and clear transient passwords', asy
   expect(requests).toBe(0);
 });
 
-test('pending backup saving and opening show progress and prevent dismissal', async ({ page }) => {
+test('pending backup saving and opening show progress and prevent dismissal', async ({ page }, testInfo) => {
   await login(page);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  async function inspectMeter(view: string, overallName: string, phaseName: string) {
+    for (const theme of themeSchema.options) {
+      const path = '/api/application/appearance';
+      const current = appearanceStatusSchema.parse(await page.request.get(path).then(response => response.json()));
+      expect((await page.request.put(path, { headers: await headers(page), data: { revision: current.revision, settings: { ...current.settings, theme } } })).ok()).toBe(true);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        await expect(dialog.getByRole('progressbar', { name: overallName })).toBeInViewport();
+        await expect(dialog.getByRole('progressbar', { name: phaseName })).toBeInViewport();
+        expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+        await dialog.screenshot({ path: testInfo.outputPath(`${view}-progress-${theme}-${width}.png`) });
+      }
+    }
+  }
+  let progress: BackupProgress | null = null;
+  await page.route('**/api/data/backup-progress/*', route => route.fulfill({ json: { progress } }));
   let releaseSave: (() => void) | undefined;
   const saveResponse = new Promise<void>(resolve => { releaseSave = resolve; });
   await page.route('**/api/data/backup', async route => {
@@ -85,11 +104,34 @@ test('pending backup saving and opening show progress and prevent dismissal', as
   await saving.getByRole('button', { name: 'Save', exact: true }).click();
   try {
     await expect(saving.getByRole('progressbar', { name: 'Preparing backup file…' })).toBeVisible();
+    progress = { phase: 'encrypt', done: 41, total: 100 };
+    await expect(saving.getByRole('progressbar', { name: 'Encrypting backup…' })).toHaveAttribute('aria-valuenow', '41');
+    await expect(saving.getByText('41%')).toBeVisible();
+    const overall = saving.getByRole('progressbar', { name: 'Progress' });
+    await expect(overall).toHaveAttribute('aria-valuetext', 'Step 5 of 5');
+    await expect(saving.getByRole('listitem')).toHaveCount(0);
+    // A fixed measurement must paint identically at rest, under the pointer and during a press.
+    for (const bar of [overall, saving.getByRole('progressbar', { name: 'Encrypting backup…' })]) {
+      const box = await bar.boundingBox();
+      if (!box) throw new Error('Missing progress indicator');
+      await page.mouse.move(0, 0);
+      const resting = await bar.screenshot({ animations: 'disabled' });
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      expect(await bar.screenshot({ animations: 'disabled' })).toEqual(resting);
+      await page.mouse.down();
+      try { expect(await bar.screenshot({ animations: 'disabled' })).toEqual(resting); }
+      finally { await page.mouse.up(); }
+    }
+    await inspectMeter('save', 'Progress', 'Encrypting backup…');
     await page.keyboard.press('Escape');
     await expect(saving).toBeVisible();
   } finally { releaseSave?.(); }
   await expect(saving.getByRole('alert')).toContainText('Synthetic backup preparation failure');
   await saving.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Settings categories' }).getByRole('button', { name: 'Language', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Interface language', exact: true }).click();
+  await page.getByRole('option', { name: 'Русский', exact: true }).click();
+  progress = null;
   let release: (() => void) | undefined;
   const response = new Promise<void>(resolve => { release = resolve; });
   let attempts = 0;
@@ -98,21 +140,37 @@ test('pending backup saving and opening show progress and prevent dismissal', as
     await response;
     await route.fulfill({ status: 422, json: { message: 'Synthetic opening failure' } });
   });
-  await page.getByLabel('Select file...', { exact: true }).setInputFiles({ name: 'pending.sqlite', mimeType: 'application/octet-stream', buffer: Buffer.alloc(100) });
-  const dialog = page.getByRole('dialog');
-  const submit = dialog.getByRole('button', { name: 'Import', exact: true });
+  await page.getByLabel('Выбрать файл…', { exact: true }).setInputFiles({ name: 'pending.sqlite', mimeType: 'application/octet-stream', buffer: Buffer.alloc(100) });
+  const submit = dialog.getByRole('button', { name: 'Проверить копию', exact: true });
   await submit.click();
   await expect.poll(() => attempts).toBe(1);
   await expect(submit).toBeDisabled();
-  await expect(dialog.getByRole('progressbar', { name: 'Opening backup for review…' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
+  // The route is held before the browser can send the body.
+  await expect(dialog.getByRole('progressbar', { name: 'Загружаем копию…' })).toHaveAttribute('aria-valuenow', '0');
+  progress = { phase: 'validate', done: 2, total: 5 };
+  await expect(dialog.getByRole('progressbar', { name: 'Проверяем сохранённые записи…' })).toHaveAttribute('aria-valuenow', '40');
+  await expect(dialog.getByText(/40\s*%/)).toBeVisible();
+  const overview = dialog.getByRole('progressbar', { name: 'Прогресс' });
+  await expect(overview).toHaveAttribute('aria-valuetext', 'Шаг 5 из 10');
+  progress = { phase: 'references' };
+  const references = dialog.getByRole('progressbar', { name: 'Проверяем связи и целостность базы…' });
+  await expect(references).toBeVisible();
+  await expect(references).not.toHaveAttribute('aria-valuenow');
+  await expect(overview).toHaveAttribute('aria-valuetext', 'Шаг 5 из 10');
+  progress = { phase: 'validateClean', done: 1, total: 5 };
+  await expect(overview).toHaveAttribute('aria-valuetext', 'Шаг 7 из 10');
+  progress = { phase: 'validateMerged', done: 1, total: 7 };
+  await expect(overview).toHaveAttribute('aria-valuetext', 'Шаг 9 из 10');
+  await expect(dialog.getByRole('progressbar', { name: 'Проверяем объединённые записи…' })).toHaveAttribute('aria-valuenow', '14');
+  await inspectMeter('preview', 'Прогресс', 'Проверяем объединённые записи…');
+  await expect(dialog.getByRole('button', { name: 'Отмена', exact: true })).toBeDisabled();
   await page.mouse.click(2, 2);
   await expect(dialog).toBeVisible();
   await dialog.locator('form').dispatchEvent('submit');
   release?.();
   await expect(dialog.getByRole('alert')).toContainText('Synthetic opening failure');
   expect(attempts).toBe(1);
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Отмена', exact: true }).click();
 });
 
 for (const width of [1440,390]) test(`password-protected backup, validation and retry at ${width}px`, async ({ page }, testInfo) => {
@@ -155,7 +213,7 @@ for (const width of [1440,390]) test(`password-protected backup, validation and 
   const importPassword = page.getByLabel('Backup password (if set)', { exact: true });
   await page.getByLabel('Select file...', { exact: true }).setInputFiles({ name: 'protected.orebackup', mimeType: 'application/octet-stream', buffer });
   await importPassword.fill('wrong password');
-  await dialog.getByRole('button', { name: 'Import', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Review backup', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('Check the password');
   await expect(dialog.getByRole('alert')).toBeInViewport();
   await expect(dialog.getByRole('alert')).toContainText('try again');
@@ -164,7 +222,7 @@ for (const width of [1440,390]) test(`password-protected backup, validation and 
   await expect(page.getByRole('heading', { name: 'Import review', exact: true })).toHaveCount(0);
   expect((await page.request.get(`/api/chats/${chatId}`).then(response => response.json())).turns).toHaveLength(85);
   await importPassword.fill(password);
-  await dialog.getByRole('button', { name: 'Import', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Review backup', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Import review', exact: true })).toBeVisible();
   await expect(dialog).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -177,7 +235,7 @@ for (const width of [1440,390]) test(`invalid backup details and recovery at ${w
   await page.setViewportSize({ width,height: 950 }); await login(page);
   await page.getByRole('button',{ name: 'Settings',exact: true }).click();
   const input = page.getByLabel('Select file...', { exact: true });
-  const submit = async () => page.getByRole('dialog').getByRole('button', { name: 'Import', exact: true }).click();
+  const submit = async () => page.getByRole('dialog').getByRole('button', { name: 'Review backup', exact: true }).click();
   await input.setInputFiles({ name: 'invalid.sqlite',mimeType: 'application/octet-stream',buffer: Buffer.alloc(100) });
   await submit();
   const alert = page.getByRole('alert').filter({ hasText: 'This file is not a valid ORE backup.' });
@@ -223,7 +281,7 @@ for (const width of [1440,390]) test(`backup inspection, cancel, overwrite retry
   const buffer = await readFile(path); expect(buffer.subarray(0,8).toString()).toBe('OREENC\r\n'); expect(buffer.includes(Buffer.from('synthetic-backup-api-key'))).toBe(false);
   const upload = async () => {
     await page.getByLabel('Select file...', { exact: true }).setInputFiles({ name: 'ORE-backup.orebackup', mimeType: 'application/octet-stream', buffer });
-    await page.getByRole('dialog').getByRole('button', { name: 'Import', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Review backup', exact: true }).click();
   };
   await upload(); await expect(page.getByRole('heading',{ name: 'Import review',exact: true })).toBeVisible();
   const categories = page.getByRole('navigation', { name: 'Settings categories' });
@@ -234,6 +292,9 @@ for (const width of [1440,390]) test(`backup inspection, cancel, overwrite retry
   await page.screenshot({ path: `test-results/backups-overview-${width}.png`,fullPage: true });
   const requests: string[] = [];
   page.on('request',request => { if (request.url().includes('/records/')) requests.push(request.url()); });
+  await expect(page.locator('.backup-tree')).toBeHidden();
+  expect(requests).toHaveLength(0);
+  await page.getByText('Browse backup contents', { exact: true }).click();
   const turns = page.locator('.backup-tree > details').filter({ has: page.locator('summary').filter({ hasText: /^Turns and parts$/ }) });
   await turns.locator('> summary').click(); await expect(turns.locator('.backup-record')).toHaveCount(40);
   const leaf = turns.locator('.backup-record').filter({ has: page.locator('summary').filter({ hasText: /^Turn 1$/ }) });
@@ -261,6 +322,7 @@ for (const width of [1440,390]) test(`backup inspection, cancel, overwrite retry
   const importing = page.getByRole('dialog', { name: 'Import entire backup', exact: true });
   try {
     await expect(importing.getByRole('progressbar', { name: 'Importing saved data…' })).toBeVisible();
+    await expect(importing.getByRole('progressbar', { name: 'Progress' })).toHaveAttribute('aria-valuetext', 'Step 10 of 10');
     await page.keyboard.press('Escape');
     await expect(importing).toBeVisible();
   } finally { releaseImport?.(); }
@@ -283,4 +345,142 @@ for (const width of [1440,390]) test(`backup inspection, cancel, overwrite retry
   await page.getByRole('button',{ name: 'Import entire backup',exact: true }).click(); await page.getByRole('dialog').getByRole('button',{ name: 'Overwrite and import',exact: true }).click();
   await expect.poll(async () => (await page.request.get(`/api/chats/${chatId}`).then(response => response.json())).turns.length).toBe(85);
   await openChat(page,`Backup story ${width}`); await expect(page.getByRole('article',{ name: 'Turn 85',exact: true })).toContainText('Backup response 85.');
+});
+
+test('large backup shows transfer progress, then a bounded review across themes', async ({ page, context }, testInfo) => {
+  test.setTimeout(90_000);
+  await login(page);
+  const auth = await headers(page);
+  const chat: ChatSnapshot = await page.request.get('/api/chats/main').then(response => response.json());
+  const turns = Array.from({ length: 256 }, (_, i) => ({
+    user: `Input ${i}`, assistant: 'A synthetic passage. '.repeat(1000), complete: true,
+  }));
+  const seeded = await page.request.put('/api/__test/transcripts/main', { headers: auth, data: { revision: chat.revision, turns } });
+  expect(seeded.ok(), await seeded.text()).toBe(true);
+  for (let index = 0; index < 42; index++) {
+    const library: LibrarySnapshot = await page.request.get('/api/library').then(response => response.json());
+    const tag = await page.request.post('/api/library/tags', { headers: auth, data: { revision: library.revision, name: `Archive tag ${index + 1}` } });
+    expect(tag.ok()).toBe(true);
+  }
+  const response = await page.request.post('/api/data/backup', { headers: auth, data: { password: '' } });
+  expect(response.ok()).toBe(true);
+  const buffer = await response.body();
+  expect(buffer.length).toBeGreaterThan(10_000_000);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const fileName = 'Long-running campaign archive.orebackup';
+  await page.getByLabel('Select file...', { exact: true }).setInputFiles({ name: fileName, mimeType: 'application/octet-stream', buffer });
+  const dialog = page.getByRole('dialog');
+  const network = await context.newCDPSession(page);
+  await network.send('Network.enable');
+  await network.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: 2_000_000 });
+  // Observe short-lived measured phases. The first server measurement may
+  // already be available when the browser finishes reporting the upload.
+  const phases = await dialog.evaluateHandle(node => {
+    const seen = { upload: false, inspection: false };
+    const observer = new MutationObserver(() => {
+      const bar = node.querySelector('[role="progressbar"][aria-labelledby]');
+      const value = bar?.getAttribute('aria-valuenow');
+      const label = node.querySelector('[role="status"]')?.textContent;
+      if (label === 'Uploading backup…' && value != null && Number(value) > 0 && Number(value) < 100) seen.upload = true;
+      if (seen.upload && label && label !== 'Uploading backup…' && value != null) seen.inspection = true;
+      if (!node.isConnected) observer.disconnect();
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+    return seen;
+  });
+  try {
+    await dialog.getByRole('button', { name: 'Review backup' }).click();
+    await expect(dialog).toHaveCount(0, { timeout: 30_000 });
+    expect(await phases.jsonValue()).toEqual({ upload: true, inspection: true });
+  } finally {
+    await phases.dispose();
+    await network.detach();
+  }
+  const review = page.getByRole('region', { name: 'Import review', exact: true });
+  await expect(review.getByRole('heading', { name: 'Import review' })).toBeFocused();
+  await expect(review).toContainText(fileName);
+  const recordList = review.getByRole('region', { name: 'Changes by record' });
+  await expect(recordList).toBeHidden();
+  await review.getByText('Changes by record', { exact: true }).click();
+  await expect(recordList.getByText('Archive tag 1', { exact: true })).toBeVisible();
+  const firstPagePosition = await recordList.boundingBox();
+  let releasePage = () => {};
+  const heldPage = new Promise<void>(resolve => { releasePage = resolve; });
+  await page.route('**/api/data/stages/*?view=captured&offset=40', async route => {
+    await heldPage;
+    await route.continue();
+  }, { times: 1 });
+  await review.getByRole('button', { name: 'Next review page' }).click();
+  try {
+    await expect(review.getByRole('button', { name: 'Next review page' })).toBeDisabled();
+    await expect(recordList.getByText('Archive tag 1', { exact: true })).toBeVisible();
+    expect(await recordList.boundingBox()).toEqual(firstPagePosition);
+  } finally { releasePage(); }
+  await expect(recordList.getByText('Archive tag 42', { exact: true })).toBeVisible();
+  await expect(recordList.getByText('Archive tag 1', { exact: true })).toHaveCount(0);
+  await expect(review.getByRole('button', { name: 'Next review page' })).toBeDisabled();
+  expect(await recordList.boundingBox()).toEqual(firstPagePosition);
+  await review.getByRole('button', { name: 'Previous review page' }).click();
+  await expect(recordList.getByText('Archive tag 1', { exact: true })).toBeVisible();
+  await review.getByRole('button', { name: 'Next review page' }).click();
+  await expect(recordList.getByText('Archive tag 42', { exact: true })).toBeVisible();
+  await review.getByRole('button', { name: 'Refresh review' }).click();
+  await expect(recordList.getByText('Archive tag 1', { exact: true })).toBeVisible();
+  await review.getByText('Changes by record', { exact: true }).click();
+  for (const theme of themeSchema.options) {
+    const path = '/api/application/appearance';
+    const current = appearanceStatusSchema.parse(await page.request.get(path).then(result => result.json()));
+    expect((await page.request.put(path, { headers: auth, data: { revision: current.revision, settings: { ...current.settings, theme } } })).ok()).toBe(true);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    for (const width of [1280, 801, 800, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      expect(await review.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+      await review.screenshot({ path: testInfo.outputPath(`review-${theme}-${width}.png`) });
+      if (width === 1280 || width === 390) {
+        await page.getByRole('button', { name: 'Save...', exact: true }).click();
+        await expect(dialog.getByLabel('Confirm backup password')).toBeInViewport();
+        await dialog.screenshot({ path: testInfo.outputPath(`export-${theme}-${width}.png`) });
+        await dialog.getByRole('button', { name: 'Cancel' }).click();
+        await page.getByLabel('Select file...', { exact: true }).setInputFiles({
+          name: 'Another campaign archive.orebackup', mimeType: 'application/octet-stream', buffer: Buffer.alloc(100),
+        });
+        await expect(dialog.getByRole('button', { name: 'Review backup' })).toBeInViewport();
+        await dialog.screenshot({ path: testInfo.outputPath(`import-${theme}-${width}.png`) });
+        await dialog.getByRole('button', { name: 'Cancel' }).click();
+        await expect(review).toContainText(fileName);
+      }
+    }
+  }
+  await page.getByRole('navigation', { name: 'Settings categories' }).getByRole('button', { name: 'Language', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Interface language', exact: true }).click();
+  await page.getByRole('option', { name: 'Русский', exact: true }).click();
+  const translated = page.getByRole('region', { name: 'Проверка импорта' });
+  await translated.getByText('Содержимое копии', { exact: true }).click();
+  await expect(translated.getByText('Ходы и сообщения', { exact: true })).toBeVisible();
+  await expect(translated).toContainText(fileName);
+  expect(await translated.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+});
+
+test('an interrupted import can retry the same staged file after leaving Settings', async ({ page }) => {
+  await login(page);
+  const backup = await page.request.post('/api/data/backup', { headers: await headers(page), data: { password: '' } });
+  expect(backup.ok()).toBe(true);
+  const settings = page.getByRole('button', { name: 'Settings', exact: true });
+  await settings.click();
+  await page.getByLabel('Select file...', { exact: true }).setInputFiles({
+    name: 'recoverable.orebackup', mimeType: 'application/octet-stream', buffer: await backup.body(),
+  });
+  await page.getByRole('button', { name: 'Review backup' }).click();
+  await page.route('**/api/data/stages/*/import', route => route.abort('failed'), { times: 1 });
+  await page.getByRole('button', { name: 'Import entire backup' }).click();
+  await page.getByRole('button', { name: 'Overwrite and import' }).click();
+  await expect(page.getByRole('dialog').getByRole('alert')).toBeVisible();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Import review' }).getByRole('button', { name: 'Retry data command' })).toBeVisible();
+  await page.getByRole('button', { name: 'Libraries', exact: true }).click();
+  await settings.click();
+  const retried = page.waitForResponse(result => result.url().endsWith('/import') && result.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Retry data command' }).click();
+  expect((await retried).ok()).toBe(true);
+  await expect(page.getByRole('button', { name: 'Retry data command' })).toHaveCount(0);
 });

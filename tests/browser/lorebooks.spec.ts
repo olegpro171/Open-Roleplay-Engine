@@ -110,6 +110,7 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await page.getByLabel('Secondary keys', { exact: true }).fill(' crescent, moonlight\n, silver \n');
   await page.getByLabel('Require a secondary-key match', { exact: true }).check();
   await page.getByLabel('Lore content', { exact: true }).fill('The Moon Gate is sealed with a silver crescent.');
+  await page.getByText('Entry comment', { exact: true }).click();
   await page.getByLabel('Entry comment', { exact: true }).fill('Never send this human-only comment.');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   const bookRow = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Moon Gate atlas', exact: true }) });
@@ -137,6 +138,7 @@ test('edits a shared book, prefills a character default, inspects immutable lore
   await page.getByRole('button', { name: 'New character', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Moon keeper');
   await page.getByLabel('Character description', { exact: true }).fill('Keeper of the city gate.');
+  await page.getByRole('tab', { name: 'Lore & tags', exact: true }).click();
   await choose(page, 'Default lorebook', 'Moon Gate atlas');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await selectLibraryCategory(page, 'Chats');
@@ -246,6 +248,7 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   await expect(keeper).toBeVisible();
   await expect(page.locator('.library-notice')).toHaveCount(0);
   await keeper.getByRole('heading').getByRole('button').click();
+  await page.getByRole('tab', { name: 'Lore & tags', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Default lorebook', exact: true })).toContainText("Imported harbor keeper's lorebook");
   await page.getByRole('button', { name: 'Open book', exact: true }).click();
   await expect(page.getByLabel('Book name', { exact: true })).toHaveValue("Imported harbor keeper's lorebook");
@@ -256,6 +259,7 @@ test('reviews separate and embedded imports and retries a lost import acknowledg
   const beforeExtraction = (await library(page)).lorebooks.length;
   await selectLibraryCategory(page, 'Characters');
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Legacy harbor keeper', exact: true }) }).getByRole('heading').getByRole('button').click();
+  await page.getByRole('tab', { name: 'Lore & tags', exact: true }).click();
   await page.getByRole('button', { name: 'Extract embedded lorebook', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Embedded lorebook extracted' })).toBeVisible();
   await expect(page.getByLabel('Book name', { exact: true })).toHaveValue("Legacy harbor keeper's lorebook");
@@ -305,7 +309,7 @@ test('preserves regex commas and key boundaries when switching modes and entries
   await page.getByRole('button', { name: /^Literal keys/ }).click();
   const originalAppearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
   try {
-    for (const theme of ['dark', 'light', 'midnight-black']) {
+    for (const theme of ['dark', 'light', 'midnight-black', 'porcelain']) {
       const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
       await command(page, '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } }, 'PUT');
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
@@ -332,10 +336,12 @@ test('keeps unsaved entries on failures and revision conflicts, with bounded edi
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Large browser atlas', exact: true }) }).getByRole('heading').getByRole('button').click();
   const entries = page.getByRole('group', { name: 'Lorebook entries', exact: true });
   await expect(entries.locator('button[aria-pressed]')).toHaveCount(50);
+  await page.getByRole('tab', { name: 'Arrange entries' }).click();
   const acrossPages = entries.getByRole('button', { name: 'Move Record 49 down', exact: true });
   await acrossPages.press('Enter');
-  await expect(entries.locator('button[aria-pressed]').first()).toContainText('Record 49');
+  await expect(entries.locator('.lore-entry-row').first()).toContainText('Record 49');
   await expect(acrossPages).toBeFocused();
+  await page.getByRole('tab', { name: 'Entries', exact: true }).click();
   await expect(page.getByLabel('Lore content', { exact: true })).toHaveCount(1);
   await page.getByLabel('Search entries', { exact: true }).fill('key-124');
   await page.getByRole('button', { name: /^Record 124/ }).click();
@@ -372,8 +378,8 @@ test('keeps unsaved entries on failures and revision conflicts, with bounded edi
   await page.screenshot({ path: 'test-results/lorebook-phone.png', fullPage: true });
 });
 
-test('scrolls the entry list within the selected editor height on wide screens', async ({ page }, testInfo) => {
-  test.setTimeout(60_000);
+test('keeps the entry navigator readable and independent of the writing area', async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
   await login(page);
   await command(page, '/api/library', {
     kind: 'lorebooks', revision: (await library(page)).revision,
@@ -392,24 +398,16 @@ test('scrolls the entry list within the selected editor height on wide screens',
   const editor = page.getByRole('region', { name: 'Selected lore entry', exact: true });
   const search = page.getByLabel('Search entries', { exact: true });
   const content = page.getByLabel('Lore content', { exact: true });
-  const measure = () => page.locator('.lore-workspace').evaluate(workspace => {
-    const list = workspace.querySelector('.lore-entry-list');
-    const editor = workspace.querySelector('.lore-entry-editor');
-    if (!list || !editor) throw new Error('Missing lore workspace columns');
-    return {
-      workspaceHeight: workspace.getBoundingClientRect().height,
-      listHeight: list.getBoundingClientRect().height,
-      editorHeight: editor.getBoundingClientRect().height,
-      scrollHeight: list.scrollHeight, clientHeight: list.clientHeight,
-    };
-  });
+  const measure = () => list.evaluate(element => ({
+    box: element.getBoundingClientRect().toJSON(), scrollHeight: element.scrollHeight, clientHeight: element.clientHeight,
+  }));
   const originalAppearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
   try {
-    for (const theme of ['dark', 'light', 'midnight-black']) {
+    for (const theme of ['dark', 'light', 'midnight-black', 'porcelain']) {
       const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
       await command(page, '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } }, 'PUT');
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-      for (const width of [1440, 801, 800, 390]) {
+      for (const width of [1440, 801, 800, 776, 775, 477, 476, 390, 320]) {
         await page.setViewportSize({ width, height: 844 });
         await search.fill('');
         await search.scrollIntoViewIfNeeded();
@@ -418,27 +416,19 @@ test('scrolls the entry list within the selected editor height on wide screens',
         await list.getByRole('button', { name: /^Scroll record 0 / }).click();
         const initial = await measure();
         expect(initial.scrollHeight).toBeGreaterThan(initial.clientHeight);
-        if (width > 800) {
-          expect(Math.abs(initial.listHeight - initial.editorHeight)).toBeLessThanOrEqual(1);
-          expect(Math.abs(initial.workspaceHeight - initial.editorHeight)).toBeLessThanOrEqual(1);
-        } else {
-          expect(initial.listHeight).toBeLessThanOrEqual(270);
-        }
+        const entryBox = await editor.boundingBox();
+        expect(initial.box.width).toBeGreaterThan(220);
+        if ([1440, 800, 776].includes(width)) expect(initial.box.right).toBeLessThan(entryBox!.x);
+        else expect(initial.box.bottom).toBeLessThan(entryBox!.y);
         await list.getByRole('button', { name: /^Scroll record 49 / }).click();
         expect(await list.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
         await expect(content).toHaveValue('A long lore detail.\n'.repeat(150));
-        if (width > 800) {
-          await expect.poll(async () => (await measure()).editorHeight).toBeGreaterThan(initial.editorHeight);
-          const expanded = await measure();
-          expect(Math.abs(expanded.listHeight - expanded.editorHeight)).toBeLessThanOrEqual(1);
-        }
-        await list.getByRole('button', { name: 'Next page', exact: true }).click();
+        expect((await measure()).clientHeight).toBe(initial.clientHeight);
+        await page.getByRole('button', { name: 'Next page', exact: true }).click();
         await list.getByRole('button', { name: /^Scroll record 64 / }).click();
         await expect(page.getByLabel('Entry name', { exact: true })).toHaveValue('Scroll record 64');
         await expect(content).toHaveValue('A short lore detail.');
-        if (width > 800) {
-          await expect.poll(async () => (await measure()).listHeight).toBe(initial.listHeight);
-        }
+        expect((await measure()).clientHeight).toBeLessThanOrEqual(initial.clientHeight);
         await search.fill('scroll-key-64');
         await expect(list.locator('button[aria-pressed]')).toHaveCount(1);
         expect(await list.locator('button[aria-pressed]').evaluate(button => button.getBoundingClientRect().height)).toBeLessThan(200);
@@ -450,6 +440,11 @@ test('scrolls the entry list within the selected editor height on wide screens',
         await list.evaluate(element => { element.scrollTop = element.scrollHeight; });
         await editor.getByRole('button', { name: 'Delete entry', exact: true }).scrollIntoViewIfNeeded();
         await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-entries-bottom.png`) });
+        for (const tab of ['Arrange entries', 'Book settings', 'Entries']) {
+          await page.getByRole('tab', { name: tab, exact: true }).click();
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+          if (tab !== 'Entries') await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-${tab}.png`) });
+        }
       }
     }
   } finally {
@@ -487,7 +482,7 @@ for (const browserName of ['chromium', 'webkit'] as const) {
           const scroller = page.locator(width > 800 ? '.library-panel' : 'main.library-layout');
           const originalAppearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
           try {
-            for (const theme of ['dark', 'light', 'midnight-black']) {
+            for (const theme of ['dark', 'light', 'midnight-black', 'porcelain']) {
               const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
               await command(page, '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } }, 'PUT');
               await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
@@ -574,27 +569,33 @@ test('reorders a lorebook draft with drag and arrows and changes admission witho
   const editBook = page.getByRole('heading', { name: 'Ordered lore', exact: true }).getByRole('button');
   await editBook.click();
   const list = page.getByRole('group', { name: 'Lorebook entries', exact: true });
-  const rowNames = () => list.locator('button[aria-pressed] strong').allTextContents();
+  const rowNames = () => list.locator('.lore-row-label strong').allTextContents();
   expect(await rowNames()).toEqual(['Harbor', 'Tower', 'Priority', 'Far']);
+  const arrange = page.getByRole('tab', { name: 'Arrange entries' });
+  const edit = page.getByRole('tab', { name: 'Entries', exact: true });
+  const tower = list.getByRole('button', { name: /^Tower/ });
+  await tower.click();
+  await page.getByText('Entry comment', { exact: true }).click();
+  const comment = page.getByLabel('Entry comment', { exact: true });
+  await comment.fill('Unsaved text stays with this entry.');
+  await arrange.click();
   const search = page.getByRole('searchbox', { name: 'Search entries', exact: true });
   await search.fill('Tower');
   await expect(list.getByRole('button', { name: 'Move Tower up', exact: true })).toBeDisabled();
   await search.clear();
-  const tower = list.getByRole('button', { name: /^Tower/ });
-  await tower.click();
-  const comment = page.getByLabel('Entry comment', { exact: true });
-  await comment.fill('Unsaved text stays with this entry.');
   await list.getByRole('button', { name: 'Move Tower up', exact: true }).press('Enter');
+  expect(await rowNames()).toEqual(['Tower', 'Harbor', 'Priority', 'Far']);
+  await edit.click();
   await expect(tower).toHaveAttribute('aria-pressed', 'true');
   await expect(comment).toHaveValue('Unsaved text stays with this entry.');
-  expect(await rowNames()).toEqual(['Tower', 'Harbor', 'Priority', 'Far']);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await confirmLeaveEditor(page);
   await editBook.click();
   expect(await rowNames()).toEqual(['Harbor', 'Tower', 'Priority', 'Far']);
 
-  const farHandle = list.locator('.lore-entry-row').filter({ has: page.getByRole('button', { name: /^Far/ }) }).locator('.drag-handle');
-  await farHandle.dragTo(tower, { targetPosition: { x: 10, y: 2 } });
+  await arrange.click();
+  const farHandle = list.locator('.lore-entry-row').filter({ has: page.getByText('Far', { exact: true }) }).locator('.drag-handle');
+  await farHandle.dragTo(list.getByText('Tower', { exact: true }), { targetPosition: { x: 10, y: 2 } });
   expect(await rowNames()).toEqual(['Harbor', 'Far', 'Tower', 'Priority']);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(editBook).toBeVisible();
@@ -604,4 +605,111 @@ test('reorders a lorebook draft with drag and arrows and changes admission witho
   expect((await state()).generations[0].request).toEqual(savedRequest);
   await editBook.click();
   expect(await rowNames()).toEqual(['Harbor', 'Far', 'Tower', 'Priority']);
+});
+
+test('gives entry names room beside the Library sidebar and moves directly across pages', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 865, height: 900 });
+  await login(page);
+  const entries = Array.from({ length: 125 }, (_, i) => ({
+    ...newLoreEntry(`atlas-${i}`), name: `Персонаж ${i + 1} — история города`, insertionOrder: i,
+  }));
+  const { id } = await command(page, '/api/library', { kind: 'lorebooks', revision: (await library(page)).revision,
+    data: { ...newLorebook(), name: 'City archive', entries } });
+  const original = (await library(page)).lorebooks.find(book => book.id === id)!.entries;
+  await page.evaluate(() => localStorage.setItem('ore-interface-language', 'ru'));
+  await page.reload();
+  await page.getByRole('button', { name: 'Библиотека', exact: true }).click();
+  await page.getByRole('button', { name: 'Лорбуки', exact: true }).click();
+  await page.getByRole('button', { name: 'City archive', exact: true }).click();
+  const first = page.getByRole('button', { name: /^Персонаж 1 —/ });
+  expect((await first.boundingBox())!.width).toBeGreaterThan(220);
+  await page.screenshot({ path: testInfo.outputPath('ru-865-writing.png') });
+  await page.setViewportSize({ width: 593, height: 900 });
+  await page.getByRole('tab', { name: 'Порядок записей' }).click();
+  await page.screenshot({ path: testInfo.outputPath('ru-593-order.png') });
+  await page.getByRole('button', { name: 'Переместить «Персонаж 1 — история города» на позицию' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('spinbutton').fill('126');
+  await dialog.getByRole('button', { name: 'Переместить', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('spinbutton').fill('125');
+  await expect(dialog).toContainText('После «Персонаж 125 — история города»');
+  await page.screenshot({ path: testInfo.outputPath('ru-move-dialog.png') });
+  await dialog.getByRole('button', { name: 'Переместить', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Переместить «Персонаж 1 — история города» ниже' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'City archive', exact: true })).toBeVisible();
+  const saved = (await library(page)).lorebooks.find(book => book.id === id)!;
+  expect(saved.entries.sort((a, b) => a.insertionOrder - b.insertionOrder).map(entry => entry.id))
+    .toEqual([...original.slice(1), original[0]].map(entry => entry.id));
+});
+
+test.describe('touch lorebook ordering', () => {
+  test.use({ viewport: { width: 390, height: 720 }, isMobile: true, hasTouch: true });
+  test('carries a record past the initial viewport in one drag', async ({ page }) => {
+    await login(page);
+    await command(page, '/api/library', { kind: 'lorebooks', revision: (await library(page)).revision, data: {
+      ...newLorebook(), name: 'Travel journal', entries: Array.from({ length: 35 }, (_, i) => ({
+        ...newLoreEntry(String(i)), name: `Chapter ${i + 1}`, insertionOrder: i,
+      })),
+    } });
+    await books(page);
+    await page.getByRole('button', { name: 'Travel journal', exact: true }).tap();
+    await page.getByRole('tab', { name: 'Arrange entries' }).tap();
+    const rows = page.locator('.lore-organizer .lore-entry-row');
+    const handle = rows.first().locator('.drag-handle');
+    await handle.scrollIntoViewIfNeeded();
+    const grip = (await handle.boundingBox())!;
+    const nextTarget = rows.nth(11);
+    await expect(nextTarget).not.toBeInViewport();
+    const client = await page.context().newCDPSession(page);
+    const x = grip.x + grip.width / 2;
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: grip.y + grip.height / 2 }] });
+    await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: 710 }] });
+    await expect(nextTarget).toBeInViewport({ ratio: 1 });
+    const target = (await nextTarget.boundingBox())!;
+    await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: target.y + target.height * .75 }] });
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await client.detach();
+    const names = await rows.locator('strong').allTextContents();
+    expect(names[0]).toBe('Chapter 2');
+    expect(names.indexOf('Chapter 1')).toBeGreaterThanOrEqual(11);
+    expect(new Set(names).size).toBe(35);
+  });
+});
+
+test('reveals unfinished fields across tabs and saves book and entry settings together', async ({ page }) => {
+  await login(page);
+  await books(page);
+  await page.getByRole('button', { name: 'New lorebook' }).click();
+  await page.getByLabel('Book name').fill('Gate ledger');
+  await page.getByRole('button', { name: 'Add entry' }).click();
+  await page.getByText('Priority and placement', { exact: true }).click();
+  const priority = page.getByLabel('Admission priority');
+  await priority.fill('-');
+  await page.getByRole('button', { name: 'Add entry' }).click();
+  await page.getByLabel('Entry name', { exact: true }).fill('Second gate');
+  page.once('dialog', dialog => dialog.accept());
+  await page.reload();
+  await expect(page.getByLabel('Entry name', { exact: true })).toHaveValue('Second gate');
+  await page.getByRole('tab', { name: 'Book settings' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(priority).toBeFocused();
+  await expect(priority).toHaveValue('-');
+  await priority.fill('-3.5');
+  await choose(page, 'Lore entry placement', 'In message history');
+  await page.getByLabel('History depth', { exact: true }).fill('6');
+  await page.getByRole('tab', { name: 'Book settings' }).click();
+  const depth = page.getByLabel('Book scan depth', { exact: true });
+  await depth.fill('');
+  await page.getByRole('tab', { name: 'Arrange entries' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(depth).toBeFocused();
+  await depth.fill('8');
+  await page.getByLabel('Lore token cap').fill('3200');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Gate ledger', exact: true })).toBeVisible();
+  const book = (await library(page)).lorebooks.find(item => item.name === 'Gate ledger');
+  expect(book).toMatchObject({ scanDepth: 8, tokenBudget: 3200, entries: [{ priority: -3.5, depth: 6, placement: 'history' }, { name: 'Second gate', priority: 0 }] });
 });

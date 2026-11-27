@@ -8,19 +8,13 @@
   "theme_color": "#171c24",
   "icons": [
     {
-      "src": "/icons/favicon-porcelain-bold.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    },
-    {
-      "src": "/icons/app-porcelain-bold-192.png",
+      "src": "/icons/app-porcelain-bold-rounded-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/app-porcelain-bold-512.png",
+      "src": "/icons/app-porcelain-bold-rounded-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"

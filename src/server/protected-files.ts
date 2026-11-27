@@ -78,7 +78,9 @@ export async function protectBytes(bytes: Buffer, kind: ProtectedFileKind, passw
   });
 }
 
-export async function protectFile(source: string, destination: string, kind: ProtectedFileKind, password: string): Promise<void> {
+export async function protectFile(source: string, destination: string, kind: ProtectedFileKind, password: string, progress?: (done: number, total: number) => void, signal?: AbortSignal): Promise<void> {
+  const total = statSync(source).size;
+  progress?.(0, total);
   const salt = randomBytes(format.saltBytes), nonce = randomBytes(format.nonceBytes);
   const header = Buffer.concat([magic, Buffer.from([format.version, kinds[kind]]), salt, nonce]);
   await withKey(password, salt, async key => {
@@ -91,7 +93,9 @@ export async function protectFile(source: string, destination: string, kind: Pro
     try {
       try { writeFileSync(descriptor, header); }
       finally { closeSync(descriptor); }
-      await pipeline(createReadStream(source), cipher, createWriteStream(destination, { flags: 'a', mode: 0o600 }));
+      const input = createReadStream(source, { highWaterMark: 512 * 1024 });
+      input.on('data', () => progress?.(input.bytesRead, total));
+      await pipeline(input, cipher, createWriteStream(destination, { flags: 'a', mode: 0o600 }), { signal });
       appendFileSync(destination, cipher.getAuthTag());
     } catch (error) {
       rmSync(destination, { force: true });
@@ -117,7 +121,7 @@ function fileSalt(header: Buffer, kind: ProtectedFileKind) {
 
 // The caller owns the private staging directory and removes it on failure.
 // The plaintext path may only be opened as SQLite after this promise resolves.
-export async function unprotectFile(source: string, destination: string, kind: ProtectedFileKind, password: string, signal?: AbortSignal) {
+export async function unprotectFile(source: string, destination: string, kind: ProtectedFileKind, password: string, signal?: AbortSignal, progress?: (done: number, total: number) => void) {
   const size = statSync(source).size;
   const payloadSize = size - protectedFileOverheadBytes;
   if (payloadSize <= 0 || payloadSize > protectedPayloadMaxBytes) throw invalidFile();
@@ -132,9 +136,11 @@ export async function unprotectFile(source: string, destination: string, kind: P
   }
   await withKey(password, fileSalt(header, kind), async key => {
     const decipher = openCipher(header, tag, key);
+    let done = 0;
+    progress?.(0, payloadSize);
     const decrypt = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
-        try { callback(null, decipher.update(chunk)); }
+        try { const plain = decipher.update(chunk); done += chunk.length; progress?.(done, payloadSize); callback(null, plain); }
         catch (error) { callback(error instanceof Error ? error : invalidFile()); }
       },
       flush(callback) {
@@ -142,7 +148,7 @@ export async function unprotectFile(source: string, destination: string, kind: P
         catch { callback(invalidFile()); }
       },
     });
-    await pipeline(createReadStream(source, { start: header.length, end: size - tag.length - 1 }),
+    await pipeline(createReadStream(source, { highWaterMark: 512 * 1024, start: header.length, end: size - tag.length - 1 }),
       decrypt, createWriteStream(destination, { flags: 'wx', mode: 0o600 }), { signal });
   });
 }

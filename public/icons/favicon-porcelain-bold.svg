@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
   <title id="title">Porcelain Bold bird favicon</title>
-  <desc id="desc">A borderless favicon with a black-to-burgundy bird on warm white.</desc>
+  <desc id="desc">A black-to-burgundy bird crest.</desc>
   <defs>
     <linearGradient id="crest-color" gradientUnits="userSpaceOnUse" x1="330" y1="900" x2="1000" y2="380">
       <stop offset="0" stop-color="#000000"/>
@@ -10,7 +10,6 @@
       <stop offset="1" stop-color="#a23640"/>
     </linearGradient>
   </defs>
-  <rect width="1024" height="1024" fill="#fcfaf8"/>
   <g transform="translate(-2.0201300501 -32.3737735319) scale(0.851941408734)" fill="url(#crest-color)" fill-rule="evenodd">
     <path id="head-and-neck" d="
       M 672.00 1225.83

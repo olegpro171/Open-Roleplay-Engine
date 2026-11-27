@@ -121,6 +121,50 @@ test('updates Memory and Chat Details while preparation is waiting on the next s
   expect(await calls()).toHaveLength(2);
 });
 
+test('shows memory preparation in the pending response version and restores the saved reply on cancellation', async ({ page, browserApp }, testInfo) => {
+  const { state, read, write } = await memoryStory(page, browserApp.url, 'Regeneration status', 8);
+  const before = (await state()).turns[7];
+  const turn = page.getByRole('article', { name: 'Turn 8', exact: true });
+  const reply = turn.locator('.part.assistant');
+  const version = turn.getByRole('textbox', { name: 'Response version', exact: true });
+  const status = reply.getByRole('status');
+  const cursor = reply.locator('[aria-label="Generating"]');
+  await expect(reply).toContainText(before.assistant.text);
+  await expect(version).toHaveValue('1');
+
+  await write('POST', '/__test/mode', { mode: 'hold-first-token' });
+  await turn.getByRole('button', { name: 'Regenerate', exact: true }).click();
+  await expect(page.locator('.memory-preparation-status')).toContainText('Connecting…');
+  await expect(version).toHaveValue('2');
+  await expect(status).toHaveText('Preparing memory…');
+  await expect(reply).not.toContainText(before.assistant.text);
+  expect((await state()).turns[7]).toEqual(before);
+
+  for (const theme of themeSchema.options) {
+    const appearance = appearanceStatusSchema.parse(await read<unknown>('/api/application/appearance'));
+    await write('PUT', '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(status).toBeInViewport({ ratio: 1 });
+      await expect(cursor).toHaveCSS('animation-iteration-count', 'infinite');
+      await expect(cursor).toBeInViewport({ ratio: 1 });
+      await expect(turn.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport();
+      await page.screenshot({ path: testInfo.outputPath(`regeneration-${theme}-${width}.png`) });
+    }
+  }
+
+  await turn.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(status).toHaveCount(0);
+  await expect(cursor).toHaveCount(0);
+  await expect(reply).toContainText(before.assistant.text);
+  await expect(version).toHaveValue('1');
+  const after = await state();
+  expect(after.turns[7]).toEqual(before);
+  expect(after.generations[0]).toMatchObject({ kind: 'regeneration', status: 'cancelled', request: null });
+  expect(await read<unknown[]>('/__test/requests')).toHaveLength(1);
+});
+
 test('Story tracks and stops regeneration outside the transcript window and reviews a preset change', async ({ page, browserApp }, testInfo) => {
   const title = 'Regeneration memory';
   const { path, state, read, write, library, presetId } = await memoryStory(page, browserApp.url, title, 170);
@@ -343,13 +387,16 @@ test('Send pauses for deletion review, survives reload, and resumes only after c
   await page.reload();
   await page.getByLabel('Your next turn').fill('Leon asks for the key.');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  const reviewLink = page.getByRole('button', { name: 'Review deletion', exact: true });
-  await expect(reviewLink).toBeVisible();
-  await expect(page.locator('.memory-preparation-status').getByRole('status')).toContainText('Preparation is waiting for deletion review.');
+  const progress = page.locator('.memory-preparation-status');
+  const inspectMemory = progress.getByRole('button', { name: 'Inspect memory', exact: true });
+  await expect(inspectMemory).toBeVisible();
+  await expect(progress.getByRole('status')).toContainText('Preparation is waiting for deletion review.');
   expect(await calls()).toHaveLength(2);
   await page.reload();
-  await inspectReview(page, page.locator('.memory-preparation-status'), testInfo, browserApp.url, 'Review deletion', 'waiting');
-  await reviewLink.click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(inspectMemory).toBeInViewport({ ratio: 1 });
+  await inspectReview(page, progress, testInfo, browserApp.url, 'Inspect memory', 'waiting');
+  await inspectMemory.click();
   const review = page.getByRole('region', { name: 'Summary deletion preview', exact: true });
   await expect(review).toContainText(correction);
   await expect(page.locator(`[data-summary-id="${summary.id}"]`)).toHaveClass(/deleting/);
@@ -362,7 +409,7 @@ test('Send pauses for deletion review, survives reload, and resumes only after c
 
   await page.getByRole('button', { name: 'Return to chat', exact: true }).click();
   await page.getByRole('button', { name: 'Retry response', exact: true }).click();
-  await reviewLink.click();
+  await inspectMemory.click();
   await review.getByRole('button', { name: 'Delete and continue', exact: true }).click();
   await expect(review).toHaveCount(0);
   await expect.poll(async () => (await state()).turns.at(-1)?.complete).toBe(true);
@@ -414,6 +461,29 @@ test('Prepare restores verbatim turns and shows the saved manual edit as retaine
   }
 });
 
+async function expectPreparationLayout(settings: Locator, labels: { preset: string; edit: string; target: string; save: string }) {
+  const [label, dropdown, edit, input, save] = await Promise.all([
+    settings.getByText(labels.preset, { exact: true }).boundingBox(),
+    settings.getByRole('combobox', { name: labels.preset, exact: true }).boundingBox(),
+    settings.getByRole('button', { name: labels.edit, exact: true }).boundingBox(),
+    settings.getByLabel(labels.target, { exact: true }).boundingBox(),
+    settings.getByRole('button', { name: labels.save, exact: true }).boundingBox(),
+  ]);
+  if (!label || !dropdown || !edit || !input || !save) throw new Error('Missing preparation settings controls');
+  expect(label.x + label.width).toBeLessThan(dropdown.x);
+  expect(Math.abs(label.y + label.height / 2 - dropdown.y - dropdown.height / 2)).toBeLessThan(2);
+  expect(edit.y).toBeGreaterThanOrEqual(dropdown.y + dropdown.height);
+  expect(Math.abs(edit.x - dropdown.x)).toBeLessThan(2);
+  expect(Math.abs(input.x - dropdown.x)).toBeLessThan(2);
+  expect(input.y).toBeGreaterThanOrEqual(edit.y + edit.height);
+  expect(Math.abs(save.x + save.width - dropdown.x - dropdown.width)).toBeLessThan(2);
+  if (save.y >= input.y + input.height) {
+    expect(save.y - input.y - input.height).toBeLessThan(12);
+  } else {
+    expect(save.x).toBeGreaterThanOrEqual(input.x + input.width);
+  }
+}
+
 test('keeps the Memory view in place when switching summaries and localizes authority', async ({ page, browserApp }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 950 });
   const { state, write } = await memoryStory(page, browserApp.url, 'Memory inspection switch', 120);
@@ -443,7 +513,7 @@ test('keeps the Memory view in place when switching summaries and localizes auth
   await expect(timeline.getByRole('button').first()).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('region', { name: 'Summary text', exact: true })).toHaveText(original);
 
-  for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+  for (const theme of themeSchema.options) {
     const response = await page.request.get('/api/application/appearance');
     const appearance = appearanceStatusSchema.parse(await response.json());
     await write('PUT', '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } });
@@ -466,12 +536,27 @@ test('keeps the Memory view in place when switching summaries and localizes auth
         const bounds = await close.boundingBox();
         expect(textRight).toBeLessThanOrEqual(bounds?.x ?? 0);
       }
-      await expect.poll(async () => {
-        const [inputBox, saveBox] = await Promise.all([inputTarget.boundingBox(), save.boundingBox()]);
-        if (!inputBox || !saveBox) return false;
-        return Math.abs(saveBox.x + saveBox.width - inputBox.x - inputBox.width) < 2;
-      }).toBe(width <= 800);
+      const panel = page.getByRole('region', { name: 'Memory', exact: true });
+      await panel.evaluate(node => { node.scrollTop = 0; });
+      expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+      const shortcut = panel.getByRole('button', { name: 'Preparation settings', exact: true });
+      await expect(shortcut).toHaveCount(0);
+      if (width === 1280 || width === 390) {
+        await page.screenshot({ path: testInfo.outputPath(`memory-overview-${theme}-${width}.png`) });
+      }
+      await settings.scrollIntoViewIfNeeded();
+      await expectPreparationLayout(settings, { preset: 'Context preset', edit: 'Edit context preset', target: 'Input target', save: 'Save' });
+      await expect(inputTarget).toBeInViewport();
+      await expect(save).toBeInViewport();
       await settings.screenshot({ path: testInfo.outputPath(`memory-settings-${theme}-${width}.png`) });
+      if (width === 1280 || width === 390) {
+        await inputTarget.fill('201');
+        await expect(save).toBeEnabled();
+        await expect(settings.getByRole('button', { name: 'Edit context preset', exact: true })).toBeDisabled();
+        await settings.screenshot({ path: testInfo.outputPath(`memory-settings-unsaved-${theme}-${width}.png`) });
+        await inputTarget.fill('200');
+        await expect(save).toBeDisabled();
+      }
     }
     await page.setViewportSize({ width: 620, height: 844 });
     await expect(timeline.getByRole('img', { name: /^Turns 1–4/ })).toBeVisible();
@@ -524,12 +609,11 @@ test('keeps the Memory view in place when switching summaries and localizes auth
   await page.getByRole('button', { name: 'Просмотр памяти', exact: true }).click();
   const settings = page.getByRole('group', { name: 'Настройки подготовки', exact: true });
   const save = settings.getByRole('button', { name: 'Сохранить', exact: true });
-  const editPreset = settings.getByRole('button', { name: 'Изменить пресет', exact: true });
   await page.setViewportSize({ width: 320, height: 844 });
   await expect(save).toBeDisabled();
-  const [saveBox, editBox] = await Promise.all([save.boundingBox(), editPreset.boundingBox()]);
-  if (!saveBox || !editBox) throw new Error('Missing the memory settings buttons');
-  expect(saveBox.y).toBeLessThan(editBox.y + editBox.height);
+  await expectPreparationLayout(settings, {
+    preset: 'Пресет контекста', edit: 'Изменить пресет', target: 'Целевой размер входа', save: 'Сохранить',
+  });
   await settings.screenshot({ path: testInfo.outputPath('russian-memory-settings-320.png') });
   const summaryPicker = page.getByRole('combobox', { name: 'Просмотр сохранённой сводки', exact: true });
   await summaryPicker.click();

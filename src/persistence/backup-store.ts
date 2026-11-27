@@ -9,10 +9,10 @@ import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { Store } from './store.js';
 import { AppError } from '../core/errors.js';
-import { backupTables, type BackupTable, type BackupUnit, type DataOutcome } from '../shared/backups.js';
+import { backupTables, type BackupTable, type BackupUnit, type DataOutcome, type ReportBackupProgress } from '../shared/backups.js';
 import { defaultPrompt } from '../shared/library.js';
 import { defaultContextPreset } from '../shared/context.js';
-import { rows, str, json, rowSchema, validateContent, type BackupRow } from './backup-validation.js';
+import { portableRowCount, rows, str, json, rowSchema, validateContent, type BackupRow } from './backup-validation.js';
 import { z } from 'zod';
 
 export function datasetEpoch(db: Database.Database): string {
@@ -38,20 +38,28 @@ export function insertRow(db: Database.Database, table: BackupTable, row: Backup
   const conflict = upsert ? ` ON CONFLICT(id) DO UPDATE SET ${keys.filter(key => key !== 'id').map(key => `"${key}"=excluded."${key}"`).join(',')}` : '';
   db.prepare(`INSERT INTO "${table}" (${keys.map(key => `"${key}"`).join(',')}) VALUES (${keys.map(() => '?').join(',')})${conflict}`).run(...keys.map(key => row[key] ?? null));
 }
-export function sanitizePortable(db: Database.Database) {
+export function sanitizePortable(db: Database.Database, report?: ReportBackupProgress) {
+  const total = report && portableRowCount(db, ['generations', 'context_steps', 'context_jobs']);
+  let done = 0;
+  report?.('sanitize', done, total);
   db.transaction(() => {
-    db.exec('DELETE FROM sessions; DELETE FROM owners; DELETE FROM runtime_owner; DELETE FROM lore_commands; DELETE FROM data_commands; DELETE FROM branch_commands; DELETE FROM composer_drafts;');
+    db.exec('DELETE FROM sessions; DELETE FROM owners; DELETE FROM runtime_owner; DELETE FROM lore_commands; DELETE FROM data_commands; DELETE FROM branch_commands; DELETE FROM composer_drafts; DELETE FROM composer_suggestion_sessions;');
     db.prepare("UPDATE dataset_state SET epoch = 'initial' WHERE id = 1").run();
     const interrupted = message('outcome.backupInterrupted');
     db.prepare("UPDATE generations SET status = 'interrupted', error = ?, error_message = ? WHERE status = 'running'").run(interrupted.fallback, JSON.stringify(interrupted));
-    for (const row of rows(db,'generations','id')) db.prepare('UPDATE generations SET request_id = ? WHERE id = ?').run(randomUUID(), row.id);
+    const rotateRequest = db.prepare('UPDATE generations SET request_id = ? WHERE id = ?');
+    for (const row of rows(db,'generations','id')) {
+      rotateRequest.run(randomUUID(), row.id);
+      report?.('sanitize', ++done, total);
+    }
     for (const row of rows(db,'context_steps')) {
       const value = z.record(z.string(),z.unknown()).parse(json(row));
       if (value.status === 'candidate' || value.status === 'running') {
         value.status = value.status === 'candidate' ? 'discarded' : 'interrupted'; value.result = null;
         value.error = message('outcome.backupUnapproved').fallback; value.errorMessage = message('outcome.backupUnapproved');
+        db.prepare('UPDATE context_steps SET data = ? WHERE id = ?').run(JSON.stringify(value),row.id);
       }
-      db.prepare('UPDATE context_steps SET data = ? WHERE id = ?').run(JSON.stringify(value),row.id);
+      report?.('sanitize', ++done, total);
     }
     for (const row of rows(db,'context_jobs')) {
       const value = z.record(z.string(),z.unknown()).parse(json(row));
@@ -60,6 +68,7 @@ export function sanitizePortable(db: Database.Database) {
         value.status = 'interrupted'; value.error = message('outcome.backupUnfinished').fallback; value.errorMessage = message('outcome.backupUnfinished');
       }
       db.prepare('UPDATE context_jobs SET request_id = ?, data = ? WHERE id = ?').run(randomUUID(),JSON.stringify(value),row.id);
+      report?.('sanitize', ++done, total);
     }
     db.exec("DELETE FROM summaries WHERE json_extract(data, '$.approved') = 0");
   })();
@@ -202,6 +211,24 @@ export function mergeContent(destination: Database.Database, incoming: Database.
   return retainedEffects;
 }
 
+export function compareSnapshot(preview: Database.Database, incoming: Database.Database, token = stateToken(preview), report?: ReportBackupProgress) {
+  const units = importUnits(preview, incoming);
+  const overlaps = units.filter(unit => unit.overlap).length;
+  try {
+    report?.('merge');
+    const effects = preview.transaction(() => {
+      preview.pragma('defer_foreign_keys = ON');
+      const effects = mergeContent(preview,incoming);
+      validateContent(preview, report, 'merged');
+      return effects;
+    })();
+    return { token, units, overlaps, effects, blockers: [] as string[] };
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'SQLITE_FULL') throw error;
+    return { token, units, overlaps, effects: [], blockers: [error instanceof AppError ? error.message : 'The combined backup violates a saved reference, identity or unique constraint. No data was changed.'] };
+  }
+}
+
 export class BackupStore {
   constructor(private store: Store, private scratch = tmpdir()) {}
   get epoch() { return datasetEpoch(this.store.sqlite); }
@@ -213,9 +240,9 @@ export class BackupStore {
     if (saved.digest !== digest) throw new AppError(409,'data_command_conflict',message("errors.this_command_identity_was_already_used_for_different"));
     return z.object({ ok: z.literal(true), epoch: z.string(), kind: z.enum(['import','wipe']) }).parse(JSON.parse(saved.outcome));
   }
-  preflight(incoming: Database.Database) {
+  preflight(incoming: Database.Database, token = this.token) {
     const current = this.store.sqlite;
-    const units = importUnits(current,incoming), token = this.token;
+
     const directory = mkdtempSync(join(this.scratch, 'merge-'));
     const path = join(directory, 'preview.sqlite');
     let clone: Database.Database | undefined;
@@ -233,19 +260,7 @@ export class BackupStore {
       clone = new Database(path);
       clone.pragma('foreign_keys = ON');
       clone.pragma('temp_store = FILE');
-      const preview = clone;
-      try {
-        const effects = preview.transaction(() => {
-          preview.pragma('defer_foreign_keys = ON');
-          const effects = mergeContent(preview,incoming);
-          validateContent(preview);
-          return effects;
-        })();
-        return { token, units, effects, blockers: [] as string[] };
-      } catch (error) {
-        if (error instanceof Error && 'code' in error && error.code === 'SQLITE_FULL') throw error;
-        return { token, units, effects: [], blockers: [error instanceof AppError ? error.message : 'The combined backup violates a saved reference, identity or unique constraint. No data was changed.'] };
-      }
+      return compareSnapshot(clone, incoming, token);
     } catch (error) {
       if (error instanceof Error && 'code' in error && ['ENOSPC', 'SQLITE_FULL'].includes(String(error.code))) {
         throw new AppError(507,'backup_disk_space',message("errors.backup_staging_ran_out_of_disk_space_free"));

@@ -3,7 +3,7 @@ import { pictureMutationSchema, type CharacterPicture } from './pictures.js';
 import { tagIdsSchema, type Tag, type CharacterTag } from './tags.js';
 import { z } from 'zod';
 import { factoryPrompt } from './default-prompt.js';
-import { connectionSchema, revisionSchema, type Connection } from './contracts.js';
+import { connectionRecordSchema, revisionSchema, type ConnectionRecord } from './contracts.js';
 import { contextPresetSchema, type ContextPreset } from './context.js';
 import { lorebookSchema, type Lorebook } from './lorebook.js';
 import { cardInstructionTextSchema, characterDepthPromptSchema } from './card-instructions.js';
@@ -59,7 +59,7 @@ export const promptBlockSchema = z.discriminatedUnion('kind', [
 ]);
 export const promptSchema = z.strictObject({
   name, blocks: z.array(promptBlockSchema).max(100),
-  continuationInstruction: text.optional(), openingInstruction: text.optional(),
+  continuationInstruction: text.optional(), openingInstruction: text.optional(), impersonateInstruction: text.optional(),
 }).superRefine((value, ctx) => {
   if (new Set(value.blocks.map(b => b.id)).size !== value.blocks.length) ctx.addIssue({ code: 'custom', message: 'Block identities must be unique.' });
   if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === 'messages').length > 1) ctx.addIssue({ code: 'custom', message: 'Use at most one enabled Messages marker.' });
@@ -93,7 +93,7 @@ export type LibrarySnapshot = {
   characterPictures: CharacterPicture[];
   tags: Tag[]; characterTags: CharacterTag[];
   revision: number; personas: Saved<LibraryPersona>[]; characters: Saved<LibraryCharacter>[]; prompts: Saved<PromptPreset>[];
-  connections: (Saved<Connection> & { hasApiKey: boolean })[]; chats: ChatSummary[];
+  connections: (Saved<ConnectionRecord> & { hasApiKey: boolean })[]; chats: ChatSummary[];
   contexts: Saved<ContextPreset>[];
   lorebooks: Saved<Lorebook>[];
   lorebookUses?: { bookId: string; characters: { id: string; name: string; titleComment?: string }[]; chats: { id: string; title: string }[] }[];
@@ -134,7 +134,7 @@ export const libraryCommandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('prompts'), revision: revisionSchema, data: promptSchema }).strict(),
   z.object({ kind: z.literal('contexts'), revision: revisionSchema, data: contextPresetSchema, memoryImpactToken: memoryImpactTokenSchema.optional() }).strict(),
   z.object({ kind: z.literal('lorebooks'), revision: revisionSchema, data: lorebookSchema }).strict(),
-  z.object({ kind: z.literal('connections'), revision: revisionSchema, data: connectionSchema, apiKey: z.string().max(10_000).refine(v => !/[\r\n]/.test(v)).optional() }).strict(),
+  z.object({ kind: z.literal('connections'), revision: revisionSchema, data: connectionRecordSchema, apiKey: z.string().max(10_000).refine(v => !/[\r\n]/.test(v)).optional() }).strict(),
 ]);
 export const transcriptFileLimit = 128_000_000;
 export const transcriptEntryLimit = 50_000;

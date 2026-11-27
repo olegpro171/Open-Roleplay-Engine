@@ -4,10 +4,11 @@ import { removePinSchema } from './support/schema-16.js';
 import { restoreLegacyPictureSchema } from './support/schema-17.js';
 import { removeBranchSchema } from './support/schema-15.js';
 import { removeContinuationSchema } from './support/schema-18.js';
+import { restoreLegacyGenerationSchema } from '../src/persistence/legacy-generation-schema.js';
 import { removeComposerDraftSchema } from './support/schema-19.js';
 import { Readable } from 'node:stream';
 import { removeSortingSchema } from './support/legacy-sorting.js';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +20,7 @@ import { execFileSync } from 'node:child_process';
 import { BackupService } from '../src/server/backups.js';
 import { unprotectBytes } from '../src/server/protected-files.js';
 import { BackupStore, datasetEpoch } from '../src/persistence/backup-store.js';
-import { backupLimits, type BackupReview } from '../src/shared/backups.js';
+import { backupLimits, type BackupReview, type ReportBackupProgress } from '../src/shared/backups.js';
 import { defaultPrompt } from '../src/shared/library.js';
 import { sourceOf } from '../src/core/context.js';
 import { assembleRequest } from '../src/core/prompt.js';
@@ -40,6 +41,44 @@ beforeEach(() => { directory = mkdtempSync(join(tmpdir(),'ore-backup-test-')); }
 afterEach(() => { for (const value of services.splice(0)) value.close(); for (const value of stores.splice(0)) if (value.sqlite.open) value.close(); rmSync(directory,{ recursive: true,force: true }); });
 
 describe('portable backup persistence',() => {
+  it('recovers a saved provider window alongside its manual override and older Connections', async () => {
+    const source = store('window-source', undefined, false);
+    const connection = { name: 'Synthetic', endpoint: 'http://localhost/v1', model: 'mock', contextWindow: 28_000, maxOutputTokens: 1_000, customParameters: {} };
+    const legacy = source.saveLibrary(source.libraryRevision(), 'connections', connection);
+    const modelWindowReport = { endpoint: connection.endpoint, model: connection.model, tokens: 32_000 };
+    const reported = source.saveLibrary(source.libraryRevision(), 'connections', { ...connection, name: 'Reported', modelWindowReport });
+    const expected = source.libraries().connections;
+    source.close();
+
+    const reopened = store('window-source', undefined, false), backups = service(reopened, 'window-source');
+    expect(reopened.libraries().connections).toEqual(expected);
+    const destination = store('window-target', undefined, false), target = service(destination, 'window-target');
+    const review = await target.inspect(Readable.from([await bytes(backups)]), owner);
+    expect(review.blockers).toEqual([]);
+    target.commit(review.stageId, owner, receipt(review));
+    expect(destination.libraries().connections).toEqual(expected);
+    expect(destination.libraries().connections.find(item => item.id === legacy)?.modelWindowReport).toBeUndefined();
+    expect(destination.libraries().connections.find(item => item.id === reported)).toMatchObject({ contextWindow: 28_000, modelWindowReport });
+  });
+
+  it('restores Impersonate request history without reopening a live suggestion or adding a turn', async () => {
+    const source = store('suggestion-source'), backups = service(source, 'suggestion-source');
+    const connection = { name: 'Synthetic', endpoint: 'http://localhost/v1', model: 'mock', contextWindow: 32_000, maxOutputTokens: 500, customParameters: {} };
+    source.saveSettings(source.snapshot().revision, connection, source.snapshot().settings);
+    const { id } = source.beginImpersonation(source.snapshot().revision, randomUUID(), 'main', randomUUID(), 'Ask for the key.');
+    const view = source.generationSnapshot(id);
+    const request = assembleRequest(connection, view.settings, view.turns, view.sources, view.context, { turnInstruction: view.turnInstruction });
+    source.saveRequest(id, request);
+    source.finish(id, 'succeeded', '“May I have the key?”');
+    const destination = store('suggestion-destination'), target = service(destination, 'suggestion-destination');
+    const review = await target.inspect(Readable.from([await bytes(backups)]), owner);
+    expect(review.blockers).toEqual([]);
+    target.commit(review.stageId, owner, receipt(review));
+    expect(destination.snapshot().generations).toEqual(source.snapshot().generations);
+    expect(destination.snapshot().turns).toEqual([]);
+    expect(destination.sqlite.prepare('SELECT * FROM composer_suggestion_sessions').all()).toEqual([]);
+  });
+
   it('round-trips a continuation and the earlier response version it extended', async () => {
     const source = store('continue-source'), backups = service(source, 'continue-source');
     const connection = { name: 'Synthetic', endpoint: 'http://localhost/v1', model: 'mock', contextWindow: 32_000, maxOutputTokens: 1_000, customParameters: {} };
@@ -121,6 +160,7 @@ describe('portable backup persistence',() => {
   });
 
   it.each([
+    { sourceEnding: 'LF', targetEnding: 'CRLF', version: 21 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 20 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 19 },
     { sourceEnding: 'CRLF', targetEnding: 'LF', version: 19 },
@@ -159,6 +199,13 @@ describe('portable backup persistence',() => {
     const expectedTurns = source.snapshot(chatId).turns;
     const path = join(directory,'input.sqlite');
     writeFileSync(path,await bytes(sourceBackups));
+    if (version === 20) {
+      const legacy = new Database(path);
+      try {
+        restoreLegacyGenerationSchema(legacy);
+        legacy.exec("PRAGMA user_version = 20; UPDATE backup_metadata SET data = json_set(data, '$.schema', 20)");
+      } finally { legacy.close(); }
+    }
     if (version === 19) {
       const legacy = new Database(path);
       try {
@@ -324,8 +371,60 @@ describe('portable backup persistence',() => {
     expect(db.libraryRevision()).toBe(before);
     expect(() => backups.commit(review.stageId,owner,receipt(review))).toThrow('changed since review');
     expect(db.snapshot(chatId).turns[0].assistant.text).toBe('Local correction');
-    const renewed = backups.review(review.stageId,owner); expect(renewed.token).not.toBe(review.token);
+    const renewed = await backups.refresh(review.stageId,owner); expect(renewed.token).not.toBe(review.token);
     backups.commit(review.stageId,owner,receipt(renewed)); expect(db.snapshot(chatId).turns[0].assistant.text).toBe('Welcome, traveler.');
+  });
+  it('pages the reviewed comparison without reading the live dataset after a local edit', async () => {
+    const db = store('pages'), backups = service(db, 'pages');
+    for (let i = 0; i < 45; i++) db.tags.create(db.libraryRevision(), `Tag ${i}`);
+    const review = await backups.inspect(Readable.from([await bytes(backups)]), owner);
+    db.tags.create(db.libraryRevision(), 'New local tag');
+    const digest = vi.spyOn(backups.persistence, 'token', 'get');
+    const page = backups.review(review.stageId, owner, 40);
+    expect(page.units.length).toBe(review.totalUnits - 40);
+    expect(page.units[0].id).not.toBe(review.units[0].id);
+    expect(page.token).toBe(review.token);
+    expect(digest).not.toHaveBeenCalled();
+    expect(() => backups.commit(review.stageId, owner, receipt(page))).toThrow('changed since review');
+  });
+  it('reports measured private-file work and checks the captured destination after a concurrent edit', async () => {
+    const db = store('progress'), backups = service(db, 'progress');
+    seedTranscript(db, db.snapshot().revision, 'main', Array.from({ length: 80 }, (_, i) => ({
+      user: `Synthetic input ${i}`, assistant: 'Synthetic text. '.repeat(2000), complete: true,
+    })));
+    const saving = vi.fn<ReportBackupProgress>();
+    const file = await backups.export('', saving);
+    try {
+      const partial = (calls: Parameters<ReportBackupProgress>[], phase: Parameters<ReportBackupProgress>[0]) =>
+        calls.some(([name, done, total]) => name === phase && done !== undefined && total !== undefined && done > 0 && done < total);
+      expect(partial(saving.mock.calls, 'snapshot')).toBe(true);
+      expect(partial(saving.mock.calls, 'encrypt')).toBe(true);
+      const before = backups.persistence.token;
+      let changed = false;
+      const opening = vi.fn<ReportBackupProgress>(phase => {
+        if (phase === 'reconstruct' && !changed) {
+          db.tags.create(db.libraryRevision(), 'Edited during inspection');
+          changed = true;
+        }
+      });
+      const review = await backups.inspect(Readable.from([readFileSync(file.path)]), owner, '', opening);
+      expect(changed).toBe(true);
+      expect(partial(opening.mock.calls, 'decrypt')).toBe(true);
+      expect(opening.mock.calls).toContainEqual(['reconstruct', expect.any(Number), expect.any(Number)]);
+      expect(opening.mock.calls).toContainEqual(['validate', expect.any(Number), expect.any(Number)]);
+      const phases = opening.mock.calls.map(([phase]) => phase);
+      expect([...new Set(phases)]).toEqual([
+        'decrypt', 'snapshot', 'reconstruct', 'validate', 'references', 'sanitize', 'validateClean', 'referencesClean',
+        'compare', 'merge', 'validateMerged', 'referencesMerged',
+      ]);
+      const trial = phases.slice(phases.indexOf('merge'));
+      expect(trial).toContain('validateMerged');
+      expect(trial.at(-1)).toBe('referencesMerged');
+      expect(trial).not.toContain('validate');
+      expect(review.token).toBe(before);
+      expect(() => backups.commit(review.stageId, owner, receipt(review))).toThrow('changed since review');
+      expect((await backups.refresh(review.stageId, owner)).token).toBe(backups.persistence.token);
+    } finally { file.cleanup(); }
   });
   it('blocks conflicting tag identities and cross-kind records without changing destination state',async () => {
     const a = store('tag-a'), b = store('tag-b'), sa = service(a,'tag-a'), sb = service(b,'tag-b');

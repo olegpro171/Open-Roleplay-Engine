@@ -1,10 +1,11 @@
+import { flushSync } from 'react-dom';
 import { compareInsertionOrder, rankLoreEntry } from '../core/lore-entry-order';
-import { moveListItem, useListReorder } from './useListReorder';
+import { moveListItem } from './useListReorder';
 import { LibraryImport } from './LibraryImport';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
 import { validationMessage } from '../shared/localization-validation';
 import type { z } from 'zod';
-import { placementLabel, stateLabel } from './localization-labels';
+import { entryNumberFields, entryNumberKey, LoreEntryFields } from './LoreEntryFields';
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { useConfirmation } from './Confirmation';
@@ -13,16 +14,20 @@ import { EditorActions } from './EditorActions';
 import { CopyLibraryDraft, LibraryDraftNotice, useLibraryEditorDraft } from './LibraryDraft';
 import { sameDraftValue, type DraftOf } from './library-draft';
 import { EditorTextarea } from './EditorTextarea';
-import { LibrarySearchField } from './LibrarySearchField';
-import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
-import { LOREBOOK_ENTRY_LIMIT, LOREBOOK_FILE_LIMIT, lorebookSchema, lorePlacements, newLoreEntry, type Lorebook, type LoreDiagnostic, type LoreEntry, type LoreImportPreview, type LorePlacement } from '../shared/lorebook';
+import { EditorNameField, revealInvalidField } from './LibraryEditorFields';
+import { EditorTabs } from './EditorTabs';
+import { LoreEntryList, LorePagination, lorePageSize as pageSize } from './LoreEntryList';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
+import { LOREBOOK_ENTRY_LIMIT, LOREBOOK_FILE_LIMIT, lorebookSchema, newLoreEntry, type Lorebook, type LoreDiagnostic, type LoreEntry, type LoreImportPreview } from '../shared/lorebook';
 import { api, ApiError } from './api';
-import { Dropdown, NumberDraftContext, NumberInput, useNumberDraft } from './Controls';
+import { NumberDraftContext, NumberInput, useNumberDraft } from './Controls';
 import { loreCompatibility } from '../core/lorebook-formats';
 
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
-export const lorePlacementLabels: Record<LorePlacement, string> = { before_char: 'Before Character', after_char: 'After Character', history: 'In message history', before_desc: 'Before description', after_desc: 'After description', personality: 'After personality', scenario: 'After scenario' };
-const pageSize = 50;
+const tabs = [
+  ['entries', 'lorebook_editor.edit_entries'], ['arrange', 'lorebook_editor.arrange_entries'], ['settings', 'lorebook_editor.book_settings'],
+] as const;
+type LoreTab = (typeof tabs)[number][0];
 
 export function LoreDiagnostics({ diagnostics }: { diagnostics: LoreDiagnostic[] }) {
   useLocale();
@@ -36,13 +41,8 @@ export function LoreDiagnostics({ diagnostics }: { diagnostics: LoreDiagnostic[]
     <ul className="warning-messages">{diagnostics.slice(shown * pageSize, (shown + 1) * pageSize).map((item, index) => (
       <li key={index}>{formatMessage(item.localized ?? item.message)}{item.field && <small> · {item.field}</small>}</li>
     ))}</ul>
-    {last > 0 && <Pagination page={shown} last={last} change={setPage} />}
+    {last > 0 && <LorePagination page={shown} last={last} change={setPage} />}
   </WarningDetails>;
-}
-
-function Pagination({ page, last, change }: { page: number; last: number; change: (page: number) => void }) {
-  useLocale();
-  return <div className="actions lore-pagination"><button type="button" className="secondary" disabled={page === 0} onClick={() => change(page - 1)}>{t("lorebook_editor.previous_page")}</button><span>{t("lorebook_editor.page_of", { value: page + 1, value2: last + 1 })}</span><button type="button" className="secondary" disabled={page === last} onClick={() => change(page + 1)}>{t("lorebook_editor.next_page")}</button></div>;
 }
 
 export function LorebookImport({ leadingAction, revision, busy, run, imported }: { leadingAction: ReactNode; revision: number; busy: boolean; run: Run; imported: (id: string, notice: string) => void }) {
@@ -104,13 +104,28 @@ function sameBookDraft(book: Lorebook, baseline: Lorebook) {
   });
 }
 
+function recoveredNumbers(draft?: DraftOf<'lorebooks'>) {
+  const values = { ...draft?.numbers };
+  // Earlier drafts stored unfinished numbers only for the selected entry.
+  for (const field of entryNumberFields) {
+    const previous = `entry.${field}`;
+    if (draft?.selectedId && values[previous] !== undefined) {
+      values[entryNumberKey(draft.selectedId, field)] = values[previous];
+      delete values[previous];
+    }
+  }
+  return values;
+}
+
 export function LorebookEditor({ initial, recovered, currentRevision, busy, run, close, committed }: { initial: { id?: string; revision: number; data: Lorebook }; recovered?: DraftOf<'lorebooks'>; currentRevision: number; busy: boolean; run: Run; close: MouseEventHandler<HTMLButtonElement>; committed: () => void }) {
   useLocale();
   const formId = useId();
   const confirmAction = useConfirmation();
   const [book, setBook] = useState(recovered?.data ?? initial.data);
-  const [selectedId, setSelectedId] = useState(() => recovered?.selectedId ?? [...book.entries].sort(compareInsertionOrder)[0]?.id ?? '');
-  const numberDraft = useNumberDraft(recovered?.numbers);
+  const ordered = useMemo(() => [...book.entries].sort(compareInsertionOrder), [book.entries]);
+  const [selectedId, setSelectedId] = useState(() => recovered?.selectedId || ordered[0]?.id || '');
+  const initialNumbers = useMemo(() => recoveredNumbers(recovered), [recovered]);
+  const numberDraft = useNumberDraft(initialNumbers);
   const bookChanged = useMemo(() => !sameBookDraft(book, initial.data), [book, initial.data]);
   const dirty = bookChanged || numberDraft.dirty;
   const draft = useMemo<DraftOf<'lorebooks'>>(() => ({ kind: 'lorebooks', id: initial.id, revision: initial.revision, data: book, selectedId, numbers: numberDraft.values }),
@@ -128,37 +143,13 @@ export function LorebookEditor({ initial, recovered, currentRevision, busy, run,
       element.scrollTo({ top, behavior: 'instant' });
     }
   }, [selectedId]);
-  const [query, setQuery] = useState(''), [page, setPage] = useState(0), [issues, setIssues] = useState<z.core.$ZodIssue[]>([]);
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(() => Math.floor(Math.max(0, ordered.findIndex(entry => entry.id === selectedId)) / pageSize));
+  const [issues, setIssues] = useState<z.core.$ZodIssue[]>([]);
   const compatibility = useMemo(() => loreCompatibility(initial.data), [initial.data]);
   const stale = initial.revision !== currentRevision;
   const selected = book.entries.find(entry => entry.id === selectedId);
-  const needle = query.normalize('NFC').toLowerCase();
-  const ordered = useMemo(() => [...book.entries].sort(compareInsertionOrder), [book.entries]);
-  const matching = useMemo(() => {
-    const indexed = ordered.map((entry, position) => ({ entry, position }));
-    if (!needle) return indexed;
-    return indexed.filter(({ entry }) => [entry.name, entry.comment, entry.content, ...entry.keys, ...entry.secondaryKeys]
-      .some(value => value.normalize('NFC').toLowerCase().includes(needle)));
-  }, [ordered, needle]);
-  const last = Math.max(0, Math.ceil(matching.length / pageSize) - 1), shown = Math.min(page, last);
-  const start = shown * pageSize;
-  const visible = matching.slice(start, start + pageSize);
-  const list = useRef<HTMLDivElement>(null);
-  const moveFocus = useRef<{ id: string; direction: number } | null>(null);
-  useLayoutEffect(() => {
-    const target = moveFocus.current;
-    moveFocus.current = null;
-    if (!target || !list.current) return;
-    const row = list.current.querySelector(`[data-entry-id="${CSS.escape(target.id)}"]`);
-    if (!row) return;
-    const focus = row.querySelector<HTMLButtonElement>(`button[data-direction="${target.direction}"]:enabled`)
-      ?? row.querySelector<HTMLButtonElement>('button[aria-pressed]');
-    focus?.focus({ preventScroll: true });
-    const bounds = row.getBoundingClientRect();
-    const viewport = list.current.getBoundingClientRect();
-    if (bounds.top < viewport.top) list.current.scrollTop -= viewport.top - bounds.top;
-    else if (bounds.bottom > viewport.bottom) list.current.scrollTop += bounds.bottom - viewport.bottom;
-  }, [ordered]);
+  const [tab, setTab] = useState<LoreTab>('entries');
   function update(patch: Partial<Lorebook>) { setBook(value => markBook(value, patch)); }
   function updateEntry(patch: Partial<LoreEntry>) { update({ entries: book.entries.map(entry => entry.id === selectedId ? markEntry(entry, patch) : entry) }); }
   function applyOrder(next: LoreEntry[], position: number, newEntry?: LoreEntry) {
@@ -169,17 +160,8 @@ export function LorebookEditor({ initial, recovered, currentRevision, busy, run,
       return insertionOrder === undefined || insertionOrder === entry.insertionOrder ? entry : markEntry(entry, { insertionOrder });
     }) });
   }
-  function move(from: number, to: number, direction?: number) {
-    if (needle || to < 0 || to >= ordered.length || from === to) return;
-    if (direction !== undefined) moveFocus.current = { id: ordered[from].id, direction };
-    applyOrder(moveListItem(ordered, from, to), to);
-    setPage(Math.floor(to / pageSize));
-  }
-  const reorder = useListReorder((from, to) => move(start + from, start + to), !needle);
   function selectEntry(id: string) {
     if (id === selectedId) return;
-    numberDraft.set('entry.depth', undefined);
-    numberDraft.set('entry.scanDepth', undefined);
     const positions: { element: HTMLElement; top: number }[] = [];
     for (let element = form.current?.parentElement; element; element = element.parentElement) {
       if (element.scrollTop > 0) positions.push({ element, top: element.scrollTop });
@@ -198,109 +180,102 @@ export function LorebookEditor({ initial, recovered, currentRevision, busy, run,
     setQuery('');
     setPage(Math.floor(position / pageSize));
   }
+  function revealEntry(id: string) {
+    setTab('entries');
+    setQuery('');
+    setPage(Math.floor(ordered.findIndex(entry => entry.id === id) / pageSize));
+    selectEntry(id);
+  }
   async function save(event: FormEvent) {
     event.preventDefault();
     if (busy || stale) return;
+    // Native form validation covers the mounted entry. Visit unfinished numbers
+    // belonging to another entry before committing its last valid numeric value.
+    const unfinished = ordered.find(entry => entryNumberFields.some(field => numberDraft.values[entryNumberKey(entry.id, field)] !== undefined));
+    if (unfinished) {
+      flushSync(() => revealEntry(unfinished.id));
+      form.current?.reportValidity();
+      return;
+    }
     const parsed = lorebookSchema.safeParse(book);
-    if (!parsed.success) { setIssues(parsed.error.issues); return; }
+    if (!parsed.success) {
+      setIssues(parsed.error.issues);
+      const [section, index] = parsed.error.issues[0]?.path ?? [];
+      if (section === 'entries' && typeof index === 'number') revealEntry(book.entries[index].id);
+      else setTab('settings');
+      return;
+    }
     setIssues([]);
     if (await run(() => api(initial.id ? `/library/${initial.id}` : '/library', initial.id ? 'PUT' : 'POST', { kind: 'lorebooks', revision: initial.revision, data: parsed.data }))) committed();
   }
   function error(field: string) { return issues.filter(issue => issue.path.length === 1 && issue.path[0] === field).map((issue, index) => <small role="alert" key={index}>{formatMessage(validationMessage(issue))}</small>); }
   const entryIndex = book.entries.findIndex(entry => entry.id === selectedId);
   const entryIssues = issues.filter(issue => issue.path[0] === 'entries' && issue.path[1] === entryIndex);
+  const listProps = {
+    ordered, selectedId, page, setPage, query, search: setQuery, canAdd: book.entries.length < LOREBOOK_ENTRY_LIMIT,
+    add: () => add(), select: selectEntry,
+    move: (from: number, to: number) => applyOrder(moveListItem(ordered, from, to), to),
+  };
+  function deleteEntry(entry: LoreEntry) {
+    confirmAction({
+      confirmOnEnter: true, title: t('lorebook_editor.delete_lore_entry'), actionLabel: t('lorebook_editor.delete_entry'),
+      message: t('lorebook_editor.delete_entry_save_the_book_to_commit', { name: entry.name }),
+      onConfirm: () => {
+        const remaining = book.entries.filter(item => item.id !== entry.id);
+        for (const field of entryNumberFields) numberDraft.set(entryNumberKey(entry.id, field), undefined);
+        setIssues([]);
+        update({ entries: remaining });
+        selectEntry(remaining[0]?.id ?? '');
+      },
+    });
+  }
+  function panel(tabId: LoreTab) {
+    return { id: `${formId}-${tabId}-panel`, role: 'tabpanel', 'aria-labelledby': `${formId}-${tabId}-tab`, hidden: tab !== tabId };
+  }
   return <NumberDraftContext.Provider value={numberDraft}><form ref={form} id={formId} className="lorebook-editor" onSubmit={event => void save(event)}>
     <LibraryDraftNotice recovered={recovered} storageError={storageError} />
-    <LoreDiagnostics diagnostics={compatibility} />
-    <fieldset disabled={busy}><legend>{t("lorebook_editor.lorebook", { value: initial.id ? t("libraries.edit_2") : t("libraries.create") })}</legend><div className="form-grid">
-      <label className="full">{t("lorebook_editor.book_name")}<input required maxLength={100} value={book.name} onChange={event => update({ name: event.target.value })} />{error('name')}</label>
-      <label className="full">{t("lorebook_editor.book_description")}<EditorTextarea aria-label={t("lorebook_editor.book_description")} value={book.description} maxLength={100_000} onChange={event => update({ description: event.target.value })} /><small>{t("lorebook_editor.for_your_library_never_inserted_into_the")}</small>{error('description')}</label>
-      <label>{t("lorebook_editor.book_scan_depth")}<NumberInput draftField="scanDepth" aria-label={t("lorebook_editor.book_scan_depth")} required min={0} max={1000} value={book.scanDepth} onChange={scanDepth => update({ scanDepth })} /><small>{t("lorebook_editor.number_of_recent_nonempty_original_messages_to")}</small>{error('scanDepth')}</label>
-      <label>{t("lorebook_editor.lore_token_cap")}<NumberInput draftField="tokenBudget" required min={0} max={1_000_000} value={book.tokenBudget} onChange={tokenBudget => update({ tokenBudget })} />{error('tokenBudget')}</label>
-      <label className="checkbox full"><input type="checkbox" checked={book.recursiveScanning} onChange={event => update({ recursiveScanning: event.target.checked })} />{t("lorebook_editor.allow_admitted_lore_to_activate_other_entries")}</label>
-    </div></fieldset>
-    <fieldset disabled={busy}><legend>{t("lorebook_editor.entries", { length: book.entries.length })}</legend>
-      <p className="small muted">{t("lorebook_editor.higher_priority_is_admitted_first_equal_priorities")}</p>
-      <div className="actions"><button type="button" className="secondary" disabled={book.entries.length >= LOREBOOK_ENTRY_LIMIT} onClick={() => add()}>{t("lorebook_editor.add_entry")}</button></div>
-      <div className="lore-search">
-        <LibrarySearchField label={t('lorebook_editor.search_entries')} value={query} change={value => {
-          setQuery(value);
-          setPage(0);
-        }} />
-      </div>
-      {needle && <p className="small muted">{t('lorebook_editor.clear_search_to_reorder')}</p>}
-      <div className="lore-workspace"><div className="lore-entry-list" ref={list} role="group" aria-label={t("lorebook_editor.lorebook_entries")}>
-        <div className="lore-entry-rows" {...reorder.list}>
-          {visible.map(({ entry, position }, index) => {
-            const name = entry.name || t('lorebook_editor.unnamed_entry');
-            return <div key={entry.id} data-entry-id={entry.id} className={`lore-entry-row${reorder.rowClass(index, visible.length)}`}>
-              <span className="drag-handle" aria-hidden="true" {...reorder.handle(index, entry.id)} title={t('libraries.drag_to_reorder')}><Icon name="Menu" /></span>
-              <button type="button" className="secondary lore-entry-select" aria-pressed={entry.id === selectedId} onClick={() => selectEntry(entry.id)}>
-                <strong>{name}</strong>
-                <small>{t("lorebook_editor.order_priority", { value: entry.enabled ? t("interface.enabled") : t("interface.disabled"), insertionOrder: position + 1, priority: entry.priority })}</small>
-              </button>
-              <div className="block-actions">
-                <button type="button" className="quiet" data-direction="-1" disabled={Boolean(needle) || position === 0} title={t('libraries.move_up')}
-                  aria-label={t('lorebook_editor.move_entry_up', { name })} onClick={() => move(position, position - 1, -1)}><Icon name="ArrowLongTop" /></button>
-                <button type="button" className="quiet" data-direction="1" disabled={Boolean(needle) || position + 1 === ordered.length} title={t('libraries.move_down')}
-                  aria-label={t('lorebook_editor.move_entry_down', { name })} onClick={() => move(position, position + 1, 1)}><Icon name="ArrowLongBottom" /></button>
-              </div>
-            </div>;
-          })}
+    <fieldset disabled={busy} className="tabbed-library-editor">
+      <legend className="sr-only">{t('lorebook_editor.lorebook', { value: t(initial.id ? 'libraries.edit_2' : 'libraries.create') })}</legend>
+      <EditorNameField label={t('lorebook_editor.book_name')} value={book.name} change={name => update({ name })} />{error('name')}
+      <LoreDiagnostics diagnostics={compatibility} />
+      <EditorTabs id={formId} label={t('lorebook_editor.sections')} tabs={tabs} active={tab} select={setTab} className="tabs library-editor-tabs" />
+      <div {...panel('entries')} onInvalid={event => revealInvalidField(event, () => setTab('entries'))}>
+        <div className="lore-workspace">
+          {tab === 'entries' && <LoreEntryList {...listProps} arrange={false} />}
+          {selected && <section className="lore-entry-editor" aria-label={t('lorebook_editor.selected_lore_entry')}>
+            <LoreEntryFields key={selected.id} entry={selected} update={updateEntry} issues={entryIssues} />
+            <div className="actions lore-entry-actions">
+              <button type="button" className="secondary" disabled={!listProps.canAdd} onClick={() => add(selected)}>
+                <Icon name="CopyOutline" />{t('lorebook_editor.duplicate_entry')}</button>
+              <button type="button" className="quiet" onClick={() => deleteEntry(selected)}><Icon name="TrashOutline" />{t('lorebook_editor.delete_entry')}</button>
+            </div>
+          </section>}
         </div>
-        {matching.length === 0 && <p className="small muted">{book.entries.length ? t("lorebook_editor.no_entries_match_your_search") : t("lorebook_editor.this_book_is_empty_add_an_entry")}</p>}
-        {last > 0 && <Pagination page={shown} last={last} change={setPage} />}
-      </div>{selected ? <section className="lore-entry-editor" aria-label={t("lorebook_editor.selected_lore_entry")}><EntryFields key={selected.id} entry={selected} update={updateEntry} issues={entryIssues} /><div className="actions"><button type="button" className="secondary" disabled={book.entries.length >= LOREBOOK_ENTRY_LIMIT} onClick={() => add(selected)}><Icon name="CopyOutline" />{t("lorebook_editor.duplicate_entry")}</button><button type="button" className="quiet" onClick={() => { confirmAction({ confirmOnEnter: true, title: t("lorebook_editor.delete_lore_entry"), message: t("lorebook_editor.delete_entry_save_the_book_to_commit", { name: selected.name }), actionLabel: t("lorebook_editor.delete_entry"), onConfirm: () => { update({ entries: book.entries.filter(entry => entry.id !== selectedId) }); selectEntry(book.entries.find(entry => entry.id !== selectedId)?.id ?? ''); } }); }}><Icon name="TrashOutline" />{t("lorebook_editor.delete_entry")}</button></div></section> : <p className="small muted">{t("lorebook_editor.select_an_entry_to_edit_its_content")}</p>}</div>
+      </div>
+      <div {...panel('arrange')}>
+        {tab === 'arrange' && <LoreEntryList {...listProps} arrange />}
+      </div>
+      <div {...panel('settings')} onInvalid={event => revealInvalidField(event, () => setTab('settings'))}>
+        <div className="lore-book-settings">
+          <label>{t('lorebook_editor.book_description')}<EditorTextarea aria-label={t('lorebook_editor.book_description')} value={book.description}
+            maxLength={100_000} onChange={event => update({ description: event.target.value })} /><small>{t('lorebook_editor.for_your_library_never_inserted_into_the')}</small>{error('description')}</label>
+          <div className="lore-book-limits">
+            <label className="library-editor-setting"><span>{t('lorebook_editor.book_scan_depth')}</span>
+              <NumberInput draftField="scanDepth" aria-describedby={`${formId}-scan-help`} required min={0} max={1000} value={book.scanDepth}
+                onChange={scanDepth => update({ scanDepth })} />{error('scanDepth')}</label>
+            <small className="muted" id={`${formId}-scan-help`}>{t('lorebook_editor.number_of_recent_nonempty_original_messages_to')}</small>
+            <label className="library-editor-setting"><span>{t('lorebook_editor.lore_token_cap')}</span>
+              <NumberInput draftField="tokenBudget" required min={0} max={1_000_000} value={book.tokenBudget}
+                onChange={tokenBudget => update({ tokenBudget })} />{error('tokenBudget')}</label>
+          </div>
+          <label className="checkbox"><input type="checkbox" checked={book.recursiveScanning} onChange={event => update({ recursiveScanning: event.target.checked })} />
+            {t('lorebook_editor.allow_admitted_lore_to_activate_other_entries')}</label>
+        </div>
+      </div>
     </fieldset>
-    {issues.length > 0 && <div role="alert"><p>{t("lorebook_editor.correct_these_fields_before_saving")}</p><ul>{issues.map((issue, index) => <li key={index}>{issue.path[0] === 'entries' && typeof issue.path[1] === 'number' && book.entries[issue.path[1]] ? <button type="button" className="quiet" onClick={() => selectEntry(book.entries[Number(issue.path[1])].id)}>{book.entries[Number(issue.path[1])].name}: </button> : null}{issue.path.join('.')}: {formatMessage(validationMessage(issue))}</li>)}</ul></div>}
+    {issues.length > 0 && <div role="alert"><p>{t("lorebook_editor.correct_these_fields_before_saving")}</p><ul>{issues.map((issue, index) => <li key={index}>{issue.path[0] === 'entries' && typeof issue.path[1] === 'number' && book.entries[issue.path[1]] ? <button type="button" className="quiet" onClick={() => revealEntry(book.entries[Number(issue.path[1])].id)}>{book.entries[Number(issue.path[1])].name}: </button> : null}{issue.path.join('.')}: {formatMessage(validationMessage(issue))}</li>)}</ul></div>}
     {stale && <p role="status">{t("lorebook_editor.the_library_changed_your_unsaved_edits_remain")}</p>}
     {stale && dirty && <CopyLibraryDraft editor={draft} />}
-    <p className="small muted">{t("lorebook_editor.saved_changes_apply_to_future_requests_in")}</p>
     <EditorActions formId={formId} disabled={busy || stale} cancelDisabled={busy} close={close} />
   </form></NumberDraftContext.Provider>;
-}
-
-function parseEntryKeys(text: string, useRegex: boolean): string[] {
-  // Commas and surrounding spaces can be meaningful inside a regex pattern.
-  if (useRegex) return text.split('\n').filter(Boolean);
-  return text.split(/[,\r\n]/).map(key => key.trim()).filter(Boolean);
-}
-
-function EntryFields({ entry, update, issues }: { entry: LoreEntry; update: (patch: Partial<LoreEntry>) => void; issues: z.core.$ZodIssue[] }) {
-  useLocale();
-  const numberDraft = useContext(NumberDraftContext);
-  const [keys, setKeys] = useState(entry.keys.join('\n')), [secondary, setSecondary] = useState(entry.secondaryKeys.join('\n'));
-  function errors(field: string) { return issues.filter(issue => issue.path[2] === field).map((issue, index) => <small role="alert" key={index}>{formatMessage(validationMessage(issue))}</small>); }
-  return <div className="form-grid">
-    <label className="full">{t("lorebook_editor.entry_name")}<input maxLength={200} value={entry.name} onChange={event => update({ name: event.target.value })} />{errors('name')}</label>
-    <label className="checkbox"><input type="checkbox" checked={entry.enabled} onChange={event => update({ enabled: event.target.checked })} />{t("lorebook_editor.entry_enabled")}</label>
-    <label className="checkbox"><input type="checkbox" checked={entry.constant} onChange={event => update({ constant: event.target.checked })} />{t("lorebook_editor.constant_activation")}</label>
-    <label className="full">{t("lorebook_editor.primary_keys")}<EditorTextarea aria-label={t("lorebook_editor.primary_keys")} value={keys} onChange={event => { setKeys(event.target.value); update({ keys: parseEntryKeys(event.target.value, entry.useRegex) }); }} /><small>{t("lorebook_editor.one_key_per_line_at_least_one")}</small>{errors('keys')}</label>
-    <label className="full">{t("lorebook_editor.secondary_keys")}<EditorTextarea aria-label={t("lorebook_editor.secondary_keys")} value={secondary} onChange={event => { setSecondary(event.target.value); update({ secondaryKeys: parseEntryKeys(event.target.value, entry.useRegex) }); }} /><small>{t("lorebook_editor.one_key_per_line_secondary_matching_additionally")}</small>{errors('secondaryKeys')}</label>
-    <label className="checkbox full"><input type="checkbox" checked={entry.selective} onChange={event => update({ selective: event.target.checked })} />{t("lorebook_editor.require_a_secondary_key_match")}</label>
-    <label className="checkbox"><input type="checkbox" checked={entry.caseSensitive} onChange={event => update({ caseSensitive: event.target.checked })} />{t("lorebook_editor.case_sensitive_matching")}</label>
-    <label className="checkbox"><input type="checkbox" checked={entry.useRegex} onChange={event => {
-      // Keep the existing key boundaries when changing how those keys match.
-      setKeys(entry.keys.join('\n'));
-      setSecondary(entry.secondaryKeys.join('\n'));
-      update({ useRegex: event.target.checked });
-    }} />{t("lorebook_editor.use_regular_expressions")}</label>
-    <label className="full">{t("lorebook_editor.lore_content")}<EditorTextarea aria-label={t("lorebook_editor.lore_content")} className="lore-content" maxLength={100_000} value={entry.content} onChange={event => update({ content: event.target.value })} /><small>{t("lorebook_editor.inserted_prose_supports_and_v3_decorator_lines", { value: '{{user}}', value2: '{{char}}' })}</small>{errors('content')}</label>
-    <label className="full">{t("lorebook_editor.entry_comment")}<EditorTextarea aria-label={t("lorebook_editor.entry_comment")} maxLength={100_000} value={entry.comment} onChange={event => update({ comment: event.target.value })} /><small>{t("lorebook_editor.for_you_never_inserted_into_the_prompt")}</small>{errors('comment')}</label>
-    <label>{t("lorebook_editor.admission_priority")}<input required type="number" step="any" value={entry.priority} onChange={event => update({ priority: Number(event.target.value) })} />{errors('priority')}</label>
-    <label>{t("lorebook_editor.placement")}<Dropdown aria-label={t("lorebook_editor.lore_entry_placement")} value={entry.placement} options={lorePlacements.map(value => ({ value, label: placementLabel(value) }))} onChange={placement => {
-      const parsed = lorePlacements.find(value => value === placement);
-      if (!parsed) return;
-      if (parsed !== 'history') numberDraft?.set('entry.depth', undefined);
-      update({ placement: parsed });
-    }} /></label>
-    <label>{t("lorebook_editor.message_role")}<Dropdown aria-label={t("lorebook_editor.lore_entry_role")} value={entry.role ?? ''} options={[{ value: '', label: t("lorebook_editor.use_prompt_control_role") }, ...['system', 'user', 'assistant'].map(role => ({ value: role, label: stateLabel(role === 'system' || role === 'user' ? role : 'assistant') }))]} onChange={role => { if (role === '' || role === 'system' || role === 'user' || role === 'assistant') update({ role: role || null }); }} /></label>
-    {entry.placement === 'history' && <label>{t("lorebook_editor.history_depth")}<NumberInput draftField="entry.depth" aria-label={t("lorebook_editor.history_depth")} required min={0} max={1000} value={entry.depth} onChange={depth => update({ depth })} /><small>{t("lorebook_editor.0_is_after_the_newest_outgoing_message")}</small>{errors('depth')}</label>}
-    <label className="checkbox full"><input type="checkbox" checked={entry.scanDepth !== null} onChange={event => {
-      if (!event.target.checked) numberDraft?.set('entry.scanDepth', undefined);
-      update({ scanDepth: event.target.checked ? 4 : null });
-    }} />{t("lorebook_editor.override_the_book_scan_depth")}</label>
-    {entry.scanDepth !== null && <label>{t("lorebook_editor.entry_scan_depth")}<NumberInput draftField="entry.scanDepth" required min={0} max={1000} value={entry.scanDepth} onChange={scanDepth => update({ scanDepth })} />{errors('scanDepth')}</label>}
-    {entry.source && <p className="small muted full">{t("lorebook_editor.imported_metadata_and_external_identity_are_retained")}</p>}
-  </div>;
 }

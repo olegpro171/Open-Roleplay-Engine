@@ -68,7 +68,7 @@ describe('separate continuity summary requests', () => {
     const initial = summaryRequest(snapshot, operation, connection).request;
     const exact = { ...connection, contextWindow: initial.budget.inputTokens + connection.maxOutputTokens };
     expect(summaryRequest(snapshot, operation, exact).request.body).toEqual(initial.body);
-    expect(() => summaryRequest(snapshot, operation, { ...exact, contextWindow: exact.contextWindow - 1 })).toThrow('fixed source batch and summary instructions do not fit');
+    expect(() => summaryRequest(snapshot, operation, { ...exact, contextWindow: exact.contextWindow - 1 })).toThrow('too much text for the model to summarize');
   });
 });
 

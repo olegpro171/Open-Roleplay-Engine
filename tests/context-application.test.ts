@@ -34,7 +34,7 @@ function fixture(count = 48, target = 500, builtInContext = false) {
   let store = openStoryStore(filename);
   store.saveLibrary(store.libraryRevision(), 'prompts', compactPrompt, 'default');
   const calls: { request: RequestPreview; apiKey: string }[] = [];
-  type OutputMode = 'normal' | 'uniform' | 'unchanged' | 'near' | 'placeholder' | 'refusal' | 'length' | 'huge' | 'transport';
+  type OutputMode = 'normal' | 'uniform' | 'unchanged' | 'near' | 'placeholder' | 'refusal' | 'russian-refusal' | 'length' | 'huge' | 'transport';
   let mode: OutputMode = 'normal';
   let storyReply = 'Leon pockets the brass key.';
   let nextModes: OutputMode[] = [];
@@ -47,6 +47,10 @@ function fixture(count = 48, target = 500, builtInContext = false) {
     let old: string | undefined;
     try { old = JSON.parse(request.body.messages.at(-1)!.content).previous_summary; } catch { /* Roleplay input is plain text. */ }
     if (summary && calls.length === holdAt) await new Promise<void>(resolve => { release = resolve; });
+    if (summary && outcome === 'russian-refusal') {
+      onText('К сожалению, я не могу составить сводку по этому тексту.');
+      return { finishReason: 'stop' };
+    }
     onText(!summary ? storyReply : outcome === 'uniform' ? uniformSummary : outcome === 'placeholder' ? 'placeholder' : outcome === 'refusal' ? "I can't help with this." : outcome === 'huge' ? Array.from({ length: 2_000 }, (_, i) => `detail${i}`).join(' ') : old !== undefined && (outcome === 'unchanged' || outcome === 'near') ? old + (outcome === 'near' ? '!' : '') : `Mira entrusted Leon with her brass key; he promised to avoid the cellar.${calls.length % 3 === 0 ? ' She still distrusts him.' : ''}${old !== undefined ? ` Repaired candidate ${calls.length}.` : ''}`);
     return { finishReason: outcome === 'length' && summary ? 'length' : 'stop' };
   } };
@@ -67,7 +71,7 @@ function fixture(count = 48, target = 500, builtInContext = false) {
     store = new Store(filename); coordinator = new GenerationCoordinator(store, provider, () => behavior);
   };
   cleanup.push(async () => { release?.(); await coordinator.shutdown(); store.close(); rmSync(directory, { recursive: true, force: true }); });
-  return { get store() { return store; }, get coordinator() { return coordinator; }, state, start, idle, resume, calls, imported, chatId, contextId, behavior,
+  return { get store() { return store; }, get coordinator() { return coordinator; }, state, start, idle, resume, calls, imported, chatId, connectionId, contextId, behavior,
     setStoryReply(text: string) { storyReply = text; },
     setNextModes(values: typeof nextModes) { nextModes = [...values]; },
     setMode(value: typeof mode) { mode = value; }, holdNext(offset = 1) { holdAt = calls.length + offset; }, release() { release?.(); release = null; holdAt = -1; },
@@ -104,7 +108,10 @@ function retainedAlternative(f: ReturnType<typeof fixture>, source: SummaryNode,
   return node;
 }
 
-it('detects legacy refusals before prepared memory can be used', async () => {
+it.each([
+  ["I can't help with this.", undefined],
+  ['К сожалению, я не могу выполнить этот запрос.', { version: 1, result: 'passed' }],
+])('detects legacy refusal %j before prepared memory can be used', async (text, refusalCheck) => {
   const f = fixture(8);
   expect((await f.idle(f.start())).status).toBe('succeeded');
   const before = f.state();
@@ -112,9 +119,14 @@ it('detects legacy refusals before prepared memory can be used', async () => {
   const node = before.context.summaries.find(node => refKey(node) === refKey(ref));
   expect(node).toBeDefined();
   f.store.sqlite.prepare('UPDATE summaries SET data = ? WHERE chat_id = ? AND id = ? AND revision = ?')
-    .run(JSON.stringify({ ...node, text: "I can't help with this.", refusalCheck: undefined }), f.chatId, ref.id, ref.revision);
+    .run(JSON.stringify({ ...node, text, refusalCheck }), f.chatId, ref.id, ref.revision);
   const checked = f.state();
-  expect(checked.context.summaries.find(node => refKey(node) === refKey(ref))).toHaveProperty('refusalCheck.result', 'suspected');
+  expect(checked.context.summaries.find(node => refKey(node) === refKey(ref))).toEqual({
+    ...node, text, refusalCheck: { version: summaryRefusalFilterVersion, result: 'suspected' },
+  });
+  expect(checked.context.selected).toEqual(before.context.selected);
+  expect(checked.context.archivedTurnIds).toEqual(before.context.archivedTurnIds);
+  expect(checked.revision).toBe(before.revision);
   expect(contextPlan(checked).ready).toBe(false);
   expect(() => assembleRequest(checked.connection!, checked.settings, checked.turns, checked.sources, checked.context)).toThrow(/refusal/i);
   expect(f.calls.length).toBe(before.context.jobs.reduce((count, job) => count + (job.generatedCount ?? 0), 0));
@@ -760,7 +772,7 @@ describe('durable imported-session preparation', () => {
     const f = fixture(), connectionId = f.state().context.preset!.connectionId!;
     f.store.saveLibrary(f.store.libraries().revision, 'connections', { ...f.store.connection(connectionId), contextWindow: 350, maxOutputTokens: 100 }, connectionId);
     const job = await f.idle(f.start());
-    expect(job.status).toBe('failed'); expect(job.error).toContain('fixed source batch'); expect(f.calls).toHaveLength(0);
+    expect(job.status).toBe('failed'); expect(job.errorMessage?.key).toBe('errors.this_fixed_source_batch_and_summary_instructions_do'); expect(f.calls).toHaveLength(0);
     expect(f.state().context.archivedTurnIds).toEqual([]);
   });
 
@@ -917,7 +929,7 @@ describe('durable imported-session preparation', () => {
     const current = f.state();
     f.store.updateChat(current.revision, f.chatId, { title: current.settings.title, targetInputTokens: 50_000, connectionId: current.settings.connectionId!, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId });
     const before = f.state(), calls = f.calls.length;
-    expect(contextPlan(before).blocked).toContain('minimum tail');
+    expect(contextPlan(before).blockedMessage?.key).toBe('diagnostics.the_saved_cutoff_no_longer_leaves_the_configured');
     const job = await f.idle(f.start());
     expect(job).toMatchObject({ status: 'succeeded', stepCount: 0, generatedCount: 0 });
     const after = f.state();
@@ -999,8 +1011,9 @@ describe('durable imported-session preparation', () => {
     const tail = current.turns.filter(turn => !current.context.archivedTurnIds.includes(turn.id));
     const required = assembleRequest(current.connection!, current.settings, tail, current.sources, undefined, { validateLimits: false }).budget.inputTokens;
     f.store.updateChat(current.revision, f.chatId, { ...selection, targetInputTokens: required + 1 });
-    expect(contextPlan(f.state()).blocked).toContain('retained-summary floor');
-    expect((await f.idle(f.start())).error).toContain('retained-summary floor');
+    const targetWarning = 'Memory can’t make this chat fit. Raise the input target to continue.';
+    expect(contextPlan(f.state()).blocked).toBe(targetWarning);
+    expect((await f.idle(f.start())).error).toBe(targetWarning);
     const blocked = f.state(), calls = f.calls.length;
     f.store.updateChat(blocked.revision, f.chatId, { ...selection, targetInputTokens: contextPlan(blocked).inputTokens + 100 });
     expect(contextPlan(f.state()).ready).toBe(true);
@@ -1009,6 +1022,30 @@ describe('durable imported-session preparation', () => {
     f.store.updateChat(f.state().revision, f.chatId, { ...selection, targetInputTokens: required + 1 });
     expect(contextPlan(f.state()).next?.level).toBe(1);
     expect((await f.idle(f.start('step'))).status).toBe('succeeded');
+  });
+
+  it('points to Connection settings when raising the input target cannot free more room', async () => {
+    const f = fixture(8);
+    await f.idle(f.start('step'));
+    const saved = f.state();
+    if (!saved.context.preset || !saved.connection) throw new Error('Expected a configured chat');
+    const { id: _presetId, revision: _presetRevision, ...preset } = saved.context.preset;
+    f.store.saveLibrary(f.store.libraryRevision(), 'contexts', { ...preset, minTail: 6 }, f.contextId);
+    const tail = saved.turns.slice(saved.context.archivedTurnIds.length);
+    const connection = saved.connection;
+    const required = assembleRequest(connection, saved.settings, tail, saved.sources, undefined, { validateLimits: false }).budget.inputTokens;
+    const limit = required + 1;
+    f.store.saveLibrary(f.store.libraryRevision(), 'connections', { ...connection, contextWindow: limit + connection.maxOutputTokens }, f.connectionId);
+    const warning = 'This chat exceeds the Connection’s input limit. Check the model’s context window in Connection settings.';
+    const calls = f.calls.length;
+    for (const targetInputTokens of [limit, 9_999_999]) {
+      const current = f.state();
+      f.store.updateChat(current.revision, f.chatId, { title: current.settings.title, targetInputTokens, connectionId: f.connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: f.contextId });
+      expect(contextPlan(f.state())).toMatchObject({ effectiveLimit: limit, blocked: warning, next: null });
+      expect(await f.idle(f.start())).toMatchObject({ status: 'failed', error: warning });
+      expect(f.state().context.selected).toEqual(saved.context.selected);
+    }
+    expect(f.calls).toHaveLength(calls);
   });
 
   it('clears all layers and review candidates while retaining turns, selected preset and immutable roleplay requests', async () => {
@@ -1440,6 +1477,20 @@ describe('opt-in summary request retries', () => {
     expect(steps.every(step => step.status === 'failed' && step.error?.includes('refused'))).toBe(true);
     expect(steps.map(step => step.request)).toEqual([steps[0].request, steps[0].request, steps[0].request]);
     expect(JSON.stringify(steps)).not.toContain('summary-secret');
+  });
+
+  it.each([true, false])('handles Russian refusal with retry enabled = %s', async retry => {
+    const f = fixture(8);
+    f.setNextModes(['russian-refusal', 'uniform']);
+    const id = f.start('step', retry ? { maxRetries: 1 } : undefined);
+    expect((await f.idle(id)).status).toBe(retry ? 'succeeded' : 'failed');
+    const steps = f.store.contexts.steps(id);
+    expect(steps.map(step => step.status)).toEqual(retry ? ['failed', 'saved'] : ['failed']);
+    expect(steps[0]).toMatchObject({ errorMessage: { key: 'summary_rejection.refused_summary' }, result: null });
+    expect(f.state().context.summaries.map(summary => summary.text)).toEqual(retry ? [uniformSummary] : []);
+    expect(f.state().context.archivedTurnIds).toEqual(retry ? f.state().turns.slice(0, 2).map(turn => turn.id) : []);
+    expect(f.calls).toHaveLength(retry ? 2 : 1);
+    if (retry) expect(f.calls[1].request).toEqual(f.calls[0].request);
   });
 
   it('resets the retry allowance for the next source batch and saves each replacement once', async () => {

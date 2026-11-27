@@ -42,7 +42,7 @@ test('discovers saved refusals, keeps false positives, regenerates without refus
   await page.getByRole('button', { name: 'Review suspected refusals', exact: true }).click();
   const warning = page.getByRole('dialog', { name: 'Warning', exact: true });
   await expect(warning).toContainText('1 summary may contain a refusal.');
-  await warning.getByRole('button', { name: 'Review memory', exact: true }).click();
+  await warning.getByRole('button', { name: 'Inspect memory', exact: true }).click();
   const review = page.getByRole('region', { name: 'Suspected refusals', exact: true });
   await review.locator('summary').first().click();
   await expect(review.getByText(refusal, { exact: true })).toBeVisible();

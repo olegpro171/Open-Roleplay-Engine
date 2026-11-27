@@ -1,7 +1,9 @@
+import { ActionMenu } from './ActionMenu';
+import { impersonate, SuggestionPanel } from './Impersonation';
 import { PinnedTurns, saveTurnPin } from './PinnedTurns';
 import { ChatBranches } from './ChatBranches';
 import { chatGroupId, preferredBranch, readBranchSelections, storeBranchSelection } from './chat-selection';
-import { applyTheme, brandMarkUrl, useTheme } from './theme';
+import { applyInstallIcon, applyTheme, brandMarkUrl, useTheme } from './theme';
 import { stateLabel } from './localization-labels';
 import type { MessageText } from './localization';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
@@ -11,12 +13,14 @@ import { appearanceStatusSchema, defaultAppearance, type AppearanceStatus } from
 import { chatDefaultsStatusSchema, initialChatDefaults, type ChatDefaultsStatus } from '../shared/chat-defaults';
 import { newId } from './uuid';
 import { Icon } from './Icon';
+import { PersonaIcon } from './PersonaIcon';
 import { ApplicationSettings } from './ApplicationSettings';
 import { useMemoryCleanup } from './MemoryCleanupReview';
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from 'react';
 import type { ChatToolsSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError, datasetChanged } from './api';
 import { changeSchema } from '../shared/changes';
+import { observeServerEvents } from './server-events';
 import { RefreshQueue, fullRefresh, scopeForChange, type RefreshScope } from './refresh-queue';
 import { useRequestPreview } from './useRequestPreview';
 import { useGenerationHistory } from './useGenerationHistory';
@@ -41,7 +45,7 @@ import { useChatDraft } from './useChatDraft';
 import { composerDraftSchema } from '../shared/composer-draft';
 import { continueResponse } from './continue-response';
 import { TurnControls } from './TurnControls';
-import { ReasoningPreview } from './Reasoning';
+import { GenerationProgress, ReasoningPreview } from './Reasoning';
 import { ChatMessage } from './ChatMessage';
 import { ChatMarkdown } from './ChatMarkdown';
 import { ChatTextarea } from './ChatTextarea';
@@ -87,6 +91,8 @@ export function App() {
   const [appearance, setAppearance] = useState<AppearanceStatus>({ revision: 0, settings: defaultAppearance });
   const [appearanceLoaded, setAppearanceLoaded] = useState(false);
   useLayoutEffect(() => { if (appearanceLoaded) applyTheme(appearance.settings.theme); }, [appearanceLoaded, appearance.settings.theme]);
+  const installIconTheme = appearance.settings.appIconTheme ?? appearance.settings.theme;
+  useLayoutEffect(() => { if (appearanceLoaded) applyInstallIcon(installIconTheme); }, [appearanceLoaded, installIconTheme]);
   const [chatDefaults, setChatDefaults] = useState<ChatDefaultsStatus>(initialChatDefaults);
   const [appearanceError, setAppearanceError] = useTextState(null);
   const [chatBehavior, setChatBehavior] = useState<ChatBehaviorStatus | null>(null);
@@ -142,7 +148,7 @@ export function App() {
   const leaveEditor = tab === 'settings' ? chatSettingsLeave.leave : libraryLeave.leave;
   const visibleView = useRef(view);
   visibleView.current = view;
-  const composerKeyboard = useComposerKeyboard(isIOS && view === 'story');
+  const keyboardViewport = useComposerKeyboard(isPhoneOrTablet(navigator) && view === 'story');
   useTouchScrollGuard(isIOS && session?.authenticated === true && view === 'story');
   const [libraryTarget, setLibraryTarget] = useState<LibraryDestination | null>(null);
   const [homeParticipants, setHomeParticipants] = useState<ChatParticipantsValue>({ characterId: null, personaId: null });
@@ -151,6 +157,7 @@ export function App() {
   const draft = drafts.text;
   const refreshDraft = drafts.refresh;
   const [busy, setBusy] = useState(false);
+  const [awaitingSend, setAwaitingSend] = useState<string | null>(null);
   const [edit, setEdit] = useState<Edit | null>(null);
   const editForm = useRef<HTMLFormElement>(null);
   const editSaveInFlight = useRef(false);
@@ -171,6 +178,7 @@ export function App() {
   }, []);
   useEscapeAction(view === 'story' && edit && !busy ? cancelEdit : undefined);
   const loadId = useRef(0);
+  const transcriptFrame = useRef<HTMLDivElement>(null);
   const { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest, jumpToTurn, captureScroll, restoreScroll } =
     useTranscriptScroll(view === 'story' ? snapshot?.id ?? null : null, snapshot, Boolean(edit));
   useLayoutEffect(() => {
@@ -181,9 +189,11 @@ export function App() {
   }, [edit?.turnId, edit?.part]);
   const reportServerError = useCallback(() => setConnectionWarning(current => current ?? 'visible'), []);
   const clearServerError = useCallback(() => setConnectionWarning(null), []);
-  const refreshSession = useCallback(async () => {
-    try {
-      const current = await api<Session>('/session');
+  const sessionRead = useRef<Promise<boolean> | null>(null);
+  const refreshSession = useCallback((afterAuthChange = false) => {
+    if (sessionRead.current && !afterAuthChange) return sessionRead.current;
+    const read = api<Session>('/session', 'GET', undefined, AbortSignal.timeout(5_000)).then(current => {
+      if (sessionRead.current !== read) return false;
       if (!current.authenticated && libraryCache.current) {
         // Validate a resumed editor against a fresh Library after sign-in.
         loadId.current++;
@@ -193,11 +203,18 @@ export function App() {
       setSession(current);
       clearServerError();
       return current.authenticated;
-    } catch {
-      reportServerError();
+    }).catch(() => {
+      if (sessionRead.current === read) reportServerError();
       return false;
-    }
+    }).finally(() => {
+      if (sessionRead.current === read) sessionRead.current = null;
+    });
+    sessionRead.current = read;
+    return read;
   }, [clearServerError, reportServerError]);
+  useEffect(() => {
+    if (drafts.syncError) void refreshSession();
+  }, [drafts.syncError, refreshSession]);
   const editRef = useRef(edit);
   editRef.current = edit;
   const refreshReader = useRef<(scope: RefreshScope) => Promise<void>>(async () => {});
@@ -211,16 +228,18 @@ export function App() {
     }
     const requestedChat = chatId;
     const id = ++loadId.current;
+    const signal = AbortSignal.timeout(15_000);
     try {
+      const read = <T,>(path: string) => api<T>(path, 'GET', undefined, signal);
       const cached = libraryCache.current;
       const scope = cached ? requested : fullRefresh;
       const [update, appearanceResult, defaults, behaviorResult] = await Promise.all([
-        scope.library ? api<LibrarySnapshot | UnchangedLibrary>(`/library?includeLorebookUses=false${cached ? `&knownRevision=${cached.revision}` : ''}`) : null,
-        scope.appearance ? api<unknown>('/application/appearance')
+        scope.library ? read<LibrarySnapshot | UnchangedLibrary>(`/library?includeLorebookUses=false${cached ? `&knownRevision=${cached.revision}` : ''}`) : null,
+        scope.appearance ? read<unknown>('/application/appearance')
           .then(value => ({ value: appearanceStatusSchema.parse(value), error: null }))
           .catch(error => ({ value: null, error: errorText(error, msg("app.chat_appearance_could_not_be_loaded")) })) : null,
-        scope['chat-defaults'] ? api<unknown>('/application/chat-defaults').then(value => chatDefaultsStatusSchema.parse(value)) : null,
-        scope['chat-behavior'] ? api<unknown>('/application/chat-behavior')
+        scope['chat-defaults'] ? read<unknown>('/application/chat-defaults').then(value => chatDefaultsStatusSchema.parse(value)) : null,
+        scope['chat-behavior'] ? read<unknown>('/application/chat-behavior')
           .then(value => ({ value: chatBehaviorStatusSchema.parse(value), error: null }))
           .catch(error => ({ value: null, error: errorText(error, msg('chat_behavior.read_failed')) })) : null,
       ]);
@@ -252,11 +271,11 @@ export function App() {
       let state: StorySnapshot | null;
       let windowReset = false;
       const readStory = scope.story || current?.id !== selected;
-      try { state = !readStory ? current : selected ? await api<StorySnapshot>(`/chats/${selected}/story?${parameters}`) : null; }
+      try { state = !readStory ? current : selected ? await read<StorySnapshot>(`/chats/${selected}/story?${parameters}`) : null; }
       catch (error) {
         if (id !== loadId.current) return;
         if (!(error instanceof ApiError) || error.status !== 409 || !selected) throw error;
-        state = await api<StorySnapshot>(`/chats/${selected}/story`);
+        state = await read<StorySnapshot>(`/chats/${selected}/story`);
         windowReset = true;
       }
       if (id === loadId.current && requestedChat === selectedChat.current && !datasetChanged()) {
@@ -295,7 +314,6 @@ export function App() {
           setChatBehavior(current => !current || nextBehavior.revision >= current.revision ? nextBehavior : current);
         }
         if (behaviorResult) setChatBehaviorError(behaviorResult.error);
-        clearServerError();
         if (selected !== chatId) {
           setChatId(selected); setEdit(null); setPeek(false); setGenerationId('');
           if (!selected) rememberChat(null);
@@ -318,7 +336,9 @@ export function App() {
         }
       }
       else if (error instanceof ApiError) reportLoadFailure(errorText(error));
-      else reportServerError();
+      else if (signal.aborted) {
+        if (await refreshSession() && id === loadId.current) reportLoadFailure(msg('app.refresh_timed_out'));
+      } else reportServerError();
     } finally {
       // Page movement and chat switches invalidate reads already in flight.
       // Retain their scopes: without periodic polling, dropping a settings
@@ -331,8 +351,11 @@ export function App() {
   const selectedChat = useRef(chatId);
   selectedChat.current = chatId;
   const recoverConnection = useCallback(async () => {
-    if (await refreshSession()) await refresh();
-  }, [refreshSession, refresh]);
+    if (await refreshSession()) {
+      if (selectedChat.current && visibleView.current === 'story') void refreshDraft(selectedChat.current);
+      await refresh();
+    }
+  }, [refreshSession, refresh, refreshDraft]);
   useEffect(() => { void refreshSession(); }, [refreshSession]);
   useEffect(() => {
     if (!connectionWarning) return;
@@ -346,12 +369,11 @@ export function App() {
     if (!session?.authenticated) return;
     // Reading saved state must also work when the observer cannot connect.
     void refresh();
-    const events = new EventSource('/api/events');
-    events.onopen = () => {
+    const opened = () => {
       setOnline(true); clearServerError(); void refresh();
       if (selectedChat.current && visibleView.current === 'story') void refreshDraft(selectedChat.current);
     };
-    events.onmessage = event => {
+    const changed = (event: MessageEvent) => {
       let scope: RefreshScope | null = fullRefresh;
       try {
         const parsed = changeSchema.safeParse(JSON.parse(event.data));
@@ -365,7 +387,9 @@ export function App() {
       } catch { /* Unknown/older notifications reconcile from authoritative state. */ }
       if (scope) void refresh(scope);
     };
-    events.onerror = () => { setOnline(false); void refreshSession(); };
+    const stopEvents = observeServerEvents(opened, () => { setOnline(false); void refreshSession(); }, changed);
+    const resumed = (event: PageTransitionEvent) => { if (event.persisted) void recoverConnection(); };
+    window.addEventListener('pageshow', resumed);
     const visible = () => { if (document.visibilityState === 'visible') { void refreshSession(); void refresh(); } };
     const offline = reportServerError;
     const online = () => { void recoverConnection(); };
@@ -374,7 +398,8 @@ export function App() {
     window.addEventListener('online', online);
     if (!navigator.onLine) offline();
     return () => {
-      events.close();
+      stopEvents();
+      window.removeEventListener('pageshow', resumed);
       setOnline(false);
       document.removeEventListener('visibilitychange', visible);
       window.removeEventListener('offline', offline);
@@ -525,13 +550,14 @@ export function App() {
   const memoryStale = summariesEnabled && Boolean(snapshot?.memory.stale || snapshot?.memory.refusalBlocked);
   const pending = snapshot?.latestTurn?.complete === false;
   const latest = snapshot?.latestGeneration;
+  const suggestion = snapshot?.suggestion;
   const recoveredEdit = edit && snapshot && !snapshot.page.turns.some(turn => turn.id === edit.turnId) ? edit : null;
   const hasDraft = Boolean(draft.trim());
   const continuationTarget = !hasDraft && snapshot?.latestTurn?.complete ? snapshot.latestTurn : null;
   const continuationBlocked = continuationTarget?.continuationBlocked;
-  const continuationPreview = !continuationBlocked && (!working || active?.kind === 'continuation') && !drafts.needsReview
+  const continuationPreview = !continuationBlocked && (!working || active?.kind === 'continuation') && !drafts.reviewReason
     ? continuationTarget?.id : undefined;
-  const openingPreview = snapshot?.totalTurns === 0 && !working && !hasDraft && !drafts.needsReview
+  const openingPreview = snapshot?.totalTurns === 0 && !working && !hasDraft && !drafts.reviewReason
     && hasPromptMarker(snapshot.sources.prompt, 'messages');
   const interruption = preparation?.status === 'interrupted' && preparation.generationId === latest?.id
     ? preparation.errorMessage ?? preparation.error : null;
@@ -547,7 +573,9 @@ export function App() {
   const savedRequestOptions = requestOptions.map(generation => {
     const date = new Date(generation.createdAt).toLocaleString(locale());
     const status = stateLabel(generation.status);
-    return { value: generation.id, label: generation.kind === 'continuation' ? t('continue.attempt_label', { date, status }) : `${date} · ${status}` };
+    const action = generation.kind === 'impersonate' ? 'impersonate.attempt_label'
+      : generation.kind === 'continuation' ? 'continue.attempt_label' : null;
+    return { value: generation.id, label: action ? t(action, { date, status }) : `${date} · ${status}` };
   });
   const preview = useRequestPreview(snapshot, tab === 'settings' || preparing?.mode === 'prepare' || regenerationPreparation ? '' : draft,
     view !== 'library' && view !== 'data' && view !== 'new-chat', tab === 'request' && !generationId || peek,
@@ -598,15 +626,17 @@ export function App() {
       await refresh(); return false;
     } finally { setBusy(false); }
   }
-  const canSubmit = Boolean(snapshot?.connection && !busy && !pending && !working && !memoryStale && !authorNote.pending
-    && !dataChanged && drafts.ready && !drafts.needsReview && !recoveredEdit && (hasDraft || continuationTarget && !continuationBlocked && !edit));
-  const canGenerateOpening = Boolean(snapshot?.connection && snapshot.totalTurns === 0 && !busy && !working
-    && !memoryStale && !authorNote.pending && !dataChanged && drafts.ready && !drafts.needsReview && !edit);
+  const canSubmit = Boolean(snapshot?.connection && !connectionWarning && !busy && !pending && !working && !memoryStale && !authorNote.pending
+    && !dataChanged && drafts.ready && !drafts.reviewReason && !recoveredEdit && (hasDraft || continuationTarget && !continuationBlocked && !edit));
+  const canStartAction = Boolean(snapshot?.connection && !connectionWarning && !busy && !working
+    && !memoryStale && !authorNote.pending && !dataChanged && drafts.ready && !drafts.reviewReason && !edit);
+  const canGenerateOpening = canStartAction && snapshot?.totalTurns === 0;
+  const canImpersonate = canStartAction && !pending && !drafts.unconfirmed;
   const canSaveEdit = Boolean(edit && snapshot?.id === chatId && !busy && !working && !dataChanged);
   const enterKeyBehavior = chatBehaviorError ? 'button-only' : chatBehavior?.settings.enterKeyBehavior ?? 'button-only';
   const mobileKeyboard = isPhoneOrTablet(navigator);
   const macKeyboard = isMacKeyboard(navigator);
-  const sendTitle = authorNote.pending ? t('author_note.pending') : busy ? t('app.saving_changes')
+  const sendTitle = connectionWarning ? t('composer_draft.offline') : authorNote.pending ? t('author_note.pending') : busy ? t('app.saving_changes')
     : continuationTarget
       ? formatMessage(continuationBlocked) || (enterKeyBehavior === 'ctrl-enter' ? t(macKeyboard ? 'continue.shortcut_mac' : 'continue.shortcut_ctrl')
         : enterKeyBehavior === 'enter' && !mobileKeyboard ? t('continue.shortcut_enter') : t('continue.action'))
@@ -625,22 +655,32 @@ export function App() {
     event.preventDefault();
     if (!snapshot || !canSubmit || authorNote.editor.getSnapshot().pending || sendInFlight.current) return;
     const id = snapshot.id;
-    const sent = continuationTarget ? null : drafts.stage(id, snapshot.revision);
+    const sent = continuationTarget ? null : drafts.stage(id, snapshot.revision, suggestion?.id);
     sendInFlight.current = true;
+    setAwaitingSend(id);
     setBusy(true); setFailure(null);
+    let accepted = false;
+    const deadline = AbortSignal.timeout(8_000);
     try {
-      if (continuationTarget) await continueResponse(id, continuationTarget.id, snapshot.revision);
+      if (continuationTarget) await continueResponse(id, continuationTarget.id, snapshot.revision, deadline);
       else if (sent) {
-        const result = await api<{ draft?: unknown }>(`/chats/${id}/turns`, 'POST', sent.submission);
+        const result = await api<{ draft?: unknown }>(`/chats/${id}/turns`, 'POST', sent.submission, deadline);
         drafts.acknowledge(id, sent, composerDraftSchema.optional().parse(result.draft));
       }
+      accepted = true;
       if (selectedChat.current === id) { setPeek(false); scrollToLatest(); forceLatest.current = true; }
     } catch (error) {
       // A server rejection is definite; a lost response is ambiguous, so retain its request identity.
       if (sent && error instanceof ApiError && error.status < 500) drafts.reject(id, sent);
-      setFailure({ kind: 'action', message: errorText(error, msg("app.the_request_failed")) });
+      if (!(error instanceof ApiError)) void refreshSession();
+      if (selectedChat.current === id) {
+        setFailure({ kind: 'action', message: deadline.aborted ? msg('composer_draft.unconfirmed') : errorText(error) });
+      }
     } finally {
-      await latestRefresh.current();
+      setAwaitingSend(null);
+      // An uncertain send may be retried with its saved identity even when a read is stalled.
+      if (accepted) await latestRefresh.current();
+      else void latestRefresh.current();
       sendInFlight.current = false;
       setBusy(false);
     }
@@ -674,7 +714,7 @@ export function App() {
     close={() => setConnectionWarning(current => current === 'visible' ? 'dismissed' : current)} />;
   const datasetChangeNotice = dataChanged && <div className="error-banner" role="alert"><span>{t("app.application_data_was_imported_or_wiped_in")}</span><button onClick={() => window.location.reload()}>{t("app.reload_current_data")}</button></div>;
   if (!session) return <main className="login"><p>{t("app.opening_ore")}</p>{error && <p role="alert">{error}</p>}{connectionDialog}</main>;
-  if (!session.authenticated) return <Login session={session} onLogin={async () => { setFailure(null); await refreshSession(); }} />;
+  if (!session.authenticated) return <Login session={session} onLogin={async () => { setFailure(null); await refreshSession(true); }} />;
   function selectChat(id: string | null, destination: 'story' | 'settings') {
     loadId.current++;
     pageRequest.current?.abort();
@@ -728,7 +768,10 @@ export function App() {
   function chooseHomeParticipant(key: keyof ChatParticipantsValue, id: string | null) {
     setHomeParticipants(current => ({ ...current, [key]: id }));
   }
-  if (!library) return <main className="login">{dataChanged ? datasetChangeNotice : <p>{t("app.loading_your_story")}</p>}{error && <p role="alert">{error}</p>}{connectionDialog}</main>;
+  if (!library) return <main className="login">{dataChanged ? datasetChangeNotice : <p>{t("app.loading_your_story")}</p>}
+    {error && <p role="alert">{error}</p>}
+    {failure?.kind === 'loading' && <button onClick={() => { setFailure(null); void refresh(); }}>{t('app.retry_loading')}</button>}
+    {connectionDialog}</main>;
   const selectedCharacter = library.characters.find(character => character.id === snapshot?.settings.characterId);
   const selectedCharacterPicture = library.characterPictures.find(picture => picture.characterId === snapshot?.settings.characterId);
   const selectedPersona = library.personas.find(persona => persona.id === snapshot?.settings.personaId);
@@ -779,11 +822,15 @@ export function App() {
       setNewChatRequested(false);
       setTab(current => current === 'library' || current === 'settings' ? 'story' : current);
       setSnapshot(null);
-      await refreshSession();
+      await refreshSession(true);
     }), { returnFocus, deferDiscard: true });
   }
 
-  return <ChatDetailsTarget.Provider value={chatDetailsTarget}><div className="app">
+  return <ChatDetailsTarget.Provider value={chatDetailsTarget}><div className="app"
+    style={keyboardViewport ? {
+      position: 'absolute', insetInline: 0, top: keyboardViewport.pageTop, height: keyboardViewport.height,
+      '--composer-viewport-height': `${keyboardViewport.height}px`,
+    } as CSSProperties : undefined}>
     <header className="topbar">
       <div className="brand"><BrandMark /><div><strong>{t("app.ore")}</strong><small>{t("app.your_stories_room_to_continue")}</small></div></div>
       <nav className="tabs" aria-label={t("app.workspace")}>
@@ -827,7 +874,7 @@ export function App() {
       </>}>
       <section className="conversation" aria-label={t("app.conversation")}>
         {pageError && <div className="recovery" role="alert">{pageError}<button className="secondary" onClick={() => setPageError('')}>{t("app.dismiss")}</button></div>}
-        <TranscriptFrame snapshot={snapshot} captureScroll={captureScroll} restoreScroll={restoreScroll}><div className="transcript" ref={transcript}>
+        <TranscriptFrame snapshot={snapshot} frameRef={transcriptFrame} captureScroll={captureScroll} restoreScroll={restoreScroll}><div className="transcript" ref={transcript}>
           {snapshot.page.hasOlder && <div className="history-page-control" data-history-direction="older"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('older')}>{pageLoading ? t("app.loading_history") : t("app.load_older_turns")}</button></div>}
           {snapshot.totalTurns === 0 && <EmptyTranscript connected={Boolean(snapshot.connection)}
             canGenerate={canGenerateOpening} generate={() => void generateOpening()} openSettings={() => setTab('settings')} />}
@@ -851,8 +898,8 @@ export function App() {
               generationId: reasoningGeneration.id, length: reasoningGeneration.reasoningLength ?? 0,
             } : null;
             const showLiveReasoning = appearance.settings.showReasoningDuringGeneration && reasoning && generating && !(continuing ? streamedAddition : responseText);
-            const waiting = preparing && preparing.generationId === active?.id ? "app.preparing_memory"
-              : reasoning ? "app.reasoning" : "app.waiting_for_first_token";
+            const progress = generating && <GenerationProgress streaming={Boolean(continuing ? streamedAddition : visibleResponse)}
+              preparing={preparing?.generationId === active.id} reasoning={Boolean(reasoning)} />;
             const inputVisible = !((turn.complete || turn.ordinal === 1) && turn.user.text === '' && turn.user.revision === 0)
               || (edit?.turnId === turn.id && edit.part === 'user');
             return <article className="turn" key={turn.id} data-turn-id={turn.id} aria-label={t("app.turn", { ordinal: turn.ordinal })}>
@@ -864,7 +911,8 @@ export function App() {
             {(['user', 'assistant'] as const).filter(part => part !== 'user' || inputVisible).map((part) => <ChatMessage role={part} speaker={part === 'user' ? selectedPersonaName : selectedCharacterName} key={part}>
               {part === 'assistant' && showLiveReasoning && !continuing && <ReasoningPreview text={reasoning.text} />}
               {edit?.turnId === turn.id && edit.part === part ? <form ref={editForm} onSubmit={saveEdit} className="edit-form">
-                <ChatTextarea autoSize enterKeyHint="enter" aria-label={t("app.edit_text", { part })} value={edit.text} readOnly={busy}
+                <ChatTextarea autoSize textScale={appearance.settings.chatTextScale} enterKeyHint="enter"
+                  aria-label={t("app.edit_text", { part })} value={edit.text} readOnly={busy}
                   onKeyDown={event => submitWithChatShortcut(event, canSaveEdit)}
                   onValueChange={text => setEdit({ ...edit, text })} />
                 {snapshot.settings.lorebookId && <p className="field-help small muted">{t("app.saving_a_history_edit_starts_fresh_lore")}</p>}
@@ -875,17 +923,17 @@ export function App() {
               </form> : <div className="prose">
                 {part === 'assistant' && continuing
                   ? <><ChatMarkdown textScale={appearance.settings.chatTextScale} text={streamedAddition ? appendContinuation(turn.assistant.text, streamedAddition) : turn.assistant.text} speechColor={speechColor} />
-                    {streamedAddition ? <span className="cursor" aria-label={t("app.generating")} /> : <div className="continuation-progress">
+                    {streamedAddition ? progress : <div className="continuation-progress">
                       {showLiveReasoning && <ReasoningPreview text={reasoning.text} />}
-                      <span className="muted" role="status">{t(waiting)}</span><span className="cursor" aria-label={t("app.generating")} />
+                      {progress}
                     </div>}</>
-                  : part === 'assistant' && (!turn.complete || generating && !regenerationPreparation)
-                    ? <>{visibleResponse ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={visibleResponse} speechColor={speechColor} /> : <span className="muted">{generating ? t(waiting) : cancelled ? t("app.generation_cancelled") : t("app.awaiting_response")}</span>}{generating && <span className="cursor" aria-label={t("app.generating")} />}</>
+                  : part === 'assistant' && (!turn.complete || generating)
+                    ? <>{visibleResponse ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={visibleResponse} speechColor={speechColor} /> : !generating && <span className="muted">{cancelled ? t("app.generation_cancelled") : t("app.awaiting_response")}</span>}{progress}</>
                     : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor ?? 'var(--speech-persona)' : speechColor} /> : <span className="muted blank">{t("app.blank")}</span>}
               </div>}
               {part === 'assistant' && !edit && continuationError && <div className="continuation-progress muted small" role="status">{continuationError}</div>}
             </ChatMessage>)}
-            <TurnControls turn={turn} revision={snapshot.revision} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}
+            <TurnControls turn={turn} revision={snapshot.revision} transcriptFrame={transcriptFrame} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}
               continuing={continuing}
               pin={turn.complete ? {
                 disabled: dataChanged || snapshot.memory.awaitingReview,
@@ -917,25 +965,42 @@ export function App() {
           {snapshot.page.hasNewer && <div className="history-page-control" data-history-direction="newer"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('newer')}>{pageLoading ? t("app.loading_history") : t("app.load_newer_turns")}</button></div>}
           {recoveredEdit && <div className="recovery turn-edit-recovery">
             <p id="turn-edit-recovery-notice" role="alert">{t("app.the_edited_turn_was_removed_or_replaced")}</p>
-            <ChatTextarea aria-label={t("app.unsaved_turn_edit")} aria-describedby="turn-edit-recovery-notice"
+            <ChatTextarea textScale={appearance.settings.chatTextScale}
+              aria-label={t("app.unsaved_turn_edit")} aria-describedby="turn-edit-recovery-notice"
               value={recoveredEdit.text} onValueChange={text => setEdit({ ...recoveredEdit, text })} />
             <button type="button" className="secondary" onClick={cancelEdit}>{t("app.close_edit")}</button>
           </div>}
         </div>
           {(preparing || snapshot.memory.refusalCount > 0 || memoryStale) && <TranscriptNotices transcript={transcript} hasOlderTurns={snapshot.page.hasOlder}>
             {snapshot.memory.refusalCount > 0 ? <WarningDetails label={t('refusals.review')} message={msg('refusals.notice', { count: snapshot.memory.refusalCount })}
-              actions={() => <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.review_memory')}</button>} />
+              actions={() => <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.inspect_memory')}</button>} />
               : memoryStale && <WarningDetails label={t("app.memory_needs_review")} message={msg("app.archived_history_changed_repair_the_affected_summaries")}
-                actions={() => <button type="button" className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button>} />}
-            {preparing && <PreparationStatus preparation={preparing} disabled={busy || dataChanged} review={() => setTab('memory')}
+                actions={() => <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.inspect_memory')}</button>} />}
+            {preparing && <PreparationStatus preparation={preparing} disabled={busy || dataChanged} openMemory={() => setTab('memory')}
               stop={() => void command(() => api(preparing.generationId ? `/generations/${preparing.generationId}/cancel` : `/context/jobs/${preparing.id}/cancel`, 'POST', {}))} />}
           </TranscriptNotices>}
-          {!recoveredEdit && (awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}
+          {!recoveredEdit && (awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary"
+            aria-label={t("app.latest_turn")} disabled={pageLoading || Boolean(edit)}
+            onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>
+            <span>{t("app.latest_turn")}</span><Icon name="ArrowShortBottom" />
+          </button>}
         </TranscriptFrame>
         <div className="composer-notices">
+          {suggestion?.sessionId && <SuggestionPanel key={snapshot.id + suggestion.sessionId}
+            chatId={snapshot.id} attempt={suggestion} generation={active?.id === suggestion.id ? active : undefined}
+            showReasoning={appearance.settings.showReasoningDuringGeneration} draft={draft}
+            canGenerate={canImpersonate}
+            canReplace={drafts.savedRevision !== null && !connectionWarning && !drafts.reviewReason && !drafts.unconfirmed}
+            replace={text => {
+              const base = drafts.savedRevision;
+              return base === null ? Promise.resolve(false) : command(() => drafts.replace(snapshot.id, text, base, suggestion.id));
+            }} preparing={preparing?.generationId === suggestion.id} actionsBlocked={busy || dataChanged}
+            dismiss={() => void command(() => api(`/chats/${snapshot.id}/suggestions/${suggestion.id}/dismiss`, 'POST', {}, AbortSignal.timeout(8000)))}
+            stop={() => void command(() => api(`/generations/${suggestion.id}/cancel`, 'POST', {}))}
+            retry={() => void command(() => impersonate(snapshot.id, snapshot.revision, draft, suggestion.sessionId, suggestion.requestId))} />}
           {!working && preparation?.generationId === null && preparation.error && ['failed', 'interrupted'].includes(preparation.status) && <div className="recovery" role="status">
             <p>{formatMessage(preparation.errorMessage ?? preparation.error)}</p>
-            <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('story_preparation.open_memory')}</button>
+            <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.inspect_memory')}</button>
           </div>}
           {!active && pending && <div className="recovery" role="status">
             <div>
@@ -945,22 +1010,38 @@ export function App() {
             <button className="secondary" disabled={busy || working || authorNote.pending} onClick={() => void command(() => api(`/chats/${chatId}/retry`, 'POST', { revision: snapshot.revision, requestId: newId() }))}>{t("app.retry_response")}</button>
           </div>}
           {!active && latest?.kind === 'regeneration' && (latest.status === 'failed' || latest.status === 'interrupted') && <div className="recovery" role="status">{formatMessage(latestError ?? msg("app.regeneration_did_not_finish_try_again"))}</div>}
-          {drafts.needsReview && <div className="recovery" role="alert"><p>{t("app.this_browser_draft_predates_a_backup_import")}</p><button onClick={drafts.review}>{t("app.use_recovered_draft")}</button></div>}
+          {drafts.reviewReason && <div className="recovery" role="alert"><p>{t(drafts.reviewReason === 'send' ? 'composer_draft.edited_after_send' : 'app.this_browser_draft_predates_a_backup_import')}</p><button onClick={drafts.review}>{t("app.use_recovered_draft")}</button></div>}
           {drafts.storageError && <div className="recovery" role="alert">{t("app.draft_could_not_be_saved_in_this")}</div>}
-          {drafts.syncError && <div className="recovery" role="alert"><p>{t('composer_draft.sync_failed')}</p><button onClick={drafts.retry}>{t('composer_draft.retry_sync')}</button></div>}
+          {connectionWarning && awaitingSend !== snapshot.id && <div className="recovery" role="status">{t('composer_draft.offline')}</div>}
+          {awaitingSend === snapshot.id && <div className="recovery" role="status">{t('composer_draft.waiting')}</div>}
+          {drafts.unconfirmed && awaitingSend !== snapshot.id && !drafts.reviewReason &&
+            <div className="recovery" role="status">{t('composer_draft.retry_unconfirmed')}</div>}
+          {drafts.syncError && !connectionWarning && <div className="recovery" role="alert"><p>{t('composer_draft.sync_failed')}</p><button onClick={drafts.retry}>{t('composer_draft.retry_sync')}</button></div>}
           {!authorNoteOpen && <AuthorNoteSaveStatus saving={authorNote.saving} error={authorNote.error} retry={authorNote.editor.retry} disabled={working || busy || dataChanged} />}
           {!authorNoteOpen && authorNote.storageError && authorNote.pending && <div className="error-banner" role="alert">{t('author_note.storage_failed')}</div>}
           {continuationBlocked && <div className="recovery">{formatMessage(continuationBlocked)}</div>}
         </div>
-        <form className={isIOS ? 'composer composer-ios' : 'composer'} data-keyboard-visible={composerKeyboard || undefined} onSubmit={(event) => void send(event)}>
-          <ChatTextarea autoSize textScale={appearance.settings.chatTextScale} rows={1} aria-label={t("app.your_next_turn")} id="turn-input" enterKeyHint="enter"
-            onKeyDown={event => submitWithChatShortcut(event, canSubmit)}
-            placeholder={t("app.what_happens_next")} value={draft} disabled={busy} onValueChange={text => { drafts.change(text); setPeek(false); }} />
-          <button className="send-turn" aria-label={t(continuationTarget ? 'continue.action' : "app.send")} title={sendTitle} disabled={!canSubmit} onMouseDown={event => {
-            // Touch taps synthesize mousedown before click. Blurring the iOS
-            // composer here changes its padding and moves Send out of the tap.
-            if (isIOS && event.button === 0 && document.activeElement?.id === 'turn-input') event.preventDefault();
-          }}>{continuationTarget ? <Icon name="PlayOutline" /> : <span className="send-icon" aria-hidden="true" />}</button>
+        <form className={isIOS ? 'composer composer-ios' : 'composer'} data-keyboard-visible={keyboardViewport ? true : undefined}
+          onSubmit={(event) => void send(event)} onMouseDown={event => {
+            // Keep the touch target above the keyboard until its click lands.
+            if (isPhoneOrTablet(navigator) && event.button === 0 && event.target instanceof Element
+              && event.target.closest('button') && document.activeElement?.id === 'turn-input') event.preventDefault();
+          }}>
+          <div className="composer-surface">
+            <div className="composer-actions">
+              <ActionMenu aboveTrigger focusMode={keyboardViewport ? 'editing' : 'item'} label={t('impersonate.more')} disabled={!canImpersonate} revision={snapshot.revision}>
+                <button type="button" className="secondary" role="menuitem" tabIndex={-1} onClick={() => void command(() => impersonate(snapshot.id, snapshot.revision, draft, undefined, suggestion?.requestId))}>
+                  <PersonaIcon />{t('impersonate.action')}
+                </button>
+              </ActionMenu>
+            </div>
+            <div className="composer-field">
+              <ChatTextarea autoSize textScale={appearance.settings.chatTextScale} rows={1} aria-label={t("app.your_next_turn")} id="turn-input" enterKeyHint="enter"
+                onKeyDown={event => submitWithChatShortcut(event, canSubmit)}
+                placeholder={t("app.what_happens_next")} value={draft} readOnly={awaitingSend === snapshot.id && drafts.unconfirmed} onValueChange={text => { drafts.change(text); setPeek(false); }} />
+              <button className="send-turn" aria-label={t(continuationTarget ? 'continue.action' : "app.send")} title={sendTitle} disabled={!canSubmit}>{continuationTarget ? <Icon name="PlayOutline" /> : <span className="send-icon" aria-hidden="true" />}</button>
+            </div>
+          </div>
         </form>
       </section>
     </ChatWorkspace>}
@@ -993,7 +1074,7 @@ export function App() {
         ...requestWarnings(shownRequest),
       ]} actions={close => !generationId && inspectionBudgetWarning && <>
         {pinsIncluded && <button type="button" className="secondary" onClick={() => { close(); openPins(); }}>{t('pins.title')}</button>}
-        {summariesEnabled && <button type="button" className="secondary" onClick={() => setTab('memory')}>{t("app.review_memory")}</button>}
+        {summariesEnabled && <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.inspect_memory')}</button>}
       </>} />
       {!generationId && (inspectionError || currentRequest && !inspectionCurrent) && <div role="status">
         <p>{inspectionError || t("app.counting_current_input")}</p>

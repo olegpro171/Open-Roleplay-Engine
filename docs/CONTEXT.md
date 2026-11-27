@@ -80,7 +80,7 @@ Repair does not rewrite later transcript contradictions. A higher-layer repair c
 
 ## Refusal checks and retries
 
-The summary-output gate rejects obvious refusals/filter metadata, empty/non-text/placeholder output, repetition loops and incomplete/truncated streams. It is heuristic, not factual validation. Late cancelled results cannot commit.
+The summary-output gate rejects obvious refusals/filter metadata, empty/non-text/placeholder output, repetition loops and incomplete/truncated streams. Text checks look for common English and Russian refusal phrasing at the start of the response so quoted dialogue inside the story can pass. These checks are heuristic. Late cancelled results cannot commit.
 
 Saved checks use `summaryRefusalFilterVersion`, independent of release identity. Increment it when saved-text detection changes. Locally cache each saved revision/filter result, including historical versions used for future comparisons. Checks change quality metadata only, not source/text revisions or selections, and make no model calls. Current approved identities form findings. Unresolved refused inputs in selected dependencies block use/preparation on the server; unrelated retained alternatives are excluded from reuse. Summary-off ignores them.
 

@@ -1,4 +1,4 @@
-import { expect, type Locator } from '@playwright/test';
+import { devices, expect, type Locator } from '@playwright/test';
 import { test } from './appearance-test';
 import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 import type { ChatSnapshot } from '../../src/shared/contracts';
@@ -12,6 +12,11 @@ test.afterEach(async ({ request }) => {
 for (const theme of themeSchema.options) for (const width of (theme === 'dark' ? [1280, 390, 320] : [1280, 390])) test(`streams and saves separate turn reasoning in ${theme} at ${width}px`, async ({ page, request, setAppearance }) => {
   test.setTimeout(60000);
   await page.setViewportSize({ width, height: 844 });
+  if (width <= 390) {
+    // Exercise the iOS composer inset that leaves room to cover the input.
+    await page.addInitScript(userAgent => Object.defineProperty(navigator, 'userAgent', { get: () => userAgent }),
+      devices['iPhone 13'].userAgent);
+  }
   const session = await request.get('/api/session').then(response => response.json());
   await page.goto('/');
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
@@ -33,7 +38,7 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   await page.evaluate(id => localStorage.setItem('roleplay-chat', id), chat.id);
   await page.reload();
   await request.post('/__test/mode', { data: { mode: 'reasoning' } });
-  await page.getByLabel('Your next turn').fill('I enter the tower.');
+  await page.getByLabel('Your next turn').fill(Array(18).fill('I enter the tower.').join('\n\n'));
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   const turn = page.getByRole('article', { name: 'Turn 1', exact: true });
   const preview = turn.getByLabel('Latest model reasoning', { exact: true });
@@ -60,12 +65,20 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   }
   const reply = turn.locator('.part.assistant > .prose');
   await expect(preview).toHaveCount(0);
-  await openReasoning();
+  // Give the same menu ample room below the trigger before testing the bottom edge.
+  await page.setViewportSize({ width, height: 1400 });
+  await openMenu();
+  const roomyTrigger = await more.boundingBox();
+  const roomyMenu = await menu.boundingBox();
+  if (!roomyTrigger || !roomyMenu) throw new Error('Missing live turn menu');
+  expect(roomyMenu.y).toBeGreaterThan(roomyTrigger.y + roomyTrigger.height);
+  await reasoningAction.click();
   const popup = page.getByRole('dialog', { name: 'Model reasoning', exact: true });
   await expect(page.getByLabel('Model reasoning stream', { exact: true })).toHaveText(syntheticReasoningStart);
   await page.mouse.click(2, 2);
   await expect(popup).toHaveCount(0);
   await expect(more).not.toBeFocused();
+  await page.setViewportSize({ width, height: 844 });
   await page.reload();
   await checkReasoningAvailable();
   await expect(preview).toHaveCount(0);
@@ -84,6 +97,18 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   expect(previewBox?.height).toBeLessThan(110);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: `test-results/reasoning-preview-${theme}-${width}.png`, fullPage: true });
+
+  await openMenu();
+  const edgeTrigger = await more.boundingBox();
+  const edgeMenu = await menu.boundingBox();
+  const composer = await page.locator('.composer').boundingBox();
+  if (!edgeTrigger || !edgeMenu || !composer) throw new Error('Missing live turn menu or composer');
+  expect(edgeTrigger.y + edgeTrigger.height).toBeLessThan(composer.y);
+  expect(composer.y - (edgeTrigger.y + edgeTrigger.height)).toBeLessThan(edgeMenu.height);
+  expect(edgeMenu.y).toBeGreaterThanOrEqual(0);
+  expect(edgeMenu.y + edgeMenu.height).toBeLessThan(edgeTrigger.y);
+  await page.screenshot({ path: `test-results/turn-menu-live-${theme}-${width}.png` });
+  await page.keyboard.press('Escape');
 
   await more.scrollIntoViewIfNeeded();
   await more.press('Enter');

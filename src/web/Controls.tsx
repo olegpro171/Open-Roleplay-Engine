@@ -8,10 +8,10 @@ type Option = { value: string; label: string; disabled?: boolean; leading?: Reac
 type DropdownProps = {
   value: string; onChange: (value: string) => void; options: Option[];
   'aria-label'?: string; 'aria-describedby'?: string; disabled?: boolean; editable?: boolean; required?: boolean; minMenuWidth?: number;
-  presentation?: 'heading'; triggerRef?: RefObject<HTMLButtonElement | null>;
+  presentation?: 'heading'; fadeLabel?: boolean; triggerRef?: RefObject<HTMLButtonElement | null>;
 };
 
-export function Dropdown({ value, onChange, options, disabled, editable, required, minMenuWidth, presentation, triggerRef, 'aria-label': label, 'aria-describedby': describedBy }: DropdownProps) {
+export function Dropdown({ value, onChange, options, disabled, editable, required, minMenuWidth, presentation, fadeLabel, triggerRef, 'aria-label': label, 'aria-describedby': describedBy }: DropdownProps) {
   useLocale();
   const heading = presentation === 'heading';
   const Anchor = heading ? 'span' : 'div';
@@ -24,6 +24,7 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
   const expanded = open && visible.length > 0 && !disabled;
   const activeIndex = Math.min(active, Math.max(0, visible.length - 1));
   const selected = options.find(option => option.value === value);
+  const selectedLabel = selected?.label ?? t("character_editor.none_selected");
   // A modal makes outside content inert, so its options must share the dialog.
   const portalTarget = anchor.current?.closest('dialog[open]') ?? document.body;
   function show() {
@@ -66,8 +67,9 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
       openingScrollPositions.set(ancestor, { left: ancestor.scrollLeft, top: ancestor.scrollTop });
     }
     const openingViewport = { left: window.scrollX, top: window.scrollY };
-    const outside = (event: PointerEvent) => { if (!anchor.current?.contains(event.target as Node) && !popup.current?.contains(event.target as Node)) setOpen(false); };
-    const blur = (event: FocusEvent) => { if (!anchor.current?.contains(event.target as Node) && !popup.current?.contains(event.target as Node)) setOpen(false); };
+    const dismissOutside = (event: Event) => {
+      if (event.target instanceof Node && !anchor.current?.contains(event.target) && !popup.current?.contains(event.target)) setOpen(false);
+    };
     const dismissOnScroll = (event: Event) => {
       // Keep long option lists scrollable, including keyboard-driven scrolling.
       if (event.target instanceof Node && popup.current?.contains(event.target)) return;
@@ -82,22 +84,26 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
       }
       setOpen(false);
     };
-    document.addEventListener('pointerdown', outside); document.addEventListener('focusin', blur);
+    // A small finger movement can still end in a click. Wait until the browser
+    // takes over a touch gesture or the workspace actually scrolls.
+    const touchScrollEvent = heading ? 'pointercancel' : 'touchmove';
+    if (!heading) document.addEventListener('pointerdown', dismissOutside);
+    document.addEventListener('focusin', dismissOutside);
     window.addEventListener('resize', place);
     viewport?.addEventListener('resize', place);
     viewport?.addEventListener('scroll', place);
     window.addEventListener('scroll', dismissOnScroll, true);
     window.addEventListener('wheel', dismissOnScroll, { capture: true, passive: true });
-    window.addEventListener('touchmove', dismissOnScroll, { capture: true, passive: true });
+    window.addEventListener(touchScrollEvent, dismissOnScroll, { capture: true, passive: true });
     return () => {
-      document.removeEventListener('pointerdown', outside);
-      document.removeEventListener('focusin', blur);
+      if (!heading) document.removeEventListener('pointerdown', dismissOutside);
+      document.removeEventListener('focusin', dismissOutside);
       window.removeEventListener('resize', place);
       viewport?.removeEventListener('resize', place);
       viewport?.removeEventListener('scroll', place);
       window.removeEventListener('scroll', dismissOnScroll, true);
       window.removeEventListener('wheel', dismissOnScroll, true);
-      window.removeEventListener('touchmove', dismissOnScroll, true);
+      window.removeEventListener(touchScrollEvent, dismissOnScroll, true);
     };
   }, [expanded, visible.length, minMenuWidth, heading]);
   useEffect(() => {
@@ -157,7 +163,16 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
           event.currentTarget.focus({ preventScroll: true });
           show();
         }
-      }}><span className="select-label"><OptionLabel label={selected?.label ?? t("character_editor.none_selected")} leading={heading ? undefined : selected?.leading} /></span><Icon name="ArrowShortBottom" /></button>}
+      }}>
+        {fadeLabel ? <FadingSelectLabel label={selectedLabel} /> :
+          <span className="select-label"><OptionLabel label={selectedLabel} leading={heading ? undefined : selected?.leading} /></span>}
+        <Icon name="ArrowShortBottom" />
+      </button>}
+    {expanded && heading && createPortal(<div className="heading-select-backdrop" aria-hidden="true"
+      onMouseDown={event => event.preventDefault()} onClick={() => {
+        setOpen(false);
+        anchor.current?.querySelector('button')?.focus({ preventScroll: true });
+      }} />, portalTarget)}
     {expanded && createPortal(<div ref={popup} id={id} role="listbox" aria-label={label} className={heading ? 'select-menu heading-select-menu' : 'select-menu'} style={position}
       onMouseDown={event => event.preventDefault()}>
       {visible.map((option, index) => <div role="option" id={`${id}-${index}`} key={option.value} aria-selected={option.value === value}
@@ -170,6 +185,22 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
       </div>)}
     </div>, portalTarget)}
   </Anchor>;
+}
+
+export function FadingSelectLabel({ label }: { label: string }) {
+  const clipped = useRef<HTMLSpanElement>(null);
+  const [overflows, setOverflows] = useState(false);
+  useLayoutEffect(() => {
+    const element = clipped.current;
+    if (!element) return;
+    const measure = () => setOverflows(element.scrollWidth > element.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [label]);
+  return <span className="select-label fading-select-label" ref={clipped} data-overflows={overflows || undefined}
+    title={overflows ? label : undefined}>{label}</span>;
 }
 
 function OptionLabel({ label, leading }: Pick<Option, 'label' | 'leading'>) {
@@ -195,7 +226,7 @@ export function useNumberDraft(initial?: Record<string, string>) {
   return { values, set, dirty: Object.keys(values).length > 0 };
 }
 
-export function NumberInput({ value, onChange, min = 1, max = 10_000_000, draftField, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max' | 'type'> & { value: number; onChange: (value: number) => void; min?: number; max?: number; draftField?: string }) {
+export function NumberInput({ value, onChange, onEdit, min = 1, max = 10_000_000, draftField, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max' | 'type'> & { value: number; onChange: (value: number) => void; onEdit?: () => void; min?: number; max?: number; draftField?: string }) {
   useLocale();
   const numberLocale = locale();
   const [text, setText] = useState(String(value));
@@ -207,6 +238,7 @@ export function NumberInput({ value, onChange, min = 1, max = 10_000_000, draftF
   useEffect(() => { input.current?.setCustomValidity(visibleText !== '' && (!/^\d+$/.test(visibleText) || Number(visibleText) < min || Number(visibleText) > max) ? t("controls.enter_a_whole_number_from_to", { value: min.toLocaleString(numberLocale), value2: max.toLocaleString(numberLocale) }) : ''); }, [visibleText, min, max, numberLocale]);
   return <input {...props} ref={input} type="text" inputMode="numeric" pattern="[0-9]+" value={visibleText} onChange={event => {
     const next = event.target.value;
+    onEdit?.();
     const numeric = /^\d+$/.test(next);
     const parsed = Number(next);
     if (draftField && draft) {

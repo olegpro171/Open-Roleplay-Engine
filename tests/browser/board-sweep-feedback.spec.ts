@@ -70,6 +70,7 @@ test('Connection check and test successes use the built-in Russian catalog with 
   await expect(page.locator('.eyebrow').filter({ hasText: 'БИБЛИОТЕКА' })).toBeVisible();
   await page.getByRole('button', { name: 'Подключения', exact: true }).click();
   await page.getByRole('button', { name: 'Sweep diagnostics', exact: true }).click();
+  await page.getByRole('tab', { name: 'Параметры запроса', exact: true }).click();
   const advanced = page.getByText('Расширенные параметры', { exact: true });
   await expect(page.getByLabel('Дополнительные параметры запроса')).toBeHidden();
   await advanced.click();

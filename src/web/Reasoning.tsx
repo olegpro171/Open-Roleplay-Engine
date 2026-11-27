@@ -9,6 +9,15 @@ import { ScrollFollow } from './scroll-follow';
 
 export type ReasoningProps = { text: string; live: boolean; chatId: string; generationId: string; length: number };
 
+export function GenerationProgress({ streaming, preparing, reasoning }: {
+  streaming: boolean; preparing?: boolean; reasoning?: boolean;
+}) {
+  useLocale();
+  return <>{!streaming && <span className="muted" role="status">
+    {t(preparing ? 'app.preparing_memory' : reasoning ? 'app.reasoning' : 'app.waiting_for_first_token')}
+  </span>}<span className="cursor" aria-label={t('app.generating')} /></>;
+}
+
 export function ReasoningPreview({ text }: { text: string }) {
   useLocale();
   return <div className="reasoning-preview" aria-label={t("reasoning.latest_model_reasoning")}>

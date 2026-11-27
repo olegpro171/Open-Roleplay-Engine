@@ -17,11 +17,20 @@ import { inlineSettingsPrompt } from './inline-prompt.js';
 import { fitsInputTarget, type InputOvershoot } from './input-target.js';
 import { pinnedBlock } from './pinned-turns.js';
 import { defaultContinuationInstruction, defaultOpeningInstruction } from '../shared/default-prompt.js';
+import { impersonationInstruction } from './impersonation.js';
 import { requireOpeningMessages } from './opening.js';
 export { replaceNameMacros } from './names.js';
 
 export function estimateInputTokens(messages: Message[]): number {
   return countInput(messages).inputTokens;
+}
+
+/** Represent unsent composer input for a request-local preview or lore scan. */
+export function withDraftInput(turns: Turn[], text: string): Turn[] {
+  return [...turns, {
+    id: 'draft', position: (turns.at(-1)?.position ?? 0) + 1, complete: false,
+    user: { id: 'draft-user', revision: 0, text }, assistant: { id: 'draft-assistant', revision: 0, text: '' },
+  }];
 }
 
 export function summaryHeader(node: SummaryNode, positions: ReadonlyMap<string, number>): string {
@@ -77,7 +86,7 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   // Saved presets are authoritative; legacy inline settings retain their own layout.
   const preset = sources?.prompt ? promptSchema.parse({
     name: sources.prompt.name, blocks: sources.prompt.blocks,
-    continuationInstruction: sources.prompt.continuationInstruction, openingInstruction: sources.prompt.openingInstruction,
+    continuationInstruction: sources.prompt.continuationInstruction, openingInstruction: sources.prompt.openingInstruction, impersonateInstruction: sources.prompt.impersonateInstruction,
   }) : inlineSettingsPrompt(settings.instructions);
   const summariesEnabled = hasPromptMarker(preset, 'summary');
   const resolved = summariesEnabled && context ? selectedContext(turns, context, options.allowStale) : { summaries: [], verbatim: turns };
@@ -93,7 +102,10 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
   const instruction = options.turnInstruction;
   const continuationTurnId = instruction?.kind === 'continuation' ? instruction.turnId : undefined;
   let nextInput: Entry | null = null;
-  if (instruction) {
+  if (instruction?.kind === 'impersonate') {
+    const content = impersonationInstruction(preset.impersonateInstruction, instruction.draft, sources?.persona?.name ?? 'You', card?.name ?? 'Character');
+    nextInput = { message: { role: 'system', content }, kind: 'prompt', ...promptLabel(message('impersonate.instruction')) };
+  } else if (instruction) {
     const opening = instruction.kind === 'opening';
     if (opening) requireOpeningMessages(preset);
     else if (!messagesBlock) throw new AppError(422, 'continuation_unavailable', message('continue.messages_required'));
@@ -181,7 +193,15 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
     let content = '';
     if (block.kind === 'text') content = block.text;
     else switch (block.marker) {
-      case 'persona': content = sources?.persona?.description ?? settings.persona; break;
+      case 'persona': {
+        content = sources?.persona?.description ?? settings.persona;
+        if (instruction?.kind === 'impersonate' && sources?.persona) {
+          entries.push({ message: { role: block.role, content: [modelText(sources.persona.name), resolve(content)].filter(Boolean).join('\n') },
+            kind: 'persona', ...promptLabel(message('libraries.persona')) });
+          continue;
+        }
+        break;
+      }
     }
     if (content !== '') entries.push({ message: { role: block.role, content: resolve(content) }, kind: block.kind === 'text' ? 'prompt' : 'persona', label: block.name });
   }
@@ -231,10 +251,15 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
       throw new AppError(422, 'continuation_unavailable', message('continue.archived_reply'));
     }
     const history = verbatim.flatMap(turnEntries);
-    // Use the ordinary depth placement of a new user message without adding a story source.
-    if (nextInput) history.push(nextInput);
+    // Opening and Continue act as new user messages for history-depth placement.
+    if (nextInput && instruction?.kind !== 'impersonate') history.push(nextInput);
     const expanded = injectHistory(history, entry => Boolean(entry.message.content.trim()), historyInjections);
     entries = entries.slice(0, historyIndex).concat(expanded, entries.slice(historyIndex));
+  }
+  if (nextInput && instruction?.kind === 'impersonate') entries.push(nextInput);
+  if (options.validateLimits !== false && instruction?.kind === 'impersonate' && entries.length === 1
+    && !preset.impersonateInstruction?.trim() && !modelText(instruction.draft).trim()) {
+    throw new AppError(422, 'missing_scene', message('impersonate.missing_scene'));
   }
   const messages = entries.map(entry => entry.message);
   const layout: PromptEntry[] = entries.map(({ message: _message, ...entry }, messageIndex) => ({ ...entry, messageIndex, tokens: 0 }));

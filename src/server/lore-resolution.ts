@@ -1,15 +1,19 @@
 import type { EngineSnapshot } from '../shared/contracts.js';
 import { hasPromptMarker } from '../shared/library.js';
 import type { LoreResolution } from '../shared/lorebook.js';
+import { trimBoundaryNewlines } from '../shared/text.js';
 import { resolveLore } from '../core/lorebook.js';
-import { assembleRequest } from '../core/prompt.js';
+import { assembleRequest, withDraftInput } from '../core/prompt.js';
 import type { LoreRegexPool } from './lore-regex.js';
 import { loreCompatibility } from '../core/lorebook-formats.js';
 
 export async function resolveRequestLore(snapshot: EngineSnapshot, pool: LoreRegexPool, signal?: AbortSignal): Promise<LoreResolution | null> {
   const book = snapshot.sources.lorebook;
   if (!book || !snapshot.connection) return null;
-  const input = { book, turns: snapshot.turns, sources: snapshot.sources, state: snapshot.loreState ?? { epoch: 0, entries: {} } };
+  const instruction = snapshot.turnInstruction;
+  const draft = instruction?.kind === 'impersonate' ? trimBoundaryNewlines(instruction.draft) : '';
+  const scanTurns = draft ? withDraftInput(snapshot.turns, draft) : snapshot.turns;
+  const input = { book, turns: scanTurns, sources: snapshot.sources, state: snapshot.loreState ?? { epoch: 0, entries: {} } };
   const matchRegex = pool.matcher(signal);
   const first = await resolveLore(input, matchRegex);
   const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, snapshot.context,

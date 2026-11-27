@@ -16,10 +16,40 @@ export const connectionSchema = z.object({
   contextWindow: z.number().int().positive().max(10_000_000),
   maxOutputTokens: z.number().int().positive().max(1_000_000),
   customParameters: customParametersSchema,
-  requestUsage: z.boolean().optional(),
-}).strict().refine((value) => value.maxOutputTokens < value.contextWindow, {
+  // Older records, drafts and version 1 profiles may carry this retired flag.
+  requestUsage: z.boolean().optional().overwrite(() => undefined),
+}).strict().refine(outputFitsContextWindow, {
   message: 'Reserved output must be smaller than the context window.', path: ['maxOutputTokens'],
 });
+
+export function outputFitsContextWindow({ contextWindow, maxOutputTokens }: { contextWindow: number; maxOutputTokens: number }): boolean {
+  return maxOutputTokens < contextWindow;
+}
+
+export const connectionRecordSchema = connectionSchema.safeExtend({
+  modelWindowReport: z.strictObject({
+    endpoint: connectionSchema.shape.endpoint,
+    model: connectionSchema.shape.model,
+    tokens: connectionSchema.shape.contextWindow,
+  }).optional(),
+}).refine(({ endpoint, model, modelWindowReport }) =>
+  !modelWindowReport || (modelWindowReport.endpoint === endpoint && modelWindowReport.model === model), {
+  message: 'The reported window must match the Connection endpoint and model.', path: ['modelWindowReport'],
+});
+
+export type ConnectionRecord = z.infer<typeof connectionRecordSchema>;
+
+export function connectionSettings({ modelWindowReport: _report, requestUsage: _legacyUsage, ...settings }: ConnectionRecord): Connection {
+  return settings;
+}
+
+export const modelDiscoveryLimit = 10_000;
+const discoveredModelSchema = z.object({
+  id: connectionSchema.shape.model,
+  contextWindow: connectionSchema.shape.contextWindow.optional(),
+});
+export const modelDiscoverySchema = z.object({ models: z.array(discoveredModelSchema).max(modelDiscoveryLimit) });
+export type DiscoveredModel = z.infer<typeof discoveredModelSchema>;
 
 export const chatSettingsSchema = z.object({
   title: z.string().trim().min(1).max(100),
@@ -92,8 +122,8 @@ export function requestEstimate(request: RequestPreview): RequestEstimate {
 export type GenerationStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export type Generation = {
   errorMessage?: import('./localization.js').LocalizedMessage | null;
-  id: string; turnId: string; status: GenerationStatus; sourceRevision: number;
-  kind?: 'response' | 'regeneration' | 'continuation';
+  id: string; turnId: string | null; status: GenerationStatus; sourceRevision: number;
+  kind?: 'response' | 'regeneration' | 'continuation' | 'impersonate';
   request: RequestPreview | null; partialText: string; error: string | null; usage: TokenUsage | null;
   // Bounded preview of separate per-attempt output; full text is fetched on demand.
   reasoningText?: string;
@@ -109,7 +139,7 @@ export type ChatSnapshot = {
   loreState?: import('./lorebook.js').LoreState;
   loreResolution?: import('./lorebook.js').LoreResolution | null;
 };
-export type TurnInstruction = { kind: 'opening' } | { kind: 'continuation'; turnId: string };
+export type TurnInstruction = { kind: 'impersonate'; draft: string } | { kind: 'opening' } | { kind: 'continuation'; turnId: string };
 export type EngineSnapshot = Omit<ChatSnapshot, 'generations'> & { turnInstruction?: TurnInstruction };
 export type ChatToolsSnapshot = EngineSnapshot & { generating: boolean };
 export type GenerationDescriptor = Omit<Generation, 'request' | 'partialText' | 'reasoningText' | 'reasoningLength'> & { requestAvailable: boolean };
@@ -131,7 +161,11 @@ export const saveSettingsSchema = z.object({
 export const submissionSchema = z.object({
   revision: revisionSchema, requestId: z.string().uuid(), text: z.string().min(1).max(100_000),
   draft: composerDraftReferenceSchema.optional(),
+  dismissSuggestionId: z.string().uuid().optional(),
 }).strict();
 export const retrySchema = z.object({ revision: revisionSchema, requestId: z.string().uuid() }).strict();
+export const impersonateSchema = retrySchema.extend({ draft: z.string().max(100_000), sessionId: z.string().uuid() });
+export const savedImpersonateCommandSchema = impersonateSchema.pick({ draft: true, sessionId: true }).extend({ kind: z.literal('impersonate') });
+export type SuggestionChoice = { id: string; text: string; number: number; previous: string | null; next: string | null };
 export const editSchema = z.object({ revision: revisionSchema, text: z.string().max(100_000) }).strict();
 export const passwordSchema = z.object({ password: z.string().min(12).max(256) }).strict();

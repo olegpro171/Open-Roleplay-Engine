@@ -193,7 +193,11 @@ it('accepts schema 17 backups and migrates populated picture tables without chan
     const upgraded = open(path);
     expect(upgraded.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion);
     expect(upgraded.sqlite.pragma('foreign_key_check')).toEqual([]);
-    expect(rows(upgraded, ['runtime_owner', 'composer_drafts'])).toEqual(before);
+    expect(rows(upgraded, ['runtime_owner'])).toEqual({
+      ...before,
+      composer_drafts: [],
+      composer_suggestion_sessions: [],
+    });
   } finally { backup.close(); }
 }, 15000);
 

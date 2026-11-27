@@ -96,7 +96,6 @@ for (const theme of themeSchema.options) for (const width of [1440, 390]) {
     await expect(blocks).toHaveCount(9);
     const continuation = page.getByRole('textbox', { name: 'Continuation instruction' });
     await expect(continuation).toHaveCount(0);
-    await expect(page.getByText(/^Enabled blocks and markers compose the base prompt/)).toBeHidden();
     await page.screenshot({ path: testInfo.outputPath('main-prompt.png') });
 
     const first = blocks.first();
@@ -140,7 +139,11 @@ for (const theme of themeSchema.options) for (const width of [1440, 390]) {
     await actionTab.click();
     await expect(blocks).toHaveCount(0);
     const instructions = page.getByRole('tabpanel', { name: 'Action instructions', exact: true });
-    await expect(instructions.getByText('Built-in instruction', { exact: true })).toHaveCount(2);
+    await expect(instructions.locator('summary')).toHaveText([
+      /^Continue\s*Built-in instruction$/,
+      /^Impersonate\s*Built-in instruction$/,
+      /^Opening scene\s*Built-in instruction$/,
+    ]);
     await page.screenshot({ path: testInfo.outputPath('action-instructions.png') });
     await instructions.getByText('Continue', { exact: true }).click();
     await expect(continuation).toHaveValue(defaultContinuationInstruction);
@@ -183,7 +186,6 @@ test('block layout follows the editor pane and editable names follow the form ty
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
   await selectLibraryCategory(page, 'Prompts');
   await page.getByRole('button', { name: 'New prompt', exact: true }).click();
-  const presetName = page.getByRole('textbox', { name: 'Name', exact: true });
   const firstBlock = page.getByRole('region', { name: 'Prompt block 1', exact: true });
   const blockName = firstBlock.getByRole('textbox', { name: 'Block name', exact: true });
 
@@ -195,8 +197,8 @@ test('block layout follows the editor pane and editable names follow the form ty
     else await expect(blockName).toBeVisible();
     if (width === 801) await expect(page.getByRole('listbox', { name: 'Role for block 1' })).toHaveCount(0);
     await expand.click();
-    const nameSize = await presetName.evaluate(field => getComputedStyle(field).fontSize);
-    await expect(blockName, `Block name font size at ${width}px`).toHaveCSS('font-size', nameSize);
+    const fieldSize = await firstBlock.getByRole('textbox', { name: 'Block text', exact: true }).evaluate(field => getComputedStyle(field).fontSize);
+    await expect(blockName, `Block name font size at ${width}px`).toHaveCSS('font-size', fieldSize);
     await firstBlock.getByRole('button', { name: /\bCollapse block 1$/ }).click();
     if (width === 800) {
       await firstBlock.getByRole('combobox', { name: 'Role for block 1' }).click();
@@ -225,8 +227,6 @@ for (const width of [1440, 320]) test(`keeps edits across prompt tabs and reveal
   const text = 'Keep the ferry dialogue brief.';
   const openingText = 'Have {{char}} meet {{user}} at the ferry.';
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(name);
-  await page.getByText('How prompt assembly works', { exact: true }).click();
-  await expect(page.getByText(/^Enabled blocks and markers compose the base prompt/)).toBeVisible();
   const expand = block.getByRole('button', { name: /\bExpand block 1$/ });
   await expand.press('Enter');
   await blockText.fill(text);
@@ -280,9 +280,10 @@ for (const width of [1440, 320]) test(`keeps edits across prompt tabs and reveal
   await expect(opening).toHaveCount(0);
   await instructions.getByText('Opening scene', { exact: true }).click();
   await expect(opening).toHaveValue(openingText);
-  await instructions.getByText('Continue', { exact: true }).click();
+  const continueInstruction = instructions.locator('summary').filter({ has: page.getByText('Continue', { exact: true }) });
+  await continueInstruction.click();
   await instructions.getByRole('textbox', { name: 'Continuation instruction', exact: true }).clear();
-  await expect(instructions.getByText('Built-in instruction', { exact: true })).toBeVisible();
+  await expect(continueInstruction.getByText('Built-in instruction', { exact: true })).toBeVisible();
   await save.click();
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);

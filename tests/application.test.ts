@@ -238,7 +238,7 @@ describe('persistent chat and generation', () => {
   it('checks and tests unsaved Connection settings without changing chat history or calibrating the counter', async () => {
     const before = await state();
     const customParameters = { reasoning_effort: 'max', top_k: 42, chat_template_kwargs: { enable_thinking: true } };
-    const input = { connection: { ...before.connection, maxOutputTokens: 4096, customParameters }, connectionId: before.settings.connectionId };
+    const input = { connection: { ...before.connection, requestUsage: false, maxOutputTokens: 4096, customParameters }, connectionId: before.settings.connectionId };
     expect(mock.requests).toHaveLength(0);
     const check = await command('/api/connections/diagnose', { ...input, action: 'check' });
     expect(check.statusCode).toBe(200);
@@ -252,6 +252,7 @@ describe('persistent chat and generation', () => {
     expect(result.request.body).toEqual(mock.requests[0].body);
     expect(result.request.body.messages).toEqual([{ role: 'user', content: 'Hi' }]);
     expect(result.request.body.max_tokens).toBe(4096);
+    expect(mock.requests[0].body.stream_options).toEqual({ include_usage: true });
     expect(result.request.body).toMatchObject(customParameters);
     const forbidden = await command('/api/connections/diagnose', { ...input, action: 'test', connection: {
       ...input.connection, requestUsage: false, customParameters: { stream_options: { include_usage: true } },
@@ -444,14 +445,20 @@ describe('persistent chat and generation', () => {
   });
 
   it('discovers models with saved or entered keys without exposing keys or upstream errors', async () => {
+    const before = await state();
     const saved = await command('/api/models', { endpoint: mock.url, connectionId: 'main' });
     expect(saved.statusCode).toBe(200);
-    expect(saved.json()).toEqual({ models: ['another-model', 'synthetic-roleplay'] });
+    expect(saved.json()).toEqual({ models: [{ id: 'another-model', contextWindow: 16_384 }, { id: 'synthetic-roleplay' }] });
     expect(mock.modelRequests.at(-1)?.authorization).toBe('Bearer synthetic-api-secret');
     await command('/api/models', { endpoint: mock.url, connectionId: 'main', apiKey: 'new-key' });
     expect(mock.modelRequests.at(-1)?.authorization).toBe('Bearer new-key');
     await command('/api/models', { endpoint: mock.url, connectionId: 'main', apiKey: '' });
     expect(mock.modelRequests.at(-1)?.authorization).toBeUndefined();
+    const lastRequestCount = mock.modelRequests.length;
+    const changedEndpoint = await command('/api/models', { endpoint: mock.url + '/changed', connectionId: 'main' });
+    expect(changedEndpoint.statusCode).toBe(422);
+    expect(changedEndpoint.json().code).toBe('saved_key_endpoint_changed');
+    expect(mock.modelRequests).toHaveLength(lastRequestCount);
     for (const mode of ['invalid', 'redirect'] as const) {
       mock.setModelMode(mode);
       const response = await command('/api/models', { endpoint: mock.url, connectionId: 'main' });
@@ -462,6 +469,31 @@ describe('persistent chat and generation', () => {
     }
     expect((await command('/api/models', { endpoint: mock.url + '?key=secret' })).statusCode).toBe(400);
     expect((await instance.app.inject({ method: 'POST', url: '/api/models', headers: { host: 'localhost', origin: 'http://localhost' }, payload: { endpoint: mock.url } })).statusCode).toBe(401);
+    expect(await state()).toEqual(before);
+  });
+
+  it('keeps a saved window report through legacy settings edits for the same model and endpoint', async () => {
+    const modelWindowReport = { endpoint: mock.url, model: connection.model, tokens: 16_384 };
+    const saved = await command('/api/library/main', {
+      kind: 'connections', revision: instance.store.libraryRevision(), data: { ...connection, endpoint: mock.url, modelWindowReport },
+    }, 'PUT');
+    expect(saved.statusCode).toBe(200);
+    const current = await state();
+    expect(current.connection).toMatchObject({ contextWindow: 32_000 });
+    expect(current.connection).not.toHaveProperty('modelWindowReport');
+
+    const rename = await command('/api/settings', {
+      revision: current.revision, settings: current.settings, connection: { ...connection, endpoint: mock.url, name: 'Renamed' },
+    }, 'PUT');
+    expect(rename.statusCode).toBe(200);
+    expect(instance.store.libraries().connections).toMatchObject([{ id: 'main', name: 'Renamed', modelWindowReport }]);
+
+    const renamed = await state();
+    const switchModel = await command('/api/settings', {
+      revision: renamed.revision, settings: renamed.settings, connection: { ...connection, endpoint: mock.url, model: 'different-model' },
+    }, 'PUT');
+    expect(switchModel.statusCode).toBe(200);
+    expect(instance.store.libraries().connections[0].modelWindowReport).toBeUndefined();
   });
 
   it.each(['models', 'check', 'test'] as const)('explains missing and rejected API keys for %s without saving editor settings', async action => {

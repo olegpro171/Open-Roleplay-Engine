@@ -20,7 +20,8 @@ import { databaseSchemaVersion } from '../shared/build-info.js';
 import { AppError } from '../core/errors.js';
 import { MessageError, outcomeMessage, type LocalizedMessage } from '../shared/localization.js';
 import { replaceNameMacros } from '../core/prompt.js';
-import type { ChatSettings, ChatSnapshot, EngineSnapshot, GenerationPage, Connection, Generation, GenerationStatus, RequestPreview, ResponseVariant, TokenUsage, Turn } from '../shared/contracts.js';
+import { connectionRecordSchema, connectionSettings, savedImpersonateCommandSchema, type ChatSettings, type ChatSnapshot, type EngineSnapshot, type GenerationPage, type Connection, type ConnectionRecord, type Generation, type GenerationStatus, type RequestPreview, type ResponseVariant, type TokenUsage, type Turn } from '../shared/contracts.js';
+import { impersonationView } from '../core/impersonation.js';
 import { regenerationView } from '../core/regeneration.js';
 import { isOpeningTurn, requireOpeningMessages } from '../core/opening.js';
 import { assertRefusalSelection } from '../core/summary-refusals.js';
@@ -40,7 +41,7 @@ import { contextPresetSchema, defaultContextPreset, defaultRepairPrompt, type Co
 import { legacyContextPreset, upgradedContextPrompts } from './context-prompt-upgrade.js';
 import { ContextStore } from './context-store.js';
 import { ComposerDraftStore } from './composer-drafts.js';
-import type { ComposerDraftReference } from '../shared/composer-draft.js';
+import { sameComposerEdit, type ComposerDraftReference, type ComposerDraftSave } from '../shared/composer-draft.js';
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
 import { legacyLorePrompt, legacyRoleplayPrompt } from './legacy-prompt.js';
@@ -322,10 +323,17 @@ export class Store {
         })();
         version = 20;
       }
+      if (version === 20) {
+        this.sqlite.transaction(() => {
+          this.sqlite.exec(readFileSync(resolve(migrationsDirectory, '0021_impersonation.sql'), 'utf8'));
+          this.sqlite.pragma('user_version = 21');
+        })();
+        version = 21;
+      }
       if (version !== databaseSchemaVersion) throw new Error('Unsupported database schema version.');
       this.pictures = new PictureStore(this.sqlite, () => this.bumpLibrary());
       this.contexts = new ContextStore(this);
-      this.drafts = new ComposerDraftStore(this.db, this.sqlite, id => { this.chat(id); });
+      this.drafts = new ComposerDraftStore(this.db, this.sqlite, id => this.chat(id).revision);
       this.tags = new TagStore(this.sqlite, expected => this.checkLibrary(expected), () => this.bumpLibrary());
       if (newDatabase) this.db.update(schema.library).set({ createdAt: new Date().toISOString() }).run();
     } catch (error) {
@@ -417,7 +425,8 @@ export class Store {
   chatHeader(chatId = 'main') {
     const chat = this.chat(chatId);
     const connectionId = roleplayConnectionId(chat.settings.connectionId);
-    const connection = connectionId ? this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get()?.settings ?? null : null;
+    const record = connectionId ? this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get() : undefined;
+    const connection = record ? connectionSettings(record.settings) : null;
     const hasApiKey = Boolean(connectionId && this.db.select().from(schema.credentials).where(eq(schema.credentials.id, connectionId)).get()?.apiKey);
     return {
       id: chatId, groupId: chat.groupId, branchName: chat.branchName, revision: chat.revision,
@@ -653,7 +662,9 @@ export class Store {
       contexts: list<ContextPreset>('contexts').map(preset => ({ ...preset, repairPrompt: preset.repairPrompt ?? defaultRepairPrompt })),
       lorebooks: list<Lorebook>('lorebooks'),
       ...(includeLorebookUses ? { lorebookUses: this.legacyLorebookUses(list<Lorebook>('lorebooks'), list<LibraryCharacter>('characters')) } : {}),
-      connections: this.db.select().from(schema.connections).orderBy(sql`rowid`).all().map(r => ({ ...r.settings, id: r.id, revision: r.revision, hasApiKey: Boolean(this.db.select().from(schema.credentials).where(eq(schema.credentials.id, r.id)).get()?.apiKey) })),
+      connections: this.db.select().from(schema.connections).orderBy(sql`rowid`).all().map(({ id, revision, settings: { requestUsage: _legacyUsage, ...settings } }) => ({
+        ...settings, id, revision, hasApiKey: Boolean(this.db.select().from(schema.credentials).where(eq(schema.credentials.id, id)).get()?.apiKey),
+      })),
       chats: this.chatSummaries(),
     };
   }
@@ -683,7 +694,7 @@ export class Store {
     this.db.update(schema.library).set({ data, revision, updatedAt: new Date().toISOString() })
       .where(eq(schema.library.id, id)).run();
   }
-  saveLibrary(expected: number, kind: LibraryKind, data: LibraryCharacter | LibraryPersona | PromptPreset | ContextPreset | Connection | Lorebook, id?: string, apiKey?: string, tagIds?: string[], memoryImpactToken?: string) {
+  saveLibrary(expected: number, kind: LibraryKind, data: LibraryCharacter | LibraryPersona | PromptPreset | ContextPreset | ConnectionRecord | Lorebook, id?: string, apiKey?: string, tagIds?: string[], memoryImpactToken?: string) {
     if (kind === 'prompts') data = upgradePrompt(data);
     return this.sqlite.transaction(() => {
       this.checkLibrary(expected);
@@ -691,11 +702,19 @@ export class Store {
       if (kind === 'connections') {
         const old = this.db.select().from(schema.connections).where(eq(schema.connections.id, identity)).get();
         if (id && !old) throw new AppError(404, 'item_not_found', message("errors.connection_not_found"));
-        this.db.insert(schema.connections).values({ id: identity, settings: data as Connection, revision: (old?.revision ?? -1) + 1 }).onConflictDoUpdate({ target: schema.connections.id, set: { updatedAt: new Date().toISOString(), settings: data as Connection, revision: (old?.revision ?? -1) + 1 } }).run();
+        const settings = connectionRecordSchema.strip().parse(data);
+        const revision = (old?.revision ?? -1) + 1;
+        this.db.insert(schema.connections).values({ id: identity, settings, revision }).onConflictDoUpdate({
+          target: schema.connections.id, set: { updatedAt: new Date().toISOString(), settings, revision },
+        }).run();
         if (apiKey !== undefined) this.db.insert(schema.credentials).values({ id: identity, apiKey }).onConflictDoUpdate({ target: schema.credentials.id, set: { apiKey } }).run();
       } else {
         const old = this.db.select().from(schema.library).where(and(eq(schema.library.id, identity), eq(schema.library.kind, kind))).get();
         if (id && !old) throw new AppError(404, 'item_not_found', message("errors.library_item_not_found"));
+        if (kind === 'prompts' && old && !Object.hasOwn(data, 'impersonateInstruction')) {
+          const previous = z.object({ impersonateInstruction: z.string().optional() }).parse(old.data);
+          if (previous.impersonateInstruction !== undefined) data = { ...data, impersonateInstruction: previous.impersonateInstruction };
+        }
         if (kind === 'contexts') {
           // HTTP commands validate strictly. Trusted callers can pass the saved
           // preset including its identity and revision, which live in columns.
@@ -1363,7 +1382,14 @@ export class Store {
       const { groupId, settings: previous } = this.chat(chatId);
       const connectionId = settings.connectionId ?? 'main';
       const old = this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).get();
-      this.db.insert(schema.connections).values({ id: connectionId, settings: connection, revision: (old?.revision ?? -1) + 1 }).onConflictDoUpdate({ target: schema.connections.id, set: { updatedAt: new Date().toISOString(), settings: connection, revision: (old?.revision ?? -1) + 1 } }).run();
+      const report = old?.settings.modelWindowReport;
+      const record = connectionSettings(connection);
+      const settingsToSave = report && report.endpoint === record.endpoint && report.model === record.model
+        ? { ...record, modelWindowReport: report } : record;
+      const revision = (old?.revision ?? -1) + 1;
+      this.db.insert(schema.connections).values({ id: connectionId, settings: settingsToSave, revision }).onConflictDoUpdate({
+        target: schema.connections.id, set: { updatedAt: new Date().toISOString(), settings: settingsToSave, revision },
+      }).run();
       if (apiKey !== undefined) this.db.insert(schema.credentials).values({ id: connectionId, apiKey }).onConflictDoUpdate({ target: schema.credentials.id, set: { apiKey } }).run();
       this.saveSharedSettings(chatId, { ...settings, authorNote: settings.authorNote ?? previous.authorNote, connectionId,
         lorebookId: settings.lorebookId === undefined ? previous.lorebookId ?? null : settings.lorebookId,
@@ -1372,16 +1398,42 @@ export class Store {
       this.bumpLibrary();
     })();
   }
-  begin(expected: number, requestId: string, text?: string, chatId = 'main', draft?: ComposerDraftReference): { id: string; fresh: boolean } {
+  dismissSuggestion(chatId: string, generationId: string) {
+    // Compare the exact attempt so a delayed close cannot hide an active retry.
+    return this.sqlite.prepare(`DELETE FROM composer_suggestion_sessions WHERE chat_id = ? AND generation_id = ?
+      AND EXISTS (SELECT 1 FROM generations WHERE id = generation_id AND chat_id = composer_suggestion_sessions.chat_id AND status != 'running')`)
+      .run(chatId, generationId).changes > 0;
+  }
+  private hasSavedSuggestion(chatId: string, sessionId: string) {
+    return Boolean(this.db.select({ id: schema.generations.id }).from(schema.generations).where(and(
+      eq(schema.generations.chatId, chatId), eq(schema.generations.suggestionSession, sessionId),
+      eq(schema.generations.status, 'succeeded'),
+    )).get());
+  }
+  saveComposerDraft(chatId: string, input: ComposerDraftSave) {
+    const dismiss = input.dismissSuggestionId;
+    if (!dismiss) return { ...this.drafts.save(chatId, input), suggestionDismissed: false };
+    return this.sqlite.transaction(() => {
+      const result = this.drafts.save(chatId, input);
+      if (!sameComposerEdit(result.draft.edit, input.edit) || result.draft.text !== input.text) {
+        throw new AppError(409, 'draft_changed', message('impersonate.draft_changed'));
+      }
+      return { ...result, suggestionDismissed: this.dismissSuggestion(chatId, dismiss) };
+    })();
+  }
+  begin(expected: number, requestId: string, text?: string, chatId = 'main', draft?: ComposerDraftReference, dismissSuggestionId?: string): { id: string; fresh: boolean } {
     if (text === undefined) return this.beginResponse(expected, requestId, chatId, { kind: 'retry' });
     const input = trimBoundaryNewlines(text);
     if (!input.trim()) throw new AppError(400, 'blank_input', message("errors.write_a_turn_before_sending_it"));
-    return this.beginResponse(expected, requestId, chatId, { kind: 'submit', text: input, draft });
+    return this.beginResponse(expected, requestId, chatId, { kind: 'submit', text: input, draft, dismissSuggestionId });
   }
   beginOpening(expected: number, requestId: string, chatId: string) {
     return this.beginResponse(expected, requestId, chatId, { kind: 'opening' });
   }
-  private beginResponse(expected: number, requestId: string, chatId: string, input: { kind: 'submit'; text: string; draft?: ComposerDraftReference } | { kind: 'retry' } | { kind: 'opening' }) {
+  beginImpersonation(expected: number, requestId: string, chatId: string, sessionId: string, draft: string) {
+    return this.beginResponse(expected, requestId, chatId, { kind: 'impersonate', sessionId, draft });
+  }
+  private beginResponse(expected: number, requestId: string, chatId: string, input: { kind: 'submit'; text: string; draft?: ComposerDraftReference; dismissSuggestionId?: string } | { kind: 'retry' } | { kind: 'opening' } | { kind: 'impersonate'; sessionId: string; draft: string }) {
     return this.sqlite.transaction(() => {
       const command = JSON.stringify(input);
       const existing = this.db.select().from(schema.generations).where(eq(schema.generations.requestId, requestId)).get();
@@ -1394,8 +1446,23 @@ export class Store {
       if (!snapshot.connection) throw new AppError(422, 'connection_required', message("errors.save_a_connection_before_sending_a_turn"));
       if (hasPromptMarker(snapshot.sources.prompt, 'summary')) assertRefusalSelection(snapshot.context);
       const turn = snapshot.turns.at(-1);
-      let turnId: string;
-      if (input.kind === 'opening') {
+      let turnId: string | null;
+      if (input.kind === 'impersonate') {
+        if (turn && !turn.complete) throw new AppError(409, 'pending_turn', message("errors.resolve_or_delete_the_pending_turn_before_submitting"));
+        const previous = this.db.select({ id: schema.generations.id, status: schema.generations.status }).from(schema.generations)
+          .where(and(eq(schema.generations.chatId, chatId), eq(schema.generations.suggestionSession, input.sessionId)))
+          .orderBy(desc(sql`rowid`)).limit(1).get();
+        // A fresh retry may only extend the open session. Exact request replays
+        // returned above and cannot restore its pointer after dismissal.
+        if (previous) {
+          const live = this.db.select({ id: schema.composerSuggestionSessions.generationId }).from(schema.composerSuggestionSessions)
+            .where(eq(schema.composerSuggestionSessions.chatId, chatId)).get();
+          if (live?.id !== previous.id || (previous.status === 'cancelled' && !this.hasSavedSuggestion(chatId, input.sessionId))) {
+            throw new AppError(409, 'suggestion_closed', message('impersonate.closed'));
+          }
+        }
+        turnId = null;
+      } else if (input.kind === 'opening') {
         if (turn) throw new AppError(409, 'chat_not_empty', message('opening.empty_chat_required'));
         requireOpeningMessages(snapshot.sources.prompt);
         turnId = this.insertTurn(chatId, 1, { user: '', assistant: '', complete: false });
@@ -1408,8 +1475,15 @@ export class Store {
         turnId = turn.id;
       }
       const id = randomUUID(), now = new Date().toISOString();
-      this.db.insert(schema.generations).values({ id, chatId, requestId, command, turnId, status: 'running', sourceRevision: this.bumpRevision(chatId), request: null, partialText: '', error: null, createdAt: now, updatedAt: now }).run();
-      if (input.kind === 'submit' && input.draft) this.drafts.submitted(chatId, input.draft);
+      this.db.insert(schema.generations).values({ id, chatId, requestId, command, turnId, suggestionSession: input.kind === 'impersonate' ? input.sessionId : null, status: 'running', sourceRevision: this.bumpRevision(chatId), request: null, partialText: '', error: null, createdAt: now, updatedAt: now }).run();
+      if (input.kind === 'impersonate') {
+        this.sqlite.prepare(`INSERT INTO composer_suggestion_sessions (chat_id, generation_id) VALUES (?, ?)
+          ON CONFLICT(chat_id) DO UPDATE SET generation_id = excluded.generation_id`).run(chatId, id);
+      }
+      if (input.kind === 'submit') {
+        if (input.draft) this.drafts.submitted(chatId, input.draft);
+        if (input.dismissSuggestionId) this.dismissSuggestion(chatId, input.dismissSuggestionId);
+      }
       return { id, fresh: true };
     })();
   }
@@ -1449,6 +1523,10 @@ export class Store {
     const generation = this.generation(id);
     if (!generation) throw new AppError(404, 'generation_not_found', message("errors.response_attempt_not_found"));
     const snapshot = this.engineSnapshot(generation.chatId);
+    if (generation.turnId === null) {
+      const { draft } = savedImpersonateCommandSchema.parse(JSON.parse(generation.command));
+      return impersonationView(snapshot, draft);
+    }
     if (generation.continuationVariantId !== null) {
       const target = continuationTarget(snapshot, generation.turnId);
       if (target.variantId !== generation.continuationVariantId) throw new AppError(409, 'stale_result', message('continue.target_changed'));
@@ -1509,7 +1587,7 @@ export class Store {
   connection(id: string): Connection {
     const row = this.db.select().from(schema.connections).where(eq(schema.connections.id, id)).get();
     if (!row) throw new AppError(422, 'missing_connection', message("errors.the_summarization_connection_is_missing"));
-    return row.settings;
+    return connectionSettings(row.settings);
   }
   contextPreset(id: string | null | undefined) {
     const preset = this.selected<ContextPreset>(id, 'contexts');
@@ -1534,7 +1612,12 @@ export class Store {
       const generation = this.generation(id);
       if (!generation || generation.status !== 'running') return false;
       const continuation = generation.continuationVariantId !== null;
-      if (status === 'succeeded') {
+      if (status === 'succeeded' && generation.turnId === null) {
+        this.checkRevision(generation.sourceRevision, generation.chatId);
+        text = trimBoundaryNewlines(text);
+        if (!text.trim()) throw new AppError(502, 'empty_response', message('impersonate.empty'));
+        if (text.length > transcriptPartLimit) throw new AppError(422, 'suggestion_length', message('impersonate.too_long', { limit: transcriptPartLimit }));
+      } else if (status === 'succeeded' && generation.turnId !== null) {
         const regeneration = generation.kind === 'regeneration';
         text = trimBoundaryNewlines(text);
         if (!text.trim()) throw new AppError(502, 'empty_response', message(continuation ? 'continue.empty_response' : regeneration
@@ -1561,19 +1644,22 @@ export class Store {
         this.db.insert(schema.responseVariants).values({ id: variantId, turnId: turn.id, text: reply, sourceRevision: equivalent?.sourceRevision ?? turn.assistantRevision + 1, generationId: id, createdAt: generation.createdAt }).run();
         this.db.update(schema.turns).set({ messageAt: new Date().toISOString(), assistantText: reply, assistantRevision: turn.assistantRevision + 1, complete: true, selectedVariantId: variantId }).where(eq(schema.turns.id, turn.id)).run();
       }
-      const discardOutput = status === 'cancelled' && continuation;
+      const discardOutput = status === 'cancelled' && (continuation || generation.turnId === null);
       this.db.update(schema.generations).set({
         status, partialText: discardOutput ? '' : text,
         reasoningText: discardOutput ? '' : (reasoningText ?? generation.reasoningText),
         error: outcome.error, errorMessage: outcome.errorMessage ?? null, usage, updatedAt: new Date().toISOString(),
       }).where(eq(schema.generations.id, id)).run();
+      if (status === 'cancelled' && generation.suggestionSession !== null && !this.hasSavedSuggestion(generation.chatId, generation.suggestionSession)) {
+        this.dismissSuggestion(generation.chatId, id);
+      }
       this.bumpRevision(generation.chatId); return true;
     })();
   }
   recoverInterrupted() {
     this.sqlite.transaction(() => {
       const running = this.db.select().from(schema.generations).where(eq(schema.generations.status, 'running')).all();
-      for (const [kind, key] of [['response', 'outcome.generationInterrupted'], ['regeneration', 'outcome.regenerationInterrupted'], ['continuation', 'continue.interrupted']] as const) {
+      for (const [kind, key] of [['response', 'outcome.generationInterrupted'], ['regeneration', 'outcome.regenerationInterrupted'], ['continuation', 'continue.interrupted'], ['impersonate', 'impersonate.interrupted']] as const) {
         const diagnostic = message(key);
         this.db.update(schema.generations).set({ status: 'interrupted', error: diagnostic.fallback, errorMessage: diagnostic, updatedAt: new Date().toISOString() })
           .where(and(eq(schema.generations.status, 'running'), eq(schema.generationKind, kind))).run();

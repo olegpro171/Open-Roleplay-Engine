@@ -4,7 +4,7 @@ import { message } from '../shared/localization.js';
 import type { EngineSnapshot, Message, RequestPreview } from '../shared/contracts.js';
 import { emptyContextState, refKey, type ContextOperation, type ContextPlan, type SummaryRef } from '../shared/context.js';
 import { AppError } from './errors.js';
-import { nextCompaction, nodeFor, rankedPromotions, repairQueue, sourceOf, staleSummaries } from './context.js';
+import { memoryBudgetWarning, memoryInputBudget, nextCompaction, nodeFor, rankedPromotions, repairQueue, sourceOf, staleSummaries } from './context.js';
 import { hasPromptMarker } from '../shared/library.js';
 import { assembleRequest, estimateInputTokens, summarySeparator, summaryText } from './prompt.js';
 import { countInput, countText } from './tokens.js';
@@ -21,7 +21,8 @@ export function contextPlan(snapshot: EngineSnapshot): ContextPlan {
   const options = { validateLimits: false, lore: snapshot.loreResolution, turnInstruction: snapshot.turnInstruction };
   const request = assembleRequest(snapshot.connection, snapshot.settings, snapshot.turns, snapshot.sources, state, { ...options, allowStale: true });
   const hasPinnedBlock = request.layout?.some(entry => entry.kind === 'pinned');
-  const effectiveLimit = Math.min(snapshot.settings.targetInputTokens, snapshot.connection.contextWindow - snapshot.connection.maxOutputTokens);
+  const budget = memoryInputBudget(snapshot.settings.targetInputTokens, snapshot.connection.contextWindow - snapshot.connection.maxOutputTokens);
+  const effectiveLimit = budget.limit;
   if (!hasPromptMarker(snapshot.sources.prompt, 'summary')) {
     const blockedMessage = request.budget.inputTokens > effectiveLimit ? message(hasPinnedBlock ? 'pins.required_budget' : 'diagnostics.requiredInputTooLarge') : undefined;
     const blocked = blockedMessage?.fallback ?? null;
@@ -51,7 +52,7 @@ export function contextPlan(snapshot: EngineSnapshot): ContextPlan {
     if (request.budget.inputTokens > effectiveLimit) {
       next = required <= effectiveLimit ? rankedPromotions(state.selected.map(ref => nodeFor(state, ref)!), state.preset, sizes)[0] ?? null : null;
       if (!next) ({ blocked, blockedMessage } = blockedText(hasPinnedBlock && required >= effectiveLimit
-        ? pinBudgetMessage : message("diagnostics.the_selected_summaries_and_prompt_cannot_fit_the")));
+        ? pinBudgetMessage : memoryBudgetWarning(budget, 'diagnostics.the_selected_summaries_and_prompt_cannot_fit_the')));
     }
   }
   else if (state.preset) {
@@ -64,7 +65,7 @@ export function contextPlan(snapshot: EngineSnapshot): ContextPlan {
       const batches = Math.floor(Math.max(0, completed - config.minTail) / config.batchSize);
       pinnedFloor = batches ? measureWithoutMemory(verbatim.slice(batches * config.batchSize)) : required;
     }
-    ({ next, blocked, blockedMessage } = nextCompaction(snapshot.turns, state, config, request.budget.inputTokens, effectiveLimit, required, sizes, pinnedFloor));
+    ({ next, blocked, blockedMessage } = nextCompaction(snapshot.turns, state, config, request.budget.inputTokens, budget, required, sizes, pinnedFloor));
   }
   else if (request.budget.inputTokens > effectiveLimit) {
     ({ blocked, blockedMessage } = blockedText(hasPinnedBlock && required > effectiveLimit

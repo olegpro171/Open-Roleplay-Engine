@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { blob, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { ChatSettings, Connection, Generation, GenerationStatus, RequestPreview, TokenUsage } from '../shared/contracts.js';
+import type { ChatSettings, ConnectionRecord, Generation, GenerationStatus, RequestPreview, TokenUsage } from '../shared/contracts.js';
 import type { LibraryCharacter, Persona, PromptPreset } from '../shared/library.js';
 import type { ContextPreset } from '../shared/context.js';
 import type { Lorebook } from '../shared/lorebook.js';
@@ -31,7 +31,7 @@ export const composerDrafts = sqliteTable('composer_drafts', {
 });
 export const connections = sqliteTable('connections', {
   ...libraryDates(),
-  id: text('id').primaryKey(), settings: text('settings', { mode: 'json' }).$type<Connection>().notNull(),
+  id: text('id').primaryKey(), settings: text('settings', { mode: 'json' }).$type<ConnectionRecord>().notNull(),
   revision: integer('revision').notNull().default(0),
 });
 export const library = sqliteTable('library', {
@@ -66,7 +66,7 @@ export const responseVariants = sqliteTable('response_variants', {
 export const generations = sqliteTable('generations', {
   chatId: text('chat_id').notNull(),
   id: text('id').primaryKey(), requestId: text('request_id').notNull(), command: text('command').notNull(),
-  turnId: text('turn_id').notNull(), status: text('status').$type<GenerationStatus>().notNull(),
+  turnId: text('turn_id'), suggestionSession: text('suggestion_session'), status: text('status').$type<GenerationStatus>().notNull(),
   sourceRevision: integer('source_revision').notNull(),
   kind: text('kind').$type<'response' | 'regeneration'>().notNull().default('response'),
   continuationVariantId: text('continuation_variant_id'),
@@ -77,7 +77,10 @@ export const generations = sqliteTable('generations', {
   errorMessage: text('error_message', { mode: 'json' }).$type<import('../shared/localization.js').LocalizedMessage | null>(),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 });
-export const generationKind = sql<NonNullable<Generation['kind']>>`CASE WHEN ${generations.continuationVariantId} IS NOT NULL THEN 'continuation' ELSE ${generations.kind} END`;
+export const composerSuggestionSessions = sqliteTable('composer_suggestion_sessions', {
+  chatId: text('chat_id').primaryKey(), generationId: text('generation_id').notNull(),
+});
+export const generationKind = sql<NonNullable<Generation['kind']>>`CASE WHEN ${generations.suggestionSession} IS NOT NULL THEN 'impersonate' WHEN ${generations.continuationVariantId} IS NOT NULL THEN 'continuation' ELSE ${generations.kind} END`;
 
 export const tags = sqliteTable('tags', {
   id: text('id').primaryKey(), name: text('name').notNull(),

@@ -108,6 +108,7 @@ test('uses a native warning on refresh, Back and tab close and restores a Connec
   await openCategory(page, 'Connections');
   await page.getByRole('button', { name: 'New Connection', exact: true }).click();
   const parameters = page.getByLabel('Custom request parameters');
+  const parameterTab = page.getByRole('tab', { name: 'Request parameters', exact: true });
   const advanced = page.getByText('Advanced parameters', { exact: true });
   const apiKey = page.getByLabel('API key', { exact: true });
   const temperature = page.getByLabel('Temperature', { exact: true });
@@ -118,16 +119,18 @@ test('uses a native warning on refresh, Back and tab close and restores a Connec
   await expect(contextWindow).toHaveValue('incomplete');
   await contextWindow.click();
   await contextWindow.fill('128000');
-  await temperature.fill('0.');
   await apiKey.fill(secret);
+  await parameterTab.click();
+  await temperature.fill('0.');
   await advanced.click();
   await parameters.fill('{"temperature":');
   await reloadWithWarning(page);
   await expect(parameters).toBeHidden();
-  await advanced.click();
-  await expect(parameters).toHaveValue('{"temperature":');
-  await expect(temperature).toHaveValue('0.');
   await expect(apiKey).toHaveValue('');
+  await parameterTab.click();
+  await advanced.click();
+  await expect.poll(() => parameters.innerText()).toBe('{"temperature":');
+  await expect(temperature).toHaveValue('0.');
   await expect(page.getByText('Enter the new API key again before saving.')).toBeVisible();
   expect(await page.evaluate(() => Object.values(sessionStorage))).not.toContainEqual(expect.stringContaining(secret));
   await parameters.click();
@@ -138,13 +141,13 @@ test('uses a native warning on refresh, Back and tab close and restores a Connec
     await dialog.dismiss();
   });
   await Promise.all([backWarning, page.evaluate(() => history.back())]);
-  await expect(parameters).toHaveValue('{"top_p":');
+  await expect.poll(() => parameters.innerText()).toBe('{"top_p":');
   const closeWarning = page.waitForEvent('dialog').then(async dialog => {
     expect(dialog.type()).toBe('beforeunload');
     await dialog.dismiss();
   });
   await Promise.all([closeWarning, page.close({ runBeforeUnload: true })]);
-  await expect(parameters).toHaveValue('{"top_p":');
+  await expect.poll(() => parameters.innerText()).toBe('{"top_p":');
   await editorAction(page, 'Cancel').click();
   await leave(page);
   await expect(page.getByRole('button', { name: 'New Connection', exact: true })).toBeVisible();
@@ -181,6 +184,7 @@ test('recovers an unfinished Lorebook entry and Character prose with picture cha
   await expect(page.getByText('Unsaved picture changes could not be restored.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Adjust crop', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Choose picture', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Lore & tags', exact: true }).click();
   await page.getByRole('combobox', { name: 'Default lorebook', exact: true }).click();
   await page.getByRole('option', { name: 'Recovered watchkeeper lore', exact: true }).click();
   const openBook = page.getByRole('button', { name: 'Open book', exact: true });
@@ -220,13 +224,13 @@ test('keeps two tab drafts independent and preserves a stale draft after another
     await reloadWithWarning(page);
     await expect(description(page)).toHaveValue('First tab\nwith a second line');
     await description(page).click();
-    const restored = page.getByText('Draft restored from this tab.', { exact: false });
-    for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+    for (const theme of themeSchema.options) {
       await setAppearance({ theme });
       for (const width of [1280, 390]) {
         await page.setViewportSize({ width, height: 840 });
-        await restored.scrollIntoViewIfNeeded();
-        await expect(restored).toBeInViewport();
+        await expect(description(page)).toHaveValue('First tab\nwith a second line');
+        await expect(description(page)).toBeInViewport();
+        await expect(editorAction(page, 'Save')).toBeInViewport();
         await page.screenshot({ path: testInfo.outputPath(`recovered-${theme}-${width}.png`) });
       }
     }
@@ -437,4 +441,90 @@ test('keeps drafts on failed save and sign-out and clears only the signing-out t
   } finally {
     await sibling.close();
   }
+});
+
+test('recovers one context preset draft and reveals invalid fields across both tabs', async ({ page }) => {
+  await page.goto('/');
+  await authenticate(page);
+  await openCategory(page, 'Context presets');
+  await page.getByRole('button', { name: 'New context preset', exact: true }).click();
+  const memory = page.getByRole('tab', { name: 'Memory settings', exact: true });
+  const prompts = page.getByRole('tab', { name: 'Prompts', exact: true });
+  const tail = page.getByLabel('Minimum verbatim turns', { exact: true });
+  const repair = page.getByRole('textbox', { name: 'Repair prompt', exact: true });
+  const revision = (await library(page)).revision;
+  await page.getByLabel('Name', { exact: true }).fill('Across context tabs');
+  await tail.fill('-1');
+  await memory.press('ArrowRight');
+  await expect(prompts).toBeFocused();
+  await page.getByText('Summary repair', { exact: true }).click();
+  await repair.fill('');
+  await page.getByText('Summary repair', { exact: true }).click();
+  await reloadWithWarning(page);
+  await expect(tail).toHaveValue('-1');
+  await prompts.click();
+  await editorAction(page, 'Save').click();
+  await expect(tail).toBeFocused();
+  await tail.fill('14');
+  await editorAction(page, 'Save').click();
+  await expect(repair).toBeFocused();
+  await expect(repair).toHaveValue('');
+  expect((await library(page)).revision).toBe(revision);
+  const edited = 'Keep the original wording about {{char}} where the facts still agree.';
+  await repair.fill(edited);
+  await memory.click();
+  await editorAction(page, 'Save').click();
+  await expect(page.getByRole('heading', { name: 'Across context tabs', exact: true })).toBeVisible();
+  const saved = (await library(page)).contexts.find(preset => preset.name === 'Across context tabs');
+  expect(saved).toMatchObject({ minTail: 14, repairPrompt: edited });
+});
+
+test('keeps one Character draft across sections and returns to an invalid profile field', async ({ page, setAppearance }, testInfo) => {
+  await page.goto('/');
+  await authenticate(page);
+  await openCategory(page, 'Characters');
+  await page.getByRole('button', { name: 'New character', exact: true }).click();
+  const profile = page.getByRole('tab', { name: 'Profile', exact: true });
+  const greetings = page.getByRole('tab', { name: 'Greetings', exact: true });
+  const lore = page.getByRole('tab', { name: 'Lore & tags', exact: true });
+  const depth = page.getByLabel('Character note depth', { exact: true });
+  const title = 'The mountain guide';
+  await page.getByLabel('Name', { exact: true }).fill(title);
+  await page.getByLabel('Character description').fill('She knows the winter trail.');
+  await page.getByText('Card instructions', { exact: true }).click();
+  await depth.fill('1001');
+  await profile.press('ArrowRight');
+  await expect(greetings).toBeFocused();
+  await page.getByLabel('Greeting', { exact: true }).fill('Follow my tracks, {{user}}.');
+  await greetings.press('End');
+  await expect(lore).toBeFocused();
+  await reloadWithWarning(page);
+  await expect(depth).toHaveValue('1001');
+  await lore.click();
+  const revision = (await library(page)).revision;
+  await editorAction(page, 'Save').click();
+  await expect(profile).toHaveAttribute('aria-selected', 'true');
+  await expect(depth).toBeFocused();
+  expect((await library(page)).revision).toBe(revision);
+  await depth.fill('3');
+
+  for (const theme of themeSchema.options) {
+    await setAppearance({ theme });
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const tab of [profile, greetings, lore]) {
+        await tab.click();
+        const panel = page.getByRole('tabpanel');
+        await expect(panel).toHaveAccessibleName(await tab.innerText());
+        expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+        await page.getByLabel('Name', { exact: true }).scrollIntoViewIfNeeded();
+        await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-${await tab.innerText()}.png`), animations: 'disabled' });
+      }
+    }
+  }
+  await editorAction(page, 'Save').click();
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  expect((await library(page)).characters.find(card => card.name === title)).toMatchObject({
+    description: 'She knows the winter trail.', first_mes: 'Follow my tracks, {{user}}.', depth_prompt: { depth: 3 },
+  });
 });

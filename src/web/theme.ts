@@ -15,24 +15,26 @@ export function useTheme(): Theme {
   return useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; }, initialTheme);
 }
 
+function setIconLink(selector: string, href: string) {
+  const link = document.querySelector<HTMLLinkElement>(selector);
+  if (link && link.getAttribute('href') !== href) link.setAttribute('href', href);
+}
+
 export function applyTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
   const chrome = getComputedStyle(document.documentElement).getPropertyValue('--chrome').trim();
   const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
   if (meta) meta.content = chrome;
   const favicon = faviconLinks(theme);
-  const install = installIconLinks(theme);
-  const links = [
-    ['link[rel="icon"][type="image/svg+xml"]', favicon.svg],
-    ['link[rel="icon"][type="image/png"]', favicon.png],
-    ['link[rel="apple-touch-icon"]', install.appleTouch],
-    ['link[rel="manifest"]', install.manifest],
-  ];
-  for (const [selector, href] of links) {
-    const link = document.querySelector<HTMLLinkElement>(selector);
-    if (link && link.getAttribute('href') !== href) link.setAttribute('href', href);
-  }
+  setIconLink('link[rel="icon"][type="image/svg+xml"]', favicon.svg);
+  setIconLink('link[rel="icon"][type="image/png"]', favicon.png);
   for (const listener of listeners) listener();
+}
+
+export function applyInstallIcon(theme: Theme) {
+  const install = installIconLinks(theme);
+  setIconLink('link[rel="apple-touch-icon"]', install.appleTouch);
+  setIconLink('link[rel="manifest"]', install.manifest);
 }
 
 export function initialTheme(): Theme {

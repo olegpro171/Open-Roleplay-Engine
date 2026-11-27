@@ -11,6 +11,7 @@ const authored = new Map<string, MessageKey>(Object.entries({
   "Use a six-digit hex color.": "validation.use_a_six_digit_hex_color",
   "Use an HTTP(S) API base URL without credentials, query parameters, or a fragment.": "validation.use_an_http_s_api_base_url_without",
   "Reserved output must be smaller than the context window.": "validation.reserved_output_must_be_smaller_than_the_context",
+  "The reported window must match the Connection endpoint and model.": "validation.model_window_report_scope",
   "Use a single line.": "validation.use_a_single_line",
   "Only Character supports a field selection.": "validation.only_character_supports_a_field_selection",
   "Character fields must be unique.": "validation.character_fields_must_be_unique",

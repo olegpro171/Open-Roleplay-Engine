@@ -90,6 +90,7 @@ for (const browserName of ['chromium', 'webkit'] as const) {
         // the surrounding editor's scroll position on a phone.
         await page.keyboard.press('Escape');
         await page.getByRole('button', { name: 'New character', exact: true }).click();
+        await page.getByRole('tab', { name: 'Lore & tags', exact: true }).click();
         const tags = page.getByRole('group', { name: 'Assign tags', exact: true });
         const next = tags.getByRole('button', { name: 'Next tags', exact: true });
         await next.scrollIntoViewIfNeeded();

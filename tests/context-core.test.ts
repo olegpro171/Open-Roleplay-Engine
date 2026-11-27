@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import reference from './fixtures/compaction-reference.json';
 import { defaultContextPreset, emptyContextState, refKey, type ContextState, type SummaryNode } from '../src/shared/context.js';
 import type { Turn } from '../src/shared/contracts.js';
-import { nextCompaction, rankedPromotions, repairQueue, replaceSelection, selectedContext, sourceOf, staleSummaries } from '../src/core/context.js';
+import { memoryInputBudget, nextCompaction, rankedPromotions, repairQueue, replaceSelection, selectedContext, sourceOf, staleSummaries } from '../src/core/context.js';
 import { assembleRequest } from '../src/core/prompt.js';
 import { defaultPrompt } from '../src/shared/library.js';
 
@@ -30,6 +30,7 @@ describe('stateful layered context', () => {
   });
   for (const golden of reference) it(`matches the Python model across 1,000 requests: batch ${golden.settings.batch}`, () => {
     const settings = { ...defaultContextPreset, minTail: golden.settings.tail, batchSize: golden.settings.batch, promotionGroup: golden.settings.group, retainedPerLevel: golden.settings.retained };
+    const budget = memoryInputBudget(golden.settings.target, Infinity);
     let state = emptyContextState();
     const retired = new Set<string>();
     for (let count = 1; count <= 1_000; count++) {
@@ -40,7 +41,7 @@ describe('stateful layered context', () => {
         const required = golden.settings.overhead + verbatim * 1_000;
         const input = required + state.selected.length * golden.settings.summary_tokens;
         const sizes = new Map(state.selected.map(ref => [refKey(ref), golden.settings.summary_tokens]));
-        const decision = nextCompaction(turns, state, settings, input, golden.settings.target, required, sizes);
+        const decision = nextCompaction(turns, state, settings, input, budget, required, sizes);
         expect(decision.blocked).toBeNull();
         if (!decision.next) break;
         const summary = { ...node(`s${state.summaries.length}`, decision.next.level, turns.filter(turn => decision.next!.turnIds.includes(turn.id))), children: decision.next.children };
@@ -60,16 +61,17 @@ describe('stateful layered context', () => {
       if (count === 301) state = JSON.parse(JSON.stringify(state)) as ContextState;
     }
     const saved = state.selected;
-    expect(nextCompaction(Array.from({ length: 1_000 }, (_, i) => turn(i + 1)), state, settings, 1, golden.settings.target, 0, new Map()).next).toBeNull();
+    expect(nextCompaction(Array.from({ length: 1_000 }, (_, i) => turn(i + 1)), state, settings, 1, budget, 0, new Map()).next).toBeNull();
     expect(state.selected).toEqual(saved);
   }, 20000);
 
   it('protects residual turns and a pending input without inventing smaller batches', () => {
     const turns = Array.from({ length: 102 }, (_, i) => turn(i + 1));
-    const decision = nextCompaction(turns, emptyContextState(), { ...defaultContextPreset, minTail: 100, batchSize: 3 }, 102_000, 101_000, 102_000, new Map());
-    expect(decision.next).toBeNull(); expect(decision.blocked).toContain('required verbatim');
+    const budget = memoryInputBudget(101_000, 128_000);
+    const decision = nextCompaction(turns, emptyContextState(), { ...defaultContextPreset, minTail: 100, batchSize: 3 }, 102_000, budget, 102_000, new Map());
+    expect(decision.next).toBeNull(); expect(decision.blockedMessage?.key).toBe('diagnostics.the_required_verbatim_tail_pending_input_and_prompt');
     const pending = { ...turn(103), complete: false };
-    expect(nextCompaction([...turns, pending], emptyContextState(), { ...defaultContextPreset, minTail: 100 }, 105_000, 101_000, 105_000, new Map()).next).toBeNull();
+    expect(nextCompaction([...turns, pending], emptyContextState(), { ...defaultContextPreset, minTail: 100 }, 105_000, budget, 105_000, new Map()).next).toBeNull();
   });
 
   it('uses uneven actual sizes for pressure, but counts for retained floors and fixed groups', () => {
@@ -78,9 +80,10 @@ describe('stateful layered context', () => {
     const state: ContextState = { revision: 0, archivedTurnIds: turns.slice(0, 12).map(turn => turn.id), selected: summaries.map(({ id, revision }) => ({ id, revision })), summaries };
     const sizes = new Map(summaries.map(node => [refKey(node), node.level === 2 ? 500 : 50]));
     const config = { ...defaultContextPreset, minTail: 2, promotionGroup: 2, retainedPerLevel: 1 };
-    expect(nextCompaction(turns, state, config, 2_500, 2_000, 700, sizes).next?.children.map(ref => ref.id)).toEqual(['deep-a', 'deep-b']);
+    const budget = memoryInputBudget(2_000, 8_000);
+    expect(nextCompaction(turns, state, config, 2_500, budget, 700, sizes).next?.children.map(ref => ref.id)).toEqual(['deep-a', 'deep-b']);
     sizes.set('recent-5:0', 8_000); // Protected newest summary raises pressure; oldest group is still selected.
-    expect(nextCompaction(turns, state, config, 10_000, 2_000, 700, sizes).next?.children.map(ref => ref.id)).toEqual(['recent-0', 'recent-1']);
+    expect(nextCompaction(turns, state, config, 10_000, budget, 700, sizes).next?.children.map(ref => ref.id)).toEqual(['recent-0', 'recent-1']);
   });
 
   it('detects changed sources and dependent prior context, and refuses overlapping coverage', () => {

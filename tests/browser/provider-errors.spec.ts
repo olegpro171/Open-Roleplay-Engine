@@ -1,10 +1,10 @@
 import { expect } from '@playwright/test';
 import { z } from 'zod';
-import { appearanceStatusSchema } from '../../src/shared/appearance';
+import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 import { test } from './isolated-app';
 import { selectLibraryCategory } from './library-card-helpers';
 
-for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+for (const theme of themeSchema.options) {
   test(`renders provider failures in the active language in the ${theme} theme`, async ({ page, browserApp }, testInfo) => {
     const headers = { Origin: browserApp.url };
     const post = async (url: string, data: unknown) => {
@@ -50,18 +50,21 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     await expect(recovery).toContainText(russianRateLimit);
     const composer = page.getByRole('textbox', { name: 'Ваш следующий ход' });
     const send = page.getByRole('button', { name: 'Отправить', exact: true });
+    const pendingInput = page.getByText(input, { exact: true });
     for (const width of [1768, 801, 800, 320, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await expect(recovery.getByRole('button', { name: 'Повторить ответ', exact: true })).toBeInViewport();
       await expect(composer).toBeInViewport();
       await expect(send).toBeInViewport();
-      const [noticeBounds, inputBounds, sendBounds, transcriptBounds] = await Promise.all([
-        recovery.boundingBox(), composer.boundingBox(), send.boundingBox(), page.locator('.transcript').boundingBox(),
+      await expect(pendingInput).toBeInViewport();
+      const [noticeBounds, inputBounds, sendBounds, pendingBounds] = await Promise.all([
+        recovery.boundingBox(), composer.boundingBox(), send.boundingBox(), pendingInput.boundingBox(),
       ]);
-      if (!noticeBounds || !inputBounds || !sendBounds || !transcriptBounds) throw new Error('Story controls must be visible');
-      expect(noticeBounds.x).toBeCloseTo(inputBounds.x);
-      expect(noticeBounds.x + noticeBounds.width).toBeCloseTo(sendBounds.x + sendBounds.width);
-      expect(noticeBounds.y).toBeGreaterThanOrEqual(transcriptBounds.y + transcriptBounds.height);
+      if (!noticeBounds || !inputBounds || !sendBounds || !pendingBounds) throw new Error('Story controls and the pending input must be visible');
+      expect(noticeBounds.x).toBeLessThanOrEqual(inputBounds.x);
+      expect(noticeBounds.x + noticeBounds.width).toBeGreaterThanOrEqual(sendBounds.x + sendBounds.width);
+      // The scrollbar extends beside the notice and composer. Keep the pending text clear of both.
+      expect(noticeBounds.y).toBeGreaterThanOrEqual(pendingBounds.y + pendingBounds.height);
       expect(noticeBounds.y + noticeBounds.height).toBeLessThan(inputBounds.y);
       await expect(page.locator('.composer')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
       await expect(page.locator('.composer')).toHaveCSS('border-top-width', '0px');

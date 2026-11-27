@@ -7,7 +7,7 @@ import { libraryEditorTitle, newLibraryLabel, searchLibraryLabel, sortLibraryLab
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale, currentPack } from './localization';
 import { libraryLabel, characterFieldLabel, markerLabel as localizedMarkerLabel, stateLabel } from './localization-labels';
 import { librarySortSchema, readLibrarySort, sortLibraryItems, sortLibraryRecords, sortOptions, type LibrarySort } from './library-sorting';
-import { defaultContinuationInstruction, defaultOpeningInstruction } from '../shared/default-prompt';
+import { defaultContinuationInstruction, defaultImpersonateInstruction, defaultOpeningInstruction } from '../shared/default-prompt';
 import { chatGroupId, preferredBranch } from './chat-selection';
 import { ChatCardActivity } from './ChatCardActivity';
 import { SpeechColorSelector } from './SpeechColorSelector';
@@ -22,30 +22,35 @@ import { WarningDialog, WarningMessages } from './WarningDialog';
 import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { CharacterAvatar, PictureSquare } from './Pictures';
 import { LibraryCard } from './LibraryCard';
-import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
+import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEventHandler, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
-import type { Connection, ConnectionDiagnostic } from '../shared/contracts';
+import { connectionSchema, connectionSettings, outputFitsContextWindow, saveSettingsSchema, type Connection, type ConnectionRecord, type ConnectionDiagnostic, type DiscoveredModel } from '../shared/contracts';
+import { validationMessage } from '../shared/localization-validation';
 import { characterLabel, personaLabel, characterFields, defaultPrompt, markers, markerLabel, promptWarningMessages, type ChatSummary, type LibraryCharacter, type LibraryPersona, type LibraryKind, type LibrarySnapshot, type PromptBlock, type PromptPreset, type Saved } from '../shared/library';
 import { upgradePrompt } from '../core/prompt-upgrade';
 import { TranscriptImport } from './TranscriptImport';
 import { CharacterImport } from './CharacterImport';
 import { ConnectionFileDialog, type ConnectionFileAction } from './ConnectionFileDialog';
-import { ModelField } from './ModelPicker';
-import { ConnectionParameters } from './ConnectionParameters';
-import { connectionParameterDraft, parseConnectionParameters, recoverConnectionParameters, type ConnectionParameterDraft } from './connection-parameter-draft';
+import type { ConnectionTab } from './ConnectionFields';
+import { ConnectionFieldError, connectionParameterDraft, parseConnectionParameters, recoverConnectionParameters, type ConnectionField, type ConnectionParameterDraft } from './connection-parameter-draft';
 import { CharacterEditor } from './CharacterEditor';
 import { EditorActions, EditorActionsTarget } from './EditorActions';
 import type { LeaveEditor } from './EditorLeaveGuard';
+import { ContextPresetFields } from './ContextPresetFields';
+import { EditorNameField } from './LibraryEditorFields';
+import { EditorTabs } from './EditorTabs';
 import { EditorTextarea } from './EditorTextarea';
 import { TagChips, TagFilterMenu } from './Tags';
 import { characterTagIndex, matchesCharacterTags } from '../shared/tags';
-import { api, datasetEpoch } from './api';
-import { Dropdown, NumberDraftContext, NumberInput, useNumberDraft } from './Controls';
+import { api, ApiError, datasetEpoch } from './api';
+import { Dropdown, NumberDraftContext, useNumberDraft } from './Controls';
 import { defaultContextPreset, type ContextPreset } from '../shared/context';
 import { newLorebook, type Lorebook, type LoreDiagnostic } from '../shared/lorebook';
 import { LorebookEditor, LorebookImport, LoreDiagnostics } from './LorebookEditor';
 import { CopyLibraryDraft, LibraryDraftNotice, StaleLibraryDraft, useLibraryEditorDraft } from './LibraryDraft';
-import { sameDraftValue, type LibraryDraft, type LibraryEditorDraft, type SetupReturn } from './library-draft';
+import { sameDraftValue, type DraftOf, type LibraryDraft, type LibraryEditorDraft, type SetupReturn } from './library-draft';
+
+const ConnectionFields = lazy(() => import('./ConnectionFields').then(module => ({ default: module.ConnectionFields })));
 
 export const defaultConnection: Connection = { name: 'My Connection', endpoint: 'https://api.openai.com/v1', model: '', contextWindow: 128_000, maxOutputTokens: 8196, customParameters: {} };
 
@@ -62,7 +67,7 @@ function newPrompt(): PromptPreset {
   };
 }
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
-type LibraryRecord = LibraryCharacter | LibraryPersona | PromptPreset | Connection | ContextPreset | Lorebook;
+type LibraryRecord = LibraryCharacter | LibraryPersona | PromptPreset | ConnectionRecord | ContextPreset | Lorebook;
 
 function libraryCardDetails(item: LibraryRecord): string | undefined {
   if ('entries' in item) {
@@ -383,10 +388,13 @@ export function Libraries({ library, defaults, appearance, currentBranchId, bran
     }
     if ('personality' in initial.data || 'entries' in initial.data) return null;
     const restored = recovered?.kind !== 'characters' && recovered?.kind !== 'lorebooks' ? recovered : undefined;
-    return <LibraryEditor key={initial.id ?? initial.kind} initial={{ ...initial, data: initial.data }} recovered={restored}
+    const editor = <LibraryEditor key={initial.id ?? initial.kind} initial={{ ...initial, data: initial.data }} recovered={restored}
       connections={initial.kind === 'contexts' ? sortLibraryRecords(library.connections, 'connections', library.dates) : []}
       currentRevision={library.revision} appearance={appearance} busy={busy} run={run}
       close={cancelEditor} committed={id => finishEditor(id && initial.kind === 'personas' ? { kind: 'personas', id } : undefined)} />;
+    return initial.kind === 'connections'
+      ? <Suspense fallback={<p role="status">{t('application_settings.loading_record')}</p>}>{editor}</Suspense>
+      : editor;
   }
   async function duplicate(item: Saved<LibraryRecord>) {
     if (section === 'chats') return;
@@ -597,54 +605,105 @@ function DefaultBookmark({ kind, item, defaults, libraryRevision, busy, run }: {
 }
 
 type StandardDraft = Exclude<LibraryEditorDraft, { kind: 'characters' | 'lorebooks' }>;
+type ContextWindowSource = DraftOf<'connections'>['contextWindowSource'];
 
 function comparableLibraryFields(data: StandardDraft['data']) {
   if ('description' in data) return { ...data, titleComment: data.titleComment ?? '', speechColor: data.speechColor ?? null };
-  if ('endpoint' in data) return { ...data, requestUsage: data.requestUsage !== false };
   return data;
 }
 
-function connectionFromDraft(connection: Connection, parameters: ConnectionParameterDraft): Connection {
-  if (!connection.model.trim()) throw new LocalizedError(msg('model_picker.required'));
-  return { ...connection, customParameters: parseConnectionParameters(parameters) };
+function connectionFromDraft(connection: ConnectionRecord, parameters: ConnectionParameterDraft, apiKey?: string): ConnectionRecord {
+  if (!connection.model.trim()) throw new ConnectionFieldError(msg('model_picker.required'), 'model');
+  const customParameters = parseConnectionParameters(parameters);
+  const fields = [
+    ['name', connectionSchema.shape.name, connection.name],
+    ['endpoint', connectionSchema.shape.endpoint, connection.endpoint],
+    ['model', connectionSchema.shape.model, connection.model],
+    ['apiKey', saveSettingsSchema.shape.apiKey, apiKey],
+  ] as const;
+  for (const [field, schema, value] of fields) {
+    const parsed = schema.safeParse(value);
+    if (!parsed.success) throw new ConnectionFieldError(validationMessage(parsed.error.issues[0]), field);
+  }
+  return { ...connection, customParameters };
 }
 
 function LibraryEditor({ initial, recovered, connections, currentRevision, appearance, busy, run, close, committed }: { initial: LibraryEditing & { data: StandardDraft['data'] }; recovered?: StandardDraft; connections: Saved<Connection>[]; currentRevision: number; appearance: ChatPreviewAppearance; busy: boolean; run: Run; close: MouseEventHandler<HTMLButtonElement>; committed: (id?: string) => void }) {
   useLocale();
   const formId = useId();
   const [data, setData] = useState(recovered?.data ?? initial.data);
+  const connection = 'endpoint' in data ? data : undefined;
+  const contextPreset = 'batchSize' in data ? data : undefined;
+  const prompt = 'blocks' in data ? data : undefined;
+  const persona = 'description' in data ? data : undefined;
+  const baselineWindow = 'endpoint' in initial.data ? initial.data.contextWindow : defaultConnection.contextWindow;
+  const [windowSource, setWindowSource] = useState<ContextWindowSource>(() => {
+    if (recovered?.kind !== 'connections') return undefined;
+    if (recovered.contextWindowSource) return recovered.contextWindowSource;
+    if (recovered.data.contextWindow !== baselineWindow || recovered.numbers?.contextWindow !== undefined) return 'manual';
+  });
   const [key, setKey] = useState('');
   const [removeKey, setRemoveKey] = useState(recovered?.kind === 'connections' && recovered.removeKey);
   const [baselineParameters] = useState(() => connectionParameterDraft('customParameters' in initial.data ? initial.data.customParameters : {}));
   const [parameters, setParameters] = useState(() => recovered?.kind === 'connections'
     ? recoverConnectionParameters(recovered.data.customParameters, recovered) : baselineParameters);
   const numberDraft = useNumberDraft(recovered?.numbers);
+  const [connectionTab, setConnectionTab] = useState<ConnectionTab>('settings');
+  const outputConflict = connection !== undefined && numberDraft.values.contextWindow === undefined && numberDraft.values.maxOutputTokens === undefined
+    && !outputFitsContextWindow(connection);
   const keyOmitted = !removeKey && key !== '';
   const draft = useMemo<StandardDraft>(() => {
     const target = { id: initial.id, revision: initial.revision, numbers: numberDraft.values };
-    if ('endpoint' in data) return { ...target, kind: 'connections', returnTo: initial.returnTo, data, ...parameters, removeKey, keyOmitted };
+    if ('endpoint' in data) return { ...target, kind: 'connections', returnTo: initial.returnTo, data, ...parameters, removeKey, keyOmitted, contextWindowSource: windowSource };
     if ('blocks' in data) return { ...target, kind: 'prompts', data };
     if ('batchSize' in data) return { ...target, kind: 'contexts', data };
     return { ...target, kind: 'personas', returnTo: initial.returnTo, data };
-  }, [initial.id, initial.revision, initial.returnTo, data, parameters, removeKey, keyOmitted, numberDraft.values]);
+  }, [initial.id, initial.revision, initial.returnTo, data, parameters, removeKey, keyOmitted, numberDraft.values, windowSource]);
   const dataChanged = useMemo(() => data !== initial.data && !sameDraftValue(comparableLibraryFields(data), comparableLibraryFields(initial.data)), [data, initial.data]);
   const dirty = dataChanged || !sameDraftValue(parameters, baselineParameters) || removeKey || key !== '' || numberDraft.dirty;
   const storageError = useLibraryEditorDraft(draft, dirty);
-  const [error, setError] = useTextState('');
+  const [fieldError, setFieldError] = useState<ConnectionFieldError>();
   const [staleWarningDismissed, setStaleWarningDismissed] = useState(false);
   const stale = initial.revision !== currentRevision;
   const reviewMemoryCleanup = useMemoryCleanup(run, initial.id);
-  async function save(e: FormEvent) {
+  const rememberModelWindow = useCallback((endpoint: string, model: DiscoveredModel) => {
+    setData(current => {
+      if (!('endpoint' in current) || current.endpoint !== endpoint || current.model !== model.id
+        || current.modelWindowReport?.tokens === model.contextWindow) return current;
+      return { ...current, modelWindowReport: model.contextWindow === undefined ? undefined
+        : { endpoint, model: model.id, tokens: model.contextWindow } };
+    });
+  }, []);
+  function clearFieldError(field: ConnectionField) {
+    setFieldError(current => current?.field === field ? undefined : current);
+  }
+  function revealFieldError(form: HTMLFormElement, error: ConnectionFieldError) {
+    const { field } = error;
+    flushSync(() => {
+      if (field === 'model' || field === 'apiKey' || field === 'endpoint') setConnectionTab('settings');
+      else if (field !== 'name') setConnectionTab('parameters');
+      setFieldError(field === 'customParameters' ? undefined : error);
+    });
+    const control = field === 'customParameters'
+      ? form.querySelector<HTMLButtonElement>('.connection-json-error') : form.elements.namedItem(field);
+    if (!(control instanceof HTMLElement)) return;
+    const disclosure = control.closest('details');
+    if (disclosure) disclosure.open = true;
+    if (field === 'customParameters') control.click();
+    else control.focus();
+  }
+  const draftApiKey = removeKey ? '' : key || undefined;
+  async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (busy || stale) return;
-    setError('');
+    if (busy || stale || outputConflict) return;
+    setFieldError(undefined);
     let value = data;
     if ('endpoint' in data) {
       try {
-        value = connectionFromDraft(data, parameters);
+        value = connectionFromDraft(data, parameters, draftApiKey);
       } catch (error) {
-        if (!(error instanceof LocalizedError)) throw error;
-        setError(error.localized);
+        if (!(error instanceof ConnectionFieldError)) throw error;
+        revealFieldError(e.currentTarget, error);
         return;
       }
     }
@@ -663,47 +722,49 @@ function LibraryEditor({ initial, recovered, connections, currentRevision, appea
     if (await run(async () => {
       request.result = await api<{ id: string }>(initial.id ? `/library/${initial.id}` : '/library', initial.id ? 'PUT' : 'POST', {
         revision: initial.revision, kind: initial.kind, data: value,
-        ...(initial.kind === 'connections' && (key || removeKey) ? { apiKey: removeKey ? '' : key } : {}),
+        ...(initial.kind === 'connections' && draftApiKey !== undefined ? { apiKey: draftApiKey } : {}),
       });
     })) committed(request.result?.id);
   }
-  function textField(field: string, label: string, multiline = true, full = true, help?: string) {
-    const value = (data as unknown as Record<string, string>)[field];
-    const helpId = `${formId}-${field}-help`;
-    const helpAttributes = help ? { 'aria-label': label, 'aria-describedby': helpId } : {};
-    return <label className={full ? 'full' : undefined} key={field}>{label}
-      {multiline
-        ? <EditorTextarea {...helpAttributes} value={value} maxLength={100_000} onChange={event => setData({ ...data, [field]: event.target.value })} />
-        : <input {...helpAttributes} required maxLength={100} value={value} onChange={event => setData({ ...data, [field]: event.target.value })} />}
-      {help && <small id={helpId}>{help}</small>}
-    </label>;
-  }
-  const personaNameHelp = initial.kind === 'personas' ? t('libraries.persona_name_help', { user: '{{user}}' }) : undefined;
-  return <NumberDraftContext.Provider value={numberDraft}><form id={formId} onSubmit={e => void save(e)}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy}><legend>{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend><div className="form-grid">{textField('name', t("character_editor.name"), false, initial.kind !== 'personas', personaNameHelp)}
-    {initial.kind === 'personas' && <>
-      <label>{t("character_editor.title_comment")}<input aria-label={t("character_editor.title_comment")} maxLength={200} value={(data as LibraryPersona).titleComment ?? ''} onChange={event => setData({ ...data, titleComment: event.target.value })} /><small>{t("libraries.an_optional_label_useful_for_distinguishing_between")}</small></label>
-      <SpeechColorSelector speaker="persona" appearance={appearance} value={(data as LibraryPersona).speechColor} change={speechColor => setData({ ...data, speechColor })} disabled={busy} />
-      {textField('description', t('libraries.persona_description'), true, true, t('libraries.persona_description_help'))}
-    </>}
-    {initial.kind === 'contexts' && <ContextPresetFields value={data as ContextPreset} change={setData} connections={connections} />}
-    {initial.kind === 'connections' && <>
-      <label className="full">{t("libraries.api_base_url")}<input type="url" required value={(data as Connection).endpoint} onChange={e => setData({ ...data as Connection, endpoint: e.target.value })} /></label>
-      <div className="full api-key-row"><label>{t("libraries.api_key")}<input type="password" autoComplete="new-password" disabled={removeKey} placeholder={initial.hasApiKey ? t("libraries.saved_leave_blank_to_keep_it") : t("libraries.optional_for_endpoints_without_authentication")} value={key} onChange={e => setKey(e.target.value)} /></label>{initial.hasApiKey && <label className="checkbox"><input type="checkbox" checked={removeKey} onChange={e => setRemoveKey(e.target.checked)} />{t("libraries.remove_the_saved_api_key")}</label>}</div>
-      <ModelField value={(data as Connection).model} endpoint={(data as Connection).endpoint} connectionId={initial.id}
-        apiKey={removeKey ? '' : key || undefined} disabled={busy} change={model => setData({ ...data as Connection, model })} />
-      <label>{t("libraries.model_context_window")}<NumberInput draftField="contextWindow" required value={(data as Connection).contextWindow} onChange={contextWindow => setData({ ...data as Connection, contextWindow })} /></label><label>{t("libraries.reserved_output_tokens")}<NumberInput draftField="maxOutputTokens" required max={1_000_000} value={(data as Connection).maxOutputTokens} onChange={maxOutputTokens => setData({ ...data as Connection, maxOutputTokens })} /></label><label className="checkbox full"><input type="checkbox" checked={(data as Connection).requestUsage !== false} onChange={e => setData({ ...data as Connection, requestUsage: e.target.checked })} />{t("libraries.request_token_usage_from_the_endpoint")}</label><p className="small muted full">{t("libraries.turn_statistics_use_counts_supplied_by_the")}</p>
-      <ConnectionParameters draft={parameters} change={setParameters} disabled={busy} />
-      <ConnectionTools connection={data as Connection} parameters={parameters} connectionId={initial.id} apiKey={removeKey ? '' : key || undefined} disabled={stale} />
-    </>}
-    {initial.kind === 'prompts' && <PromptEditor value={data as PromptPreset} change={setData} />}
-  </div></fieldset>
-    {error && <p role="alert">{error}</p>}
+  return <NumberDraftContext.Provider value={numberDraft}><form id={formId} onSubmit={e => void save(e)}><LibraryDraftNotice recovered={recovered} storageError={storageError} /><fieldset disabled={busy} className={persona ? 'persona-editor' : 'tabbed-library-editor'}>
+    <legend className="sr-only">{libraryEditorTitle(initial.kind, Boolean(initial.id))}</legend>
+    {contextPreset ? <ContextPresetFields value={contextPreset} change={setData} connections={connections} /> : connection ? <>
+      <ConnectionFields value={connection} change={setData} id={initial.id} hasApiKey={initial.hasApiKey}
+        apiKey={key} setApiKey={setKey} removeKey={Boolean(removeKey)} setRemoveKey={setRemoveKey}
+        windowSource={windowSource} setWindowSource={setWindowSource} baselineWindow={baselineWindow}
+        numberDraft={numberDraft} outputConflict={outputConflict} busy={busy}
+        reportWindow={rememberModelWindow} tab={connectionTab} selectTab={setConnectionTab} parameters={parameters} setParameters={setParameters}
+        fieldError={fieldError} clearFieldError={clearFieldError} />
+      <ConnectionTools connection={connectionSettings(connection)} parameters={parameters} connectionId={initial.id}
+        apiKey={draftApiKey} disabled={stale || outputConflict} revealFieldError={revealFieldError} />
+    </> : prompt ? <PromptEditor value={prompt} change={setData} /> :
+    persona && <>
+      <div className="library-editor-identity">
+        <EditorNameField value={persona.name} change={name => setData({ ...persona, name })}
+          help={t('libraries.persona_name_help', { user: '{{user}}' })} />
+        <label>{t('character_editor.title_comment')}
+          <input aria-label={t('character_editor.title_comment')} aria-describedby={`${formId}-title-help`}
+            maxLength={200} value={persona.titleComment ?? ''} onChange={event => setData({ ...persona, titleComment: event.target.value })} />
+          <small id={`${formId}-title-help`}>{t('libraries.an_optional_label_useful_for_distinguishing_between')}</small>
+        </label>
+      </div>
+      <label className="persona-description">{t('libraries.persona_description')}
+        <small id={`${formId}-description-help`}>{t('libraries.persona_description_help')}</small>
+        <EditorTextarea aria-label={t('libraries.persona_description')} aria-describedby={`${formId}-description-help`}
+          maxLength={100_000} value={persona.description} onChange={event => setData({ ...persona, description: event.target.value })} />
+      </label>
+      <SpeechColorSelector speaker="persona" appearance={appearance} value={persona.speechColor}
+        change={speechColor => setData({ ...persona, speechColor })} disabled={busy} />
+    </>}</fieldset>
     {stale && !staleWarningDismissed && <WarningDialog message={msg('libraries.the_library_changed_close_this_editor_and')} close={() => setStaleWarningDismissed(true)} />}
     {stale && dirty && <CopyLibraryDraft editor={draft} />}
-    <EditorActions formId={formId} disabled={busy || stale} cancelDisabled={busy} close={close} />
+    <EditorActions formId={formId} disabled={busy || stale || outputConflict} cancelDisabled={busy} close={close} />
   </form></NumberDraftContext.Provider>;
 }
-function ConnectionTools({ connection, parameters, connectionId, apiKey, disabled }: { connection: Connection; parameters: ConnectionParameterDraft; connectionId?: string; apiKey?: string; disabled: boolean }) {
+function ConnectionTools({ connection, parameters, connectionId, apiKey, disabled, revealFieldError }: {
+  connection: Connection; parameters: ConnectionParameterDraft; connectionId?: string; apiKey?: string; disabled: boolean;
+  revealFieldError: (form: HTMLFormElement, error: ConnectionFieldError) => void;
+}) {
   useLocale();
   const [result, setResult] = useState<ConnectionDiagnostic | null>(null), [error, setError] = useTextState('');
   const [testing, setTesting] = useState(false);
@@ -713,35 +774,32 @@ function ConnectionTools({ connection, parameters, connectionId, apiKey, disable
     attempt.current++; setResult(null); setError(''); setTesting(false);
   }, [signature]);
   useEffect(() => () => { attempt.current++; }, []);
-  async function diagnose(action: 'check' | 'test') {
+  async function diagnose(action: 'check' | 'test', form: HTMLFormElement | null) {
+    // Validate the visible draft before using the last parsed numeric values for a test request.
+    if (form?.querySelector('[role="tabpanel"] input:invalid') && !form.reportValidity()) return;
     const id = ++attempt.current; setTesting(true); setResult(null); setError('');
     try {
-      const input = connectionFromDraft(connection, parameters);
+      const input = connectionFromDraft(connection, parameters, apiKey);
       const value = await api<ConnectionDiagnostic>('/connections/diagnose', 'POST', { action, connection: input, connectionId, apiKey });
       if (attempt.current === id) setResult(value);
-    } catch (error) { if (attempt.current === id) setError(errorText(error, msg("libraries.connection_test_failed"))); }
+    } catch (error) {
+      if (attempt.current !== id) return;
+      if (form && error instanceof ConnectionFieldError) revealFieldError(form, error);
+      else if (form && error instanceof ApiError && error.code === 'saved_key_endpoint_changed') {
+        revealFieldError(form, new ConnectionFieldError(error.localized ?? msg('errors.enter_an_api_key_for_the_changed_endpoint'), 'apiKey'));
+      }
+      else setError(errorText(error, msg('libraries.connection_test_failed')));
+    }
     finally { if (attempt.current === id) setTesting(false); }
   }
-  return <div className="full connection-tools">
-    <div className="actions"><button type="button" className="secondary" disabled={disabled || testing} onClick={() => void diagnose('check')}>{t("libraries.check_connection")}</button><button type="button" className="secondary" disabled={disabled || testing} onClick={() => void diagnose('test')}>{t("libraries.send_test_message")}</button></div>
+  return <section className="settings-section connection-tools">
+    <h3>{t('libraries.connection_diagnostics')}</h3>
+    <div className="actions"><button type="button" className="secondary" disabled={disabled || testing} onClick={event => void diagnose('check', event.currentTarget.form)}>{t("libraries.check_connection")}</button><button type="button" className="secondary" disabled={disabled || testing} onClick={event => void diagnose('test', event.currentTarget.form)}>{t("libraries.send_test_message")}</button></div>
     <p className="small muted connection-help">{t("libraries.enter_your_provider_s_api_key_above")}</p>
     {testing && <p className="small" role="status">{t("libraries.testing_connection")}</p>}
-    {error && <p role="alert">{error}</p>}
+    {error && <p className="small connection-error" role="alert">{error}</p>}
     {result && <div className="connection-test-result" role="status"><p className="small connection-success">{formatMessage(result.localized ?? result.message)}</p>{result.request && <><p className="small">{result.usage ? t("libraries.token_usage_input_output", { value: result.usage.inputTokens.toLocaleString(locale()), value2: result.usage.outputTokens.toLocaleString(locale()) }) : t("libraries.token_usage_unavailable")}</p><details><summary>{t("libraries.test_request_and_response")}</summary><pre>{JSON.stringify({ request: result.request, response: result.response, usage: result.usage }, null, 2)}</pre></details></>}</div>}
-  </div>;
-}
-function ContextPresetFields({ value, change, connections }: { value: ContextPreset; change: (value: ContextPreset) => void; connections: Saved<Connection>[] }) {
-  useLocale();
-  const fields = [['minTail', t("libraries.minimum_verbatim_turns"), 0], ['batchSize', t("libraries.turns_per_batch"), 1], ['summaryTokens', t("libraries.requested_summary_tokens"), 1], ['promotionGroup', t("libraries.summaries_per_promotion"), 2], ['retainedPerLevel', t("libraries.retain_summaries_per_level"), 0]] as const;
-  return <><label className="full">{t("libraries.summarization_connection")}<Dropdown aria-label={t("libraries.summarization_connection")} value={value.connectionId ?? ''} onChange={connectionId => change({ ...value, connectionId: connectionId || null })} options={[{ value: '', label: t("libraries.same_as_current_chat_connection") }, ...connections.map(connection => ({ value: connection.id, label: `${connection.name} · ${connection.model}` }))]} /></label>
-    {fields.map(([field, label, min]) => <label key={field}>{label}<NumberInput draftField={field} required min={min} max={field === 'summaryTokens' ? 1_000_000 : 50_000} value={value[field]} onChange={number => change({ ...value, [field]: number })} /></label>)}
-    <p className="small muted full">{t("libraries.the_input_target_belongs_to_each_chat")}</p>
-    <label className="full">{t("libraries.first_layer_extraction_prompt")}<EditorTextarea required value={value.extractionPrompt} maxLength={100_000} onChange={e => change({ ...value, extractionPrompt: e.target.value })} /></label>
-    <label className="full">{t("libraries.higher_layer_compression_prompt")}<EditorTextarea required value={value.promotionPrompt} maxLength={100_000} onChange={e => change({ ...value, promotionPrompt: e.target.value })} /></label>
-    <label className="full">{t("libraries.repair_prompt")}<EditorTextarea required value={value.repairPrompt} maxLength={100_000} onChange={e => change({ ...value, repairPrompt: e.target.value })} /></label>
-    <p className="small muted full">{t("libraries.repair_receives_the_existing_summary_and_before")}</p>
-    <p className="small muted full">{t("libraries.available_variables_source_text_is_attached_separately", { value: '{{target_tokens}}', value2: '{{level}}', value3: '{{user}}', value4: '{{char}}' })}</p>
-  </>;
+  </section>;
 }
 function PromptInstruction({ title, label, help, custom, fallback, change }: {
   title: string; label: string; help: string; custom?: string; fallback: string; change: (text: string) => void;
@@ -749,7 +807,7 @@ function PromptInstruction({ title, label, help, custom, fallback, change }: {
   useLocale();
   const helpId = useId();
   const [open, setOpen] = useState(false);
-  return <details className="editor-disclosure" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+  return <details className="editor-disclosure library-editor-disclosure" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>
       <span>
         <span>{title}</span>
@@ -757,7 +815,7 @@ function PromptInstruction({ title, label, help, custom, fallback, change }: {
       </span>
       <Icon name="ArrowShortBottom" />
     </summary>
-    {open && <label className="editor-disclosure-content">
+    {open && <label className="prompt-instruction-body">
       <small id={helpId}>{help}</small>
       <EditorTextarea aria-label={label} aria-describedby={helpId} maxLength={100_000}
         value={custom ?? fallback} onChange={event => change(event.target.value)} />
@@ -775,49 +833,31 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
   useLocale();
   const id = useId();
   const [activeTab, setActiveTab] = useState<PromptEditorTab>('main');
-  return <div className="full prompt-editor">
-    <div className="prompt-editor-tabs" role="tablist" aria-label={t('libraries.prompt_editor_sections')}>
-      {promptEditorTabs.map(([tab, label]) => <button key={tab} type="button" role="tab"
-        id={`${id}-${tab}-tab`} aria-controls={`${id}-${tab}-panel`}
-        aria-selected={activeTab === tab} tabIndex={activeTab === tab ? 0 : -1}
-        onClick={() => setActiveTab(tab)}
-        onKeyDown={event => {
-          if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-          let next: PromptEditorTab;
-          switch (event.key) {
-            case 'ArrowLeft':
-            case 'ArrowRight': next = tab === 'main' ? 'instructions' : 'main'; break;
-            case 'Home': next = 'main'; break;
-            case 'End': next = 'instructions'; break;
-            default: return;
-          }
-          event.preventDefault();
-          setActiveTab(next);
-          event.currentTarget.ownerDocument.getElementById(`${id}-${next}-tab`)?.focus();
-        }}>{t(label)}</button>)}
-    </div>
+  return <>
+    <EditorNameField value={value.name} change={name => change({ ...value, name })} />
+    <EditorTabs id={id} label={t('libraries.prompt_editor_sections')} tabs={promptEditorTabs}
+      active={activeTab} select={setActiveTab} className="tabs library-editor-tabs" />
     <WarningMessages messages={promptWarningMessages(value)} />
     <div role="tabpanel" id={`${id}-main-panel`} aria-labelledby={`${id}-main-tab`} hidden={activeTab !== 'main'}
       onInvalid={() => {
         // Reveal invalid block fields before the browser moves focus to the first one.
         if (activeTab !== 'main') flushSync(() => setActiveTab('main'));
       }}>
-      <details className="prompt-assembly-help">
-        <summary>{t('libraries.how_prompt_assembly_works')}</summary>
-        <p className="small muted">{t('libraries.enabled_blocks_and_markers_compose_the_base', { value: '{{user}}', value2: '{{char}}' })}</p>
-      </details>
       <PromptBlocks value={value} change={change} />
     </div>
-    <div className="prompt-instructions" role="tabpanel" id={`${id}-instructions-panel`}
+    <div role="tabpanel" id={`${id}-instructions-panel`}
       aria-labelledby={`${id}-instructions-tab`} hidden={activeTab !== 'instructions'}>
       <PromptInstruction title={t('continue.action')} label={t('continue.instruction')} help={t('continue.instruction_help')}
         custom={value.continuationInstruction} fallback={defaultContinuationInstruction}
         change={continuationInstruction => change({ ...value, continuationInstruction })} />
+      <PromptInstruction title={t('impersonate.action')} label={t('impersonate.instruction')} help={t('impersonate.help', { variable: '{{draft}}' })}
+        custom={value.impersonateInstruction} fallback={defaultImpersonateInstruction}
+        change={impersonateInstruction => change({ ...value, impersonateInstruction })} />
       <PromptInstruction title={t('libraries.opening_scene')} label={t('opening.instruction')} help={t('opening.instruction_help')}
         custom={value.openingInstruction} fallback={defaultOpeningInstruction}
         change={openingInstruction => change({ ...value, openingInstruction })} />
     </div>
-  </div>;
+  </>;
 }
 
 function PromptBlocks({ value, change }: { value: PromptPreset; change: (value: PromptPreset) => void }) {

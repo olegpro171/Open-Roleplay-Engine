@@ -22,6 +22,7 @@ export function copyBranchContent(db: Database.Database, source: EngineSnapshot,
   const turnId = identities();
   const variantId = identities();
   const generationId = identities();
+  const sessionId = identities();
   const summaryId = identities();
   const summaryRef = (ref: SummaryRef) => ({ id: summaryId(ref.id), revision: ref.revision });
   const copySelection = (value: Pick<ContextState, 'selected' | 'archivedTurnIds'>) => ({
@@ -40,7 +41,7 @@ export function copyBranchContent(db: Database.Database, source: EngineSnapshot,
   const getTurn = db.prepare('SELECT * FROM turns WHERE id = ?');
   const getVariants = db.prepare('SELECT * FROM response_variants WHERE turn_id = ? ORDER BY rowid');
   const getGeneration = db.prepare('SELECT * FROM generations WHERE id = ?');
-  const generations = z.array(z.object({ id: z.string(), turn_id: z.string() })).parse(
+  const generations = z.array(z.object({ id: z.string(), turn_id: z.string().nullable() })).parse(
     db.prepare('SELECT id, turn_id FROM generations WHERE chat_id = ? ORDER BY rowid').all(source.id),
   );
   for (const turn of source.turns) {
@@ -49,13 +50,14 @@ export function copyBranchContent(db: Database.Database, source: EngineSnapshot,
       user_id: randomUUID(), assistant_id: randomUUID(), selected_variant_id: turn.assistant.variantId ? variantId(turn.assistant.variantId) : null });
   }
   for (const generation of generations) {
-    if (!allowedTurns.has(generation.turn_id)) continue;
+    if (generation.turn_id === null ? earlier : !allowedTurns.has(generation.turn_id)) continue;
     const row = rowSchema.parse(getGeneration.get(generation.id));
     const id = generationId(generation.id);
     const contextSelection = typeof row.context_selection === 'string'
       ? selection.extend({ revision: z.number().int().nonnegative() }).parse(JSON.parse(row.context_selection)) : null;
     insertRow(db, 'generations', { ...row, id, chat_id: destination,
-      request_id: randomUUID(), turn_id: turnId(generation.turn_id),
+      request_id: randomUUID(), turn_id: generation.turn_id === null ? null : turnId(generation.turn_id),
+      suggestion_session: typeof row.suggestion_session === 'string' ? sessionId(row.suggestion_session) : null,
       continuation_variant_id: typeof row.continuation_variant_id === 'string' ? variantId(row.continuation_variant_id) : null,
       context_selection: contextSelection && JSON.stringify({ revision: contextSelection.revision, ...copySelection(contextSelection) }) });
     retainedOperations.set(generation.id, id);

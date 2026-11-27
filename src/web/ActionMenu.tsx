@@ -3,11 +3,14 @@ import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
 import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
 
-export function ActionMenu({ label, disabled, revision = null, focusMode = 'item', triggerRef, children }: {
+export function ActionMenu({ label, disabled, revision = null, align = 'end', aboveTrigger = false, bottomBoundaryRef, focusMode = 'item', triggerRef, children }: {
   label: string;
   disabled: boolean;
   revision?: number | null;
-  focusMode?: 'item' | 'panel';
+  align?: 'start' | 'end';
+  aboveTrigger?: boolean;
+  bottomBoundaryRef?: RefObject<HTMLElement | null>;
+  focusMode?: 'item' | 'panel' | 'editing';
   triggerRef?: RefObject<HTMLButtonElement | null>;
   children: ReactNode;
 }) {
@@ -37,29 +40,50 @@ export function ActionMenu({ label, disabled, revision = null, focusMode = 'item
     const button = trigger.current;
     const menu = panel.current;
     if (!button || !menu) return;
-    const rect = button.getBoundingClientRect();
     const viewport = window.visualViewport;
-    const leftEdge = (viewport?.offsetLeft ?? 0) + 8;
-    const topEdge = (viewport?.offsetTop ?? 0) + 8;
-    const rightEdge = leftEdge + (viewport?.width ?? innerWidth) - 16;
-    const bottomEdge = topEdge + (viewport?.height ?? innerHeight) - 16;
-    const below = bottomEdge - rect.bottom - 6;
-    const above = rect.top - topEdge - 6;
-    const upwards = menu.scrollHeight > below && above > below;
-    const maxHeight = Math.max(0, upwards ? above : below);
-    setPosition({
-      left: Math.max(leftEdge, Math.min(rect.right - menu.offsetWidth, rightEdge - menu.offsetWidth)),
-      top: upwards ? rect.top - Math.min(menu.scrollHeight, maxHeight) - 6 : rect.bottom + 6,
-      maxHeight,
-    });
+    if (!aboveTrigger) {
+      const rect = button.getBoundingClientRect();
+      const leftEdge = (viewport?.offsetLeft ?? 0) + 8;
+      const topEdge = (viewport?.offsetTop ?? 0) + 8;
+      const rightEdge = leftEdge + (viewport?.width ?? innerWidth) - 16;
+      const viewportBottom = topEdge + (viewport?.height ?? innerHeight) - 16;
+      const bottomEdge = Math.min(viewportBottom, bottomBoundaryRef?.current?.getBoundingClientRect().bottom ?? viewportBottom);
+      const below = bottomEdge - rect.bottom - 6;
+      const aboveEnd = Math.min(rect.top - 6, bottomEdge);
+      const above = aboveEnd - topEdge;
+      const menuHeight = menu.scrollHeight + (menu.offsetHeight - menu.clientHeight);
+      const upwards = menuHeight > below && above > below;
+      const maxHeight = Math.max(0, upwards ? above : below);
+      setPosition({
+        left: Math.max(leftEdge, Math.min(align === 'start' ? rect.left : rect.right - menu.offsetWidth, rightEdge - menu.offsetWidth)),
+        top: upwards ? aboveEnd - Math.min(menuHeight, maxHeight) : rect.bottom + 6,
+        maxHeight,
+      });
+    }
     const initialFocus = focusMode === 'panel' ? menu : menu.querySelector<HTMLButtonElement>('button:not(:disabled)');
-    initialFocus?.focus({ preventScroll: true });
+    // A touch-opened composer menu shares the screen with the software keyboard.
+    // Taking focus from its editor would dismiss the keyboard and move the trigger.
+    const editor = focusMode === 'editing' && openedWith.current === 'pointer' && document.activeElement instanceof HTMLTextAreaElement
+      ? document.activeElement : null;
+    if (!editor) initialFocus?.focus({ preventScroll: true });
+    const editorKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      close();
+    };
+    const edited = () => close();
+    editor?.addEventListener('keydown', editorKey);
+    editor?.addEventListener('input', edited);
 
     const outside = (event: Event) => {
       if (event.target instanceof Node && !button.contains(event.target) && !menu.contains(event.target)) close();
     };
     const modal = button.closest('dialog[open]');
     const dismiss = (event: Event) => {
+      // A menu anchored in the composer moves with its trigger during keyboard panning.
+      if (aboveTrigger && (event.type === 'resize' || event.type === 'scroll')) return;
       if (event.target instanceof Node && menu.contains(event.target)) return;
       // Story can scroll behind a modal as streamed text arrives.
       if (modal && event.target instanceof Element && !modal.contains(event.target)) return;
@@ -76,6 +100,8 @@ export function ActionMenu({ label, disabled, revision = null, focusMode = 'item
     viewport?.addEventListener('resize', dismiss);
     viewport?.addEventListener('scroll', dismiss);
     return () => {
+      editor?.removeEventListener('keydown', editorKey);
+      editor?.removeEventListener('input', edited);
       document.removeEventListener('pointerdown', outside);
       document.removeEventListener('focusin', outside);
       window.removeEventListener('scroll', dismiss, true);
@@ -85,10 +111,11 @@ export function ActionMenu({ label, disabled, revision = null, focusMode = 'item
       viewport?.removeEventListener('resize', dismiss);
       viewport?.removeEventListener('scroll', dismiss);
     };
-  }, [open, label, focusMode, trigger]);
+  }, [open, label, align, aboveTrigger, bottomBoundaryRef, focusMode, trigger]);
 
   // A modal makes content outside its own tree inert, including body portals.
-  const menuHost = open ? trigger.current?.closest('dialog[open]') ?? document.body : null;
+  const anchor = open ? trigger.current : null;
+  const menuHost = anchor && (aboveTrigger ? anchor.parentElement : anchor.closest('dialog[open]') ?? document.body);
   return <>
     <button ref={trigger} type="button" className="quiet action-menu-trigger" disabled={disabled}
       aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined}
@@ -100,7 +127,7 @@ export function ActionMenu({ label, disabled, revision = null, focusMode = 'item
         }
       }}><Icon name="MoreHorizontal" /></button>
     {menuHost && createPortal(<div ref={panel} id={id} role="menu" aria-label={label}
-      className="action-menu floating-controls" style={position} tabIndex={focusMode === 'panel' ? -1 : undefined}
+      className="action-menu floating-controls" style={aboveTrigger ? undefined : position} tabIndex={focusMode === 'panel' ? -1 : undefined}
       onClickCapture={event => {
         if ((focusMode === 'item' || popupInput() === 'keyboard')
           && event.target instanceof Element && event.target.closest('button:not(:disabled)')) {

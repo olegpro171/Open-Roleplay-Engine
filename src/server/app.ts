@@ -9,7 +9,7 @@ import { buildInfo } from './installation.js';
 import { BackupService } from './backups.js';
 import { attachmentDisposition, Downloads } from './downloads.js';
 import { downloadTokenSchema } from '../shared/downloads.js';
-import { backupLimits, backupTableSchema, dataCommandSchema } from '../shared/backups.js';
+import { backupLimits, backupTableSchema, dataCommandSchema, type BackupProgress, type ReportBackupProgress } from '../shared/backups.js';
 import { protectedFilePasswordSchema } from '../shared/protected-files.js';
 import { filePasswordFromHeader } from './protected-files.js';
 import { connectionExportSchema, connectionImportSchema } from '../shared/connection-files.js';
@@ -36,7 +36,7 @@ import { ChatDefaultsSettings } from './chat-defaults.js';
 import { readCardFile, readCharacterCardFile, readCharacterCardUpload } from './card-import.js';
 import { characterCardLimits } from '../shared/character-card-limits.js';
 import { AppError, BackupValidationError } from '../core/errors.js';
-import { assembleRequest } from '../core/prompt.js';
+import { assembleRequest, withDraftInput } from '../core/prompt.js';
 import { countText } from '../core/tokens.js';
 import type { SummaryTokenCount } from '../shared/context.js';
 import { continuationTarget } from '../core/continuation.js';
@@ -45,9 +45,9 @@ import { Store } from '../persistence/store.js';
 import { StoryReader } from '../persistence/story-reader.js';
 import { turnPinSchema, transcriptQuerySchema } from '../shared/transcript.js';
 import { fetchModels, OpenAICompatibleProvider, type Provider } from '../provider/openai.js';
-import { connectionSchema, editSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema, generationIdentitySchema, generationPageSchema, requestEstimate, type ChatSnapshot, type ChatToolsSnapshot, type TurnInstruction } from '../shared/contracts.js';
+import { connectionSchema, editSchema, impersonateSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema, generationIdentitySchema, generationPageSchema, requestEstimate, type ChatSnapshot, type ChatToolsSnapshot, type TurnInstruction } from '../shared/contracts.js';
 import { composerDraftSaveSchema } from '../shared/composer-draft.js';
-import type { Change } from '../shared/changes.js';
+import { eventHeartbeatMs, type Change } from '../shared/changes.js';
 import { trimBoundaryNewlines } from '../shared/text.js';
 import { Auth, sessionSeconds } from './auth.js';
 import { GenerationCoordinator } from './coordinator.js';
@@ -59,7 +59,7 @@ import { LanAccess } from './lan.js';
 import { isLoopback } from './lan-policy.js';
 import type { LanInterface } from '../shared/lan.js';
 import { AppearanceSettings } from './appearance.js';
-import type { Theme } from '../shared/appearance.js';
+import { defaultAppearance } from '../shared/appearance.js';
 import { faviconLinks, installIconLinks } from '../shared/favicon.js';
 import { ChatBehaviorSettings } from './chat-behavior.js';
 import { Languages } from './languages.js';
@@ -294,9 +294,24 @@ export async function createApp(options: {
     reply.raw.once('close', () => { responseEnded = true; stream.destroy(); release(); });
     return reply.send(stream);
   });
+  const progressIdSchema = z.string().uuid();
+  const backupProgress = new Map<string, BackupProgress | null>();
+  async function withBackupProgress<T>(request: FastifyRequest, id: string | undefined, action: (report?: ReportBackupProgress) => Promise<T>) {
+    if (!id) return action();
+    const key = owner(request.cookies.session) + id;
+    if (backupProgress.has(key)) throw new AppError(409, 'backup_busy', message('errors.protected_file_busy'));
+    backupProgress.set(key, null);
+    try { return await action((phase, done, total) => { backupProgress.set(key, { phase, done, total }); }); }
+    finally { backupProgress.delete(key); }
+  }
+  app.get('/api/data/backup-progress/:id', async (request, reply) => {
+    const { id } = z.object({ id: progressIdSchema }).parse(request.params);
+    reply.header('Cache-Control', 'no-store');
+    return { progress: backupProgress.get(owner(request.cookies.session) + id) ?? null };
+  });
   app.post('/api/data/backup', async (request, reply) => {
-    const { password } = protectedFilePasswordSchema.parse(request.body);
-    const file = await backups.export(password);
+    const { password, progressId } = protectedFilePasswordSchema.extend({ progressId: progressIdSchema.optional() }).parse(request.body);
+    const file = await withBackupProgress(request, progressId, report => backups.export(password, report));
     if (reply.raw.destroyed) { file.cleanup(); return reply; }
     const filename = `ORE-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.orebackup`;
     if (request.headers.accept === 'application/json') return downloads.add(owner(request.cookies.session), filename, file);
@@ -308,7 +323,9 @@ export async function createApp(options: {
   app.post('/api/data/stages', async (request, reply) => {
     const stream = z.instanceof(Readable).parse(request.body);
     try {
-      return await backups.inspect(stream, owner(request.cookies.session), filePasswordFromHeader(request.headers['x-ore-file-password']));
+      const id = progressIdSchema.optional().parse(request.headers['x-ore-progress-id']);
+      const password = filePasswordFromHeader(request.headers['x-ore-file-password']);
+      return await withBackupProgress(request, id, report => backups.inspect(stream, owner(request.cookies.session), password, report));
     } catch (error) {
       if (!request.raw.complete) reply.header('Connection', 'close');
       throw error;
@@ -316,8 +333,12 @@ export async function createApp(options: {
   });
   app.get('/api/data/stages/:stageId', async request => {
     const { stageId } = stageParams.parse(request.params);
-    const { offset } = z.object({ offset: z.coerce.number().int().nonnegative().max(backupLimits.rows).default(0) }).strict().parse(request.query);
-    return backups.review(stageId,owner(request.cookies.session),offset);
+    const { offset, view } = z.object({
+      offset: z.coerce.number().int().nonnegative().max(backupLimits.rows).default(0),
+      view: z.literal('captured').optional(),
+    }).strict().parse(request.query);
+    const session = owner(request.cookies.session);
+    return view === 'captured' ? backups.review(stageId, session, offset) : backups.refresh(stageId, session, offset);
   });
   app.delete('/api/data/stages/:stageId', async request => {
     const { stageId } = stageParams.parse(request.params); backups.cancel(stageId,owner(request.cookies.session)); return { ok: true };
@@ -491,7 +512,7 @@ export async function createApp(options: {
   });
   app.post('/api/library/default/restore', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-    store.saveLibrary(revision, 'prompts', defaultPrompt, 'default'); coordinator.changed({ kind: 'library' }); return { ok: true };
+    store.saveLibrary(revision, 'prompts', { ...defaultPrompt, impersonateInstruction: undefined }, 'default'); coordinator.changed({ kind: 'library' }); return { ok: true };
   });
   app.post('/api/library/default-context/reset', async request => {
     const { revision, memoryImpactToken } = z.object({ revision: revisionSchema, memoryImpactToken: memoryImpactTokenSchema.optional() }).strict().parse(request.body);
@@ -661,8 +682,9 @@ export async function createApp(options: {
   app.get('/api/chats/:chatId/draft', async request => store.drafts.read(chatId(request.params)));
   app.put('/api/chats/:chatId/draft', async request => {
     const id = chatId(request.params);
-    const { draft, changed } = store.drafts.save(id, composerDraftSaveSchema.parse(request.body));
+    const { draft, changed, suggestionDismissed } = store.saveComposerDraft(id, composerDraftSaveSchema.parse(request.body));
     if (changed) coordinator.changed({ kind: 'draft', chatId: id, revision: draft.revision });
+    if (suggestionDismissed) coordinator.changed({ kind: 'chat', chatId: id, detail: 'state' });
     return draft;
   });
   app.post('/api/chats/import', { bodyLimit: transcriptRequestLimit }, async request => {
@@ -752,6 +774,20 @@ export async function createApp(options: {
       : snapshot.preparation;
     return { ...snapshot, preparation, latestGeneration: snapshot.latestGeneration ? live(snapshot.latestGeneration) : null,
       page: { ...snapshot.page, generations: snapshot.page.generations.map(generation => live(generation)) } };
+  });
+  app.get('/api/chats/:chatId/suggestions/:sessionId', async request => {
+    const { sessionId } = z.object({ sessionId: z.string().uuid() }).parse(request.params);
+    const { selected, version } = z.object({
+      selected: generationIdentitySchema.optional(), version: z.coerce.number().int().positive().optional(),
+    }).strict().refine(query => query.selected === undefined || query.version === undefined).parse(request.query);
+    return storyReader.suggestion(chatId(request.params), sessionId, version ?? selected);
+  });
+  app.post('/api/chats/:chatId/suggestions/:attemptId/dismiss', async request => {
+    const id = chatId(request.params);
+    const { attemptId } = z.object({ attemptId: z.string().uuid() }).parse(request.params);
+    const dismissed = store.dismissSuggestion(id, attemptId);
+    if (dismissed) coordinator.changed({ kind: 'chat', chatId: id, detail: 'state' });
+    return { dismissed };
   });
   app.get('/api/chats/:chatId/pins', async request => storyReader.pins(chatId(request.params)));
   app.put('/api/chats/:chatId/turns/:id/pin', async request => {
@@ -910,10 +946,10 @@ export async function createApp(options: {
         continuationTarget(snapshot, input.continuationTurnId);
         turnInstruction = { kind: 'continuation', turnId: input.continuationTurnId };
       }
-      const turns = [...snapshot.turns];
+      let turns = snapshot.turns;
       if (!turnInstruction && input.text) {
         if (turns.at(-1)?.complete === false) throw new AppError(409, 'pending_turn', message("errors.resolve_the_pending_turn_before_previewing_a_new"));
-        turns.push({ id: 'draft', position: (turns.at(-1)?.position ?? 0) + 1, complete: false, user: { id: 'draft-user', revision: 0, text: input.text }, assistant: { id: 'draft-assistant', revision: 0, text: '' } });
+        turns = withDraftInput(turns, input.text);
       }
       if (!turnInstruction && snapshot.turns.at(-1)?.complete === false && isOpeningTurn(snapshot.turns)) {
         turnInstruction = { kind: 'opening' };
@@ -932,7 +968,11 @@ export async function createApp(options: {
     });
     app.post(prefix + '/turns', async (request, reply) => {
       const input = submissionSchema.parse(request.body);
-      return reply.code(202).send(coordinator.start(input.revision, input.requestId, input.text, chatId(request.params), input.draft));
+      return reply.code(202).send(coordinator.start(input.revision, input.requestId, input.text, chatId(request.params), input.draft, input.dismissSuggestionId));
+    });
+    app.post(prefix + '/impersonate', async (request, reply) => {
+      const input = impersonateSchema.parse(request.body);
+      return reply.code(202).send(coordinator.impersonate(input.revision, input.requestId, chatId(request.params), input.sessionId, input.draft));
     });
     app.post(prefix + '/opening', async (request, reply) => {
       const input = retrySchema.parse(request.body);
@@ -989,8 +1029,8 @@ export async function createApp(options: {
     };
     const changed = (change: Change = { kind: 'all' }) => write(`data: ${JSON.stringify(change)}\n\n`);
     const shutdown = () => reply.raw.end();
-    // SSE comments keep the transport alive without dispatching a change event.
-    const ping = setInterval(() => write(': keepalive\n\n'), 15_000);
+    // A named event proves liveness without triggering a data refresh.
+    const ping = setInterval(() => write('event: heartbeat\ndata: {}\n\n'), eventHeartbeatMs);
     coordinator.events.on('changed', changed);
     coordinator.events.on('shutdown', shutdown);
     reply.raw.on('close', () => {
@@ -1009,17 +1049,17 @@ export async function createApp(options: {
       reply.header('Content-Security-Policy', contentSecurityPolicy(nonce));
       reply.header('Cache-Control', 'no-store');
       // Appearance failure must not prevent login or recovery; the authenticated read reports it.
-      let theme: Theme = 'dark';
+      let settings = defaultAppearance;
       try {
-        theme = appearance.status().settings.theme;
+        settings = appearance.status().settings;
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
       }
       // Browsers can select the icons before client code applies appearance settings.
-      const favicon = faviconLinks(theme);
-      const install = installIconLinks(theme);
+      const favicon = faviconLinks(settings.theme);
+      const install = installIconLinks(settings.appIconTheme ?? settings.theme);
       const document = index
-        .replace('<html lang="en">', `<html lang="en" data-theme="${theme}">`)
+        .replace('<html lang="en">', `<html lang="en" data-theme="${settings.theme}">`)
         .replace('<head>', `<head><meta name="csp-nonce" content="${nonce}">`)
         .replace(`href="${defaultFavicon.svg}"`, `href="${favicon.svg}"`)
         .replace(`href="${defaultFavicon.png}"`, `href="${favicon.png}"`)
@@ -1027,12 +1067,12 @@ export async function createApp(options: {
         .replace(`href="${defaultInstall.manifest}"`, `href="${install.manifest}"`);
       return reply.type('text/html').send(document);
     };
-    await app.register(staticFiles, { root: options.staticDirectory });
+    await app.register(staticFiles, { root: options.staticDirectory, preCompressed: true });
     app.get('/', async (_request, reply) => sendIndex(reply));
     app.get('/index.html', async (_request, reply) => sendIndex(reply));
     app.setNotFoundHandler((request, reply) => request.url.startsWith('/api/') ? reply.code(404).send({ message: 'Not found.' }) : sendIndex(reply));
   }
   app.addHook('preClose', async () => { cardUploadShutdown.abort(); await lan.close(); await pictures.close(); await coordinator.shutdown(); });
-  app.addHook('onClose', async () => { try { downloads.close(); backups.close(); } finally { store.close(); } });
+  app.addHook('onClose', async () => { try { downloads.close(); await backups.close(); } finally { store.close(); } });
   return { app, store, coordinator, lan };
 }

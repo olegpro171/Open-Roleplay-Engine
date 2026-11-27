@@ -8,7 +8,7 @@ import { assembleRequest } from '../../src/core/prompt';
 import type { SummaryNode } from '../../src/shared/context';
 import { createCompactPrompt } from './compact-prompt';
 
-test('live input inspection, budget recovery, provider usage and clearing every memory layer', async ({ page, browser, request, setAppearance }) => {
+test('live input inspection, budget recovery, provider usage and clearing every memory layer', async ({ page, browser, request, setAppearance }, testInfo) => {
   const password = 'browser-synthetic-password';
   const session = await request.get('/api/session').then(response => response.json());
   const { endpoint } = await request.get('/__test/endpoint').then(response => response.json());
@@ -23,7 +23,8 @@ test('live input inspection, budget recovery, provider usage and clearing every 
     const response = await page.request.fetch(url, { method, headers: { Origin: 'http://127.0.0.1:4173' }, data });
     expect(response.ok(), await response.text()).toBe(true); return response.json();
   };
-  const { id: connectionId } = await command('/api/library', { revision: (await libraries()).revision, kind: 'connections', data: { name: 'Refinement model', endpoint, model: 'synthetic-roleplay', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} } });
+  const connection = { name: 'Refinement model', endpoint, model: 'synthetic-roleplay', contextWindow: 100_000, maxOutputTokens: 1_000, customParameters: {} };
+  const { id: connectionId } = await command('/api/library', { revision: (await libraries()).revision, kind: 'connections', data: connection });
   const preset = { ...defaultContextPreset, name: 'Refinement memory', connectionId, minTail: 2, batchSize: 2, promotionGroup: 2, retainedPerLevel: 1 };
   const { id: contextId } = await command('/api/library', { revision: (await libraries()).revision, kind: 'contexts', data: preset });
   const promptId = await createCompactPrompt(page);
@@ -52,7 +53,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await expect(peek).toContainText('Mira keeps the key for herself.');
   expect(await peek.locator('.prompt-message').count()).toBe(18);
   await peek.evaluate(node => { node.scrollTop = 0; });
-  await page.screenshot({ path: 'test-results/desktop-prompt-peek.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('desktop-prompt-peek.png'), fullPage: true });
   await page.keyboard.press('Escape'); await expect(peek).toHaveCount(0);
   await expect(meta.getByRole('button', { name: 'Prompt peek', exact: true })).not.toBeFocused();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -87,10 +88,31 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   const tail = saved.turns.filter(turn => !saved.context.archivedTurnIds.includes(turn.id));
   const required = assembleRequest(saved.connection!, saved.settings, tail, saved.sources, undefined, { validateLimits: false }).budget.inputTokens;
   await command(`/api/library/${contextId}`, { revision: (await libraries()).revision, kind: 'contexts', data: { ...preset, minTail: tail.length } }, 'PUT');
-  await command(`/api/chats/${chatId}/selections`, { revision: (await state()).revision, settings: { title: saved.settings.title, targetInputTokens: required + 1, connectionId, promptId, characterId: null, personaId: null, contextPresetId: contextId } }, 'PUT');
+  const settings = { title: saved.settings.title, targetInputTokens: required + 1, connectionId, promptId, characterId: null, personaId: null, contextPresetId: contextId };
+  await command(`/api/chats/${chatId}/selections`, { revision: (await state()).revision, settings }, 'PUT');
   await command(`/api/chats/${chatId}/context/prepare`, { revision: (await state()).revision, requestId: crypto.randomUUID(), mode: 'prepare' });
-  await expect(page.getByTestId('memory-status')).toContainText('retained-summary floor');
+  await expect.poll(async () => (await state()).context.jobs[0]?.status).toBe('failed');
+  const targetWarning = 'Memory can’t make this chat fit. Raise the input target to continue.';
+  await page.getByRole('button', { name: 'Return to chat', exact: true }).click();
+  const storyWarning = page.getByRole('status').filter({ hasText: targetWarning });
+  await storyWarning.getByRole('button', { name: 'Inspect memory', exact: true }).click();
+  const memoryStatus = page.getByTestId('memory-status');
+  await expect(memoryStatus).toHaveText(targetWarning);
   await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();
+
+  await page.getByLabel('Input target', { exact: true }).fill('9999999');
+  const saveTarget = page.waitForResponse(response => new URL(response.url()).pathname === `/api/chats/${chatId}/selections`
+    && response.request().method() === 'PUT');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  expect((await saveTarget).status()).toBe(200);
+  await expect.poll(async () => (await state()).settings.targetInputTokens).toBe(9_999_999);
+  await expect(memoryStatus).toHaveText('Current input fits.');
+
+  const capped = { ...connection, contextWindow: required + 1 + connection.maxOutputTokens };
+  await command(`/api/library/${connectionId}`, { revision: (await libraries()).revision, kind: 'connections', data: capped }, 'PUT');
+  await expect(memoryStatus).toHaveText('This chat exceeds the Connection’s input limit. Check the model’s context window in Connection settings.');
+  await command(`/api/library/${connectionId}`, { revision: (await libraries()).revision, kind: 'connections', data: connection }, 'PUT');
+  await expect(memoryStatus).toHaveText('Current input fits.');
 
   await page.getByRole('button', { name: 'Story', exact: true }).click();
   await openChatTool(page, 'Chat settings');
@@ -132,7 +154,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await phone.getByRole('button', { name: 'Prompt peek', exact: true }).click();
   await expect(phone.getByRole('dialog', { name: 'Prompt peek' })).toBeVisible();
   expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await phone.screenshot({ path: 'test-results/phone-prompt-peek.png', fullPage: true });
+  await phone.screenshot({ path: testInfo.outputPath('phone-prompt-peek.png'), fullPage: true });
   await phone.getByRole('button', { name: 'Close peek' }).click();
   await phoneContext.close();
 
@@ -161,15 +183,16 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   };
   const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
   const { id: connectionId } = await command('/api/library', { revision: library.revision, kind: 'connections', data: { name: 'Resize fixture', endpoint, model: 'synthetic-roleplay', contextWindow: 2_000_000, maxOutputTokens: 1_000, customParameters: {} } });
-  const { id: chatId } = await command('/api/chats', { title: 'Resize and timeline proof', targetInputTokens: 1_000_000, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: null });
+  const title = `Resize and timeline proof ${testInfo.testId}`;
+  const { id: chatId } = await command('/api/chats', { title, targetInputTokens: 1_000_000, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: null });
   await command(`/api/__test/transcripts/${chatId}`, { revision: 0, turns: Array.from({ length: 220 }, (_, i) => ({ user: `Turn ${i + 1}. ${'Mira holds the brass key and listens for footsteps. '.repeat(12)}`, assistant: 'Leon watches the lantern cast shadows across the cellar door. '.repeat(18), complete: true })) }, 'PUT');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Resize and timeline proof', exact: true }) }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: title, exact: true }) }).click();
   const transcript = page.locator('.transcript');
   await expect(page.getByRole('button', { name: 'Latest turn', exact: false })).toHaveCount(0);
   const composerPositions = () => page.locator('.composer').evaluate(node => {
-    const input = node.querySelector('textarea')!.getBoundingClientRect(), send = node.querySelector('button')!.getBoundingClientRect();
-    return { right: send.left >= input.right, bottomAligned: Math.abs(send.bottom - input.bottom) < 1 };
+    const input = node.querySelector('textarea')!.getBoundingClientRect(), send = node.querySelector('.send-turn')!.getBoundingClientRect();
+    return { right: send.left >= input.right, centered: Math.abs(send.y + send.height / 2 - input.y - input.height / 2) < 1 };
   });
   expect((await composerPositions()).right).toBe(true);
   const composer = page.getByLabel('Your next turn');
@@ -201,9 +224,11 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   // Story now mounts a bounded window; read backward to the turn under test.
   while (await page.getByRole('article', { name: 'Turn 100', exact: true }).count() === 0) {
     const first = await transcript.locator('.turn').first().getAttribute('aria-label');
-    // A direct scroll immediately after setViewportSize can precede resize
-    // restoration. Use the normal control for setup; anchor assertions follow.
-    await page.getByRole('button', { name: 'Load older turns', exact: true }).click();
+    // Activate the paging control without scrolling to it. Scrolling the
+    // button into view also requests a page and can skip the target window.
+    const older = page.getByRole('button', { name: 'Load older turns', exact: true });
+    await expect(older).toBeEnabled();
+    await older.evaluate(button => (button as HTMLButtonElement).click());
     await expect.poll(() => transcript.locator('.turn').first().getAttribute('aria-label')).not.toBe(first);
   }
   await transcript.evaluate(node => {
@@ -237,9 +262,35 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const positions = await composerPositions();
     expect(positions.right).toBe(true);
-    expect(positions.bottomAligned).toBe(true);
+    expect(positions.centered).toBe(true);
   }
-  await page.getByRole('button', { name: 'Latest turn', exact: false }).click();
+  const latest = page.getByRole('button', { name: 'Latest turn', exact: true });
+  await composer.fill('I wait for the lantern.\n'.repeat(20));
+  for (const theme of ['dark', 'light', 'midnight-black', 'porcelain'] as const) {
+    await setAppearance({ theme });
+    for (const width of [1380, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect.poll(async () => (await readingPosition()).turn).toBe(before.turn);
+      const field = (await page.locator('.composer-field').boundingBox())!;
+      const jump = (await latest.boundingBox())!;
+      const scroller = (await transcript.boundingBox())!;
+      expect(scroller.y + scroller.height).toBeGreaterThan(field.y);
+      expect(jump.y + jump.height).toBeLessThan(field.y);
+      if (width === 390) {
+        expect(jump.width).toBe(jump.height);
+        expect(jump.width).toBeGreaterThanOrEqual(44);
+        const arrow = (await latest.locator('svg').boundingBox())!;
+        expect(arrow.x + arrow.width / 2).toBeCloseTo(jump.x + jump.width / 2, 0);
+        expect(arrow.y + arrow.height / 2).toBeCloseTo(jump.y + jump.height / 2, 0);
+      } else {
+        await expect(latest.getByText('Latest turn')).toBeVisible();
+      }
+      await page.screenshot({ path: testInfo.outputPath(`reading-${theme}-${width}.png`) });
+    }
+  }
+  await latest.click();
+  await expect(latest).toHaveCount(0);
+  await composer.clear();
   await expect.poll(() => transcript.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);
   await page.setViewportSize({ width: 760, height: 620 });
   await expect.poll(() => transcript.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);
@@ -269,12 +320,12 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   const fits = await recent.evaluate(node => node.scrollWidth <= node.clientWidth);
   expect(fits).toBe(true);
   await expect(page.locator('.timeline-labels')).toHaveText('L1L2Turns');
-  await page.screenshot({ path: 'test-results/memory-timeline-zoom.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('memory-timeline-zoom.png'), fullPage: true });
   await page.getByLabel('Zoom timeline', { exact: true }).uncheck();
   await page.setViewportSize({ width: 390, height: 760 });
   await expect(page.locator('.turn-band')).toHaveCount(2);
   await expect(recent).toHaveText('');
-  await page.screenshot({ path: 'test-results/memory-timeline-dense-phone.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('memory-timeline-dense-phone.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
   const timeline = page.getByLabel('Layered memory timeline', { exact: true });

@@ -22,7 +22,7 @@ async function library(page: Page): Promise<LibrarySnapshot> {
 
 async function addRecord(page: Page, kind: LibraryKind, data: object) {
   const response = await page.request.post('/api/library', {
-    headers: { Origin: 'http://127.0.0.1:4173' },
+    headers: { Origin: new URL(page.url()).origin },
     data: { kind, revision: (await library(page)).revision, data },
   });
   expect(response.ok(), await response.text()).toBe(true);
@@ -329,6 +329,7 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
       ? (pictureControls.y + pictureControls.height / 2) - (picture.y + picture.height / 2)
       : pictureControls.y - picture.y;
     expect(Math.abs(alignment)).toBeLessThanOrEqual(1);
+    await page.getByRole('tab', { name: 'Greetings', exact: true }).click();
     const greetingGroup = page.getByRole('group', { name: 'Alternate greetings', exact: true });
     const groupBounds = await greetingGroup.boundingBox();
     const addBounds = await greetingGroup.getByRole('button', { name: 'Add alternate greeting', exact: true }).boundingBox();
@@ -339,9 +340,15 @@ test('fits loaded multiline text, preserves manual sizing while typing and remea
     const greetingBounds = await greeting.boundingBox(), removeBounds = await remove.boundingBox();
     if (!greetingBounds || !removeBounds) throw new Error('Missing alternate greeting controls');
     expect(Math.abs(greetingBounds.x + greetingBounds.width - removeBounds.x - removeBounds.width)).toBeLessThanOrEqual(1);
+    await page.getByRole('tab', { name: 'Profile', exact: true }).click();
     // A user's resize and subsequent typing must not snap back to the initial cap.
     await description.evaluate(element => { element.style.height = '510px'; });
     await description.fill(longText + 'A new line.');
+    expect((await measure()).height).toBe(510);
+    await page.getByRole('tab', { name: 'Greetings', exact: true }).click();
+    await expect(greeting).toBeVisible();
+    await page.getByRole('tab', { name: 'Profile', exact: true }).click();
+    await expect(description).toBeVisible();
     expect((await measure()).height).toBe(510);
     await page.getByLabel('Name', { exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath(`character-editor-${width}.png`), animations: 'disabled' });
@@ -692,4 +699,63 @@ test('resets the built-in context and matches the Delete menu action width on de
   const reset = (await library(page)).contexts.find(item => item.id === 'default-context');
   expect(reset).toEqual({ ...defaultContextPreset, id: 'default-context', revision: reset?.revision });
   await expect(custom).toBeVisible();
+});
+
+test('keeps both context preset tabs readable across themes and panel widths', async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('ore-interface-language', 'ru'));
+  await page.goto('/');
+  const session = await page.request.get('/api/session').then(response => response.json());
+  await page.getByLabel('Пароль владельца').fill('browser-synthetic-password');
+  await page.getByRole('button', { name: session.setupRequired ? 'Создать учётную запись владельца' : 'Войти', exact: true }).click();
+  await page.getByRole('button', { name: 'Библиотека', exact: true }).click();
+  const presetName = 'Эпистемика 1.5-RU · Макет';
+  const connectionName = 'Long-form narrative continuity editor';
+  const modelName = 'synthetic-summary-with-an-extended-model-identifier';
+  const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
+  await addRecord(page, 'connections', {
+    name: connectionName, model: modelName, endpoint, contextWindow: 100_000, maxOutputTokens: 1000, customParameters: {},
+  });
+  await addRecord(page, 'contexts', { ...defaultContextPreset, name: presetName });
+  await page.getByRole('button', { name: 'Пресеты контекста', exact: true }).click();
+  await page.getByRole('button', { name: presetName, exact: true }).click();
+  const memory = page.getByRole('tab', { name: 'Настройки памяти', exact: true });
+  const prompts = page.getByRole('tab', { name: 'Промпты', exact: true });
+  const name = page.getByRole('textbox', { name: 'Имя', exact: true });
+  const connection = page.getByRole('combobox', { name: 'Подключение для сводок', exact: true });
+  const shortHeight = (await connection.boundingBox())?.height;
+  await connection.click();
+  await page.getByRole('option', { name: `${connectionName} · ${modelName}`, exact: true }).click();
+  expect((await connection.boundingBox())?.height).toBe(shortHeight);
+  const path = '/api/application/appearance';
+  const readAppearance = async () => appearanceStatusSchema.parse(await page.request.get(path).then(response => response.json()));
+  const original = await readAppearance();
+  async function setTheme(theme: typeof original.settings.theme) {
+    const appearance = await readAppearance();
+    const response = await page.request.put(path, { headers: { Origin: new URL(page.url()).origin }, data: {
+      revision: appearance.revision, settings: { ...appearance.settings, theme },
+    } });
+    expect(response.ok()).toBe(true);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+  }
+  try {
+    for (const theme of themeSchema.options) {
+      await setTheme(theme);
+      for (const width of [1440, 801, 800, 390, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        await memory.click();
+        await expect(page.getByRole('tabpanel', { name: 'Настройки памяти' }).getByRole('textbox')).toHaveCount(5);
+        const title = await name.boundingBox(), model = await connection.boundingBox();
+        if (!title || !model) throw new Error('Missing context preset identity');
+        if (width >= 1440) expect(model.x).toBeGreaterThanOrEqual(title.x + title.width);
+        if (width <= 390) expect(model.y).toBeGreaterThanOrEqual(title.y + title.height);
+        const form = page.locator('form').filter({ has: memory });
+        expect(await form.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+        if (width === 1440 || width === 390) await page.screenshot({ path: testInfo.outputPath(`memory-${theme}-${width}.png`) });
+        await prompts.click();
+        await expect(page.getByRole('textbox', { name: 'Промпт сводки первого уровня' })).toHaveValue(defaultContextPreset.extractionPrompt);
+        expect(await form.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+        if (width === 1440 || width === 390) await page.screenshot({ path: testInfo.outputPath(`prompts-${theme}-${width}.png`) });
+      }
+    }
+  } finally { await setTheme(original.settings.theme); }
 });
