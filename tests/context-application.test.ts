@@ -34,7 +34,7 @@ function fixture(count = 48, target = 500, builtInContext = false) {
   let store = openStoryStore(filename);
   store.saveLibrary(store.libraryRevision(), 'prompts', compactPrompt, 'default');
   const calls: { request: RequestPreview; apiKey: string }[] = [];
-  type OutputMode = 'normal' | 'uniform' | 'unchanged' | 'near' | 'placeholder' | 'refusal' | 'length' | 'huge' | 'transport';
+  type OutputMode = 'normal' | 'uniform' | 'unchanged' | 'near' | 'placeholder' | 'refusal' | 'russian-refusal' | 'length' | 'huge' | 'transport';
   let mode: OutputMode = 'normal';
   let storyReply = 'Leon pockets the brass key.';
   let nextModes: OutputMode[] = [];
@@ -47,6 +47,10 @@ function fixture(count = 48, target = 500, builtInContext = false) {
     let old: string | undefined;
     try { old = JSON.parse(request.body.messages.at(-1)!.content).previous_summary; } catch { /* Roleplay input is plain text. */ }
     if (summary && calls.length === holdAt) await new Promise<void>(resolve => { release = resolve; });
+    if (summary && outcome === 'russian-refusal') {
+      onText('К сожалению, я не могу составить сводку по этому тексту.');
+      return { finishReason: 'stop' };
+    }
     onText(!summary ? storyReply : outcome === 'uniform' ? uniformSummary : outcome === 'placeholder' ? 'placeholder' : outcome === 'refusal' ? "I can't help with this." : outcome === 'huge' ? Array.from({ length: 2_000 }, (_, i) => `detail${i}`).join(' ') : old !== undefined && (outcome === 'unchanged' || outcome === 'near') ? old + (outcome === 'near' ? '!' : '') : `Mira entrusted Leon with her brass key; he promised to avoid the cellar.${calls.length % 3 === 0 ? ' She still distrusts him.' : ''}${old !== undefined ? ` Repaired candidate ${calls.length}.` : ''}`);
     return { finishReason: outcome === 'length' && summary ? 'length' : 'stop' };
   } };
@@ -104,7 +108,10 @@ function retainedAlternative(f: ReturnType<typeof fixture>, source: SummaryNode,
   return node;
 }
 
-it('detects legacy refusals before prepared memory can be used', async () => {
+it.each([
+  ["I can't help with this.", undefined],
+  ['К сожалению, я не могу выполнить этот запрос.', { version: 1, result: 'passed' }],
+])('detects legacy refusal %j before prepared memory can be used', async (text, refusalCheck) => {
   const f = fixture(8);
   expect((await f.idle(f.start())).status).toBe('succeeded');
   const before = f.state();
@@ -112,9 +119,14 @@ it('detects legacy refusals before prepared memory can be used', async () => {
   const node = before.context.summaries.find(node => refKey(node) === refKey(ref));
   expect(node).toBeDefined();
   f.store.sqlite.prepare('UPDATE summaries SET data = ? WHERE chat_id = ? AND id = ? AND revision = ?')
-    .run(JSON.stringify({ ...node, text: "I can't help with this.", refusalCheck: undefined }), f.chatId, ref.id, ref.revision);
+    .run(JSON.stringify({ ...node, text, refusalCheck }), f.chatId, ref.id, ref.revision);
   const checked = f.state();
-  expect(checked.context.summaries.find(node => refKey(node) === refKey(ref))).toHaveProperty('refusalCheck.result', 'suspected');
+  expect(checked.context.summaries.find(node => refKey(node) === refKey(ref))).toEqual({
+    ...node, text, refusalCheck: { version: summaryRefusalFilterVersion, result: 'suspected' },
+  });
+  expect(checked.context.selected).toEqual(before.context.selected);
+  expect(checked.context.archivedTurnIds).toEqual(before.context.archivedTurnIds);
+  expect(checked.revision).toBe(before.revision);
   expect(contextPlan(checked).ready).toBe(false);
   expect(() => assembleRequest(checked.connection!, checked.settings, checked.turns, checked.sources, checked.context)).toThrow(/refusal/i);
   expect(f.calls.length).toBe(before.context.jobs.reduce((count, job) => count + (job.generatedCount ?? 0), 0));
@@ -1465,6 +1477,20 @@ describe('opt-in summary request retries', () => {
     expect(steps.every(step => step.status === 'failed' && step.error?.includes('refused'))).toBe(true);
     expect(steps.map(step => step.request)).toEqual([steps[0].request, steps[0].request, steps[0].request]);
     expect(JSON.stringify(steps)).not.toContain('summary-secret');
+  });
+
+  it.each([true, false])('handles Russian refusal with retry enabled = %s', async retry => {
+    const f = fixture(8);
+    f.setNextModes(['russian-refusal', 'uniform']);
+    const id = f.start('step', retry ? { maxRetries: 1 } : undefined);
+    expect((await f.idle(id)).status).toBe(retry ? 'succeeded' : 'failed');
+    const steps = f.store.contexts.steps(id);
+    expect(steps.map(step => step.status)).toEqual(retry ? ['failed', 'saved'] : ['failed']);
+    expect(steps[0]).toMatchObject({ errorMessage: { key: 'summary_rejection.refused_summary' }, result: null });
+    expect(f.state().context.summaries.map(summary => summary.text)).toEqual(retry ? [uniformSummary] : []);
+    expect(f.state().context.archivedTurnIds).toEqual(retry ? f.state().turns.slice(0, 2).map(turn => turn.id) : []);
+    expect(f.calls).toHaveLength(retry ? 2 : 1);
+    if (retry) expect(f.calls[1].request).toEqual(f.calls[0].request);
   });
 
   it('resets the retry allowance for the next source batch and saves each replacement once', async () => {
