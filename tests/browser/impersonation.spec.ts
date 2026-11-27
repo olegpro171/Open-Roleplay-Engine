@@ -139,6 +139,14 @@ test('edits the action instruction and displays the suggestion in every theme an
   await more.click();
   await page.getByRole('menuitem', { name: 'Impersonate' }).click();
   const panel = page.getByRole('region', { name: 'Suggested turn' });
+  const composer = page.getByRole('textbox', { name: 'Your next turn' });
+  await page.setViewportSize({ width: 390, height: 360 });
+  await composer.fill('I listen for footsteps.\n'.repeat(25));
+  await expect(panel.getByRole('button', { name: 'Replace draft' })).toBeInViewport({ ratio: 1 });
+  const panelBounds = (await panel.boundingBox())!;
+  expect(panelBounds.y + panelBounds.height).toBeLessThan((await composer.boundingBox())!.y);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport({ ratio: 1 });
+  await composer.clear();
   for (const theme of themeSchema.options) {
     await f.setTheme(theme);
     for (const width of [1440, 801, 800, 390]) {
@@ -146,6 +154,12 @@ test('edits the action instruction and displays the suggestion in every theme an
       await expect(panel.getByRole('button', { name: 'Use draft' })).toBeInViewport();
       await expect(more).toBeInViewport();
       await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport();
+      await composer.fill('I wait for the final note.\nThen I turn back to the stage.');
+      const suggestion = (await panel.boundingBox())!;
+      const surface = (await page.locator('.composer-surface').boundingBox())!;
+      expect(surface.x).toBeCloseTo(suggestion.x);
+      expect(surface.x + surface.width).toBeCloseTo(suggestion.x + suggestion.width);
+      await composer.clear();
       if (width === 1440 || width === 390) await panel.screenshot({ path: info.outputPath(`controls-${theme}-${width}.png`) });
       await more.click();
       const action = page.getByRole('menuitem', { name: 'Impersonate' });

@@ -296,7 +296,7 @@ for (const choice of themeCases) test(`${choice.theme} covers story, menus, memo
   await expect(page.locator('.part.user .direct-speech').first()).toHaveCSS('color', choice.personaSpeech);
   if (choice.theme === 'porcelain') {
     await expect(page.locator('.part.assistant .prose a').first()).toHaveCSS('color', 'rgb(144, 59, 64)');
-    await expect(page.locator('.composer textarea')).toHaveCSS('background-color', choice.page);
+    await expect(page.locator('.composer-field')).toHaveCSS('background-color', choice.page);
   }
   await page.getByLabel('Your next turn').fill('Keep this draft while switching themes.');
   for (const width of [1440, 801, 800, 390, 320]) {

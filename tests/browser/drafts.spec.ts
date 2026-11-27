@@ -53,11 +53,16 @@ for (const platform of ['iPhone', 'iPad desktop mode', 'Android'] as const) test
     await setup(page);
     const composer = page.getByLabel('Your next turn');
     const send = page.getByRole('button', { name: 'Send', exact: true });
-    const rounded = platform !== 'Android';
-    await expect(composer).toHaveCSS('border-top-left-radius', rounded ? '22px' : '7px');
-    await expect(send).toHaveCSS('border-top-left-radius', rounded ? '50%' : '8px');
+    const surface = page.locator('.composer-surface');
+    const more = page.getByRole('button', { name: 'Composer actions' });
     const initialHeight = await composer.evaluate(field => field.getBoundingClientRect().height);
-    expect(initialHeight).toBe(44);
+    const compact = (await surface.boundingBox())!;
+    const compactInput = (await composer.boundingBox())!;
+    expect(compact.height).toBeLessThan(60);
+    const compactMore = (await more.boundingBox())!;
+    expect(compactMore.height).toBe((await page.locator('.composer-field').boundingBox())!.height);
+    expect(compactInput.x).toBeGreaterThanOrEqual(compactMore.x + compactMore.width);
+    expect(compactInput.x + compactInput.width).toBeLessThanOrEqual((await send.boundingBox())!.x);
     const expectPhoneInsets = async () => {
       if (platform !== 'iPhone') return;
       const inputBounds = await composer.boundingBox();
@@ -78,8 +83,13 @@ for (const platform of ['iPhone', 'iPad desktop mode', 'Android'] as const) test
     if (!inputBounds || !sendBounds) throw new Error('Composer controls must be visible');
     expect(sendBounds.width).toBe(44);
     expect(sendBounds.height).toBe(44);
-    expect(sendBounds.x).toBeGreaterThan(inputBounds.x + inputBounds.width);
-    expect(Math.abs(sendBounds.y + sendBounds.height - inputBounds.y - inputBounds.height)).toBeLessThan(1);
+    const fieldBounds = (await page.locator('.composer-field').boundingBox())!;
+    const moreBounds = (await more.boundingBox())!;
+    expect(moreBounds.x + moreBounds.width).toBeLessThan(fieldBounds.x);
+    expect(moreBounds.y + moreBounds.height).toBeCloseTo(fieldBounds.y + fieldBounds.height);
+    expect(sendBounds.x).toBeGreaterThanOrEqual(inputBounds.x + inputBounds.width);
+    expect(sendBounds.y + sendBounds.height).toBeCloseTo(inputBounds.y + inputBounds.height);
+    expect(fieldBounds.height - inputBounds.height).toBeLessThan(16);
     await expectPhoneInsets();
     await page.screenshot({ path: `test-results/composer-${platform.replaceAll(' ', '-')}.png`, fullPage: true });
     await send.click();
@@ -93,14 +103,21 @@ for (const platform of ['iPhone', 'iPad desktop mode', 'Android'] as const) test
     await page.addInitScript(() => {
       const viewport = window.visualViewport;
       if (!viewport) throw new Error('Visual viewport is required for this test');
-      const expandedHeight = viewport.height;
-      let height = expandedHeight;
+      let loss = 0;
       let scale = 1;
-      Object.defineProperty(viewport, 'height', { get: () => height });
+      let top = 0;
+      Object.defineProperty(viewport, 'offsetTop', { get: () => top });
+      Object.defineProperty(viewport, 'pageTop', { get: () => window.scrollY + top });
+      window.addEventListener('test-keyboard-pan', event => {
+        if (!(event instanceof CustomEvent)) return;
+        top = event.detail;
+        viewport.dispatchEvent(new Event('scroll'));
+      });
+      Object.defineProperty(viewport, 'height', { get: () => window.innerHeight - loss });
       Object.defineProperty(viewport, 'scale', { get: () => scale });
       window.addEventListener('test-keyboard-viewport', event => {
         if (!(event instanceof CustomEvent)) return;
-        height = expandedHeight - event.detail.loss;
+        loss = event.detail.loss;
         scale = event.detail.scale;
         viewport.dispatchEvent(new Event('resize'));
       });
@@ -125,10 +142,45 @@ for (const platform of ['iPhone', 'iPad desktop mode', 'Android'] as const) test
     await viewport(300);
     await expect(panel).toHaveCSS('padding-bottom', platform === 'iPhone' ? '8px' : normalBottom);
     await expect(panel).toHaveCSS('padding-left', '16px');
+    // Safari can pan to the focused field after the resize event, including
+    // when dismissing the keyboard while the textarea still has focus.
+    const pan = (top: number) => page.evaluate(top => {
+      window.dispatchEvent(new CustomEvent('test-keyboard-pan', { detail: top }));
+    }, top);
+    const expectAtKeyboard = async () => {
+      await expect.poll(() => panel.evaluate(form => {
+        const viewport = window.visualViewport!;
+        return Math.abs(form.getBoundingClientRect().bottom - viewport.offsetTop - viewport.height);
+      })).toBeLessThan(1);
+    };
+    await pan(252);
+    await expectAtKeyboard();
     const draft = 'Mira waits.\nLeon opens the door.\nThe story continues.';
     await input.fill(draft);
     await expect.poll(() => input.evaluate(field => field.scrollHeight <= field.clientHeight + 1)).toBe(true);
+    await pan(128);
+    await expectAtKeyboard();
     await page.screenshot({ path: `test-results/composer-${platform}-keyboard-signals.png`, fullPage: true });
+    await pan(0);
+    await expectAtKeyboard();
+    await input.fill('Mira listens.\n'.repeat(24));
+    await viewport(0);
+    const normalHeight = (await input.boundingBox())!.height;
+    await viewport(await page.evaluate(() => innerHeight - 510));
+    await expect.poll(async () => (await input.boundingBox())!.height).toBeGreaterThanOrEqual(12 * 22 + 8);
+    // A shorter keyboard viewport still leaves space to read the scene.
+    await viewport(await page.evaluate(() => innerHeight - 360));
+    await expect.poll(async () => (await input.boundingBox())!.height).toBeLessThan(normalHeight);
+    const send = page.getByRole('button', { name: 'Send', exact: true });
+    const target = (await send.boundingBox())!;
+    expect(target.y + target.height).toBeLessThanOrEqual(360);
+    expect((await input.boundingBox())!.height).toBeGreaterThanOrEqual(8 * 22 + 8);
+    const transcriptTop = (await page.locator('.transcript').boundingBox())!.y;
+    expect((await panel.boundingBox())!.y - transcriptTop).toBeGreaterThan(80);
+    await expect(input).toBeFocused();
+    await viewport(0);
+    await expect.poll(async () => (await input.boundingBox())!.height).toBe(normalHeight);
+    await input.fill(draft);
 
     await viewport(0); // iOS can dismiss its keyboard without blurring the field.
     await expect(input).toBeFocused();
@@ -319,14 +371,16 @@ for (const width of [1440, 390]) test(`composer fits its content at ${width}px`,
   const send = page.getByRole('button', { name: 'Send', exact: true });
   const height = () => composer.evaluate(field => field.getBoundingClientRect().height);
   const fits = () => composer.evaluate(field => field.scrollHeight <= field.clientHeight + 1);
-  const minimum = await send.evaluate(button => button.getBoundingClientRect().height);
-  const expectSendLayout = async (viewportWidth: number) => {
+  const minimum = await height();
+  const expectSendLayout = async (viewportWidth: number, expanded: boolean) => {
     await expect.poll(async () => {
       const inputBounds = await composer.boundingBox();
       const sendBounds = await send.boundingBox();
       if (!inputBounds || !sendBounds) return false;
-      return sendBounds.x >= inputBounds.x + inputBounds.width
-        && Math.abs(sendBounds.y + sendBounds.height - inputBounds.y - inputBounds.height) < 1
+      const verticalDifference = expanded
+        ? sendBounds.y + sendBounds.height - inputBounds.y - inputBounds.height
+        : sendBounds.y + sendBounds.height / 2 - inputBounds.y - inputBounds.height / 2;
+      return Math.abs(verticalDifference) < 1 && sendBounds.x >= inputBounds.x + inputBounds.width
         && sendBounds.x + sendBounds.width <= viewportWidth;
     }).toBe(true);
     await expect(send).toHaveText('');
@@ -337,14 +391,34 @@ for (const width of [1440, 390]) test(`composer fits its content at ${width}px`,
     })).toBe(true);
   };
   await expect.poll(height).toBe(minimum);
-  await expectSendLayout(width);
+  await expectSendLayout(width, false);
 
+  // Exercise the first soft wrap and its reversal without inserting a newline.
+  const lastCompactWord = await composer.evaluate(field => {
+    const css = getComputedStyle(field);
+    const context = document.createElement('canvas').getContext('2d')!;
+    context.font = `${css.fontSize} ${css.fontFamily}`;
+    const available = field.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
+    return 'W'.repeat(Math.floor(available / context.measureText('W').width));
+  });
+  await composer.fill(lastCompactWord);
+  await expectSendLayout(width, false);
+  await composer.press('End');
+  await composer.press('W');
+  await expect.poll(height).toBeGreaterThan(minimum);
+  await expectSendLayout(width, true);
+  await expect(composer).toBeFocused();
+  expect(await composer.evaluate((field: HTMLTextAreaElement) => field.selectionStart)).toBe(lastCompactWord.length + 1);
+  await composer.press('Backspace');
+  await expectSendLayout(width, false);
+  await expect(composer).toHaveValue(lastCompactWord);
+  await composer.clear();
   await composer.pressSequentially('Mira waits.');
   await composer.press('Enter');
   await composer.pressSequentially('Leon returns the key.');
   await expect.poll(height).toBeGreaterThan(minimum);
   await expect.poll(fits).toBe(true);
-  await expectSendLayout(width);
+  await expectSendLayout(width, true);
   const multilineHeight = await height();
   await page.reload();
   await expect(composer).toHaveValue('Mira waits.\nLeon returns the key.');
@@ -352,22 +426,24 @@ for (const width of [1440, 390]) test(`composer fits its content at ${width}px`,
   await composer.fill('');
   await expect.poll(height).toBe(minimum);
 
-  await composer.fill('Mira watches the lantern. '.repeat(12));
+  // Reflow a paragraph on both layouts without losing any lines below the fold.
+  await composer.fill('Mira watches the lantern. '.repeat(10));
   await expect.poll(fits).toBe(true);
   const originalHeight = await height();
   await page.setViewportSize({ width: width === 1440 ? 390 : 1440, height: 900 });
   await expect.poll(async () => width === 1440 ? (await height()) > originalHeight : (await height()) < originalHeight).toBe(true);
   await expect.poll(fits).toBe(true);
-  await expectSendLayout(width === 1440 ? 390 : 1440);
+  await expectSendLayout(width === 1440 ? 390 : 1440, true);
   await page.setViewportSize({ width, height: 900 });
   await expect.poll(height).toBe(originalHeight);
 
   await composer.fill('A long draft line.\n'.repeat(60));
-  await expect.poll(height).toBeLessThanOrEqual(270);
+  await expect.poll(height).toBe(minimum + 13 * 22);
   await expect.poll(fits).toBe(false);
-  await expectSendLayout(width);
-  await composer.press('ControlOrMeta+End');
-  expect(await composer.evaluate(field => field.scrollTop)).toBeGreaterThan(0);
+  await expectSendLayout(width, true);
+  await composer.evaluate((field: HTMLTextAreaElement) => field.setSelectionRange(0, 0));
+  await composer.press(await page.evaluate(() => navigator.platform.includes('Mac')) ? 'Meta+ArrowDown' : 'Control+End');
+  await expect.poll(() => composer.evaluate(field => field.scrollTop)).toBeGreaterThan(0);
   await composer.pressSequentially('The story continues.');
   expect(await composer.evaluate(field => field.scrollTop)).toBeGreaterThan(0);
   await page.screenshot({ path: `test-results/composer-${width}.png`, fullPage: true });

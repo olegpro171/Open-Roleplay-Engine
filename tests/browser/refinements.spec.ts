@@ -178,15 +178,16 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   };
   const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);
   const { id: connectionId } = await command('/api/library', { revision: library.revision, kind: 'connections', data: { name: 'Resize fixture', endpoint, model: 'synthetic-roleplay', contextWindow: 2_000_000, maxOutputTokens: 1_000, customParameters: {} } });
-  const { id: chatId } = await command('/api/chats', { title: 'Resize and timeline proof', targetInputTokens: 1_000_000, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: null });
+  const title = `Resize and timeline proof ${testInfo.testId}`;
+  const { id: chatId } = await command('/api/chats', { title, targetInputTokens: 1_000_000, connectionId, promptId: 'default', characterId: null, personaId: null, contextPresetId: null });
   await command(`/api/__test/transcripts/${chatId}`, { revision: 0, turns: Array.from({ length: 220 }, (_, i) => ({ user: `Turn ${i + 1}. ${'Mira holds the brass key and listens for footsteps. '.repeat(12)}`, assistant: 'Leon watches the lantern cast shadows across the cellar door. '.repeat(18), complete: true })) }, 'PUT');
   await page.getByRole('button', { name: 'Libraries', exact: true }).click();
-  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Resize and timeline proof', exact: true }) }).click();
+  await page.getByRole('article').filter({ has: page.getByRole('heading', { name: title, exact: true }) }).click();
   const transcript = page.locator('.transcript');
   await expect(page.getByRole('button', { name: 'Latest turn', exact: false })).toHaveCount(0);
   const composerPositions = () => page.locator('.composer').evaluate(node => {
-    const input = node.querySelector('textarea')!.getBoundingClientRect(), send = node.querySelector('button')!.getBoundingClientRect();
-    return { right: send.left >= input.right, bottomAligned: Math.abs(send.bottom - input.bottom) < 1 };
+    const input = node.querySelector('textarea')!.getBoundingClientRect(), send = node.querySelector('.send-turn')!.getBoundingClientRect();
+    return { right: send.left >= input.right, centered: Math.abs(send.y + send.height / 2 - input.y - input.height / 2) < 1 };
   });
   expect((await composerPositions()).right).toBe(true);
   const composer = page.getByLabel('Your next turn');
@@ -218,9 +219,11 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   // Story now mounts a bounded window; read backward to the turn under test.
   while (await page.getByRole('article', { name: 'Turn 100', exact: true }).count() === 0) {
     const first = await transcript.locator('.turn').first().getAttribute('aria-label');
-    // A direct scroll immediately after setViewportSize can precede resize
-    // restoration. Use the normal control for setup; anchor assertions follow.
-    await page.getByRole('button', { name: 'Load older turns', exact: true }).click();
+    // Activate the paging control without scrolling to it. Scrolling the
+    // button into view also requests a page and can skip the target window.
+    const older = page.getByRole('button', { name: 'Load older turns', exact: true });
+    await expect(older).toBeEnabled();
+    await older.evaluate(button => (button as HTMLButtonElement).click());
     await expect.poll(() => transcript.locator('.turn').first().getAttribute('aria-label')).not.toBe(first);
   }
   await transcript.evaluate(node => {
@@ -254,9 +257,35 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const positions = await composerPositions();
     expect(positions.right).toBe(true);
-    expect(positions.bottomAligned).toBe(true);
+    expect(positions.centered).toBe(true);
   }
-  await page.getByRole('button', { name: 'Latest turn', exact: false }).click();
+  const latest = page.getByRole('button', { name: 'Latest turn', exact: true });
+  await composer.fill('I wait for the lantern.\n'.repeat(20));
+  for (const theme of ['dark', 'light', 'midnight-black', 'porcelain'] as const) {
+    await setAppearance({ theme });
+    for (const width of [1380, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect.poll(async () => (await readingPosition()).turn).toBe(before.turn);
+      const field = (await page.locator('.composer-field').boundingBox())!;
+      const jump = (await latest.boundingBox())!;
+      const scroller = (await transcript.boundingBox())!;
+      expect(scroller.y + scroller.height).toBeGreaterThan(field.y);
+      expect(jump.y + jump.height).toBeLessThan(field.y);
+      if (width === 390) {
+        expect(jump.width).toBe(jump.height);
+        expect(jump.width).toBeGreaterThanOrEqual(44);
+        const arrow = (await latest.locator('svg').boundingBox())!;
+        expect(arrow.x + arrow.width / 2).toBeCloseTo(jump.x + jump.width / 2, 0);
+        expect(arrow.y + arrow.height / 2).toBeCloseTo(jump.y + jump.height / 2, 0);
+      } else {
+        await expect(latest.getByText('Latest turn')).toBeVisible();
+      }
+      await page.screenshot({ path: testInfo.outputPath(`reading-${theme}-${width}.png`) });
+    }
+  }
+  await latest.click();
+  await expect(latest).toHaveCount(0);
+  await composer.clear();
   await expect.poll(() => transcript.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);
   await page.setViewportSize({ width: 760, height: 620 });
   await expect.poll(() => transcript.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(2);

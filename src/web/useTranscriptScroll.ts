@@ -129,7 +129,11 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, edi
     captureRef.current();
   }, [follow]);
 
-  useLayoutEffect(() => { if (!editing) restoreRef.current(); }, [editing]);
+  useLayoutEffect(() => {
+    // Closing an inline editor can reposition the scroller as its controls
+    // disappear. Resume the reading position held before the edit.
+    if (!editing) restoreRef.current(false);
+  }, [editing]);
   useLayoutEffect(() => {
     const node = transcript.current;
     if (!node || !chatId) return;

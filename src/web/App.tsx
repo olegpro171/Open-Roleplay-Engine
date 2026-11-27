@@ -16,7 +16,7 @@ import { Icon } from './Icon';
 import { PersonaIcon } from './PersonaIcon';
 import { ApplicationSettings } from './ApplicationSettings';
 import { useMemoryCleanup } from './MemoryCleanupReview';
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from 'react';
 import type { ChatToolsSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError, datasetChanged } from './api';
 import { changeSchema } from '../shared/changes';
@@ -146,7 +146,7 @@ export function App() {
   const leaveEditor = tab === 'settings' ? chatSettingsLeave.leave : libraryLeave.leave;
   const visibleView = useRef(view);
   visibleView.current = view;
-  const composerKeyboard = useComposerKeyboard(isIOS && view === 'story');
+  const keyboardViewport = useComposerKeyboard(isPhoneOrTablet(navigator) && view === 'story');
   useTouchScrollGuard(isIOS && session?.authenticated === true && view === 'story');
   const [libraryTarget, setLibraryTarget] = useState<LibraryDestination | null>(null);
   const [homeParticipants, setHomeParticipants] = useState<ChatParticipantsValue>({ characterId: null, personaId: null });
@@ -823,7 +823,11 @@ export function App() {
     }), { returnFocus, deferDiscard: true });
   }
 
-  return <ChatDetailsTarget.Provider value={chatDetailsTarget}><div className="app">
+  return <ChatDetailsTarget.Provider value={chatDetailsTarget}><div className="app"
+    style={keyboardViewport ? {
+      position: 'absolute', insetInline: 0, top: keyboardViewport.pageTop, height: keyboardViewport.height,
+      '--composer-viewport-height': `${keyboardViewport.height}px`,
+    } as CSSProperties : undefined}>
     <header className="topbar">
       <div className="brand"><BrandMark /><div><strong>{t("app.ore")}</strong><small>{t("app.your_stories_room_to_continue")}</small></div></div>
       <nav className="tabs" aria-label={t("app.workspace")}>
@@ -972,7 +976,11 @@ export function App() {
             {preparing && <PreparationStatus preparation={preparing} disabled={busy || dataChanged} openMemory={() => setTab('memory')}
               stop={() => void command(() => api(preparing.generationId ? `/generations/${preparing.generationId}/cancel` : `/context/jobs/${preparing.id}/cancel`, 'POST', {}))} />}
           </TranscriptNotices>}
-          {!recoveredEdit && (awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}
+          {!recoveredEdit && (awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary"
+            aria-label={t("app.latest_turn")} disabled={pageLoading || Boolean(edit)}
+            onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>
+            <span>{t("app.latest_turn")}</span><Icon name="ArrowShortBottom" />
+          </button>}
         </TranscriptFrame>
         <div className="composer-notices">
           {suggestion?.sessionId && <SuggestionPanel key={snapshot.id + suggestion.sessionId}
@@ -1010,20 +1018,27 @@ export function App() {
           {!authorNoteOpen && authorNote.storageError && authorNote.pending && <div className="error-banner" role="alert">{t('author_note.storage_failed')}</div>}
           {continuationBlocked && <div className="recovery">{formatMessage(continuationBlocked)}</div>}
         </div>
-        <form className={isIOS ? 'composer composer-ios' : 'composer'} data-keyboard-visible={composerKeyboard || undefined} onSubmit={(event) => void send(event)}>
-          <ActionMenu align="start" label={t('impersonate.more')} disabled={!canImpersonate} revision={snapshot.revision}>
-            <button type="button" className="secondary" role="menuitem" tabIndex={-1} onClick={() => void command(() => impersonate(snapshot.id, snapshot.revision, draft, undefined, suggestion?.requestId))}>
-              <PersonaIcon />{t('impersonate.action')}
-            </button>
-          </ActionMenu>
-          <ChatTextarea autoSize textScale={appearance.settings.chatTextScale} rows={1} aria-label={t("app.your_next_turn")} id="turn-input" enterKeyHint="enter"
-            onKeyDown={event => submitWithChatShortcut(event, canSubmit)}
-            placeholder={t("app.what_happens_next")} value={draft} readOnly={awaitingSend === snapshot.id && drafts.unconfirmed} onValueChange={text => { drafts.change(text); setPeek(false); }} />
-          <button className="send-turn" aria-label={t(continuationTarget ? 'continue.action' : "app.send")} title={sendTitle} disabled={!canSubmit} onMouseDown={event => {
-            // Touch taps synthesize mousedown before click. Blurring the iOS
-            // composer here changes its padding and moves Send out of the tap.
-            if (isIOS && event.button === 0 && document.activeElement?.id === 'turn-input') event.preventDefault();
-          }}>{continuationTarget ? <Icon name="PlayOutline" /> : <span className="send-icon" aria-hidden="true" />}</button>
+        <form className={isIOS ? 'composer composer-ios' : 'composer'} data-keyboard-visible={keyboardViewport ? true : undefined}
+          onSubmit={(event) => void send(event)} onMouseDown={event => {
+            // Keep the touch target above the keyboard until its click lands.
+            if (isPhoneOrTablet(navigator) && event.button === 0 && event.target instanceof Element
+              && event.target.closest('button') && document.activeElement?.id === 'turn-input') event.preventDefault();
+          }}>
+          <div className="composer-surface">
+            <div className="composer-actions">
+              <ActionMenu aboveTrigger focusMode={keyboardViewport ? 'editing' : 'item'} label={t('impersonate.more')} disabled={!canImpersonate} revision={snapshot.revision}>
+                <button type="button" className="secondary" role="menuitem" tabIndex={-1} onClick={() => void command(() => impersonate(snapshot.id, snapshot.revision, draft, undefined, suggestion?.requestId))}>
+                  <PersonaIcon />{t('impersonate.action')}
+                </button>
+              </ActionMenu>
+            </div>
+            <div className="composer-field">
+              <ChatTextarea autoSize textScale={appearance.settings.chatTextScale} rows={1} aria-label={t("app.your_next_turn")} id="turn-input" enterKeyHint="enter"
+                onKeyDown={event => submitWithChatShortcut(event, canSubmit)}
+                placeholder={t("app.what_happens_next")} value={draft} readOnly={awaitingSend === snapshot.id && drafts.unconfirmed} onValueChange={text => { drafts.change(text); setPeek(false); }} />
+              <button className="send-turn" aria-label={t(continuationTarget ? 'continue.action' : "app.send")} title={sendTitle} disabled={!canSubmit}>{continuationTarget ? <Icon name="PlayOutline" /> : <span className="send-icon" aria-hidden="true" />}</button>
+            </div>
+          </div>
         </form>
       </section>
     </ChatWorkspace>}

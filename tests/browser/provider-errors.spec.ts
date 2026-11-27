@@ -59,8 +59,8 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
         recovery.boundingBox(), composer.boundingBox(), send.boundingBox(), page.locator('.transcript').boundingBox(),
       ]);
       if (!noticeBounds || !inputBounds || !sendBounds || !transcriptBounds) throw new Error('Story controls must be visible');
-      expect(noticeBounds.x).toBeCloseTo(inputBounds.x);
-      expect(noticeBounds.x + noticeBounds.width).toBeCloseTo(sendBounds.x + sendBounds.width);
+      expect(noticeBounds.x).toBeLessThanOrEqual(inputBounds.x);
+      expect(noticeBounds.x + noticeBounds.width).toBeGreaterThanOrEqual(sendBounds.x + sendBounds.width);
       expect(noticeBounds.y).toBeGreaterThanOrEqual(transcriptBounds.y + transcriptBounds.height);
       expect(noticeBounds.y + noticeBounds.height).toBeLessThan(inputBounds.y);
       await expect(page.locator('.composer')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');

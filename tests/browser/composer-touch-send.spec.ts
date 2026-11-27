@@ -7,6 +7,14 @@ async function setup(page: Page, origin: string, theme: Theme) {
     const viewport = window.visualViewport;
     if (!viewport) throw new Error('Visual viewport is required for this test');
     let loss = 0;
+    let top = 0;
+    Object.defineProperty(viewport, 'offsetTop', { get: () => top });
+    Object.defineProperty(viewport, 'pageTop', { get: () => window.scrollY + top });
+    window.addEventListener('test-keyboard-pan', event => {
+      if (!(event instanceof CustomEvent)) return;
+      top = event.detail;
+      viewport.dispatchEvent(new Event('scroll'));
+    });
     Object.defineProperty(viewport, 'height', { get: () => window.innerHeight - loss });
     Object.defineProperty(viewport, 'scale', { get: () => 1 });
     window.addEventListener('test-keyboard-loss', event => {
@@ -151,7 +159,38 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
   });
 }
 
-test('centers the More icon and matches Send in the iOS pressed state in every theme', async ({ page, browserApp }, info) => {
+test('opens composer actions above the keyboard while editing a multiline draft', async ({ page, browserApp }) => {
+  await setup(page, browserApp.url, 'porcelain');
+  const input = page.getByLabel('Your next turn');
+  const more = page.getByRole('button', { name: 'Composer actions' });
+  const action = page.getByRole('menuitem', { name: 'Impersonate' });
+  const draft = 'I listen for the last note.\nThen I turn back to the stage.';
+  await input.fill(draft);
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('test-keyboard-loss', { detail: 300 })));
+  await more.tap();
+  await expect(action).toBeVisible();
+  await expect(input).toBeFocused();
+  const expectAnchored = async () => {
+    const menu = page.getByRole('menu', { name: 'Composer actions' });
+    await expect(menu).toBeVisible();
+    const popup = (await menu.boundingBox())!;
+    const trigger = (await more.boundingBox())!;
+    expect(popup.x).toBeCloseTo(trigger.x);
+    expect(trigger.y - (popup.y + popup.height)).toBeCloseTo(6);
+  };
+  await expectAnchored();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('test-keyboard-pan', { detail: 180 })));
+  await expectAnchored();
+  await expect(input).toBeFocused();
+  await input.press('Escape');
+  await expect(action).toBeHidden();
+  await more.tap();
+  await action.tap();
+  await expect(page.getByRole('region', { name: 'Suggested turn' })).toBeVisible();
+  await expect(input).toHaveValue(draft);
+});
+
+test('centers the More icon and matches the field curvature in the iOS pressed state in every theme', async ({ page, browserApp }, info) => {
   await setup(page, browserApp.url, 'porcelain');
   const input = page.getByLabel('Your next turn');
   const more = page.getByRole('button', { name: 'Composer actions' });
@@ -170,8 +209,8 @@ test('centers the More icon and matches Send in the iOS pressed state in every t
     await expect(send).toHaveCSS('border-radius', '50%');
     await expect(more).toHaveCSS('border-radius', '50%');
     const button = (await more.boundingBox())!;
-    const sendBounds = (await send.boundingBox())!;
-    expect([button.width, button.height]).toEqual([sendBounds.width, sendBounds.height]);
+    const radius = await page.locator('.composer-field').evaluate(field => parseFloat(getComputedStyle(field).borderBottomLeftRadius));
+    expect([button.width, button.height]).toEqual([2 * radius, 2 * radius]);
     await page.mouse.move(button.x + button.width / 2, button.y + button.height / 2);
     await page.mouse.down();
     try {

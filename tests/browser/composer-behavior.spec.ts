@@ -84,19 +84,21 @@ test('keeps horizontal scrolling out of the chat composer', async ({ page, setAp
   const { initial } = await setup(page);
   const composer = page.getByLabel('Your next turn');
   try {
-    for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+    for (const theme of themeSchema.options) {
       await setAppearance({ theme });
       for (const width of [1440, 801, 800, 390]) {
         await page.setViewportSize({ width, height: 900 });
         await expect(composer).toHaveValue('');
         await expect(composer).toHaveCSS('overflow-x', 'hidden');
-        await composer.screenshot({ path: testInfo.outputPath(`composer-${theme}-${width}.png`) });
+        await page.locator('form.composer').screenshot({ path: testInfo.outputPath(`composer-${theme}-${width}.png`) });
 
         await composer.fill('LongDraftWord'.repeat(200) + '\nMore text');
         expect(await composer.evaluate(field => {
           field.scrollTop = field.scrollHeight;
           return field.scrollTop > 0 && field.scrollWidth === field.clientWidth;
         }), `long draft in ${theme} at ${width}px`).toBe(true);
+        await composer.fill('I wait for the last note to fade. From the back of the room, someone calls for another song.\n\nI turn toward the stage. The band is watching, ready for my cue.');
+        await page.locator('form.composer').screenshot({ path: testInfo.outputPath(`expanded-${theme}-${width}.png`) });
         await composer.clear();
       }
     }
