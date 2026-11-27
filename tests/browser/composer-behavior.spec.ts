@@ -1,5 +1,6 @@
 import { expect, devices, type Page } from '@playwright/test';
 import { test } from './appearance-test';
+import { themeSchema } from '../../src/shared/appearance';
 import { chatBehaviorStatusSchema, type EnterKeyBehavior } from '../../src/shared/chat-behavior';
 
 const headers = { Origin: 'http://127.0.0.1:4173' };
@@ -46,6 +47,38 @@ async function settings(page: Page) {
 async function story(page: Page) {
   await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Story', exact: true }).click();
 }
+
+for (const width of [1440, 390]) test(`scales open turn editors without losing their draft at ${width}px`, async ({ page, setAppearance }, testInfo) => {
+  await page.setViewportSize({ width, height: 900 });
+  const { id, initial } = await setup(page);
+  try {
+    const { revision } = await page.request.get(`/api/chats/${id}`).then(response => response.json());
+    const seeded = await page.request.put(`/api/__test/transcripts/${id}`, { headers, data: { revision, turns: [
+      { user: 'The traveller asks about the tower.', assistant: 'The keeper points up the hill.', complete: true },
+    ] } });
+    expect(seeded.ok(), await seeded.text()).toBe(true);
+    const draft = 'The traveller stops to listen as the wind rises and the trees bend toward the road.\n'.repeat(5);
+    for (const [action, label] of [['Edit input', 'Edit user text'], ['Edit response', 'Edit assistant text']]) {
+      await setAppearance({ theme: 'dark', chatTextScale: 90 });
+      await page.getByRole('button', { name: action, exact: true }).click();
+      const editor = page.getByRole('textbox', { name: label, exact: true });
+      await editor.fill(draft);
+      for (const [scale, fontSize] of [[90, '14.4px'], [100, '16px'], [110, '17.6px'], [120, '19.2px']] as const) {
+        await setAppearance({ chatTextScale: scale });
+        await expect(editor).toHaveCSS('font-size', fontSize);
+        await expect(editor).toHaveValue(draft);
+        await expect.poll(() => editor.evaluate(field => field.scrollHeight <= field.clientHeight + 1)).toBe(true);
+      }
+      for (const theme of themeSchema.options) {
+        await setAppearance({ theme });
+        await editor.screenshot({ path: testInfo.outputPath(`${action}-${theme}.png`) });
+      }
+      await page.getByRole('button', { name: 'Cancel edit', exact: true }).click();
+    }
+  } finally {
+    await preference(page, initial.settings.enterKeyBehavior);
+  }
+});
 
 test('keeps horizontal scrolling out of the chat composer', async ({ page, setAppearance }, testInfo) => {
   const { initial } = await setup(page);

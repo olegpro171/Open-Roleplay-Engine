@@ -864,7 +864,8 @@ export function App() {
             {(['user', 'assistant'] as const).filter(part => part !== 'user' || inputVisible).map((part) => <ChatMessage role={part} speaker={part === 'user' ? selectedPersonaName : selectedCharacterName} key={part}>
               {part === 'assistant' && showLiveReasoning && !continuing && <ReasoningPreview text={reasoning.text} />}
               {edit?.turnId === turn.id && edit.part === part ? <form ref={editForm} onSubmit={saveEdit} className="edit-form">
-                <ChatTextarea autoSize enterKeyHint="enter" aria-label={t("app.edit_text", { part })} value={edit.text} readOnly={busy}
+                <ChatTextarea autoSize textScale={appearance.settings.chatTextScale} enterKeyHint="enter"
+                  aria-label={t("app.edit_text", { part })} value={edit.text} readOnly={busy}
                   onKeyDown={event => submitWithChatShortcut(event, canSaveEdit)}
                   onValueChange={text => setEdit({ ...edit, text })} />
                 {snapshot.settings.lorebookId && <p className="field-help small muted">{t("app.saving_a_history_edit_starts_fresh_lore")}</p>}
@@ -917,7 +918,8 @@ export function App() {
           {snapshot.page.hasNewer && <div className="history-page-control" data-history-direction="newer"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('newer')}>{pageLoading ? t("app.loading_history") : t("app.load_newer_turns")}</button></div>}
           {recoveredEdit && <div className="recovery turn-edit-recovery">
             <p id="turn-edit-recovery-notice" role="alert">{t("app.the_edited_turn_was_removed_or_replaced")}</p>
-            <ChatTextarea aria-label={t("app.unsaved_turn_edit")} aria-describedby="turn-edit-recovery-notice"
+            <ChatTextarea textScale={appearance.settings.chatTextScale}
+              aria-label={t("app.unsaved_turn_edit")} aria-describedby="turn-edit-recovery-notice"
               value={recoveredEdit.text} onValueChange={text => setEdit({ ...recoveredEdit, text })} />
             <button type="button" className="secondary" onClick={cancelEdit}>{t("app.close_edit")}</button>
           </div>}

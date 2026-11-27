@@ -405,6 +405,7 @@ a[href][data-pointer-pressed]{text-decoration:underline;text-decoration-thicknes
 .empty-transcript>p{margin:0}
 .empty-transcript>.text-link{min-height:44px}
 .empty-transcript p .text-link{min-height:44px;font-size:inherit;vertical-align:baseline}
+:is(.edit-form,.turn-edit-recovery)>textarea{font-size:calc(16px * var(--chat-text-scale,1))}
 .turn-edit-recovery{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-block-start:12px;border:1px solid var(--line);border-radius:8px}
 .turn-edit-recovery p{margin:0;line-height:1.5}
 .turn-edit-recovery button{justify-self:start;margin-inline:0;min-height:44px}
