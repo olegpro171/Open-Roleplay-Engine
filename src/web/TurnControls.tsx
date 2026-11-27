@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type RefObject } from 'react';
 import { t, useLocale } from './localization';
 import type { Turn } from '../shared/contracts';
 import { ActionMenu } from './ActionMenu';
@@ -7,9 +7,10 @@ import { ReasoningDialog, type ReasoningProps } from './Reasoning';
 import { ResponseVariants } from './ResponseVariants';
 import { TurnActionButton } from './TurnActionButton';
 
-export function TurnControls({ turn, revision, locked, editing, inputVisible, action, continuing, reasoning, select, edit, remove, fork, pin }: {
+export function TurnControls({ turn, revision, transcriptFrame, locked, editing, inputVisible, action, continuing, reasoning, select, edit, remove, fork, pin }: {
   turn: Turn;
   revision: number;
+  transcriptFrame: RefObject<HTMLDivElement | null>;
   locked: boolean;
   editing: boolean;
   inputVisible: boolean;
@@ -38,7 +39,8 @@ export function TurnControls({ turn, revision, locked, editing, inputVisible, ac
       <TurnActionButton action="response" label={t("turn_controls.edit_response")} disabled={locked || !turn.complete} onClick={() => edit('assistant')} />
       {pin && <TurnActionButton action={turn.pinned ? 'unpin' : 'pin'} label={t(turn.pinned ? 'pins.unpin' : 'pins.pin')}
         disabled={locked || editing || pin.disabled} onClick={pin.toggle} />}
-      <ActionMenu label={t('turn_controls.more_actions')} disabled={locked && !reasoning} revision={revision} focusMode="panel">
+      <ActionMenu label={t('turn_controls.more_actions')} disabled={locked && !reasoning} revision={revision} focusMode="panel"
+        bottomBoundaryRef={transcriptFrame}>
         {reasoning && <button type="button" className="secondary" role="menuitem" tabIndex={-1} aria-haspopup="dialog"
           onClick={() => setInspectedGeneration(reasoning.generationId)}><Icon name="LightBulb" />{t('reasoning.show_reasoning')}</button>}
         {fork && <button type="button" className="secondary" role="menuitem" tabIndex={-1} aria-haspopup="dialog"

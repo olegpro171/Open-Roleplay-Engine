@@ -176,6 +176,7 @@ export function App() {
   }, []);
   useEscapeAction(view === 'story' && edit && !busy ? cancelEdit : undefined);
   const loadId = useRef(0);
+  const transcriptFrame = useRef<HTMLDivElement>(null);
   const { transcript, awayFromLatest, scrollToLatest, preservePosition, followingLatest, jumpToTurn, captureScroll, restoreScroll } =
     useTranscriptScroll(view === 'story' ? snapshot?.id ?? null : null, snapshot, Boolean(edit));
   useLayoutEffect(() => {
@@ -871,7 +872,7 @@ export function App() {
       </>}>
       <section className="conversation" aria-label={t("app.conversation")}>
         {pageError && <div className="recovery" role="alert">{pageError}<button className="secondary" onClick={() => setPageError('')}>{t("app.dismiss")}</button></div>}
-        <TranscriptFrame snapshot={snapshot} captureScroll={captureScroll} restoreScroll={restoreScroll}><div className="transcript" ref={transcript}>
+        <TranscriptFrame snapshot={snapshot} frameRef={transcriptFrame} captureScroll={captureScroll} restoreScroll={restoreScroll}><div className="transcript" ref={transcript}>
           {snapshot.page.hasOlder && <div className="history-page-control" data-history-direction="older"><button className="secondary" disabled={pageLoading || Boolean(edit)} onClick={() => void moveTranscript('older')}>{pageLoading ? t("app.loading_history") : t("app.load_older_turns")}</button></div>}
           {snapshot.totalTurns === 0 && <EmptyTranscript connected={Boolean(snapshot.connection)}
             canGenerate={canGenerateOpening} generate={() => void generateOpening()} openSettings={() => setTab('settings')} />}
@@ -930,7 +931,7 @@ export function App() {
               </div>}
               {part === 'assistant' && !edit && continuationError && <div className="continuation-progress muted small" role="status">{continuationError}</div>}
             </ChatMessage>)}
-            <TurnControls turn={turn} revision={snapshot.revision} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}
+            <TurnControls turn={turn} revision={snapshot.revision} transcriptFrame={transcriptFrame} locked={working || busy} editing={Boolean(edit)} inputVisible={inputVisible} reasoning={reasoning}
               continuing={continuing}
               pin={turn.complete ? {
                 disabled: dataChanged || snapshot.memory.awaitingReview,

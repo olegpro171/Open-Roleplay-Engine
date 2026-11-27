@@ -1,8 +1,9 @@
-import { Component, type ReactNode } from 'react';
+import { Component, type ReactNode, type RefObject } from 'react';
 import type { StorySnapshot } from '../shared/transcript';
 
 type Props = {
   snapshot: StorySnapshot;
+  frameRef: RefObject<HTMLDivElement | null>;
   captureScroll: () => void;
   restoreScroll: () => void;
   children: ReactNode;
@@ -22,6 +23,6 @@ export class TranscriptFrame extends Component<Props, object, boolean> {
   }
 
   render() {
-    return <div className="transcript-frame">{this.props.children}</div>;
+    return <div className="transcript-frame" ref={this.props.frameRef}>{this.props.children}</div>;
   }
 }

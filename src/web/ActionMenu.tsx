@@ -3,12 +3,13 @@ import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
 import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
 
-export function ActionMenu({ label, disabled, revision = null, align = 'end', aboveTrigger = false, focusMode = 'item', triggerRef, children }: {
+export function ActionMenu({ label, disabled, revision = null, align = 'end', aboveTrigger = false, bottomBoundaryRef, focusMode = 'item', triggerRef, children }: {
   label: string;
   disabled: boolean;
   revision?: number | null;
   align?: 'start' | 'end';
   aboveTrigger?: boolean;
+  bottomBoundaryRef?: RefObject<HTMLElement | null>;
   focusMode?: 'item' | 'panel' | 'editing';
   triggerRef?: RefObject<HTMLButtonElement | null>;
   children: ReactNode;
@@ -45,14 +46,17 @@ export function ActionMenu({ label, disabled, revision = null, align = 'end', ab
       const leftEdge = (viewport?.offsetLeft ?? 0) + 8;
       const topEdge = (viewport?.offsetTop ?? 0) + 8;
       const rightEdge = leftEdge + (viewport?.width ?? innerWidth) - 16;
-      const bottomEdge = topEdge + (viewport?.height ?? innerHeight) - 16;
+      const viewportBottom = topEdge + (viewport?.height ?? innerHeight) - 16;
+      const bottomEdge = Math.min(viewportBottom, bottomBoundaryRef?.current?.getBoundingClientRect().bottom ?? viewportBottom);
       const below = bottomEdge - rect.bottom - 6;
-      const above = rect.top - topEdge - 6;
-      const upwards = menu.scrollHeight > below && above > below;
+      const aboveEnd = Math.min(rect.top - 6, bottomEdge);
+      const above = aboveEnd - topEdge;
+      const menuHeight = menu.scrollHeight + (menu.offsetHeight - menu.clientHeight);
+      const upwards = menuHeight > below && above > below;
       const maxHeight = Math.max(0, upwards ? above : below);
       setPosition({
         left: Math.max(leftEdge, Math.min(align === 'start' ? rect.left : rect.right - menu.offsetWidth, rightEdge - menu.offsetWidth)),
-        top: upwards ? rect.top - Math.min(menu.scrollHeight, maxHeight) - 6 : rect.bottom + 6,
+        top: upwards ? aboveEnd - Math.min(menuHeight, maxHeight) : rect.bottom + 6,
         maxHeight,
       });
     }
@@ -107,7 +111,7 @@ export function ActionMenu({ label, disabled, revision = null, align = 'end', ab
       viewport?.removeEventListener('resize', dismiss);
       viewport?.removeEventListener('scroll', dismiss);
     };
-  }, [open, label, align, aboveTrigger, focusMode, trigger]);
+  }, [open, label, align, aboveTrigger, bottomBoundaryRef, focusMode, trigger]);
 
   // A modal makes content outside its own tree inert, including body portals.
   const anchor = open ? trigger.current : null;
