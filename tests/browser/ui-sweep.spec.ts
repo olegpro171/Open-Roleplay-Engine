@@ -6,8 +6,6 @@ import type { LibrarySnapshot } from '../../src/shared/library';
 async function setup(page: Page, targetInputTokens = 20_000) {
   const session = await page.request.get('/api/session').then(response => response.json());
   await page.goto('/');
-  await page.getByLabel('Owner password').waitFor();
-  await page.screenshot({ path: test.info().outputPath('login.png') });
   await page.getByLabel('Owner password').fill('browser-synthetic-password');
   await page.getByRole('button', { name: session.setupRequired ? 'Create owner account' : 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Libraries', exact: true })).toBeVisible();

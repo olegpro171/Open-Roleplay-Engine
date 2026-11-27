@@ -46,19 +46,26 @@ const installTileColors: Record<Theme, readonly number[]> = {
 
 it.each(themeSchema.options)('gives %s install icons room around the bird and the correct corners', async theme => {
   const { appleTouch, manifest } = installIconLinks(theme);
-  const { icons }: { icons: { src: string; sizes: string; purpose: string }[] } = JSON.parse(
+  const installManifest: { icons: { src: string; sizes: string; purpose: string }[] } = JSON.parse(
     await readFile(new URL(`../public${manifest}`, import.meta.url), 'utf8'),
   );
-  const desktopIcons = icons.filter(icon => icon.purpose === 'any');
-  expect.soft(desktopIcons.map(icon => icon.sizes)).toEqual(['192x192', '512x512']);
+  expect(installManifest).toMatchObject({
+    id: '/', start_url: '/',
+    icons: [
+      { sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { sizes: '1024x1024', type: 'image/png', purpose: 'maskable' },
+    ],
+  });
   const assets = [
-    { src: appleTouch, rounded: false },
-    ...desktopIcons.filter(icon => icon.sizes !== 'any').map(icon => ({ src: icon.src, rounded: true })),
+    { src: appleTouch, sizes: '180x180', purpose: 'apple-touch-icon' },
+    ...installManifest.icons,
   ];
   const tile = installTileColors[theme];
-  for (const { src, rounded } of assets) {
+  for (const { src, sizes, purpose } of assets) {
     const png = await readFile(new URL(`../public${src}`, import.meta.url));
     const { data, info: { width, height, channels } } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    expect.soft(`${width}x${height}`, src).toBe(sizes);
     const center = Math.floor(width / 2);
     const nearCorner = Math.floor(width * 0.05);
     const pixelAt = (x: number, y: number) => {
@@ -66,7 +73,8 @@ it.each(themeSchema.options)('gives %s install icons room around the bird and th
       return [...data.subarray(offset, offset + channels)];
     };
     expect.soft(pixelAt(center, 0), src).toEqual([...tile, 255]);
-    if (rounded) {
+    if (purpose === 'maskable') continue;
+    if (purpose === 'any') {
       expect.soft(pixelAt(nearCorner, nearCorner)[3], src).toBe(0);
       expect.soft(pixelAt(width - 1, height - 1)[3], src).toBe(0);
     } else {

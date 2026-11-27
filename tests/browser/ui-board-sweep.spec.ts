@@ -84,7 +84,7 @@ test('drafting during generation retains the next message through completion, ca
   }
 });
 
-for (const width of [1280, 390]) test(`right arrow regenerates, reserves a version and keeps reasoning in place at ${width}px`, async ({ page, browser }, testInfo) => {
+for (const width of [1280, 390]) test(`right arrow regenerates, reserves a version and keeps reasoning in place at ${width}px`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 844 });
   const id = await setup(page);
   const state = (): Promise<ChatSnapshot> => page.request.get(`/api/chats/${id}`).then(response => response.json());
@@ -152,17 +152,19 @@ for (const width of [1280, 390]) test(`right arrow regenerates, reserves a versi
     await send.click();
     await expect(page.getByRole('article', { name: 'Turn 2', exact: true }).getByRole('textbox', { name: 'Response version', exact: true })).toBeEnabled();
     await expect(next).toBeDisabled();
-    // A wide landscape phone still gets a readable input size without focus zoom.
-    const phone = await browser.newContext({ storageState: await page.context().storageState(),
-      viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true });
-    try {
-      const landscape = await phone.newPage();
-      await landscape.goto('/');
-      await expect(landscape.getByLabel('Your next turn')).toHaveCSS('font-size', '16px');
-      await landscape.getByLabel('Your next turn').focus();
-    } finally { await phone.close(); }
   } finally {
     await page.request.post('/__test/finish', { data: {} });
     await page.request.post('/__test/mode', { data: { mode: 'normal' } });
   }
+});
+
+test.describe('landscape phone', () => {
+  test.use({ viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true });
+  test('keeps the focused composer readable', async ({ page }) => {
+    await setup(page);
+    const composer = page.getByLabel('Your next turn');
+    await composer.focus();
+    await expect(composer).toBeFocused();
+    await expect(composer).toHaveCSS('font-size', '16px');
+  });
 });

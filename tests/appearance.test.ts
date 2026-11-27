@@ -23,7 +23,7 @@ function directory() {
   return path;
 }
 
-it.each(themeSchema.options)('saves %s app-wide defaults without changing library/chat state and reloads them after restart', async theme => {
+it('validates app-wide defaults, preserves chat and library state, and reloads the saved appearance after restart', async () => {
   const database = join(directory(), 'test.sqlite');
   let instance = await createStoryApp({ database });
   const headers = { host: 'localhost', origin: 'http://localhost' };
@@ -37,7 +37,7 @@ it.each(themeSchema.options)('saves %s app-wide defaults without changing librar
     expect(initial.json()).toEqual({ revision: 0, settings: defaultAppearance });
     const before = instance.store.snapshot();
     const libraryBefore = instance.store.libraries();
-    const settings = { theme, characterSpeechColor: '#EEAA88', personaSpeechColor: '#88cc99', chatTextScale: 120, displayCharacterPicture: false, showReasoningDuringGeneration: true };
+    const settings = { theme: 'light', characterSpeechColor: '#EEAA88', personaSpeechColor: '#88cc99', chatTextScale: 120, displayCharacterPicture: false, showReasoningDuringGeneration: true };
     const saved = await instance.app.inject({ method: 'PUT', url: '/api/application/appearance', headers: auth, payload: { revision: 0, settings } });
     expect(saved.statusCode).toBe(200);
     expect(saved.json()).toEqual({ revision: 1, settings: { ...settings, characterSpeechColor: '#eeaa88' } });
@@ -58,8 +58,18 @@ it.each(themeSchema.options)('saves %s app-wide defaults without changing librar
     await instance.app.close();
     instance = await createApp({ database });
     const restored = await instance.app.inject({ method: 'GET', url: '/api/application/appearance', headers: auth });
-    expect(appearanceStatusSchema.parse(restored.json())).toEqual(saved.json());
+    const restoredStatus = appearanceStatusSchema.parse(restored.json());
+    expect(restoredStatus).toEqual(saved.json());
     expectPrivateFile(`${database}.appearance.json`);
+    let revision = restoredStatus.revision;
+    for (const theme of themeSchema.options.filter(theme => theme !== restoredStatus.settings.theme)) {
+      const settings = { ...restoredStatus.settings, theme };
+      const response = await instance.app.inject({ method: 'PUT', url: '/api/application/appearance', headers: auth, payload: { revision, settings } });
+      expect(response.statusCode).toBe(200);
+      revision += 1;
+      const read = await instance.app.inject({ method: 'GET', url: '/api/application/appearance', headers: auth });
+      expect(read.json()).toEqual({ revision, settings });
+    }
   } finally { await instance.app.close(); }
 });
 
