@@ -301,7 +301,7 @@ test('libraries, name substitution, greetings, prompt restoration and reviewed J
   await page.getByRole('button', { name: 'Expand block 1', exact: true }).click();
   await expect(page.getByLabel('Fallback text')).toHaveValue('');
   const restored: LibrarySnapshot = await page.request.get('/api/library').then(response => response.json());
-  expect(restored.prompts.find(prompt => prompt.id === 'default')?.blocks).toEqual(defaultPrompt.blocks);
+  expect(restored.prompts.find(prompt => prompt.id === 'default')).toMatchObject(defaultPrompt);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

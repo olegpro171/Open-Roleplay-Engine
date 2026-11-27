@@ -21,7 +21,7 @@ function database() {
 
 it('seeds the supplied prompt exactly and uses it in request assembly', () => {
   expect(createHash('sha256').update(JSON.stringify(defaultPrompt)).digest('hex'))
-    .toBe('6cb4b61e563baad2af1e49997c09d0a8f86d5fb989031b052b101d19598c8389');
+    .toBe('9b890aa906412e95d7ee718b907a735906f2e4d4e6c08ce4ea7fdb9f7b0b3a1d');
   expect(promptSchema.parse(defaultPrompt)).toEqual(defaultPrompt);
   const store = openStoryStore(database());
   try {
@@ -48,7 +48,7 @@ it.each([compactPrompt, { name: 'Owner edited prompt', blocks: [{ id: 'owner', n
   const path = database();
   let store = openStoryStore(path);
   try {
-    store.saveLibrary(store.libraryRevision(), 'prompts', saved, 'default');
+    store.saveLibrary(store.libraryRevision(), 'prompts', { ...saved, impersonateInstruction: undefined }, 'default');
     store.saveLibrary(store.libraryRevision(), 'contexts', legacyContextPreset, 'default-context');
     const before = store.libraries();
     store.close();
@@ -63,7 +63,7 @@ it('restores the current factory preset only through an explicit revision-checke
     const setup = await app.inject({ method: 'POST', url: '/api/setup', headers: { host: 'localhost', origin: 'http://localhost' }, payload: { password: 'synthetic-default-password' } });
     expect(setup.statusCode).toBe(200);
     const headers = { host: 'localhost', origin: 'http://localhost', cookie: String(setup.headers['set-cookie']).split(';')[0] };
-    store.saveLibrary(store.libraryRevision(), 'prompts', compactPrompt, 'default');
+    store.saveLibrary(store.libraryRevision(), 'prompts', { ...compactPrompt, impersonateInstruction: 'Write a short player reply.' }, 'default');
     const revision = store.libraryRevision();
     const restore = (value: number) => app.inject({ method: 'POST', url: '/api/library/default/restore', headers, payload: { revision: value } });
     const before = store.libraries();
