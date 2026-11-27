@@ -16,9 +16,9 @@ const themeCases = [
   { theme: 'porcelain', label: 'Porcelain', russian: 'Фарфор', character: '#903b40', persona: '#262424', speech: 'rgb(144, 59, 64)', personaSpeech: 'rgb(38, 36, 36)', chrome: '#fcfaf8', page: 'rgb(252, 250, 248)', input: 'rgb(252, 250, 248)', scheme: 'light' },
 ] as const;
 
-async function expectThemeIconLinks(page: Page, theme: Theme, initialHtml?: string) {
+async function expectThemeIconLinks(page: Page, theme: Theme, initialHtml?: string, installTheme = theme) {
   const { png, svg } = faviconLinks(theme);
-  const { appleTouch, manifest } = installIconLinks(theme);
+  const { appleTouch, manifest } = installIconLinks(installTheme);
   for (const [selector, href] of [
     ['link[rel="icon"][type="image/png"]', png],
     ['link[rel="icon"][type="image/svg+xml"]', svg],
@@ -29,6 +29,78 @@ async function expectThemeIconLinks(page: Page, theme: Theme, initialHtml?: stri
     if (initialHtml !== undefined) expect(initialHtml).toContain(`href="${href}"`);
   }
 }
+
+test('pins the offered app icon across live theme changes and reloads, and resumes following on request', async ({ page, context, browserApp }, testInfo) => {
+  await page.goto('/');
+  await page.getByLabel('Owner password').fill('browser-synthetic-password');
+  await page.getByRole('button', { name: 'Create owner account', exact: true }).click();
+  const openAppearance = async () => {
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Settings categories' }).getByRole('button', { name: 'Chat appearance', exact: true }).click();
+  };
+  const settings = page.getByRole('region', { name: 'Chat appearance', exact: true });
+  const theme = settings.getByRole('combobox', { name: 'Theme', exact: true });
+  const follow = settings.getByRole('checkbox', { name: 'Update app icon with the theme', exact: true });
+  const chooseTheme = async (label: string) => {
+    await theme.click();
+    await page.getByRole('option', { name: label, exact: true }).click();
+  };
+  const path = '/api/application/appearance';
+  const read = async () => appearanceStatusSchema.parse(await page.request.get(path).then(response => response.json()));
+
+  await openAppearance();
+  await expect(follow).toBeChecked();
+  await chooseTheme('Light');
+  await expectThemeIconLinks(page, 'light');
+  const observer = await context.newPage();
+  await observer.goto('/');
+
+  let fail = true;
+  await page.route(`**${path}`, route => route.request().method() === 'PUT' && fail
+    ? route.fulfill({ status: 503, json: { message: 'Synthetic icon preference save failure' } }) : route.continue());
+  await theme.press('Tab');
+  await expect(follow).toBeFocused();
+  await follow.press('Space');
+  await expect(settings.getByRole('alert')).toContainText('Synthetic icon preference save failure');
+  await expect(follow).not.toBeChecked();
+  expect((await read()).settings.appIconTheme).toBeNull();
+  fail = false;
+  await settings.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect.poll(async () => (await read()).settings.appIconTheme).toBe('light');
+  await expect(settings.getByRole('alert')).toHaveCount(0);
+
+  for (const choice of [{ theme: 'dark', label: 'Dark' } as const, ...themeCases]) {
+    await chooseTheme(choice.label);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', choice.theme);
+    await expectThemeIconLinks(page, choice.theme, undefined, 'light');
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(follow).toBeInViewport({ ratio: 1 });
+      await expect(follow).not.toBeChecked();
+      await page.screenshot({ animations: 'disabled', path: testInfo.outputPath(`${choice.theme}-pinned-${width}.png`) });
+    }
+  }
+  await expectThemeIconLinks(observer, 'porcelain', undefined, 'light');
+  const loginContext = await context.browser()?.newContext();
+  if (!loginContext) throw new Error('Missing browser');
+  try {
+    const login = await loginContext.newPage();
+    const response = await login.goto(browserApp.url);
+    if (!response) throw new Error('Missing sign-in response');
+    await expect(login.getByLabel('Owner password')).toBeVisible();
+    await expectThemeIconLinks(login, 'porcelain', await response.text(), 'light');
+  } finally { await loginContext.close(); }
+
+  await page.reload();
+  await openAppearance();
+  await expect(follow).not.toBeChecked();
+  await expectThemeIconLinks(page, 'porcelain', undefined, 'light');
+  await follow.check();
+  await expectThemeIconLinks(page, 'porcelain');
+  await expectThemeIconLinks(observer, 'porcelain');
+  expect((await read()).settings.appIconTheme).toBeNull();
+  await observer.close();
+});
 
 test('serves the tested favicon and install artwork for every theme', async ({ request }) => {
   for (const theme of themeSchema.options) {
@@ -190,6 +262,7 @@ for (const choice of themeCases) for (const width of [1440, 390]) test(`${choice
   await page.getByRole('combobox', { name: 'Interface language', exact: true }).click();
   await page.getByRole('option', { name: /Русский/ }).click();
   await expect(page.getByRole('combobox', { name: 'Тема', exact: true })).toHaveText(choice.russian);
+  await expect(page.getByRole('checkbox', { name: 'Обновлять значок приложения при смене темы', exact: true })).toBeChecked();
   await observer.close();
 });
 

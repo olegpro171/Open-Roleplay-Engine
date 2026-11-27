@@ -59,8 +59,8 @@ function DefaultSpeechColor({ speaker, appearance, onChange }: {
 
 export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosave<Appearance, AppearanceStatus> }) {
   useLocale();
-  useTheme();
-  const { draft, saving, error } = useSettingsState(autosave);
+  const theme = useTheme();
+  const { draft, status, saving, error } = useSettingsState(autosave);
   if (!draft) return null;
 
   const textScaleStyle: CSSProperties & { '--text-scale-progress': string } = {
@@ -75,6 +75,9 @@ export function ChatAppearanceSettings({ autosave }: { autosave: SettingsAutosav
         <label className="settings-field">{t('appearance.theme')}<Dropdown aria-label={t('appearance.theme')} value={draft.theme} onChange={value => autosave.update({ theme: themeSchema.parse(value) })}
           options={themeSchema.options.map(value => ({ value, label: t(themeLabels[value]) }))} /></label>
         <p className="field-help small muted">{t('appearance.theme_help')}</p>
+        <label className="checkbox"><input type="checkbox" checked={draft.appIconTheme === null} onChange={event => {
+          autosave.update({ appIconTheme: event.target.checked ? null : (status?.settings.appIconTheme ?? theme) });
+        }} />{t('appearance.update_app_icon_with_theme')}</label>
       </div>
       <div className="settings-row">
         <label className="checkbox"><input type="checkbox" checked={draft.displayCharacterPicture} onChange={event => {

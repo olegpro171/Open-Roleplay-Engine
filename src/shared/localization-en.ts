@@ -409,6 +409,7 @@ export const englishMessages = {
   "appearance.dark": "Dark",
   "appearance.light": "Light",
   "appearance.theme_help": "Applies to every device using ORE.",
+  "appearance.update_app_icon_with_theme": "Update app icon with the theme",
   "appearance.using_theme_color": "From theme",
   "appearance.restore_theme_color": "Restore theme color",
   "appearance.use_theme_character_color": "Restore theme color for character speech",

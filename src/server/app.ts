@@ -59,7 +59,7 @@ import { LanAccess } from './lan.js';
 import { isLoopback } from './lan-policy.js';
 import type { LanInterface } from '../shared/lan.js';
 import { AppearanceSettings } from './appearance.js';
-import type { Theme } from '../shared/appearance.js';
+import { defaultAppearance } from '../shared/appearance.js';
 import { faviconLinks, installIconLinks } from '../shared/favicon.js';
 import { ChatBehaviorSettings } from './chat-behavior.js';
 import { Languages } from './languages.js';
@@ -1049,17 +1049,17 @@ export async function createApp(options: {
       reply.header('Content-Security-Policy', contentSecurityPolicy(nonce));
       reply.header('Cache-Control', 'no-store');
       // Appearance failure must not prevent login or recovery; the authenticated read reports it.
-      let theme: Theme = 'dark';
+      let settings = defaultAppearance;
       try {
-        theme = appearance.status().settings.theme;
+        settings = appearance.status().settings;
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
       }
       // Browsers can select the icons before client code applies appearance settings.
-      const favicon = faviconLinks(theme);
-      const install = installIconLinks(theme);
+      const favicon = faviconLinks(settings.theme);
+      const install = installIconLinks(settings.appIconTheme ?? settings.theme);
       const document = index
-        .replace('<html lang="en">', `<html lang="en" data-theme="${theme}">`)
+        .replace('<html lang="en">', `<html lang="en" data-theme="${settings.theme}">`)
         .replace('<head>', `<head><meta name="csp-nonce" content="${nonce}">`)
         .replace(`href="${defaultFavicon.svg}"`, `href="${favicon.svg}"`)
         .replace(`href="${defaultFavicon.png}"`, `href="${favicon.png}"`)

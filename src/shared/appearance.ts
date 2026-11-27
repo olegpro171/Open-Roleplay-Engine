@@ -10,11 +10,12 @@ export const appearanceSchema = z.object({
   characterSpeechColor: speechColorSchema.nullable(),
   personaSpeechColor: speechColorSchema.nullable(),
   theme: themeSchema,
+  appIconTheme: themeSchema.nullable(),
   chatTextScale: chatTextScaleSchema,
   displayCharacterPicture: z.boolean(),
   showReasoningDuringGeneration: z.boolean(),
 }).strict();
-export const defaultAppearance: Appearance = { theme: 'dark', characterSpeechColor: null, personaSpeechColor: null, chatTextScale: 100, displayCharacterPicture: true, showReasoningDuringGeneration: false };
+export const defaultAppearance: Appearance = { theme: 'dark', appIconTheme: null, characterSpeechColor: null, personaSpeechColor: null, chatTextScale: 100, displayCharacterPicture: true, showReasoningDuringGeneration: false };
 export const appearanceStatusSchema = z.object({ revision: z.number().int().nonnegative(), settings: appearanceSchema }).strict();
 export type Appearance = z.infer<typeof appearanceSchema>;
 export type AppearanceStatus = z.infer<typeof appearanceStatusSchema>;

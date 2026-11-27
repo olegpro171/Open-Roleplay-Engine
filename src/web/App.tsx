@@ -3,7 +3,7 @@ import { impersonate, SuggestionPanel } from './Impersonation';
 import { PinnedTurns, saveTurnPin } from './PinnedTurns';
 import { ChatBranches } from './ChatBranches';
 import { chatGroupId, preferredBranch, readBranchSelections, storeBranchSelection } from './chat-selection';
-import { applyTheme, brandMarkUrl, useTheme } from './theme';
+import { applyInstallIcon, applyTheme, brandMarkUrl, useTheme } from './theme';
 import { stateLabel } from './localization-labels';
 import type { MessageText } from './localization';
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale } from './localization';
@@ -91,6 +91,8 @@ export function App() {
   const [appearance, setAppearance] = useState<AppearanceStatus>({ revision: 0, settings: defaultAppearance });
   const [appearanceLoaded, setAppearanceLoaded] = useState(false);
   useLayoutEffect(() => { if (appearanceLoaded) applyTheme(appearance.settings.theme); }, [appearanceLoaded, appearance.settings.theme]);
+  const installIconTheme = appearance.settings.appIconTheme ?? appearance.settings.theme;
+  useLayoutEffect(() => { if (appearanceLoaded) applyInstallIcon(installIconTheme); }, [appearanceLoaded, installIconTheme]);
   const [chatDefaults, setChatDefaults] = useState<ChatDefaultsStatus>(initialChatDefaults);
   const [appearanceError, setAppearanceError] = useTextState(null);
   const [chatBehavior, setChatBehavior] = useState<ChatBehaviorStatus | null>(null);

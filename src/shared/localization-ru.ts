@@ -416,6 +416,7 @@ export const russianMessages = {
   "appearance.dark": "Тёмная",
   "appearance.light": "Светлая",
   "appearance.theme_help": "Применяется на всех устройствах, использующих ORE.",
+  "appearance.update_app_icon_with_theme": "Обновлять значок приложения при смене темы",
   "appearance.using_theme_color": "Из темы",
   "appearance.restore_theme_color": "Вернуть цвет темы",
   "appearance.use_theme_character_color": "Вернуть цвет темы для речи персонажа",
