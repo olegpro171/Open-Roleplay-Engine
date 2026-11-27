@@ -248,7 +248,9 @@ describe('version 9 migration and pre-tags command history', () => {
     const path=join(folder(),'rollback.sqlite');const store=open(path);addCharacter(store,importCharacter(modern()));store.close();
     const old=new Database(path);removeTagSchema(old);const rows=allRows(old, true);old.exec("CREATE TRIGGER reject_tag_migration BEFORE UPDATE ON library_state BEGIN SELECT RAISE(ABORT, 'synthetic migration failure'); END");old.close();
     expect(()=>new Store(path)).toThrow('synthetic migration failure');const failed=new Database(path);expect(failed.pragma('user_version',{simple:true})).toBe(8);expect(failed.prepare("SELECT name FROM sqlite_master WHERE name='tags'").get()).toBeUndefined();expect(allRows(failed, true)).toEqual(rows);failed.exec('DROP TRIGGER reject_tag_migration');failed.close();
-    const recovered=open(path);expect(recovered.sqlite.pragma('user_version',{simple:true})).toBe(databaseSchemaVersion);expect(allRows(recovered.sqlite, true)).toEqual(rows);
+    const recovered = open(path);
+    expect(recovered.sqlite.pragma('user_version', { simple: true })).toBe(databaseSchemaVersion);
+    expect(allRows(recovered.sqlite, true)).toEqual({ ...rows, composer_suggestion_sessions: [] });
   });
 });
 
