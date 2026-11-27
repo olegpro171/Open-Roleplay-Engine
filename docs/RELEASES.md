@@ -14,7 +14,7 @@ Validate every ZIP entry before extraction, rejecting Windows devices, alternate
 
 An exclusive OS file lease covers update and foreground server lifetime. Named kill-on-close Job Objects attach controllers before creating descendants and terminate only owned workers after owner loss. Ownership metadata records the job identity; a new owner waits for that job to become quiescent before changing installation state, including when a prior process has released its lease but its workers are still stopping. Package updates do not create persistent directory locks. The next launch can retry interrupted package work. Old source-based installations may contain directory locks with insufficient ownership information; the installer retires those only when a prior system boot proves their workers cannot survive. If that proof is unavailable, stop old launchers/builds and restart Windows before running the new installer again. Never remove active ownership or kill unrelated processes to make installation proceed.
 
-Launcher 6 shows **Start ORE** (Enter) and **Manage versions** before interactive startup. In Latest release mode, startup and background updates follow the sequence above. Redirected launches keep the unattended startup path. Manage versions lists retained builds and loads a page of published releases in the background. The catalogue reads each Windows descriptor to check the launcher's minimum version. A manual pin can move backwards after the database and temporary startup checks succeed. It persists through the existing selection and update-pause marker. Switching to Latest release resumes normal update checks and prepared activation, subject to the installation's update settings.
+The interactive launcher offers **Start ORE**, **Manage versions** and **Launcher settings**. Launcher 7 starts ORE after three idle seconds on its initial screen. Any keypress cancels the countdown and takes its usual action. After version management or a startup failure, the launcher waits for your choice. In Latest release mode, startup and background updates follow the sequence above. Redirected launches keep the unattended startup path. Manage versions lists retained builds and loads a page of published releases in the background. Names come from the GitHub release title. Opening Manage versions refreshes installed titles, including older releases, and saves them for offline use. Until a title has been fetched, the launcher shows the short commit. The catalogue reads each Windows descriptor to check the launcher's minimum version. A manual pin can move backwards after the database and temporary startup checks succeed. It persists through the existing selection and update-pause marker. Switching to Latest release resumes normal update checks and prepared activation, subject to the installation's update settings.
 
 After a failed start, the reason and diagnostic log remain in the console and Manage versions is focused. Selecting an existing database explicitly updates its location for the next start. An explicit environment override still takes precedence. The running session keeps the address visible while its update status changes below it.
 
@@ -88,12 +88,14 @@ The Windows package launcher creates a private empty `ORE-internal/.env` only wh
 | Setting | Meaning |
 | --- | --- |
 | `ORE_SKIP_UPDATE=1` | Run an already-installed build without preparing or activating an update |
-| `ORE_OPEN_BROWSER=0` | Print ready URL without browser opening |
+| `ORE_OPEN_BROWSER=0` | Show the ready URL and suppress both the default browser and any selected web app shortcut |
 | `ROLEPLAY_PORT` | Local port, default 3000, integer 1–65535 |
 | `ROLEPLAY_DATABASE` | Explicit database override; use absolute paths for repeatability |
 | `ROLEPLAY_HOST` | Local loopback host by default; HTTP LAN uses Settings instead |
 | `ROLEPLAY_TLS_CERT`, `ROLEPLAY_TLS_KEY` | Paired legacy TLS files; provisioning is deferred |
 | `ORE_NO_PAUSE=1` | Suppress Windows pause-on-failure for automation |
+
+Launcher settings saves the browser preference in `ORE-internal/launcher-settings.json` under the installation lease. The external batch opens the selected local `.lnk` through Windows Explorer after its own session signals readiness. The shortcut supplies its web app address and browser profile. Updates and version switches preserve this preference.
 
 An empty explicit database path fails. Other empty Windows environment values follow .NET unset behavior. To skip Windows package updates for one run, set `$env:ORE_SKIP_UPDATE='1'` before running `./ORE-launcher.bat` from PowerShell. Put it in installation `.env` to persist it. Working-tree and separate portable builds start from local code.
 

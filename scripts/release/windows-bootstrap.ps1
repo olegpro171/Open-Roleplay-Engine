@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
 $OutputEncoding = [Console]::OutputEncoding
-$script:OreLanguage = if ([Globalization.CultureInfo]::CurrentUICulture.Name -match '^ru(?:[-_][a-zA-Z0-9]{2,8})*$') { 'ru' } else { 'en' }
+$script:OreLanguage = if ($Language) { $Language } elseif ([Globalization.CultureInfo]::CurrentUICulture.Name -match '^ru(?:[-_][a-zA-Z0-9]{2,8})*$') { 'ru' } else { 'en' }
 $script:OreReport = $null
 $script:OreEnvLine = 1
 $Invoking = [IO.Path]::GetFullPath((Get-Location).Path)
@@ -16,19 +16,19 @@ $result = 1
 $interactive = ![Console]::IsInputRedirected -and ![Console]::IsOutputRedirected
 $script:OreTerminal = New-OreTerminal -InteractiveMenu:($interactive -and !$StartOnly -and !$InstallOnly)
 try {
-    if (!$InstallOnly -and !$StartOnly -and !$ManageOnly) { Show-OreGreeting $LauncherVersion }
+    if (!$InstallOnly -and !$StartOnly -and !$ManageOnly -and !$SettingsOnly) { Show-OreGreeting $LauncherVersion }
     Assert-OreWindows
     $script:OreFailure = 'folderCollision'
     $Installation = Assert-OreStandaloneHome $Installation
     if ([IO.Directory]::Exists($Installation)) { Set-OrePrivate $Installation }
-    if ($ManageOnly) {
+    if ($ManageOnly -or $SettingsOnly) {
         $Installation = Initialize-OreStandaloneHome $Installation
         $lockStream = Acquire-OrePackageLease $Installation
         Initialize-OreCancellation
         Open-OrePackageReport -Quiet
         Assert-OreLegacyQuiescent $Installation
         Initialize-OrePackageEnvironment
-        Show-OreVersionManager
+        if ($SettingsOnly) { Show-OreLauncherSettings } else { Show-OreVersionManager }
         Clear-OreTerminalPanel
         exit 0
     }
@@ -38,21 +38,31 @@ try {
         Initialize-OreJob
         $worker = '$s=[IO.File]::ReadAllText($env:ORE_BOOTSTRAP_FILE,[Text.Encoding]::UTF8);$m=''# ORE_POWER''+''SHELL_PAYLOAD'';$i=$s.LastIndexOf($m); & ([scriptblock]::Create($s.Substring($i+$m.Length)))'
         $env:ORE_NO_PAUSE = '1'
+        $worker += ' -Language '+$script:OreLanguage
         $notice = ''
         $focus = 0
+        $autoStartSeconds = 3
         while ($true) {
             $choice = Read-OreChoice 'menuHome' (Get-OreVersionSummary) @(
                 (New-OreChoice (Get-OreMessage 'menuStart') 'start')
                 (New-OreChoice (Get-OreMessage 'menuManage') 'manage')
-            ) $notice $focus
+                (New-OreChoice (Get-OreMessage 'menuSettings') 'settings')
+            ) $notice $focus $autoStartSeconds
+            $autoStartSeconds = 0
             if ($choice.Action -eq 'back') { exit 0 }
-            if ($choice.Action -eq 'manage') {
-                & (Join-Path $PSHOME 'powershell.exe') -NoProfile -ExecutionPolicy RemoteSigned -Command ($worker+' -ManageOnly; exit $LASTEXITCODE')
+            if ($choice.Action -in @('manage','settings')) {
+                $screen = if ($choice.Action -eq 'settings') { ' -SettingsOnly' } else { ' -ManageOnly' }
+                & (Join-Path $PSHOME 'powershell.exe') -NoProfile -ExecutionPolicy RemoteSigned -Command ($worker+$screen+'; exit $LASTEXITCODE')
                 $notice = ''
                 $focus = 0
             } else {
+                Initialize-OreCancellation
                 & (Join-Path $PSHOME 'powershell.exe') -NoProfile -ExecutionPolicy RemoteSigned -Command ($worker+' -StartOnly; exit $LASTEXITCODE')
-                if ($LASTEXITCODE -in @(0,130)) { exit $LASTEXITCODE }
+                $status = $LASTEXITCODE
+                if ($status -in @(0,130)) {
+                    [Console]::WriteLine()
+                    exit $status
+                }
                 $notice = Get-OreMessage 'menuRecoveryHint'
                 $focus = 1
             }
@@ -61,27 +71,47 @@ try {
     $script:OreFailure = 'helperUnavailable'
     $helper = Get-OrePackageHelper $Installation
     if (!$InstallOnly) {
+        $setting = Get-OreBrowserSetting
+        if ($setting.Mode -ne 'default') {
+            if ($setting.Mode -ceq 'shortcut') {
+                $script:OreFailure = 'invalidEnv'
+                $config = Assert-OrePath $Installation (Join-Path $Installation '.env')
+                if ([IO.File]::Exists($config)) { Import-OreStandaloneEnvironment $config }
+                $script:OreFailure = 'helperUnavailable'
+            }
+            $openShortcut = $setting.Mode -ceq 'shortcut' -and $env:ORE_OPEN_BROWSER -ne '0'
+            $env:ORE_OPEN_BROWSER = '0'
+        }
         $versioned = $helper -and (Test-OreVersionedHelper $helper)
         if (!$versioned) {
             # Contain the activation worker if the bootstrap is terminated.
             $script:OreFailure = 'setupFailed'
             Initialize-OreJob
             $worker = '$s=[IO.File]::ReadAllText($env:ORE_BOOTSTRAP_FILE,[Text.Encoding]::UTF8);$m=''# ORE_POWER''+''SHELL_PAYLOAD'';$i=$s.LastIndexOf($m); & ([scriptblock]::Create($s.Substring($i+$m.Length))) -InstallOnly'
-            & (Join-Path $PSHOME 'powershell.exe') -NoProfile -ExecutionPolicy RemoteSigned -Command $worker
+            & (Join-Path $PSHOME 'powershell.exe') -NoProfile -ExecutionPolicy RemoteSigned -Command ($worker+' -Language '+$script:OreLanguage)
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $script:OreFailure = 'helperUnavailable'
             $helper = Get-OrePackageHelper $Installation
             if (!$helper) { throw 'No compatible helper after verified activation.' }
             $versioned = Test-OreVersionedHelper $helper
         }
-        if ($versioned) {
-            & $helper -Installed -Installation $Installation -Invoking $Invoking -Language $script:OreLanguage -LauncherVersion $LauncherVersion
-        } else {
-            # The bootstrap owns updates until a version-aware helper is installed.
-            $env:ORE_SKIP_UPDATE = '1'
-            & $helper -Installed -Installation $Installation -Invoking $Invoking -Language $script:OreLanguage
+        $subscription = $null
+        if ($openShortcut) {
+            $env:ORE_LAUNCH_READY_RECEIPT = $null
+            try { $subscription = Start-OreShortcutWatcher $setting.Shortcut }
+            catch { [Console]::WriteLine((Get-OreMessage 'menuShortcutFailed')) }
         }
-        exit $LASTEXITCODE
+        try {
+            if ($versioned) {
+                & $helper -Installed -Installation $Installation -Invoking $Invoking -Language $script:OreLanguage -LauncherVersion $LauncherVersion
+            } else {
+                # The bootstrap owns updates until a version-aware helper is installed.
+                $env:ORE_SKIP_UPDATE = '1'
+                & $helper -Installed -Installation $Installation -Invoking $Invoking -Language $script:OreLanguage
+            }
+            $status = $LASTEXITCODE
+        } finally { Stop-OreShortcutWatcher $subscription }
+        exit $status
     }
 
     $script:OreFailure = 'folderCollision'

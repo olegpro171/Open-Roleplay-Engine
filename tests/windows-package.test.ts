@@ -16,7 +16,7 @@ function fixture() {
  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ORE-package-publication-'))); roots.push(root);
  const home = join(root, 'home'); mkdirSync(home);
  for (const directory of ['data', 'languages']) { mkdirSync(join(home, directory)); writeFileSync(join(home, directory, 'retained'), 'synthetic private content'); }
- for (const file of ['.env', 'database-location.json', 'updates-paused']) writeFileSync(join(home, file), 'retained '+file);
+ for (const file of ['.env', 'database-location.json', 'launcher-settings.json', 'updates-paused']) writeFileSync(join(home, file), 'retained '+file);
  function packageFor(sha = commit, node = runtime) {
   const payload = join(root, 'payload-'+sha), id = `release-${sha.slice(0, 12)}-12345678-abcd-abcd-abcd-123456789abc`;
   for (const directory of ['data', 'languages', 'cache', 'logs', `app/${id}/scripts/release`, `runtime/${node}`, `recovery/${id}`]) mkdirSync(join(payload, directory), { recursive: true });
@@ -199,7 +199,7 @@ process.exitCode = ${status};
   const f = fixture(), p = f.packageFor();
   installWindowsPackage(p.payload, f.home, commit);
   expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(p.selection);
-  for (const file of ['.env', 'database-location.json', 'updates-paused']) expect(readFileSync(join(f.home, file), 'utf8')).toBe('retained '+file);
+  for (const file of ['.env', 'database-location.json', 'launcher-settings.json', 'updates-paused']) expect(readFileSync(join(f.home, file), 'utf8')).toBe('retained '+file);
   for (const directory of ['data', 'languages']) expect(readFileSync(join(f.home, directory, 'retained'), 'utf8')).toBe('synthetic private content');
   expect(readFileSync(join(f.home, 'recovery/current'), 'utf8')).toBe(p.selection);
  });

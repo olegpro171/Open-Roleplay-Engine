@@ -99,6 +99,6 @@ Use the existing localization unit/browser suites for catalog compatibility, run
 
 ## Windows package launcher
 
-`scripts/release/launcher-messages.json` owns the approved English/Russian launcher messages. The Windows generator embeds UTF-8 strings with matching named placeholders in `ORE-launcher.bat` and the installed helper. The external bootstrap selects Russian variants or English from `CurrentUICulture.Name` and passes the selection to installed tooling. PowerShell and JavaScript presenters use English fallback independently of app/browser preferences.
+`scripts/release/launcher-messages.json` owns the approved English/Russian launcher messages. The Windows generator embeds UTF-8 strings with matching named placeholders in `ORE-launcher.bat` and the installed helper. The external bootstrap selects Russian variants or English from `CurrentUICulture.Name` and passes that same language to its startup, settings and version-management workers and to installed tooling. PowerShell and JavaScript presenters use English fallback independently of app/browser preferences.
 
 Keep commands, paths, URLs, protocol IDs, commit hashes and user content literal. Raw download, tool and server diagnostics belong in private installation logs. The batch payload is decoded as UTF-8. Installed PowerShell files use a UTF-8 BOM for Windows PowerShell 5.1. JSON, manifests, pointers and reports use UTF-8 without BOM. See [delivery](RELEASES.md).

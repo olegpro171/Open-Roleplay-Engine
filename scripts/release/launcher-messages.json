@@ -1,4 +1,48 @@
 {
+  "menuSettings": {
+    "en": "Launcher settings",
+    "ru": "Настройки лаунчера"
+  },
+  "menuBrowserWhenReady": {
+    "en": "When ORE is ready",
+    "ru": "Когда ORE готов к работе"
+  },
+  "menuBrowserDefault": {
+    "en": "Open the default browser",
+    "ru": "Открыть браузер по умолчанию"
+  },
+  "menuBrowserShortcut": {
+    "en": "Open a web app shortcut…",
+    "ru": "Открыть ярлык веб-приложения…"
+  },
+  "menuBrowserNone": {
+    "en": "Open nothing",
+    "ru": "Ничего не открывать"
+  },
+  "menuBrowserOverride": {
+    "en": "ORE_OPEN_BROWSER=0 disables automatic opening for this installation or session.",
+    "ru": "Параметр ORE_OPEN_BROWSER=0 отключает автоматическое открытие для этой установки или сеанса."
+  },
+  "menuChooseShortcut": {
+    "en": "Choose your ORE web app shortcut",
+    "ru": "Выберите ярлык веб-приложения ORE"
+  },
+  "menuShortcutFilter": {
+    "en": "Windows shortcuts",
+    "ru": "Ярлыки Windows"
+  },
+  "menuSettingsInvalid": {
+    "en": "Saved preferences could not be read. Choose an option to save them again.",
+    "ru": "Не удалось прочитать настройки. Выберите вариант, чтобы сохранить их заново."
+  },
+  "menuSettingsSaveFailed": {
+    "en": "Could not save this choice. Check the folder or choose an existing Windows shortcut.",
+    "ru": "Не удалось сохранить выбор. Проверьте папку или выберите существующий ярлык Windows."
+  },
+  "menuShortcutFailed": {
+    "en": "Could not open the shortcut. Open the displayed ORE address or choose another shortcut in Launcher settings.",
+    "ru": "Не удалось открыть ярлык. Откройте указанный адрес ORE или выберите другой ярлык в настройках лаунчера."
+  },
   "menuHome": {
     "en": "LAUNCHER",
     "ru": "ЛАУНЧЕР"
@@ -10,6 +54,10 @@
   "menuStart": {
     "en": "Start ORE",
     "ru": "Запустить ORE"
+  },
+  "menuStartCountdown": {
+    "en": "Start ORE ({seconds} s)",
+    "ru": "Запустить ORE ({seconds} с)"
   },
   "menuManage": {
     "en": "Manage versions",
@@ -40,16 +88,16 @@
     "ru": "Автообновление будет приостановлено, включая уже подготовленное обновление."
   },
   "menuGithub": {
-    "en": "Browse GitHub releases",
-    "ru": "Выпуски на GitHub"
+    "en": "Browse releases",
+    "ru": "Список выпусков"
   },
   "menuLoading": {
-    "en": "Loading releases from GitHub…",
-    "ru": "Загрузка выпусков с GitHub…"
+    "en": "Loading releases…",
+    "ru": "Загрузка выпусков…"
   },
   "menuAvailable": {
     "en": "Compatible",
-    "ru": "Совместим"
+    "ru": "Совместима"
   },
   "menuNewer": {
     "en": "Requires launcher {version}",
@@ -80,8 +128,8 @@
     "ru": "Последняя успешно запущенная"
   },
   "menuLocate": {
-    "en": "Locate an existing database…",
-    "ru": "Указать существующую базу данных…"
+    "en": "Open chats from a moved or restored database…",
+    "ru": "Открыть чаты из перенесённой или восстановленной базы…"
   },
   "menuVerifying": {
     "en": "Checking this build and database compatibility…",
@@ -120,8 +168,8 @@
     "ru": "Предыдущая страница"
   },
   "menuCatalogueFailed": {
-    "en": "Couldn't load the GitHub release list. Installed versions are available offline.",
-    "ru": "Не удалось загрузить список выпусков с GitHub. Установленные версии доступны без сети."
+    "en": "Couldn't load releases. Installed versions are available offline.",
+    "ru": "Не удалось загрузить список выпусков. Установленные версии доступны без сети."
   },
   "launcherVersion": {
     "en": "Launcher {version}",
@@ -322,5 +370,9 @@
   "legacyRestart": {
     "en": "An earlier ORE installation was interrupted. Restart Windows, then run this launcher again. Your saved data will be kept.",
     "ru": "Предыдущая установка ORE была прервана. Перезагрузите Windows и снова запустите этот файл. Ваши данные будут сохранены."
+  },
+  "menuDatabaseHint": {
+    "en": "Choose the SQLite file that contains your chats. ORE will use it on the next start.",
+    "ru": "Выберите файл SQLite с вашими чатами. ORE откроет его при следующем запуске."
   }
 }

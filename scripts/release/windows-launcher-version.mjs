@@ -1,4 +1,4 @@
-export const launcherVersion = 6;
+export const launcherVersion = 7;
 export const minimumLauncherVersion = 6;
 
 export function isLauncherVersion(value) {

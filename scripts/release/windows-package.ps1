@@ -8,6 +8,24 @@ function Get-OreReleaseAsset([object]$Release, [string]$Name) {
     if ($assets.Count -ne 1 -or $assets[0].state -cne 'uploaded' -or $assets[0].browser_download_url -cne ('https://github.com/olegpro171/Open-Roleplay-Engine/releases/download/'+$Release.tag_name+'/'+$Name)) { throw 'Missing or invalid release asset.' }
     return $assets[0].browser_download_url
 }
+function Get-OreReleaseName($Release) {
+    $name = if ($Release.name -is [string]) { ($Release.name -replace '[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]',' ').Trim() }
+    if (!$name -or $name.Length -gt 1024) { $name = [string]$Release.tag_name -replace '[^\w.-]','' }
+    return $name
+}
+function Save-OreReleaseName([string]$Installation, $Release, [string]$Stage) {
+    if (!$Installation -or $Release.draft -ne $false -or $Release.tag_name -cnotmatch '^build-([a-f0-9]{40})\z') { return }
+    $commit = $Matches[1]
+    try {
+        $name = Get-OreReleaseName $Release
+        if ($name.Length -gt 1024) { return }
+        $path = Assert-OrePath $Installation (Join-Path $Installation ('cache/release-name-'+$commit))
+        $temp = Assert-OrePath $Installation (Join-Path $Stage 'release-name.tmp')
+        [IO.File]::WriteAllText($temp,$name)
+        if ([IO.File]::Exists($path)) { [IO.File]::Replace($temp,$path,[NullString]::Value) }
+        else { [IO.File]::Move($temp,$path) }
+    } catch { Write-Verbose ('Cannot cache release title: '+$_.Exception.Message) }
+}
 function Test-OreLauncherAllowsUpdate([int]$LauncherVersion, [int]$MinimumVersion) {
     if ($LauncherVersion -ge $MinimumVersion) { return $true }
     Show-OreMessage 'launcherUpdateRequired' @{required=$MinimumVersion;url='https://github.com/olegpro171/Open-Roleplay-Engine/releases/latest'}
@@ -30,6 +48,7 @@ function Get-OreRelease([string]$StagePath, [int]$LauncherVersion, [string]$Inst
     $metadata = Join-Path $StagePath 'release.json'
     Get-OreHttps 'https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/releases/latest' $metadata 30
     $release = Read-OreJson $metadata
+    Save-OreReleaseName $Installation $release $StagePath
     if ($InstalledCommit -and $release.tag_name -ceq ('build-'+$InstalledCommit) -and $release.draft -eq $false -and $release.prerelease -eq $false) { return }
     $descriptor = Read-OreReleaseDescriptor $StagePath $release
     if (!(Test-OreLauncherAllowsUpdate $LauncherVersion $descriptor.MinimumLauncherVersion)) { return @{Blocked=$true} }

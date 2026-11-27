@@ -1,30 +1,75 @@
 # Interactive screens live in the external batch, independent of the selected app.
-function New-OreChoice([string]$Label, [string]$Action, $Value = $null, [switch]$Disabled) {
-    return @{Label=$Label; Action=$Action; Value=$Value; Disabled=$Disabled.IsPresent}
+function New-OreChoice([string]$Label, [string]$Action, $Value = $null, [switch]$Disabled, [string[]]$Columns) {
+    return @{Label=$Label; Action=$Action; Value=$Value; Disabled=$Disabled.IsPresent; Columns=$Columns}
+}
+function Format-OreVersionRows([array]$Choices) {
+    $rows = @($Choices | Where-Object { $_.Columns })
+    if (!$rows.Count) { return }
+    $widths = New-Object 'int[]' $rows[0].Columns.Count
+    foreach ($row in $rows) {
+        for ($i=0; $i -lt $widths.Length; $i++) {
+            $widths[$i] = [Math]::Max($widths[$i],$row.Columns[$i].Length)
+        }
+    }
+    foreach ($row in $rows) {
+        $last = $widths.Length-1
+        while ($last -gt 0 -and !$row.Columns[$last]) { $last-- }
+        $fields = for ($i=0; $i -le $last; $i++) {
+            if ($i -eq $last) { $row.Columns[$i] }
+            elseif ($widths[$i]) { ([string]$row.Columns[$i]).PadRight($widths[$i]) }
+        }
+        $row.Label = $fields -join '  ·  '
+    }
 }
 function Read-OreMenuKey { return [Console]::ReadKey($true).Key }
-function Read-OreChoice([string]$Title, [string]$Primary, [array]$Choices, [string]$Notice = '', [int]$Focus = 0) {
+function Test-OreMenuKey { return [Console]::KeyAvailable }
+function Read-OreChoice([string]$Title, [string]$Primary, [array]$Choices, [string]$Notice = '', [int]$Focus = 0, [int]$AutoStartSeconds = 0, $Refresh) {
     $t = $script:OreTerminal
+    $seconds = $AutoStartSeconds
+    $clock = $null
+    $hideCursor = $t -and ![Console]::IsOutputRedirected -and [Console]::CursorVisible
     try {
+        if ($hideCursor) { [Console]::CursorVisible=$false }
         while ($true) {
             try { $count = [Math]::Max(1,[Math]::Min(9,[Console]::WindowHeight-10)) }
             catch [IO.IOException] { $count = 9 }
             $first = [Math]::Max(0,$Focus-$count+1)
             $labels = @($Choices | Select-Object -Skip $first -First $count | ForEach-Object { $_.Label })
+            if ($seconds) { $labels[0] = Get-OreMessage 'menuStartCountdown' @{seconds=$seconds} }
+            $hint = $Notice
+            if (!$hint -and $Choices[$Focus].Action -eq 'database') { $hint = Get-OreMessage 'menuDatabaseHint' }
             if ($t) {
                 $t.Title=$Title; $t.Role='accent'; $t.Symbol='◇'; $t.Primary=$Primary
-                $t.Notice=$Notice; $t.Log=''; $t.Update=''; $t.Footer=Get-OreMessage 'menuKeys'
+                $t.Notice=$hint; $t.Log=''; $t.Update=''; $t.Footer=Get-OreMessage 'menuKeys'
                 $t.Choices=$labels; $t.Focus=$Focus-$first
                 Write-OreTerminalPanel
             } else {
                 [Console]::WriteLine((Get-OreMessage $Title))
                 if ($Primary) { [Console]::WriteLine($Primary) }
-                if ($Notice) { [Console]::WriteLine($Notice) }
+                if ($hint) { [Console]::WriteLine($hint) }
                 for ($i=0; $i -lt $labels.Count; $i++) {
                     $prefix = if ($i+$first -eq $Focus) { '> ' } else { '  ' }
                     [Console]::WriteLine($prefix+$labels[$i])
                 }
                 [Console]::WriteLine((Get-OreMessage 'menuKeys'))
+            }
+            if ($seconds) {
+                if (!$clock) { $clock = [Diagnostics.Stopwatch]::StartNew() }
+                $shown = $seconds
+                while (!(Test-OreMenuKey) -and $seconds -eq $shown) {
+                    Start-Sleep -Milliseconds 40
+                    $seconds = [Math]::Max(0,$AutoStartSeconds-[int][Math]::Floor($clock.Elapsed.TotalSeconds))
+                }
+                if (!(Test-OreMenuKey)) {
+                    if (!$seconds) { return $Choices[0] }
+                    continue
+                }
+                $seconds = 0
+            }
+            if ($Refresh) {
+                while (!(Test-OreMenuKey)) {
+                    if ($Refresh.Wait(80)) { return (New-OreChoice '' 'refresh' $Focus) }
+                }
             }
             switch (Read-OreMenuKey) {
                 'UpArrow'   { $Focus = ($Focus+$Choices.Count-1) % $Choices.Count }
@@ -34,13 +79,26 @@ function Read-OreChoice([string]$Title, [string]$Primary, [array]$Choices, [stri
             }
         }
     } finally {
-        if ($t) { Clear-OreTerminalPanel; $t.Choices=$null; $t.Footer=''; $t.Notice=''; $t.Primary='' }
+        try {
+            if ($t) { Clear-OreTerminalPanel; $t.Choices=$null; $t.Footer=''; $t.Notice=''; $t.Primary='' }
+        } finally { if ($hideCursor) { [Console]::CursorVisible=$true } }
     }
 }
 
 function Get-OreMenuSelection([string]$Pointer = 'current') {
     try { Get-OreSelection $Installation $Pointer }
     catch { if ($script:OreReport) { Write-OreDiagnostic $_.Exception.Message } }
+}
+function Get-OreInstalledName([string]$Commit) {
+    if ($Commit -cnotmatch '^[a-f0-9]{40}\z') { return }
+    try {
+        $path = Assert-OrePath $Installation (Join-Path $Installation ('cache/release-name-'+$Commit))
+        if ([IO.File]::Exists($path) -and (New-Object IO.FileInfo $path).Length -le 4KB) {
+            $name = ([IO.File]::ReadAllText($path) -replace '[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]',' ').Trim()
+            if ($name) { return $name }
+        }
+    } catch { if ($script:OreReport) { Write-OreDiagnostic $_.Exception.Message } }
+    return $Commit.Substring(0,12)
 }
 function Get-OreVersionSummary {
     $current = Get-OreMenuSelection
@@ -49,6 +107,10 @@ function Get-OreVersionSummary {
         return (Get-OreMessage 'menuFirst')
     }
     $version = $current.Id -replace '^release-','' -replace '^([a-f0-9]{12})-.*$','$1'
+    try {
+        $info = Read-OreJson (Assert-OrePath $Installation (Join-Path $current.Application 'build-info.json')) 16KB
+        if ($info.commit -cmatch '^[a-f0-9]{40}\z') { $version = Get-OreInstalledName $info.commit }
+    } catch { if ($script:OreReport) { Write-OreDiagnostic $_.Exception.Message } }
     $mode = if ([IO.File]::Exists((Join-Path $Installation 'updates-paused'))) { 'menuFixed' } else { 'menuLatest' }
     return ((Get-OreMessage $mode)+'  ·  '+$version)
 }
@@ -133,17 +195,31 @@ function Write-OreVersionSelection($Selection, [string]$Pointer, [string]$Stage)
     if ([IO.File]::Exists($path)) { [IO.File]::Replace($temp,$path,[NullString]::Value) }
     else { [IO.File]::Move($temp,$path) }
 }
-function Get-OreReleasePage([string]$Stage, [int]$Page) {
+function Get-OreReleasePage([string]$Stage, [int]$Page, [string[]]$InstalledCommits, $NamesReady) {
     $file = Join-Path $Stage 'releases.json'
     Get-OreHttps ('https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/releases?per_page=5&page='+$Page) $file 12
     # Windows PowerShell preserves the outer JSON array as a single object.
     $records = Read-OreJson $file
     if ($records -isnot [array] -or $records.Count -gt 5) { throw 'Invalid release page.' }
+    foreach ($release in $records) { Save-OreReleaseName $Installation $release $Stage }
+    # Retained builds may predate this page. Resolve their exact tags once on entry.
+    foreach ($commit in $InstalledCommits) {
+        $tag = 'build-'+$commit
+        if ($commit -cnotmatch '^[a-f0-9]{40}\z' -or $records.tag_name -ccontains $tag) { continue }
+        try {
+            $older = Join-Path $Stage ($tag+'-metadata.json')
+            Get-OreHttps ('https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/releases/tags/'+$tag) $older 8
+            $release = Read-OreJson $older
+            if ($release.tag_name -ceq $tag) { Save-OreReleaseName $Installation $release $Stage }
+        } catch {
+            if ($script:OreCatalogueStop.IsCancellationRequested) { throw }
+            Write-OreDiagnostic ('Cannot refresh release title for '+$tag+': '+$_.Exception.Message)
+        }
+    }
+    if ($NamesReady) { $NamesReady.Set() }
     foreach ($release in $records) {
         if ($release.draft -ne $false) { continue }
-        $name = ([string]$release.name -replace '[\p{Cc}\p{Cf}]',' ').Trim()
-        if (!$name) { $name = [string]$release.tag_name -replace '[^\w.-]','' }
-        $name = $name.Substring(0,[Math]::Min(60,$name.Length))
+        $name = Get-OreReleaseName $release
         $date = if ($release.published_at -match '^(\d{4}-\d{2}-\d{2})T') { $Matches[1] } else { '' }
         $descriptor = $null
         $status = 'menuUnsupported'
@@ -160,24 +236,25 @@ function Get-OreReleasePage([string]$Stage, [int]$Page) {
         @{Name=$name; Date=$date; Status=$status; Release=$descriptor}
     }
 }
-function Start-OreCataloguePage([int]$Page) {
+function Start-OreCataloguePage([int]$Page, [string[]]$InstalledCommits) {
     $stage = New-OrePackageStage
     $stop = New-Object Threading.CancellationTokenSource
+    $ready = New-Object Threading.ManualResetEventSlim
     $state = [Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
-    foreach ($name in @('Get-OreReleasePage','Read-OreReleaseDescriptor','Get-OreReleaseAsset','Get-OreHttps','Read-OreJson','Write-OreDiagnostic')) {
+    foreach ($name in @('Get-OreReleasePage','Get-OreReleaseName','Save-OreReleaseName','Assert-OrePath','Read-OreReleaseDescriptor','Get-OreReleaseAsset','Get-OreHttps','Read-OreJson','Write-OreDiagnostic')) {
         $state.Commands.Add((New-Object Management.Automation.Runspaces.SessionStateFunctionEntry($name,(Get-Command $name).Definition)))
     }
     $worker = [PowerShell]::Create($state)
     try {
         $null = $worker.AddScript({
-            param($stage,$page,$stop,$report,$LauncherVersion)
+            param($stage,$page,$stop,$report,$LauncherVersion,$Installation,$commits,$ready)
             $ErrorActionPreference='Stop'
             $script:OreCatalogueStop=$stop
             $script:OreReport=$report
-            Get-OreReleasePage $stage $page
-        }).AddArgument($stage).AddArgument($Page).AddArgument($stop).AddArgument($script:OreReport).AddArgument($LauncherVersion)
-        return @{Worker=$worker; Async=$worker.BeginInvoke(); Stop=$stop; Stage=$stage}
-    } catch { $worker.Dispose(); $stop.Dispose(); Remove-OrePackageStage $stage; throw }
+            try { Get-OreReleasePage $stage $page $commits $ready } finally { $ready.Set() }
+        }).AddArgument($stage).AddArgument($Page).AddArgument($stop).AddArgument($script:OreReport).AddArgument($LauncherVersion).AddArgument($Installation).AddArgument($InstalledCommits).AddArgument($ready)
+        return @{Worker=$worker; Async=$worker.BeginInvoke(); Stop=$stop; Stage=$stage; NamesReady=$ready}
+    } catch { $worker.Dispose(); $stop.Dispose(); $ready.Dispose(); Remove-OrePackageStage $stage; throw }
 }
 function Close-OreCataloguePage($Request) {
     if (!$Request -or $Request.Closed) { return }
@@ -185,7 +262,7 @@ function Close-OreCataloguePage($Request) {
         $Request.Stop.Cancel()
         if (!$Request.Async.IsCompleted) { $Request.Worker.Stop() }
     } finally {
-        $Request.Worker.Dispose(); $Request.Stop.Dispose(); $Request.Closed=$true
+        $Request.Worker.Dispose(); $Request.Stop.Dispose(); $Request.NamesReady.Dispose(); $Request.Closed=$true
         Remove-OrePackageStage $Request.Stage
     }
 }
@@ -205,10 +282,10 @@ function Select-OrePublishedVersion([array]$Installed, $Request) {
             foreach ($row in $rows) {
                 $local = $Installed | Where-Object { $_.Commit -ceq $row.Release.Commit } | Select-Object -First 1
                 $status = Get-OreMessage $row.Status @{version=$row.Release.MinimumLauncherVersion}
-                if ($local) { $status += ' · '+(Get-OreMessage 'menuInstalled') }
-                $label = (@($row.Name,$row.Date,$status) -ne '') -join '  ·  '
-                $options += New-OreChoice $label $row.Status @{Local=$local; Release=$row.Release; Label=$row.Name} -Disabled:($row.Status -ne 'menuAvailable')
+                $installedLabel = if ($local) { Get-OreMessage 'menuInstalled' }
+                $options += New-OreChoice $row.Name $row.Status @{Local=$local; Release=$row.Release; Label=$row.Name} -Columns @($row.Name,$row.Date,$status,$installedLabel) -Disabled:($row.Status -ne 'menuAvailable')
             }
+            Format-OreVersionRows $options
             if ($rows.Count -eq 5) { $options += New-OreChoice (Get-OreMessage 'menuNext') 'next' }
             if ($page -gt 1) { $options += New-OreChoice (Get-OreMessage 'menuPrev') 'prev' }
             $options += New-OreChoice (Get-OreMessage 'menuBack') 'back'
@@ -269,28 +346,34 @@ function Select-OreRecoveryDatabase {
 
 function Show-OreVersionManager {
     $notice = ''
-    $request = Start-OreCataloguePage 1
+    $installed = @(Get-OreLocalVersions | Sort-Object { $_.Id })
+    $request = Start-OreCataloguePage 1 @($installed | ForEach-Object { $_.Commit } | Select-Object -Unique)
+    $refresh = if ($installed.Count) { $request.NamesReady }
+    $focus = 0
     try {
         while ($true) {
-            $installed = @(Get-OreLocalVersions | Sort-Object Id)
             $current = Get-OreMenuSelection
             $working = Get-OreMenuSelection 'working'
             $previous = Get-OreMenuSelection 'previous'
             $options = @((New-OreChoice (Get-OreMessage 'menuLatest') 'latest'))
             foreach ($entry in $installed) {
                 $status = if ($entry.Id -ceq $working.Id) { 'menuLastWorking' } elseif ($entry.Id -ceq $previous.Id) { 'menuPreviousWorking' } else { 'menuInstalled' }
-                $label = $entry.Commit.Substring(0,12)+'  ·  '+(Get-OreMessage $status)
-                if ($entry.Id -ceq $current.Id) { $label += ' · '+(Get-OreMessage 'menuSelected') }
+                $label = Get-OreInstalledName $entry.Commit
+                $selected = if ($entry.Id -ceq $current.Id) { Get-OreMessage 'menuSelected' }
+                $requirement = ''
                 $action = 'local'
                 if ($entry.MinimumLauncherVersion -gt $LauncherVersion) {
-                    $label += ' · '+(Get-OreMessage 'menuNewer' @{version=$entry.MinimumLauncherVersion}); $action='blocked'
+                    $requirement = Get-OreMessage 'menuNewer' @{version=$entry.MinimumLauncherVersion}; $action='blocked'
                 }
-                $options += New-OreChoice $label $action $entry -Disabled:($action -eq 'blocked')
+                $options += New-OreChoice $label $action $entry -Columns @($label,(Get-OreMessage $status),$selected,$requirement) -Disabled:($action -eq 'blocked')
             }
+            Format-OreVersionRows $options
             $options += New-OreChoice (Get-OreMessage 'menuGithub') 'github'
             if (Get-OreMenuSelection 'recovery/current') { $options += New-OreChoice (Get-OreMessage 'menuLocate') 'database' }
             $options += New-OreChoice (Get-OreMessage 'menuBack') 'back'
-            $choice = Read-OreChoice 'menuManage' (Get-OreVersionSummary) $options $notice
+            $choice = Read-OreChoice 'menuManage' (Get-OreVersionSummary) $options $notice $focus 0 $refresh
+            if ($choice.Action -eq 'refresh') { $refresh=$null; $focus=$choice.Value; continue }
+            $focus = 0
             $notice = ''
             $stage = $null
             try {
@@ -302,7 +385,7 @@ function Show-OreVersionManager {
                         return
                     }
                     'local' {
-                        if (Confirm-OrePin $choice.Label) {
+                        if (Confirm-OrePin $choice.Columns[0]) {
                             $stage = New-OrePackageStage
                             Show-OreMessage 'menuVerifying'
                             Set-OreInstalledVersion $choice.Value $stage
@@ -310,6 +393,7 @@ function Show-OreVersionManager {
                         }
                     }
                     'github' {
+                        $refresh=$null
                         if ($request.Closed) { $request=$null }
                         if (Select-OrePublishedVersion $installed $request) { return }
                     }

@@ -41,21 +41,36 @@ function Show-OreGreeting([int]$Version) {
 function Clear-OreTerminalPanel {
     $t = $script:OreTerminal
     if (!$t -or $t.Start -lt 0) { return }
-    # After a resize or unrelated console output, append at the current cursor
-    # rather than erasing a region we no longer own.
     try {
-        if ($t.Width -eq [Console]::BufferWidth -and $t.End -eq [Console]::CursorTop -and [Console]::CursorLeft -eq 0) {
-            [Console]::SetCursorPosition(0,$t.Start)
+        $width = [Console]::BufferWidth
+        $start = $t.Start
+        $rows = $t.End-$start
+        if ($t.MenuAnchor) {
+            # ReadKey does not echo. Windows keeps this cursor on the menu's
+            # first cell when a resize reflows the greeting or earlier output.
+            $start = [Console]::CursorTop
+            if ($t.PlainConsole -and $width -ne $t.Width) {
+                $reflowed = 0
+                foreach ($length in $t.MenuLineWidths) { $reflowed += 1+[Math]::Floor($length/$width) }
+                $rows = [Math]::Max($rows,$reflowed)
+            }
+        }
+        # Status panels can share the console with process output. Only clear
+        # one if the cursor still marks its recorded end.
+        if ($t.MenuAnchor -or ($t.Width -eq $width -and $t.End -eq [Console]::CursorTop -and [Console]::CursorLeft -eq 0)) {
+            [Console]::SetCursorPosition(0,$start)
             if ($t.PlainConsole) {
-                for ($row=$t.Start; $row -lt $t.End; $row++) {
-                    [Console]::SetCursorPosition(0,$row)
-                    [Console]::Write(' '*($t.Width-1))
+                $bottom = [Math]::Min([Console]::BufferHeight-1,$start+$rows-1)
+                if ($bottom -ge $start) {
+                    $area = [Management.Automation.Host.Rectangle]::new(0,$start,$width-1,$bottom)
+                    $blank = [Management.Automation.Host.BufferCell]::new(' ',[Console]::ForegroundColor,[Console]::BackgroundColor,'Complete')
+                    $Host.UI.RawUI.SetBufferContents($area,$blank)
                 }
-                [Console]::SetCursorPosition(0,$t.Start)
             } else { [Console]::Write(([string][char]27)+'[J') }
         }
     } catch [ArgumentOutOfRangeException] { } # Resized between measurement and write.
     $t.Start = -1
+    $t.MenuAnchor = $false
 }
 
 function Get-OreTerminalLines([int]$Width) {
@@ -95,13 +110,19 @@ function Write-OreTerminalPanel {
     $t.Width = [Math]::Max(1,[Console]::BufferWidth)
     $start = [Console]::CursorTop
     $rows = 0
-    foreach ($line in $lines) {
+    $t.MenuLineWidths = foreach ($line in $lines) {
         $visible = $line -replace '\x1b\[[0-9;]+m',''
-        $rows += 1 + [Math]::Floor($visible.Length / $t.Width)
+        $length = $Host.UI.RawUI.LengthInBufferCells($visible)
+        $rows += 1 + [Math]::Floor($length / $t.Width)
+        $length
         [Console]::WriteLine([string]$line)
     }
     $t.End = [Console]::CursorTop
     $t.Start = if ($t.End -lt [Console]::BufferHeight-1) { $start } else { [Math]::Max(0,[Math]::Min($start,$t.End-$rows)) }
+    if ($t.Choices) {
+        [Console]::SetCursorPosition(0,$t.Start)
+        $t.MenuAnchor = $true
+    }
 }
 
 function Show-OreTerminalFailure([string]$Id, [hashtable]$Parameters = @{}) {

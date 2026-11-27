@@ -79,9 +79,11 @@ The installation script is `ORE-launcher.bat`. Download it from [Releases](https
 
 Place the file in the folder where you want to install ORE and double-click it.
 
-Press **Enter** on **Start ORE**. On first use the launcher downloads and verifies the latest Windows package, installs it in `ORE-internal/`, and starts ORE. On later launches, ORE prepares updates in the background. When the console says an update is ready, restart ORE.
+ORE starts after three seconds. Press **Enter** to start immediately, or press an arrow key to stop the countdown and choose an action. On first use the launcher downloads and verifies the latest Windows package, installs it in `ORE-internal/`, and starts ORE. On later launches, ORE prepares updates in the background. When the console says an update is ready, restart ORE.
 
-To stay on a particular version, use the arrow keys to choose **Manage versions**. Select an installed build or choose **Browse GitHub releases**, then confirm **Use this version**. The launcher checks the build against your database before switching. A fixed version starts offline and pauses automatic updates. Choose **Latest release · Automatic updates** to resume them. Press **Esc** to go back.
+In **Launcher settings**, choose what opens once ORE is ready. The default is your usual browser. To use an installed ORE web app, choose **Open a web app shortcut…** and select its Windows `.lnk` file. Choose **Open nothing** to open ORE yourself using the address in the launcher.
+
+To stay on a particular version, use the arrow keys to choose **Manage versions**. Select an installed build or choose **Browse releases**, then confirm **Use this version**. Both lists show the title published on GitHub. Opening Manage versions refreshes titles and keeps them available offline. The launcher checks the build against your database before switching. A fixed version starts offline and pauses automatic updates. Choose **Latest release · Automatic updates** to resume them. Press **Esc** to go back.
 
 If an older launcher can’t update ORE, download the new launcher from [Releases](https://github.com/olegpro171/Open-Roleplay-Engine/releases), stop the app, replace `ORE-launcher.bat` beside the existing `ORE-internal/` folder, and double-click it.
 
@@ -104,7 +106,7 @@ If you built a separate portable installation on macOS or Linux, run `./start.co
 
 ## Troubleshooting
 
-**ORE won’t start after a Windows update.** Read the error in the launcher and open **Manage versions**. Choose the build marked **Last started successfully** or **Previous working version**. If the database has moved, choose **Locate an existing database…** and select its new location. Then choose **Start ORE**. If the build cannot read the saved database, consult the [recovery guide](docs/RELEASES.md#database-upgrades-and-explicit-recovery).
+**ORE won’t start after a Windows update.** Read the error in the launcher and open **Manage versions**. Choose the build marked **Last started successfully** or **Previous working version**. If the database has moved, choose **Open chats from a moved or restored database…** and select its new location. Then choose **Start ORE**. If the build cannot read the saved database, consult the [recovery guide](docs/RELEASES.md#database-upgrades-and-explicit-recovery).
 
 If the launcher menu itself is unavailable, stop ORE and run this command in PowerShell from the folder containing `ORE-launcher.bat`.
 
