@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test';
 import { test } from './isolated-app';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import type { ChatSnapshot } from '../../src/shared/contracts';
+import type { BackupProgress } from '../../src/shared/backups';
 import { themeSchema, appearanceStatusSchema } from '../../src/shared/appearance';
 import { readFile } from 'node:fs/promises';
 import { selectLibraryCategory } from './library-card-helpers';
@@ -90,7 +91,7 @@ test('pending backup saving and opening show progress and prevent dismissal', as
       }
     }
   }
-  let progress: { phase: string; done: number; total: number } | null = null;
+  let progress: BackupProgress | null = null;
   await page.route('**/api/data/backup-progress/*', route => route.fulfill({ json: { progress } }));
   let releaseSave: (() => void) | undefined;
   const saveResponse = new Promise<void>(resolve => { releaseSave = resolve; });
@@ -150,6 +151,11 @@ test('pending backup saving and opening show progress and prevent dismissal', as
   await expect(dialog.getByRole('progressbar', { name: 'Проверяем сохранённые записи…' })).toHaveAttribute('aria-valuenow', '40');
   await expect(dialog.getByText(/40\s*%/)).toBeVisible();
   const overview = dialog.getByRole('progressbar', { name: 'Прогресс' });
+  await expect(overview).toHaveAttribute('aria-valuetext', 'Шаг 5 из 10');
+  progress = { phase: 'references' };
+  const references = dialog.getByRole('progressbar', { name: 'Проверяем связи и целостность базы…' });
+  await expect(references).toBeVisible();
+  await expect(references).not.toHaveAttribute('aria-valuenow');
   await expect(overview).toHaveAttribute('aria-valuetext', 'Шаг 5 из 10');
   progress = { phase: 'validateClean', done: 1, total: 5 };
   await expect(overview).toHaveAttribute('aria-valuetext', 'Шаг 7 из 10');
@@ -367,28 +373,29 @@ test('large backup shows transfer progress, then a bounded review across themes'
   const network = await context.newCDPSession(page);
   await network.send('Network.enable');
   await network.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: 2_000_000 });
-  // The local server may finish validation between two Playwright assertions.
-  // Observe the rendered states through dialog closure, including short-lived ones.
-  const phases = dialog.evaluate(node => new Promise(resolve => {
-    let transferred = false, checked = false, serverProgress = false;
+  // Observe short-lived measured phases. The first server measurement may
+  // already be available when the browser finishes reporting the upload.
+  const phases = await dialog.evaluateHandle(node => {
+    const seen = { upload: false, inspection: false };
     const observer = new MutationObserver(() => {
       const bar = node.querySelector('[role="progressbar"][aria-labelledby]');
       const value = bar?.getAttribute('aria-valuenow');
       const label = node.querySelector('[role="status"]')?.textContent;
-      if (label === 'Uploading backup…' && value != null && Number(value) > 0 && Number(value) < 100) transferred = true;
-      if (label === 'Checking backup contents…' && bar && value == null) checked = true;
-      if (label !== 'Uploading backup…' && value != null) serverProgress = true;
-      if (!node.isConnected) {
-        observer.disconnect();
-        resolve({ transferred, checked, serverProgress });
-      }
+      if (label === 'Uploading backup…' && value != null && Number(value) > 0 && Number(value) < 100) seen.upload = true;
+      if (seen.upload && label && label !== 'Uploading backup…' && value != null) seen.inspection = true;
+      if (!node.isConnected) observer.disconnect();
     });
     observer.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
-  }));
-  await dialog.getByRole('button', { name: 'Review backup' }).click();
-  await expect(dialog).toHaveCount(0, { timeout: 30_000 });
-  expect(await phases).toEqual({ transferred: true, checked: true, serverProgress: true });
-  await network.detach();
+    return seen;
+  });
+  try {
+    await dialog.getByRole('button', { name: 'Review backup' }).click();
+    await expect(dialog).toHaveCount(0, { timeout: 30_000 });
+    expect(await phases.jsonValue()).toEqual({ upload: true, inspection: true });
+  } finally {
+    await phases.dispose();
+    await network.detach();
+  }
   const review = page.getByRole('region', { name: 'Import review', exact: true });
   await expect(review.getByRole('heading', { name: 'Import review' })).toBeFocused();
   await expect(review).toContainText(fileName);

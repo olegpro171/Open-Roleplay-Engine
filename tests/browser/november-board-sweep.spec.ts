@@ -268,7 +268,7 @@ test('reuses the file drop box and fits the Russian editing controls across them
   await page.getByRole('combobox', { name: 'Interface language', exact: true }).click();
   await page.getByRole('option', { name: 'Русский', exact: true }).click();
 
-  for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+  for (const theme of themeSchema.options) {
     const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
     const result = await page.request.put('/api/application/appearance', { headers, data: { revision: appearance.revision, settings: { ...appearance.settings, theme } } });
     expect(result.ok(), await result.text()).toBe(true);
@@ -282,11 +282,20 @@ test('reuses the file drop box and fits the Russian editing controls across them
       const remove = page.getByRole('checkbox', { name: 'Удалить сохранённый API-ключ', exact: true });
       await expect(key).toHaveValue('');
       await remove.scrollIntoViewIfNeeded();
-      const inputBox = await key.boundingBox(), checkbox = await remove.boundingBox();
-      if (!inputBox || !checkbox) throw new Error('Missing saved-key controls');
-      if (width <= 800) expect(checkbox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height);
-      else expect(checkbox.x).toBeGreaterThanOrEqual(inputBox.x + inputBox.width);
+      const removeLabel = page.getByText('Удалить сохранённый API-ключ', { exact: true });
+      await expect(key).toBeInViewport({ ratio: 1 });
+      await expect(removeLabel).toBeInViewport({ ratio: 1 });
+      const [inputBox, labelBox] = await Promise.all([key.boundingBox(), removeLabel.boundingBox()]);
+      if (!inputBox || !labelBox) throw new Error('Missing saved-key controls');
+      expect(labelBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height);
+      expect(labelBox.x).toBeCloseTo(inputBox.x);
+      expect(labelBox.x + labelBox.width).toBeLessThanOrEqual(inputBox.x + inputBox.width);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       await page.screenshot({ path: testInfo.outputPath(`saved-key-${theme}-${width}.png`) });
+      await remove.check();
+      await expect(key).toBeDisabled();
+      await remove.uncheck();
+      await expect(key).toBeEnabled();
       await page.getByRole('button', { name: 'Отмена', exact: true }).click();
       await page.getByRole('button', { name: 'История', exact: true }).click();
       if (width <= 800) await page.getByRole('button', { name: 'О чате', exact: true }).click();

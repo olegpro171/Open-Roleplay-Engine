@@ -139,7 +139,11 @@ for (const theme of themeSchema.options) for (const width of [1440, 390]) {
     await actionTab.click();
     await expect(blocks).toHaveCount(0);
     const instructions = page.getByRole('tabpanel', { name: 'Action instructions', exact: true });
-    await expect(instructions.getByText('Built-in instruction', { exact: true })).toHaveCount(2);
+    await expect(instructions.locator('summary')).toHaveText([
+      /^Continue\s*Built-in instruction$/,
+      /^Impersonate\s*Built-in instruction$/,
+      /^Opening scene\s*Built-in instruction$/,
+    ]);
     await page.screenshot({ path: testInfo.outputPath('action-instructions.png') });
     await instructions.getByText('Continue', { exact: true }).click();
     await expect(continuation).toHaveValue(defaultContinuationInstruction);
@@ -276,9 +280,10 @@ for (const width of [1440, 320]) test(`keeps edits across prompt tabs and reveal
   await expect(opening).toHaveCount(0);
   await instructions.getByText('Opening scene', { exact: true }).click();
   await expect(opening).toHaveValue(openingText);
-  await instructions.getByText('Continue', { exact: true }).click();
+  const continueInstruction = instructions.locator('summary').filter({ has: page.getByText('Continue', { exact: true }) });
+  await continueInstruction.click();
   await instructions.getByRole('textbox', { name: 'Continuation instruction', exact: true }).clear();
-  await expect(instructions.getByText('Built-in instruction', { exact: true })).toBeVisible();
+  await expect(continueInstruction.getByText('Built-in instruction', { exact: true })).toBeVisible();
   await save.click();
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   const library = await page.request.get('/api/library').then(response => response.json() as Promise<LibrarySnapshot>);

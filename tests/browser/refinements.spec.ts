@@ -8,7 +8,7 @@ import { assembleRequest } from '../../src/core/prompt';
 import type { SummaryNode } from '../../src/shared/context';
 import { createCompactPrompt } from './compact-prompt';
 
-test('live input inspection, budget recovery, provider usage and clearing every memory layer', async ({ page, browser, request, setAppearance }) => {
+test('live input inspection, budget recovery, provider usage and clearing every memory layer', async ({ page, browser, request, setAppearance }, testInfo) => {
   const password = 'browser-synthetic-password';
   const session = await request.get('/api/session').then(response => response.json());
   const { endpoint } = await request.get('/__test/endpoint').then(response => response.json());
@@ -53,7 +53,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await expect(peek).toContainText('Mira keeps the key for herself.');
   expect(await peek.locator('.prompt-message').count()).toBe(18);
   await peek.evaluate(node => { node.scrollTop = 0; });
-  await page.screenshot({ path: 'test-results/desktop-prompt-peek.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('desktop-prompt-peek.png'), fullPage: true });
   await page.keyboard.press('Escape'); await expect(peek).toHaveCount(0);
   await expect(meta.getByRole('button', { name: 'Prompt peek', exact: true })).not.toBeFocused();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -100,11 +100,16 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await expect(memoryStatus).toHaveText(targetWarning);
   await expect(page.getByRole('button', { name: 'Prepare chat', exact: true })).toBeEnabled();
 
+  await page.getByLabel('Input target', { exact: true }).fill('9999999');
+  const saveTarget = page.waitForResponse(response => new URL(response.url()).pathname === `/api/chats/${chatId}/selections`
+    && response.request().method() === 'PUT');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  expect((await saveTarget).status()).toBe(200);
+  await expect.poll(async () => (await state()).settings.targetInputTokens).toBe(9_999_999);
+  await expect(memoryStatus).toHaveText('Current input fits.');
+
   const capped = { ...connection, contextWindow: required + 1 + connection.maxOutputTokens };
   await command(`/api/library/${connectionId}`, { revision: (await libraries()).revision, kind: 'connections', data: capped }, 'PUT');
-  await page.getByLabel('Input target', { exact: true }).fill('9999999');
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect.poll(async () => (await state()).settings.targetInputTokens).toBe(9_999_999);
   await expect(memoryStatus).toHaveText('This chat exceeds the Connection’s input limit. Check the model’s context window in Connection settings.');
   await command(`/api/library/${connectionId}`, { revision: (await libraries()).revision, kind: 'connections', data: connection }, 'PUT');
   await expect(memoryStatus).toHaveText('Current input fits.');
@@ -149,7 +154,7 @@ test('live input inspection, budget recovery, provider usage and clearing every 
   await phone.getByRole('button', { name: 'Prompt peek', exact: true }).click();
   await expect(phone.getByRole('dialog', { name: 'Prompt peek' })).toBeVisible();
   expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await phone.screenshot({ path: 'test-results/phone-prompt-peek.png', fullPage: true });
+  await phone.screenshot({ path: testInfo.outputPath('phone-prompt-peek.png'), fullPage: true });
   await phone.getByRole('button', { name: 'Close peek' }).click();
   await phoneContext.close();
 
@@ -315,12 +320,12 @@ test('keeps the reading turn during resize, jumps to latest, and makes dense mem
   const fits = await recent.evaluate(node => node.scrollWidth <= node.clientWidth);
   expect(fits).toBe(true);
   await expect(page.locator('.timeline-labels')).toHaveText('L1L2Turns');
-  await page.screenshot({ path: 'test-results/memory-timeline-zoom.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('memory-timeline-zoom.png'), fullPage: true });
   await page.getByLabel('Zoom timeline', { exact: true }).uncheck();
   await page.setViewportSize({ width: 390, height: 760 });
   await expect(page.locator('.turn-band')).toHaveCount(2);
   await expect(recent).toHaveText('');
-  await page.screenshot({ path: 'test-results/memory-timeline-dense-phone.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('memory-timeline-dense-phone.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
   const timeline = page.getByLabel('Layered memory timeline', { exact: true });

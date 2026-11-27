@@ -6,7 +6,7 @@ import { defaultContextPreset } from '../../src/shared/context';
 import type { LibrarySnapshot } from '../../src/shared/library';
 import { createCompactPrompt } from './compact-prompt';
 
-test('reviews a repair queue with source diffs, regeneration and dismissal on desktop and phone layouts', async ({ page, request }) => {
+test('reviews a repair queue with source diffs, regeneration and dismissal on desktop and phone layouts', async ({ page, request }, testInfo) => {
   test.setTimeout(60_000);
   const securityErrors: string[] = [];
   page.on('console', message => { if (message.type() === 'error' && /Content Security Policy/i.test(message.text())) securityErrors.push(message.text()); });
@@ -48,7 +48,7 @@ test('reviews a repair queue with source diffs, regeneration and dismissal on de
   await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
   await expect(dialog.getByTestId('repair-phase')).toHaveText('Connecting…');
   const connectingBounds = await dialog.boundingBox();
-  await dialog.screenshot({ path: 'test-results/repair-connecting.png' });
+  await dialog.screenshot({ path: testInfo.outputPath('repair-connecting.png') });
   await request.post('/__test/finish');
   await expect(dialog.getByTestId('repair-phase')).toHaveText('Generating…');
   await request.post('/__test/finish');
@@ -93,7 +93,7 @@ test('reviews a repair queue with source diffs, regeneration and dismissal on de
   await dialog.getByText('Why this needs repair · compare sources', { exact: true }).click();
   await expect(dialog.getByLabel('Current sources', { exact: true })).toContainText('Mira kept the key');
   await expect(dialog.getByLabel('Previous sources', { exact: true })).toContainText('Mira gives Leon');
-  await dialog.screenshot({ path: 'test-results/repair-desktop.png' });
+  await dialog.screenshot({ path: testInfo.outputPath('repair-desktop.png') });
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(repair).not.toBeFocused();
@@ -125,7 +125,7 @@ test('reviews a repair queue with source diffs, regeneration and dismissal on de
   await expect(dialog.locator('.repair-body > .comparison-unified')).toHaveCount(1);
   await expect(proposal()).toContainText('Phone correction');
   expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
-  await dialog.screenshot({ path: 'test-results/repair-phone.png' });
+  await dialog.screenshot({ path: testInfo.outputPath('repair-phone.png') });
   let approved = 0;
   while (await dialog.count() && approved++ < 50) {
     const button = dialog.getByRole('button', { name: /^Approve & (Next|Finish)$/ });
@@ -149,11 +149,11 @@ test('reviews a repair queue with source diffs, regeneration and dismissal on de
   const afterRefusal = await state();
   expect(afterRefusal.context.selected).toEqual(beforeRefusal.context.selected);
   expect(afterRefusal.context.summaries).toEqual(beforeRefusal.context.summaries);
-  await dialog.screenshot({ path: 'test-results/repair-refusal-phone.png' });
+  await dialog.screenshot({ path: testInfo.outputPath('repair-refusal-phone.png') });
   await request.post('/__test/mode', { data: { mode: 'hold-first-token' } });
   await dialog.getByRole('button', { name: 'Regenerate', exact: true }).click();
   await expect(dialog.getByTestId('repair-phase')).toHaveText('Connecting…');
-  await dialog.screenshot({ path: 'test-results/repair-connecting-phone.png' });
+  await dialog.screenshot({ path: testInfo.outputPath('repair-connecting-phone.png') });
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await request.post('/__test/finish');
