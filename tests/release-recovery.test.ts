@@ -19,19 +19,21 @@ function resolveLocation(home: string, database?: string, ready = false) {
 }
 function state(home: string) { return JSON.parse(readFileSync(join(home, 'database-location.json'), 'utf8')); }
 function startupReports(home: string) { return readdirSync(join(home, 'logs')).map(name => readFileSync(join(home, 'logs', name), 'utf8')).join('\n'); }
-function recoveryFixture() {
-  const directory = root(), home = join(directory, 'ORE');
+function recoveryFixture(standalone = false) {
+  const directory = root(), home = join(directory, standalone ? 'ORE-internal' : 'ORE');
   mkdirSync(join(home, 'cache'), { recursive: true }); mkdirSync(join(home, 'data'));
   const runtime = `node-v${process.versions.node}-${process.platform}-${process.arch}`;
   mkdirSync(join(home, 'runtime', runtime, 'bin'), { recursive: true });
-  if (process.platform === 'win32') linkSync(process.execPath, join(home, 'runtime', runtime, 'node.exe'));
+  if (standalone) cpSync(process.execPath, join(home, 'runtime', runtime, 'node.exe'));
+  else if (process.platform === 'win32') linkSync(process.execPath, join(home, 'runtime', runtime, 'node.exe'));
   else symlinkSync(process.execPath, join(home, 'runtime', runtime, 'bin/node'));
   for (const id of ['release-current', 'release-previous']) {
     const app = join(home, 'app', id);
     for (const name of ['dist/client', 'dist/server/server', 'migrations', 'scripts']) mkdirSync(join(app, name), { recursive: true });
     cpSync(resolve('scripts/release'), join(app, 'scripts/release'), { recursive: true });
     // The target uses real native SQLite. Only its HTTP application is controlled.
-    symlinkSync(resolve('node_modules'), join(app, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
+    if (standalone) cpSync(resolve('node_modules/better-sqlite3'), join(app, 'node_modules/better-sqlite3'), { recursive: true });
+    else symlinkSync(resolve('node_modules'), join(app, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
     writeFileSync(join(app, 'package.json'), '{"type":"module"}');
     const info = { kind: 'release', version: 'test', commit: 'a'.repeat(40), schema: 13, node: process.versions.node, platform: process.platform, arch: process.arch };
     writeFileSync(join(app, 'build-info.json'), JSON.stringify(info));
@@ -106,6 +108,62 @@ describe('database location identity and relocation', () => {
 });
 
 describe('explicit application recovery', () => {
+  it.skipIf(process.platform !== 'win32')('pins a retained version from the launcher and refuses an incompatible database without changing mode', () => {
+    const f = recoveryFixture(true), managed = f.home, entry = join(managed, '..', 'ORE-launcher.bat');
+    writeFileSync(join(managed, '.ore-installation'), 'ORE-installation:1\n');
+    writeFileSync(join(managed, 'working'), f.current);
+    mkdirSync(join(managed, 'recovery'), { recursive: true });
+    cpSync(resolve('scripts/release'), join(managed, 'recovery/release-current'), { recursive: true });
+    writeFileSync(join(managed, 'recovery/current'), f.current);
+    const keys = join(managed, '..', 'input');
+    const input = `function Read-OreChoice($Title,$Primary,$Choices,$Notice,$Focus) {
+ [Console]::WriteLine("$Title $Notice")
+ $queue = [IO.File]::ReadAllLines($env:ORE_MENU_TEST_KEYS)
+ if (!$queue.Count) { throw 'Unexpected screen' }
+ [IO.File]::WriteAllLines($env:ORE_MENU_TEST_KEYS,[string[]]@($queue | Select-Object -Skip 1))
+ if ($queue[0] -eq 'back') { return (New-OreChoice '' 'back') }
+ if ($queue[0] -eq 'local') { return $Choices | Where-Object { $_.Value.Id -ceq 'release-previous' } }
+ return $Choices | Where-Object { $_.Action -ceq $queue[0] }
+}
+function Get-OreHttps { throw 'Offline fixture' }
+function Read-OreDatabaseFile { return $env:ORE_MENU_TEST_DATABASE }
+`;
+    const batch = readFileSync('ORE-launcher.bat', 'utf8')
+      .replace('# Bootstrap contract 2.', () => input+'# Bootstrap contract 2.')
+      .replace('$interactive = ![Console]::IsInputRedirected -and ![Console]::IsOutputRedirected', '$interactive = $true');
+    writeFileSync(entry, batch.replaceAll(/\r?\n/gu, '\r\n'));
+    const database = join(managed, 'data/roleplay.sqlite'), moved = database+'.moved';
+    const run = (...actions: string[]) => {
+      writeFileSync(keys, actions.join('\n'));
+      const result = spawnSync('cmd.exe', ['/d','/s','/c','""%ORE_MENU_TEST_ENTRY%""'], {
+        windowsVerbatimArguments: true, cwd: resolve(managed, '..'), encoding: 'utf8', timeout: 30000,
+        env: { ...process.env, ORE_MENU_TEST_ENTRY: entry, ORE_MENU_TEST_KEYS: keys, ORE_MENU_TEST_DATABASE: moved,
+          ORE_NO_PAUSE: '1', ORE_OPEN_BROWSER: '0', ROLEPLAY_DATABASE: undefined },
+      });
+      expect(result.status, result.stdout+result.stderr).toBe(0);
+      expect(readFileSync(keys,'utf8'), result.stdout).toBe('');
+      return result.stdout;
+    };
+    const db = new Database(database); db.pragma('user_version=14'); db.close();
+    const dbBytes = readFileSync(database);
+    expect(run('manage','local','pin','back','back')).toContain("Couldn't use this database");
+    expect(readFileSync(database)).toEqual(dbBytes);
+    expect(readFileSync(join(managed,'current'),'utf8')).toBe(f.current);
+    expect(existsSync(join(managed,'updates-paused'))).toBe(false);
+    const restored = new Database(moved); restored.pragma('user_version=13'); restored.close();
+    run('manage','database','back');
+    expect(state(managed).default.path).toBe(moved);
+    run('manage','local','pin','back');
+    expect(readFileSync(join(managed,'current'),'utf8')).toBe(f.previous);
+    expect(readFileSync(join(managed,'previous'),'utf8')).toBe(f.current);
+    expect(existsSync(join(managed,'updates-paused'))).toBe(true);
+    run('manage','latest','back');
+    expect(existsSync(join(managed,'updates-paused'))).toBe(false);
+    writeFileSync(join(managed,'current'), 'x'.repeat(513));
+    run('manage','local','pin','back');
+    expect(readFileSync(join(managed,'current'),'utf8')).toBe(f.previous);
+    expect(existsSync(join(managed,'updates-paused'))).toBe(true);
+  }, 90000);
   it('selects the previous startup-verified version without changing saved data and pauses automatic updates', () => {
     const f = recoveryFixture(), before = readFileSync(f.path);
     const result = f.run(['--previous']); expect(result.status, result.stderr).toBe(0);
@@ -132,7 +190,7 @@ describe('explicit application recovery', () => {
     const toolkit = join(f.home, 'recovery/release-current');
     cpSync(resolve('scripts/release'), toolkit, { recursive: true });
     writeFileSync(join(f.home, 'recovery/current'), f.current);
-    cpSync(resolve('scripts/release/start.command'), join(f.home, 'start.command'));
+    cpSync(resolve('scripts/release/installed-entries/start.command.in'), join(f.home, 'start.command'));
     if (process.platform === 'win32') {
       for (const name of ['start-windows.ps1', 'windows-common.ps1', 'windows-snapshot.ps1', 'windows-standalone-common.ps1', 'windows-package-lock.ps1']) cpSync(resolve('scripts/release', name), join(f.home, name));
     }

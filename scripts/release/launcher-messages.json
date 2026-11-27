@@ -1,4 +1,128 @@
 {
+  "menuHome": {
+    "en": "LAUNCHER",
+    "ru": "ЛАУНЧЕР"
+  },
+  "menuNoSelection": {
+    "en": "Selected build unavailable · Open Manage versions",
+    "ru": "Выбранная сборка недоступна · Откройте управление версиями"
+  },
+  "menuStart": {
+    "en": "Start ORE",
+    "ru": "Запустить ORE"
+  },
+  "menuManage": {
+    "en": "Manage versions",
+    "ru": "Управление версиями"
+  },
+  "menuKeys": {
+    "en": "↑ ↓  Choose    Enter  Select    Esc  Back / exit",
+    "ru": "↑ ↓  Выбор    Enter  Подтвердить    Esc  Назад / выход"
+  },
+  "menuFirst": {
+    "en": "Latest release · First installation",
+    "ru": "Последний выпуск · Первая установка"
+  },
+  "menuLatest": {
+    "en": "Latest release · Automatic updates",
+    "ru": "Последний выпуск · Автообновление"
+  },
+  "menuFixed": {
+    "en": "Fixed version",
+    "ru": "Фиксированная версия"
+  },
+  "menuPin": {
+    "en": "Use this version",
+    "ru": "Использовать эту версию"
+  },
+  "menuPinHint": {
+    "en": "Automatic updates will pause, including any prepared update.",
+    "ru": "Автообновление будет приостановлено, включая уже подготовленное обновление."
+  },
+  "menuGithub": {
+    "en": "Browse GitHub releases",
+    "ru": "Выпуски на GitHub"
+  },
+  "menuLoading": {
+    "en": "Loading releases from GitHub…",
+    "ru": "Загрузка выпусков с GitHub…"
+  },
+  "menuAvailable": {
+    "en": "Compatible",
+    "ru": "Совместим"
+  },
+  "menuNewer": {
+    "en": "Requires launcher {version}",
+    "ru": "Нужен лаунчер {version}"
+  },
+  "menuUnverified": {
+    "en": "Compatibility unknown",
+    "ru": "Совместимость неизвестна"
+  },
+  "menuUnsupported": {
+    "en": "No supported Windows package",
+    "ru": "Нет подходящей сборки Windows"
+  },
+  "menuInstalled": {
+    "en": "Installed",
+    "ru": "Установлена"
+  },
+  "menuSelected": {
+    "en": "Selected",
+    "ru": "Выбрана"
+  },
+  "menuPreviousWorking": {
+    "en": "Previous working version",
+    "ru": "Предыдущая рабочая версия"
+  },
+  "menuLastWorking": {
+    "en": "Last started successfully",
+    "ru": "Последняя успешно запущенная"
+  },
+  "menuLocate": {
+    "en": "Locate an existing database…",
+    "ru": "Указать существующую базу данных…"
+  },
+  "menuVerifying": {
+    "en": "Checking this build and database compatibility…",
+    "ru": "Проверка сборки и совместимости с базой данных…"
+  },
+  "menuDatabaseBlocked": {
+    "en": "Couldn't use this database with the selected build. Check the log or locate an existing compatible database.",
+    "ru": "Не удалось использовать базу с выбранной сборкой. Проверьте журнал или укажите существующую совместимую базу."
+  },
+  "menuDatabaseOverride": {
+    "en": "Change the configured ROLEPLAY_DATABASE path before selecting another database.",
+    "ru": "Чтобы выбрать другую базу, сначала измените заданный путь ROLEPLAY_DATABASE."
+  },
+  "menuRecoveryHint": {
+    "en": "Open Manage versions to choose a working build or locate your database.",
+    "ru": "В разделе «Управление версиями» можно выбрать рабочую сборку или указать базу данных."
+  },
+  "menuBack": {
+    "en": "Back",
+    "ru": "Назад"
+  },
+  "menuPage": {
+    "en": "Page {page}",
+    "ru": "Страница {page}"
+  },
+  "menuNoReleases": {
+    "en": "No published releases on this page.",
+    "ru": "На этой странице нет опубликованных выпусков."
+  },
+  "menuNext": {
+    "en": "Next page",
+    "ru": "Следующая страница"
+  },
+  "menuPrev": {
+    "en": "Previous page",
+    "ru": "Предыдущая страница"
+  },
+  "menuCatalogueFailed": {
+    "en": "Couldn't load the GitHub release list. Installed versions are available offline.",
+    "ru": "Не удалось загрузить список выпусков с GitHub. Установленные версии доступны без сети."
+  },
   "launcherVersion": {
     "en": "Launcher {version}",
     "ru": "Лаунчер {version}"

@@ -13,13 +13,51 @@ $Installation = Join-Path ([IO.Path]::GetDirectoryName($env:ORE_BOOTSTRAP_FILE))
 $stage = $null
 $lockStream = $null
 $result = 1
-$script:OreTerminal = New-OreTerminal
+$interactive = ![Console]::IsInputRedirected -and ![Console]::IsOutputRedirected
+$script:OreTerminal = New-OreTerminal -InteractiveMenu:($interactive -and !$StartOnly -and !$InstallOnly)
 try {
-    if (!$InstallOnly) { Show-OreGreeting $LauncherVersion }
+    if (!$InstallOnly -and !$StartOnly -and !$ManageOnly) { Show-OreGreeting $LauncherVersion }
     Assert-OreWindows
     $script:OreFailure = 'folderCollision'
     $Installation = Assert-OreStandaloneHome $Installation
     if ([IO.Directory]::Exists($Installation)) { Set-OrePrivate $Installation }
+    if ($ManageOnly) {
+        $Installation = Initialize-OreStandaloneHome $Installation
+        $lockStream = Acquire-OrePackageLease $Installation
+        Initialize-OreCancellation
+        Open-OrePackageReport -Quiet
+        Assert-OreLegacyQuiescent $Installation
+        Initialize-OrePackageEnvironment
+        Show-OreVersionManager
+        Clear-OreTerminalPanel
+        exit 0
+    }
+    if (!$InstallOnly -and !$StartOnly -and $interactive) {
+        # A worker must exit (and release its named job) before another session
+        # or recovery operation can take the installation lease.
+        Initialize-OreJob
+        $worker = '$s=[IO.File]::ReadAllText($env:ORE_BOOTSTRAP_FILE,[Text.Encoding]::UTF8);$m=''# ORE_POWER''+''SHELL_PAYLOAD'';$i=$s.LastIndexOf($m); & ([scriptblock]::Create($s.Substring($i+$m.Length)))'
+        $env:ORE_NO_PAUSE = '1'
+        $notice = ''
+        $focus = 0
+        while ($true) {
+            $choice = Read-OreChoice 'menuHome' (Get-OreVersionSummary) @(
+                (New-OreChoice (Get-OreMessage 'menuStart') 'start')
+                (New-OreChoice (Get-OreMessage 'menuManage') 'manage')
+            ) $notice $focus
+            if ($choice.Action -eq 'back') { exit 0 }
+            if ($choice.Action -eq 'manage') {
+                & (Join-Path $PSHOME 'powershell.exe') -NoProfile -ExecutionPolicy RemoteSigned -Command ($worker+' -ManageOnly; exit $LASTEXITCODE')
+                $notice = ''
+                $focus = 0
+            } else {
+                & (Join-Path $PSHOME 'powershell.exe') -NoProfile -ExecutionPolicy RemoteSigned -Command ($worker+' -StartOnly; exit $LASTEXITCODE')
+                if ($LASTEXITCODE -in @(0,130)) { exit $LASTEXITCODE }
+                $notice = Get-OreMessage 'menuRecoveryHint'
+                $focus = 1
+            }
+        }
+    }
     $script:OreFailure = 'helperUnavailable'
     $helper = Get-OrePackageHelper $Installation
     if (!$InstallOnly) {

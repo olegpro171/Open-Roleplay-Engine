@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { inventory } from './stage.mjs';
 import { parseSelection, readSelection, writeSelection, publishRename } from './selection.mjs';
 import { verifyApplication } from './application-assets.mjs';
-import { windowsPackageRootFiles as rootFiles } from './windows-package-files.mjs';
+import { removeRetiredStartBatch, windowsPackageRootFiles as rootFiles } from './windows-package-files.mjs';
 import { isLauncherVersion } from './windows-launcher-version.mjs';
 import { pruneWindowsBuilds } from './build-retention.mjs';
 import { ownsWindowsPackageLease } from './database-location.mjs';
@@ -85,6 +85,7 @@ function activateSelection(directory, home, selected) {
   // The committed selection changes last. Interrupted publication leaves the
   // previous app usable and immutable orphan payloads reusable by a later run.
   writeSelection(home, 'current', selected);
+  removeRetiredStartBatch(home);
   return selected;
 }
 

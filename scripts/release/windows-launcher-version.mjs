@@ -1,5 +1,5 @@
-export const launcherVersion = 5;
-export const minimumLauncherVersion = 1;
+export const launcherVersion = 6;
+export const minimumLauncherVersion = 6;
 
 export function isLauncherVersion(value) {
   return Number.isInteger(value) && value >= 0 && value <= 2_147_483_647;

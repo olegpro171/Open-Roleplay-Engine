@@ -22,7 +22,7 @@ function fixture() {
   for (const directory of ['data', 'languages', 'cache', 'logs', `app/${id}/scripts/release`, `runtime/${node}`, `recovery/${id}`]) mkdirSync(join(payload, directory), { recursive: true });
   const selection = `${id}\n${node}\n`;
   writeFileSync(join(payload, 'current'), selection); writeFileSync(join(payload, 'recovery/current'), selection);
-  for (const file of ['start.command', 'recover.command', 'start-app.bat', 'recover-app.bat', 'start-windows.ps1', 'recover-windows.ps1', 'windows-common.ps1', 'windows-snapshot.ps1', 'windows-package-lock.ps1', 'windows-package.ps1', 'windows-standalone-common.ps1', 'README.md', 'LICENSE']) writeFileSync(join(payload, file), 'synthetic '+file);
+  for (const file of ['start.command', 'recover.command', 'recover-app.bat', 'start-windows.ps1', 'recover-windows.ps1', 'windows-common.ps1', 'windows-snapshot.ps1', 'windows-package-lock.ps1', 'windows-package.ps1', 'windows-standalone-common.ps1', 'README.md', 'LICENSE']) writeFileSync(join(payload, file), 'synthetic '+file);
   writeFileSync(join(payload, 'app', id, 'build-info.json'), JSON.stringify({ commit: sha, platform: 'win32', arch: 'x64', kind: 'release' }));
   writeFileSync(join(payload, 'runtime', node, 'node.exe'), 'synthetic runtime');
   for (const tools of [join(payload, 'app', id, 'scripts/release'), join(payload, 'recovery', id)]) {
@@ -179,6 +179,7 @@ process.exitCode = ${status};
   writeFileSync(join(app, 'manifest.json'), JSON.stringify({ commit, kind: 'release', platform: 'win32', arch: 'x64', files: inventory(app) }));
   writeFileSync(join(p.payload, 'data/saved.sqlite'), 'private synthetic data');
   writeFileSync(join(p.payload, '.env'), 'private synthetic configuration');
+  writeFileSync(join(p.payload, 'start-app.bat'), 'leftover from an earlier build');
   const output = join(f.root, 'output');
   const packed = spawnSync(process.execPath, [resolve('scripts/release/package-portable.mjs'), p.payload, output], { encoding: 'utf8' });
   expect(packed.status, packed.stdout+packed.stderr).toBe(0);
@@ -191,6 +192,8 @@ process.exitCode = ${status};
   expect(inventory(extracted).filter(file => file.path !== 'checksums.json')).toEqual(JSON.parse(readFileSync(join(extracted, 'checksums.json'), 'utf8')));
   for (const directory of ['data', 'cache', 'logs', 'languages']) expect(inventory(join(extracted, directory))).toEqual([]);
   expect(existsSync(join(extracted, '.env'))).toBe(false);
+  expect(existsSync(join(extracted, 'start-app.bat'))).toBe(false);
+  expect(verifyWindowsPackage(extracted, commit).id).toBe(p.id);
  });
  it('installs immutable code while preserving all mutable installation state', () => {
   const f = fixture(), p = f.packageFor();
@@ -203,7 +206,9 @@ process.exitCode = ${status};
  it('retains the actually working selection across a forward update and reuses the identical runtime', () => {
   const f = fixture(), first = f.packageFor(); installWindowsPackage(first.payload, f.home, commit);
   writeFileSync(join(f.home, 'working'), first.selection);
+  writeFileSync(join(f.home, 'start-app.bat'), 'personal script');
   const next = f.packageFor(nextCommit); installWindowsPackage(next.payload, f.home, nextCommit);
+  expect(readFileSync(join(f.home, 'start-app.bat'), 'utf8')).toBe('personal script');
   expect(readFileSync(join(f.home, 'previous'), 'utf8')).toBe(first.selection);
   expect(readFileSync(join(f.home, 'working'), 'utf8')).toBe(first.selection);
   expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(next.selection);
@@ -256,7 +261,14 @@ process.exitCode = ${status};
  it('prepares an update without changing any active pointers or root tools until activation', () => {
   const f = fixture(), first = f.packageFor(); installWindowsPackage(first.payload, f.home, commit);
   writeFileSync(join(f.home, 'working'), first.selection);
-  const next = f.packageFor(nextCommit), tool = 'start-app.bat';
+  // A previously distributed wrapper in an installation upgraded in place.
+  const retired = join(f.home, 'start-app.bat');
+  const oldBatch = ['@echo off', 'setlocal DisableDelayedExpansion',
+   'powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "%~dp0start-windows.ps1" %*',
+   'set "ore_status=%errorlevel%"', 'if not "%ore_status%"=="0" if not defined ORE_NO_PAUSE pause',
+   'exit /b %ore_status%', ''].join('\r\n');
+  writeFileSync(retired, oldBatch);
+  const next = f.packageFor(nextCommit), tool = 'recover-app.bat';
   writeFileSync(join(next.payload, tool), 'next tool'); next.seal();
   const prepared = prepareWindowsPackage(next.payload, f.home, nextCommit, 2);
   for (const ptr of ['current', 'recovery/current', 'working']) expect(readFileSync(join(f.home, ptr), 'utf8')).toBe(first.selection);
@@ -266,7 +278,9 @@ process.exitCode = ${status};
   expect(() => activatePreparedWindowsPackage(f.home, prepared, 1)).toThrow('requires a newer Windows launcher');
   for (const ptr of ['current', 'recovery/current', 'working']) expect(readFileSync(join(f.home, ptr), 'utf8')).toBe(first.selection);
   expect(readFileSync(join(f.home, tool), 'utf8')).toBe('synthetic '+tool);
+  expect(readFileSync(retired, 'utf8')).toBe(oldBatch);
   activatePreparedWindowsPackage(f.home, prepared, 2);
+  expect(existsSync(retired)).toBe(false);
   for (const ptr of ['current', 'recovery/current']) expect(readFileSync(join(f.home, ptr), 'utf8')).toBe(next.selection);
   for (const ptr of ['working', 'previous']) expect(readFileSync(join(f.home, ptr), 'utf8')).toBe(first.selection);
   expect(readFileSync(join(f.home, tool), 'utf8')).toBe('next tool');
@@ -301,14 +315,14 @@ if ($result) { throw 'Old launcher activated a prepared update.' }
  it.each(['receipt corruption', 'requirement corruption', 'different base'])('leaves the selected version intact after %s', kind => {
   const f = fixture(), first = f.packageFor(); installWindowsPackage(first.payload, f.home, commit);
   const next = f.packageFor(nextCommit), prepared = prepareWindowsPackage(next.payload, f.home, nextCommit, 2);
-  if (kind === 'receipt corruption') writeFileSync(join(f.home, 'cache/prepared-update/start-app.bat'), 'changed tool');
+  if (kind === 'receipt corruption') writeFileSync(join(f.home, 'cache/prepared-update/recover-app.bat'), 'changed tool');
   else if (kind === 'requirement corruption') writeFileSync(join(f.home, 'cache/prepared-update/minimum-launcher-version'), '1');
   else writeFileSync(join(f.home, 'current'), 'release-other\n'+runtime+'\n');
   const selected = readFileSync(join(f.home, 'current'), 'utf8');
   expect(() => activatePreparedWindowsPackage(f.home, prepared, 2)).toThrow(/inventory|no longer matches/u);
   expect(readFileSync(join(f.home, 'current'), 'utf8')).toBe(selected);
   expect(readFileSync(join(f.home, 'recovery/current'), 'utf8')).toBe(first.selection);
-  expect(readFileSync(join(f.home, 'start-app.bat'), 'utf8')).toBe('synthetic start-app.bat');
+  expect(readFileSync(join(f.home, 'recover-app.bat'), 'utf8')).toBe('synthetic recover-app.bat');
  });
  it('retries an interrupted publication with complete immutable orphan directories', () => {
   const f = fixture(), p = f.packageFor();
@@ -330,6 +344,17 @@ if ($result) { throw 'Old launcher activated a prepared update.' }
  it.each(['data/story.sqlite', '.env'])('refuses user data even with a matching package inventory: %s', file => {
   const f = fixture(), p = f.packageFor(); writeFileSync(join(p.payload, file), 'private data'); p.seal();
   expect(() => verifyWindowsPackage(p.payload, commit)).toThrow(); expect(existsSync(join(f.home, 'current'))).toBe(false);
+ });
+ it('rejects the retired entry and still requires the recovery batch even with matching checksums', () => {
+  const f = fixture(), p = f.packageFor();
+  writeFileSync(join(p.payload, 'start-app.bat'), 'retired');
+  p.seal();
+  expect(() => installWindowsPackage(p.payload, f.home, commit)).toThrow('Unexpected package root entry');
+  rmSync(join(p.payload, 'start-app.bat'));
+  rmSync(join(p.payload, 'recover-app.bat'));
+  p.seal();
+  expect(() => installWindowsPackage(p.payload, f.home, commit)).toThrow(/recover-app\.bat|Missing package entry/u);
+  expect(existsSync(join(f.home, 'current'))).toBe(false);
  });
  it('rejects another commit and unsupported helper protocol', () => {
   const f = fixture(), p = f.packageFor();

@@ -92,10 +92,67 @@ it('reproduces the generated launchers and keeps external compatibility baseline
   const hash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
   expect(hash('tests/fixtures/windows-launcher/f553710121c8.bat')).toBe('36da2eba41f560881797eaf4cd042ec3f11769b60b2e6fbbdcc98a3dc2f357ef');
   expect(hash('tests/fixtures/windows-launcher/b6387180d351.bat')).toBe('000184cb43b98b3fcdf26cfbbc556d2bd699a7f86b9d1b951705a4fd2cdde5af');
-  expect(hash('ORE-launcher.bat')).toBe('0895683a214b2ac4ff69f2b029bfc80e494e5bb67f8dbbee3a810bf672ea1af6');
+  expect(hash('ORE-launcher.bat')).toBe('b452f642f5fdda53c7a9d153abf4b710f84f2b7d42944fb4ec1fed094fbc12ba');
 });
 
 describe.skipIf(process.platform !== 'win32')('Windows PowerShell 5.1 builder and ZIP policy', () => {
+  it('compares published requirements with the running launcher in the background catalogue', () => {
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ORE-catalogue-'))); roots.push(root);
+    mkdirSync(join(root,'cache'));
+    const batch = readFileSync('ORE-launcher.bat', 'utf8');
+    const version = Number(/^\$LauncherVersion = (\d+)$/mu.exec(batch)?.[1]);
+    const records = [a,b].map((commit,index) => {
+      const tag = 'build-'+commit, archive = 'ORE-windows-x64.zip';
+      const assets = [archive,archive+'.sha256','ORE-windows-x64.json'].map(name => ({
+        name, state: 'uploaded', browser_download_url: 'https://github.com/olegpro171/Open-Roleplay-Engine/releases/download/'+tag+'/'+name,
+      }));
+      writeFileSync(join(root,tag+'.json'),JSON.stringify({formatVersion:2, platform:'win32', arch:'x64', launcherProtocol:2,
+        minimumLauncherVersion:version+index, commit, archive, sha256:'a'.repeat(64), bytes:1}));
+      return {name:tag,tag_name:tag,draft:false,prerelease:false,assets};
+    });
+    writeFileSync(join(root,'page.json'),JSON.stringify(records));
+    const result = powershell(`$ErrorActionPreference='Stop'
+$batch=[IO.File]::ReadAllText($env:ORE_TEST_BATCH)
+$start=$batch.LastIndexOf('# ORE_POWERSHELL_PAYLOAD')+'# ORE_POWERSHELL_PAYLOAD'.Length
+. ([scriptblock]::Create($batch.Substring($start,$batch.IndexOf('# Bootstrap contract 2.')-$start)))
+$Installation=$env:ORE_TEST_CATALOGUE
+$script:OreReport=Join-Path $Installation 'report.txt'
+function Get-OreHttps($Url,$Output,$Seconds) {
+ $name = if ($Url -match '/releases/download/(build-[a-f0-9]+)/') { $Matches[1]+'.json' } else { 'page.json' }
+ [IO.File]::Copy((Join-Path $env:ORE_TEST_CATALOGUE $name),$Output)
+}
+$request=Start-OreCataloguePage 1
+try { $request.Worker.EndInvoke($request.Async) | ForEach-Object { [Console]::WriteLine($_.Status) } }
+finally { Close-OreCataloguePage $request }`, {ORE_TEST_BATCH:resolve('ORE-launcher.bat'),ORE_TEST_CATALOGUE:root});
+    expect(result.status,result.stderr).toBe(0);
+    expect(result.stdout.trim().split(/\r?\n/u)).toEqual(['menuAvailable','menuNewer']);
+  });
+  it.each(['en', 'ru'] as const)('keeps the focused action visible with room for only one choice (%s)', language => {
+    const result = powershell(`$ErrorActionPreference='Stop'
+[Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
+$batch = [IO.File]::ReadAllText($env:ORE_TEST_BATCH)
+$start = $batch.LastIndexOf('# ORE_POWERSHELL_PAYLOAD')+'# ORE_POWERSHELL_PAYLOAD'.Length
+# Redirected tests supply the console dimensions as well as the keystrokes.
+$screen = $batch.Substring($start,$batch.IndexOf('# Bootstrap contract 2.')-$start).Replace('[Console]::WindowHeight','11')
+. ([scriptblock]::Create($screen))
+$script:OreLanguage=$env:ORE_TEST_LANGUAGE
+$script:OreTerminal=@{Color=$false;Start=-1}
+$script:keys = New-Object Collections.Queue
+$script:keys.Enqueue('DownArrow'); $script:keys.Enqueue('Enter')
+function Read-OreMenuKey { return $script:keys.Dequeue() }
+function Write-OreTerminalPanel { [Console]::WriteLine((ConvertTo-Json -Compress -InputObject (@(Get-OreTerminalLines 38) -join [Environment]::NewLine))) }
+$choice = Read-OreChoice 'menuHome' (Get-OreMessage 'menuLatest') @(
+ (New-OreChoice (Get-OreMessage 'menuStart') 'start')
+ (New-OreChoice (Get-OreMessage 'menuManage') 'manage')
+)
+[Console]::WriteLine($choice.Action)`, { ORE_TEST_BATCH: resolve('ORE-launcher.bat'), ORE_TEST_LANGUAGE: language });
+    expect(result.status, result.stderr).toBe(0);
+    const [initial, moved, action] = result.stdout.trimEnd().split(/\r?\n/u);
+    expect(JSON.parse(initial)).toContain('› '+messages.menuStart[language]);
+    expect(JSON.parse(moved)).toContain('› '+messages.menuManage[language]);
+    expect(JSON.parse(moved)).toContain(messages.menuKeys[language]);
+    expect(action).toBe('manage');
+  });
   it.each(['en', 'ru'] as const)('keeps the ready address during updates and replaces it on shutdown or failure (%s)', language => {
     const result = powershell(`$ErrorActionPreference='Stop'
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false

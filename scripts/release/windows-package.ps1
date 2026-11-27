@@ -13,13 +13,31 @@ function Test-OreLauncherAllowsUpdate([int]$LauncherVersion, [int]$MinimumVersio
     Show-OreMessage 'launcherUpdateRequired' @{required=$MinimumVersion;url='https://github.com/olegpro171/Open-Roleplay-Engine/releases/latest'}
     return $false
 }
+function Read-OrePreparedMinimumLauncherVersion([string]$Prepared) {
+    $filename = 'minimum-launcher-version'
+    $path = Join-Path $Prepared $filename
+    if ((New-Object IO.FileInfo $path).Length -gt 10) { throw 'Invalid prepared launcher requirement.' }
+    $value = [IO.File]::ReadAllText($path)
+    [int]$minimum = 0
+    if ($value -cnotmatch '^(0|[1-9][0-9]*)\z' -or ![int]::TryParse($value,[ref]$minimum)) { throw 'Invalid prepared launcher requirement.' }
+    $records = Read-OreJson (Join-Path $Prepared 'checksums.json') 16KB
+    $match = @($records | Where-Object { $_.path -ceq $filename })
+    if ($match.Count -ne 1 -or $match[0].sha256 -cne (Get-OreHash $path)) { throw 'Prepared launcher requirement differs from its inventory.' }
+    return $minimum
+}
+
 function Get-OreRelease([string]$StagePath, [int]$LauncherVersion, [string]$InstalledCommit) {
     $metadata = Join-Path $StagePath 'release.json'
     Get-OreHttps 'https://api.github.com/repos/olegpro171/Open-Roleplay-Engine/releases/latest' $metadata 30
     $release = Read-OreJson $metadata
+    if ($InstalledCommit -and $release.tag_name -ceq ('build-'+$InstalledCommit) -and $release.draft -eq $false -and $release.prerelease -eq $false) { return }
+    $descriptor = Read-OreReleaseDescriptor $StagePath $release
+    if (!(Test-OreLauncherAllowsUpdate $LauncherVersion $descriptor.MinimumLauncherVersion)) { return @{Blocked=$true} }
+    return $descriptor
+}
+function Read-OreReleaseDescriptor([string]$StagePath, $Release) {
     if ($release.draft -ne $false -or $release.prerelease -ne $false -or $release.tag_name -cnotmatch '^build-[a-f0-9]{40}$') { throw 'Invalid published release identity.' }
-    if ($InstalledCommit -and $release.tag_name -ceq ('build-'+$InstalledCommit)) { return }
-    $descriptorPath = Join-Path $StagePath 'package.json'
+    $descriptorPath = Join-Path $StagePath ($release.tag_name+'.json')
     Get-OreHttps (Get-OreReleaseAsset $release 'ORE-windows-x64.json') $descriptorPath 30
     $package = Read-OreJson $descriptorPath
     if (($package.formatVersion -isnot [int] -and $package.formatVersion -isnot [long]) -or
@@ -39,7 +57,6 @@ function Get-OreRelease([string]$StagePath, [int]$LauncherVersion, [string]$Inst
     if ($package.archive -cne 'ORE-windows-x64.zip' -or $package.sha256 -isnot [string] -or $package.sha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'Invalid package archive identity.' }
     $integerSize = $package.bytes -is [long] -or $package.bytes -is [int]
     if (!$integerSize -or $package.bytes -lt 1 -or $package.bytes -gt 512MB) { throw 'Package size is outside supported download bounds.' }
-    if (!(Test-OreLauncherAllowsUpdate $LauncherVersion $minimum)) { return @{Blocked=$true} }
     return @{Commit=$package.commit; Sha256=$package.sha256; Bytes=$package.bytes; MinimumLauncherVersion=$minimum; Archive=(Get-OreReleaseAsset $release 'ORE-windows-x64.zip'); Checksum=(Get-OreReleaseAsset $release 'ORE-windows-x64.zip.sha256')}
 }
 function Test-OrePackageFiles([string]$Directory) {
@@ -58,10 +75,10 @@ function Test-OrePackageFiles([string]$Directory) {
     }
     if ($files.Count -ne $records.Count+1) { throw 'Unlisted package files.' }
 }
-function Get-OrePackageHelper([string]$HomePath, [string[]]$Pointers = @('current','recovery/current')) {
+function Get-OrePackageHelper([string]$HomePath, [string[]]$Pointers = @('current','recovery/current'), [hashtable]$Candidate) {
     # Protocol-1 source updaters never regain control of a package installation.
     foreach ($pointer in $Pointers) {
-        $selection = Get-OreSelection $HomePath $pointer
+        $selection = if ($Candidate) { $Candidate } else { Get-OreSelection $HomePath $pointer }
         if (!$selection) { continue }
         $tools = if ($pointer -eq 'recovery/current') { Join-Path $HomePath ('recovery/'+$selection.Id) } else { Join-Path $selection.Application 'scripts/release' }
         $protocol = Assert-OrePath $HomePath (Join-Path $tools 'windows-package-protocol')
@@ -100,7 +117,7 @@ function Test-OreVersionedHelper([string]$Helper) {
     $header = [IO.File]::ReadLines($Helper,[Text.Encoding]::UTF8) | Select-Object -First 3
     return $header -ccontains '# ORE capability: minimum-launcher-version'
 }
-function Install-OreRelease([hashtable]$Release, [string]$Stage, [string]$Installation, [switch]$Prepare) {
+function Expand-OreRelease([hashtable]$Release, [string]$Stage) {
     Show-OreMessage 'downloadingVersion'
     $checksum = Join-Path $stage 'package.sha256'
     Get-OreHttps $release.Checksum $checksum 30
@@ -117,10 +134,18 @@ function Install-OreRelease([hashtable]$Release, [string]$Stage, [string]$Instal
     if (!$candidate) { throw 'Package selection is missing.' }
     $info = Read-OreJson (Join-Path $candidate.Application 'build-info.json')
     if ($info.commit -cne $release.Commit -or $info.platform -cne 'win32' -or $info.arch -cne 'x64' -or $info.kind -cne 'release') { throw 'Package identity differs from release.' }
-    $candidateTools = Join-Path $candidate.Application 'scripts/release'
     foreach ($pointer in @('current','recovery/current')) {
         if (!(Get-OrePackageHelper $unpacked $pointer)) { throw 'Package is missing a compatible startup or recovery helper.' }
     }
+    return $candidate
+}
+function Install-OreRelease([hashtable]$Release, [string]$Stage, [string]$Installation, [switch]$Prepare) {
+    $candidate = Expand-OreRelease $Release $Stage
+    Publish-OreRelease $candidate $Release $Stage $Installation -Prepare:$Prepare
+}
+function Publish-OreRelease($Candidate, $Release, [string]$Stage, [string]$Installation, [switch]$Prepare) {
+    $unpacked = Join-Path $Stage 'payload'
+    $candidateTools = Join-Path $candidate.Application 'scripts/release'
     $script:OreFailure = 'activationFailed'
     $installer = Join-Path $candidateTools 'windows-package-install.mjs'
     $arguments = @($unpacked,$Installation,$release.Commit)

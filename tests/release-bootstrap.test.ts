@@ -119,7 +119,7 @@ esac
   });
   it('holds the build lock during installed development startup and releases it on exit', () => {
     const f = fixture(true);
-    cpSync(resolve('scripts/release/start.command'), join(f.home, 'start.command'));
+    cpSync(resolve('scripts/release/installed-entries/start.command.in'), join(f.home, 'start.command'));
     const tools = join(f.home, 'app/dev-working/scripts/release');
     const bin = join(f.home, 'runtime', f.runtime, 'bin');
     mkdirSync(tools, { recursive: true }); mkdirSync(bin, { recursive: true }); mkdirSync(join(f.home, 'cache'));

@@ -7,9 +7,9 @@ import { releaseServer } from './support/release-server.js';
 
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
-function fixture() {
+function fixture(homeName = 'home') {
   const root = mkdtempSync(join(tmpdir(), 'ORE artifact-история-')); directories.push(root);
-  const work = join(root, 'work'), home = join(root, 'home'), notices = join(root, 'notices');
+  const work = join(root, 'work'), home = join(root, homeName), notices = join(root, 'notices');
   mkdirSync(home); mkdirSync(join(home, 'cache')); mkdirSync(join(home, 'app')); mkdirSync(notices); writeFileSync(join(notices, 'LICENSE'), 'Synthetic notice');
   for (const directory of ['dist/client/assets', 'dist/server/server', 'dist/server/shared', 'migrations', 'node_modules/.bin', 'node_modules/pkg', 'docs', 'scripts']) mkdirSync(join(work, directory), { recursive: true });
   cpSync(resolve('scripts/release'), join(work, 'scripts/release'), { recursive: true });
@@ -21,7 +21,8 @@ function fixture() {
   writeFileSync(join(work, 'migrations/0014_library_sorting.sql'), '-- Synthetic migration');
   writeFileSync(join(work, 'docs/RELEASES.md'), 'Synthetic current startup and recovery instructions');
   writeFileSync(join(work, 'LICENSE'), 'Synthetic project license');
-  writeFileSync(join(work, 'node_modules/pkg/bin.js'), ''); symlinkSync('../pkg/bin.js', join(work, 'node_modules/.bin/example'));
+  writeFileSync(join(work, 'node_modules/pkg/bin.js'), '');
+  if (process.platform !== 'win32') symlinkSync('../pkg/bin.js', join(work, 'node_modules/.bin/example'));
   for (const directory of ['data', 'languages', 'tests']) { mkdirSync(join(work, directory)); writeFileSync(join(work, directory, 'PRIVATE'), 'synthetic private fixture'); }
   writeFileSync(join(work, '.env'), 'synthetic private environment');
   mkdirSync(join(home, 'data')); writeFileSync(join(home, 'data/PRIVATE'), 'synthetic installed private data');
@@ -35,6 +36,24 @@ function fixture() {
   const application = join(home, 'app', id);
   return { root, work, home, application, install };
 }
+
+it('lists the staged build through the installed recovery command', () => {
+  const windows = process.platform === 'win32';
+  const { root, home } = fixture(windows ? 'ORE-internal' : 'home');
+  const [id, runtime] = readFileSync(join(home, 'current'), 'utf8').trim().split('\n');
+  if (windows) {
+    expect(existsSync(join(home, 'start-app.bat'))).toBe(false);
+    writeFileSync(join(home, '.ore-installation'), 'ORE-installation:1\n');
+  }
+  const bin = join(home, 'runtime', runtime, windows ? '' : 'bin');
+  mkdirSync(bin, { recursive: true });
+  cpSync(process.execPath, join(bin, windows ? 'node.exe' : 'node'));
+  const result = spawnSync(windows ? 'cmd.exe' : './recover.command',
+    windows ? ['/d', '/c', '.\\ORE-internal\\recover-app.bat', '--list'] : ['--list'],
+    { cwd: windows ? root : home, encoding: 'utf8', env: { ...process.env, ORE_NO_PAUSE: '1' }, timeout: 30000 });
+  expect(result.status, result.stdout + result.stderr).toBe(0);
+  expect(result.stdout).toContain(`${id}  schema 13  current`);
+});
 
 describe.skipIf(process.platform === 'win32')('portable artifact boundaries', () => {
   it('rejects server and launcher startup failures after a successful native smoke without activating or touching saved data', () => {

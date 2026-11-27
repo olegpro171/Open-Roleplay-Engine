@@ -1,4 +1,4 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { verifyStartup } from './startup-smoke.mjs';
 import { readSelection, writeSelection, runtimeExecutable, publishRename } from './selection.mjs';
 import { buildPhase } from './build-timing.mjs';
-import { windowsRootTools } from './windows-package-files.mjs';
+import { removeRetiredStartBatch, windowsRootEntries, windowsRootHelpers } from './windows-package-files.mjs';
 import { pruneDevelopmentBuilds } from './build-retention.mjs';
 
 const recoveryFiles = [
@@ -146,28 +146,29 @@ async function install(work, home, mode, commit, runtime, runtimeChecksum, notic
     mkdirSync(toolkit, { recursive: true });
     for (const name of toolkitFiles) cpSync(join(application, 'scripts/release', name), join(toolkit, name));
     writeSelection(join(home, 'recovery'), 'current', { id, runtime });
-    const recoveryLauncher = join(home, `recover-${randomUUID()}.tmp`);
-    cpSync(join(work, 'scripts/release/recover.command'), recoveryLauncher);
-    publishRename(recoveryLauncher, join(home, 'recover.command'));
     // Root launcher contract is stable; all evolving logic belongs to the versioned app.
     if (localDevelopment && !windows) {
       const marker = join(home, 'cache/local-development');
       try { writeFileSync(marker, '', { flag: 'wx', mode: 0o600 }); }
       catch (error) { if (error.code !== 'EEXIST' || !lstatSync(marker).isFile()) throw error; }
     }
-    const launcher = join(home, `start-${randomUUID()}.tmp`);
-    cpSync(join(work, 'scripts/release/start.command'), launcher);
-    publishRename(launcher, join(home, 'start.command'));
-    if (process.platform === 'win32') {
-      for (const name of windowsRootTools) {
-        const temporary = join(home, `${name}-${randomUUID()}.tmp`);
-        cpSync(join(work, 'scripts/release', name), temporary);
-        publishRename(temporary, join(home, name));
-      }
+    const tools = join(work, 'scripts/release');
+    function publishTool(name, source) {
+      const temporary = join(home, `${name}-${randomUUID()}.tmp`);
+      cpSync(source, temporary);
+      if (!windows) chmodSync(temporary, 0o700);
+      publishRename(temporary, join(home, name));
+    }
+    const entries = ['recover.command', 'start.command'];
+    if (windows) entries.push(...windowsRootEntries);
+    for (const name of entries) publishTool(name, join(tools, 'installed-entries', name + '.in'));
+    if (windows) {
+      for (const name of windowsRootHelpers) publishTool(name, join(tools, name));
     }
     if (previous) writeSelection(home, 'previous', previous);
     const selected = { id, runtime };
     writeSelection(home, 'current', selected);
+    if (windows) removeRetiredStartBatch(home);
     if (localDevelopment) {
       try { pruneDevelopmentBuilds(home, selected, dependencyCache?.directory); }
       catch (error) { console.warn(`Development build cleanup: ${error.message}`); }

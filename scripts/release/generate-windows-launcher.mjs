@@ -29,9 +29,10 @@ const bootstrapMessages = new Set([
   'activatingVersion', 'cancelled', 'startupFailed', 'launcherUpdateRequired',
 ]);
 if (!isLauncherVersion(launcherVersion) || launcherVersion === 0) throw new Error('Invalid Windows launcher version.');
-const bootstrap = 'param([switch]$InstallOnly)\n' + generated + `$LauncherVersion = ${launcherVersion}\n`
-  + messages(entries.filter(entry => bootstrapMessages.has(entry.id)))
-  + shared + read('windows-bootstrap.ps1');
+const bootstrap = 'param([switch]$InstallOnly,[switch]$StartOnly,[switch]$ManageOnly)\n' + generated + `$LauncherVersion = ${launcherVersion}\n`
+  + messages(entries.filter(entry => bootstrapMessages.has(entry.id) || entry.id.startsWith('menu')))
+  + shared + "$OreVersionProbe = @'\n" + read('windows-version-probe.mjs') + "\n'@\n"
+  + sources(['windows-version-menu.ps1', 'windows-bootstrap.ps1']);
 const installed = 'param([switch]$Installed,[string]$Installation,[string]$Invoking,[string]$Language,[int]$LauncherVersion = 0)\n# ORE capability: bounded-release-comparison\n# ORE capability: minimum-launcher-version\n'
   + generated + messages(entries) + shared + sources(['windows-package-update.ps1', 'windows-package-body.ps1']);
 // cmd.exe requires a CRLF batch envelope even when generation runs on POSIX.

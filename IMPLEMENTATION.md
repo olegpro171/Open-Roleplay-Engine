@@ -9,7 +9,7 @@ Direct npm commands require Node 24 or Node 22.14+ within major 22 (see `package
 | Command | Purpose |
 | --- | --- |
 | `ORE-launcher.bat` | Windows x64 package installer/updater; built-in PowerShell 5.1, downloads a published application/runtime into adjacent `ORE-internal/` |
-| `scripts/release/start-dev.bat` / `./start-dev.sh` | Windows / macOS and glibc Linux working-tree rebuild into `ore-development/`, no update check |
+| `start-dev.bat` / `./start-dev.sh` | Windows / macOS and glibc Linux working-tree rebuild into `ore-development/`, no update check |
 | `npm run dev` and `npm run dev:ui` | Two-terminal server/UI watch mode (ports 3000/5173) |
 | `npm run typecheck` | Strict client/server TypeScript checks |
 | `npm run build` | Typecheck and build client/server |
@@ -137,13 +137,15 @@ Keep each accepted rule in its owning contract and link to it. Update only chang
 
 ## Contained delivery boundaries
 
-The repository root exposes `ORE-launcher.bat` for Windows package delivery and `start-dev.sh` for working-tree startup on macOS and glibc Linux. See [working-tree development](docs/RELEASES.md#working-tree-development) for platform requirements and qualification. `scripts/release/` owns the contained builders, installed start/recovery entries and Windows development startup. Working-tree builds use allowlisted local files and exact Release builds export the same input set from Git. Installed source builds start directly from their selected private runtime and app. [Legacy recovery](docs/RELEASES.md#legacy-installations) covers retired delivery paths.
+The repository root exposes `ORE-launcher.bat` for Windows package delivery and the two working-tree launchers, `start-dev.bat` (Windows) and `start-dev.sh` (macOS and glibc Linux). See [working-tree development](docs/RELEASES.md#working-tree-development) for platform requirements and qualification. `scripts/release/` owns build, packaging and launcher internals. Staging copies the templates in `scripts/release/installed-entries/` into the installation root under their public filenames, removing the `.in` suffix. Working-tree builds use allowlisted local files and exact Release builds export the same input set from Git. Installed source builds start directly from their selected private runtime and app. [Legacy recovery](docs/RELEASES.md#legacy-installations) covers retired delivery paths.
 
 `portable-launch.mjs` verifies assets/runtime, owns the foreground application process, presents approved messages and catches browser spawn/exit failures. `application-start.mjs` is the installed application's startup boundary: it resolves established database identity, checks compatibility, invokes the server and records database readiness. Store retains SQLite ownership, missing-file enforcement, snapshots and migrations. Retained older applications without that boundary keep explicit compatible recovery guards. Server readiness and ownership/port failures use structured IPC; console matching cannot establish readiness. Saved-data startup never participates in update fallback.
 
 `generate-windows-launcher.mjs` emits the protocol-2 external batch and BOM-marked installed PowerShell helper from separate entry bodies and shared primitives. The ASCII batch prefix reads its UTF-8 payload from its own path passed as environment data. The external batch passes its generated version to the installed helper. First activation and updates with an older helper run in a separately owned bootstrap worker so its lease and job end before handoff. The installed helper owns routine update policy and the server lifetime. Keep the external bytes stable across routine package releases. The lookup, invocation and descriptor contract live in [delivery](docs/RELEASES.md#external-windows-launcher-contract).
 
 The installed helper holds the foreground OS lease through updates and the server lifetime. After owned readiness IPC and the working-selection commit, it can prepare an update. Activation verifies the candidate and updates the recovery pointers before switching the selected build. A subsequent owner must establish that prior workers have stopped. [Windows startup](docs/RELEASES.md#normal-windows-package-startup)
+
+The external batch embeds the pre-start version menu and its database/startup probe. Interactive launch and version management run in separate owned PowerShell processes so each releases its installation lease and named job before handing control back to the menu. Explicit version choices use the selected release's verified package or a retained installation. The fixed selection and recovery share the update-pause marker. Release browsing never gates offline startup.
 
 The staging workflow qualifies and packages the exact candidate. The main workflow publishes only its verified retained artifacts. The [release procedure](docs/RELEASES.md#automated-windows-releases) owns workflow triggers, retention, promotion, artifact identity and publication checks. The [working-tree build contract](docs/RELEASES.md#working-tree-development) covers local dependency reuse and the separation between development snapshots and distributable builds.
 

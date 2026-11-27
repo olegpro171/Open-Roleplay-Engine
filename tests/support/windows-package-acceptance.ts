@@ -48,7 +48,8 @@ function Get-OreHttps([string]$Url,[string]$Output,[int]$Seconds) {
   throw 'Synthetic interrupted download'
  }
  if([IO.File]::Exists($env:ORE_PACKAGE_TEST_OFFLINE)){throw 'Synthetic network unavailable'}
- if($Url.Contains('/releases/latest')){$name='release.json'}
+ if($Url.Contains('/releases?per_page=5&page=')){$name='catalogue.json'}
+ elseif($Url.Contains('/releases/latest')){$name='release.json'}
  elseif($Url.Contains('/compare/')){
   if(!$Url.EndsWith('?per_page=1&page=2')){throw 'Download bound exceeded.'}
   $name='compare.json'
@@ -126,6 +127,8 @@ try {
  const assets = ['ORE-windows-x64.zip', 'ORE-windows-x64.zip.sha256', 'ORE-windows-x64.json'].map(name => ({ name, state: 'uploaded', browser_download_url: `https://github.com/olegpro171/Open-Roleplay-Engine/releases/download/build-${commit}/${name}` }));
  writeFileSync(join(transportRoot, 'release.json'), JSON.stringify({ tag_name: `build-${commit}`, draft: false, prerelease: false, assets }));
  writeFileSync(join(transportRoot, 'compare.json'), JSON.stringify({ status: 'ahead', base_commit: { sha: previousCommit }, merge_base_commit: { sha: previousCommit } }));
+ const metadata = JSON.parse(readFileSync(join(transportRoot, 'release.json'), 'utf8'));
+ writeFileSync(join(transportRoot, 'catalogue.json'), JSON.stringify([{ ...metadata, name: 'Synthetic Windows release', published_at: '2026-10-01T12:00:00Z' }, { tag_name: 'v0.1', name: 'Historical archive', draft: false }]));
  return transportRoot;
 }
 const offline = join(root, 'offline'), hold = join(root, 'hold'), entered = join(root, 'entered');
@@ -203,6 +206,37 @@ function recover(...args: string[]) {
  return result.stdout;
 }
 const selection = () => readFileSync(join(home, 'current'), 'utf8');
+// Drive the generated external batch and its real child processes. Replace only
+// console input and GitHub transport. All validation, probes and writes are real.
+function menu(directory: string, steps: string[]) {
+ const keys = join(root, 'menu-input');
+ writeFileSync(keys, steps.join('\n'));
+ const driver = [
+  'function Read-OreChoice([string]$Title,[string]$Primary,[array]$Choices,[string]$Notice,[int]$Focus) {',
+  ' [Console]::WriteLine("$Title | $Primary | $Notice | "+($Choices.Label -join ", "))',
+  ' $keys = @([IO.File]::ReadAllLines($env:ORE_TEST_MENU_KEYS))',
+  ' if (!$keys.Count) { throw "Unexpected extra menu screen: $Title" }',
+  ' [IO.File]::WriteAllLines($env:ORE_TEST_MENU_KEYS,[string[]]@($keys | Select-Object -Skip 1))',
+  ' if ($keys[0] -eq "back") { return (New-OreChoice "" "back") }',
+  ' $selected = $Choices | Where-Object { $_.Action -ceq $keys[0] } | Select-Object -First 1',
+  ' if (!$selected) { throw "Missing menu action $($keys[0])" }; return $selected',
+  '}', '',
+ ].join('\n');
+ const batch = freshBootstrap.toString('utf8').replace('# Bootstrap contract 2.', driver+'# Bootstrap contract 2.')
+  .replace('$interactive = ![Console]::IsInputRedirected -and ![Console]::IsOutputRedirected', '$interactive = $true');
+ const file = join(directory, 'ORE-launcher.bat');
+ writeFileSync(file, batch.replace(/\r?\n/gu, '\r\n'));
+ const result = spawnSync('cmd.exe', ['/d','/s','/c','""%ORE_TEST_ENTRY%""'], {
+  cwd: directory, windowsVerbatimArguments: true, encoding: 'utf8', timeout: 180000,
+  env: { ...process.env, ORE_TEST_ENTRY: file, ORE_TEST_MENU_KEYS: keys, ORE_NO_PAUSE: '1',
+   ORE_OPEN_BROWSER: '0', ROLEPLAY_DATABASE: undefined, ORE_PACKAGE_TEST_CALLS: calls,
+   ORE_PACKAGE_TEST_OWNER: join(root, 'menu-owner'), ORE_PACKAGE_TEST_TRANSPORT: transportRoot,
+   ORE_PACKAGE_TEST_OFFLINE: offline, ORE_PACKAGE_TEST_HOLD: hold, ORE_PACKAGE_TEST_ENTERED: entered },
+ });
+ assert.equal(result.status, 0, result.stdout+result.stderr);
+ assert.equal(readFileSync(keys,'utf8'), '', result.stdout+result.stderr);
+ return result.stdout;
+}
 try {
  // Seed a populated historical-protocol install using the real packaged app
  // and runtime with the published launcher payload as its installed helper.
@@ -439,6 +473,36 @@ try {
  assert.equal(readFileSync(join(home, 'languages/synthetic.json'), 'utf8'), '{"preserve":true}');
  assert.equal(readFileSync(join(parent, 'unrelated.txt'), 'utf8'), 'preserved');
  for (const lock of ['update.lock', 'build.lock', 'database-location.lock']) assert(!existsSync(join(home, 'cache', lock)));
+
+ // A fresh interactive install can select an exact published package. Browsing
+ // the catalogue also shows older unsupported assets without activating them.
+ const fixed = join(root, 'menu installation'), fixedHome = join(fixed, 'ORE-internal');
+ mkdirSync(fixed);
+ transportRoot = qualified;
+ const fixedOutput = menu(fixed, ['manage','github','menuAvailable','pin','back']);
+ assert.match(fixedOutput, /Historical archive/u);
+ assert.match(fixedOutput, /Fixed version/u);
+ assert.equal(readFileSync(join(fixedHome,'current'),'utf8'), selected);
+ assert(existsSync(join(fixedHome,'updates-paused')));
+ transportRoot = later;
+ const blocked = menu(fixed, ['manage','github','back','back','back']);
+ assert.match(blocked, new RegExp('Requires launcher '+laterVersion));
+ writeFileSync(offline, '');
+ const localPin = menu(fixed, ['manage','local','pin','back']);
+ assert.match(localPin, /Fixed version/u);
+ // Force a real live startup failure after pinning. The menu must reopen with
+ // recovery available and a failed compatibility probe must keep the selection.
+ const fixedDb = join(fixedHome,'data/story.sqlite');
+ writeFileSync(join(fixedHome,'database-location.json'),JSON.stringify({version:1,default:{kind:'external',path:fixedDb},established:[{kind:'external',path:fixedDb}]}));
+ const failedMenu = menu(fixed, ['start','manage','local','pin','back','back']);
+ assert.match(failedMenu, /Open Manage versions/u);
+ assert.match(failedMenu, /Couldn't use this database/u);
+ assert(!existsSync(fixedDb));
+ assert.equal(readFileSync(join(fixedHome,'current'),'utf8'), selected);
+ assert(existsSync(join(fixedHome,'updates-paused')));
+ menu(fixed, ['manage','latest','back']);
+ assert(!existsSync(join(fixedHome,'updates-paused')));
+ rmSync(offline);
 
  const clean = join(root, 'later clean install');
  mkdirSync(clean);

@@ -1,7 +1,8 @@
 # The foreground presenter alone moves the cursor. Redirected callers keep the
 # line-oriented transcript, including the original ready URL and log messages.
-function New-OreTerminal {
-    if ([Console]::IsOutputRedirected -or !$Host.UI.SupportsVirtualTerminal -or $env:TERM -eq 'dumb') { return }
+function New-OreTerminal([switch]$InteractiveMenu) {
+    $vt = $Host.UI.SupportsVirtualTerminal -and $env:TERM -ne 'dumb'
+    if ([Console]::IsOutputRedirected -or (!$vt -and !$InteractiveMenu)) { return }
     try { if ([Console]::WindowWidth -lt 1) { return } } catch { return }
     $light = [Console]::BackgroundColor -in @('White','Gray','Yellow','Cyan','Green','Magenta')
     # ORE Dark and Light text roles, against the terminal's own background.
@@ -10,7 +11,7 @@ function New-OreTerminal {
     } else {
         @{accent='228;170;127'; muted='159;168;182'; success='142;182;152'; danger='212;124;122'}
     }
-    return @{Colors=$colors; Color=($null -eq $env:NO_COLOR); Start=-1; End=-1; Width=0;
+    return @{Colors=$colors; Color=($vt -and $null -eq $env:NO_COLOR); PlainConsole=!$vt; Start=-1; End=-1; Width=0;
         Title='launching'; Role='accent'; Symbol='◐'; Primary=''; Update=''; Notice=''; Log=''; Footer=''}
 }
 
@@ -45,7 +46,13 @@ function Clear-OreTerminalPanel {
     try {
         if ($t.Width -eq [Console]::BufferWidth -and $t.End -eq [Console]::CursorTop -and [Console]::CursorLeft -eq 0) {
             [Console]::SetCursorPosition(0,$t.Start)
-            [Console]::Write(([string][char]27)+'[J')
+            if ($t.PlainConsole) {
+                for ($row=$t.Start; $row -lt $t.End; $row++) {
+                    [Console]::SetCursorPosition(0,$row)
+                    [Console]::Write(' '*($t.Width-1))
+                }
+                [Console]::SetCursorPosition(0,$t.Start)
+            } else { [Console]::Write(([string][char]27)+'[J') }
         }
     } catch [ArgumentOutOfRangeException] { } # Resized between measurement and write.
     $t.Start = -1
@@ -58,6 +65,14 @@ function Get-OreTerminalLines([int]$Width) {
     $lines = @('  '+$rail+'  '+(Format-OreTerminalText ($t.Symbol+' '+$title) $t.Role))
     if ($t.Primary) { $lines += '  '+$rail+'  '+$t.Primary }
     if ($t.Notice) { $lines += ''; $lines += '  '+$t.Notice }
+    if ($t.Choices) {
+        $lines += ''
+        for ($i=0; $i -lt $t.Choices.Count; $i++) {
+            $label = $t.Choices[$i]
+            if ($i -eq $t.Focus) { $lines += '  '+(Format-OreTerminalText ('› '+$label) 'accent') }
+            else { $lines += '    '+$label }
+        }
+    }
     if ($t.Update) {
         $label = if ($t.Title -eq 'firstInstall') { 'nextLabel' } else { 'updatesLabel' }
         $label = Format-OreTerminalText (Get-OreMessage $label) 'muted'

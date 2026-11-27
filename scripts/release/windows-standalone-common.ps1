@@ -103,13 +103,17 @@ function Get-OreHttps([string]$Url, [string]$Output, [int]$Seconds = 60) {
     $client.Timeout = [TimeSpan]::FromSeconds($Seconds)
     $client.DefaultRequestHeaders.UserAgent.ParseAdd('ORE-launcher/1')
     $cancel = if ('OreCancellation' -as [type]) { [Threading.CancellationTokenSource]::CreateLinkedTokenSource([OreCancellation]::Token) } else { New-Object Threading.CancellationTokenSource }
+    if ($script:OreCatalogueStop) {
+        $catalogueCancel = [Threading.CancellationTokenSource]::CreateLinkedTokenSource($cancel.Token,$script:OreCatalogueStop.Token)
+    }
+    $token = if ($catalogueCancel) { $catalogueCancel.Token } else { $cancel.Token }
     $cancel.CancelAfter([TimeSpan]::FromSeconds($Seconds))
     $response = $null
     try {
         $uri = [Uri]$Url
         for ($redirect = 0; $redirect -le 5; $redirect++) {
             if ($uri.Scheme -cne 'https' -or $uri.UserInfo -or $uri.Host -notin @('api.github.com','github.com','nodejs.org','release-assets.githubusercontent.com','objects.githubusercontent.com')) { throw 'Unapproved download redirect.' }
-            $response = $client.GetAsync($uri,[Net.Http.HttpCompletionOption]::ResponseHeadersRead,$cancel.Token).GetAwaiter().GetResult()
+            $response = $client.GetAsync($uri,[Net.Http.HttpCompletionOption]::ResponseHeadersRead,$token).GetAwaiter().GetResult()
             if ([int]$response.StatusCode -in @(301,302,303,307,308)) {
                 $uri = New-Object Uri $uri,$response.Headers.Location
                 $response.Dispose(); $response = $null
@@ -125,7 +129,7 @@ function Get-OreHttps([string]$Url, [string]$Output, [int]$Seconds = 60) {
             try {
                 $buffer = New-Object byte[] 65536
                 [long]$total = 0
-                while (($count = $inputStream.ReadAsync($buffer,0,$buffer.Length,$cancel.Token).GetAwaiter().GetResult()) -gt 0) {
+                while (($count = $inputStream.ReadAsync($buffer,0,$buffer.Length,$token).GetAwaiter().GetResult()) -gt 0) {
                     $total += $count
                     if ($total -gt $limit) {
                         throw ('Download bound exceeded for '+[IO.Path]::GetFileName($Output)+': received at least '+$total+' bytes; limit '+$limit+'.')
@@ -137,7 +141,7 @@ function Get-OreHttps([string]$Url, [string]$Output, [int]$Seconds = 60) {
             return
         }
         throw 'Redirect limit exceeded.'
-    } finally { if ($response) { $response.Dispose() }; $cancel.Dispose(); $client.Dispose(); $handler.Dispose() }
+    } finally { if ($response) { $response.Dispose() }; if ($catalogueCancel) { $catalogueCancel.Dispose() }; $cancel.Dispose(); $client.Dispose(); $handler.Dispose() }
 }
 function ConvertTo-OreArgument([string]$Value) {
     # CommandLineToArgvW quoting; paths are never evaluated as shell source.

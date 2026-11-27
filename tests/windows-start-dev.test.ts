@@ -18,7 +18,7 @@ function fixture() {
   for (const file of ['start-dev-windows.ps1', 'windows-common.ps1']) {
     cpSync(join('scripts/release', file), join(scripts, file));
   }
-  cpSync('scripts/release/start-dev.bat', join(scripts, 'start-dev.bat'));
+  cpSync('start-dev.bat', join(source, 'start-dev.bat'));
   writeFileSync(join(scripts, 'build-portable.ps1'), `
 param([string]$Mode, [string]$Destination, [switch]$ReuseDevelopmentDependencies)
 $source = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -40,7 +40,7 @@ exit 0
   const run = (extra: NodeJS.ProcessEnv = {}, args = '') => spawnSync('cmd.exe',
     ['/d', '/s', '/c', `""%ORE_TEST_ENTRY%"${args}"`], {
       windowsVerbatimArguments: true, cwd: root, encoding: 'utf8', timeout: 30000,
-      env: { ...process.env, ORE_TEST_ENTRY: join(scripts, 'start-dev.bat'), ORE_NO_PAUSE: '1',
+      env: { ...process.env, ORE_TEST_ENTRY: join(source, 'start-dev.bat'), ORE_NO_PAUSE: '1',
         ROLEPLAY_DATABASE: undefined, ORE_SKIP_UPDATE: '0', ...extra },
     });
   return { source, root, run };

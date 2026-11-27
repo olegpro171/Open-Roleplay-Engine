@@ -19,19 +19,6 @@ function Install-OreInitialSelection([string]$Installation, [int]$LauncherVersio
     } finally { Remove-OrePackageStage $stage }
 }
 
-function Read-OrePreparedMinimumLauncherVersion([string]$Prepared) {
-    $filename = 'minimum-launcher-version'
-    $path = Join-Path $Prepared $filename
-    if ((New-Object IO.FileInfo $path).Length -gt 10) { throw 'Invalid prepared launcher requirement.' }
-    $value = [IO.File]::ReadAllText($path)
-    [int]$minimum = 0
-    if ($value -cnotmatch '^(0|[1-9][0-9]*)\z' -or ![int]::TryParse($value,[ref]$minimum)) { throw 'Invalid prepared launcher requirement.' }
-    $records = Read-OreJson (Join-Path $Prepared 'checksums.json') 16KB
-    $match = @($records | Where-Object { $_.path -ceq $filename })
-    if ($match.Count -ne 1 -or $match[0].sha256 -cne (Get-OreHash $path)) { throw 'Prepared launcher requirement differs from its inventory.' }
-    return $minimum
-}
-
 function Use-OrePreparedUpdate([hashtable]$Current, [string]$Prepared, [int]$LauncherVersion) {
     if (![IO.Directory]::Exists($Prepared) -and ![IO.File]::Exists($Prepared)) { return }
     $retain = $false

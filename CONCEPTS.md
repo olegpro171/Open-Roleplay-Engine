@@ -163,7 +163,9 @@ Windows x64 is the supported public download. Development takes place on `develo
 
 The external Windows launcher stays in place for routine updates. After the installed build reports readiness, the helper prepares updates for the next launch. Pausing updates also pauses activation. If launcher replacement is required, the installed build stays selected and a blocked prepared update remains available. Configuration, data and language packs survive app replacement. [Windows startup and launcher compatibility](docs/RELEASES.md#normal-windows-package-startup)
 
-Recovery uses an explicitly selected compatible build and pauses updates. Live startup owns database identity, snapshots and migrations. A missing established database or a failure after live startup begins must never trigger empty replacement or automatic rollback. The owner's working-tree installation remains independent. [Database recovery](docs/RELEASES.md#database-upgrades-and-explicit-recovery) and [working-tree startup](docs/RELEASES.md#working-tree-development)
+The Windows launcher offers Start ORE and Manage versions before interactive startup. Latest release is the default. Selecting a fixed release pins the exact build across restarts and suppresses downloads and activation of automatic updates. Installed builds remain selectable offline. A manual switch requires launcher compatibility, a read-only check against the established database and a startup probe with temporary data.
+
+After a failed start the launcher offers version management and explicit database selection. Live startup owns database identity, snapshots and migrations. A missing established database or a failure after live startup begins must never trigger empty replacement or automatic rollback. The owner's working-tree installation remains independent. [Database recovery](docs/RELEASES.md#database-upgrades-and-explicit-recovery) and [working-tree startup](docs/RELEASES.md#working-tree-development)
 
 ## Open decisions and scope
 

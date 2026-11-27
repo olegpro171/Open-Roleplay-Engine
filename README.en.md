@@ -22,7 +22,7 @@ Find your provider’s API base URL and get an API key if required.
 
 Next, install **Open Roleplay Engine**.
 
-- **Windows x64.** Download `ORE-launcher.bat` from [Releases](https://github.com/olegpro171/Open-Roleplay-Engine/releases) and run it.
+- **Windows x64.** Download `ORE-launcher.bat` from [Releases](https://github.com/olegpro171/Open-Roleplay-Engine/releases) and run it. Press **Enter** on **Start ORE**.
 - **Linux/macOS.** Build from source manually or use the `./start-dev.sh` script. See the [guide to running from source](docs/RELEASES.md#working-tree-development).
 
 After ORE starts, open the displayed address and create the owner password. You’ll need this password to access the app from other devices on your local network.
@@ -79,17 +79,42 @@ The installation script is `ORE-launcher.bat`. Download it from [Releases](https
 
 Place the file in the folder where you want to install ORE and double-click it.
 
-On the first launch, the script downloads and verifies the latest published Windows package, installs it in `ORE-internal/`, and starts ORE. Use the same launcher for future launches and updates. ORE prepares updates in the background. When the console says an update is ready, restart ORE. If an update fails to download, you can keep using the installed version.
+Press **Enter** on **Start ORE**. On first use the launcher downloads and verifies the latest Windows package, installs it in `ORE-internal/`, and starts ORE. On later launches, ORE prepares updates in the background. When the console says an update is ready, restart ORE.
+
+To stay on a particular version, use the arrow keys to choose **Manage versions**. Select an installed build or choose **Browse GitHub releases**, then confirm **Use this version**. The launcher checks the build against your database before switching. A fixed version starts offline and pauses automatic updates. Choose **Latest release · Automatic updates** to resume them. Press **Esc** to go back.
 
 If an older launcher can’t update ORE, download the new launcher from [Releases](https://github.com/olegpro171/Open-Roleplay-Engine/releases), stop the app, replace `ORE-launcher.bat` beside the existing `ORE-internal/` folder, and double-click it.
 
 The `ORE-internal/` folder contains the app’s data. Deleting it will remove your saved data.
 
-On Windows x64, the launcher uses the built-in 64-bit Windows PowerShell 5.1 and .NET. See [legacy installations](docs/RELEASES.md#legacy-installations) for recovery instructions.
+On Windows x64, the launcher uses the built-in 64-bit Windows PowerShell 5.1 and .NET.
 
-### Running from source on Linux and macOS
+### Running from a source checkout
 
-Clone the repository. From the repository folder, run `./start-dev.sh`. The script builds the current working tree into `ore-development/` using its own Node.js runtime. The script targets Linux with glibc. See the [guide to running from source](docs/RELEASES.md#working-tree-development) for details.
+Clone the repository and run the script for your platform from its top-level folder.
+
+| Platform | Command |
+| --- | --- |
+| Windows x64 | `.\start-dev.bat` (or double-click the file) |
+| macOS or Linux with glibc | `./start-dev.sh` |
+
+Both scripts build your current checkout, including local edits, into `ore-development/` using a private Node.js runtime, then start the app. Stop the running development session with **Ctrl+C** before rebuilding. [Source build requirements](docs/RELEASES.md#working-tree-development)
+
+If you built a separate portable installation on macOS or Linux, run `./start.command` from that installation folder to start the selected build.
+
+## Troubleshooting
+
+**ORE won’t start after a Windows update.** Read the error in the launcher and open **Manage versions**. Choose the build marked **Last started successfully** or **Previous working version**. If the database has moved, choose **Locate an existing database…** and select its new location. Then choose **Start ORE**. If the build cannot read the saved database, consult the [recovery guide](docs/RELEASES.md#database-upgrades-and-explicit-recovery).
+
+If the launcher menu itself is unavailable, stop ORE and run this command in PowerShell from the folder containing `ORE-launcher.bat`.
+
+```powershell
+.\ORE-internal\recover-app.bat --list
+```
+
+If the list shows a previous working build, run `.\ORE-internal\recover-app.bat --previous`. Recovery checks that the build can read your saved database. If it succeeds, start `ORE-launcher.bat` again. To resume updates, choose **Latest release · Automatic updates** in the launcher, or stop ORE and run `.\ORE-internal\recover-app.bat --resume-updates`.
+
+On macOS or Linux, run `./recover.command --list` from the portable installation folder. [Recovery options](docs/RELEASES.md#database-upgrades-and-explicit-recovery) · [Older installations](docs/RELEASES.md#legacy-installations)
 
 ## Phone access
 
@@ -115,7 +140,7 @@ You can move ORE to another folder. Your chats, settings, and other data move wi
 
 1. To keep your chats, memory, libraries, and Connections, create a backup in **Settings → Data backup** and save it outside the folder you plan to delete. Copy any custom language packs you want to keep separately. See [what a backup contains](docs/DATA.md#content-backups).
 2. Press **Ctrl+C** in the terminal or launcher window where ORE is running and wait for it to stop. Closing the browser tab leaves the server running.
-3. **Windows.** Delete `ORE-launcher.bat` and the `ORE-internal/` folder. This deletes the app and its saved data. **If you ran ORE from source**, delete the repository folder. To remove only the build created by `./start-dev.sh`, delete `ore-development/`.
+3. **Windows.** Delete `ORE-launcher.bat` and the `ORE-internal/` folder. This deletes the app and its saved data. **If you ran ORE from source**, delete the repository folder. To remove only the build created by `start-dev.bat` or `start-dev.sh`, delete `ore-development/`.
 
 **Temporary files.** If the Windows launcher is interrupted, it can leave `ore-types-*` folders in `%TEMP%`. You can delete these folders manually once ORE has stopped.
 
