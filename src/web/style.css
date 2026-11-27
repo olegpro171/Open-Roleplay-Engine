@@ -134,6 +134,7 @@ dialog:focus,dialog h2[tabindex="-1"]:focus,.action-menu[tabindex="-1"]:focus{ou
 .heading-dropdown .select-trigger{width:auto;max-width:100%;min-width:44px;min-height:44px;justify-content:flex-start;gap:8px;padding:2px 6px;margin-inline-start:-6px;border:0;background:none;text-align:start}
 .heading-dropdown .select-trigger>.ui-icon{flex:none;color:var(--header-highlight)}
 .heading-dropdown .select-trigger[aria-expanded=true]>.ui-icon{transform:rotate(180deg)}
+.heading-select-backdrop{position:fixed;inset:0;z-index:99;background:var(--overlay-subtle)}
 .heading-select-menu [role=option]{min-height:44px;border:1px solid transparent;border-radius:7px}
 .heading-select-menu [role=option][aria-selected=true]{border-color:var(--accent-border)}
 .heading-select-menu [role=option][aria-selected=true]:not([data-pointer-pressed]){background:var(--accent-selected)}
