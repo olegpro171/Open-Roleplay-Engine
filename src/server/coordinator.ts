@@ -27,9 +27,9 @@ export class GenerationCoordinator {
   reasoningText(id: string) { return this.active.get(id)?.reasoning ?? ''; }
   partialText(id: string) { return this.active.get(id)?.text ?? ''; }
 
-  start(revision: number, requestId: string, text?: string, chatId = 'main', draft?: ComposerDraftReference) {
+  start(revision: number, requestId: string, text?: string, chatId = 'main', draft?: ComposerDraftReference, dismissSuggestionId?: string) {
     if (this.stopping) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
-    const result = this.store.begin(revision, requestId, text, chatId, draft);
+    const result = this.store.begin(revision, requestId, text, chatId, draft, dismissSuggestionId);
     const response = this.dispatch(result, chatId);
     if (!draft) return response;
     const saved = this.store.drafts.read(chatId);

@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+import { devices, expect } from '@playwright/test';
 import { themeSchema } from '../../src/shared/appearance';
 import { defaultImpersonateInstruction } from '../../src/shared/default-prompt';
 import { defaultPrompt } from '../../src/shared/library';
@@ -67,21 +67,70 @@ test('drafts, retries with edited guidance, replaces the draft and sends exactly
   expect(await f.calls()).toHaveLength(4);
 });
 
-test('keeps suggestions from a changed scene available to copy and dismiss', async ({ page }) => {
+test('keeps suggestions usable after a cancelled regeneration and after the story advances', async ({ page }) => {
   const f = await setupScene(page, 'Mira waits.');
   await page.getByRole('button', { name: 'Composer actions' }).click();
   await page.getByRole('menuitem', { name: 'Impersonate' }).click();
   const panel = page.getByRole('region', { name: 'Suggested turn' });
   await expect(panel.getByRole('button', { name: 'Use draft' })).toBeEnabled();
+  const opening = page.getByRole('article', { name: 'Turn 1', exact: true });
+  await f.setMode('hold-first-token');
+  await opening.getByRole('button', { name: 'Regenerate', exact: true }).click();
+  await opening.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'Use draft' })).toBeEnabled({ timeout: 2000 });
+  await f.setMode('normal');
+
   const branch = await f.state();
   await f.write(`/api/chats/${f.chatId}/turns`, { revision: branch.revision, requestId: crypto.randomUUID(), text: 'Sent from another device.' });
-  await expect(panel.getByText(/The scene has changed/)).toBeVisible();
-  await expect(panel.getByRole('button', { name: 'Use draft' })).toBeDisabled();
+  await expect.poll(async () => (await f.state()).turns[1]?.complete).toBe(true);
+  const calls = (await f.calls()).length;
+  await panel.getByRole('button', { name: 'Next suggestion' }).click();
+  await expect(panel.getByRole('textbox', { name: 'Suggestion version', exact: true })).toHaveValue('2');
+  await expect(panel.getByRole('button', { name: 'Previous suggestion' })).toBeEnabled();
+  expect((await f.calls())[calls]?.body.messages).toContainEqual({ role: 'user', content: 'Sent from another device.' });
+  await panel.getByRole('button', { name: 'Previous suggestion' }).click();
   await expect(panel.getByText('The lantern flickers. 🕯', { exact: true })).toBeVisible();
-  await panel.getByRole('button', { name: 'Dismiss' }).click();
-  await page.reload();
-  await expect(page.getByRole('button', { name: 'Composer actions' })).toBeEnabled();
+  await panel.getByRole('button', { name: 'Use draft' }).click();
   await expect(panel).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole('textbox', { name: 'Your next turn' })).toHaveValue('The lantern flickers. 🕯');
+  await expect(panel).toHaveCount(0);
+  expect((await f.state()).turns).toHaveLength(2);
+});
+
+test('dismisses a suggestion across open devices and fresh client sessions', async ({ page, browser }) => {
+  const f = await setupScene(page, 'Mira waits.');
+  const title = 'Suggested turn';
+  const panel = page.getByRole('region', { name: title });
+  const generate = async () => {
+    await page.getByRole('button', { name: 'Composer actions' }).click();
+    await page.getByRole('menuitem', { name: 'Impersonate' }).click();
+    await expect(panel.getByRole('button', { name: 'Use draft' })).toBeEnabled();
+  };
+  await generate();
+  const auth = await page.context().storageState();
+  const device = await browser.newContext({ storageState: auth });
+  try {
+    const other = await device.newPage();
+    await other.goto(page.url());
+    const otherPanel = other.getByRole('region', { name: title });
+    await expect(otherPanel).toBeVisible();
+    await panel.getByRole('button', { name: 'Dismiss' }).click();
+    await expect(panel).toHaveCount(0);
+    await expect(otherPanel).toHaveCount(0);
+  } finally { await device.close(); }
+
+  const restarted = await browser.newContext({ storageState: auth });
+  try {
+    const fresh = await restarted.newPage();
+    await fresh.goto(page.url());
+    await expect(fresh.getByRole('button', { name: 'Composer actions' })).toBeEnabled();
+    await expect(fresh.getByRole('region', { name: title })).toHaveCount(0);
+    expect(await f.calls()).toHaveLength(1);
+    await generate();
+    await expect(fresh.getByRole('region', { name: title })).toBeVisible();
+    expect(await f.calls()).toHaveLength(2);
+  } finally { await restarted.close(); }
 });
 
 test('edits the action instruction and displays the suggestion in every theme and layout', async ({ page }, info) => {
@@ -198,15 +247,13 @@ for (const width of [1440, 390]) test(`keeps suggestion controls anchored throug
   expect((await apply.boundingBox())!.x).toBeLessThan((await dismiss.boundingBox())!.x);
   await expect.poll(async () => (await f.calls()).length).toBe(1);
   await cancel.click();
-  await expect(panel.getByRole('status')).toHaveText('Suggestion cancelled.');
-  await expect(version).toHaveValue('0');
-  await expect(cancel).toBeHidden();
-  await expect(apply).toBeVisible();
-  await expect(dismiss).toBeVisible();
-  await expect(next).toBeEnabled();
-  expect(await positions()).toEqual(fixed);
+  await expect(panel).toHaveCount(0, { timeout: 2000 });
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Composer actions' })).toBeEnabled();
+  await expect(panel).toHaveCount(0);
   await f.setMode('normal');
-  await next.click();
+  await page.getByRole('button', { name: 'Composer actions' }).click();
+  await page.getByRole('menuitem', { name: 'Impersonate' }).click();
   await expect(panel.getByText('The lantern flickers. 🕯', { exact: true })).toBeVisible();
   await expect(version).toHaveValue('1');
   await composer.fill('Give Mira a moment.');
@@ -234,6 +281,7 @@ for (const width of [1440, 390]) test(`keeps suggestion controls anchored throug
   await expect(preview).toHaveCount(0);
   expect(await positions()).toEqual(fixed);
   await cancel.click();
+  await expect(panel.getByRole('status')).toHaveText('Suggestion cancelled.');
   await expect(version).toHaveValue('1');
   await expect(cancel).toBeHidden();
   await expect(panel.getByText('The lantern flickers. 🕯', { exact: true })).toBeVisible();
@@ -284,4 +332,117 @@ test('keeps the suggestion open after a failed draft save and closes it after a 
   expect(saved.text).toBe('The lantern flickers. 🕯');
   expect((await f.state()).turns).toHaveLength(1);
   expect(await f.calls()).toHaveLength(1);
+});
+
+test('follows streamed suggestion text, pauses on upward scroll and resumes at the end', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const f = await setupScene(page, 'Mira waits.');
+  await f.setMode('scroll-stream');
+  await page.getByRole('button', { name: 'Composer actions' }).click();
+  await page.getByRole('menuitem', { name: 'Impersonate' }).click();
+  const panel = page.getByRole('region', { name: 'Suggested turn' });
+  const content = panel.locator('.suggestion-content');
+  const distance = () => content.evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop);
+  const advance = () => f.write('/__test/finish', {});
+  await expect(panel.getByRole('status')).toHaveText('Reasoning…');
+  await advance();
+  await advance();
+  await expect(content).toContainText('First response section');
+  await expect.poll(distance).toBeLessThanOrEqual(1);
+
+  const readingTop = await content.evaluate(node => {
+    node.scrollTop -= 100;
+    return node.scrollTop;
+  });
+  await advance();
+  await expect(content).toContainText('Second response section');
+  expect(await content.evaluate(node => node.scrollTop)).toBeCloseTo(readingTop, 0);
+
+  await content.evaluate(node => { node.scrollTop = node.scrollHeight; });
+  // Allow the browser to report the return to the end before the next chunk.
+  await content.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await advance();
+  await expect(content).toContainText('Third response section');
+  await expect.poll(distance).toBeLessThanOrEqual(1);
+
+  const finalReadingTop = await content.evaluate(node => {
+    node.scrollTop -= 100;
+    return node.scrollTop;
+  });
+  await advance();
+  await expect(content).toContainText('Fourth response section');
+  await advance();
+  await expect(panel.getByRole('button', { name: 'Use draft' })).toBeEnabled();
+  expect(await content.evaluate(node => node.scrollTop)).toBeCloseTo(finalReadingTop, 0);
+});
+
+test('keeps the streamed suggestion visible while the saved version loads', async ({ page }) => {
+  const f = await setupScene(page, 'Mira waits.');
+  await f.setMode('hold');
+  let release = () => {};
+  const delayed = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/suggestions/*?version=1', async route => {
+    await delayed;
+    await route.continue();
+  });
+  await page.getByRole('button', { name: 'Composer actions' }).click();
+  await page.getByRole('menuitem', { name: 'Impersonate' }).click();
+  const panel = page.getByRole('region', { name: 'Suggested turn' });
+  const text = 'The lantern';
+  await expect(panel.getByText(text, { exact: true })).toBeVisible();
+  const height = (await panel.boundingBox())!.height;
+  try {
+    const reading = page.waitForRequest('**/suggestions/*?version=1');
+    await f.write('/__test/finish', {});
+    await reading;
+    await expect(panel.getByRole('button', { name: 'Cancel', exact: true })).toBeHidden();
+    await expect(panel.getByText(text, { exact: true })).toBeVisible({ timeout: 1500 });
+    expect((await panel.boundingBox())!.height).toBeCloseTo(height, 0);
+    await expect(panel.getByRole('button', { name: 'Use draft' })).toBeDisabled();
+  } finally {
+    release();
+  }
+  await expect(panel.getByText('The lantern flickers. 🕯', { exact: true })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Use draft' })).toBeEnabled();
+});
+
+test.describe('iPhone suggestion scrolling', () => {
+  const { userAgent, viewport, isMobile, hasTouch } = devices['iPhone 13'];
+  test.use({ userAgent, viewport, isMobile, hasTouch });
+
+  test('lets a saved suggestion own vertical gestures at both scroll boundaries', async ({ page }) => {
+    const f = await setupScene(page, 'Mira waits.');
+    await f.setMode('scroll-stream');
+    await page.getByRole('button', { name: 'Composer actions' }).click();
+    await page.getByRole('menuitem', { name: 'Impersonate' }).click();
+    const panel = page.getByRole('region', { name: 'Suggested turn' });
+    await expect(panel.getByRole('status')).toHaveText('Reasoning…');
+    // Advance the fixture from the initial reasoning chunk through the end of the reply.
+    for (let step = 0; step < 6; step++) await f.write('/__test/finish', {});
+    await expect(panel.getByRole('button', { name: 'Use draft' })).toBeEnabled();
+    const content = panel.locator('.suggestion-content');
+    await expect(content).toHaveCSS('overscroll-behavior-y', 'contain');
+    expect(await content.evaluate(node => node.scrollHeight - node.clientHeight)).toBeGreaterThan(100);
+    const prevented = await content.evaluate(node => {
+      const target = node.querySelector('.suggestion-prose')!;
+      const gesture = (dx: number, dy: number) => {
+        // WebKit's desktop runner cannot construct a Touch. Supply the same
+        // touch coordinates to exercise the guard's event-cancellation decision.
+        const touch = (type: string, clientX: number, clientY: number) => Object.defineProperty(
+          new Event(type, { bubbles: true, cancelable: true }), 'touches',
+          { value: { length: 1, item: () => ({ clientX, clientY }) } },
+        );
+        target.dispatchEvent(touch('touchstart', 100, 150));
+        const move = touch('touchmove', 100 + dx, 150 + dy);
+        target.dispatchEvent(move);
+        target.dispatchEvent(new Event('touchend', { bubbles: true }));
+        return move.defaultPrevented;
+      };
+      node.scrollTop = 0;
+      const top = gesture(0, 25);
+      node.scrollTop = node.scrollHeight;
+      return { top, bottom: gesture(0, -25), horizontal: gesture(25, 0) };
+    });
+    expect(prevented).toEqual({ top: false, bottom: false, horizontal: true });
+  });
 });

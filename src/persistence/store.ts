@@ -41,7 +41,7 @@ import { contextPresetSchema, defaultContextPreset, defaultRepairPrompt, type Co
 import { legacyContextPreset, upgradedContextPrompts } from './context-prompt-upgrade.js';
 import { ContextStore } from './context-store.js';
 import { ComposerDraftStore } from './composer-drafts.js';
-import type { ComposerDraftReference } from '../shared/composer-draft.js';
+import { sameComposerEdit, type ComposerDraftReference, type ComposerDraftSave } from '../shared/composer-draft.js';
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
 import { legacyLorePrompt, legacyRoleplayPrompt } from './legacy-prompt.js';
@@ -1398,11 +1398,34 @@ export class Store {
       this.bumpLibrary();
     })();
   }
-  begin(expected: number, requestId: string, text?: string, chatId = 'main', draft?: ComposerDraftReference): { id: string; fresh: boolean } {
+  dismissSuggestion(chatId: string, generationId: string) {
+    // Compare the exact attempt so a delayed close cannot hide an active retry.
+    return this.sqlite.prepare(`DELETE FROM composer_suggestion_sessions WHERE chat_id = ? AND generation_id = ?
+      AND EXISTS (SELECT 1 FROM generations WHERE id = generation_id AND chat_id = composer_suggestion_sessions.chat_id AND status != 'running')`)
+      .run(chatId, generationId).changes > 0;
+  }
+  private hasSavedSuggestion(chatId: string, sessionId: string) {
+    return Boolean(this.db.select({ id: schema.generations.id }).from(schema.generations).where(and(
+      eq(schema.generations.chatId, chatId), eq(schema.generations.suggestionSession, sessionId),
+      eq(schema.generations.status, 'succeeded'),
+    )).get());
+  }
+  saveComposerDraft(chatId: string, input: ComposerDraftSave) {
+    const dismiss = input.dismissSuggestionId;
+    if (!dismiss) return { ...this.drafts.save(chatId, input), suggestionDismissed: false };
+    return this.sqlite.transaction(() => {
+      const result = this.drafts.save(chatId, input);
+      if (!sameComposerEdit(result.draft.edit, input.edit) || result.draft.text !== input.text) {
+        throw new AppError(409, 'draft_changed', message('impersonate.draft_changed'));
+      }
+      return { ...result, suggestionDismissed: this.dismissSuggestion(chatId, dismiss) };
+    })();
+  }
+  begin(expected: number, requestId: string, text?: string, chatId = 'main', draft?: ComposerDraftReference, dismissSuggestionId?: string): { id: string; fresh: boolean } {
     if (text === undefined) return this.beginResponse(expected, requestId, chatId, { kind: 'retry' });
     const input = trimBoundaryNewlines(text);
     if (!input.trim()) throw new AppError(400, 'blank_input', message("errors.write_a_turn_before_sending_it"));
-    return this.beginResponse(expected, requestId, chatId, { kind: 'submit', text: input, draft });
+    return this.beginResponse(expected, requestId, chatId, { kind: 'submit', text: input, draft, dismissSuggestionId });
   }
   beginOpening(expected: number, requestId: string, chatId: string) {
     return this.beginResponse(expected, requestId, chatId, { kind: 'opening' });
@@ -1410,7 +1433,7 @@ export class Store {
   beginImpersonation(expected: number, requestId: string, chatId: string, sessionId: string, draft: string) {
     return this.beginResponse(expected, requestId, chatId, { kind: 'impersonate', sessionId, draft });
   }
-  private beginResponse(expected: number, requestId: string, chatId: string, input: { kind: 'submit'; text: string; draft?: ComposerDraftReference } | { kind: 'retry' } | { kind: 'opening' } | { kind: 'impersonate'; sessionId: string; draft: string }) {
+  private beginResponse(expected: number, requestId: string, chatId: string, input: { kind: 'submit'; text: string; draft?: ComposerDraftReference; dismissSuggestionId?: string } | { kind: 'retry' } | { kind: 'opening' } | { kind: 'impersonate'; sessionId: string; draft: string }) {
     return this.sqlite.transaction(() => {
       const command = JSON.stringify(input);
       const existing = this.db.select().from(schema.generations).where(eq(schema.generations.requestId, requestId)).get();
@@ -1426,10 +1449,18 @@ export class Store {
       let turnId: string | null;
       if (input.kind === 'impersonate') {
         if (turn && !turn.complete) throw new AppError(409, 'pending_turn', message("errors.resolve_or_delete_the_pending_turn_before_submitting"));
-        const previous = this.db.select({ sourceRevision: schema.generations.sourceRevision }).from(schema.generations)
+        const previous = this.db.select({ id: schema.generations.id, status: schema.generations.status }).from(schema.generations)
           .where(and(eq(schema.generations.chatId, chatId), eq(schema.generations.suggestionSession, input.sessionId)))
           .orderBy(desc(sql`rowid`)).limit(1).get();
-        if (previous && previous.sourceRevision + 1 !== expected) throw new AppError(409, 'scene_changed', message('impersonate.stale'));
+        // A fresh retry may only extend the open session. Exact request replays
+        // returned above and cannot restore its pointer after dismissal.
+        if (previous) {
+          const live = this.db.select({ id: schema.composerSuggestionSessions.generationId }).from(schema.composerSuggestionSessions)
+            .where(eq(schema.composerSuggestionSessions.chatId, chatId)).get();
+          if (live?.id !== previous.id || (previous.status === 'cancelled' && !this.hasSavedSuggestion(chatId, input.sessionId))) {
+            throw new AppError(409, 'suggestion_closed', message('impersonate.closed'));
+          }
+        }
         turnId = null;
       } else if (input.kind === 'opening') {
         if (turn) throw new AppError(409, 'chat_not_empty', message('opening.empty_chat_required'));
@@ -1449,7 +1480,10 @@ export class Store {
         this.sqlite.prepare(`INSERT INTO composer_suggestion_sessions (chat_id, generation_id) VALUES (?, ?)
           ON CONFLICT(chat_id) DO UPDATE SET generation_id = excluded.generation_id`).run(chatId, id);
       }
-      if (input.kind === 'submit' && input.draft) this.drafts.submitted(chatId, input.draft);
+      if (input.kind === 'submit') {
+        if (input.draft) this.drafts.submitted(chatId, input.draft);
+        if (input.dismissSuggestionId) this.dismissSuggestion(chatId, input.dismissSuggestionId);
+      }
       return { id, fresh: true };
     })();
   }
@@ -1616,6 +1650,9 @@ export class Store {
         reasoningText: discardOutput ? '' : (reasoningText ?? generation.reasoningText),
         error: outcome.error, errorMessage: outcome.errorMessage ?? null, usage, updatedAt: new Date().toISOString(),
       }).where(eq(schema.generations.id, id)).run();
+      if (status === 'cancelled' && generation.suggestionSession !== null && !this.hasSavedSuggestion(generation.chatId, generation.suggestionSession)) {
+        this.dismissSuggestion(generation.chatId, id);
+      }
       this.bumpRevision(generation.chatId); return true;
     })();
   }

@@ -682,8 +682,9 @@ export async function createApp(options: {
   app.get('/api/chats/:chatId/draft', async request => store.drafts.read(chatId(request.params)));
   app.put('/api/chats/:chatId/draft', async request => {
     const id = chatId(request.params);
-    const { draft, changed } = store.drafts.save(id, composerDraftSaveSchema.parse(request.body));
+    const { draft, changed, suggestionDismissed } = store.saveComposerDraft(id, composerDraftSaveSchema.parse(request.body));
     if (changed) coordinator.changed({ kind: 'draft', chatId: id, revision: draft.revision });
+    if (suggestionDismissed) coordinator.changed({ kind: 'chat', chatId: id, detail: 'state' });
     return draft;
   });
   app.post('/api/chats/import', { bodyLimit: transcriptRequestLimit }, async request => {
@@ -780,6 +781,13 @@ export async function createApp(options: {
       selected: generationIdentitySchema.optional(), version: z.coerce.number().int().positive().optional(),
     }).strict().refine(query => query.selected === undefined || query.version === undefined).parse(request.query);
     return storyReader.suggestion(chatId(request.params), sessionId, version ?? selected);
+  });
+  app.post('/api/chats/:chatId/suggestions/:attemptId/dismiss', async request => {
+    const id = chatId(request.params);
+    const { attemptId } = z.object({ attemptId: z.string().uuid() }).parse(request.params);
+    const dismissed = store.dismissSuggestion(id, attemptId);
+    if (dismissed) coordinator.changed({ kind: 'chat', chatId: id, detail: 'state' });
+    return { dismissed };
   });
   app.get('/api/chats/:chatId/pins', async request => storyReader.pins(chatId(request.params)));
   app.put('/api/chats/:chatId/turns/:id/pin', async request => {
@@ -960,7 +968,7 @@ export async function createApp(options: {
     });
     app.post(prefix + '/turns', async (request, reply) => {
       const input = submissionSchema.parse(request.body);
-      return reply.code(202).send(coordinator.start(input.revision, input.requestId, input.text, chatId(request.params), input.draft));
+      return reply.code(202).send(coordinator.start(input.revision, input.requestId, input.text, chatId(request.params), input.draft, input.dismissSuggestionId));
     });
     app.post(prefix + '/impersonate', async (request, reply) => {
       const input = impersonateSchema.parse(request.body);

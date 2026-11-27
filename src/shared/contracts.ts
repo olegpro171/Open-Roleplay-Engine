@@ -161,6 +161,7 @@ export const saveSettingsSchema = z.object({
 export const submissionSchema = z.object({
   revision: revisionSchema, requestId: z.string().uuid(), text: z.string().min(1).max(100_000),
   draft: composerDraftReferenceSchema.optional(),
+  dismissSuggestionId: z.string().uuid().optional(),
 }).strict();
 export const retrySchema = z.object({ revision: revisionSchema, requestId: z.string().uuid() }).strict();
 export const impersonateSchema = retrySchema.extend({ draft: z.string().max(100_000), sessionId: z.string().uuid() });

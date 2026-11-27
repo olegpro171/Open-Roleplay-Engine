@@ -44,11 +44,11 @@ export function useTouchScrollGuard(enabled: boolean) {
         if (node === document.body || node === document.documentElement) break;
         const style = getComputedStyle(node);
         const overflow = horizontal ? style.overflowX : style.overflowY;
-        // Story's transcript and details scrollers contain native vertical bounce,
+        // Story's reading scrollers contain native vertical bounce,
         // including short content with no scroll range.
         // Reach it through the normal path walk so nested contained editors keep
         // their own boundary guard.
-        if (!horizontal && node.matches('.transcript, .chat-details, .story-meta')
+        if (!horizontal && node.matches('.transcript, .chat-details, .story-meta, .suggestion-content')
           && /^(auto|scroll)$/.test(overflow) && style.overscrollBehaviorY === 'contain') return;
         const extent = horizontal ? node.scrollWidth - node.clientWidth : node.scrollHeight - node.clientHeight;
         // A contained scroll area owns its boundary even without overflow.

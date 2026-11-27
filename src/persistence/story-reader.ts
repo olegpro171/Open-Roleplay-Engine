@@ -71,7 +71,9 @@ export class StoryReader {
       }
       return {
         ...header, promptDiagnostics: promptDiagnostics(header.sources, header.settings.authorNote, pinCount > 0), sources: { ...header.sources, lorebook: undefined }, totalTurns, pinCount, latestTurn, latestGeneration,
-        ...(suggestion?.sessionId ? { suggestion: { ...suggestion, sessionId: suggestion.sessionId } } : {}),
+        // Older databases can retain a pointer to a cancelled session with no saved suggestion.
+        ...(suggestion?.sessionId && (suggestion.status !== 'cancelled' || suggestion.completedCount > 0)
+          ? { suggestion: { ...suggestion, sessionId: suggestion.sessionId } } : {}),
         preparing: Boolean(activePreparation), preparation,
         memory: { revision: context.revision, selectedCount: context.selected.length, awaitingReview: context.jobs.some(job => job.status === 'awaiting_review'), refusalCount: refusalFindings(context).length, refusalBlocked: context.selected.some(ref => refused.has(refKey(ref))),
           archivedCount: sources.filter(source => archived.has(source.turnId)).length, stale: context.selected.some(ref => stale.has(refKey(ref))) },

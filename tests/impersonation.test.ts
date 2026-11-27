@@ -171,7 +171,7 @@ test('schema 21 preserves populated turns, variants, generation bodies and a sha
   expect(f.state().turns).toEqual(before.turns);
 });
 
-test('guards stale drafting sessions and rejects oversized suggestions without losing earlier choices', async () => {
+test('keeps earlier choices after oversized output and can extend the session after a story revision', async () => {
   const f = fixture();
   const good = await f.settle(f.start('First idea.'));
   f.result('x'.repeat(100_001));
@@ -179,8 +179,103 @@ test('guards stale drafting sessions and rejects oversized suggestions without l
   expect(failed).toMatchObject({ errorMessage: { key: 'impersonate.too_long' }, usage: { totalTokens: 25 } });
   const reader = new StoryReader(f.store);
   expect(reader.suggestion(f.chatId, f.session)?.id).toBe(good?.id);
-  f.store.saveAuthorNote(f.chatId, { revision: f.state().revision, settings: { role: 'system', depth: 0, prompt: 'A new scene note.' } });
-  expect(() => f.start('A stale retry.')).toThrow(/scene has changed/);
-  expect(f.calls).toHaveLength(2);
+  const previousRevision = f.state().revision;
+  f.store.saveAuthorNote(f.chatId, { revision: previousRevision, settings: { role: 'system', depth: 0, prompt: 'A new scene note.' } });
+  expect(() => f.start('An out-of-date command.', randomUUID(), previousRevision)).toThrow(expect.objectContaining({ code: 'revision_conflict' }));
+  f.result('I wait by the dock.');
+  const newChoice = await f.settle(f.start('A new retry.'));
+  expect(reader.suggestion(f.chatId, f.session, 1)?.id).toBe(good?.id);
+  expect(reader.suggestion(f.chatId, f.session, 2)?.id).toBe(newChoice?.id);
+  expect(f.calls).toHaveLength(3);
   expect(f.state().turns).toEqual([]);
+});
+
+test('closes a cancelled suggestion session with no saved choices and keeps its history', async () => {
+  const f = fixture();
+  f.hold(true);
+  const requestId = randomUUID();
+  const attempt = f.start('', requestId);
+  await expect.poll(() => f.calls.length).toBe(1);
+  f.coordinator.cancel(attempt);
+  expect(f.store.generation(attempt)).toMatchObject({ status: 'cancelled', partialText: '', request: expect.any(Object) });
+  const open = () => new StoryReader(f.store).read(f.chatId, { shift: 0, limit: 15 }).suggestion;
+  const pointer = () => f.store.sqlite.prepare('SELECT generation_id FROM composer_suggestion_sessions WHERE chat_id = ?').get(f.chatId);
+  expect(pointer()).toBeUndefined();
+  expect(open()).toBeUndefined();
+  await f.reopen();
+  expect(open()).toBeUndefined();
+  expect(f.start('', requestId)).toBe(attempt);
+  expect(pointer()).toBeUndefined();
+
+  // A pre-upgrade database can still have a live pointer to this cancelled attempt.
+  f.store.sqlite.prepare('INSERT INTO composer_suggestion_sessions (chat_id, generation_id) VALUES (?, ?)').run(f.chatId, attempt);
+  expect(open()).toBeUndefined();
+  expect(() => f.start()).toThrow(expect.objectContaining({ code: 'suggestion_closed' }));
+  expect(f.calls).toHaveLength(1);
+});
+
+test('persists dismissal through reopen without reviving the session on replay or hiding a newer attempt', async () => {
+  const f = fixture();
+  const first = f.start();
+  await f.settle(first);
+  const requestId = randomUUID();
+  const second = f.start('', requestId);
+  expect(f.store.dismissSuggestion(f.chatId, second)).toBe(false);
+  await f.settle(second);
+  const current = () => new StoryReader(f.store).read(f.chatId, { shift: 0, limit: 15 }).suggestion;
+  const revision = f.state().revision;
+  expect(f.store.dismissSuggestion(f.chatId, first)).toBe(false);
+  expect(current()?.id).toBe(second);
+  expect(f.store.dismissSuggestion(f.chatId, second)).toBe(true);
+  expect(f.store.dismissSuggestion(f.chatId, second)).toBe(false);
+  expect(f.state().revision).toBe(revision);
+  expect(f.start('', requestId)).toBe(second);
+  expect(() => f.start()).toThrow(expect.objectContaining({ code: 'suggestion_closed' }));
+  expect(f.calls).toHaveLength(2);
+
+  await f.reopen();
+  expect(current()).toBeUndefined();
+  expect(new StoryReader(f.store).suggestion(f.chatId, f.session)?.id).toBe(second);
+  expect(f.store.generation(second)?.request).toBeTruthy();
+  const fresh = f.coordinator.impersonate(revision, randomUUID(), f.chatId, randomUUID(), '').generationId;
+  await f.settle(fresh);
+  expect(f.store.dismissSuggestion(f.chatId, second)).toBe(false);
+  expect(current()?.id).toBe(fresh);
+  expect(f.calls).toHaveLength(3);
+});
+
+test('closes a suggestion atomically with applying or sending and keeps the panel after a rejected save', async () => {
+  const f = fixture();
+  const attempt = f.start();
+  await f.settle(attempt);
+  const open = () => new StoryReader(f.store).read(f.chatId, { shift: 0, limit: 15 }).suggestion;
+  const revision = f.state().revision;
+  f.store.saveAuthorNote(f.chatId, { revision, settings: { role: 'system', depth: 0, prompt: 'The scene has moved on.' } });
+  const editorId = randomUUID();
+  f.store.drafts.save(f.chatId, { text: 'Other device draft.', edit: { editorId, sequence: 1 }, baseRevision: 0 });
+  const apply = { text: 'I offer Mira the key.', edit: { editorId, sequence: 2 }, baseRevision: 0, dismissSuggestionId: attempt };
+  expect(() => f.store.saveComposerDraft(f.chatId, apply)).toThrow(expect.objectContaining({ code: 'draft_changed' }));
+  expect(f.store.drafts.read(f.chatId).text).toBe('Other device draft.');
+  expect(open()?.id).toBe(attempt);
+
+  apply.baseRevision = 1;
+  expect(f.store.saveComposerDraft(f.chatId, apply)).toMatchObject({ changed: true, suggestionDismissed: true });
+  expect(open()).toBeUndefined();
+  const next = f.coordinator.impersonate(f.state().revision, randomUUID(), f.chatId, randomUUID(), '').generationId;
+  await f.settle(next);
+  expect(f.store.saveComposerDraft(f.chatId, apply)).toMatchObject({ changed: false, suggestionDismissed: false });
+  expect(open()?.id).toBe(next);
+
+  const sendRevision = f.state().revision;
+  const requestId = randomUUID();
+  const draft = { baseRevision: 2, edit: apply.edit };
+  expect(() => f.store.begin(sendRevision - 1, requestId, apply.text, f.chatId, draft, next)).toThrow();
+  expect(open()?.id).toBe(next);
+  const sent = f.coordinator.start(sendRevision, requestId, apply.text, f.chatId, draft, next);
+  expect(open()).toBeUndefined();
+  expect(f.store.drafts.read(f.chatId).text).toBe('');
+  await f.settle(sent.generationId);
+  expect(f.coordinator.start(sendRevision, requestId, apply.text, f.chatId, draft, next).generationId).toBe(sent.generationId);
+  expect(f.state().turns).toHaveLength(1);
+  expect(f.calls).toHaveLength(3);
 });

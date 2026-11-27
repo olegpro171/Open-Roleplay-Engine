@@ -103,7 +103,7 @@ class ChatDrafts {
     this.schedule(id, entry);
   }
 
-  async replace(id: string, text: string, expectedDraft: number, expectedBranch: number) {
+  async replace(id: string, text: string, expectedDraft: number, dismissSuggestionId: string) {
     const entry = this.entry(id);
     if (!this.active || !entry.remote || entry.remote.revision !== expectedDraft || entry.local.sync?.pending || entry.local.submission || reviewReason(entry)) {
       throw new LocalizedError(msg('impersonate.draft_changed'));
@@ -111,7 +111,7 @@ class ChatDrafts {
     const edit = { editorId: this.editorId, sequence: ++this.sequence };
     try {
       const result = composerDraftSchema.parse(await api(path(id), 'PUT', {
-        text, edit, baseRevision: expectedDraft, replaceAtBranchRevision: expectedBranch,
+        text, edit, baseRevision: expectedDraft, dismissSuggestionId,
       }, AbortSignal.timeout(8000)));
       if (this.active) this.observe(id, entry, result);
     } catch (error) {
@@ -126,13 +126,13 @@ class ChatDrafts {
     this.schedule(id, entry);
   }
 
-  stage(id: string, revision: number) {
+  stage(id: string, revision: number, dismissSuggestionId?: string) {
     const entry = this.entry(id);
     const current = entry.local;
     if (reviewReason(entry)) throw new LocalizedError(msg('use_chat_draft.review_this_recovered_draft_before_sending_it'));
     clearTimeout(entry.timer);
     const submission = current.submission ?? {
-      requestId: newId(), revision, text: trimBoundaryNewlines(current.text), draft: current.sync?.reference,
+      requestId: newId(), revision, text: trimBoundaryNewlines(current.text), draft: current.sync?.reference, dismissSuggestionId,
     };
     this.keep(id, entry, { ...current, submission });
     return { editId: current.editId, submission };

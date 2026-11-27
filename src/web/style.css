@@ -426,7 +426,8 @@ a[href][data-pointer-pressed]{text-decoration:underline;text-decoration-thicknes
 .composer :is(.send-turn,.action-menu-trigger){display:inline-flex;align-items:center;justify-content:center;width:var(--composer-control-height);height:var(--composer-control-height);padding:0}
 .composer .action-menu-trigger{border-color:var(--control-border)}
 .suggestion-panel{display:flex;flex-direction:column;min-block-size:0;container-type:inline-size;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:10px 14px}
-.suggestion-content{margin-block:8px;max-height:22dvh;overflow-y:auto;scrollbar-color:var(--scrollbar) transparent}
+.suggestion-content{margin-block:8px;max-height:22dvh;overflow-y:auto;overflow-anchor:none;overscroll-behavior-y:contain;scrollbar-color:var(--scrollbar) transparent}
+.suggestion-content:focus-visible{outline:2px solid var(--muted);outline-offset:-2px}
 .suggestion-content p{margin:0 0 6px}
 .suggestion-prose{white-space:pre-wrap;overflow-wrap:anywhere}
 .suggestion-panel .suggestion-controls{flex:none;margin-top:0}

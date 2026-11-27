@@ -21,10 +21,14 @@ export class ComposerDraftStore {
   save(chatId: string, input: ComposerDraftSave) {
     return this.sqlite.transaction(() => {
       const current = this.read(chatId);
-      if (input.replaceAtBranchRevision !== undefined) {
+      if (input.dismissSuggestionId !== undefined || input.replaceAtBranchRevision !== undefined) {
         if (sameComposerEdit(current.edit, input.edit) && current.text === input.text) return { draft: current, changed: false };
-        if (current.revision !== input.baseRevision || this.branchRevision(chatId) !== input.replaceAtBranchRevision) {
+        if (current.revision !== input.baseRevision) {
           throw new AppError(409, 'draft_changed', message('impersonate.draft_changed'));
+        }
+        // Retain the older revision-checked draft command for callers without a suggestion ID.
+        if (input.dismissSuggestionId === undefined && this.branchRevision(chatId) !== input.replaceAtBranchRevision) {
+          throw new AppError(409, 'draft_changed', message('errors.the_chat_changed_on_another_device_review_the'));
         }
       }
       if ((input.baseRevision ?? 0) < current.sentRevision

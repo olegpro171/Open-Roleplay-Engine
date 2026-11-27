@@ -124,17 +124,17 @@ test('migration 20 leaves a populated schema 19 story intact and draft text surv
   } finally { store?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test('replacing a draft checks the displayed draft and scene together and reconciles an exact repeat', () => {
+test('the legacy branch revision command checks both revisions and reconciles an exact repeat', () => {
   const store = openStoryStore(':memory:');
   try {
     const revision = store.snapshot().revision;
     const first = store.drafts.save('main', { baseRevision: 0, edit: editFrom(), text: 'My move.' }).draft;
     const replace = { baseRevision: first.revision, replaceAtBranchRevision: revision, text: 'A suggestion', edit: editFrom() };
     const other = store.drafts.save('main', { baseRevision: first.revision, edit: editFrom(), text: 'A newer move.' }).draft;
-    expect(() => store.drafts.save('main', replace)).toThrow(/draft or scene/);
+    expect(() => store.drafts.save('main', replace)).toThrow(/The draft has changed/);
     expect(store.drafts.read('main')).toEqual(other);
     store.bumpRevision('main');
-    expect(() => store.drafts.save('main', { ...replace, baseRevision: other.revision })).toThrow(/draft or scene/);
+    expect(() => store.drafts.save('main', { ...replace, baseRevision: other.revision })).toThrow(/The chat changed/);
     const current = { ...replace, baseRevision: other.revision, replaceAtBranchRevision: revision + 1 };
     const accepted = store.drafts.save('main', current);
     expect(accepted.draft.text).toBe(replace.text);

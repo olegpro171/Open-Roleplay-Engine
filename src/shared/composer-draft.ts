@@ -6,7 +6,9 @@ export const composerDraftReferenceSchema = z.object({
   baseRevision: revision.nullable(),
   edit: composerEditSchema,
 }).strict();
-export const composerDraftSaveSchema = composerDraftReferenceSchema.extend({ text: z.string().max(100_000), replaceAtBranchRevision: revision.optional() });
+export const composerDraftSaveSchema = composerDraftReferenceSchema.extend({
+  text: z.string().max(100_000), replaceAtBranchRevision: revision.optional(), dismissSuggestionId: z.string().uuid().optional(),
+});
 export const composerDraftSchema = z.object({
   revision,
   sentRevision: revision,

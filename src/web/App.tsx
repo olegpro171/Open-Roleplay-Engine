@@ -1,5 +1,5 @@
 import { ActionMenu } from './ActionMenu';
-import { dismissSuggestion, impersonate, SuggestionPanel } from './Impersonation';
+import { impersonate, SuggestionPanel } from './Impersonation';
 import { PinnedTurns, saveTurnPin } from './PinnedTurns';
 import { ChatBranches } from './ChatBranches';
 import { chatGroupId, preferredBranch, readBranchSelections, storeBranchSelection } from './chat-selection';
@@ -548,7 +548,6 @@ export function App() {
   const pending = snapshot?.latestTurn?.complete === false;
   const latest = snapshot?.latestGeneration;
   const suggestion = snapshot?.suggestion;
-  const suggestionStale = Boolean(suggestion && suggestion.status !== 'running' && snapshot?.revision !== suggestion.sourceRevision + 1);
   const recoveredEdit = edit && snapshot && !snapshot.page.turns.some(turn => turn.id === edit.turnId) ? edit : null;
   const hasDraft = Boolean(draft.trim());
   const continuationTarget = !hasDraft && snapshot?.latestTurn?.complete ? snapshot.latestTurn : null;
@@ -653,7 +652,7 @@ export function App() {
     event.preventDefault();
     if (!snapshot || !canSubmit || authorNote.editor.getSnapshot().pending || sendInFlight.current) return;
     const id = snapshot.id;
-    const sent = continuationTarget ? null : drafts.stage(id, snapshot.revision);
+    const sent = continuationTarget ? null : drafts.stage(id, snapshot.revision, suggestion?.id);
     sendInFlight.current = true;
     setAwaitingSend(id);
     setBusy(true); setFailure(null);
@@ -665,7 +664,6 @@ export function App() {
         const result = await api<{ draft?: unknown }>(`/chats/${id}/turns`, 'POST', sent.submission, deadline);
         drafts.acknowledge(id, sent, composerDraftSchema.optional().parse(result.draft));
       }
-      if (sent && suggestion?.sessionId) dismissSuggestion(id, suggestion.sessionId);
       accepted = true;
       if (selectedChat.current === id) { setPeek(false); scrollToLatest(); forceLatest.current = true; }
     } catch (error) {
@@ -980,15 +978,15 @@ export function App() {
           {suggestion?.sessionId && <SuggestionPanel key={snapshot.id + suggestion.sessionId}
             chatId={snapshot.id} attempt={suggestion} generation={active?.id === suggestion.id ? active : undefined}
             showReasoning={appearance.settings.showReasoningDuringGeneration} draft={draft}
-            stale={suggestionStale} disabled={!canImpersonate}
-            canReplace={drafts.savedRevision !== null}
+            canGenerate={canImpersonate}
+            canReplace={drafts.savedRevision !== null && !connectionWarning && !drafts.reviewReason && !drafts.unconfirmed}
             replace={text => {
               const base = drafts.savedRevision;
-              return base === null ? Promise.resolve(false) : command(() => drafts.replace(snapshot.id, text, base, snapshot.revision));
-            }} preparing={preparing?.generationId === suggestion.id} cancelDisabled={busy || dataChanged}
+              return base === null ? Promise.resolve(false) : command(() => drafts.replace(snapshot.id, text, base, suggestion.id));
+            }} preparing={preparing?.generationId === suggestion.id} actionsBlocked={busy || dataChanged}
+            dismiss={() => void command(() => api(`/chats/${snapshot.id}/suggestions/${suggestion.id}/dismiss`, 'POST', {}, AbortSignal.timeout(8000)))}
             stop={() => void command(() => api(`/generations/${suggestion.id}/cancel`, 'POST', {}))}
-            retry={() => void command(() => impersonate(snapshot.id, snapshot.revision, draft,
-              suggestionStale ? undefined : suggestion.sessionId, suggestion.requestId))} />}
+            retry={() => void command(() => impersonate(snapshot.id, snapshot.revision, draft, suggestion.sessionId, suggestion.requestId))} />}
           {!working && preparation?.generationId === null && preparation.error && ['failed', 'interrupted'].includes(preparation.status) && <div className="recovery" role="status">
             <p>{formatMessage(preparation.errorMessage ?? preparation.error)}</p>
             <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.inspect_memory')}</button>
