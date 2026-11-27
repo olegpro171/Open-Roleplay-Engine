@@ -31,7 +31,9 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, edi
 
   useLayoutEffect(() => {
     const node = transcript.current;
-    if (!node || !chatId) return;
+    const frame = node?.parentElement;
+    const conversation = frame?.parentElement;
+    if (!node || !frame || !conversation || !chatId) return;
     if (previousChat.current !== chatId) {
       previousChat.current = chatId;
       anchor.current = null;
@@ -40,6 +42,16 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, edi
     follow.rememberPosition(node);
     let width = node.clientWidth;
     let height = node.clientHeight;
+    let footerHeight: number | undefined;
+    const syncFooterHeight = () => {
+      // Measure the space reserved by the composer and its notices. Extend the
+      // scrollport and its bottom padding together so the reading area stays clear.
+      const nextHeight = Math.max(0, conversation.getBoundingClientRect().bottom - frame.getBoundingClientRect().bottom);
+      if (nextHeight !== footerHeight) {
+        footerHeight = nextHeight;
+        frame.style.setProperty('--composer-stack-height', `${nextHeight}px`);
+      }
+    };
     const turns = () => Array.from(node.querySelectorAll<HTMLElement>('[data-turn-id]'));
     const updateLatestButton = () => {
       // Keep the floating action clear of the turn controls near the bottom.
@@ -60,6 +72,7 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, edi
       if (follow.readMovement(node) || forceAnchor) captureAnchor();
     };
     const restore = (trackMovement = true) => {
+      syncFooterHeight();
       width = node.clientWidth;
       height = node.clientHeight;
       // An expanding editor and its caret own the reading position until it
@@ -108,6 +121,8 @@ export function useTranscriptScroll(chatId: string | null, content: unknown, edi
     capture();
     const observer = new ResizeObserver(() => restore());
     observer.observe(node);
+    observer.observe(frame);
+    observer.observe(conversation);
     node.addEventListener('scroll', onScroll, { passive: true });
     return () => {
       observer.disconnect();
