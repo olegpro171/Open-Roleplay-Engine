@@ -36,7 +36,7 @@ import { ChatDefaultsSettings } from './chat-defaults.js';
 import { readCardFile, readCharacterCardFile, readCharacterCardUpload } from './card-import.js';
 import { characterCardLimits } from '../shared/character-card-limits.js';
 import { AppError, BackupValidationError } from '../core/errors.js';
-import { assembleRequest } from '../core/prompt.js';
+import { assembleRequest, withDraftInput } from '../core/prompt.js';
 import { countText } from '../core/tokens.js';
 import type { SummaryTokenCount } from '../shared/context.js';
 import { continuationTarget } from '../core/continuation.js';
@@ -946,10 +946,10 @@ export async function createApp(options: {
         continuationTarget(snapshot, input.continuationTurnId);
         turnInstruction = { kind: 'continuation', turnId: input.continuationTurnId };
       }
-      const turns = [...snapshot.turns];
+      let turns = snapshot.turns;
       if (!turnInstruction && input.text) {
         if (turns.at(-1)?.complete === false) throw new AppError(409, 'pending_turn', message("errors.resolve_the_pending_turn_before_previewing_a_new"));
-        turns.push({ id: 'draft', position: (turns.at(-1)?.position ?? 0) + 1, complete: false, user: { id: 'draft-user', revision: 0, text: input.text }, assistant: { id: 'draft-assistant', revision: 0, text: '' } });
+        turns = withDraftInput(turns, input.text);
       }
       if (!turnInstruction && snapshot.turns.at(-1)?.complete === false && isOpeningTurn(snapshot.turns)) {
         turnInstruction = { kind: 'opening' };

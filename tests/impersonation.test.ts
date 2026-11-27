@@ -46,7 +46,7 @@ function fixture(managed = false) {
       { id: 'summary', name: 'Memory', kind: 'marker', marker: 'summary', role: 'system', enabled: managed }] });
   const contextPresetId = store.saveLibrary(store.libraryRevision(), 'contexts', { ...defaultContextPreset, batchSize: 1, minTail: 1 });
   const lorebookId = store.saveLibrary(store.libraryRevision(), 'lorebooks', { ...newLorebook(),
-    entries: [{ ...newLoreEntry('door'), keys: ['knock'], content: 'Ordinary lore only.' }] });
+    entries: [{ ...newLoreEntry('door'), keys: ['knock'], content: 'The door opens inward.' }] });
   const chatId = store.createChat({ title: 'Keys', connectionId, lorebookId, characterId, personaId, promptId, contextPresetId, targetInputTokens: managed ? 250 : 20_000 });
   const state = () => store.snapshot(chatId);
   const session = randomUUID();
@@ -85,7 +85,7 @@ test('uses the six-section layout, actual selected reply, and literal guidance w
   expect(f.calls).toHaveLength(1);
   const request = f.calls[0];
   expect(request.body.messages).toEqual([
-    ...['Mira', 'Keeper of the keys.', 'Patient', 'A locked door.', '“Wait here.”', 'Rowan\nA traveler.', expect.stringContaining('[Turn 1]')].map(content => ({ role: 'system', content })),
+    ...['Mira', 'Keeper of the keys.', 'Patient', 'A locked door.', '“Wait here.”', 'The door opens inward.', 'Rowan\nA traveler.', expect.stringContaining('[Turn 1]')].map(content => ({ role: 'system', content })),
     { role: 'user', content: 'I knock.' }, { role: 'assistant', content: 'Enter now.' },
     { role: 'system', content: 'Draft for Rowan, facing Mira. Guidance: Rephrase {{char}} and $&. ' },
   ]);
@@ -115,7 +115,7 @@ test('prepares over-budget managed history before drafting and reuses it on retr
   const saved = await f.settle(f.start('stall'));
   expect(f.calls).toHaveLength(2);
   const request = saved?.request;
-  expect(request?.layout?.map(part => part.kind)).toEqual(['character','character','character','character','character','persona','memory','pinned','history','history','prompt']);
+  expect(request?.layout?.map(part => part.kind)).toEqual(['character','character','character','character','character','lore','persona','memory','pinned','history','history','prompt']);
   expect(request?.history?.verbatimTurnIds).toEqual([before[1].id]);
   expect(f.state().context.archivedTurnIds).toEqual([before[0].id]);
   expect(f.state().context.jobs).toHaveLength(1);

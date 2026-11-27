@@ -15,7 +15,7 @@ export function impersonationView(snapshot: EngineSnapshot, draft: string): Engi
   return {
     ...snapshot,
     settings: { ...snapshot.settings, authorNote: undefined },
-    sources: { ...snapshot.sources, lorebook: null, prompt: {
+    sources: { ...snapshot.sources, prompt: {
       id: prompt?.id ?? 'impersonate', revision: prompt?.revision ?? 0, name: 'Impersonate', blocks,
       impersonateInstruction: prompt?.impersonateInstruction,
     } },

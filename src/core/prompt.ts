@@ -25,6 +25,14 @@ export function estimateInputTokens(messages: Message[]): number {
   return countInput(messages).inputTokens;
 }
 
+/** Represent unsent composer input for a request-local preview or lore scan. */
+export function withDraftInput(turns: Turn[], text: string): Turn[] {
+  return [...turns, {
+    id: 'draft', position: (turns.at(-1)?.position ?? 0) + 1, complete: false,
+    user: { id: 'draft-user', revision: 0, text }, assistant: { id: 'draft-assistant', revision: 0, text: '' },
+  }];
+}
+
 export function summaryHeader(node: SummaryNode, positions: ReadonlyMap<string, number>): string {
   return `[Memory L${node.level} · turns ${positions.get(node.turns[0]?.turnId) ?? '?'}–${positions.get(node.turns.at(-1)?.turnId ?? '') ?? '?'}]`;
 }
@@ -243,11 +251,12 @@ export function assembleRequest(connection: Connection, settings: ChatSettings, 
       throw new AppError(422, 'continuation_unavailable', message('continue.archived_reply'));
     }
     const history = verbatim.flatMap(turnEntries);
-    // Use the ordinary depth placement of a new user message without adding a story source.
-    if (nextInput) history.push(nextInput);
+    // Opening and Continue act as new user messages for history-depth placement.
+    if (nextInput && instruction?.kind !== 'impersonate') history.push(nextInput);
     const expanded = injectHistory(history, entry => Boolean(entry.message.content.trim()), historyInjections);
     entries = entries.slice(0, historyIndex).concat(expanded, entries.slice(historyIndex));
   }
+  if (nextInput && instruction?.kind === 'impersonate') entries.push(nextInput);
   if (options.validateLimits !== false && instruction?.kind === 'impersonate' && entries.length === 1
     && !preset.impersonateInstruction?.trim() && !modelText(instruction.draft).trim()) {
     throw new AppError(422, 'missing_scene', message('impersonate.missing_scene'));

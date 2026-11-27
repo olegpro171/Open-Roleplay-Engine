@@ -10,7 +10,7 @@ import { compactPrompt as defaultPrompt } from './support/compact-prompt.js';
 import type { Character, ImportedTurn, PromptPreset } from '../src/shared/library.js';
 import { defaultAuthorNote } from '../src/shared/author-note.js';
 import { newLorebook, newLoreEntry, type LoreEntry } from '../src/shared/lorebook.js';
-import type { ChatSnapshot } from '../src/shared/contracts.js';
+import type { ChatSnapshot, RequestPreview } from '../src/shared/contracts.js';
 import { assembleRequest } from '../src/core/prompt.js';
 import { contextPlan, summaryRequest } from '../src/core/context-plan.js';
 import { inspectPreparation } from '../src/core/context-replay.js';
@@ -63,6 +63,52 @@ function measure(snapshot: Pick<ChatSnapshot, 'connection' | 'settings' | 'turns
 }
 
 describe('frozen lore across request and memory representations', () => {
+  it('admits lore from Impersonate guidance like pending Send input and advances matches only on Send', async () => {
+    const draft = 'I ask about the harbor.';
+    const f = fixture([
+      loreEntry('harbor', { keys: ['harbor'], scanDepth: 1, placement: 'before_desc', content: 'A ferry serves the port.' }),
+      loreEntry('ferry', { keys: ['ferry'], placement: 'history', depth: 0, role: 'assistant', content: 'The ferry sails at dusk.' }),
+      loreEntry('older', { keys: ['bells'], scanDepth: 1, content: 'The bells are silver.' }),
+      loreEntry('oversized', { constant: true, content: 'Oversized lore. '.repeat(2500) }),
+    ], defaultPrompt, [{ user: 'I listen.', assistant: 'Bells ring.', complete: true }]);
+    const calls: RequestPreview[] = [];
+    const coordinator = new GenerationCoordinator(f.store, { async stream(request, _key, _signal, emit) {
+      calls.push(request);
+      emit('I wait.');
+      return { finishReason: 'stop' };
+    } });
+    cleanup.push(() => coordinator.shutdown());
+    const before = f.snapshot();
+    const sessionId = randomUUID();
+    const suggest = (guidance: string) => coordinator.impersonate(f.snapshot().revision, randomUUID(), f.chatId, sessionId, guidance);
+    const settle = async ({ generationId }: { generationId: string }) =>
+      expect.poll(() => f.store.generation(generationId)?.status).toBe('succeeded');
+
+    await settle(suggest(''));
+    expect(calls[0].body.messages).toContainEqual({ role: 'system', content: 'The bells are silver.' });
+    await settle(suggest(draft));
+    const suggestion = calls[1];
+    expect(suggestion.lore?.outcomes.map(({ name, reason }) => [name, reason])).toEqual([
+      ['harbor', 'keyword'], ['ferry', 'recursive_keyword'], ['older', 'no_match'], ['oversized', 'cap'],
+    ]);
+    const messages = suggestion.body.messages;
+    expect(messages.slice(0, 3).map(part => part.content)).toEqual(['Mira', 'A ferry serves the port.', 'Description']);
+    expect(messages.slice(-3)).toEqual([
+      { role: 'assistant', content: 'Bells ring.' }, { role: 'assistant', content: 'The ferry sails at dusk.' },
+      { role: 'system', content: expect.stringContaining(draft) },
+    ]);
+    expect(messages.filter(part => part.role === 'user')).toEqual([{ role: 'user', content: 'I listen.' }]);
+    expect(f.snapshot().turns).toEqual(before.turns);
+    expect(f.snapshot().loreState).toEqual(before.loreState);
+
+    await settle(coordinator.start(f.snapshot().revision, randomUUID(), draft, f.chatId));
+    expect(calls[2].lore?.outcomes).toEqual(suggestion.lore?.outcomes);
+    const matches = f.snapshot().loreState?.entries;
+    expect(before.sources.lorebook?.entries.map(entry => [entry.name, matches?.[entry.id]?.matches ?? 0])).toEqual([
+      ['harbor', 1], ['ferry', 1], ['older', 0], ['oversized', 0],
+    ]);
+  });
+
   it('keeps archived original triggers in required-input checks using reduced verbatim history', async () => {
     const f = fixture([loreEntry('key', { content: 'LIVE LORE ONLY '.repeat(200) })]);
     selectedMemory(f);
