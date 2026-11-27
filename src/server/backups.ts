@@ -10,6 +10,7 @@ import { PassThrough, Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { z } from 'zod';
 import { defaultMigrationsDirectory, Store } from '../persistence/store.js';
+import { restoreLegacyGenerationSchema } from '../persistence/legacy-generation-schema.js';
 import { BackupStore } from '../persistence/backup-store.js';
 import { invalidBackup, rowSchema } from '../persistence/backup-validation.js';
 import { backupMetadataSchema, backupLimits, type ReportBackupProgress, type BackupTable, type BackupReview, type BackupPage, type BackupLeaf, type BackupMetadata, type DataOutcome } from '../shared/backups.js';
@@ -30,6 +31,7 @@ export class BackupService {
   private readonly directory: string;
   private readonly template: Buffer;
   private readonly schema: ReturnType<typeof schemaEntries>;
+  private readonly schema20: ReturnType<typeof schemaEntries>;
   private readonly schema19: ReturnType<typeof schemaEntries>;
   private readonly schema18: ReturnType<typeof schemaEntries>;
   private readonly schema17: ReturnType<typeof schemaEntries>;
@@ -56,6 +58,8 @@ export class BackupService {
     try {
       this.template = factory.sqlite.serialize();
       this.schema = schemaEntries(factory.sqlite);
+      restoreLegacyGenerationSchema(factory.sqlite);
+      this.schema20 = schemaEntries(factory.sqlite);
       factory.sqlite.exec('DROP TABLE composer_drafts');
       this.schema19 = schemaEntries(factory.sqlite);
       factory.sqlite.exec('ALTER TABLE generations DROP COLUMN continuation_variant_id');
@@ -103,7 +107,7 @@ export class BackupService {
   private validateSchema(db: Database.Database) {
     const version = db.pragma('user_version',{ simple: true });
     if (typeof version !== 'number' || version < 12 || version > databaseSchemaVersion) throw invalidBackup(`Unsupported database schema version ${String(version)}; supported versions are 12 through ${databaseSchemaVersion}.`);
-    const expected = (version === databaseSchemaVersion ? this.schema : version === 19 ? this.schema19 : version === 18 ? this.schema18 : version === 17 ? this.schema17 : version === 16 ? this.schema16 : version === 15 ? this.schema15 : version === 14 ? this.schema14 : this.legacySchema).filter(entry => version !== 12 || !['dataset_state','data_commands'].includes(entry.tbl_name));
+    const expected = (version === databaseSchemaVersion ? this.schema : version === 20 ? this.schema20 : version === 19 ? this.schema19 : version === 18 ? this.schema18 : version === 17 ? this.schema17 : version === 16 ? this.schema16 : version === 15 ? this.schema15 : version === 14 ? this.schema14 : this.legacySchema).filter(entry => version !== 12 || !['dataset_state','data_commands'].includes(entry.tbl_name));
     const maxObjects = expected.length + 1;
     const maxSqlLength = Math.max(metadataSql.length, ...expected.map(entry => entry.sql?.length ?? 0)) * 2 + 1;
     const actual = masterSchema.parse(db.prepare(`SELECT substr(type, 1, 50) AS type, substr(name, 1, 200) AS name,

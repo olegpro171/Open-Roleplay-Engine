@@ -3,10 +3,11 @@ import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
 import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
 
-export function ActionMenu({ label, disabled, revision = null, focusMode = 'item', triggerRef, children }: {
+export function ActionMenu({ label, disabled, revision = null, align = 'end', focusMode = 'item', triggerRef, children }: {
   label: string;
   disabled: boolean;
   revision?: number | null;
+  align?: 'start' | 'end';
   focusMode?: 'item' | 'panel';
   triggerRef?: RefObject<HTMLButtonElement | null>;
   children: ReactNode;
@@ -48,7 +49,7 @@ export function ActionMenu({ label, disabled, revision = null, focusMode = 'item
     const upwards = menu.scrollHeight > below && above > below;
     const maxHeight = Math.max(0, upwards ? above : below);
     setPosition({
-      left: Math.max(leftEdge, Math.min(rect.right - menu.offsetWidth, rightEdge - menu.offsetWidth)),
+      left: Math.max(leftEdge, Math.min(align === 'start' ? rect.left : rect.right - menu.offsetWidth, rightEdge - menu.offsetWidth)),
       top: upwards ? rect.top - Math.min(menu.scrollHeight, maxHeight) - 6 : rect.bottom + 6,
       maxHeight,
     });
@@ -85,7 +86,7 @@ export function ActionMenu({ label, disabled, revision = null, focusMode = 'item
       viewport?.removeEventListener('resize', dismiss);
       viewport?.removeEventListener('scroll', dismiss);
     };
-  }, [open, label, focusMode, trigger]);
+  }, [open, label, align, focusMode, trigger]);
 
   // A modal makes content outside its own tree inert, including body portals.
   const menuHost = open ? trigger.current?.closest('dialog[open]') ?? document.body : null;

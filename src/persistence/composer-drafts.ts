@@ -1,3 +1,6 @@
+import { AppError } from '../core/errors.js';
+import { message } from '../shared/localization.js';
+import { sameComposerEdit } from '../shared/composer-draft.js';
 import { eq } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type Database from 'better-sqlite3';
@@ -6,10 +9,10 @@ import type * as schema from './schema.js';
 import type { ComposerDraft, ComposerDraftReference, ComposerDraftSave } from '../shared/composer-draft.js';
 
 export class ComposerDraftStore {
-  constructor(private db: BetterSQLite3Database<typeof schema>, private sqlite: Database.Database, private requireBranch: (id: string) => void) {}
+  constructor(private db: BetterSQLite3Database<typeof schema>, private sqlite: Database.Database, private branchRevision: (id: string) => number) {}
 
   read(chatId: string): ComposerDraft {
-    this.requireBranch(chatId);
+    this.branchRevision(chatId);
     const { revision, sentRevision, text, edit } = this.db.select().from(composerDrafts).where(eq(composerDrafts.chatId, chatId)).get()
       ?? { revision: 0, sentRevision: 0, text: '', edit: null };
     return { revision, sentRevision, text, edit };
@@ -18,6 +21,12 @@ export class ComposerDraftStore {
   save(chatId: string, input: ComposerDraftSave) {
     return this.sqlite.transaction(() => {
       const current = this.read(chatId);
+      if (input.replaceAtBranchRevision !== undefined) {
+        if (sameComposerEdit(current.edit, input.edit) && current.text === input.text) return { draft: current, changed: false };
+        if (current.revision !== input.baseRevision || this.branchRevision(chatId) !== input.replaceAtBranchRevision) {
+          throw new AppError(409, 'draft_changed', message('impersonate.draft_changed'));
+        }
+      }
       if ((input.baseRevision ?? 0) < current.sentRevision
         || (current.edit?.editorId === input.edit.editorId && current.edit.sequence >= input.edit.sequence)) {
         return { draft: current, changed: false };

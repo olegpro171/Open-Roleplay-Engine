@@ -66,7 +66,7 @@ export const responseVariants = sqliteTable('response_variants', {
 export const generations = sqliteTable('generations', {
   chatId: text('chat_id').notNull(),
   id: text('id').primaryKey(), requestId: text('request_id').notNull(), command: text('command').notNull(),
-  turnId: text('turn_id').notNull(), status: text('status').$type<GenerationStatus>().notNull(),
+  turnId: text('turn_id'), suggestionSession: text('suggestion_session'), status: text('status').$type<GenerationStatus>().notNull(),
   sourceRevision: integer('source_revision').notNull(),
   kind: text('kind').$type<'response' | 'regeneration'>().notNull().default('response'),
   continuationVariantId: text('continuation_variant_id'),
@@ -77,7 +77,10 @@ export const generations = sqliteTable('generations', {
   errorMessage: text('error_message', { mode: 'json' }).$type<import('../shared/localization.js').LocalizedMessage | null>(),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 });
-export const generationKind = sql<NonNullable<Generation['kind']>>`CASE WHEN ${generations.continuationVariantId} IS NOT NULL THEN 'continuation' ELSE ${generations.kind} END`;
+export const composerSuggestionSessions = sqliteTable('composer_suggestion_sessions', {
+  chatId: text('chat_id').primaryKey(), generationId: text('generation_id').notNull(),
+});
+export const generationKind = sql<NonNullable<Generation['kind']>>`CASE WHEN ${generations.suggestionSession} IS NOT NULL THEN 'impersonate' WHEN ${generations.continuationVariantId} IS NOT NULL THEN 'continuation' ELSE ${generations.kind} END`;
 
 export const tags = sqliteTable('tags', {
   id: text('id').primaryKey(), name: text('name').notNull(),

@@ -122,8 +122,8 @@ export function requestEstimate(request: RequestPreview): RequestEstimate {
 export type GenerationStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export type Generation = {
   errorMessage?: import('./localization.js').LocalizedMessage | null;
-  id: string; turnId: string; status: GenerationStatus; sourceRevision: number;
-  kind?: 'response' | 'regeneration' | 'continuation';
+  id: string; turnId: string | null; status: GenerationStatus; sourceRevision: number;
+  kind?: 'response' | 'regeneration' | 'continuation' | 'impersonate';
   request: RequestPreview | null; partialText: string; error: string | null; usage: TokenUsage | null;
   // Bounded preview of separate per-attempt output; full text is fetched on demand.
   reasoningText?: string;
@@ -139,7 +139,7 @@ export type ChatSnapshot = {
   loreState?: import('./lorebook.js').LoreState;
   loreResolution?: import('./lorebook.js').LoreResolution | null;
 };
-export type TurnInstruction = { kind: 'opening' } | { kind: 'continuation'; turnId: string };
+export type TurnInstruction = { kind: 'impersonate'; draft: string } | { kind: 'opening' } | { kind: 'continuation'; turnId: string };
 export type EngineSnapshot = Omit<ChatSnapshot, 'generations'> & { turnInstruction?: TurnInstruction };
 export type ChatToolsSnapshot = EngineSnapshot & { generating: boolean };
 export type GenerationDescriptor = Omit<Generation, 'request' | 'partialText' | 'reasoningText' | 'reasoningLength'> & { requestAvailable: boolean };
@@ -163,5 +163,8 @@ export const submissionSchema = z.object({
   draft: composerDraftReferenceSchema.optional(),
 }).strict();
 export const retrySchema = z.object({ revision: revisionSchema, requestId: z.string().uuid() }).strict();
+export const impersonateSchema = retrySchema.extend({ draft: z.string().max(100_000), sessionId: z.string().uuid() });
+export const savedImpersonateCommandSchema = impersonateSchema.pick({ draft: true, sessionId: true }).extend({ kind: z.literal('impersonate') });
+export type SuggestionChoice = { id: string; text: string; number: number; previous: string | null; next: string | null };
 export const editSchema = z.object({ revision: revisionSchema, text: z.string().max(100_000) }).strict();
 export const passwordSchema = z.object({ password: z.string().min(12).max(256) }).strict();

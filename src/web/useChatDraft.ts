@@ -103,6 +103,23 @@ class ChatDrafts {
     this.schedule(id, entry);
   }
 
+  async replace(id: string, text: string, expectedDraft: number, expectedBranch: number) {
+    const entry = this.entry(id);
+    if (!this.active || !entry.remote || entry.remote.revision !== expectedDraft || entry.local.sync?.pending || entry.local.submission || reviewReason(entry)) {
+      throw new LocalizedError(msg('impersonate.draft_changed'));
+    }
+    const edit = { editorId: this.editorId, sequence: ++this.sequence };
+    try {
+      const result = composerDraftSchema.parse(await api(path(id), 'PUT', {
+        text, edit, baseRevision: expectedDraft, replaceAtBranchRevision: expectedBranch,
+      }, AbortSignal.timeout(8000)));
+      if (this.active) this.observe(id, entry, result);
+    } catch (error) {
+      void this.refresh(id);
+      throw error;
+    }
+  }
+
   review(id: string) {
     const entry = this.entry(id);
     this.keep(id, entry, this.edit(entry.local.text, entry.remote?.revision ?? null));
@@ -258,6 +275,8 @@ export function useChatDraft(id: string | null, activeId: string | null, enabled
 
   const current = id === null ? null : drafts.entry(id);
   return {
+    savedRevision: current?.remote && !current.local.sync?.pending && current.remote.text === current.local.text ? current.remote.revision : null,
+    replace: drafts.replace.bind(drafts),
     reviewReason: current ? reviewReason(current) : null,
     unconfirmed: Boolean(current?.local.submission),
     ready: Boolean(current?.remote || current?.local.submission),

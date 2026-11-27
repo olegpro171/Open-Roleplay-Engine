@@ -43,7 +43,7 @@ export function sanitizePortable(db: Database.Database, report?: ReportBackupPro
   let done = 0;
   report?.('sanitize', done, total);
   db.transaction(() => {
-    db.exec('DELETE FROM sessions; DELETE FROM owners; DELETE FROM runtime_owner; DELETE FROM lore_commands; DELETE FROM data_commands; DELETE FROM branch_commands; DELETE FROM composer_drafts;');
+    db.exec('DELETE FROM sessions; DELETE FROM owners; DELETE FROM runtime_owner; DELETE FROM lore_commands; DELETE FROM data_commands; DELETE FROM branch_commands; DELETE FROM composer_drafts; DELETE FROM composer_suggestion_sessions;');
     db.prepare("UPDATE dataset_state SET epoch = 'initial' WHERE id = 1").run();
     const interrupted = message('outcome.backupInterrupted');
     db.prepare("UPDATE generations SET status = 'interrupted', error = ?, error_message = ? WHERE status = 'running'").run(interrupted.fallback, JSON.stringify(interrupted));

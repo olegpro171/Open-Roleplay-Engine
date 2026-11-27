@@ -2,8 +2,8 @@ import Database from 'better-sqlite3';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { BackupValidationError } from '../core/errors.js';
-import { chatSettingsSchema, connectionRecordSchema, pinnedSourceSchema, promptEntryKinds, type RequestPreview } from '../shared/contracts.js';
-import { libraryCharacterSchema, libraryPersonaSchema, promptSchema } from '../shared/library.js';
+import { chatSettingsSchema, connectionRecordSchema, pinnedSourceSchema, promptEntryKinds, savedImpersonateCommandSchema, type RequestPreview } from '../shared/contracts.js';
+import { libraryCharacterSchema, libraryPersonaSchema, promptSchema, transcriptPartLimit } from '../shared/library.js';
 import { summaryRefusalCheckSchema, summaryRetrySchema, contextPresetSchema, type SummaryNode, type ContextJob, type ContextStep } from '../shared/context.js';
 import { lorebookSchema, loreDiagnosticSchema, lorePlacements, loreRoleSchema } from '../shared/lorebook.js';
 import { canonicalTagName, tagNameSchema } from '../shared/tags.js';
@@ -207,9 +207,16 @@ export function validateContent(db: Database.Database, report?: ReportBackupProg
     id.parse(row.id); num(row, 'source_revision');
     if (row.generation_id && !successfulGeneration.get(row.generation_id, row.turn_id)) throw invalidBackup('A response variant references a missing, unsuccessful or unrelated generation.');
   }
-  for (const row of rows(db, 'generations', 'id, source_revision, turn_id, chat_id, usage, error_message, context_selection, continuation_variant_id')) {
+  const suggestionData = db.prepare("SELECT command, CASE WHEN status = 'succeeded' THEN partial_text END AS suggestion FROM generations WHERE id = ?");
+  for (const row of rows(db, 'generations', 'id, source_revision, turn_id, chat_id, usage, error_message, context_selection, continuation_variant_id, suggestion_session')) {
     id.parse(row.id); num(row, 'source_revision');
-    if (turnChat.get(row.turn_id) !== row.chat_id) throw invalidBackup('A generation references a turn in another chat or a missing turn.');
+    if (row.suggestion_session !== null) {
+      z.string().uuid().parse(row.suggestion_session);
+      const data = rowSchema.parse(suggestionData.get(row.id));
+      savedImpersonateCommandSchema.parse(json(data, 'command'));
+      if (data.suggestion !== null) z.string().max(transcriptPartLimit).refine(text => Boolean(text.trim())).parse(data.suggestion);
+    }
+    if (row.turn_id !== null && turnChat.get(row.turn_id) !== row.chat_id) throw invalidBackup('A generation references a turn in another chat or a missing turn.');
     if (row.continuation_variant_id !== null && variantTurn.get(id.parse(row.continuation_variant_id)) !== row.turn_id) {
       throw invalidBackup('A continuation references a missing response variant or one from another turn.');
     }

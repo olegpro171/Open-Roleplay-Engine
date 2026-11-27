@@ -82,6 +82,8 @@ Readable reasoning uses the first nonempty plain `reasoning` / `reasoning_conten
 
 Model discovery reads the configured `/models` catalog and returns model IDs with optional validated `context_length` totals. Documented NanoGPT catalogs use `detailed=true` on the configured host and exclude entries marked unavailable. The Library editor saves the optional endpoint-and-model-scoped report with the chosen limits in the existing Connection settings JSON. A reopened editor compares the two values without a provider call. Older records without a report remain valid. Chat settings, provider requests and version 1 Connection files use the chosen limits.
 
+Schema 21 permits branch-owned Impersonate generations with a null turn ID. A suggestion session groups alternatives. A live branch pointer lets Story recover the latest session after reconnect. Story counts successful suggestions within the session. Choice reads fetch a single successful text by version number or generation ID. Preparation and final assembly share the same request-specific sources. Completion retains output and usage without creating a variant, advancing lore or scheduling post-response preparation. Applying a suggestion checks both the displayed draft revision and the branch revision inside the draft write transaction.
+
 ## Reads, notifications and bounded work
 
 `EngineSnapshot` / `Store.engineSnapshot` provide full sources/context without historical generation bodies to generation, preview, lore and memory operations. `ChatToolsSnapshot` provides full transcript/context without generation history to Memory/Setup. `StorySnapshot` and `StoryReader` provide bounded display pages; never use a display window as engine history. The full legacy snapshot remains explicit inspection only.

@@ -4,6 +4,7 @@ import { removePinSchema } from './support/schema-16.js';
 import { restoreLegacyPictureSchema } from './support/schema-17.js';
 import { removeBranchSchema } from './support/schema-15.js';
 import { removeContinuationSchema } from './support/schema-18.js';
+import { restoreLegacyGenerationSchema } from '../src/persistence/legacy-generation-schema.js';
 import { removeComposerDraftSchema } from './support/schema-19.js';
 import { Readable } from 'node:stream';
 import { removeSortingSchema } from './support/legacy-sorting.js';
@@ -58,6 +59,24 @@ describe('portable backup persistence',() => {
     expect(destination.libraries().connections).toEqual(expected);
     expect(destination.libraries().connections.find(item => item.id === legacy)?.modelWindowReport).toBeUndefined();
     expect(destination.libraries().connections.find(item => item.id === reported)).toMatchObject({ contextWindow: 28_000, modelWindowReport });
+  });
+
+  it('restores Impersonate request history without reopening a live suggestion or adding a turn', async () => {
+    const source = store('suggestion-source'), backups = service(source, 'suggestion-source');
+    const connection = { name: 'Synthetic', endpoint: 'http://localhost/v1', model: 'mock', contextWindow: 32_000, maxOutputTokens: 500, customParameters: {} };
+    source.saveSettings(source.snapshot().revision, connection, source.snapshot().settings);
+    const { id } = source.beginImpersonation(source.snapshot().revision, randomUUID(), 'main', randomUUID(), 'Ask for the key.');
+    const view = source.generationSnapshot(id);
+    const request = assembleRequest(connection, view.settings, view.turns, view.sources, view.context, { turnInstruction: view.turnInstruction });
+    source.saveRequest(id, request);
+    source.finish(id, 'succeeded', '“May I have the key?”');
+    const destination = store('suggestion-destination'), target = service(destination, 'suggestion-destination');
+    const review = await target.inspect(Readable.from([await bytes(backups)]), owner);
+    expect(review.blockers).toEqual([]);
+    target.commit(review.stageId, owner, receipt(review));
+    expect(destination.snapshot().generations).toEqual(source.snapshot().generations);
+    expect(destination.snapshot().turns).toEqual([]);
+    expect(destination.sqlite.prepare('SELECT * FROM composer_suggestion_sessions').all()).toEqual([]);
   });
 
   it('round-trips a continuation and the earlier response version it extended', async () => {
@@ -141,6 +160,7 @@ describe('portable backup persistence',() => {
   });
 
   it.each([
+    { sourceEnding: 'LF', targetEnding: 'CRLF', version: 21 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 20 },
     { sourceEnding: 'LF', targetEnding: 'CRLF', version: 19 },
     { sourceEnding: 'CRLF', targetEnding: 'LF', version: 19 },
@@ -179,6 +199,13 @@ describe('portable backup persistence',() => {
     const expectedTurns = source.snapshot(chatId).turns;
     const path = join(directory,'input.sqlite');
     writeFileSync(path,await bytes(sourceBackups));
+    if (version === 20) {
+      const legacy = new Database(path);
+      try {
+        restoreLegacyGenerationSchema(legacy);
+        legacy.exec("PRAGMA user_version = 20; UPDATE backup_metadata SET data = json_set(data, '$.schema', 20)");
+      } finally { legacy.close(); }
+    }
     if (version === 19) {
       const legacy = new Database(path);
       try {

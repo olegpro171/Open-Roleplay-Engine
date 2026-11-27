@@ -7,7 +7,7 @@ import { libraryEditorTitle, newLibraryLabel, searchLibraryLabel, sortLibraryLab
 import { LocalizedError, formatMessage, useTextState, errorText, t, message as msg, useLocale, locale, currentPack } from './localization';
 import { libraryLabel, characterFieldLabel, markerLabel as localizedMarkerLabel, stateLabel } from './localization-labels';
 import { librarySortSchema, readLibrarySort, sortLibraryItems, sortLibraryRecords, sortOptions, type LibrarySort } from './library-sorting';
-import { defaultContinuationInstruction, defaultOpeningInstruction } from '../shared/default-prompt';
+import { defaultContinuationInstruction, defaultImpersonateInstruction, defaultOpeningInstruction } from '../shared/default-prompt';
 import { chatGroupId, preferredBranch } from './chat-selection';
 import { ChatCardActivity } from './ChatCardActivity';
 import { SpeechColorSelector } from './SpeechColorSelector';
@@ -850,6 +850,9 @@ function PromptEditor({ value, change }: { value: PromptPreset; change: (value: 
       <PromptInstruction title={t('continue.action')} label={t('continue.instruction')} help={t('continue.instruction_help')}
         custom={value.continuationInstruction} fallback={defaultContinuationInstruction}
         change={continuationInstruction => change({ ...value, continuationInstruction })} />
+      <PromptInstruction title={t('impersonate.action')} label={t('impersonate.instruction')} help={t('impersonate.help', { variable: '{{draft}}' })}
+        custom={value.impersonateInstruction} fallback={defaultImpersonateInstruction}
+        change={impersonateInstruction => change({ ...value, impersonateInstruction })} />
       <PromptInstruction title={t('libraries.opening_scene')} label={t('opening.instruction')} help={t('opening.instruction_help')}
         custom={value.openingInstruction} fallback={defaultOpeningInstruction}
         change={openingInstruction => change({ ...value, openingInstruction })} />

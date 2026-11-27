@@ -45,7 +45,7 @@ import { Store } from '../persistence/store.js';
 import { StoryReader } from '../persistence/story-reader.js';
 import { turnPinSchema, transcriptQuerySchema } from '../shared/transcript.js';
 import { fetchModels, OpenAICompatibleProvider, type Provider } from '../provider/openai.js';
-import { connectionSchema, editSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema, generationIdentitySchema, generationPageSchema, requestEstimate, type ChatSnapshot, type ChatToolsSnapshot, type TurnInstruction } from '../shared/contracts.js';
+import { connectionSchema, editSchema, impersonateSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema, generationIdentitySchema, generationPageSchema, requestEstimate, type ChatSnapshot, type ChatToolsSnapshot, type TurnInstruction } from '../shared/contracts.js';
 import { composerDraftSaveSchema } from '../shared/composer-draft.js';
 import { eventHeartbeatMs, type Change } from '../shared/changes.js';
 import { trimBoundaryNewlines } from '../shared/text.js';
@@ -512,7 +512,7 @@ export async function createApp(options: {
   });
   app.post('/api/library/default/restore', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-    store.saveLibrary(revision, 'prompts', defaultPrompt, 'default'); coordinator.changed({ kind: 'library' }); return { ok: true };
+    store.saveLibrary(revision, 'prompts', { ...defaultPrompt, impersonateInstruction: undefined }, 'default'); coordinator.changed({ kind: 'library' }); return { ok: true };
   });
   app.post('/api/library/default-context/reset', async request => {
     const { revision, memoryImpactToken } = z.object({ revision: revisionSchema, memoryImpactToken: memoryImpactTokenSchema.optional() }).strict().parse(request.body);
@@ -774,6 +774,13 @@ export async function createApp(options: {
     return { ...snapshot, preparation, latestGeneration: snapshot.latestGeneration ? live(snapshot.latestGeneration) : null,
       page: { ...snapshot.page, generations: snapshot.page.generations.map(generation => live(generation)) } };
   });
+  app.get('/api/chats/:chatId/suggestions/:sessionId', async request => {
+    const { sessionId } = z.object({ sessionId: z.string().uuid() }).parse(request.params);
+    const { selected, version } = z.object({
+      selected: generationIdentitySchema.optional(), version: z.coerce.number().int().positive().optional(),
+    }).strict().refine(query => query.selected === undefined || query.version === undefined).parse(request.query);
+    return storyReader.suggestion(chatId(request.params), sessionId, version ?? selected);
+  });
   app.get('/api/chats/:chatId/pins', async request => storyReader.pins(chatId(request.params)));
   app.put('/api/chats/:chatId/turns/:id/pin', async request => {
     const branch = chatId(request.params);
@@ -954,6 +961,10 @@ export async function createApp(options: {
     app.post(prefix + '/turns', async (request, reply) => {
       const input = submissionSchema.parse(request.body);
       return reply.code(202).send(coordinator.start(input.revision, input.requestId, input.text, chatId(request.params), input.draft));
+    });
+    app.post(prefix + '/impersonate', async (request, reply) => {
+      const input = impersonateSchema.parse(request.body);
+      return reply.code(202).send(coordinator.impersonate(input.revision, input.requestId, chatId(request.params), input.sessionId, input.draft));
     });
     app.post(prefix + '/opening', async (request, reply) => {
       const input = retrySchema.parse(request.body);

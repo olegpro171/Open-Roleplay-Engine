@@ -1,3 +1,5 @@
+import { ActionMenu } from './ActionMenu';
+import { dismissSuggestion, impersonate, SuggestionPanel } from './Impersonation';
 import { PinnedTurns, saveTurnPin } from './PinnedTurns';
 import { ChatBranches } from './ChatBranches';
 import { chatGroupId, preferredBranch, readBranchSelections, storeBranchSelection } from './chat-selection';
@@ -11,6 +13,7 @@ import { appearanceStatusSchema, defaultAppearance, type AppearanceStatus } from
 import { chatDefaultsStatusSchema, initialChatDefaults, type ChatDefaultsStatus } from '../shared/chat-defaults';
 import { newId } from './uuid';
 import { Icon } from './Icon';
+import { PersonaIcon } from './PersonaIcon';
 import { ApplicationSettings } from './ApplicationSettings';
 import { useMemoryCleanup } from './MemoryCleanupReview';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
@@ -42,7 +45,7 @@ import { useChatDraft } from './useChatDraft';
 import { composerDraftSchema } from '../shared/composer-draft';
 import { continueResponse } from './continue-response';
 import { TurnControls } from './TurnControls';
-import { ReasoningPreview } from './Reasoning';
+import { GenerationProgress, ReasoningPreview } from './Reasoning';
 import { ChatMessage } from './ChatMessage';
 import { ChatMarkdown } from './ChatMarkdown';
 import { ChatTextarea } from './ChatTextarea';
@@ -544,6 +547,8 @@ export function App() {
   const memoryStale = summariesEnabled && Boolean(snapshot?.memory.stale || snapshot?.memory.refusalBlocked);
   const pending = snapshot?.latestTurn?.complete === false;
   const latest = snapshot?.latestGeneration;
+  const suggestion = snapshot?.suggestion;
+  const suggestionStale = Boolean(suggestion && suggestion.status !== 'running' && snapshot?.revision !== suggestion.sourceRevision + 1);
   const recoveredEdit = edit && snapshot && !snapshot.page.turns.some(turn => turn.id === edit.turnId) ? edit : null;
   const hasDraft = Boolean(draft.trim());
   const continuationTarget = !hasDraft && snapshot?.latestTurn?.complete ? snapshot.latestTurn : null;
@@ -566,7 +571,9 @@ export function App() {
   const savedRequestOptions = requestOptions.map(generation => {
     const date = new Date(generation.createdAt).toLocaleString(locale());
     const status = stateLabel(generation.status);
-    return { value: generation.id, label: generation.kind === 'continuation' ? t('continue.attempt_label', { date, status }) : `${date} · ${status}` };
+    const action = generation.kind === 'impersonate' ? 'impersonate.attempt_label'
+      : generation.kind === 'continuation' ? 'continue.attempt_label' : null;
+    return { value: generation.id, label: action ? t(action, { date, status }) : `${date} · ${status}` };
   });
   const preview = useRequestPreview(snapshot, tab === 'settings' || preparing?.mode === 'prepare' || regenerationPreparation ? '' : draft,
     view !== 'library' && view !== 'data' && view !== 'new-chat', tab === 'request' && !generationId || peek,
@@ -619,8 +626,10 @@ export function App() {
   }
   const canSubmit = Boolean(snapshot?.connection && !connectionWarning && !busy && !pending && !working && !memoryStale && !authorNote.pending
     && !dataChanged && drafts.ready && !drafts.reviewReason && !recoveredEdit && (hasDraft || continuationTarget && !continuationBlocked && !edit));
-  const canGenerateOpening = Boolean(snapshot?.connection && snapshot.totalTurns === 0 && !connectionWarning && !busy && !working
+  const canStartAction = Boolean(snapshot?.connection && !connectionWarning && !busy && !working
     && !memoryStale && !authorNote.pending && !dataChanged && drafts.ready && !drafts.reviewReason && !edit);
+  const canGenerateOpening = canStartAction && snapshot?.totalTurns === 0;
+  const canImpersonate = canStartAction && !pending && !drafts.unconfirmed;
   const canSaveEdit = Boolean(edit && snapshot?.id === chatId && !busy && !working && !dataChanged);
   const enterKeyBehavior = chatBehaviorError ? 'button-only' : chatBehavior?.settings.enterKeyBehavior ?? 'button-only';
   const mobileKeyboard = isPhoneOrTablet(navigator);
@@ -656,6 +665,7 @@ export function App() {
         const result = await api<{ draft?: unknown }>(`/chats/${id}/turns`, 'POST', sent.submission, deadline);
         drafts.acknowledge(id, sent, composerDraftSchema.optional().parse(result.draft));
       }
+      if (sent && suggestion?.sessionId) dismissSuggestion(id, suggestion.sessionId);
       accepted = true;
       if (selectedChat.current === id) { setPeek(false); scrollToLatest(); forceLatest.current = true; }
     } catch (error) {
@@ -883,8 +893,8 @@ export function App() {
               generationId: reasoningGeneration.id, length: reasoningGeneration.reasoningLength ?? 0,
             } : null;
             const showLiveReasoning = appearance.settings.showReasoningDuringGeneration && reasoning && generating && !(continuing ? streamedAddition : responseText);
-            const waiting = preparing && preparing.generationId === active?.id ? "app.preparing_memory"
-              : reasoning ? "app.reasoning" : "app.waiting_for_first_token";
+            const progress = generating && <GenerationProgress streaming={Boolean(continuing ? streamedAddition : visibleResponse)}
+              preparing={preparing?.generationId === active.id} reasoning={Boolean(reasoning)} />;
             const inputVisible = !((turn.complete || turn.ordinal === 1) && turn.user.text === '' && turn.user.revision === 0)
               || (edit?.turnId === turn.id && edit.part === 'user');
             return <article className="turn" key={turn.id} data-turn-id={turn.id} aria-label={t("app.turn", { ordinal: turn.ordinal })}>
@@ -908,12 +918,12 @@ export function App() {
               </form> : <div className="prose">
                 {part === 'assistant' && continuing
                   ? <><ChatMarkdown textScale={appearance.settings.chatTextScale} text={streamedAddition ? appendContinuation(turn.assistant.text, streamedAddition) : turn.assistant.text} speechColor={speechColor} />
-                    {streamedAddition ? <span className="cursor" aria-label={t("app.generating")} /> : <div className="continuation-progress">
+                    {streamedAddition ? progress : <div className="continuation-progress">
                       {showLiveReasoning && <ReasoningPreview text={reasoning.text} />}
-                      <span className="muted" role="status">{t(waiting)}</span><span className="cursor" aria-label={t("app.generating")} />
+                      {progress}
                     </div>}</>
                   : part === 'assistant' && (!turn.complete || generating && !regenerationPreparation)
-                    ? <>{visibleResponse ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={visibleResponse} speechColor={speechColor} /> : <span className="muted">{generating ? t(waiting) : cancelled ? t("app.generation_cancelled") : t("app.awaiting_response")}</span>}{generating && <span className="cursor" aria-label={t("app.generating")} />}</>
+                    ? <>{visibleResponse ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={visibleResponse} speechColor={speechColor} /> : !generating && <span className="muted">{cancelled ? t("app.generation_cancelled") : t("app.awaiting_response")}</span>}{progress}</>
                     : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor ?? 'var(--speech-persona)' : speechColor} /> : <span className="muted blank">{t("app.blank")}</span>}
               </div>}
               {part === 'assistant' && !edit && continuationError && <div className="continuation-progress muted small" role="status">{continuationError}</div>}
@@ -967,6 +977,18 @@ export function App() {
           {!recoveredEdit && (awayFromLatest || snapshot.page.hasNewer) && <button className="latest-turn secondary" disabled={pageLoading || Boolean(edit)} onClick={() => snapshot.page.hasNewer ? void moveTranscript('latest') : scrollToLatest()}>{t("app.latest_turn")}<Icon name="ArrowLongBottom" /></button>}
         </TranscriptFrame>
         <div className="composer-notices">
+          {suggestion?.sessionId && <SuggestionPanel key={snapshot.id + suggestion.sessionId}
+            chatId={snapshot.id} attempt={suggestion} generation={active?.id === suggestion.id ? active : undefined}
+            showReasoning={appearance.settings.showReasoningDuringGeneration} draft={draft}
+            stale={suggestionStale} disabled={!canImpersonate}
+            canReplace={drafts.savedRevision !== null}
+            replace={text => {
+              const base = drafts.savedRevision;
+              return base === null ? Promise.resolve(false) : command(() => drafts.replace(snapshot.id, text, base, snapshot.revision));
+            }} preparing={preparing?.generationId === suggestion.id} cancelDisabled={busy || dataChanged}
+            stop={() => void command(() => api(`/generations/${suggestion.id}/cancel`, 'POST', {}))}
+            retry={() => void command(() => impersonate(snapshot.id, snapshot.revision, draft,
+              suggestionStale ? undefined : suggestion.sessionId, suggestion.requestId))} />}
           {!working && preparation?.generationId === null && preparation.error && ['failed', 'interrupted'].includes(preparation.status) && <div className="recovery" role="status">
             <p>{formatMessage(preparation.errorMessage ?? preparation.error)}</p>
             <button type="button" className="secondary" onClick={() => setTab('memory')}>{t('app.inspect_memory')}</button>
@@ -991,6 +1013,11 @@ export function App() {
           {continuationBlocked && <div className="recovery">{formatMessage(continuationBlocked)}</div>}
         </div>
         <form className={isIOS ? 'composer composer-ios' : 'composer'} data-keyboard-visible={composerKeyboard || undefined} onSubmit={(event) => void send(event)}>
+          <ActionMenu align="start" label={t('impersonate.more')} disabled={!canImpersonate} revision={snapshot.revision}>
+            <button type="button" className="secondary" role="menuitem" tabIndex={-1} onClick={() => void command(() => impersonate(snapshot.id, snapshot.revision, draft, undefined, suggestion?.requestId))}>
+              <PersonaIcon />{t('impersonate.action')}
+            </button>
+          </ActionMenu>
           <ChatTextarea autoSize textScale={appearance.settings.chatTextScale} rows={1} aria-label={t("app.your_next_turn")} id="turn-input" enterKeyHint="enter"
             onKeyDown={event => submitWithChatShortcut(event, canSubmit)}
             placeholder={t("app.what_happens_next")} value={draft} readOnly={awaitingSend === snapshot.id && drafts.unconfirmed} onValueChange={text => { drafts.change(text); setPeek(false); }} />

@@ -3,6 +3,17 @@ import type { PromptPreset } from './library.js';
 // Factory model-bound content; preserve literal text independently of interface language.
 export const defaultContinuationInstruction = '[OOC: Continue the scene from the previous reply. The player has supplied no new action. Advance the scene through your characters or the environment. Leave the player character’s actions, dialogue, and decisions to the player.]';
 
+export const defaultImpersonateInstruction = `Write the player’s next message in this roleplay. You are drafting for {{user}}. The earlier user messages are examples of how the player writes. Follow their language, point of view, tense, formatting, and usual length where those are established. If this is the player’s first message, use the persona and the scene to choose a fitting voice.
+
+The player may provide guidance below. It can be rough dialogue, an intended action, a direction about tone, or a mixture. Preserve what the player wants to do and any details they specify. You may freely rephrase the wording. Apply directions about how to write without quoting them in the scene. If the guidance is empty, choose a plausible next contribution.
+
+Write only what {{user}} says, does, thinks, or deliberately leaves unsaid. Respect what they could know at this point in the scene. When an action depends on another character’s response, write the player’s attempt and leave the outcome open.
+
+Player guidance:
+{{draft}}
+
+Return only the message, ready for the player to send. Begin directly in the player’s voice.`;
+
 export const defaultOpeningInstruction = `OOC Instruction:
 Write the opening scene for this roleplay. This is the first turn the user will read and respond to. Put them into a concrete situation, bring the roleplay character to life, and end at a moment where the user can meaningfully act or speak.
 

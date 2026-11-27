@@ -14,6 +14,9 @@ export const transcriptQuerySchema = z.object({
 }).strict().refine(value => value.shift === 0 || (value.anchor !== undefined && value.revision !== undefined), 'Moving a transcript window requires an anchor and revision.');
 export type TranscriptQuery = z.infer<typeof transcriptQuerySchema>;
 export type StoryGeneration = Omit<Generation, 'request'> & { requestAvailable: boolean };
+export type StorySuggestion = Pick<Generation, 'id' | 'status' | 'sourceRevision' | 'error' | 'errorMessage'> & {
+  sessionId: string; requestId: string; completedCount: number;
+};
 export const turnPinSchema = z.object({ revision: revisionSchema, pinned: z.boolean() }).strict();
 export type PinList = {
   revision: number;
@@ -35,6 +38,7 @@ export type StorySnapshot = Pick<ChatSnapshot, 'id' | 'revision' | 'settings' | 
   pinCount: number;
   latestTurn: { id: string; complete: boolean; continuationBlocked?: import('./localization.js').LocalizedMessage | null } | null;
   latestGeneration: StoryGeneration | null;
+  suggestion?: StorySuggestion;
   preparing: boolean;
   preparation: StoryPreparation | null;
   memory: { revision: number; selectedCount: number; archivedCount: number; stale: boolean; awaitingReview: boolean; refusalCount: number; refusalBlocked: boolean };

@@ -150,3 +150,43 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     await page.screenshot({ path: testInfo.outputPath('wide-composer.png') });
   });
 }
+
+test('centers the More icon and matches Send in the iOS pressed state in every theme', async ({ page, browserApp }, info) => {
+  await setup(page, browserApp.url, 'porcelain');
+  const input = page.getByLabel('Your next turn');
+  const more = page.getByRole('button', { name: 'Composer actions' });
+  const send = page.getByRole('button', { name: 'Send', exact: true });
+  await expect(page.locator('.composer-ios')).toBeVisible();
+  for (const theme of ['porcelain', 'dark', 'light', 'midnight-black'] as const) {
+    const appearance = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
+    const response = await page.request.put('/api/application/appearance', {
+      headers: { Origin: browserApp.url }, data: { revision: appearance.revision, settings: { ...appearance.settings, theme } },
+    });
+    expect(response.ok()).toBe(true);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await input.fill('I open the tower door.\nI call to see who is there.');
+    await expect(more).toBeEnabled();
+    await expect(send).toBeEnabled();
+    await expect(send).toHaveCSS('border-radius', '50%');
+    await expect(more).toHaveCSS('border-radius', '50%');
+    const button = (await more.boundingBox())!;
+    const sendBounds = (await send.boundingBox())!;
+    expect([button.width, button.height]).toEqual([sendBounds.width, sendBounds.height]);
+    await page.mouse.move(button.x + button.width / 2, button.y + button.height / 2);
+    await page.mouse.down();
+    try {
+      await expect(more).toHaveCSS('border-radius', '50%');
+      const icon = (await more.locator('svg').boundingBox())!;
+      expect(icon.x + icon.width / 2).toBeCloseTo(button.x + button.width / 2, 0);
+      expect(icon.y + icon.height / 2).toBeCloseTo(button.y + button.height / 2, 0);
+      await page.screenshot({ path: info.outputPath(`composer-more-pressed-${theme}.png`) });
+    } finally {
+      await page.mouse.up();
+    }
+    const impersonate = page.getByRole('menuitem', { name: 'Impersonate' });
+    await expect(impersonate).toBeVisible();
+    await page.screenshot({ path: info.outputPath(`composer-more-open-${theme}.png`) });
+    await impersonate.press('Escape');
+    await expect(more).toHaveAttribute('aria-expanded', 'false');
+  }
+});

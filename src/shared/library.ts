@@ -59,7 +59,7 @@ export const promptBlockSchema = z.discriminatedUnion('kind', [
 ]);
 export const promptSchema = z.strictObject({
   name, blocks: z.array(promptBlockSchema).max(100),
-  continuationInstruction: text.optional(), openingInstruction: text.optional(),
+  continuationInstruction: text.optional(), openingInstruction: text.optional(), impersonateInstruction: text.optional(),
 }).superRefine((value, ctx) => {
   if (new Set(value.blocks.map(b => b.id)).size !== value.blocks.length) ctx.addIssue({ code: 'custom', message: 'Block identities must be unique.' });
   if (value.blocks.filter(b => b.enabled && b.kind === 'marker' && b.marker === 'messages').length > 1) ctx.addIssue({ code: 'custom', message: 'Use at most one enabled Messages marker.' });

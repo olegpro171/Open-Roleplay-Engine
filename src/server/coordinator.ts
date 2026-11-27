@@ -40,6 +40,10 @@ export class GenerationCoordinator {
     if (this.stopping) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
     return this.dispatch(this.store.beginRegeneration(revision, requestId, turnId, chatId), chatId);
   }
+  impersonate(revision: number, requestId: string, chatId: string, sessionId: string, draft: string) {
+    if (this.stopping) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
+    return this.dispatch(this.store.beginImpersonation(revision, requestId, chatId, sessionId, draft), chatId);
+  }
   generateOpening(revision: number, requestId: string, chatId: string) {
     if (this.stopping) throw new AppError(503, 'server_stopping', message("errors.the_server_is_stopping_retry_after_it_restarts"));
     return this.dispatch(this.store.beginOpening(revision, requestId, chatId), chatId);
@@ -61,9 +65,12 @@ export class GenerationCoordinator {
     let updateTimer: ReturnType<typeof setTimeout> | undefined;
     const clearUpdateTimer = () => clearTimeout(updateTimer);
     operation.controller.signal.addEventListener('abort', clearUpdateTimer, { once: true });
+    let drafting = false;
+    let usage: import('../shared/contracts.js').TokenUsage | null = null;
     try {
       const behavior = this.behavior();
       const initial = this.store.generationSnapshot(id);
+      drafting = initial.turnInstruction?.kind === 'impersonate';
       const loreResolution = await resolveRequestLore(initial, this.loreRegex, operation.controller.signal);
       if (this.stopping || operation.controller.signal.aborted) return;
       this.store.saveLoreOperation(chatId, id, loreResolution);
@@ -100,8 +107,10 @@ export class GenerationCoordinator {
         publish();
       });
       if (!this.stopping && !operation.controller.signal.aborted) {
-        this.store.finish(id, 'succeeded', operation.text, null, completion?.usage ?? null, operation.reasoning);
+        usage = completion?.usage ?? null;
+        this.store.finish(id, 'succeeded', operation.text, null, usage, operation.reasoning);
         this.changed({ kind: 'chat', chatId, detail: 'state' });
+        if (drafting) return;
         // This is a separate ordinary memory job. Its Stop/failure/restart
         // outcome cannot change the response that was already committed.
         await this.context.prepareAfterGeneration(chatId, id, behavior);
@@ -110,8 +119,9 @@ export class GenerationCoordinator {
     } catch (error) {
       if (this.stopping) return;
       // Never persist upstream response bodies or raw transport errors: they may contain secrets.
-      const diagnostic = error instanceof AppError ? error.localized ?? error.message : message("diagnostics.the_model_request_failed_or_timed_out_check");
-      this.store.finish(id, 'failed', operation.text, diagnostic, null, operation.reasoning);
+      let diagnostic = error instanceof AppError ? error.localized ?? error.message : message("diagnostics.the_model_request_failed_or_timed_out_check");
+      if (drafting && error instanceof AppError && error.code === 'empty_response') diagnostic = message('impersonate.empty');
+      this.store.finish(id, 'failed', operation.text, diagnostic, usage, operation.reasoning);
       this.changed({ kind: 'chat', chatId, detail: 'state' });
     } finally {
       clearUpdateTimer();
@@ -122,7 +132,7 @@ export class GenerationCoordinator {
     const operation = this.active.get(id);
     const generation = this.store.generation(id);
     if (!operation || generation?.status !== 'running') throw new AppError(409, 'inactive_generation', message("errors.this_response_is_no_longer_active"));
-    const diagnostic = generation.continuationVariantId !== null ? null : message(generation.kind === 'regeneration'
+    const diagnostic = generation.suggestionSession !== null ? message('impersonate.cancelled') : generation.continuationVariantId !== null ? null : message(generation.kind === 'regeneration'
       ? "diagnostics.regeneration_cancelled_the_selected_response_was_kept" : "app.response_cancelled_generate_response_before_next_turn");
     this.store.finish(id, 'cancelled', operation.text, diagnostic, null, operation.reasoning);
     operation.controller.abort();
