@@ -47,7 +47,7 @@ import { turnPinSchema, transcriptQuerySchema } from '../shared/transcript.js';
 import { fetchModels, OpenAICompatibleProvider, type Provider } from '../provider/openai.js';
 import { connectionSchema, editSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema, generationIdentitySchema, generationPageSchema, requestEstimate, type ChatSnapshot, type ChatToolsSnapshot, type TurnInstruction } from '../shared/contracts.js';
 import { composerDraftSaveSchema } from '../shared/composer-draft.js';
-import type { Change } from '../shared/changes.js';
+import { eventHeartbeatMs, type Change } from '../shared/changes.js';
 import { trimBoundaryNewlines } from '../shared/text.js';
 import { Auth, sessionSeconds } from './auth.js';
 import { GenerationCoordinator } from './coordinator.js';
@@ -1010,8 +1010,8 @@ export async function createApp(options: {
     };
     const changed = (change: Change = { kind: 'all' }) => write(`data: ${JSON.stringify(change)}\n\n`);
     const shutdown = () => reply.raw.end();
-    // SSE comments keep the transport alive without dispatching a change event.
-    const ping = setInterval(() => write(': keepalive\n\n'), 15_000);
+    // A named event proves liveness without triggering a data refresh.
+    const ping = setInterval(() => write('event: heartbeat\ndata: {}\n\n'), eventHeartbeatMs);
     coordinator.events.on('changed', changed);
     coordinator.events.on('shutdown', shutdown);
     reply.raw.on('close', () => {

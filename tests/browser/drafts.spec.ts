@@ -704,3 +704,129 @@ for (const width of [1440, 390]) test(`typed double dashes become em dashes and 
   await expect(responseEditor).toHaveValue(longResponse);
   await expect.poll(() => responseEditor.evaluate(field => field.scrollHeight <= field.clientHeight + 1)).toBe(true);
 });
+
+test('an unanswered Send keeps the text selectable and releases the composer even if reconciliation stalls', async ({ page }) => {
+  const [id] = await setup(page);
+  const composer = page.getByLabel('Your next turn');
+  const send = page.getByRole('button', { name: 'Send', exact: true });
+  const original = 'She pockets the last key.';
+  await composer.fill(original);
+  const commands: unknown[] = [];
+  await page.route(`**/api/chats/${id}/turns`, route => { commands.push(route.request().postDataJSON()); });
+  await page.route('**/api/library?*', () => {});
+  await send.click();
+  await expect.poll(() => commands.length).toBe(1);
+  await expect(composer).toBeEnabled();
+  await composer.focus();
+  await composer.press('ControlOrMeta+a');
+  expect(await composer.evaluate((field: HTMLTextAreaElement) => field.value.slice(field.selectionStart, field.selectionEnd))).toBe(original);
+  await expect(page.getByRole('status').filter({ hasText: 'Awaiting confirmation…' })).toBeVisible();
+  await expect(composer).toBeEditable({ timeout: 12_000 });
+  await expect(composer).toHaveValue(original);
+  await composer.fill('She pockets both keys.');
+  await expect(composer).toHaveValue('She pockets both keys.');
+  expect(commands).toHaveLength(1);
+});
+
+test('keeps edits made after an uncertain Send when the reconnect reveals a committed turn', async ({ page }) => {
+  const [id] = await setup(page);
+  const composer = page.getByLabel('Your next turn');
+  const path = `/api/chats/${id}/draft`;
+  const saved = () => page.request.get(path).then(response => response.json());
+  const original = 'She pockets the last key.';
+  const edited = 'The other key is still on the table.';
+  await composer.fill(original);
+  await expect.poll(async () => (await saved()).text).toBe(original);
+  await page.route(`**${path}`, route => route.abort('connectionrefused'));
+  let submissions = 0;
+  await page.route(`**/api/chats/${id}/turns`, async route => {
+    submissions++;
+    await route.fetch();
+    await route.abort('failed');
+  });
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByRole('article')).toHaveCount(1);
+  await expect(composer).toBeEditable();
+  await composer.fill(edited);
+  await page.unroute(`**${path}`);
+  await page.reload();
+  const keep = page.getByRole('button', { name: 'Use recovered draft' });
+  await expect(keep).toBeVisible();
+  await expect(composer).toHaveValue(edited);
+  expect((await saved()).text).toBe('');
+  await keep.click();
+  await expect.poll(async () => (await saved()).text).toBe(edited);
+  await expect(page.getByRole('article')).toHaveCount(1);
+  expect(submissions).toBe(1);
+});
+
+test('keeps the offline composer editable after dismissal and waits for an explicit Send on recovery', async ({ page }, testInfo) => {
+  const [id] = await setup(page);
+  const composer = page.getByLabel('Your next turn');
+  const send = page.getByRole('button', { name: 'Send', exact: true });
+  let sent = 0;
+  page.on('request', request => { if (request.url().endsWith(`/api/chats/${id}/turns`) && request.method() === 'POST') sent++; });
+  await page.route('**/api/**', route => route.abort('internetdisconnected'));
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await page.getByRole('dialog', { name: 'Warning' }).getByRole('button', { name: 'Dismiss' }).click();
+  const notice = page.getByRole('status').filter({ hasText: 'Server unreachable.' });
+  await expect(notice).toBeVisible();
+  await composer.fill('Keep the lantern lit.');
+  await expect(send).toBeDisabled();
+  await composer.press('Control+Enter');
+  for (const theme of ['dark', 'midnight-black', 'light', 'porcelain']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    for (const width of [390, 1280]) {
+      await page.setViewportSize({ width, height: 820 });
+      await expect(notice).toBeInViewport();
+      await expect(composer).toBeInViewport();
+      await expect(send).toBeInViewport();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.locator('.composer-notices').screenshot({ path: testInfo.outputPath(`${theme}-${width}.png`) });
+    }
+  }
+  await page.unroute('**/api/**');
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(notice).toHaveCount(0);
+  await expect(send).toBeEnabled();
+  await expect(composer).toHaveValue('Keep the lantern lit.');
+  expect(sent).toBe(0);
+  await send.click();
+  await expect(page.getByRole('article')).toHaveCount(1);
+  await expect(composer).toHaveValue('');
+  expect(sent).toBe(1);
+});
+
+test('reconnect syncs the edited draft even when the old save fails late', async ({ page }) => {
+  const [id] = await setup(page);
+  const path = `/api/chats/${id}/draft`;
+  const composer = page.getByLabel('Your next turn');
+  let release = () => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let writes = 0;
+  let dropRead = true;
+  await page.clock.install();
+  await page.route(`**${path}`, async route => {
+    if (route.request().method() === 'PUT' && ++writes === 1) {
+      await held;
+      await route.abort('connectionreset');
+    } else if (route.request().method() === 'GET' && dropRead) await route.abort('connectionreset');
+    else await route.continue();
+  });
+  try {
+    await composer.fill('The lighthouse is dark.');
+    await expect.poll(() => writes).toBe(1);
+    const resume = () => page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+    await resume();
+    const failed = page.getByRole('button', { name: 'Retry draft sync' });
+    await expect(failed).toBeVisible();
+    dropRead = false;
+    await resume();
+    await expect(failed).toHaveCount(0);
+    // Let the debounce elapse while the old PUT still owns the write slot.
+    await page.clock.runFor(1_000);
+  } finally { release(); }
+  await expect.poll(async () => (await page.request.get(path).then(response => response.json())).text).toBe('The lighthouse is dark.');
+  await expect(composer).toHaveValue('The lighthouse is dark.');
+  await expect(page.getByRole('article')).toHaveCount(0);
+});

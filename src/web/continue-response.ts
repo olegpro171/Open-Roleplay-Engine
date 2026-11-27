@@ -6,7 +6,7 @@ import { newId } from './uuid';
 const commandSchema = retrySchema.extend({ turnId: z.string().min(1).max(100) });
 const uncertain = new Map<string, z.infer<typeof commandSchema>>();
 
-export async function continueResponse(chatId: string, turnId: string, revision: number) {
+export async function continueResponse(chatId: string, turnId: string, revision: number, signal?: AbortSignal) {
   const key = `ore-continue:${datasetEpoch()}:${chatId}`;
   let command = uncertain.get(key);
   if (!command) {
@@ -24,7 +24,7 @@ export async function continueResponse(chatId: string, turnId: string, revision:
   };
   try {
     await api(`/chats/${encodeURIComponent(chatId)}/turns/${encodeURIComponent(command.turnId)}/continue`, 'POST',
-      { revision: command.revision, requestId: command.requestId });
+      { revision: command.revision, requestId: command.requestId }, signal);
     clear();
   } catch (error) {
     if (error instanceof ApiError && error.status < 500) clear();

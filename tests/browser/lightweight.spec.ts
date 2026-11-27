@@ -32,8 +32,8 @@ test('stays idle across a real keepalive and scopes and coalesces change notific
   const f = await fixture(page, 'Quiet refresh proof');
   const reads: string[] = [];
   page.on('request', request => { if (request.url().includes('/api/') && request.method() === 'GET') reads.push(new URL(request.url()).pathname); });
-  // A negative assertion needs to span the actual server heartbeat interval.
-  await page.waitForTimeout(16_000);
+  // Span the silence deadline: a healthy heartbeat must renew it without a reconnect or data read.
+  await page.waitForTimeout(25_000);
   expect(reads).toEqual([]);
   await page.request.post('/__test/change', { data: { kind: 'chat', chatId: 'another-chat', detail: 'stream' } });
   await page.request.post('/__test/change', { data: { kind: 'settings', setting: 'appearance' } });

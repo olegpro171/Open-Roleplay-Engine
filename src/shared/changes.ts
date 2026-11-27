@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export const eventHeartbeatMs = 15_000;
+
 export const changeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('all') }).strict(),
   z.object({ kind: z.literal('library') }).strict(),
