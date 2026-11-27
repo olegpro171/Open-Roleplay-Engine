@@ -1,7 +1,14 @@
-import { expect } from '@playwright/test';
+import { expect, type Locator } from '@playwright/test';
 import { test } from './isolated-app';
 import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 import type { LibrarySnapshot } from '../../src/shared/library';
+
+function compactControlStyle(control: Locator) {
+  return control.evaluate(element => {
+    const { fontSize, fontWeight, width, backgroundColor, borderColor, borderRadius } = getComputedStyle(element);
+    return { fontSize, fontWeight, width, backgroundColor, borderColor, borderRadius };
+  });
+}
 
 test('edits saved built-ins and tests and saves provider fields alongside them', async ({ page, browserApp }, testInfo) => {
   await page.goto('/');
@@ -219,14 +226,29 @@ test('edits saved built-ins and tests and saves provider fields alongside them',
   await expect(reasoning).toHaveText('Provider default');
   await expect.poll(editorText).toBe(JSON.stringify(extras, null, 4));
 
+  const contextWindow = page.getByLabel('Model context window', { exact: true });
+  const tokenLimits = page.getByRole('tabpanel').locator('section')
+    .filter({ has: page.getByRole('heading', { name: 'Token limits', exact: true }) });
+  const parameterControls = [temperature, topP, page.getByLabel('Presence penalty', { exact: true }),
+    page.getByLabel('Frequency penalty', { exact: true }), seed, reasoning];
   const appearancePath = '/api/application/appearance';
   for (const theme of themeSchema.options) {
     const current = appearanceStatusSchema.parse(await page.request.get(appearancePath).then(response => response.json()));
     const response = await page.request.put(appearancePath, { headers, data: { revision: current.revision, settings: { ...current.settings, theme } } });
     expect(response.ok(), await response.text()).toBe(true);
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-    for (const width of [1280, 801, 800, 390]) {
+    for (const width of [390, 320, 800, 801, 1280]) {
       await page.setViewportSize({ width, height: 850 });
+      await settings.click();
+      const tokenStyle = await compactControlStyle(contextWindow);
+      expect(tokenStyle.fontSize).toBe(width <= 800 ? '16px' : '14px');
+      expect(await compactControlStyle(reserve)).toEqual(tokenStyle);
+      if (width === 1280 || width === 390) {
+        await tokenLimits.screenshot({ path: testInfo.outputPath(`token-limits-${theme}-${width}.png`) });
+      }
+      await parameters.click();
+      await expect(reasoning).toHaveCSS('font-size', tokenStyle.fontSize);
+      for (const control of parameterControls) expect(await compactControlStyle(control)).toEqual(tokenStyle);
       await advancedToggle.scrollIntoViewIfNeeded();
       await expect(reasoning).toBeVisible();
       expect(await custom.evaluate(element => {

@@ -31,7 +31,7 @@ export function ConnectionParameters({ draft, change, disabled, fieldError, clea
     const helpId = `${fieldHelpId}-${key}`;
     const errorId = `${helpId}-error`;
     const error = fieldError?.field === key ? formatMessage(fieldError.localized) : undefined;
-    return <label className="library-editor-setting connection-parameter-setting"><span>{label}
+    return <label className="library-editor-setting connection-setting"><span>{label}
       {help && <small className="muted" id={helpId}>{help}</small>}</span>
       <input name={key} aria-label={label} type="text" inputMode={inputMode} aria-invalid={error ? true : undefined}
         aria-describedby={[help && helpId, error && errorId].filter(Boolean).join(' ') || undefined}
@@ -65,7 +65,7 @@ export function ConnectionParameters({ draft, change, disabled, fieldError, clea
         {numericField('presence_penalty', t('connection_parameters.presence_penalty'))}
         {numericField('frequency_penalty', t('connection_parameters.frequency_penalty'))}
         {numericField('seed', t('connection_parameters.seed'))}
-        <label className="library-editor-setting connection-parameter-setting">{t('connection_parameters.reasoning_effort')}
+        <label className="library-editor-setting connection-setting">{t('connection_parameters.reasoning_effort')}
           <Dropdown aria-label={t('connection_parameters.reasoning_effort')} disabled={disabled} value={reasoningEffort ?? ''} onChange={value => {
             const choice = reasoningEffortSchema.safeParse(value);
             changeBuiltIn({ reasoning_effort: choice.success ? choice.data : undefined });
