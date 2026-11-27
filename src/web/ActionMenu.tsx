@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
-import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
+import { capturePopupScroll, popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
 
 export function ActionMenu({ label, disabled, revision = null, align = 'end', aboveTrigger = false, bottomBoundaryRef, focusMode = 'item', triggerRef, children }: {
   label: string;
@@ -60,6 +60,7 @@ export function ActionMenu({ label, disabled, revision = null, align = 'end', ab
         maxHeight,
       });
     }
+    const scrollChanged = capturePopupScroll(button, viewport);
     const initialFocus = focusMode === 'panel' ? menu : menu.querySelector<HTMLButtonElement>('button:not(:disabled)');
     // A touch-opened composer menu shares the screen with the software keyboard.
     // Taking focus from its editor would dismiss the keyboard and move the trigger.
@@ -87,6 +88,7 @@ export function ActionMenu({ label, disabled, revision = null, align = 'end', ab
       if (event.target instanceof Node && menu.contains(event.target)) return;
       // Story can scroll behind a modal as streamed text arrives.
       if (modal && event.target instanceof Element && !modal.contains(event.target)) return;
+      if (event.type === 'scroll' && !scrollChanged(event.target)) return;
       close(menu.contains(document.activeElement));
     };
     // Capture nested scrolling too. Wheel/touch close at gesture start,

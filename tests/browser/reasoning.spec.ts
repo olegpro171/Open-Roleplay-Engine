@@ -107,6 +107,14 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   expect(composer.y - (edgeTrigger.y + edgeTrigger.height)).toBeLessThan(edgeMenu.height);
   expect(edgeMenu.y).toBeGreaterThanOrEqual(0);
   expect(edgeMenu.y + edgeMenu.height).toBeLessThan(edgeTrigger.y);
+  const transcript = page.locator('.transcript');
+  const scrollTop = () => transcript.evaluate(node => node.scrollTop);
+  const openingScrollTop = await scrollTop();
+  // Revealing the trigger can queue a notification that arrives after the menu opens.
+  await transcript.dispatchEvent('scroll');
+  expect(await scrollTop()).toBe(openingScrollTop);
+  await expect(menu).toBeVisible();
+  await expect(menu).toBeFocused();
   await page.screenshot({ path: `test-results/turn-menu-live-${theme}-${width}.png` });
   await page.keyboard.press('Escape');
 
@@ -190,6 +198,12 @@ for (const theme of themeSchema.options) for (const width of (theme === 'dark' ?
   await page.keyboard.press('End');
   await expect(menu.getByRole('menuitem', { name: 'Delete turn', exact: true })).toBeFocused();
   await page.mouse.wheel(0, -100);
+  await expect(menu).toHaveCount(0);
+  await expect(more).toBeFocused();
+  await openMenu();
+  const beforeScroll = await scrollTop();
+  await transcript.evaluate(node => { node.scrollTop -= 32; });
+  await expect.poll(scrollTop).toBeLessThan(beforeScroll);
   await expect(menu).toHaveCount(0);
   await expect(more).toBeFocused();
   if (theme === 'dark' && width === 1280) {

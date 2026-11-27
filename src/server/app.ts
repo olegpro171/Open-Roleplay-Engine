@@ -512,7 +512,10 @@ export async function createApp(options: {
   });
   app.post('/api/library/default/restore', async request => {
     const { revision } = z.object({ revision: revisionSchema }).strict().parse(request.body);
-    store.saveLibrary(revision, 'prompts', { ...defaultPrompt, impersonateInstruction: undefined }, 'default'); coordinator.changed({ kind: 'library' }); return { ok: true };
+    // Restore replaces the instruction even if a future factory preset omits it.
+    store.saveLibrary(revision, 'prompts', { ...defaultPrompt, impersonateInstruction: defaultPrompt.impersonateInstruction }, 'default');
+    coordinator.changed({ kind: 'library' });
+    return { ok: true };
   });
   app.post('/api/library/default-context/reset', async request => {
     const { revision, memoryImpactToken } = z.object({ revision: revisionSchema, memoryImpactToken: memoryImpactTokenSchema.optional() }).strict().parse(request.body);
