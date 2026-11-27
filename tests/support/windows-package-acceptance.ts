@@ -305,7 +305,7 @@ try {
  assert(!existsSync(pause));
  await launch();
  assert(current);
- await waitFor(current, () => current?.output().includes("Couldn't prepare an update.") ?? false, 'Offline check did not finish');
+ await waitFor(current, () => current?.output().includes("Couldn't check for updates.") ?? false, 'Offline check did not finish');
  assert.deepEqual(await content(), saved);
  await stop();
  rmSync(offline);

@@ -1,3 +1,4 @@
+// ORE terminal events 1
 import { fork, spawn } from 'node:child_process';
 import { openSync, writeFileSync, writeSync, closeSync, existsSync, mkdirSync, accessSync, constants } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
@@ -27,7 +28,15 @@ const readyReceipt = receipt && process.platform === 'win32' &&
   dirname(receipt) === resolve(home, 'cache') &&
   /^ready-[a-f0-9-]{36}\.tmp$/u.test(basename(receipt)) ? receipt : null;
 const startupStarted = performance.now();
-const say = (id, params = {}) => console.log(launcherMessage(id, language, params));
+// Only the interactive Windows package presenter opts in. Child stdout and
+// stderr still go directly to the private diagnostic report.
+const terminalEvents = concise && process.platform === 'win32' && process.argv[4] === '--terminal-events';
+function say(id, params = {}) {
+  if (terminalEvents) {
+    if (id === 'openUrl') console.log('openUrl ' + params.url);
+    else console.log(id);
+  } else console.log(launcherMessage(id, language, params));
+}
 function diagnostic(value) {
   if (logBroken) return false;
   try { writeSync(report, value); return true; }
@@ -39,7 +48,7 @@ function diagnostic(value) {
   }
 }
 function assistance() {
-  if (logBroken) return;
+  if (logBroken || terminalEvents) return;
   say('assistance'); console.log(logPath);
 }
 function stop() {
@@ -113,7 +122,7 @@ try {
     let url;
     try {
       url = new URL(value.url);
-      if (!['http:', 'https:'].includes(url.protocol) || /[\x00-\x20\x7f]/u.test(value.url) || url.username || url.password) throw new Error('Invalid ready URL.');
+      if (!['http:', 'https:'].includes(url.protocol) || /[\s\p{Cc}]/u.test(value.url) || url.username || url.password) throw new Error('Invalid ready URL.');
       if (legacyDatabase) {
         recordLegacyReady();
       }
@@ -122,8 +131,11 @@ try {
       ready = true;
       process.send?.({ type: 'ready', url: value.url }, error => { if (error) stop(); });
     } catch (error) { failed = true; diagnostic(`${error.stack}\n`); stop(); return; }
-    say('ready'); say('openUrl', { url: value.url }); console.log('');
-    say('keepWindow'); say('stopHint');
+    if (terminalEvents) say('openUrl', { url: value.url });
+    else {
+      say('ready'); say('openUrl', { url: value.url }); console.log('');
+      say('keepWindow'); say('stopHint');
+    }
     if (readyReceipt) {
       // The Windows controller allocates a private receipt for this launch.
       // Readiness is reported only after owned IPC and the working selection.
@@ -131,14 +143,15 @@ try {
       catch (error) { diagnostic(`Could not notify the update checker: ${error.message}\n`); }
     }
     if (process.env.ORE_OPEN_BROWSER === '0') return;
-    say('openingBrowser');
+    if (!terminalEvents) say('openingBrowser');
     const command = process.platform === 'win32' ? resolve(process.env.SystemRoot ?? 'C:\\Windows', 'System32/rundll32.exe') : process.platform === 'darwin' ? 'open' : 'xdg-open';
     browser = spawn(command, process.platform === 'win32' ? ['url.dll,FileProtocolHandler', value.url] : [value.url], { stdio: 'ignore' });
     let reported = false;
     function browserFailed(cause) {
       if (reported || stopping) return;
       reported = true; diagnostic(`Browser open failed: ${cause}\n`);
-      say('browserFailed'); say('openUrl', { url: value.url });
+      say('browserFailed');
+      if (!terminalEvents) say('openUrl', { url: value.url });
     }
     browser.once('error', error => browserFailed(error.message));
     browser.once('exit', (code, signal) => { if (code !== 0) browserFailed(`exit ${code}, signal ${signal}`); });

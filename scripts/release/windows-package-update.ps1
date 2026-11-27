@@ -8,6 +8,7 @@ function Install-OreInitialSelection([string]$Installation, [int]$LauncherVersio
     $stage = New-OrePackageStage
     try {
         $script:OreFailure = 'downloadFailed'
+        Show-OreMessage 'firstInstall'
         Show-OreMessage 'checkingUpdates'
         $release = Get-OreRelease $stage $LauncherVersion
         if ($release.Blocked) { return }
@@ -65,6 +66,7 @@ function Use-OrePreparedUpdate([hashtable]$Current, [string]$Prepared, [int]$Lau
 
 function Invoke-OreUpdateCheck([string]$Installation, [string]$Commit, [int]$LauncherVersion) {
     $stage = $null
+    $failureMessage = 'updateCheckFailed'
     try {
         Assert-OrePath $Installation (Join-Path $Installation 'cache/prepared-update') | Out-Null
         if (Test-OreCancellation) { return }
@@ -73,6 +75,7 @@ function Invoke-OreUpdateCheck([string]$Installation, [string]$Commit, [int]$Lau
         $release = Get-OreRelease $stage $LauncherVersion $Commit
         if (!$release) { Show-OreMessage 'upToDate'; return }
         if ($release.Blocked) { return }
+        $failureMessage = 'backgroundUpdateFailed'
         Write-OreDiagnostic ('Resolved package release '+$release.Commit)
         Assert-OreForwardRelease $Commit $release.Commit $stage
         Install-OreRelease $release $stage $Installation -Prepare
@@ -82,7 +85,7 @@ function Invoke-OreUpdateCheck([string]$Installation, [string]$Commit, [int]$Lau
             if ($script:OreReport) {
                 try { Write-OreDiagnostic ($_.Exception.ToString()) } catch { $script:OreReport = $null }
             }
-            Show-OreMessage 'backgroundUpdateFailed'
+            Show-OreMessage $failureMessage
             if ($script:OreReport) { Show-OreMessage 'logFile' @{absolutePath=$script:OreReport} }
         }
     } finally { Remove-OrePackageStage $stage }
@@ -110,6 +113,9 @@ function Start-OrePackageMaintenance([string]$Installation, [hashtable]$Selectio
     }
     $state.Variables.Add((New-Object Management.Automation.Runspaces.SessionStateVariableEntry('OreMessages',$OreMessages,'')))
     $state.Variables.Add((New-Object Management.Automation.Runspaces.SessionStateVariableEntry('OreLanguage',$script:OreLanguage,'')))
+    if ($null -ne $script:OrePendingUpdates) {
+        $state.Variables.Add((New-Object Management.Automation.Runspaces.SessionStateVariableEntry('OreUpdateEvents',$script:OrePendingUpdates,'')))
+    }
     $worker = [PowerShell]::Create($state)
     try {
         $null = $worker.AddScript(@'
@@ -117,12 +123,17 @@ param($installation, $selection, $launcherVersion, $checkForUpdate)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $script:OreReport = $null
-Open-OrePackageReport -Quiet -Prefix 'update'
-# Sweep under the same lease, before preparing another payload in this runspace.
-Invoke-OreBuildCleanup $installation $selection
-if ($checkForUpdate -and !(Test-OreCancellation)) {
-    $info = Read-OreJson (Join-Path $selection.Application 'build-info.json')
-    Invoke-OreUpdateCheck $installation $info.commit $launcherVersion
+try {
+    Open-OrePackageReport -Quiet -Prefix 'update'
+    # Sweep under the same lease, before preparing another payload in this runspace.
+    Invoke-OreBuildCleanup $installation $selection
+    if ($checkForUpdate -and !(Test-OreCancellation)) {
+        $info = Read-OreJson (Join-Path $selection.Application 'build-info.json')
+        Invoke-OreUpdateCheck $installation $info.commit $launcherVersion
+    }
+} catch {
+    if ($checkForUpdate -and !(Test-OreCancellation)) { Show-OreMessage 'backgroundUpdateFailed' }
+    throw
 }
 '@).AddArgument($Installation).AddArgument($Selection).AddArgument($LauncherVersion).AddArgument($CheckForUpdate)
         return @{Worker=$worker; Async=$worker.BeginInvoke()}

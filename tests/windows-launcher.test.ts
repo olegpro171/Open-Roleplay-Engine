@@ -4,6 +4,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, re
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
+import messages from '../scripts/release/launcher-messages.json';
 import { releaseServer } from './support/release-server.js';
 
 const roots: string[] = [];
@@ -91,10 +92,62 @@ it('reproduces the generated launchers and keeps external compatibility baseline
   const hash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
   expect(hash('tests/fixtures/windows-launcher/f553710121c8.bat')).toBe('36da2eba41f560881797eaf4cd042ec3f11769b60b2e6fbbdcc98a3dc2f357ef');
   expect(hash('tests/fixtures/windows-launcher/b6387180d351.bat')).toBe('000184cb43b98b3fcdf26cfbbc556d2bd699a7f86b9d1b951705a4fd2cdde5af');
-  expect(hash('ORE-launcher.bat')).toBe('35da725819cec1d554b52861c8836b83e12280d36f80ead43dff597209f958f1');
+  expect(hash('ORE-launcher.bat')).toBe('0895683a214b2ac4ff69f2b029bfc80e494e5bb67f8dbbee3a810bf672ea1af6');
 });
 
 describe.skipIf(process.platform !== 'win32')('Windows PowerShell 5.1 builder and ZIP policy', () => {
+  it.each(['en', 'ru'] as const)('keeps the ready address during updates and replaces it on shutdown or failure (%s)', language => {
+    const result = powershell(`$ErrorActionPreference='Stop'
+[Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
+$helper = [IO.File]::ReadAllText($env:ORE_TEST_HELPER)
+. ([scriptblock]::Create($helper.Substring(0,$helper.IndexOf('# The installed helper owns the lease'))))
+$script:OreLanguage=$env:ORE_TEST_LANGUAGE
+$script:OreTerminal=@{Title='launching'; Role='accent'; Symbol=''; Color=$false}
+$script:OreReport='C:\\ORE\\logs\\startup.txt'
+# Capture complete user-visible frames in place of cursor movement.
+function Write-OreTerminalPanel { [Console]::WriteLine((ConvertTo-Json -Compress -InputObject (@(Get-OreTerminalLines 80) -join [Environment]::NewLine))) }
+Show-OreMessage firstInstall
+Show-OreMessage downloadingVersion
+Receive-OreTerminalEvent starting
+Receive-OreTerminalEvent 'openUrl https://user:password@localhost/'
+Receive-OreTerminalEvent 'openUrl http://127.0.0.1:39172'
+Show-OreMessage upToDate
+Show-OreMessage updateCheckFailed
+Show-OreMessage logFile @{absolutePath='C:\\ORE\\logs\\update.txt'}
+Show-OreMessage updateReadyOnRestart
+Receive-OreTerminalEvent browserFailed
+Receive-OreTerminalEvent stopped
+Show-OreMessage checkingUpdates
+$script:OreTerminal=@{Title='launching'; Role='accent'; Symbol=''; Color=$false}
+Receive-OreTerminalEvent starting
+Receive-OreTerminalEvent portConflict
+Show-OreMessage upToDate`, {
+      ORE_TEST_HELPER: resolve('scripts/release/windows-package-launcher.ps1'), ORE_TEST_LANGUAGE: language,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    const frames: string[] = result.stdout.trim().split(/\r?\n/u).map(line => JSON.parse(line));
+    const url = 'http://127.0.0.1:39172';
+    expect(frames).toHaveLength(12);
+    expect(frames[1]).toContain(messages.verifyNext[language]);
+    expect(frames[2]).not.toContain(messages.verifyNext[language]);
+    expect(frames.slice(0, 3).join('')).not.toContain(url);
+    expect(frames.join('')).not.toContain('password');
+    for (const frame of frames.slice(3, 9)) {
+      expect(frame).toContain(url);
+      expect(frame).toContain(messages.running[language]);
+      expect(frame).toContain('Ctrl+C');
+    }
+    expect(frames[4]).toContain(messages.upToDate[language]);
+    expect(frames[5]).toContain(messages.updateCheckFailed[language]);
+    expect(frames[6]).toContain('update.txt');
+    expect(frames[7]).toContain(messages.updateReadyOnRestart[language]);
+    expect(frames[8]).toContain(messages.browserFailed[language]);
+    expect(frames[9]).toContain(messages.stopped[language]);
+    expect(frames[11]).toContain(messages.portConflict[language]);
+    expect(frames[11]).toContain('startup.txt');
+    expect(frames.slice(9).join('')).not.toContain(url);
+    expect(frames.slice(9).join('')).not.toContain('update.txt');
+  });
   it('runs the real Release builder with Git outside its sanitized PATH and retains clean-source guards',()=>{
     const f=fixture();f.copySource(a,source=>{
       for(const directory of ['src','public'])writeFileSync(join(source,directory,'sentinel.txt'),'tracked build input');
@@ -213,6 +266,37 @@ describe.skipIf(process.platform !== 'win32')('Windows PowerShell 5.1 builder an
 try { Invoke-OreProcess $env:ORE_MISSING_PROGRAM @() $env:ORE_PROCESS_REPORT;exit 2 }
 catch { $cause=$_.Exception;while($cause.InnerException){$cause=$cause.InnerException};[Console]::WriteLine($cause.GetType().FullName);exit 0 }`,{ORE_PROCESS_TOOLS:resolve('scripts/release/windows-standalone-common.ps1'),ORE_MISSING_PROGRAM:join(root,'absent.exe'),ORE_PROCESS_REPORT:join(root,'report.txt')});
     expect(result.status,result.stdout+result.stderr).toBe(0);expect(result.stdout.trim()).toBe('System.ComponentModel.Win32Exception');
+  });
+  it('delivers interactive output while the child runs and drains the final status on cancellation', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ORE-terminal-events-')); roots.push(root);
+    const child = join(root, 'foreground.mjs');
+    writeFileSync(child, `
+      import { existsSync } from 'node:fs';
+      import { setTimeout as delay } from 'node:timers/promises';
+      console.log('openUrl http://127.0.0.1:39172');
+      const deadline = Date.now() + 8000;
+      while (!existsSync(process.env.ORE_TEST_ACK)) {
+        if (Date.now() >= deadline) throw new Error('Presenter did not acknowledge readiness');
+        await delay(10);
+      }
+      console.error('private diagnostic');
+      console.log('stopped');
+      process.exitCode = 42;
+    `);
+    const report = join(root, 'launcher.txt');
+    const result = powershell(`$ErrorActionPreference='Stop'; . $env:ORE_PROCESS_TOOLS
+function Test-OreCancellation { return [IO.File]::Exists($env:ORE_TEST_ACK) }
+$present = { param($line)
+    [Console]::WriteLine($line)
+    if ($line.StartsWith('openUrl ')) { [IO.File]::WriteAllText($env:ORE_TEST_ACK,'') }
+}
+exit (Invoke-OreProcess $env:ORE_TEST_NODE @($env:ORE_TEST_CHILD) $env:ORE_TEST_REPORT -Console -OnOutputLine $present)`, {
+      ORE_TEST_NODE: process.execPath, ORE_PROCESS_TOOLS: resolve('scripts/release/windows-standalone-common.ps1'),
+      ORE_TEST_CHILD: child, ORE_TEST_ACK: join(root, 'ack'), ORE_TEST_REPORT: report,
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(42);
+    expect(result.stdout.trim().split(/\r?\n/u)).toEqual(['openUrl http://127.0.0.1:39172', 'stopped']);
+    expect(readFileSync(report, 'utf8')).toContain('private diagnostic');
   });
   it('validates every ZIP name/type/collision before writing any extracted content',()=>{
     const root=mkdtempSync(join(tmpdir(),'ORE-zip-policy-'));roots.push(root);

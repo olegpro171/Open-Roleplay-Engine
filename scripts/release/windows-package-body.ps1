@@ -11,7 +11,10 @@ $script:OreMaintenance = $null
 $script:OreMaintenanceStarted = $false
 $readyReceipt = $null
 $result = 1
+$script:OreTerminal = New-OreTerminal
+$script:OrePendingUpdates = $null
 try {
+    if ($script:OreTerminal) { Show-OreMessage 'starting' }
     Assert-OreWindows
     $script:OreFailure = 'folderCollision'
     if (!$Installed -or ![IO.Directory]::Exists($Installation) -or ![IO.Path]::IsPathRooted($Invoking)) { throw 'Invalid installed helper invocation.' }
@@ -45,13 +48,31 @@ try {
     $checkForUpdate = $updates -and ![IO.Directory]::Exists($prepared) -and ![IO.File]::Exists($prepared)
     $readyReceipt = Join-Path $Installation ('cache/ready-'+[guid]::NewGuid()+'.tmp')
     $env:ORE_LAUNCH_READY_RECEIPT = $readyReceipt
+    $controller = Join-Path $tools 'portable-launch.mjs'
+    $arguments = @($controller,$Installation,$selection.Application)
+    $onOutput = $null
+    # The selected toolkit can predate this presenter, including after recovery.
+    if ($script:OreTerminal -and ([IO.File]::ReadLines($controller) | Select-Object -First 1) -ceq '// ORE terminal events 1') {
+        $arguments += '--terminal-events'
+        $onOutput = { param($line) Receive-OreTerminalEvent $line }
+        $script:OrePendingUpdates = New-Object 'Collections.Concurrent.ConcurrentQueue[object]'
+    } else { $script:OreTerminal = $null }
     $whileRunning = {
+        # A receipt can arrive before its stdout event. Hold only the display
+        # messages until the address is visible; the receipt owns maintenance.
+        if ($null -ne $script:OrePendingUpdates -and $script:OreTerminal.Title -eq 'running') {
+            $updateEvent = $null
+            while ($script:OrePendingUpdates.TryDequeue([ref]$updateEvent)) { Show-OreMessage $updateEvent.Id $updateEvent.Parameters }
+        }
         if (!$script:OreMaintenanceStarted -and [IO.File]::Exists($readyReceipt)) {
             $script:OreMaintenanceStarted = $true
             try { $script:OreMaintenance = Start-OrePackageMaintenance $Installation $selection $LauncherVersion $checkForUpdate }
             catch {
                 Write-OreDiagnostic ($_.Exception.ToString())
-                if ($checkForUpdate) { Show-OreMessage 'backgroundUpdateFailed' }
+                if ($checkForUpdate) {
+                    if ($null -ne $script:OrePendingUpdates) { $script:OrePendingUpdates.Enqueue(@{Id='backgroundUpdateFailed'; Parameters=@{}}) }
+                    else { Show-OreMessage 'backgroundUpdateFailed' }
+                }
             }
         }
     }
@@ -60,7 +81,8 @@ try {
     $env:ORE_LAUNCH_LANGUAGE = $script:OreLanguage
     Write-OreDiagnostic ('Installed startup preflight: '+$startup.ElapsedMilliseconds+' ms.')
     Write-OreDiagnostic ('Starting selected '+$selection.Id+'; automatic fallback ends here.')
-    $result = Invoke-OreProcess $selection.Node @((Join-Path $tools 'portable-launch.mjs'),$Installation,$selection.Application) $script:OreReport -Console -WhileRunning $whileRunning
+    $result = Invoke-OreProcess $selection.Node $arguments $script:OreReport -Console -WhileRunning $whileRunning -OnOutputLine $onOutput
+    if ($result -ne 0 -and $script:OreTerminal -and !$script:OreTerminal.Failed) { Show-OreTerminalFailure 'startupFailed' }
 } catch {
     if (Test-OreCancellation) {
         $script:OreFailure = 'cancelled'

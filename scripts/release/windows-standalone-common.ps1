@@ -143,29 +143,38 @@ function ConvertTo-OreArgument([string]$Value) {
     # CommandLineToArgvW quoting; paths are never evaluated as shell source.
     return '"'+[regex]::Replace([regex]::Replace($Value,'(\\*)"','$1$1\"'),'(\\+)$','$1$1')+'"'
 }
-function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$Report, [switch]$Console, [scriptblock]$WhileRunning) {
+function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$Report, [switch]$Console, [scriptblock]$WhileRunning, [scriptblock]$OnOutputLine) {
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $Executable
     $start.Arguments = (($Arguments | ForEach-Object { ConvertTo-OreArgument $_ }) -join ' ')
     $start.UseShellExecute = $false
     $start.CreateNoWindow = !$Console
-    $start.RedirectStandardOutput = !$Console
+    $start.RedirectStandardOutput = !$Console -or $null -ne $OnOutputLine
+    if ($OnOutputLine) { $start.StandardOutputEncoding = [Text.Encoding]::UTF8 }
     $start.RedirectStandardError = $true
     $process = New-Object Diagnostics.Process
     $process.StartInfo = $start
     $started = $false
+    $nextLine = $null
     $outputs = @(); $tasks = @(); $paths = @()
     try {
         if (!$process.Start()) { throw 'Could not start owned process.' }
         $started = $true
         $streams = @($process.StandardError.BaseStream)
-        if (!$Console) { $streams += $process.StandardOutput.BaseStream }
+        if ($OnOutputLine) { $nextLine = $process.StandardOutput.ReadLineAsync() }
+        elseif (!$Console) { $streams += $process.StandardOutput.BaseStream }
         foreach ($stream in $streams) {
             $path = Join-Path ([IO.Path]::GetDirectoryName($Report)) ('tool-'+[guid]::NewGuid()+'.tmp')
             $outputStream = [IO.File]::Open($path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
             $paths += $path; $outputs += $outputStream; $tasks += $stream.CopyToAsync($outputStream)
         }
         do {
+            while ($null -ne $nextLine -and $nextLine.IsCompleted) {
+                $line = $nextLine.GetAwaiter().GetResult()
+                if ($null -eq $line) { $nextLine = $null; break }
+                & $OnOutputLine $line
+                $nextLine = $process.StandardOutput.ReadLineAsync()
+            }
             if (Test-OreCancellation) {
                 # The foreground controller also receives Ctrl+C and reports its own shutdown.
                 if ($Console -and $process.WaitForExit(5000)) { break }
@@ -174,6 +183,14 @@ function Invoke-OreProcess([string]$Executable, [string[]]$Arguments, [string]$R
             foreach ($task in $tasks) { if ($task.IsFaulted) { $task.GetAwaiter().GetResult() | Out-Null } }
             if ($WhileRunning -and !$process.HasExited) { & $WhileRunning }
         } while (!$process.WaitForExit(100))
+        # A quick failure or Ctrl+C can exit between polls. Deliver the last
+        # status before returning its exit code to the launcher.
+        while ($null -ne $nextLine) {
+            $line = $nextLine.GetAwaiter().GetResult()
+            if ($null -eq $line) { break }
+            & $OnOutputLine $line
+            $nextLine = $process.StandardOutput.ReadLineAsync()
+        }
         foreach ($task in $tasks) { $task.GetAwaiter().GetResult() | Out-Null }
         return $process.ExitCode
     } finally {

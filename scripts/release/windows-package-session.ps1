@@ -1,4 +1,4 @@
-function Show-OreMessage([string]$Id, [hashtable]$Parameters = @{}) {
+function Get-OreMessage([string]$Id, [hashtable]$Parameters = @{}) {
     $entry = $OreMessages[$Id]
     if (!$entry) { throw 'Unknown launcher message.' }
     $value = $entry[$script:OreLanguage]
@@ -7,9 +7,19 @@ function Show-OreMessage([string]$Id, [hashtable]$Parameters = @{}) {
         param($match)
         $key = $match.Groups[1].Value
         if (!$Parameters.ContainsKey($key)) { throw 'Missing literal launcher parameter.' }
-        return [string]$Parameters[$key]
+        return ([string]$Parameters[$key] -replace '\p{Cc}','�')
     })
-    [Console]::WriteLine($text)
+    return $text
+}
+function Show-OreMessage([string]$Id, [hashtable]$Parameters = @{}) {
+    if ($null -ne $script:OreUpdateEvents) {
+        $script:OreUpdateEvents.Enqueue(@{Id=$Id; Parameters=$Parameters})
+        return
+    }
+    $text = Get-OreMessage $Id $Parameters
+    if ($script:OreTerminal) {
+        Show-OreTerminalUpdate $Id $text $Parameters
+    } else { [Console]::WriteLine($text) }
 }
 
 function Assert-OreWindows {
@@ -26,7 +36,7 @@ function Open-OrePackageReport([switch]$Quiet, [string]$Prefix = 'launcher') {
     $reportStream = [IO.File]::Open($reportPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
     $reportStream.Dispose()
     $script:OreReport = $reportPath
-    if (!$Quiet) { Show-OreMessage 'logFile' @{absolutePath=$reportPath} }
+    if (!$Quiet -and !$script:OreTerminal) { Show-OreMessage 'logFile' @{absolutePath=$reportPath} }
     Write-OreDiagnostic ('Windows package protocol 2; PowerShell '+$PSVersionTable.PSVersion+'; x64; language '+$script:OreLanguage)
 }
 function Initialize-OrePackageEnvironment {
@@ -67,8 +77,12 @@ function Show-OrePackageFailure($Failure) {
     if ($script:OreReport -and $script:OreFailure -ne 'logFailed') {
         try { Write-OreDiagnostic ($Failure.Exception.ToString()) } catch { $script:OreFailure = 'logFailed' }
     }
-    Show-OreMessage $script:OreFailure @{folder='ORE-internal';line=$script:OreEnvLine}
-    if ($script:OreReport -and $script:OreFailure -ne 'logFailed') { Show-OreMessage 'assistance'; [Console]::WriteLine($script:OreReport) }
+    $parameters = @{folder='ORE-internal';line=$script:OreEnvLine}
+    if ($script:OreTerminal) { Show-OreTerminalFailure $script:OreFailure $parameters }
+    else {
+        Show-OreMessage $script:OreFailure $parameters
+        if ($script:OreReport -and $script:OreFailure -ne 'logFailed') { Show-OreMessage 'assistance'; [Console]::WriteLine($script:OreReport) }
+    }
 }
 function Remove-OrePackageStage([string]$Stage) {
     if (!$Stage) { return }
