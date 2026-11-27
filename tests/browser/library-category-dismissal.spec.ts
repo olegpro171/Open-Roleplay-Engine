@@ -89,13 +89,22 @@ for (const [engine, input, width] of [['chromium', 'mouse', 800], ['chromium', '
         } else if (engine === 'chromium') {
           await picker.tap();
           await expect(list).toBeVisible();
+          const point = { x: 200, y: 650 };
+          expect(await list.evaluate((node, { x, y }) => !node.contains(document.elementFromPoint(x, y)), point)).toBe(true);
           const session = await page.context().newCDPSession(page);
           try {
-            await session.send('Input.synthesizeScrollGesture', { x: 200, y: 650, yDistance: -120, gestureSourceType: 'touch' });
+            await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+            await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...point, y: point.y - 2 }] });
+            await expect(list).toBeVisible();
+            // Drive the cancellation directly so it doesn't depend on the OS scroll synthesizer.
+            await session.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
           } finally {
             await session.detach();
           }
           await expect(list).toBeHidden();
+          await expect(libraries).toHaveAttribute('aria-current', 'page');
+          await expect(picker).toHaveText('Prompts');
+          await expect(editor).toBeHidden();
         }
 
         const openSettings = await dismissOver(settings);
