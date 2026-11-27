@@ -121,6 +121,50 @@ test('updates Memory and Chat Details while preparation is waiting on the next s
   expect(await calls()).toHaveLength(2);
 });
 
+test('shows memory preparation in the pending response version and restores the saved reply on cancellation', async ({ page, browserApp }, testInfo) => {
+  const { state, read, write } = await memoryStory(page, browserApp.url, 'Regeneration status', 8);
+  const before = (await state()).turns[7];
+  const turn = page.getByRole('article', { name: 'Turn 8', exact: true });
+  const reply = turn.locator('.part.assistant');
+  const version = turn.getByRole('textbox', { name: 'Response version', exact: true });
+  const status = reply.getByRole('status');
+  const cursor = reply.locator('[aria-label="Generating"]');
+  await expect(reply).toContainText(before.assistant.text);
+  await expect(version).toHaveValue('1');
+
+  await write('POST', '/__test/mode', { mode: 'hold-first-token' });
+  await turn.getByRole('button', { name: 'Regenerate', exact: true }).click();
+  await expect(page.locator('.memory-preparation-status')).toContainText('Connecting…');
+  await expect(version).toHaveValue('2');
+  await expect(status).toHaveText('Preparing memory…');
+  await expect(reply).not.toContainText(before.assistant.text);
+  expect((await state()).turns[7]).toEqual(before);
+
+  for (const theme of themeSchema.options) {
+    const appearance = appearanceStatusSchema.parse(await read<unknown>('/api/application/appearance'));
+    await write('PUT', '/api/application/appearance', { revision: appearance.revision, settings: { ...appearance.settings, theme } });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(status).toBeInViewport({ ratio: 1 });
+      await expect(cursor).toHaveCSS('animation-iteration-count', 'infinite');
+      await expect(cursor).toBeInViewport({ ratio: 1 });
+      await expect(turn.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport();
+      await page.screenshot({ path: testInfo.outputPath(`regeneration-${theme}-${width}.png`) });
+    }
+  }
+
+  await turn.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(status).toHaveCount(0);
+  await expect(cursor).toHaveCount(0);
+  await expect(reply).toContainText(before.assistant.text);
+  await expect(version).toHaveValue('1');
+  const after = await state();
+  expect(after.turns[7]).toEqual(before);
+  expect(after.generations[0]).toMatchObject({ kind: 'regeneration', status: 'cancelled', request: null });
+  expect(await read<unknown[]>('/__test/requests')).toHaveLength(1);
+});
+
 test('Story tracks and stops regeneration outside the transcript window and reviews a preset change', async ({ page, browserApp }, testInfo) => {
   const title = 'Regeneration memory';
   const { path, state, read, write, library, presetId } = await memoryStory(page, browserApp.url, title, 170);

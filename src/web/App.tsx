@@ -927,7 +927,7 @@ export function App() {
                       {showLiveReasoning && <ReasoningPreview text={reasoning.text} />}
                       {progress}
                     </div>}</>
-                  : part === 'assistant' && (!turn.complete || generating && !regenerationPreparation)
+                  : part === 'assistant' && (!turn.complete || generating)
                     ? <>{visibleResponse ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={visibleResponse} speechColor={speechColor} /> : !generating && <span className="muted">{cancelled ? t("app.generation_cancelled") : t("app.awaiting_response")}</span>}{progress}</>
                     : turn[part].text ? <ChatMarkdown textScale={appearance.settings.chatTextScale} text={turn[part].text} speechColor={part === 'user' ? selectedPersona?.speechColor ?? appearance.settings.personaSpeechColor ?? 'var(--speech-persona)' : speechColor} /> : <span className="muted blank">{t("app.blank")}</span>}
               </div>}
