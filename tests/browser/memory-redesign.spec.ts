@@ -512,6 +512,22 @@ test('keeps the Memory view in place when switching summaries and localizes auth
   await timeline.getByRole('button').first().click();
   await expect(timeline.getByRole('button').first()).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('region', { name: 'Summary text', exact: true })).toHaveText(original);
+  let sourceReads = 0;
+  await page.route('**/api/chats/*/turns/*/source?*', async route => {
+    if (++sourceReads === 1) await route.fulfill({ status: 503, json: { message: 'Synthetic source read failure' } });
+    else await route.continue();
+  });
+  await page.getByText('Source turns and dependencies', { exact: true }).click();
+  expect(sourceReads).toBe(0);
+  const firstSource = page.locator('details').filter({ has: page.locator('summary').filter({ hasText: /^Turn 1 · current source text$/ }) });
+  const source = firstSource.filter({ hasNot: page.locator('details') });
+  await source.getByText('Turn 1 · current source text', { exact: true }).click();
+  await expect(source.getByRole('alert')).toContainText('Synthetic source read failure');
+  await source.getByRole('button', { name: 'Retry loading', exact: true }).click();
+  await expect(source).toContainText('Mira carries the silver key.');
+  await expect(source).toContainText('Leon waits beside the tower.');
+  expect(sourceReads).toBe(2);
+  await page.getByText('Source turns and dependencies', { exact: true }).click();
 
   for (const theme of themeSchema.options) {
     const response = await page.request.get('/api/application/appearance');

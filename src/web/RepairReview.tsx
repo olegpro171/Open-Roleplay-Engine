@@ -5,14 +5,14 @@ import { useTextState, errorText, t, message as msg, useLocale } from './localiz
 import { newId } from './uuid';
 import { Icon } from './Icon';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { ChatToolsSnapshot } from '../shared/contracts';
+import type { MemorySnapshot } from '../shared/contracts';
 import { refKey, type ContextJob, type ContextJobDetails, type ContextJobProgress, type SummaryPhase, type RepairAction } from '../shared/context';
 import { api } from './api';
 import { TextComparison } from './TextComparison';
 import { RejectedSummary } from './RejectedSummary';
 
 export function RepairReview({ snapshot, job, busy, run, dismissed }: {
-  snapshot: ChatToolsSnapshot; job: ContextJob; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; dismissed: () => void;
+  snapshot: MemorySnapshot; job: ContextJob; busy: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>; dismissed: () => void;
 }) {
   useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -58,7 +58,7 @@ export function RepairReview({ snapshot, job, busy, run, dismissed }: {
   const current = details?.job.sourceRevision === job.sourceRevision;
   const obsolete = Boolean(candidate && job.sourceRevision !== snapshot.revision);
   const remaining = current ? details?.repair?.remaining : undefined;
-  const positions = candidate?.turns.map(source => snapshot.turns.findIndex(turn => turn.id === source.turnId) + 1).filter(Boolean) ?? [];
+  const positions = candidate?.turns.map(source => snapshot.turnSources.findIndex(turn => turn.turnId === source.turnId) + 1).filter(Boolean) ?? [];
   async function act(action: RepairAction, finishClose = dismissed) {
     if (pending.current) return;
     pending.current = true; setError('');

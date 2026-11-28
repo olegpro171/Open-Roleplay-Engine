@@ -101,7 +101,8 @@ export type LibrarySnapshot = {
 export const defaultInstructions = 'Write the next response in this roleplay. Stay consistent with the established story.';
 export const defaultPrompt: PromptPreset = factoryPrompt;
 
-export function hasPromptMarker(prompt: PromptPreset | null | undefined, marker: typeof markers[number]): boolean {
+export function hasPromptMarker(prompt: { blocks: readonly { enabled: boolean; kind: 'text' | 'marker'; marker?: typeof markers[number] }[] } | null | undefined,
+  marker: typeof markers[number]): boolean {
   return (prompt ?? defaultPrompt).blocks.some(block => block.enabled && block.kind === 'marker' && block.marker === marker);
 }
 

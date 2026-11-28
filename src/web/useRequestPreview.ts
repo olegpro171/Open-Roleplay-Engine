@@ -14,6 +14,7 @@ export function useRequestPreview(snapshot: StorySnapshot | null, draft: string,
   const continuationTurnId = instruction?.kind === 'continuation' ? instruction.turnId : undefined;
   const opening = instruction?.kind === 'opening';
   const [settled, setSettled] = useState('');
+  const inputReady = !input || input === settled;
   const [retry, setRetry] = useState(0);
   const [inspection, setInspection] = useState<Inspection>({ chatId: null, key: '', estimate: null, request: null, error: '' });
   const cached = useRef(inspection);
@@ -28,7 +29,7 @@ export function useRequestPreview(snapshot: StorySnapshot | null, draft: string,
       cached.current = released;
       setInspection(released);
     }
-    if (!enabled || !snapshot?.connection || !pending && input !== settled) return;
+    if (!enabled || !snapshot?.connection || !inputReady) return;
     const previous = cached.current;
     if (previous.key === key && !previous.error && (!full || previous.request)) return;
     const controller = new AbortController();
@@ -49,7 +50,7 @@ export function useRequestPreview(snapshot: StorySnapshot | null, draft: string,
       setInspection(next);
     });
     return () => controller.abort();
-  }, [key, settled, enabled, full]);
+  }, [key, inputReady, enabled, full]);
   const matching = inspection.chatId === snapshot?.id;
   return {
     estimate: matching ? inspection.estimate : null,

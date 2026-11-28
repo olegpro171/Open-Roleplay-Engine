@@ -47,7 +47,28 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await expect(next).toHaveAttribute('title', 'Regenerate response');
   await expect(page.getByRole('button', { name: 'Inspect response request', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Use this response', exact: true })).toHaveCount(0);
-  await previous.click();
+  const selectUrl = `**/api/chats/${chat.id}/turns/${generated.turns[0].id}/variants/*/select`;
+  const storyUrl = `**/api/chats/${chat.id}/story?*`;
+  let releaseAcknowledgement = () => {};
+  const acknowledgementGate = new Promise<void>(resolve => { releaseAcknowledgement = resolve; });
+  await page.route(selectUrl, async route => {
+    const response = await route.fetch();
+    await acknowledgementGate;
+    await route.fulfill({ response });
+  }, { times: 1 });
+  try {
+    await previous.click();
+    // The notification can reconcile while the acknowledged command response
+    // is still in flight. The selection is visible, but the command still owns controls.
+    await expect(version).toHaveValue('1');
+    await expect(version).toBeDisabled();
+    await page.route(storyUrl, () => {});
+    releaseAcknowledgement();
+    await expect(version).toBeEnabled();
+  } finally {
+    releaseAcknowledgement();
+    await page.unroute(storyUrl);
+  }
   await expect.poll(async () => (await state()).turns[0].assistant.variantId).toBe(originalId);
   await expect(version).toHaveValue('1');
   await expect(previous).toBeDisabled();
@@ -75,7 +96,6 @@ test('switches response versions with arrows and a textbox, restores summarized 
   await expect(version).toHaveValue('1');
   expect((await state()).revision).toBe(arrowRevision + 1);
   // A delayed failed save must not replace the current text or counter.
-  const selectUrl = `**/api/chats/${chat.id}/turns/${generated.turns[0].id}/variants/*/select`;
   let releaseSelection = () => {};
   const selectionGate = new Promise<void>(resolve => { releaseSelection = resolve; });
   await page.route(selectUrl, async route => {

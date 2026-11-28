@@ -17,11 +17,11 @@ import { PersonaIcon } from './PersonaIcon';
 import { ApplicationSettings } from './ApplicationSettings';
 import { useMemoryCleanup } from './MemoryCleanupReview';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from 'react';
-import type { ChatToolsSnapshot, RequestPreview } from '../shared/contracts';
+import type { MemorySnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError, datasetChanged } from './api';
 import { changeSchema } from '../shared/changes';
 import { observeServerEvents } from './server-events';
-import { RefreshQueue, fullRefresh, mergeRefreshRequests, scopeForChange, type RefreshRequest, type RefreshScope, type ResumeRefresh } from './refresh-queue';
+import { RefreshQueue, fullRefresh, mergeRefreshRequests, scopeForChange, workspaceRefresh, type RefreshRequest, type RefreshScope, type ResumeRefresh } from './refresh-queue';
 import { useRequestPreview } from './useRequestPreview';
 import { useGenerationHistory } from './useGenerationHistory';
 import { hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
@@ -116,7 +116,7 @@ export function App() {
   const [snapshot, setSnapshot] = useState<StorySnapshot | null>(null);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
-  const [toolSnapshot, setToolSnapshot] = useState<ChatToolsSnapshot | null>(null);
+  const [toolSnapshot, setToolSnapshot] = useState<MemorySnapshot | null>(null);
   const [toolError, setToolError] = useTextState('');
   const [toolRetry, setToolRetry] = useState(0);
   const [toolRefresh, setToolRefresh] = useState(0);
@@ -174,7 +174,8 @@ export function App() {
   const [chatDetailsTarget, setChatDetailsTarget] = useState<HTMLDivElement | null>(null);
   const [generationId, setGenerationId] = useState('');
   const returnToChat = useCallback(() => { setTab('story'); setPeek(false); setGenerationId(''); }, []);
-  const chatToolsLoading = snapshot && (tab === 'settings' || tab === 'memory') && toolSnapshot?.id !== snapshot.id;
+  const chatToolsLoading = tab === 'settings' && chatId !== null && !snapshot
+    || tab === 'memory' && snapshot && toolSnapshot?.id !== snapshot.id;
   useEscapeAction(session?.authenticated && library && chatToolsLoading ? returnToChat : undefined);
   const cancelEdit = useCallback(() => {
     if (!editSaveInFlight.current) setEdit(null);
@@ -446,22 +447,32 @@ export function App() {
     };
   }, [session?.authenticated, refresh, refreshDraft, refreshSession, clearServerError, reportServerError, recoverConnection]);
   useEffect(() => {
-    if (session?.authenticated && libraryCache.current) void refresh({ library: true, story: true, tools: true });
+    const cached = libraryCache.current;
+    if (session?.authenticated && cached) {
+      // Library already knows a normal destination. A new or imported branch
+      // may need fresh membership before it can be selected.
+      void refresh(chatId && !cached.chats.some(branch => branch.id === chatId) ? workspaceRefresh : { story: true });
+    }
   }, [chatId, session?.authenticated, refresh]);
   useEffect(() => {
-    if (view === 'story' && session?.authenticated && libraryCache.current) void refresh({ story: true });
+    // State notifications keep the saved window current while it is hidden.
+    // Catch up on return when the observer is unavailable or live output was hidden.
+    const current = snapshotRef.current;
+    if (view === 'story' && session?.authenticated && current && (!online || current.latestGeneration?.status === 'running')) {
+      void refresh({ story: true });
+    }
   }, [view, session?.authenticated, refresh]);
 
   useEffect(() => { setPeek(false); setGenerationId(''); }, [snapshot?.id]);
   useEffect(() => {
-    if (!snapshot || !['settings', 'memory'].includes(tab)) {
+    if (!snapshot || tab !== 'memory') {
       setToolSnapshot(null);
       setToolError('');
       return;
     }
     const controller = new AbortController();
     setToolError('');
-    void api<ChatToolsSnapshot>(`/chats/${snapshot.id}/tools`, 'GET', undefined, controller.signal).then(value => {
+    void api<MemorySnapshot>(`/chats/${snapshot.id}/tools?detail=memory`, 'GET', undefined, controller.signal).then(value => {
       if (!controller.signal.aborted && !datasetChanged()) setToolSnapshot(value);
     }).catch(error => { if (!controller.signal.aborted) setToolError(errorText(error, msg("app.cannot_load_chat_tools"))); });
     return () => controller.abort();
@@ -655,13 +666,24 @@ export function App() {
     return generation ? [[turn.id, generation] as const] : [];
   }));
 
-  async function command(action: () => Promise<unknown>): Promise<boolean> {
+  async function command<T>(action: () => Promise<T>, observed?: (result: T) => boolean): Promise<boolean> {
     setBusy(true); setFailure(null);
-    try { await action(); await refresh(); return true; }
+    try {
+      const result = await action();
+      await refreshQueue.requestBatch(workspaceRefresh, observed && (() => observed(result)));
+      return true;
+    }
     catch (error) {
       setFailure({ kind: 'action', message: errorText(error, msg("app.the_request_failed")) });
-      await refresh(); return false;
+      await refreshQueue.requestBatch(workspaceRefresh); return false;
     } finally { setBusy(false); }
+  }
+  function branchCommand(id: string, action: () => Promise<{ revision: number }>) {
+    return command(action, ({ revision }) => {
+      const story = snapshotRef.current;
+      const branch = libraryCache.current?.chats.find(branch => branch.id === id);
+      return !datasetChanged() && story?.id === id && story.revision >= revision && Boolean(branch && branch.revision >= revision);
+    });
   }
   const canSubmit = Boolean(snapshot?.connection && !connectionWarning && !busy && !pending && !working && !memoryStale && !authorNote.pending
     && !dataChanged && drafts.ready && !drafts.reviewReason && !recoveredEdit && (hasDraft || continuationTarget && !continuationBlocked && !edit));
@@ -716,8 +738,8 @@ export function App() {
     } finally {
       setAwaitingSend(null);
       // An uncertain send may be retried with its saved identity even when a read is stalled.
-      if (accepted) await latestRefresh.current();
-      else void latestRefresh.current();
+      if (accepted) await refreshQueue.requestBatch(workspaceRefresh);
+      else void latestRefresh.current(workspaceRefresh);
       sendInFlight.current = false;
       setBusy(false);
     }
@@ -737,10 +759,10 @@ export function App() {
 
   async function saveEdit(event: FormEvent) {
     event.preventDefault();
-    if (!edit || !canSaveEdit || editSaveInFlight.current) return;
+    if (!snapshot || !edit || !canSaveEdit || editSaveInFlight.current) return;
     editSaveInFlight.current = true;
     try {
-      const saved = await command(() => api(`/chats/${chatId}/turns/${edit.turnId}/${edit.part}`, 'PATCH', { revision: edit.revision, text: edit.text }));
+      const saved = await branchCommand(snapshot.id, () => api(`/chats/${snapshot.id}/turns/${edit.turnId}/${edit.part}`, 'PATCH', { revision: edit.revision, text: edit.text }));
       if (saved) setEdit(current => current === edit ? null : current);
     } finally {
       editSaveInFlight.current = false;
@@ -976,7 +998,7 @@ export function App() {
               continuing={continuing}
               pin={turn.complete ? {
                 disabled: dataChanged || snapshot.memory.awaitingReview,
-                toggle: () => void command(() => saveTurnPin(snapshot.id, turn.id, snapshot.revision, !turn.pinned)),
+                toggle: () => void branchCommand(snapshot.id, () => saveTurnPin(snapshot.id, turn.id, snapshot.revision, !turn.pinned)),
               } : undefined}
               fork={turn.complete ? { disabled: authorNote.pending, open: () => setBranchDialog({ through: { id: turn.id, ordinal: turn.ordinal } }) } : undefined}
               action={generating
@@ -984,7 +1006,7 @@ export function App() {
                 : turn.complete && turn.id === snapshot.latestTurn?.id && snapshot.connection
                   ? { kind: 'regenerate', disabled: working || busy || authorNote.pending || Boolean(edit), run: () => void command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/regenerate`, 'POST', { revision: snapshot.revision, requestId: newId() })) }
                   : null}
-              select={id => command(() => api(`/chats/${snapshot.id}/turns/${turn.id}/variants/${id}/select`, 'POST', { revision: snapshot.revision }))}
+              select={id => branchCommand(snapshot.id, () => api(`/chats/${snapshot.id}/turns/${turn.id}/variants/${id}/select`, 'POST', { revision: snapshot.revision }))}
               edit={part => setEdit({ turnId: turn.id, part, text: turn[part].text, revision: snapshot.revision })}
               remove={() => {
                 const path = `/chats/${snapshot.id}/turns/${turn.id}`;
@@ -1095,9 +1117,9 @@ export function App() {
           else setTab(destination);
         }} />
     </LibraryDraftContext.Provider>}
-    {tab === 'settings' && snapshot && toolSnapshot?.id === snapshot.id && <ChatSetup key={snapshot.id} snapshot={toolSnapshot} library={library}
+    {tab === 'settings' && snapshot && <ChatSetup key={snapshot.id} snapshot={snapshot} library={library}
       busy={busy} working={working} run={command} sidebar={sidebar} returnToChat={returnToChat} leaveGuard={chatSettingsLeave}
-      savedInput={currentRequest && toolSnapshot.revision === snapshot.revision
+      savedInput={currentRequest
         ? { tokens: currentRequest.budget.inputTokens }
         : { status: inspectionError || t(snapshot.connection ? 'app.counting_current_input' : 'chat_setup.estimate_requires_connection') }}
       addConnection={() => openLibrary({ kind: 'connections', action: 'create', returnTo: 'settings' })}

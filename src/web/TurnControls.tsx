@@ -1,6 +1,6 @@
 import { useState, type RefObject } from 'react';
 import { t, useLocale } from './localization';
-import type { Turn } from '../shared/contracts';
+import type { TranscriptTurn } from '../shared/transcript';
 import { ActionMenu } from './ActionMenu';
 import { Icon } from './Icon';
 import { ReasoningDialog, type ReasoningProps } from './Reasoning';
@@ -8,7 +8,7 @@ import { ResponseVariants } from './ResponseVariants';
 import { TurnActionButton } from './TurnActionButton';
 
 export function TurnControls({ turn, revision, transcriptFrame, locked, editing, inputVisible, action, continuing, reasoning, select, edit, remove, fork, pin }: {
-  turn: Turn;
+  turn: TranscriptTurn;
   revision: number;
   transcriptFrame: RefObject<HTMLDivElement | null>;
   locked: boolean;

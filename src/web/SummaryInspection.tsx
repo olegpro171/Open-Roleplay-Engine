@@ -1,17 +1,44 @@
-import { errorText, formatMessage, t, useLocale, locale, type MessageText } from './localization';
+import { errorText, formatMessage, message, t, useLocale, locale, type MessageText } from './localization';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { ChatToolsSnapshot } from '../shared/contracts';
+import type { MemorySnapshot } from '../shared/contracts';
 import { refKey, type SummaryNode, type SummaryTokenCount } from '../shared/context';
 import { selectionRepresents } from '../core/context-corrections';
-import { staleSummaries } from '../core/context';
-import { hasPromptMarker } from '../shared/library';
+import { staleSummarySources } from '../core/context';
 import { Dropdown } from './Controls';
 import { api, datasetChanged } from './api';
 
 type TokenCountResult = { path: string } & ({ tokens: number } | { error: MessageText });
 
+function SummarySource({ chatId, revision, turnId, ordinal }: {
+  chatId: string; revision: number; turnId: string; ordinal?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const [result, setResult] = useState<{ path: string } & ({ text: string } | { error: MessageText })>();
+  const path = `/chats/${encodeURIComponent(chatId)}/turns/${encodeURIComponent(turnId)}/source?revision=${revision}`;
+  const current = result?.path === path ? result : undefined;
+  useEffect(() => {
+    if (!open || ordinal === undefined || current) return;
+    const controller = new AbortController();
+    void api<{ user: string; assistant: string }>(path, 'GET', undefined, controller.signal)
+      .then(({ user, assistant }) => {
+        if (!controller.signal.aborted && !datasetChanged()) setResult({ path, text: `${user}\n\n${assistant}` });
+      }).catch(error => {
+        if (!controller.signal.aborted && !datasetChanged()) setResult({ path, error: errorText(error, message('app.cannot_load_this_part_of_the_story')) });
+      });
+    return () => controller.abort();
+  }, [open, ordinal, path, current]);
+  return <details onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>{t('summary_inspection.turn_current_source_text', { value: ordinal ?? 'deleted' })}</summary>
+    {open && (ordinal === undefined ? <div className="prose">{t('summary_inspection.this_source_turn_has_been_deleted')}</div>
+      : !current ? <p role="status">{t('app.loading_history')}</p>
+      : 'text' in current ? <div className="prose">{current.text}</div>
+      : <p role="alert">{formatMessage(current.error)}{' '}<button type="button" className="quiet"
+        onClick={() => setResult(undefined)}>{t('app.retry_loading')}</button></p>)}
+  </details>;
+}
+
 export function SummaryInspection({ snapshot, node, historical, selected, locked, inspect, saved, run, previewDelete }: {
-  snapshot: ChatToolsSnapshot; node: SummaryNode; historical: boolean; selected: Set<string>; locked: boolean;
+  snapshot: MemorySnapshot; node: SummaryNode; historical: boolean; selected: Set<string>; locked: boolean;
   inspect: (node: SummaryNode) => void; saved: () => void; run: (action: () => Promise<unknown>) => Promise<boolean>;
   previewDelete: (node: SummaryNode) => void;
 }) {
@@ -38,10 +65,11 @@ export function SummaryInspection({ snapshot, node, historical, selected, locked
   const count = countResult?.path === countPath ? countResult : undefined;
   const versions = snapshot.context.summaries.filter(version => version.id === node.id && version.approved).sort((a, b) => b.revision - a.revision);
   const latest = versions[0]?.revision === node.revision;
-  const stale = staleSummaries(snapshot.turns, snapshot.context).has(refKey(node));
+  const stale = staleSummarySources(snapshot.turnSources, snapshot.context).has(refKey(node));
   const represented = selectionRepresents(snapshot.context, node);
-  const summariesEnabled = hasPromptMarker(snapshot.sources.prompt, 'summary');
+  const summariesEnabled = snapshot.summariesEnabled;
   const directlySelected = snapshot.context.selected.some(ref => refKey(ref) === summaryKey);
+  const positions = new Map(snapshot.turnSources.map((source, index) => [source.turnId, index + 1]));
   const status = !latest ? t("summary_inspection.historical_version_editing_uses_the_current_approved")
     : represented && stale && summariesEnabled ? t("summary_inspection.stale_selected_dependency")
     : represented ? t(summariesEnabled
@@ -80,10 +108,8 @@ export function SummaryInspection({ snapshot, node, historical, selected, locked
     </form> : <><div ref={summaryText} className="prose summary-text" role="region" aria-label={t("summary_inspection.summary_text")} tabIndex={0}>{node.text}</div>{!historical && latest && <button type="button" className="quiet" disabled={locked} onClick={() => setEdit({ summary: summaryKey, text: node.text, revision: snapshot.revision })}>{t("summary_inspection.edit_summary")}</button>}</>}
     {!historical && latest && !edit && <button type="button" className="quiet" disabled={locked} onClick={() => previewDelete(node)}>{t("summary_inspection.delete_summary")}</button>}
     <details><summary>{t("summary_inspection.source_turns_and_dependencies")}</summary><pre>{JSON.stringify({ id: node.id, turns: node.turns, children: node.children, earlierContext: node.prior, reconciledCorrections: node.corrections ?? [] }, null, 2)}</pre>
-      {node.turns.slice(0, 30).map(source => {
-        const position = snapshot.turns.findIndex(turn => turn.id === source.turnId), turn = snapshot.turns[position];
-        return <details key={source.turnId}><summary>{t("summary_inspection.turn_current_source_text", { value: turn ? position + 1 : 'deleted' })}</summary><div className="prose">{turn ? `${turn.user.text}\n\n${turn.assistant.text}` : t("summary_inspection.this_source_turn_has_been_deleted")}</div></details>;
-      })}
+      {node.turns.slice(0, 30).map(source => <SummarySource key={source.turnId} chatId={snapshot.id}
+        revision={snapshot.revision} turnId={source.turnId} ordinal={positions.get(source.turnId)} />)}
       {node.turns.length > 30 && <p className="small muted">{t("summary_inspection.first_30_source_texts_shown_all_source")}</p>}
     </details>
   </section>;

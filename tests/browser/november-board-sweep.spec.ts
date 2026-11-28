@@ -4,7 +4,7 @@ import { test } from './isolated-app';
 import { appearanceStatusSchema, themeSchema } from '../../src/shared/appearance';
 import type { ChatSnapshot } from '../../src/shared/contracts';
 import { defaultContextPreset } from '../../src/shared/context';
-import type { LibrarySnapshot } from '../../src/shared/library';
+import { defaultPrompt, type LibrarySnapshot } from '../../src/shared/library';
 import { openChatTool, openNewChatSettings, openChatCreation, addChatModel } from './chat-tools';
 
 const password = 'synthetic-password-ноябрь';
@@ -90,6 +90,7 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     const { endpoint } = await page.request.get('/__test/endpoint').then(response => response.json());
     const connectionId = await create('connections', { name: 'Sweep Connection', endpoint, model: 'synthetic', contextWindow: 100_000, maxOutputTokens: 1000, customParameters: {} });
     const contextPresetId = await create('contexts', { ...defaultContextPreset, name: 'Sweep context', minTail: 1, batchSize: 2, summaryTokens: 100 });
+    await create('prompts', { ...defaultPrompt, name: 'Alternate sweep prompt' });
     const response = await page.request.post('/api/chats', { headers, data: { title: 'Sweep chat', connectionId, contextPresetId, promptId: 'default', targetInputTokens: 600, characterId: null, personaId: null } });
     expect(response.ok()).toBe(true);
     const id: string = (await response.json()).id;
@@ -101,14 +102,15 @@ for (const theme of ['dark', 'light', 'midnight-black'] as const) {
     await expect(page.getByRole('status').filter({ hasText: 'Checking prompt configuration' })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Prompt configuration warnings', exact: true })).toHaveCount(0);
     await page.route('**/api/chats/*/prompt-diagnostics', route => route.fulfill({ status: 503, json: { message: 'Synthetic diagnostic failure' } }));
-    await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
-    await openChatTool(page, 'Chat settings');
+    await page.getByRole('combobox', { name: 'Prompt preset', exact: true }).click();
+    await page.getByRole('option', { name: 'Alternate sweep prompt', exact: true }).click();
     const warnings = page.getByRole('region', { name: 'Prompt configuration warnings', exact: true });
     await expect(warnings.getByRole('alert')).toHaveText('Synthetic diagnostic failure');
     await page.unroute('**/api/chats/*/prompt-diagnostics');
     await warnings.getByRole('button', { name: 'Check again', exact: true }).click();
     await expect(warnings).toHaveCount(0);
     await page.getByRole('button', { name: 'Return without saving', exact: true }).click();
+    await page.getByRole('button', { name: 'Leave editor', exact: true }).click();
     expect((await page.request.put(`/api/__test/transcripts/${id}`, { headers, data: { revision: (await state()).revision, turns: Array.from({ length: 6 }, (_, i) => ({ user: `Turn ${i}. ` + 'Mira carries the silver key. '.repeat(20), assistant: 'Leon waits beside the tower. '.repeat(20), complete: true })) } })).ok()).toBe(true);
     await page.request.post('/__test/mode', { data: { mode: 'hold' } });
     let jobId: string | undefined;

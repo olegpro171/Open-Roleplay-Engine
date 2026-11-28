@@ -6,7 +6,7 @@ import { StoryReader } from '../src/persistence/story-reader.js';
 import { transcriptQuerySchema, type StorySnapshot } from '../src/shared/transcript.js';
 import { sourceOf } from '../src/core/context.js';
 import { newLorebook, newLoreEntry } from '../src/shared/lorebook.js';
-import type { RequestPreview } from '../src/shared/contracts.js';
+import type { MemorySnapshot, RequestPreview } from '../src/shared/contracts.js';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const dispose of cleanup.splice(0)) await dispose(); });
@@ -92,6 +92,39 @@ it('derives archived/stale status from all source revisions even when those turn
   expect(result.page.turns.every(turn => !turn.archived)).toBe(true);
   const oldest = f.read({ anchor: full.turns[0]?.id, limit: 40 });
   expect(oldest.page.turns.filter(turn => turn.archived)).toHaveLength(3);
+});
+
+it('sends memory provenance and Story variant choices without transferring unused transcript prose', async () => {
+  const f = await fixture(500);
+  const before = f.store.snapshot();
+  const first = before.turns[0]!, last = before.turns.at(-1)!;
+  f.store.sqlite.prepare('INSERT INTO response_variants (id,turn_id,text,source_revision,created_at) VALUES (?,?,?,?,?)')
+    .run('alternate', last.id, 'An unselected alternative.', 4, '');
+  vi.spyOn(f.store, 'engineSnapshot').mockImplementation(() => { throw new Error('This read needs only a projection.'); });
+  const get = (path: string) => f.app.inject({ url: `/api/chats/main/${path}`, headers: f.headers });
+  const story = await get('story');
+  expect(story.statusCode).toBe(200);
+  const choices = story.json<StorySnapshot>().page.turns.at(-1)?.variants;
+  expect(choices).toEqual([{ id: last.assistant.variantId, generationId: null }, { id: 'alternate', generationId: null }]);
+  expect(story.body).not.toContain('An unselected alternative.');
+  const readMemory = async () => {
+    const response = await get('tools?detail=memory');
+    expect(response.statusCode).toBe(200);
+    expect(response.body).not.toMatch(/Input 500|Reply 1"|An unselected alternative/);
+    return response.json<MemorySnapshot>();
+  };
+  const memory = await readMemory();
+  expect(memory.turnSources).toEqual(before.turns.map(sourceOf));
+  const source = (turnId: string, revision: number) => get(`turns/${turnId}/source?revision=${revision}`);
+  expect((await f.app.inject(`/api/chats/main/turns/${first.id}/source?revision=${memory.revision}`)).statusCode).toBe(401);
+  expect((await source(first.id, memory.revision)).json()).toEqual({ user: first.user.text, assistant: first.assistant.text });
+  expect((await source(randomUUID(), memory.revision)).statusCode).toBe(404);
+  f.store.selectVariant(memory.revision, last.id, 'alternate', 'main');
+  expect((await source(last.id, memory.revision)).statusCode).toBe(409);
+  const updated = await readMemory();
+  expect(updated.turnSources.at(-1)).toMatchObject({ turnId: last.id, assistantRevision: 4 });
+  expect((await source(last.id, updated.revision)).json()).toEqual({ user: last.user.text, assistant: 'An unselected alternative.' });
+  expect(f.calls).toEqual([]);
 });
 
 it('keeps preview and actual provider input complete regardless of paging and omits saved request bodies from Story', async () => {

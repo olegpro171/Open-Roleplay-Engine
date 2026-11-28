@@ -142,6 +142,10 @@ export type ChatSnapshot = {
 export type TurnInstruction = { kind: 'impersonate'; draft: string } | { kind: 'opening' } | { kind: 'continuation'; turnId: string };
 export type EngineSnapshot = Omit<ChatSnapshot, 'generations'> & { turnInstruction?: TurnInstruction };
 export type ChatToolsSnapshot = EngineSnapshot & { generating: boolean };
+export type MemorySnapshot = Pick<ChatToolsSnapshot, 'id' | 'revision' | 'settings' | 'context' | 'generating'> & {
+  summariesEnabled: boolean;
+  turnSources: import('./context.js').TurnSource[];
+};
 export type GenerationDescriptor = Omit<Generation, 'request' | 'partialText' | 'reasoningText' | 'reasoningLength'> & { requestAvailable: boolean };
 export type GenerationPage = { items: GenerationDescriptor[]; nextBefore: string | null; selected?: GenerationDescriptor | null };
 // Portable backups preserve bounded opaque record identities, including older

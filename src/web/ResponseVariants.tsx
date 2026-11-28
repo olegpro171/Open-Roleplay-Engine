@@ -1,10 +1,10 @@
 import { t, useLocale } from './localization';
 import { Icon } from './Icon';
 import { useEffect, useRef, useState } from 'react';
-import type { Turn } from '../shared/contracts';
+import type { TranscriptTurn } from '../shared/transcript';
 
 export function ResponseVariants({ turn, locked, regenerating, regenerate, select }: {
-  turn: Turn; locked: boolean;
+  turn: TranscriptTurn; locked: boolean;
   regenerating: boolean;
   regenerate?: () => void;
   select: (id: string) => Promise<boolean>;

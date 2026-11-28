@@ -45,7 +45,7 @@ import { Store } from '../persistence/store.js';
 import { StoryReader } from '../persistence/story-reader.js';
 import { turnPinSchema, transcriptQuerySchema } from '../shared/transcript.js';
 import { fetchModels, OpenAICompatibleProvider, type Provider } from '../provider/openai.js';
-import { connectionSchema, editSchema, impersonateSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema, generationIdentitySchema, generationPageSchema, requestEstimate, type ChatSnapshot, type ChatToolsSnapshot, type TurnInstruction } from '../shared/contracts.js';
+import { connectionSchema, editSchema, impersonateSchema, passwordSchema, retrySchema, revisionSchema, saveSettingsSchema, submissionSchema, generationIdentitySchema, generationPageSchema, requestEstimate, type ChatSnapshot, type ChatToolsSnapshot, type MemorySnapshot, type TurnInstruction } from '../shared/contracts.js';
 import { composerDraftSaveSchema } from '../shared/composer-draft.js';
 import { eventHeartbeatMs, type Change } from '../shared/changes.js';
 import { trimBoundaryNewlines } from '../shared/text.js';
@@ -801,8 +801,21 @@ export async function createApp(options: {
     if (savedRevision !== revision) coordinator.changed({ kind: 'chat', chatId: branch, detail: 'state' });
     return { revision: savedRevision, pinned };
   });
-  app.get('/api/chats/:chatId/tools', async (request): Promise<ChatToolsSnapshot> => {
-    const { loreState: _state, loreResolution: _resolution, ...snapshot } = store.engineSnapshot(chatId(request.params));
+  app.get('/api/chats/:chatId/turns/:id/source', async request => {
+    const { id } = z.object({ id: identity }).parse(request.params);
+    const { revision } = z.object({ revision: z.coerce.number().pipe(revisionSchema) }).strict().parse(request.query);
+    return storyReader.sourceText(chatId(request.params), id, revision);
+  });
+  app.get('/api/chats/:chatId/tools', async (request): Promise<ChatToolsSnapshot | MemorySnapshot> => {
+    const id = chatId(request.params);
+    const { detail } = z.object({ detail: z.literal('memory').optional() }).parse(request.query);
+    if (detail === 'memory') {
+      const { revision, settings, sources } = store.chatHeader(id);
+      return { id, revision, settings, generating: store.generationRunning(id),
+        context: store.contexts.snapshot(id, settings.contextPresetId ?? null),
+        summariesEnabled: hasPromptMarker(sources.prompt, 'summary'), turnSources: store.readTurnSources(id) };
+    }
+    const { loreState: _state, loreResolution: _resolution, ...snapshot } = store.engineSnapshot(id);
     return { ...snapshot, sources: { ...snapshot.sources, lorebook: undefined },
       promptDiagnostics: promptDiagnostics(snapshot.sources, snapshot.settings.authorNote, snapshot.turns.some(turn => turn.pinned)),
       generating: store.generationRunning(snapshot.id) };

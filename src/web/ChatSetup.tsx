@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import type { ChatToolsSnapshot } from '../shared/contracts';
+import type { StorySnapshot } from '../shared/transcript';
 import type { LibraryKind, LibrarySnapshot, selectionsSchema } from '../shared/library';
 import type { PromptDiagnostic } from '../shared/prompt-diagnostics';
 import { api } from './api';
@@ -19,7 +19,7 @@ type Selection = ReturnType<typeof selectionsSchema.parse>;
 type SelectionKey = Exclude<keyof Selection, 'title' | 'targetInputTokens'>;
 type SavedInput = { tokens: number } | { status: string };
 
-function selection(snapshot: ChatToolsSnapshot): Selection {
+function selection(snapshot: StorySnapshot): Selection {
   const settings = snapshot.settings;
   return {
     title: settings.title,
@@ -43,7 +43,7 @@ function libraryDropdownOptions(library: LibrarySnapshot, kind: Exclude<LibraryK
 }
 
 export function ChatSetup({ snapshot, library, busy, working, run, sidebar, savedInput, returnToChat, openLibraryItem, addConnection, leaveGuard }: {
-  snapshot: ChatToolsSnapshot;
+  snapshot: StorySnapshot;
   library: LibrarySnapshot;
   busy: boolean;
   working: boolean;
@@ -66,17 +66,22 @@ export function ChatSetup({ snapshot, library, busy, working, run, sidebar, save
   const warningTrigger = useRef<HTMLButtonElement>(null);
   const [diagnosticsRetry, setDiagnosticsRetry] = useState(0);
   const diagnosticsKey = JSON.stringify([snapshot.id, snapshot.revision, library.revision, value.promptId, value.characterId, value.personaId, value.lorebookId, diagnosticsRetry]);
-  const [diagnostics, setDiagnostics] = useState<{ key: string; warnings: PromptDiagnostic[]; error?: MessageText } | null>(null);
+  const [draftDiagnostics, setDiagnostics] = useState<{ key: string; warnings: PromptDiagnostic[]; error?: MessageText } | null>(null);
+  const saved = selection(snapshot);
+  const useSavedDiagnostics = saved.promptId === value.promptId
+    && saved.characterId === value.characterId && saved.personaId === value.personaId && saved.lorebookId === value.lorebookId;
+  const diagnostics = useSavedDiagnostics ? { key: diagnosticsKey, warnings: snapshot.promptDiagnostics } : draftDiagnostics;
   useEffect(() => {
+    if (useSavedDiagnostics) return;
     const controller = new AbortController();
-    const settings = { ...selection(snapshot), promptId: value.promptId, characterId: value.characterId, personaId: value.personaId, lorebookId: value.lorebookId };
+    const settings = { ...saved, promptId: value.promptId, characterId: value.characterId, personaId: value.personaId, lorebookId: value.lorebookId };
     void api<PromptDiagnostic[]>(`/chats/${snapshot.id}/prompt-diagnostics`, 'POST', { revision: snapshot.revision, settings }, controller.signal).then(warnings => {
       if (!controller.signal.aborted) setDiagnostics({ key: diagnosticsKey, warnings });
     }).catch(error => {
       if (!controller.signal.aborted) setDiagnostics({ key: diagnosticsKey, warnings: [], error: errorText(error, msg('libraries.could_not_check_prompt_configuration')) });
     });
     return () => controller.abort();
-  }, [snapshot.id, snapshot.revision, diagnosticsKey]);
+  }, [snapshot.id, snapshot.revision, diagnosticsKey, useSavedDiagnostics]);
   const formId = useId();
   const mounted = useRef(true);
   const submitting = useRef(false);

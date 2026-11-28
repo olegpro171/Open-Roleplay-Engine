@@ -45,7 +45,7 @@ for (const width of [1280, 390]) {
     expect((await state()).settings.title).toBe(initial.settings.title);
 
     const memory = page.getByRole('region', { name: 'Memory', exact: true });
-    const toolsPath = '**/api/chats/main/tools';
+    const toolsPath = '**/api/chats/main/tools?detail=memory';
     await page.route(toolsPath, route => route.fulfill({
       status: 503, json: { message: 'Synthetic chat tools load failure' },
     }), { times: 1 });

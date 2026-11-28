@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { revisionSchema } from './contracts.js';
-import type { ChatSnapshot, Generation, Turn } from './contracts.js';
+import type { ChatSnapshot, Connection, Generation, ResponseVariant, Turn } from './contracts.js';
 import type { ContextJob, ContextJobProgress } from './context.js';
+import type { markers } from './library.js';
+import type { PromptDiagnostic } from './prompt-diagnostics.js';
 
 export const transcriptInitialSize = 15;
 export const transcriptBatchSize = 40;
@@ -24,14 +26,25 @@ export type PinList = {
   hasConnection: boolean;
   turns: { id: string; ordinal: number; user: string; assistant: string; hasModelText: boolean }[];
 };
-export type TranscriptTurn = Turn & { ordinal: number; archived: boolean };
+export type TranscriptTurn = Omit<Turn, 'variants'> & {
+  variants?: Pick<ResponseVariant, 'id' | 'generationId'>[];
+  ordinal: number;
+  archived: boolean;
+};
 export type StoryPreparation = Pick<ContextJob, 'id' | 'generationId' | 'mode' | 'status' | 'error' | 'errorMessage'> & Pick<ContextJobProgress, 'phase' | 'retrying' | 'deletionReviewToken'> & {
   working?: { inputTokens: number; targetInputTokens: number; level: number | null };
   completedSteps: number;
 };
 
 // This display window is deliberately distinct from the complete engine snapshot.
-export type StorySnapshot = Pick<ChatSnapshot, 'id' | 'revision' | 'settings' | 'connection' | 'hasApiKey' | 'sources' | 'promptDiagnostics'> & {
+export type StorySnapshot = Pick<ChatSnapshot, 'id' | 'revision' | 'settings' | 'hasApiKey'> & {
+  connection: Pick<Connection, 'name' | 'model'> | null;
+  sources: {
+    prompt: { blocks: { enabled: boolean; kind: 'marker'; marker: typeof markers[number] }[] } | null;
+    character: { name: string } | null;
+    persona: { name: string } | null;
+  };
+  promptDiagnostics: PromptDiagnostic[];
   groupId?: string;
   branchName?: string | null;
   totalTurns: number;

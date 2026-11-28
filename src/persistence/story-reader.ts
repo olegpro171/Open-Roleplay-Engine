@@ -18,6 +18,15 @@ import * as schema from './schema.js';
 export class StoryReader {
   constructor(private readonly store: Store) {}
 
+  sourceText(chatId: string, turnId: string, revision: number) {
+    this.store.checkRevision(revision, chatId);
+    const row = this.store.db.select({ position: schema.turns.position }).from(schema.turns)
+      .where(and(eq(schema.turns.chatId, chatId), eq(schema.turns.id, turnId))).get();
+    if (!row) throw new AppError(404, 'turn_not_found', message('errors.turn_not_found'));
+    const [turn] = this.store.readTurns(chatId, { first: row.position, last: row.position });
+    return { user: turn.user.text, assistant: turn.assistant.text };
+  }
+
   read(chatId: string, query: TranscriptQuery): StorySnapshot {
     const input = transcriptQuerySchema.parse(query);
     return this.store.sqlite.transaction(() => {
@@ -55,8 +64,8 @@ export class StoryReader {
           hasPromptMarker(header.sources.prompt, 'summary') && archived.has(latest.id)),
       } : {}) };
       // Freshness needs provenance for all turns, never their prose or variants.
-      const sources = this.store.readTurnSources(chatId);
-      const stale = staleSummarySources(sources, context);
+      const sources = archived.size || context.selected.length ? this.store.readTurnSources(chatId) : [];
+      const stale = context.selected.length ? staleSummarySources(sources, context) : new Set<string>();
       const refused = refusalAffected(context);
       const activePreparation = context.jobs.find(job => job.status === 'running');
       const latestPreparation = activePreparation ?? context.jobs[0];
@@ -69,15 +78,27 @@ export class StoryReader {
           ...(working ? { working: { inputTokens: working.inputTokens, targetInputTokens: working.targetInputTokens, level: working.operation?.level ?? null } } : {}),
         };
       }
+      const { connection, sources: promptSources, ...storyHeader } = header;
+      const { prompt, character, persona } = promptSources;
       return {
-        ...header, promptDiagnostics: promptDiagnostics(header.sources, header.settings.authorNote, pinCount > 0), sources: { ...header.sources, lorebook: undefined }, totalTurns, pinCount, latestTurn, latestGeneration,
+        ...storyHeader, connection: connection && { name: connection.name, model: connection.model },
+        sources: {
+          prompt: prompt && { blocks: prompt.blocks.flatMap(block => block.kind === 'marker'
+            ? [{ kind: block.kind, enabled: block.enabled, marker: block.marker }] : []) },
+          character: character && { name: character.name }, persona: persona && { name: persona.name },
+        },
+        promptDiagnostics: promptDiagnostics(promptSources, header.settings.authorNote, pinCount > 0),
+        totalTurns, pinCount, latestTurn, latestGeneration,
         // Older databases can retain a pointer to a cancelled session with no saved suggestion.
         ...(suggestion?.sessionId && (suggestion.status !== 'cancelled' || suggestion.completedCount > 0)
           ? { suggestion: { ...suggestion, sessionId: suggestion.sessionId } } : {}),
         preparing: Boolean(activePreparation), preparation,
         memory: { revision: context.revision, selectedCount: context.selected.length, awaitingReview: context.jobs.some(job => job.status === 'awaiting_review'), refusalCount: refusalFindings(context).length, refusalBlocked: context.selected.some(ref => refused.has(refKey(ref))),
           archivedCount: sources.filter(source => archived.has(source.turnId)).length, stale: context.selected.some(ref => stale.has(refKey(ref))) },
-        page: { turns: turns.map((turn, index) => ({ ...turn, ordinal: start + index + 1, archived: archived.has(turn.id) })),
+        page: { turns: turns.map(({ variants, ...turn }, index) => ({
+          ...turn, variants: variants?.map(({ id, generationId }) => ({ id, generationId })),
+          ordinal: start + index + 1, archived: archived.has(turn.id),
+        })),
           generations: turns.length ? this.generations(chatId, turns.map(turn => turn.id)) : [],
           hasOlder: start > 0, hasNewer: start + turns.length < totalTurns },
       };

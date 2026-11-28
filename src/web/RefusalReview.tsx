@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatToolsSnapshot } from '../shared/contracts';
+import type { MemorySnapshot } from '../shared/contracts';
 import { refKey, type SummaryRef } from '../shared/context';
 import { refusalFindings } from '../core/summary-refusals';
 import { summaryDependencies } from '../core/context-corrections';
@@ -9,7 +9,7 @@ import { api } from './api';
 import { t, useLocale } from './localization';
 
 export function RefusalReview({ snapshot, locked, run }: {
-  snapshot: ChatToolsSnapshot; locked: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>;
+  snapshot: MemorySnapshot; locked: boolean; run: (action: () => Promise<unknown>) => Promise<boolean>;
 }) {
   useLocale();
   const findings = useMemo(() => refusalFindings(snapshot.context), [snapshot.context]);
@@ -31,8 +31,8 @@ export function RefusalReview({ snapshot, locked, run }: {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { if (preview) heading.current?.focus(); }, [preview]);
   const deletion = useMemo(() => preview && preview.revision === snapshot.revision
-    ? summarySuffixDeletion(snapshot.context, snapshot.turns.map(turn => turn.id), preview.refs) : null, [preview, snapshot]);
-  const positions = useMemo(() => new Map(snapshot.turns.map((turn, index) => [turn.id, index + 1])), [snapshot.turns]);
+    ? summarySuffixDeletion(snapshot.context, snapshot.turnSources.map(source => source.turnId), preview.refs) : null, [preview, snapshot]);
+  const positions = useMemo(() => new Map(snapshot.turnSources.map((source, index) => [source.turnId, index + 1])), [snapshot.turnSources]);
   const resolve = (refs: SummaryRef[], action: 'keep' | 'regenerate' | 'delete', revision = snapshot.revision) => run(async () => {
     await api(`/chats/${snapshot.id}/context/refusals`, 'POST', { revision, filterVersion: summaryRefusalFilterVersion, summaries: refs.map(({ id, revision }) => ({ id, revision })), action });
     setPreview(null);

@@ -7,13 +7,13 @@ import { newId } from './uuid';
 import { useConfirmation } from './Confirmation';
 import { saveMemoryCleanupCopy, useMemoryCleanup } from './MemoryCleanupReview';
 import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { ChatToolsSnapshot } from '../shared/contracts';
-import { hasPromptMarker, type LibrarySnapshot } from '../shared/library';
+import type { MemorySnapshot } from '../shared/contracts';
+import type { LibrarySnapshot } from '../shared/library';
 import { preparationRunLimit, refKey, type ContextInspection, type ContextJob, type ContextStep, type PreparationDeletionPreview, type SummaryNode } from '../shared/context';
 import type { StoryPreparation } from '../shared/transcript';
 import { summaryDeletion } from '../core/context-delete';
-import { staleSummaries } from '../core/context';
-import { api } from './api';
+import { staleSummarySources } from '../core/context';
+import { api, datasetChanged } from './api';
 import { Dropdown, NumberInput } from './Controls';
 import { Icon } from './Icon';
 import { InputMeter } from './PromptPeek';
@@ -34,7 +34,7 @@ function legendText(value: string): string {
 
 type Run = (action: () => Promise<unknown>) => Promise<boolean>;
 type JobDetails = { job: ContextJob; steps: ContextStep[] };
-export function Memory({ snapshot, library, busy, run, editPreset, behavior, openPins, preparation }: { snapshot: ChatToolsSnapshot; library: LibrarySnapshot; busy: boolean; run: Run; editPreset: (id: string) => void; openPins: () => void; behavior: SettingsAutosave<ChatBehaviorStatus['settings'], ChatBehaviorStatus>; preparation?: StoryPreparation }) {
+export function Memory({ snapshot, library, busy, run, editPreset, behavior, openPins, preparation }: { snapshot: MemorySnapshot; library: LibrarySnapshot; busy: boolean; run: Run; editPreset: (id: string) => void; openPins: () => void; behavior: SettingsAutosave<ChatBehaviorStatus['settings'], ChatBehaviorStatus>; preparation?: StoryPreparation }) {
   useLocale();
   const confirmAction = useConfirmation(snapshot.id);
   const reviewMemoryCleanup = useMemoryCleanup(run, snapshot.id);
@@ -48,11 +48,11 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
   const [calculation, setCalculation] = useState<{ key: string; plan: ContextInspection | null; error: MessageText }>({ key: '', plan: null, error: '' });
   const planKey = `${snapshot.id}:${snapshot.revision}:${snapshot.context.revision}`;
   useEffect(() => {
-    let current = true;
-    api<ContextInspection>(`/chats/${snapshot.id}/context/plan`)
-      .then(plan => { if (current) setCalculation({ key: planKey, plan, error: '' }); })
-      .catch(error => { if (current) setCalculation(previous => ({ ...previous, key: planKey, error: errorText(error) })); });
-    return () => { current = false; };
+    const controller = new AbortController();
+    api<ContextInspection>(`/chats/${snapshot.id}/context/plan`, 'GET', undefined, controller.signal)
+      .then(plan => { if (!controller.signal.aborted && !datasetChanged()) setCalculation({ key: planKey, plan, error: '' }); })
+      .catch(error => { if (!controller.signal.aborted && !datasetChanged()) setCalculation(previous => ({ ...previous, key: planKey, error: errorText(error) })); });
+    return () => controller.abort();
   }, [planKey]);
   const plan = calculation.plan;
   const planCurrent = calculation.key === planKey && !calculation.error;
@@ -96,7 +96,7 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
     setInspected(node ? refKey(node) : null);
     setDeletionTarget(null);
   };
-  const summariesEnabled = hasPromptMarker(snapshot.sources.prompt, 'summary');
+  const summariesEnabled = snapshot.summariesEnabled;
   const active = snapshot.context.jobs.find(job => job.status === 'running');
   const awaiting = snapshot.context.jobs.find(job => job.status === 'awaiting_review');
   const locked = busy || Boolean(active) || snapshot.generating;
@@ -117,8 +117,8 @@ export function Memory({ snapshot, library, busy, run, editPreset, behavior, ope
   const frameCount = historyFrames.length;
   const selectedFrame = historyFrames[Math.max(0, frame - 1)];
   const view = historyId && selectedFrame ? frame === 0 ? selectedFrame.before : selectedFrame.after ?? selectedFrame.before : snapshot.context;
-  const selected = new Set(view.selected.map(refKey)), archived = new Set(view.archivedTurnIds), stale = staleSummaries(snapshot.turns, snapshot.context);
-  const viewTurnIds = historyId && details ? details.job.historyTurnIds : snapshot.turns.map(turn => turn.id);
+  const selected = new Set(view.selected.map(refKey)), archived = new Set(view.archivedTurnIds), stale = staleSummarySources(snapshot.turnSources, snapshot.context);
+  const viewTurnIds = historyId && details ? details.job.historyTurnIds : snapshot.turnSources.map(source => source.turnId);
   const viewTime = selectedFrame?.createdAt ?? details?.job.updatedAt;
   const allNodes = snapshot.context.summaries.filter(node => node.approved && (!historyId || node.createdAt <= (viewTime ?? '')) || selected.has(refKey(node)));
   const latest = new Map<string, SummaryNode>();
