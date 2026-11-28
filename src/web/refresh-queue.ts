@@ -2,6 +2,15 @@ import type { Change } from '../shared/changes';
 
 export type RefreshScope = Partial<Record<'story' | 'library' | 'tools' | 'appearance' | 'chat-defaults' | 'chat-behavior', true>>;
 export const fullRefresh: RefreshScope = { story: true, library: true, tools: true, appearance: true, 'chat-defaults': true, 'chat-behavior': true };
+export type ResumeRefresh = 'initial' | 'retry';
+export type RefreshRequest = { scope: RefreshScope; resume?: ResumeRefresh };
+
+export function mergeRefreshRequests(pending: RefreshRequest | null, incoming: RefreshRequest): RefreshRequest {
+  return {
+    scope: { ...pending?.scope, ...incoming.scope },
+    resume: pending?.resume === 'retry' ? 'retry' : incoming.resume ?? pending?.resume,
+  };
+}
 
 export function scopeForChange(change: Change, selectedChat: string | null, showingStory = true): RefreshScope | null {
   switch (change.kind) {
@@ -17,12 +26,19 @@ export function scopeForChange(change: Change, selectedChat: string | null, show
 
 /** One read at a time; notifications arriving during it merge into one follow-up. */
 export class RefreshQueue {
-  private pending: RefreshScope | null = null;
+  private pending: RefreshRequest | null = null;
   private running: Promise<void> | null = null;
-  constructor(private readonly read: (scope: RefreshScope) => Promise<void>) {}
+  constructor(private readonly read: (request: RefreshRequest) => Promise<void>) {}
 
-  request(scope: RefreshScope = fullRefresh): Promise<void> {
-    this.pending = { ...this.pending, ...scope };
+  retryAfterResume(request: RefreshRequest): boolean {
+    if (request.resume !== 'initial' && !this.pending?.resume) return false;
+    // A resume already queued behind the timed-out read is the fresh attempt.
+    void this.request(request.scope, 'retry');
+    return true;
+  }
+
+  request(scope: RefreshScope = fullRefresh, resume?: ResumeRefresh): Promise<void> {
+    this.pending = mergeRefreshRequests(this.pending, { scope, resume });
     if (!this.running) {
       this.running = Promise.resolve().then(async () => {
         while (this.pending) {

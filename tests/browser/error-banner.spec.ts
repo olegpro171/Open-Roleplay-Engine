@@ -1,6 +1,8 @@
 import { selectLibraryCategory } from './library-card-helpers';
 import { expect, test, type Page } from '@playwright/test';
 
+test.use({ locale: 'en-US' });
+
 async function openPersonaDraft(page: Page, name: string) {
   const session = await page.request.get('/api/session').then(response => response.json());
   await page.goto('/');
@@ -170,15 +172,111 @@ test('checks a restored page even when the browser still reports Wi-Fi', async (
   await expect(editor).toHaveValue('Keep this unsaved persona draft.');
 });
 
-test('a stalled workspace read offers retry when the session is reachable', async ({ page }) => {
+async function controlWorkspaceTimeouts(page: Page) {
+  // Abort the real browser fetch on demand while leaving session and observer timing alone.
+  await page.addInitScript(() => {
+    const timeout = AbortSignal.timeout.bind(AbortSignal);
+    let workspaceDeadline: AbortController | undefined;
+    AbortSignal.timeout = milliseconds => {
+      if (milliseconds !== 15_000) return timeout(milliseconds);
+      workspaceDeadline = new AbortController();
+      return workspaceDeadline.signal;
+    };
+    document.addEventListener('expire-workspace-read', () => {
+      workspaceDeadline?.abort(new DOMException('Synthetic workspace timeout', 'TimeoutError'));
+    });
+  });
+}
+
+const expireWorkspaceRead = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event('expire-workspace-read')));
+const returnToPage = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+const libraryRead = '**/api/library?*';
+const notifyLibraryActivity = (page: Page) => page.request.post('/__test/change', {
+  data: { kind: 'chat', chatId: 'other-branch', detail: 'state' },
+});
+
+test('uses the queued resume refresh after an in-flight read stalls', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await controlWorkspaceTimeouts(page);
+  const editor = await openPersonaDraft(page, 'Queued resume');
+  let reads = 0;
+  await page.route(libraryRead, route => {
+    reads++;
+    if (reads > 1) return route.continue();
+  });
+  await notifyLibraryActivity(page);
+  await expect.poll(() => reads).toBe(1);
+  await returnToPage(page);
+  const recovered = page.waitForResponse(response => /\/api\/chats\/[^/]+\/story\?/.test(response.url()) && response.ok());
+  await expireWorkspaceRead(page);
+  await recovered;
+  await expect(page.getByRole('alert').filter({ hasText: 'Loading timed out.' })).toHaveCount(0);
+  await expect(editor).toHaveValue('Keep this unsaved persona draft.');
+  expect(reads).toBe(2);
+});
+
+test('retries a stalled Story read after restoring the page', async ({ page }) => {
+  await controlWorkspaceTimeouts(page);
+  const editor = await openPersonaDraft(page, 'Restored Story');
+  let reads = 0;
+  const storyRead = /\/api\/chats\/[^/]+\/story\?/;
+  await page.route(storyRead, route => {
+    reads++;
+    if (reads > 1) return route.continue();
+  });
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  await expect.poll(() => reads).toBe(1);
+  const recovered = page.waitForResponse(response => storyRead.test(response.url()) && response.ok(), { timeout: 5_000 });
+  await expireWorkspaceRead(page);
+  await recovered;
+  await expect(page.getByRole('alert').filter({ hasText: 'Loading timed out.' })).toHaveCount(0);
+  await expect(editor).toHaveValue('Keep this unsaved persona draft.');
+  expect(reads).toBe(2);
+});
+
+test('offers manual retry after the resume read and its retry both stall', async ({ page }) => {
+  await controlWorkspaceTimeouts(page);
   const editor = await openPersonaDraft(page, 'Slow library');
-  await page.route('**/api/library?*', () => {});
-  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-  const retry = page.getByRole('button', { name: 'Retry loading' });
-  await expect(retry).toBeVisible({ timeout: 19_000 });
+  let reads = 0;
+  await page.route(libraryRead, () => { reads++; });
+  await returnToPage(page);
+  await expect.poll(() => reads).toBe(1);
+  await expireWorkspaceRead(page);
+  await expect.poll(() => reads).toBe(2);
+  const banner = page.getByRole('alert').filter({ hasText: 'Loading timed out.' });
+  await expect(banner).toHaveCount(0);
+  await expireWorkspaceRead(page);
+  const retry = banner.getByRole('button', { name: 'Retry loading', exact: true });
+  await expect(retry).toBeVisible();
+  await expect(banner.getByRole('button', { name: 'Dismiss', exact: true })).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Warning' })).toHaveCount(0);
-  await page.unroute('**/api/library?*');
+  expect(reads).toBe(2);
+  await page.unroute(libraryRead);
+  const recovered = page.waitForResponse(response => response.url().includes('/api/library?') && response.ok());
   await retry.click();
-  await expect(retry).toHaveCount(0);
+  await recovered;
+  await expect(banner).toHaveCount(0);
+  await expect(editor).toHaveValue('Keep this unsaved persona draft.');
+});
+
+test('clears a workspace timeout when the affected data later loads', async ({ page }) => {
+  await controlWorkspaceTimeouts(page);
+  const editor = await openPersonaDraft(page, 'Automatic recovery');
+  const stalled = page.waitForRequest(libraryRead);
+  await page.route(libraryRead, () => {});
+  await notifyLibraryActivity(page);
+  await stalled;
+  await expireWorkspaceRead(page);
+  const banner = page.getByRole('alert').filter({ hasText: 'Loading timed out.' });
+  await expect(banner).toBeVisible();
+
+  const settingsRead = page.waitForResponse(response => response.url().endsWith('/api/application/appearance') && response.ok());
+  await page.request.post('/__test/change', { data: { kind: 'settings', setting: 'appearance' } });
+  await settingsRead;
+  await expect(banner).toBeVisible();
+
+  await page.unroute(libraryRead);
+  await notifyLibraryActivity(page);
+  await expect(banner).toHaveCount(0);
   await expect(editor).toHaveValue('Keep this unsaved persona draft.');
 });

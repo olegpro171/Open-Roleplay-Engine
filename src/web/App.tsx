@@ -21,7 +21,7 @@ import type { ChatToolsSnapshot, RequestPreview } from '../shared/contracts';
 import { api, ApiError, datasetChanged } from './api';
 import { changeSchema } from '../shared/changes';
 import { observeServerEvents } from './server-events';
-import { RefreshQueue, fullRefresh, scopeForChange, type RefreshScope } from './refresh-queue';
+import { RefreshQueue, fullRefresh, mergeRefreshRequests, scopeForChange, type RefreshRequest, type RefreshScope, type ResumeRefresh } from './refresh-queue';
 import { useRequestPreview } from './useRequestPreview';
 import { useGenerationHistory } from './useGenerationHistory';
 import { hasPromptMarker, type LibrarySnapshot, type UnchangedLibrary } from '../shared/library';
@@ -62,7 +62,7 @@ type Session = { setupRequired: boolean; authenticated: boolean };
 type TranscriptJump = { chatId: string; turnId: string; revision: number };
 type Edit = { turnId: string; part: 'user' | 'assistant'; text: string; revision: number };
 type AppFailure =
-  | { kind: 'loading'; message: MessageText }
+  | { kind: 'loading'; message: MessageText; timedOut?: string[] }
   | { kind: 'action'; message: MessageText };
 const serverUnavailable = msg("app.cannot_reach_the_server_check_that_it");
 // iPadOS can advertise a Mac when requesting desktop sites.
@@ -124,15 +124,18 @@ export function App() {
   const pageBusy = useRef(false);
   const pageRequest = useRef<AbortController | null>(null);
   const refreshPending = useRef(false);
-  const deferredRefresh = useRef<RefreshScope | null>(null);
+  const deferredRefresh = useRef<RefreshRequest | null>(null);
   const forceLatest = useRef(false);
   const [pageError, setPageError] = useTextState('');
   const [failure, setFailure] = useState<AppFailure | null>(null);
   const error = formatMessage(failure?.message);
   const [connectionWarning, setConnectionWarning] = useState<'visible' | 'dismissed' | null>(null);
-  const reportLoadFailure = useCallback((message: MessageText) => {
+  const reportLoadFailure = useCallback((message: MessageText, timedOut?: string[]) => {
     // A failed background read must not replace the action the user needs to resolve.
-    setFailure(current => current?.kind === 'action' ? current : { kind: 'loading', message });
+    setFailure(current => {
+      if (current?.kind === 'action') return current;
+      return { kind: 'loading', message, timedOut: timedOut && [...new Set([...(current?.timedOut ?? []), ...timedOut])] };
+    });
   }, []);
   const [online, setOnline] = useState(false);
   const connected = online && !connectionWarning;
@@ -217,28 +220,43 @@ export function App() {
   }, [drafts.syncError, refreshSession]);
   const editRef = useRef(edit);
   editRef.current = edit;
-  const refreshReader = useRef<(scope: RefreshScope) => Promise<void>>(async () => {});
-  const [refreshQueue] = useState(() => new RefreshQueue(scope => refreshReader.current(scope)));
-  const refresh = useCallback((scope: RefreshScope = fullRefresh) => refreshQueue.request(scope), [refreshQueue]);
-  refreshReader.current = async (requested: RefreshScope) => {
+  const refreshReader = useRef<(request: RefreshRequest) => Promise<void>>(async () => {});
+  const [refreshQueue] = useState(() => new RefreshQueue(request => refreshReader.current(request)));
+  const refresh = useCallback((scope: RefreshScope = fullRefresh, resume?: ResumeRefresh) => refreshQueue.request(scope, resume), [refreshQueue]);
+  function takeDeferredRefresh() {
+    const deferred = deferredRefresh.current;
+    deferredRefresh.current = null;
+    refreshPending.current = false;
+    return deferred;
+  }
+  refreshReader.current = async request => {
+    const { scope: requested, resume } = request;
     if (pageBusy.current) {
       refreshPending.current = true;
-      deferredRefresh.current = { ...deferredRefresh.current, ...requested };
+      deferredRefresh.current = mergeRefreshRequests(deferredRefresh.current, request);
       return;
     }
-    const requestedChat = chatId;
+    const requestedChat = selectedChat.current;
     const id = ++loadId.current;
     const signal = AbortSignal.timeout(15_000);
+    // Track blocking reads by endpoint so cached data and unrelated successes cannot clear a timeout.
+    const requiredReads = new Map<string, boolean>();
     try {
       const read = <T,>(path: string) => api<T>(path, 'GET', undefined, signal);
+      const readRequired = async <T,>(path: string, query = '') => {
+        requiredReads.set(path, false);
+        const value = await read<T>(path + query);
+        requiredReads.set(path, true);
+        return value;
+      };
       const cached = libraryCache.current;
       const scope = cached ? requested : fullRefresh;
       const [update, appearanceResult, defaults, behaviorResult] = await Promise.all([
-        scope.library ? read<LibrarySnapshot | UnchangedLibrary>(`/library?includeLorebookUses=false${cached ? `&knownRevision=${cached.revision}` : ''}`) : null,
+        scope.library ? readRequired<LibrarySnapshot | UnchangedLibrary>('/library', `?includeLorebookUses=false${cached ? `&knownRevision=${cached.revision}` : ''}`) : null,
         scope.appearance ? read<unknown>('/application/appearance')
           .then(value => ({ value: appearanceStatusSchema.parse(value), error: null }))
           .catch(error => ({ value: null, error: errorText(error, msg("app.chat_appearance_could_not_be_loaded")) })) : null,
-        scope['chat-defaults'] ? read<unknown>('/application/chat-defaults').then(value => chatDefaultsStatusSchema.parse(value)) : null,
+        scope['chat-defaults'] ? readRequired<unknown>('/application/chat-defaults').then(value => chatDefaultsStatusSchema.parse(value)) : null,
         scope['chat-behavior'] ? read<unknown>('/application/chat-behavior')
           .then(value => ({ value: chatBehaviorStatusSchema.parse(value), error: null }))
           .catch(error => ({ value: null, error: errorText(error, msg('chat_behavior.read_failed')) })) : null,
@@ -268,14 +286,15 @@ export function App() {
       const parameters = new URLSearchParams({ limit: String(current?.id === selected ? Math.max(transcriptInitialSize, current.page.turns.length) : transcriptInitialSize) });
       const first = current?.page.turns[0];
       if (keepWindow && first) parameters.set('anchor', first.id);
+      const storyPath = selected ? `/chats/${selected}/story` : null;
       let state: StorySnapshot | null;
       let windowReset = false;
       const readStory = scope.story || current?.id !== selected;
-      try { state = !readStory ? current : selected ? await read<StorySnapshot>(`/chats/${selected}/story?${parameters}`) : null; }
+      try { state = !readStory ? current : storyPath ? await readRequired<StorySnapshot>(storyPath, `?${parameters}`) : null; }
       catch (error) {
         if (id !== loadId.current) return;
-        if (!(error instanceof ApiError) || error.status !== 409 || !selected) throw error;
-        state = await read<StorySnapshot>(`/chats/${selected}/story`);
+        if (!(error instanceof ApiError) || error.status !== 409 || !storyPath) throw error;
+        state = await readRequired<StorySnapshot>(storyPath);
         windowReset = true;
       }
       if (id === loadId.current && requestedChat === selectedChat.current && !datasetChanged()) {
@@ -314,14 +333,20 @@ export function App() {
           setChatBehavior(current => !current || nextBehavior.revision >= current.revision ? nextBehavior : current);
         }
         if (behaviorResult) setChatBehaviorError(behaviorResult.error);
-        if (selected !== chatId) {
+        if (selected !== requestedChat) {
           setChatId(selected); setEdit(null); setPeek(false); setGenerationId('');
           if (!selected) rememberChat(null);
         }
         if (!selected) setTab(current => current === 'library' || current === 'data' ? current : 'story');
+        setFailure(current => {
+          if (current?.kind !== 'loading' || !current.timedOut) return current;
+          const remaining = current.timedOut.filter(path => !requiredReads.get(path) && (!path.startsWith('/chats/') || path === storyPath));
+          if (remaining.length === 0) return null;
+          return remaining.length === current.timedOut.length ? current : { ...current, timedOut: remaining };
+        });
       }
     } catch (error) {
-      if (id !== loadId.current) return;
+      if (id !== loadId.current || datasetChanged()) return;
       if (error instanceof ApiError && error.status === 401) void refreshSession();
       else if (error instanceof ApiError && error.status === 404 && requestedChat !== null) {
         // The branch can be removed after the library read. Resolve again from fresh membership.
@@ -337,13 +362,17 @@ export function App() {
       }
       else if (error instanceof ApiError) reportLoadFailure(errorText(error));
       else if (signal.aborted) {
-        if (await refreshSession() && id === loadId.current) reportLoadFailure(msg('app.refresh_timed_out'));
+        if (await refreshSession() && id === loadId.current && requestedChat === selectedChat.current && !datasetChanged()) {
+          if (refreshQueue.retryAfterResume(request)) return;
+          const timedOut = [...requiredReads].flatMap(([path, loaded]) => loaded ? [] : [path]);
+          reportLoadFailure(msg('app.refresh_timed_out'), timedOut);
+        }
       } else reportServerError();
     } finally {
       // Page movement and chat switches invalidate reads already in flight.
       // Retain their scopes: without periodic polling, dropping a settings
       // notification here could leave its new value unseen indefinitely.
-      if (!datasetChanged() && (id !== loadId.current || requestedChat !== selectedChat.current)) void refresh(requested);
+      if (!datasetChanged() && (id !== loadId.current || requestedChat !== selectedChat.current)) void refresh(requested, resume);
     }
   };
   const latestRefresh = useRef(refresh);
@@ -388,9 +417,19 @@ export function App() {
       if (scope) void refresh(scope);
     };
     const stopEvents = observeServerEvents(opened, () => { setOnline(false); void refreshSession(); }, changed);
-    const resumed = (event: PageTransitionEvent) => { if (event.persisted) void recoverConnection(); };
+    const resume = () => {
+      const check = refreshSession();
+      void refresh(fullRefresh, 'initial');
+      return check;
+    };
+    const resumed = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      void resume().then(authenticated => {
+        if (authenticated && selectedChat.current && visibleView.current === 'story') void refreshDraft(selectedChat.current);
+      });
+    };
     window.addEventListener('pageshow', resumed);
-    const visible = () => { if (document.visibilityState === 'visible') { void refreshSession(); void refresh(); } };
+    const visible = () => { if (document.visibilityState === 'visible') void resume(); };
     const offline = reportServerError;
     const online = () => { void recoverConnection(); };
     document.addEventListener('visibilitychange', visible);
@@ -503,10 +542,8 @@ export function App() {
         pageBusy.current = false;
         setPageLoading(false);
         if (refreshPending.current) {
-          refreshPending.current = false;
-          const scope = deferredRefresh.current ?? fullRefresh;
-          deferredRefresh.current = null;
-          void latestRefresh.current(scope);
+          const deferred = takeDeferredRefresh();
+          void latestRefresh.current(deferred?.scope, deferred?.resume);
         }
       }
     }
@@ -540,11 +577,11 @@ export function App() {
     pageRequest.current?.abort();
     pageBusy.current = false;
     setPageLoading(false);
-    refreshPending.current = false;
+    const deferred = takeDeferredRefresh();
     const next = { ...current, revision: status.revision, settings: { ...current.settings, authorNote: status.settings } };
     snapshotRef.current = next;
     setSnapshot(next);
-    void latestRefresh.current();
+    void latestRefresh.current(fullRefresh, deferred?.resume);
   });
   const summariesEnabled = hasPromptMarker(snapshot?.sources.prompt, 'summary');
   const memoryStale = summariesEnabled && Boolean(snapshot?.memory.stale || snapshot?.memory.refusalBlocked);
@@ -722,6 +759,8 @@ export function App() {
     setPageLoading(false);
     setPageError('');
     selectedChat.current = id;
+    const deferred = takeDeferredRefresh();
+    if (deferred) void refresh(deferred.scope, deferred.resume);
     rememberChat(id);
     setChatId(id);
     setNewChatRequested(false);
