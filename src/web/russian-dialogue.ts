@@ -14,10 +14,13 @@ const authorVerbs = [
   /^(?:прокричал|закричал|заорал|завопил|взвизгнул|взвыл|промямлил|пробубнил|просипел|прохрипел|пропищал)[аои]?$/iu,
   /^(?:ахнул|охнул|хмыкнул|фыркнул|всхлипнул|хихикнул|хохотнул)[аои]?$/iu,
   /^(?:переспросил|попросил|потребовал|подтвердил|протестовал|запротестовал|пообещал|съязвил|парировал|заверил)[аои]?$/iu,
-  /^(?:рассмеял|засмеял|поинтересовал|осведомил|согласил|признал|взмолил|отозвал|донесл|отмахнул)(?:ся|ась|ось|ись)$/iu,
+  /^(?:объявил|констатировал|позвал|промычал|помолчал|скомандовал|поправил|доложил)[аои]?$/iu,
+  /^(?:рассмеял|засмеял|посмеял|ухмыльнул|поинтересовал|осведомил|согласил|признал|взмолил|отозвал|донесл|отмахнул)(?:ся|ась|ось|ись)$/iu,
   /^(?:поздоровал|попрощал)(?:ся|ась|ось|ись)$/iu,
   // First/third-person present forms avoid treating spoken imperatives such as «говорите» as narration.
   /^(?:отвеча|спрашива|переспрашива|добавля|продолжа|восклица|вскрикива|требу|возража|протесту|всхлипыва|хихика|сообща)(?:ю|ем|ет|ют)$/iu,
+  /^(?:повторя|выдыха|выпалива|выдавлива|заканчива|констатиру|поправля)(?:ю|ем|ет|ют)$/iu,
+  /^(?:стон(?:у|ет|ем|ут)|бубн(?:ю|им|ит|ят)|доносится|доносятся)$/iu,
   /^говор(?:ю|им|ит|ят)$/iu,
   /^(?:твержу|тверд(?:им|ит|ят))$/iu,
   /^шеп(?:чу|чем|чет|чут)$/iu,
@@ -38,33 +41,37 @@ const speechBoundary = /[,.!?…:]/u;
 const sentenceEnd = /[.!?…]/u;
 const closingQuoteMark = /["»”“]/u;
 const stageFragment = /^\s*(?:пауза|молчание|тишина),\s*(?:[а-яё]+\s+)?(?:вздох|кивок|улыбка|жест|взгляд|шорох)(?!\p{L})/iu;
-const standaloneStageFragment = /^\s*(?:пауза|молчание|тишина|кивок|вздох|и\s+вс[её])\.\s*$/iu;
-const deliveryFragment = /^\s*(?:спокойно|ровно|тихо|негромко|глухо|сухо|мягко|резко),\s*(?:(?:почти\s+)?ш[её]потом|едва слышно|без\s+(?:[а-яё]+\s+)?(?:нам[её]ка|тени|дрожи|выражения|интонации))(?!\p{L})/iu;
+const standaloneStageFragment = /^\s*(?:пауза|молчание|тишина|кивок|вздох|ухмылка|и\s+вс[её])[.,]\s*$/iu;
+const standaloneDelivery = /^\s*(?:почти\s+)?ш[её]потом[.:]\s*$/iu;
+const deliveryFragment = /^\s*(?:(?:совсем\s+)?(?:спокойно|ровно|тихо|негромко|глухо|сухо|мягко|резко)|едва слышно),\s*(?:(?:почти\s+)?ш[её]потом|почти писк|едва слышно|без\s+(?:[а-яё]+\s+)?(?:нам[её]ка|тени|дрожи|выражения|интонации))(?!\p{L})/iu;
 const utteranceAction = /^\s*(?:(?:я|мы|он|она|они)\s+)?(?:так\s+и\s+)?(?:не\s+)?(?:закончил|договорил|оборвал|прервал)[аои]?\s+(?:свою\s+)?(?:фразу|реплику)(?!\p{L})/iu;
 const utteranceBreak = /^\s*(?:фраза|реплика|слова)\s+(?:вдруг\s+)?(?:(?:оборвал|рассыпал)(?:ась|ись)|застрял[аи])(?!\p{L})/iu;
+const unfinishedUtterance = /^\s*(?:(?:я|мы|он|она|они)\s+)?(?:так\s+и\s+)?не\s+(?:закончил|договорил)[аои]?(?=\s*(?:[,.!?…]|$)|\s+так\s+же\s*,)/iu;
+const detachedGerund = /^\s*(?:не\s+)?(?:[а-яё]{2,}(?:[ая]ясь|[аеиу]в(?:шись)?)|глядя|смотря)(?:\s+[^\s,.!?…;:"«“„]+){0,8}\s*,/iu;
 const correlativeContinuation = /^\s*(?:это|то|тогда|так|там|тут|здесь)(?!\p{L})/iu;
-const dependentClauseStart = /^\s*(?:(?:а|и|но|даже)\s+)?(?:если|когда|пока|хотя|поскольку|раз|как\s+только)(?![\p{L}-])/iu;
+const dependentClauseStart = /^\s*(?:(?:а|и|но|даже)\s+)?(?:если|когда|пока|хотя|поскольку|раз|как\s+только|(?:там|тут|здесь)\s*,\s*где)(?![\p{L}-])/iu;
 const explainingVerb = /^(?:объясня|поясня)(?:ю|ем|ет|ют)$/u;
 const actionVerbs = [
   /^(?:встал|сел|поднял|прижал|положил|взял|достал|снял|шагнул|отступил|соскользнул|подхватил|глянул|покивал)[аои]?$/u,
   /^(?:отодвинул|подвинул|придвинул|раздвинул)[аои]?$/u,
-  /^(?:обернул|повернул|отвернул|перегнул|потянул|пошевелил|попытал|отшатнул|поднял)(?:ся|ась|ось|ись)$/u,
+  /^(?:обернул|повернул|отвернул|перегнул|потянул|пошевелил|попытал|отшатнул|поднял|поклонил)(?:ся|ась|ось|ись)$/u,
   /^(?:разворачива|поворачива|отворачива|наклоня|поднима)(?:юсь|емся|ется|ются)$/u,
   /^(?:вста(?:ю|ём|ем|ёт|ет|ют)|бер(?:у|ём|ем|ёт|ет|ут)|тян(?:усь|емся|ется|утся))$/u,
+  /^(?:смотрит|глядит|обходит|держит|машет|ставит|проводит|прижимает|распахивает)$/u,
 ];
-const nonNameStarter = /^(?:это|вот|кто|что|где|куда|откуда|зачем|почему|как|когда|если|лишь|только|не|вчера|сегодня|завтра|потом|теперь|уже|ещ[её]|снова)$/u;
-const actorAndPredicate = /^\s*(\p{L}+(?:-\p{L}+)*)(?:\s+(?:тут же|сразу|резко|медленно|быстро|осторожно|невольно|вдруг|крепко|плотно|слегка|уже|ещ[её]|снова)){0,2}\s+([а-яё]+)(?![\p{L}-])(?:\s+([а-яё]+)(?![\p{L}-]))?/iu;
+const impliedAction = /^(?:распахивает|открывает|закрывает|отворачивается|поворачивается|отвернул(?:ся|ась|ось|ись))$/u;
+const nonNameStarter = /^(?:это|вот|кто|что|где|куда|откуда|зачем|почему|как|когда|если|лишь|только|не|здесь|там|тут|вчера|сегодня|завтра|сейчас|потом|теперь|сначала|наконец|уже|ещ[её]|снова)$/u;
+const actorAndPredicate = /^\s*(\p{L}+(?:-\p{L}+)*)(?:\s+(?:тут же|сразу|резко|медленно|быстро|осторожно|невольно|вдруг|крепко|плотно|слегка|уже|ещ[её]|снова|[а-яё]+(?:ливо|тельно|остно|ивно))){0,2}\s+([а-яё]+)(?![\p{L}-])(?:\s+([а-яё]+)(?![\p{L}-]))?/iu;
 
 function isPossibleName(word: string): boolean {
   const lower = word.toLowerCase();
   return /^\p{Lu}/u.test(word) && !speechParticipants.has(lower) && !nonNameStarter.test(lower);
 }
 
-function leadingClauseWords(text: string, stopAtComma = false): string[] {
+function leadingClauseWords(text: string): string[] {
   const words: string[] = [];
-  // Do not borrow an attribution from a later sentence or a nested quotation.
-  for (const token of text.matchAll(/\p{L}+|[,.!?…;:"«“„]/gu)) {
-    if (token[0] === ',' && !stopAtComma) continue;
+  // Later clauses can contain speech verbs even when the opening phrase still belongs to dialogue.
+  for (const token of text.matchAll(/\p{L}+(?:-\p{L}+)*|[,.!?…;:"«“„]/gu)) {
     if (!/^\p{L}/u.test(token[0])) break;
     words.push(token[0].toLowerCase());
     if (words.length === 12) break;
@@ -86,7 +93,7 @@ function isThirdPersonAction(words: string[]): boolean {
   return false;
 }
 
-function isActorPredicate(text: string, allowsFirstPersonAction: boolean): boolean {
+function isActorPredicate(text: string, allowsFirstPersonAction: boolean, allowsInferredAction: boolean): boolean {
   const match = actorAndPredicate.exec(text);
   if (!match) return false;
   const subject = match[1].toLowerCase();
@@ -96,7 +103,10 @@ function isActorPredicate(text: string, allowsFirstPersonAction: boolean): boole
   const object = match[3]?.toLowerCase() ?? '';
   const movesEyes = /^(?:закрыл|прикрыл|открыл|зажмурил|закатил)[аои]?$/u.test(predicate) && /^(?:глаза|веки)$/u.test(object);
   const grips = /^сжал[аои]?$/u.test(predicate) && /^(?:его|е[её]|их|меня|руку|руки|ладонь|кулак|кулаки|зубы|пальцы|плечо|плечи)$/u.test(object);
-  if (!explains && !movesEyes && !grips && !actionVerbs.some(pattern => pattern.test(predicate))) return false;
+  if (!explains && !movesEyes && !grips && !actionVerbs.some(pattern => pattern.test(predicate))) {
+    if (!allowsInferredAction || !presentPredicate.test(predicate)) return false;
+    return thirdPersonSubjects.has(subject) || isPossibleName(match[1]);
+  }
   // An action in the speaker's own voice is ambiguous after a comma and a single dash.
   if (firstPerson) return allowsFirstPersonAction || explains;
   if (thirdPersonSubjects.has(subject)) return true;
@@ -109,10 +119,11 @@ type SpeechResumption = { punctuation: string; crossesInternalDashes: boolean };
 function hasNarrativeAction(text: string): boolean {
   const actor = actorAndPredicate.exec(text);
   if (actor && (isPossibleName(actor[1]) || thirdPersonSubjects.has(actor[1].toLowerCase()))) {
-    if (pastPredicate.test(actor[2]) || presentPredicate.test(actor[2])) return true;
+    const predicate = actor[2].toLowerCase();
+    if (pastPredicate.test(predicate) || presentPredicate.test(predicate) || actionVerbs.some(pattern => pattern.test(predicate))) return true;
   }
   // Without an actor, short nouns such as «дело» give weak past-tense matches.
-  return leadingClauseWords(text, true).some((word, index) => index > 0 && word.length > 4 && pastPredicate.test(word));
+  return leadingClauseWords(text).some((word, index) => index > 0 && word.length > 4 && pastPredicate.test(word));
 }
 
 function isPunctuatedInterruption(text: string, subject: string, speechPunctuation: string, resumption: SpeechResumption, continuesDependentClause: boolean): boolean {
@@ -137,16 +148,24 @@ function isAuthorClause(text: string, speechPunctuation: string, quoteEnding: 's
   if (!punctuated && !quoteEnding && !/["»”]/u.test(speechPunctuation)) return false;
   const words = leadingClauseWords(text);
   if (!words.length) return false;
-  if (continuesDependentClause && speechParticipants.has(words[0])) return false;
+  if (resumption && continuesDependentClause && speechParticipants.has(words[0])) return false;
   if (resumption && isPunctuatedInterruption(text, words[0], speechPunctuation, resumption, continuesDependentClause)) return true;
-  if (words.some(word => authorVerbs.some(pattern => pattern.test(word)))) return true;
+  // A leading gerund can precede an attribution across a comma («не глядя, сказала она»).
+  const openingWords = detachedGerund.test(text) ? leadingClauseWords(text.slice(text.indexOf(',') + 1)) : words;
+  if (openingWords.some(word => authorVerbs.some(pattern => pattern.test(word)))) return true;
   // «Объясняет она» is an attribution, whereas «всё объясняет» can continue the speech.
   if (explainingVerb.test(words[0])) return true;
   const followsSentence = sentenceEnd.test(speechPunctuation) || quoteEnding === 'sentence';
   if (!punctuated && !followsSentence) return false;
+  if (quoteEnding === 'sentence' && unfinishedUtterance.test(text)) return true;
   const pairedAction = speechPunctuation === ',' && resumption?.punctuation === '.' && !continuesDependentClause;
-  if (isThirdPersonAction(words) || isActorPredicate(text, followsSentence || pairedAction)) return true;
-  return followsSentence && (stageFragment.test(text) || standaloneStageFragment.test(text)
+  // After a complete sentence, a capital and a verb ending can also begin the next spoken sentence.
+  const allowsInferredAction = (speechPunctuation === ',' && !continuesDependentClause)
+    || (followsSentence && (resumption !== undefined || thirdPersonSubjects.has(words[0])));
+  if (isThirdPersonAction(words) || isActorPredicate(text, followsSentence || pairedAction, allowsInferredAction)) return true;
+  if (followsSentence && words[0] === 'и' && words[1] && impliedAction.test(words[1])) return true;
+  if ((followsSentence || resumption) && standaloneStageFragment.test(text)) return true;
+  return followsSentence && (stageFragment.test(text) || standaloneDelivery.test(text)
     || deliveryFragment.test(text) || utteranceAction.test(text) || utteranceBreak.test(text));
 }
 
@@ -202,7 +221,7 @@ export function russianDialogueRanges(text: string, quotations: readonly SpeechR
             && /\S/u.test(text.slice(resume.index + 1, dashes[resumeIndex + 1]?.index ?? lineEnd))
             ? { punctuation: resume.punctuation, crossesInternalDashes: resumeIndex > index + 1 }
             : undefined;
-          const continuesDependentClause = punctuation === ',' && resumption?.punctuation === '.'
+          const continuesDependentClause = punctuation === ',' && (!resumption || resumption.punctuation === '.')
             && dependentClauseStart.test(text.slice(Math.max(speechStart + 1, sentenceStart), precedingEnd));
           const quoteEnding = precedingQuote && (endsWithQuotedSentence(text, precedingQuote) ? 'sentence' : 'phrase');
           if (isAuthorClause(text.slice(dash + 1, next), punctuation, quoteEnding, resumption, continuesDependentClause)) {

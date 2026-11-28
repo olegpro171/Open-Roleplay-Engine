@@ -5,7 +5,12 @@ import type { LibraryCharacter, LibrarySnapshot } from '../../src/shared/library
 import { markdownReplyStart, markdownReplyEnd } from '../support/mock-provider';
 import { russianDialogueRegressions } from '../support/russian-dialogue-fixtures';
 
-const dialogueExamples = [russianDialogueRegressions[0], russianDialogueRegressions[russianDialogueRegressions.length - 1]];
+const finalDialogueExample = russianDialogueRegressions[russianDialogueRegressions.length - 1];
+const dialogueExamples = [{
+  text: '— Теперь моя очередь, — она суетливо придвигает книги к себе. — Лучшее здесь, — скамья у окна и человек, который отвечает на письма.',
+  speech: ['— Теперь моя очередь,', '— Лучшее здесь, — скамья у окна и человек, который отвечает на письма.'],
+  narration: 'она суетливо придвигает книги к себе.',
+}, russianDialogueRegressions[0], finalDialogueExample];
 
 for (const width of [1440, 390]) test(`renders Markdown and speech without changing saved input at ${width}px`, async ({ page, request }, testInfo) => {
   await page.setViewportSize({ width, height: 900 });
@@ -92,7 +97,7 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
     if (index === 0) {
       const original = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
       try {
-        for (const theme of ['dark', 'light', 'midnight-black'] as const) {
+        for (const theme of ['dark', 'light', 'midnight-black', 'porcelain'] as const) {
           const current = appearanceStatusSchema.parse(await page.request.get('/api/application/appearance').then(response => response.json()));
           const saved = await page.request.put('/api/application/appearance', {
             headers: { Origin: 'http://127.0.0.1:4173' }, data: { revision: current.revision, settings: { ...current.settings, theme } },
@@ -112,8 +117,8 @@ for (const width of [1440, 390]) test(`renders Markdown and speech without chang
     }
   }
   await page.reload();
-  await expect(prose).toHaveText(dialogueExamples[1].text);
-  await expect(prose.locator('.direct-speech')).toHaveText(dialogueExamples[1].speech);
+  await expect(prose).toHaveText(finalDialogueExample.text);
+  await expect(prose.locator('.direct-speech')).toHaveText(finalDialogueExample.speech);
   await opening.getByLabel('Response version', { exact: true }).fill('1');
   await opening.getByLabel('Response version', { exact: true }).press('Enter');
   await expect(prose.locator('em')).toHaveText('Mara smiles.');
