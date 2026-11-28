@@ -395,16 +395,25 @@ for (const width of [1440, 390]) test(`composer fits its content at ${width}px`,
 
   // Exercise the first soft wrap and its reversal without inserting a newline.
   const lastCompactWord = await composer.evaluate(field => {
-    const css = getComputedStyle(field);
-    const context = document.createElement('canvas').getContext('2d')!;
-    context.font = `${css.fontSize} ${css.fontFamily}`;
-    const available = field.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
-    return 'W'.repeat(Math.floor(available / context.measureText('W').width));
+    if (!(field instanceof HTMLTextAreaElement)) throw new Error('Missing composer textarea');
+    const original = field.value;
+    const compactHeight = field.clientHeight;
+    try {
+      // Probe the browser's textarea layout without dispatching input or resizing it.
+      for (let length = 1; length <= field.clientWidth; length++) {
+        field.value = 'W'.repeat(length);
+        if (field.scrollHeight > compactHeight) return 'W'.repeat(length - 1);
+      }
+      throw new Error('The textarea did not soft-wrap');
+    } finally {
+      field.value = original;
+    }
   });
   await composer.fill(lastCompactWord);
   await expectSendLayout(width, false);
   await composer.press('End');
   await composer.press('W');
+  await expect(composer).toHaveValue(lastCompactWord + 'W');
   await expect.poll(height).toBeGreaterThan(minimum);
   await expectSendLayout(width, true);
   await expect(composer).toBeFocused();

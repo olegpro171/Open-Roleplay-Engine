@@ -103,7 +103,7 @@ export function ConnectionFields({ value, change, id, busy, hasApiKey, apiKey, s
       </section>
       <section className="settings-section">
         <h3>{t('libraries.token_limits')}</h3>
-        <div className="connection-limits">
+        <div className="connection-setting connection-limits">
           <label htmlFor={`${fieldId}-window`}>{t('libraries.model_context_window')}</label>
           <NumberInput id={`${fieldId}-window`} draftField="contextWindow" required value={value.contextWindow}
             aria-describedby={value.model ? `${fieldId}-window-source` : undefined} onEdit={() => setWindowSource('manual')}

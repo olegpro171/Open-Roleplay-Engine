@@ -1,6 +1,6 @@
 import { t, useLocale, locale } from './localization';
 import { Icon } from './Icon';
-import { popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
+import { capturePopupScroll, popupInput, restorePopupFocusAfterEscape, type PopupInput } from './popup-input';
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type InputHTMLAttributes, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -62,26 +62,14 @@ export function Dropdown({ value, onChange, options, disabled, editable, require
       setPosition({ left, width, top: upwards ? rect.top - Math.min(maxHeight, visible.length * 42 + 12) - 5 : rect.bottom + 5, maxHeight });
     };
     place();
-    const openingScrollPositions = new Map<Element, { left: number; top: number }>();
-    for (let ancestor: HTMLElement | null = anchor.current; ancestor; ancestor = ancestor.parentElement) {
-      openingScrollPositions.set(ancestor, { left: ancestor.scrollLeft, top: ancestor.scrollTop });
-    }
-    const openingViewport = { left: window.scrollX, top: window.scrollY };
+    const scrollChanged = capturePopupScroll(anchor.current);
     const dismissOutside = (event: Event) => {
       if (event.target instanceof Node && !anchor.current?.contains(event.target) && !popup.current?.contains(event.target)) setOpen(false);
     };
     const dismissOnScroll = (event: Event) => {
       // Keep long option lists scrollable, including keyboard-driven scrolling.
       if (event.target instanceof Node && popup.current?.contains(event.target)) return;
-      if (event.type === 'scroll') {
-        // Focusing/revealing the trigger can queue a scroll event delivered only
-        // after opening. Dismiss only for movement since the menu was placed.
-        if (event.target === document && window.scrollX === openingViewport.left && window.scrollY === openingViewport.top) return;
-        if (event.target instanceof Element) {
-          const opening = openingScrollPositions.get(event.target);
-          if (opening && event.target.scrollLeft === opening.left && event.target.scrollTop === opening.top) return;
-        }
-      }
+      if (event.type === 'scroll' && !scrollChanged(event.target)) return;
       setOpen(false);
     };
     // A small finger movement can still end in a click. Wait until the browser

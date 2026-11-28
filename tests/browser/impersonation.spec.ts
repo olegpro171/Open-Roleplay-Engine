@@ -1,6 +1,5 @@
 import { devices, expect } from '@playwright/test';
 import { themeSchema } from '../../src/shared/appearance';
-import { defaultImpersonateInstruction } from '../../src/shared/default-prompt';
 import { defaultPrompt } from '../../src/shared/library';
 import { test } from './isolated-app';
 import { setupScene } from './scene-fixture';
@@ -26,7 +25,9 @@ test('drafts, retries with edited guidance, replaces the draft and sends exactly
   await expect(composer).toHaveValue('Ask what she wants.');
   await f.write('/__test/finish', {});
   await expect(panel.getByText(reply, { exact: true })).toBeVisible();
-  expect((await f.calls())[0].body.messages.at(-1)).toMatchObject({ role: 'system', content: expect.stringContaining(guidance) });
+  expect((await f.calls())[0].body.messages.at(-1)).toEqual({
+    role: 'system', content: defaultPrompt.impersonateInstruction?.replaceAll('{{user}}', 'You').replace('{{draft}}', guidance),
+  });
   expect((await f.state()).turns).toHaveLength(1);
   await f.setMode('empty');
   await panel.getByRole('button', { name: 'Next suggestion' }).click();
@@ -185,7 +186,7 @@ test('edits the action instruction and displays the suggestion in every theme an
     await page.getByRole('tab', { name: 'Action instructions' }).click();
     await page.getByRole('tabpanel', { name: 'Action instructions' }).getByText('Impersonate', { exact: true }).click();
     const instruction = page.getByRole('textbox', { name: 'Impersonation instruction' });
-    await expect(instruction).toHaveValue(defaultImpersonateInstruction);
+    await expect(instruction).toHaveValue(defaultPrompt.impersonateInstruction ?? '');
     for (const width of [390, 1440]) {
       await page.setViewportSize({ width, height: 844 });
       await instruction.scrollIntoViewIfNeeded();
